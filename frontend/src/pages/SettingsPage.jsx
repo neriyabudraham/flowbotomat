@@ -4,6 +4,8 @@ import { User, Lock, Globe, Save } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Button from '../components/atoms/Button';
 import Logo from '../components/atoms/Logo';
+import ExpertAccessManager from '../components/settings/ExpertAccessManager';
+import MyClientsManager from '../components/settings/MyClientsManager';
 import api from '../services/api';
 
 export default function SettingsPage() {
@@ -146,7 +148,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Password Section */}
-        <div className="bg-white rounded-xl shadow p-6">
+        <div className="bg-white rounded-xl shadow p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Lock className="w-5 h-5" />
             שינוי סיסמה
@@ -191,6 +193,14 @@ export default function SettingsPage() {
             </Button>
           </form>
         </div>
+
+        {/* Expert Access Section */}
+        <div className="mb-6">
+          <ExpertAccessManager />
+        </div>
+
+        {/* My Clients Section (for experts) */}
+        <MyClientsManager />
       </main>
     </div>
   );

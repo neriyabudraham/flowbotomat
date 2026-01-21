@@ -16,6 +16,7 @@ const validationsRoutes = require('./validations.routes');
 const adminRoutes = require('./admin.routes');
 const sharingRoutes = require('./sharing.routes');
 const notificationsRoutes = require('./notifications.routes');
+const expertsRoutes = require('./experts.routes');
 
 // Mount routes
 router.use('/auth', authRoutes);
@@ -32,5 +33,6 @@ router.use('/validations', validationsRoutes);
 router.use('/admin', adminRoutes);
 router.use('/sharing', sharingRoutes);
 router.use('/notifications', notificationsRoutes);
+router.use('/experts', expertsRoutes);
 
 module.exports = router;
