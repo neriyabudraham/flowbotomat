@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Trash2, AlertTriangle, UserX, MessageSquareX, History } from 'lucide-react';
+import { X, Trash2, AlertTriangle, UserMinus, MessageSquare, Clock } from 'lucide-react';
 
 export default function DeleteContactModal({ 
   isOpen, 
@@ -48,7 +48,7 @@ export default function DeleteContactModal({
           <div className="relative flex items-center gap-4">
             <div className="w-16 h-16 bg-white/20 backdrop-blur rounded-2xl flex items-center justify-center">
               {isBulk ? (
-                <UserX className="w-8 h-8" />
+                <UserMinus className="w-8 h-8" />
               ) : (
                 <Trash2 className="w-8 h-8" />
               )}
@@ -84,19 +84,19 @@ export default function DeleteContactModal({
             <div className="space-y-2">
               <div className="flex items-center gap-3 text-gray-700">
                 <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
-                  <UserX className="w-4 h-4 text-red-600" />
+                  <UserMinus className="w-4 h-4 text-red-600" />
                 </div>
                 <span className="text-sm">פרטי איש הקשר והמשתנים</span>
               </div>
               <div className="flex items-center gap-3 text-gray-700">
                 <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
-                  <MessageSquareX className="w-4 h-4 text-red-600" />
+                  <MessageSquare className="w-4 h-4 text-red-600" />
                 </div>
                 <span className="text-sm">כל היסטוריית ההודעות</span>
               </div>
               <div className="flex items-center gap-3 text-gray-700">
                 <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
-                  <History className="w-4 h-4 text-red-600" />
+                  <Clock className="w-4 h-4 text-red-600" />
                 </div>
                 <span className="text-sm">נתוני אינטראקציה עם בוטים</span>
               </div>
