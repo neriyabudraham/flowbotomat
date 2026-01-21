@@ -22,7 +22,7 @@ async function createManaged(req, res) {
     }
     
     // Get system WAHA credentials
-    const { baseUrl, apiKey } = await getWahaCredentials();
+    const { baseUrl, apiKey } = getWahaCredentials();
     
     if (!baseUrl || !apiKey) {
       return res.status(500).json({ error: 'WAHA לא מוגדר במערכת' });

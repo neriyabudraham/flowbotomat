@@ -26,7 +26,7 @@ async function getStatus(req, res) {
     
     // Get live status from WAHA
     try {
-      const { baseUrl, apiKey } = await getCredentials(connection);
+      const { baseUrl, apiKey } = getCredentials(connection);
       const wahaStatus = await wahaSession.getSessionStatus(
         baseUrl, apiKey, connection.session_name
       );
@@ -69,7 +69,7 @@ async function getQR(req, res) {
     }
     
     const connection = result.rows[0];
-    const { baseUrl, apiKey } = await getCredentials(connection);
+    const { baseUrl, apiKey } = getCredentials(connection);
     
     const qrData = await wahaSession.getQRCode(
       baseUrl, apiKey, connection.session_name
@@ -91,9 +91,9 @@ async function getQR(req, res) {
 }
 
 // Helper: Get WAHA credentials based on connection type
-async function getCredentials(connection) {
+function getCredentials(connection) {
   if (connection.connection_type === 'managed') {
-    return await getWahaCredentials();
+    return getWahaCredentials();
   }
   return {
     baseUrl: decrypt(connection.external_base_url),

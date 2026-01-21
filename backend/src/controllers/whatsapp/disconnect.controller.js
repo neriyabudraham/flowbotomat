@@ -25,7 +25,7 @@ async function disconnect(req, res) {
     // For managed connections, delete session from WAHA
     if (connection.connection_type === 'managed') {
       try {
-        const { baseUrl, apiKey } = await getWahaCredentials();
+        const { baseUrl, apiKey } = getWahaCredentials();
         await wahaSession.stopSession(baseUrl, apiKey, connection.session_name);
         await wahaSession.deleteSession(baseUrl, apiKey, connection.session_name);
       } catch (err) {
