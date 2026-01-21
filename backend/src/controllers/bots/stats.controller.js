@@ -3,7 +3,7 @@ const { checkBotAccess } = require('./list.controller');
 const { checkLimit } = require('../subscriptions/subscriptions.controller');
 
 /**
- * Get bot statistics
+ * Get bot statistics (basic - available to all)
  */
 async function getBotStats(req, res) {
   try {
@@ -15,15 +15,6 @@ async function getBotStats(req, res) {
     
     if (!access.hasAccess) {
       return res.status(404).json({ error: 'Bot not found' });
-    }
-    
-    // Check subscription for statistics access
-    const statsAccess = await checkLimit(access.ownerId, 'statistics');
-    if (!statsAccess.allowed) {
-      return res.status(403).json({ 
-        error: 'גישה לסטטיסטיקות דורשת מנוי בתשלום',
-        upgrade_required: true
-      });
     }
     
     // Get total triggers
@@ -151,7 +142,7 @@ async function getBotLogs(req, res) {
 }
 
 /**
- * Get bot statistics over time (for charts)
+ * Get bot statistics over time (for charts) - Premium feature
  */
 async function getBotStatsTimeline(req, res) {
   try {
@@ -166,11 +157,11 @@ async function getBotStatsTimeline(req, res) {
       return res.status(404).json({ error: 'Bot not found' });
     }
     
-    // Check subscription for statistics access
+    // Check subscription for advanced statistics access
     const statsAccess = await checkLimit(access.ownerId, 'statistics');
     if (!statsAccess.allowed) {
       return res.status(403).json({ 
-        error: 'גישה לסטטיסטיקות דורשת מנוי בתשלום',
+        error: 'גישה לסטטיסטיקות מתקדמות דורשת מנוי בתשלום',
         upgrade_required: true
       });
     }
@@ -245,7 +236,7 @@ async function getBotStatsTimeline(req, res) {
 }
 
 /**
- * Export bot statistics as CSV
+ * Export bot statistics as CSV - Premium feature
  */
 async function exportBotStats(req, res) {
   try {
@@ -260,11 +251,11 @@ async function exportBotStats(req, res) {
       return res.status(404).json({ error: 'Bot not found' });
     }
     
-    // Check subscription for statistics access
+    // Check subscription for export access
     const statsAccess = await checkLimit(access.ownerId, 'statistics');
     if (!statsAccess.allowed) {
       return res.status(403).json({ 
-        error: 'גישה לסטטיסטיקות דורשת מנוי בתשלום',
+        error: 'ייצוא סטטיסטיקות דורש מנוי בתשלום',
         upgrade_required: true
       });
     }
