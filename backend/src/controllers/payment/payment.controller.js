@@ -492,6 +492,90 @@ async function checkPaymentMethod(req, res) {
 }
 
 /**
+ * Remove all payment methods and disconnect WhatsApp
+ * This is a "forget my data" action that disables the service
+ */
+async function removeAllPaymentMethods(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    console.log(`[Payment] User ${userId} requested removal of all payment methods`);
+    
+    // 1. Mark all payment methods as inactive
+    await db.query(
+      `UPDATE user_payment_methods 
+       SET is_active = false, updated_at = NOW() 
+       WHERE user_id = $1`,
+      [userId]
+    );
+    
+    // 2. Cancel any active subscriptions
+    const subResult = await db.query(
+      `SELECT us.*, wc.id as connection_id, wc.connection_type, wc.session_name 
+       FROM user_subscriptions us
+       LEFT JOIN whatsapp_connections wc ON wc.user_id = us.user_id
+       WHERE us.user_id = $1 AND us.status IN ('active', 'trial')`,
+      [userId]
+    );
+    
+    if (subResult.rows.length > 0) {
+      const subscription = subResult.rows[0];
+      
+      // Cancel in Sumit if exists
+      if (subscription.sumit_standing_order_id) {
+        try {
+          await sumitService.cancelRecurring(subscription.sumit_standing_order_id);
+        } catch (err) {
+          console.error('[Payment] Failed to cancel Sumit recurring:', err.message);
+        }
+      }
+      
+      // Mark subscription as cancelled
+      await db.query(
+        `UPDATE user_subscriptions 
+         SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
+         WHERE user_id = $1`,
+        [userId]
+      );
+    }
+    
+    // 3. Disconnect WhatsApp connection (mark as disconnected, don't delete from WAHA)
+    await db.query(
+      `UPDATE whatsapp_connections 
+       SET status = 'disconnected', disconnected_at = NOW(), updated_at = NOW()
+       WHERE user_id = $1 AND status = 'connected'`,
+      [userId]
+    );
+    
+    // 4. Update user flags
+    await db.query(
+      `UPDATE users 
+       SET has_payment_method = false, updated_at = NOW()
+       WHERE id = $1`,
+      [userId]
+    );
+    
+    // 5. Deactivate all bots
+    await db.query(
+      `UPDATE bots 
+       SET is_active = false, updated_at = NOW()
+       WHERE user_id = $1`,
+      [userId]
+    );
+    
+    console.log(`[Payment] Successfully removed all payment data for user ${userId}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'פרטי האשראי הוסרו והשירות נותק'
+    });
+  } catch (error) {
+    console.error('[Payment] Remove all payment methods error:', error);
+    res.status(500).json({ error: 'שגיאה בהסרת פרטי התשלום' });
+  }
+}
+
+/**
  * Reactivate a cancelled subscription
  */
 async function reactivateSubscription(req, res) {
@@ -585,6 +669,7 @@ module.exports = {
   savePaymentMethod,
   getPaymentMethods,
   deletePaymentMethod,
+  removeAllPaymentMethods,
   subscribe,
   cancelSubscription,
   reactivateSubscription,

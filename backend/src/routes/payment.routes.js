@@ -9,8 +9,9 @@ router.use(authMiddleware);
 // Payment methods
 router.get('/methods', paymentController.getPaymentMethods);
 router.post('/methods', paymentController.savePaymentMethod);
-router.delete('/methods/:methodId', paymentController.deletePaymentMethod);
 router.get('/methods/check', paymentController.checkPaymentMethod);
+router.delete('/methods/remove-all', paymentController.removeAllPaymentMethods); // Must be before :methodId
+router.delete('/methods/:methodId', paymentController.deletePaymentMethod);
 
 // Subscription
 router.post('/subscribe', paymentController.subscribe);

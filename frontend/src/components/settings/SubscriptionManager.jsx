@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CreditCard, Calendar, AlertCircle, Crown, CheckCircle, XCircle, RotateCcw } from 'lucide-react';
+import { CreditCard, Calendar, AlertCircle, Crown, CheckCircle, XCircle, RotateCcw, Trash2, ShieldAlert } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
 
@@ -10,8 +10,10 @@ export default function SubscriptionManager() {
   const [paymentMethod, setPaymentMethod] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showRemoveCardModal, setShowRemoveCardModal] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [reactivating, setReactivating] = useState(false);
+  const [removingCard, setRemovingCard] = useState(false);
 
   useEffect(() => {
     loadSubscription();
@@ -62,6 +64,28 @@ export default function SubscriptionManager() {
       alert(err.response?.data?.error || 'שגיאה בהפעלת המנוי מחדש');
     } finally {
       setReactivating(false);
+    }
+  };
+
+  const handleRemoveCard = async () => {
+    setRemovingCard(true);
+    try {
+      await api.delete('/payment/methods/remove-all');
+      setPaymentMethod(null);
+      setShowRemoveCardModal(false);
+      // Reload subscription as it may have changed
+      await loadSubscription();
+      // Redirect to dashboard with message
+      navigate('/dashboard', { 
+        state: { 
+          message: 'פרטי האשראי הוסרו. חיבור ה-WhatsApp שלך נותק מהמערכת.',
+          type: 'warning'
+        }
+      });
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בהסרת כרטיס האשראי');
+    } finally {
+      setRemovingCard(false);
     }
   };
 
@@ -179,22 +203,53 @@ export default function SubscriptionManager() {
             )}
 
             {/* Payment Method */}
-            {paymentMethod && (
-              <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-white dark:bg-gray-600 rounded-lg flex items-center justify-center">
-                    <CreditCard className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-                  </div>
-                  <div>
-                    <div className="font-medium text-gray-900 dark:text-white">
-                      **** **** **** {paymentMethod.card_last_digits}
+            {paymentMethod ? (
+              <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-white dark:bg-gray-600 rounded-lg flex items-center justify-center">
+                      <CreditCard className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                     </div>
-                    <div className="text-sm text-gray-500">
-                      {paymentMethod.card_holder_name} • 
-                      {paymentMethod.card_expiry_month}/{paymentMethod.card_expiry_year}
+                    <div>
+                      <div className="font-medium text-gray-900 dark:text-white">
+                        **** **** **** {paymentMethod.card_last_digits}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {paymentMethod.card_holder_name} • 
+                        {paymentMethod.card_expiry_month}/{paymentMethod.card_expiry_year}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowRemoveCardModal(true)}
+                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    title="הסר כרטיס אשראי"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 text-yellow-600" />
+                  <div>
+                    <div className="font-medium text-yellow-800 dark:text-yellow-200">
+                      לא הוגדר אמצעי תשלום
+                    </div>
+                    <div className="text-sm text-yellow-600 dark:text-yellow-300">
+                      יש להוסיף כרטיס אשראי להמשך השירות
                     </div>
                   </div>
                 </div>
+                <Button 
+                  onClick={() => navigate('/pricing')} 
+                  className="mt-3 w-full"
+                  size="sm"
+                >
+                  <CreditCard className="w-4 h-4 ml-2" />
+                  הוסף כרטיס אשראי
+                </Button>
               </div>
             )}
 
@@ -224,6 +279,16 @@ export default function SubscriptionManager() {
           onClose={() => setShowCancelModal(false)}
           onConfirm={handleCancelSubscription}
           loading={cancelling}
+        />
+      )}
+
+      {/* Remove Card Modal */}
+      {showRemoveCardModal && (
+        <RemoveCardModal
+          subscription={subscription}
+          onClose={() => setShowRemoveCardModal(false)}
+          onConfirm={handleRemoveCard}
+          loading={removingCard}
         />
       )}
     </>
@@ -311,6 +376,132 @@ function CancelSubscriptionModal({ subscription, onClose, onConfirm, loading }) 
             className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'מבטל...' : 'בטל מנוי'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RemoveCardModal({ subscription, onClose, onConfirm, loading }) {
+  const [confirmed, setConfirmed] = useState(false);
+  const [typedConfirm, setTypedConfirm] = useState('');
+  
+  const isTrial = subscription?.is_trial;
+  const endDate = subscription?.next_charge_date || subscription?.trial_ends_at
+    ? new Date(subscription.next_charge_date || subscription.trial_ends_at).toLocaleDateString('he-IL')
+    : null;
+
+  const canConfirm = confirmed && typedConfirm === 'הסר';
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div 
+        className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header - Warning Style */}
+        <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 text-white text-center">
+          <div className="w-16 h-16 mx-auto mb-4 bg-white/20 rounded-full flex items-center justify-center">
+            <ShieldAlert className="w-8 h-8" />
+          </div>
+          <h2 className="text-xl font-bold mb-2">הסרת פרטי אשראי</h2>
+          <p className="text-white/80">
+            פעולה זו תגרום לניתוק השירות
+          </p>
+        </div>
+
+        {/* Content */}
+        <div className="p-6 space-y-4">
+          <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4">
+            <h3 className="font-semibold text-red-800 dark:text-red-200 mb-2">
+              ⚠️ שים לב - מה יקרה:
+            </h3>
+            <ul className="space-y-2 text-sm text-red-700 dark:text-red-300">
+              <li className="flex items-start gap-2">
+                <XCircle className="w-4 h-4 mt-0.5 text-red-500 flex-shrink-0" />
+                <span>פרטי האשראי שלך יוסרו לצמיתות</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <XCircle className="w-4 h-4 mt-0.5 text-red-500 flex-shrink-0" />
+                <span>חיבור ה-WhatsApp שלך ינותק מהמערכת <strong>מיידית</strong></span>
+              </li>
+              <li className="flex items-start gap-2">
+                <XCircle className="w-4 h-4 mt-0.5 text-red-500 flex-shrink-0" />
+                <span>הבוטים שלך יפסיקו לפעול</span>
+              </li>
+              {isTrial && endDate && (
+                <li className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 mt-0.5 text-yellow-500 flex-shrink-0" />
+                  <span>תקופת הניסיון שלך תסתיים ב-{endDate}</span>
+                </li>
+              )}
+            </ul>
+          </div>
+
+          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4">
+            <h3 className="font-semibold text-blue-800 dark:text-blue-200 mb-2">
+              💡 מה לא יימחק:
+            </h3>
+            <ul className="space-y-2 text-sm text-blue-700 dark:text-blue-300">
+              <li className="flex items-start gap-2">
+                <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
+                <span>החשבון שלך יישאר פעיל</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
+                <span>הבוטים שיצרת יישמרו</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
+                <span>תוכל לחבר מחדש בכל עת</span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Confirmation checkbox */}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              onChange={(e) => setConfirmed(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+            />
+            <span className="text-sm text-gray-600 dark:text-gray-300">
+              אני מבין/ה שהשירות יפסיק לפעול מיידית
+            </span>
+          </label>
+
+          {/* Type to confirm */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              הקלד "הסר" לאישור:
+            </label>
+            <input
+              type="text"
+              value={typedConfirm}
+              onChange={(e) => setTypedConfirm(e.target.value)}
+              placeholder="הסר"
+              className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500"
+              dir="rtl"
+            />
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-3 p-6 pt-0">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-medium"
+          >
+            ביטול
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={!canConfirm || loading}
+            className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+          >
+            {loading ? 'מסיר...' : 'הסר כרטיס'}
           </button>
         </div>
       </div>
