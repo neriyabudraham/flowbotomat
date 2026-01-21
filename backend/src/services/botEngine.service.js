@@ -2,6 +2,7 @@ const db = require('../config/database');
 const wahaService = require('./waha/session.service');
 const { decrypt } = require('./crypto/encrypt.service');
 const { getWahaCredentials } = require('./settings/system.service');
+const validationService = require('./validation.service');
 
 class BotEngine {
   
@@ -226,26 +227,33 @@ class BotEngine {
       if (selectedRowId) {
         console.log('[BotEngine] Using selectedRowId from WAHA:', selectedRowId);
         
-        // Extract index from selectedRowId (e.g., "option_0" -> 0, or just "0" -> 0)
-        let selectedIndex = -1;
+        // Extract display index from selectedRowId (e.g., "option_0" -> 0)
+        let displayIndex = -1;
         if (selectedRowId.startsWith('option_')) {
-          selectedIndex = parseInt(selectedRowId.replace('option_', ''));
+          displayIndex = parseInt(selectedRowId.replace('option_', ''));
         } else if (/^\d+$/.test(selectedRowId)) {
-          selectedIndex = parseInt(selectedRowId);
+          displayIndex = parseInt(selectedRowId);
         }
         
-        console.log('[BotEngine] Extracted index:', selectedIndex);
+        console.log('[BotEngine] Display index:', displayIndex);
+        
+        // Get session buttons to find original index (for filtered lists)
+        const sessionButtons = session.waiting_data?.buttons || [];
+        const selectedButton = sessionButtons.find(b => b.displayIndex === displayIndex || b.id === selectedRowId);
+        const originalIndex = selectedButton?.originalIndex ?? displayIndex;
+        
+        console.log('[BotEngine] Original index:', originalIndex);
         
         // Find edges from this node
         const nodeEdges = flowData.edges.filter(e => e.source === currentNode.id);
         console.log('[BotEngine] Available edges:', nodeEdges.map(e => ({ target: e.target, handle: e.sourceHandle })));
         
-        // Try to find matching edge - use simple index as handle
-        if (selectedIndex >= 0) {
+        // Try to find matching edge using ORIGINAL index (not display index)
+        if (originalIndex >= 0) {
           const possibleHandles = [
-            String(selectedIndex),          // Simple index "0", "1", etc (what frontend uses now)
-            selectedRowId,                  // Original rowId from WAHA
-            `option_${selectedIndex}`,      // option_X format
+            String(originalIndex),          // Original index "0", "1", etc
+            `option_${originalIndex}`,      // option_X format with original
+            selectedRowId,                  // Fallback: rowId from WAHA
           ];
           
           for (const handleId of possibleHandles) {
@@ -938,16 +946,31 @@ class BotEngine {
     
     const { title, body, buttonText, buttons, footer, timeout } = node.data;
     
+    // Get contact variables for validation
+    const contactVars = await this.getContactVariables(contact.id);
+    
+    // Add original index to buttons for edge matching after filtering
+    let allButtons = (buttons || []).map((btn, i) => ({ ...btn, originalIndex: i }));
+    
+    // Filter buttons based on validations
+    let filteredButtons = allButtons;
+    if (allButtons.some(btn => btn.validation || btn.validationId)) {
+      console.log('[BotEngine] Running validations for list buttons...');
+      filteredButtons = await validationService.filterListButtons(allButtons, contact, contactVars);
+      console.log('[BotEngine] Buttons after validation:', filteredButtons.length, 'of', allButtons.length);
+    }
+    
     // Prepare list data with variable replacement
     const listData = {
       title: this.replaceVariables(title || '', contact, '', botName),
       body: this.replaceVariables(body || '', contact, '', botName),
       footer: this.replaceVariables(footer || '', contact, '', botName),
       buttonText: this.replaceVariables(buttonText || 'בחר', contact, '', botName),
-      buttons: (buttons || []).map((btn, i) => ({
-        id: `option_${i}`,
+      buttons: filteredButtons.map((btn, i) => ({
+        id: `option_${btn.originalIndex ?? i}`, // Keep original index for edge matching
         title: this.replaceVariables(btn.title || '', contact, '', botName),
         description: btn.description ? this.replaceVariables(btn.description, contact, '', botName) : null,
+        originalIndex: btn.originalIndex ?? i, // Track original position
       })),
     };
     
@@ -976,11 +999,12 @@ class BotEngine {
     
     // Save session to wait for response
     if (botId) {
-      // Save buttons with their original data for matching
-      const buttonsForSession = (buttons || []).map((btn, i) => ({
-        id: btn.id || `option_${i}`,
+      // Save buttons with their original indices for edge matching
+      const buttonsForSession = filteredButtons.map((btn, displayIndex) => ({
+        id: `option_${displayIndex}`, // ID sent to WhatsApp
         title: btn.title || '',
-        index: i,
+        displayIndex: displayIndex, // Position in displayed list
+        originalIndex: btn.originalIndex, // Original position for edge matching
       }));
       
       await this.saveSession(
@@ -1013,8 +1037,19 @@ class BotEngine {
     
     console.log('[BotEngine] Starting registration with', questions.length, 'questions');
     
-    if (questions.length === 0) {
-      console.log('[BotEngine] No questions in registration, skipping');
+    // Get contact variables for validation
+    const contactVars = await this.getContactVariables(contact.id);
+    
+    // Filter questions based on validations
+    let filteredQuestions = questions;
+    if (questions.some(q => q.validation || q.validationId)) {
+      console.log('[BotEngine] Running validations for registration questions...');
+      filteredQuestions = await validationService.filterQuestions(questions, contact, contactVars);
+      console.log('[BotEngine] Questions after validation:', filteredQuestions.length, 'of', questions.length);
+    }
+    
+    if (filteredQuestions.length === 0) {
+      console.log('[BotEngine] No questions after validation, skipping registration');
       return;
     }
     
@@ -1028,7 +1063,7 @@ class BotEngine {
     }
     
     // Send first question
-    const firstQuestion = questions[0];
+    const firstQuestion = filteredQuestions[0];
     const questionText = this.replaceVariables(firstQuestion.question, contact, triggerMessage, botName);
     await wahaService.sendMessage(connection, contact.phone, questionText);
     console.log('[BotEngine] ✅ First question sent:', questionText.substring(0, 50));
@@ -1045,7 +1080,7 @@ class BotEngine {
         'registration',
         {
           currentQuestion: 0,
-          questions: questions,
+          questions: filteredQuestions, // Use filtered questions
           answers: {},
           cancelKeyword: cancelKeyword.toLowerCase(),
           triggerMessage: triggerMessage // Save original message for variable replacement

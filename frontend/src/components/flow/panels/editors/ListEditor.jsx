@@ -1,5 +1,6 @@
 import { Plus, X, CheckCircle, AlertCircle } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
+import ValidationSelector from './ValidationSelector';
 
 // WhatsApp List Limits (corrected)
 const LIMITS = {
@@ -168,9 +169,19 @@ export default function ListEditor({ data, onUpdate }) {
               </button>
             </div>
             
-            <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
-              <div className="w-3 h-3 rounded-full bg-cyan-500"></div>
-              <span className="text-xs text-gray-500">יציאה לנתיב הבא</span>
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-100">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-cyan-500"></div>
+                <span className="text-xs text-gray-500">יציאה לנתיב הבא</span>
+              </div>
+              <ValidationSelector
+                value={btn.validation ? { validationId: btn.validationId, validationName: btn.validationName } : null}
+                onChange={(val) => updateButton(index, { 
+                  validation: !!val,
+                  validationId: val?.validationId || null,
+                  validationName: val?.validationName || null
+                })}
+              />
             </div>
           </div>
         ))}

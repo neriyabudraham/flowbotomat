@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Plus, X, ChevronDown, ChevronUp, Settings, Zap, Clock, Send, FileText, Copy } from 'lucide-react';
+import { Plus, X, ChevronDown, ChevronUp, Settings, Zap, Clock, Send, FileText, Copy, Shield } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
+import ValidationSelector from './ValidationSelector';
 import api from '../../../../services/api';
 
 const questionTypes = [
@@ -717,7 +718,7 @@ function QuestionItem({ question, index, total, onUpdate, onRemove, onMoveUp, on
             </div>
           )}
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center justify-between gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -727,6 +728,19 @@ function QuestionItem({ question, index, total, onUpdate, onRemove, onMoveUp, on
               />
               <span className="text-sm text-gray-600">חובה</span>
             </label>
+            
+            {/* Validation - skip question if API returns false */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">דלג על שאלה אם:</span>
+              <ValidationSelector
+                value={question.validation ? { validationId: question.validationId, validationName: question.validationName } : null}
+                onChange={(val) => onUpdate({ 
+                  validation: !!val,
+                  validationId: val?.validationId || null,
+                  validationName: val?.validationName || null
+                })}
+              />
+            </div>
           </div>
           
           <div>
