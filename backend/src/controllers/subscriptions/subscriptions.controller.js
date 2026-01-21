@@ -250,12 +250,12 @@ async function checkLimit(userId, limitType) {
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
   
-  // Get subscription limits
+  // Get subscription limits (active or trial)
   const subResult = await db.query(`
     SELECT sp.*
     FROM user_subscriptions us
     JOIN subscription_plans sp ON us.plan_id = sp.id
-    WHERE us.user_id = $1 AND us.status = 'active'
+    WHERE us.user_id = $1 AND us.status IN ('active', 'trial')
   `, [userId]);
   
   // Default to free plan

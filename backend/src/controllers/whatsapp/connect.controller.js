@@ -218,8 +218,9 @@ async function createManaged(req, res) {
       existingSession: !!existingSession,
     });
   } catch (error) {
-    console.error('Create managed connection error:', error);
-    res.status(500).json({ error: 'שגיאה ביצירת חיבור' });
+    console.error('Create managed connection error:', error.message);
+    console.error('Full error:', error);
+    res.status(500).json({ error: 'שגיאה ביצירת חיבור: ' + error.message });
   }
 }
 
