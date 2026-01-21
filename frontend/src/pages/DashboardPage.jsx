@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { MessageCircle, Workflow, Users, Settings, Bot, MessageSquare, TrendingUp } from 'lucide-react';
+import { MessageCircle, Workflow, Users, Settings, Bot, MessageSquare, TrendingUp, Grid } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useWhatsappStore from '../store/whatsappStore';
 import useStatsStore from '../store/statsStore';
@@ -110,11 +110,17 @@ export default function DashboardPage() {
         </Link>
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Link to="/bots" className="bg-white rounded-xl shadow p-6 hover:shadow-lg transition-shadow">
             <Workflow className="w-8 h-8 text-primary-500 mb-3" />
             <h3 className="font-semibold text-gray-800">בוטים</h3>
             <p className="text-sm text-gray-500">יצירת וניהול בוטים</p>
+          </Link>
+          
+          <Link to="/templates" className="bg-white rounded-xl shadow p-6 hover:shadow-lg transition-shadow border-2 border-purple-100">
+            <Grid className="w-8 h-8 text-purple-500 mb-3" />
+            <h3 className="font-semibold text-gray-800">תבניות</h3>
+            <p className="text-sm text-gray-500">גלריית בוטים מוכנים</p>
           </Link>
           
           <Link to="/contacts" className="bg-white rounded-xl shadow p-6 hover:shadow-lg transition-shadow">

@@ -109,12 +109,14 @@ export default function RegistrationEditor({ data, onUpdate }) {
   const generateQuickSummary = () => {
     let template = `📋 *רישום חדש*\n\n`;
     template += `🔹 תהליך: {{registration_title}}\n`;
-    template += `🔹 מטלפון: {{phone}}\n\n`;
+    template += `🔹 מטלפון: {{contact_phone}}\n\n`;
     
     questions.forEach(q => {
       if (q.varName) {
-        const label = quickQuestions.find(qQ => qQ.varName === q.varName)?.label || q.varName;
-        template += `${label}: {{${q.varName}}}\n`;
+        // Use question text or quick question label as display name
+        const quickQ = quickQuestions.find(qQ => qQ.varName === q.varName);
+        const label = quickQ?.label || q.question?.split('?')[0]?.trim() || q.varName;
+        template += `*${label}:* {{${q.varName}}}\n`;
       }
     });
     return template;
@@ -124,12 +126,14 @@ export default function RegistrationEditor({ data, onUpdate }) {
   const generateQuickWebhookBody = () => {
     const body = {
       registration_title: '{{registration_title}}',
-      contact_phone: '{{phone}}',
+      contact_phone: '{{contact_phone}}',
+      contact_name: '{{name}}',
       timestamp: '{{date}} {{time}}',
+      answers: {}
     };
     questions.forEach(q => {
       if (q.varName) {
-        body[q.varName] = `{{${q.varName}}}`;
+        body.answers[q.varName] = `{{${q.varName}}}`;
       }
     });
     return JSON.stringify(body, null, 2);

@@ -1277,7 +1277,7 @@ class BotEngine {
     // Basic replacements
     let result = text
       .replace(/\{\{name\}\}/gi, contact.display_name || '')
-      .replace(/\{\{phone\}\}/gi, contact.phone || '')
+      .replace(/\{\{contact_phone\}\}/gi, contact.phone || '')
       .replace(/\{\{message\}\}/gi, message || '')
       .replace(/\{\{bot_name\}\}/gi, botName || '')
       .replace(/\{\{date\}\}/gi, now.toLocaleDateString('he-IL'))

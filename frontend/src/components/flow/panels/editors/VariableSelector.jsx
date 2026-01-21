@@ -4,8 +4,8 @@ import api from '../../../../services/api';
 
 // Default system variables (used as fallback)
 const defaultSystemVariables = [
-  { key: 'name', label: 'שם איש קשר', icon: User },
-  { key: 'phone', label: 'מספר טלפון', icon: User },
+  { key: 'name', label: 'שם איש קשר (מ-WhatsApp)', icon: User },
+  { key: 'contact_phone', label: 'טלפון איש קשר', icon: User },
   { key: 'message', label: 'ההודעה האחרונה', icon: Settings },
   { key: 'date', label: 'תאריך נוכחי', icon: Settings },
   { key: 'time', label: 'שעה נוכחית', icon: Settings },
