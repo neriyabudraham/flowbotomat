@@ -1,48 +1,56 @@
 import { memo } from 'react';
-import { Handle, Position } from '@xyflow/react';
-import { MessageSquare } from 'lucide-react';
+import { MessageSquare, Image, FileText, List, Clock } from 'lucide-react';
+import BaseNode from './BaseNode';
+
+const actionIcons = {
+  text: MessageSquare,
+  image: Image,
+  file: FileText,
+  list: List,
+  delay: Clock,
+};
 
 function MessageNode({ data, selected }) {
-  const content = data.content || 'לחץ לעריכה...';
-  const preview = content.length > 60 ? content.slice(0, 60) + '...' : content;
+  const actions = data.actions || [{ type: 'text', content: '' }];
   
   return (
-    <div 
-      className={`group bg-white rounded-2xl border-2 transition-all duration-200 min-w-[200px] max-w-[280px] cursor-pointer ${
-        selected 
-          ? 'border-teal-500 shadow-xl shadow-teal-500/20' 
-          : 'border-gray-200 shadow-lg hover:border-teal-300 hover:shadow-xl'
-      }`}
+    <BaseNode
+      data={data}
+      selected={selected}
+      type="message"
+      color="teal"
+      icon={MessageSquare}
+      title="שליחת הודעה"
     >
-      {/* Target Handle - Left side */}
-      <Handle
-        type="target"
-        position={Position.Left}
-        className="!w-4 !h-4 !bg-teal-500 !border-[3px] !border-white !shadow-lg transition-transform hover:!scale-125"
-      />
-      
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-l from-teal-500 to-teal-600 rounded-t-xl">
-        <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
-          <MessageSquare className="w-4 h-4 text-white" />
+      <div className="space-y-2">
+        {actions.map((action, i) => {
+          const Icon = actionIcons[action.type] || MessageSquare;
+          return (
+            <div key={i} className="bg-gray-50 rounded-lg p-2">
+              <div className="flex items-center gap-2 mb-1">
+                <Icon className="w-3 h-3 text-teal-600" />
+                <span className="text-xs font-medium text-teal-700">
+                  {action.type === 'text' && 'טקסט'}
+                  {action.type === 'image' && 'תמונה'}
+                  {action.type === 'file' && 'קובץ'}
+                  {action.type === 'list' && 'רשימה'}
+                  {action.type === 'delay' && 'השהייה'}
+                </span>
+              </div>
+              <div className="text-sm text-gray-600 truncate">
+                {action.type === 'text' && (action.content || 'לחץ לעריכה...')}
+                {action.type === 'image' && (action.url ? '📷 תמונה מצורפת' : 'בחר תמונה...')}
+                {action.type === 'list' && `${action.items?.length || 0} פריטים`}
+                {action.type === 'delay' && `${action.delay || 1} ${action.unit === 'minutes' ? 'דקות' : 'שניות'}`}
+              </div>
+            </div>
+          );
+        })}
+        <div className="text-xs text-gray-400 text-center pt-1">
+          {actions.length} פעולות
         </div>
-        <span className="font-bold text-white">הודעה</span>
       </div>
-      
-      {/* Content - Display Only */}
-      <div className="p-4">
-        <p className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">
-          {data.content ? preview : <span className="text-gray-400 italic">לחץ לעריכה...</span>}
-        </p>
-      </div>
-      
-      {/* Source Handle - Right side */}
-      <Handle
-        type="source"
-        position={Position.Right}
-        className="!w-4 !h-4 !bg-teal-500 !border-[3px] !border-white !shadow-lg transition-transform hover:!scale-125"
-      />
-    </div>
+    </BaseNode>
   );
 }
 

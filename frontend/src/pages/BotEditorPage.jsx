@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Save, ArrowRight, Play, Pause } from 'lucide-react';
+import { Save, ArrowRight, Play, Pause, Edit2 } from 'lucide-react';
 import useBotsStore from '../store/botsStore';
 import FlowBuilder from '../components/flow/FlowBuilder';
 import NodePalette from '../components/flow/NodePalette';
 import NodeEditor from '../components/flow/panels/NodeEditor';
 import Button from '../components/atoms/Button';
+import api from '../services/api';
 
 export default function BotEditorPage() {
   const { botId } = useParams();
@@ -15,6 +16,8 @@ export default function BotEditorPage() {
   const [selectedNode, setSelectedNode] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [botName, setBotName] = useState('');
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -24,6 +27,7 @@ export default function BotEditorPage() {
     }
     
     fetchBot(botId).then((bot) => {
+      setBotName(bot.name);
       if (bot.flow_data && bot.flow_data.nodes?.length > 0) {
         setFlowData(bot.flow_data);
       } else {
@@ -43,8 +47,10 @@ export default function BotEditorPage() {
   }, [botId]);
 
   const handleNodeSelect = useCallback((node) => {
-    setSelectedNode(node);
-  }, []);
+    // Find the node in flowData to get latest data
+    const currentNode = flowData?.nodes?.find(n => n.id === node.id) || node;
+    setSelectedNode(currentNode);
+  }, [flowData]);
 
   const handleNodeUpdate = useCallback((nodeId, newData) => {
     setFlowData(prev => ({
@@ -63,12 +69,15 @@ export default function BotEditorPage() {
   }, []);
 
   const handleNodeDelete = useCallback((nodeId) => {
-    setFlowData(prev => ({
-      nodes: prev.nodes.filter(n => n.id !== nodeId),
-      edges: prev.edges.filter(e => e.source !== nodeId && e.target !== nodeId),
-    }));
-    setSelectedNode(null);
+    if (selectedNode?.id === nodeId) {
+      setSelectedNode(null);
+    }
     setHasChanges(true);
+  }, [selectedNode]);
+
+  const handleNodeDuplicate = useCallback((newNode) => {
+    setHasChanges(true);
+    setSelectedNode(newNode);
   }, []);
 
   const handleAddNode = useCallback((type) => {
@@ -113,6 +122,13 @@ export default function BotEditorPage() {
     await updateBot(botId, { is_active: !currentBot?.is_active });
   };
 
+  const handleNameSave = async () => {
+    if (botName.trim() && botName !== currentBot?.name) {
+      await updateBot(botId, { name: botName.trim() });
+    }
+    setIsEditingName(false);
+  };
+
   if (!currentBot || !flowData) {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
@@ -136,12 +152,33 @@ export default function BotEditorPage() {
             >
               <ArrowRight className="w-5 h-5 text-gray-600" />
             </button>
-            <div>
-              <h1 className="font-semibold text-lg text-gray-800">{currentBot.name}</h1>
-              {hasChanges && (
-                <span className="text-xs text-orange-500">יש שינויים שלא נשמרו</span>
-              )}
-            </div>
+            
+            {/* Editable Name */}
+            {isEditingName ? (
+              <input
+                type="text"
+                value={botName}
+                onChange={(e) => setBotName(e.target.value)}
+                onBlur={handleNameSave}
+                onKeyDown={(e) => e.key === 'Enter' && handleNameSave()}
+                className="px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-200 outline-none"
+                autoFocus
+              />
+            ) : (
+              <button 
+                onClick={() => setIsEditingName(true)}
+                className="flex items-center gap-2 hover:bg-gray-100 px-3 py-1 rounded-lg transition-colors"
+              >
+                <h1 className="font-semibold text-lg text-gray-800">{currentBot.name}</h1>
+                <Edit2 className="w-4 h-4 text-gray-400" />
+              </button>
+            )}
+            
+            {hasChanges && (
+              <span className="text-xs text-orange-500 bg-orange-50 px-2 py-1 rounded-full">
+                יש שינויים
+              </span>
+            )}
           </div>
           
           <div className="flex items-center gap-2">
@@ -193,6 +230,8 @@ export default function BotEditorPage() {
               initialData={flowData} 
               onChange={handleFlowChange}
               onNodeSelect={handleNodeSelect}
+              onNodeDelete={handleNodeDelete}
+              onNodeDuplicate={handleNodeDuplicate}
             />
           </div>
         </div>
@@ -204,7 +243,14 @@ export default function BotEditorPage() {
               node={selectedNode}
               onUpdate={handleNodeUpdate}
               onClose={() => setSelectedNode(null)}
-              onDelete={handleNodeDelete}
+              onDelete={(nodeId) => {
+                handleNodeDelete(nodeId);
+                setFlowData(prev => ({
+                  ...prev,
+                  nodes: prev.nodes.filter(n => n.id !== nodeId),
+                  edges: prev.edges.filter(e => e.source !== nodeId && e.target !== nodeId),
+                }));
+              }}
             />
           </div>
         )}
@@ -218,13 +264,13 @@ function getDefaultData(type) {
     case 'trigger':
       return { triggers: [{ type: 'any_message', value: '' }] };
     case 'message':
-      return { content: '' };
+      return { actions: [{ type: 'text', content: '' }] };
     case 'condition':
-      return { variable: 'message', operator: 'equals', value: '' };
+      return { variable: 'message', operator: 'contains', value: '' };
     case 'delay':
       return { delay: 1, unit: 'seconds' };
     case 'action':
-      return { actionType: 'add_tag', tagName: '' };
+      return { actions: [{ type: 'add_tag', tagName: '' }] };
     default:
       return {};
   }

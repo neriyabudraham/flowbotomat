@@ -42,16 +42,22 @@ body {
 
 /* React Flow Custom Styles */
 .react-flow__handle {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+  cursor: crosshair !important;
 }
 
 .react-flow__handle:hover {
-  transform: scale(1.3);
-  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.1);
+  transform: scale(1.4) !important;
+  box-shadow: 0 0 0 6px rgba(0, 0, 0, 0.15) !important;
+}
+
+.react-flow__handle.connecting {
+  transform: scale(1.5) !important;
 }
 
 .react-flow__edge-path {
   stroke-width: 2;
+  cursor: pointer;
 }
 
 .react-flow__edge.selected .react-flow__edge-path {
@@ -62,11 +68,25 @@ body {
   transition: box-shadow 0.2s ease, transform 0.1s ease;
 }
 
-.react-flow__node.selected {
-  transform: scale(1.02);
+.react-flow__node:hover {
+  z-index: 100 !important;
 }
 
-/* Animation for Quick Add Menu */
+.react-flow__node.selected {
+  z-index: 101 !important;
+}
+
+.react-flow__connectionline {
+  stroke-width: 2;
+  stroke: #94a3b8;
+}
+
+/* Animation classes */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 @keyframes fadeInScale {
   from {
     opacity: 0;
@@ -78,6 +98,49 @@ body {
   }
 }
 
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .animate-in {
   animation: fadeInScale 0.15s ease-out;
+}
+
+.fade-in {
+  animation: fadeIn 0.15s ease-out;
+}
+
+.zoom-in-95 {
+  animation: fadeInScale 0.15s ease-out;
+}
+
+/* Node hover toolbar */
+.react-flow__node .group:hover .opacity-0 {
+  opacity: 1;
+}
+
+/* Better controls styling */
+.react-flow__controls {
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
+}
+
+.react-flow__controls-button {
+  border: none !important;
+  background: white !important;
+}
+
+.react-flow__controls-button:hover {
+  background: #f3f4f6 !important;
+}
+
+/* MiniMap */
+.react-flow__minimap {
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
 }
