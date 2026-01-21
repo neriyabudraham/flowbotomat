@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Check, X, Star, Zap, Crown, Building, ArrowLeft, CreditCard, Lock, Loader2, 
   Shield, AlertCircle, Sparkles, Users, Bot, MessageSquare, BarChart3,
-  Rocket, Gift, Timer, ChevronDown, ArrowRight, CheckCircle, Phone
+  Rocket, Gift, Timer, ChevronDown, ArrowRight, CheckCircle, Phone, Code
 } from 'lucide-react';
 import api from '../services/api';
 import useAuthStore from '../store/authStore';
@@ -401,6 +401,11 @@ export default function PricingPage() {
                           icon={Rocket}
                           label="ייצוא ושכפול בוטים"
                           included={plan.allow_export}
+                        />
+                        <Feature 
+                          icon={Code}
+                          label="גישת API"
+                          included={plan.allow_api_access}
                         />
                         <Feature 
                           icon={Shield}
