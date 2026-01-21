@@ -46,7 +46,7 @@ async function tokenizeCard({ cardNumber, expiryMonth, expiryYear, cvv, citizenI
     console.log('[Sumit] - ExpirationYear:', expiryYear);
     
     const response = await axios.post(
-      `${SUMIT_BASE_URL}/creditguy/vault/tokenizesingleuse/`,
+      `${SUMIT_BASE_URL}/creditguy/vault/tokenizesingleusejson`,
       requestBody,
       {
         headers: {
