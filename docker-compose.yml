@@ -41,6 +41,7 @@ services:
       SUMIT_CompanyID: ${SUMIT_CompanyID}
       SUMIT_APIKey: ${SUMIT_APIKey}
       SUMIT_APIPublicKey: ${SUMIT_APIPublicKey}
+      API_URL: ${VITE_API_URL}
     ports:
       - "3749:4000"
     volumes:

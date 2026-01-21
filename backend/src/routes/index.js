@@ -19,6 +19,7 @@ const notificationsRoutes = require('./notifications.routes');
 const expertsRoutes = require('./experts.routes');
 const subscriptionsRoutes = require('./subscriptions.routes');
 const paymentRoutes = require('./payment.routes');
+const uploadRoutes = require('./upload.routes');
 
 // Mount routes
 router.use('/auth', authRoutes);
@@ -38,5 +39,6 @@ router.use('/notifications', notificationsRoutes);
 router.use('/experts', expertsRoutes);
 router.use('/subscriptions', subscriptionsRoutes);
 router.use('/payment', paymentRoutes);
+router.use('/upload', uploadRoutes);
 
 module.exports = router;

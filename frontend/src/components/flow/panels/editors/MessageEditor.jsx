@@ -144,13 +144,13 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
   const [uploadError, setUploadError] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
 
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     
     setUploadError('');
     setIsLoading(true);
-    setUploadProgress(0);
+    setUploadProgress(10);
     
     // Check file size - different limits for different types
     const maxSizeVideo = 16 * 1024 * 1024; // 16MB for video
@@ -181,37 +181,83 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
       return;
     }
     
-    const reader = new FileReader();
-    
-    // Progress tracking
-    reader.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const progress = Math.round((event.loaded / event.total) * 100);
-        setUploadProgress(progress);
-      }
-    };
-    
-    reader.onload = () => {
+    try {
+      setUploadProgress(30);
+      
+      // Create object URL for preview (instant, no blocking)
       const objectUrl = URL.createObjectURL(file);
-      onUpdate({ 
-        localFile: true, 
-        fileName: file.name, 
-        fileData: reader.result, 
-        url: objectUrl,
-        previewUrl: objectUrl,
-        fileSize: file.size
-      });
+      setUploadProgress(50);
+      
+      // For videos, don't convert to base64 - upload directly to server
+      if (action.type === 'video' && file.size > 2 * 1024 * 1024) {
+        // Large video - upload to server first
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('type', 'video');
+        
+        setUploadProgress(60);
+        
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+          },
+          body: formData
+        });
+        
+        setUploadProgress(90);
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.message || 'שגיאה בהעלאת הקובץ');
+        }
+        
+        const data = await response.json();
+        
+        onUpdate({ 
+          localFile: false, 
+          fileName: file.name, 
+          fileData: null, 
+          url: data.url,
+          previewUrl: objectUrl,
+          fileSize: file.size
+        });
+      } else {
+        // Small file - convert to base64
+        const reader = new FileReader();
+        
+        reader.onload = () => {
+          onUpdate({ 
+            localFile: true, 
+            fileName: file.name, 
+            fileData: reader.result, 
+            url: objectUrl,
+            previewUrl: objectUrl,
+            fileSize: file.size
+          });
+          setPreviewError(false);
+          setIsLoading(false);
+          setUploadProgress(100);
+        };
+        
+        reader.onerror = () => {
+          setUploadError('שגיאה בקריאת הקובץ. נסה שוב.');
+          setIsLoading(false);
+        };
+        
+        reader.readAsDataURL(file);
+        return; // Exit early, reader.onload will handle the rest
+      }
+      
       setPreviewError(false);
       setIsLoading(false);
       setUploadProgress(100);
-    };
-    
-    reader.onerror = () => {
-      setUploadError('שגיאה בקריאת הקובץ. נסה שוב.');
+      
+    } catch (error) {
+      console.error('Upload error:', error);
+      setUploadError(error.message || 'שגיאה בהעלאת הקובץ');
       setIsLoading(false);
-    };
-    
-    reader.readAsDataURL(file);
+    }
   };
 
   const formatFileSize = (bytes) => {

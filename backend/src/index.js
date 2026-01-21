@@ -4,6 +4,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const http = require('http');
 const cron = require('node-cron');
+const path = require('path');
 
 const routes = require('./routes');
 const { initSocket } = require('./services/socket/manager.service');
@@ -13,10 +14,15 @@ const app = express();
 const server = http.createServer(app);
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Serve uploaded files
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Routes
 app.use('/api', routes);
