@@ -1,10 +1,16 @@
 import { useState } from 'react';
-import { Search, Users, MessageSquare, Filter, Bot, Activity, Sparkles } from 'lucide-react';
+import { Search, Users, MessageSquare, Filter, Bot, Activity, Sparkles, Trash2, Download, X, CheckSquare, Square, MoreHorizontal } from 'lucide-react';
 import ContactItem from '../molecules/ContactItem';
+import api from '../../services/api';
 
-export default function ContactsList({ contacts, selectedId, onSelect, onSearch, stats }) {
+export default function ContactsList({ contacts, selectedId, onSelect, onSearch, stats, onContactsChange }) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all'); // all, active, bot
+  const [selectedContacts, setSelectedContacts] = useState([]);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [showActions, setShowActions] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const handleSearch = (e) => {
     const value = e.target.value;
@@ -22,6 +28,76 @@ export default function ContactsList({ contacts, selectedId, onSelect, onSearch,
     return true;
   });
 
+  const toggleSelectContact = (contactId) => {
+    setSelectedContacts(prev => 
+      prev.includes(contactId) 
+        ? prev.filter(id => id !== contactId)
+        : [...prev, contactId]
+    );
+  };
+
+  const selectAll = () => {
+    if (selectedContacts.length === filteredContacts.length) {
+      setSelectedContacts([]);
+    } else {
+      setSelectedContacts(filteredContacts.map(c => c.id));
+    }
+  };
+
+  const cancelSelection = () => {
+    setIsSelectionMode(false);
+    setSelectedContacts([]);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedContacts.length === 0) return;
+    
+    const confirmed = window.confirm(`האם אתה בטוח שברצונך למחוק ${selectedContacts.length} אנשי קשר?`);
+    if (!confirmed) return;
+    
+    setDeleting(true);
+    try {
+      await api.post('/contacts/bulk-delete', { contactIds: selectedContacts });
+      setSelectedContacts([]);
+      setIsSelectionMode(false);
+      onContactsChange?.();
+    } catch (error) {
+      console.error('Bulk delete error:', error);
+      alert('שגיאה במחיקת אנשי קשר');
+    }
+    setDeleting(false);
+  };
+
+  const handleExport = async (exportSelected = false) => {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams({ format: 'csv' });
+      if (exportSelected && selectedContacts.length > 0) {
+        params.append('contactIds', selectedContacts.join(','));
+      }
+      
+      const response = await api.get(`/contacts/export?${params.toString()}`, {
+        responseType: 'blob'
+      });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `contacts_${Date.now()}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      setShowActions(false);
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('שגיאה בייצוא אנשי קשר');
+    }
+    setExporting(false);
+  };
+
   return (
     <div className="h-full flex flex-col bg-white">
       {/* Header with gradient */}
@@ -36,7 +112,90 @@ export default function ContactsList({ contacts, selectedId, onSelect, onSearch,
               <p className="text-xs text-gray-500">{stats?.total || contacts.length} סה"כ</p>
             </div>
           </div>
+          
+          {/* Actions Menu */}
+          <div className="relative">
+            <button
+              onClick={() => setShowActions(!showActions)}
+              className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+            >
+              <MoreHorizontal className="w-5 h-5 text-gray-600" />
+            </button>
+            
+            {showActions && (
+              <div className="absolute left-0 top-full mt-2 bg-white rounded-xl shadow-lg border border-gray-100 py-2 min-w-[180px] z-50">
+                <button
+                  onClick={() => {
+                    setIsSelectionMode(true);
+                    setShowActions(false);
+                  }}
+                  className="w-full px-4 py-2.5 text-right text-sm hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <CheckSquare className="w-4 h-4 text-gray-500" />
+                  בחירה מרובה
+                </button>
+                <button
+                  onClick={() => handleExport(false)}
+                  disabled={exporting}
+                  className="w-full px-4 py-2.5 text-right text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4 text-gray-500" />
+                  {exporting ? 'מייצא...' : 'ייצא הכל (CSV)'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Selection Mode Bar */}
+        {isSelectionMode && (
+          <div className="flex items-center justify-between p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl mb-3 border border-blue-100">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={selectAll}
+                className="p-1.5 hover:bg-blue-100 rounded-lg transition-colors"
+              >
+                {selectedContacts.length === filteredContacts.length ? (
+                  <CheckSquare className="w-5 h-5 text-blue-600" />
+                ) : (
+                  <Square className="w-5 h-5 text-blue-600" />
+                )}
+              </button>
+              <span className="text-sm font-medium text-blue-800">
+                {selectedContacts.length} נבחרו
+              </span>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              {selectedContacts.length > 0 && (
+                <>
+                  <button
+                    onClick={() => handleExport(true)}
+                    disabled={exporting}
+                    className="p-2 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg transition-colors"
+                    title="ייצא נבחרים"
+                  >
+                    <Download className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleBulkDelete}
+                    disabled={deleting}
+                    className="p-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors"
+                    title="מחק נבחרים"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </>
+              )}
+              <button
+                onClick={cancelSelection}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-4 h-4 text-gray-600" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Search */}
         <div className="relative">
@@ -108,12 +267,27 @@ export default function ContactsList({ contacts, selectedId, onSelect, onSearch,
         ) : (
           <div className="py-2">
             {filteredContacts.map((contact) => (
-              <ContactItem
-                key={contact.id}
-                contact={contact}
-                isSelected={selectedId === contact.id}
-                onClick={() => onSelect(contact.id)}
-              />
+              <div key={contact.id} className="flex items-center">
+                {isSelectionMode && (
+                  <button
+                    onClick={() => toggleSelectContact(contact.id)}
+                    className="p-3 flex-shrink-0"
+                  >
+                    {selectedContacts.includes(contact.id) ? (
+                      <CheckSquare className="w-5 h-5 text-blue-600" />
+                    ) : (
+                      <Square className="w-5 h-5 text-gray-400" />
+                    )}
+                  </button>
+                )}
+                <div className={`flex-1 ${isSelectionMode ? 'mr-0' : ''}`}>
+                  <ContactItem
+                    contact={contact}
+                    isSelected={selectedId === contact.id}
+                    onClick={() => !isSelectionMode && onSelect(contact.id)}
+                  />
+                </div>
+              </div>
             ))}
           </div>
         )}

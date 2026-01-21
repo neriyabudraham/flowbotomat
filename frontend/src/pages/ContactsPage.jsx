@@ -203,6 +203,10 @@ export default function ContactsPage() {
             onSelect={handleSelectContact}
             onSearch={handleSearch}
             stats={{ total: contacts.length, active: activeContacts }}
+            onContactsChange={() => {
+              fetchContacts();
+              loadStats();
+            }}
           />
         </div>
 
@@ -270,6 +274,11 @@ export default function ContactsPage() {
               onUpdate={(updated) => {
                 selectContact(updated.id);
               }}
+              onDelete={() => {
+                clearSelection();
+                fetchContacts();
+                loadStats();
+              }}
             />
           </div>
         )}
@@ -282,6 +291,11 @@ export default function ContactsPage() {
               onClose={() => setShowProfile(false)}
               onUpdate={(updated) => {
                 selectContact(updated.id);
+              }}
+              onDelete={() => {
+                clearSelection();
+                fetchContacts();
+                loadStats();
               }}
             />
           </div>

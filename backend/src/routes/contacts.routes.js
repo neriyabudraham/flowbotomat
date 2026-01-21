@@ -3,7 +3,7 @@ const router = express.Router();
 const authMiddleware = require('../middlewares/auth.middleware');
 const { listContacts, getContact } = require('../controllers/contacts/list.controller');
 const { getMessages } = require('../controllers/contacts/messages.controller');
-const { toggleBot, toggleBlock, deleteContact, takeoverConversation } = require('../controllers/contacts/update.controller');
+const { toggleBot, toggleBlock, deleteContact, takeoverConversation, bulkDeleteContacts, exportContacts } = require('../controllers/contacts/update.controller');
 const { sendMessage } = require('../controllers/contacts/send.controller');
 const { getVariables, setVariable, deleteVariable } = require('../controllers/contacts/variables.controller');
 const { getAllTags, createTag, deleteTag, getContactTags, addTagToContact, removeTagFromContact } = require('../controllers/contacts/tags.controller');
@@ -15,10 +15,16 @@ router.use(authMiddleware);
 // Global contacts stats
 router.get('/stats', getGlobalStats);
 
+// Export contacts (CSV)
+router.get('/export', exportContacts);
+
 // Tags (user level)
 router.get('/tags', getAllTags);
 router.post('/tags', createTag);
 router.delete('/tags/:tagId', deleteTag);
+
+// Bulk delete contacts
+router.post('/bulk-delete', bulkDeleteContacts);
 
 // List all contacts
 router.get('/', listContacts);

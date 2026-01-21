@@ -5,13 +5,15 @@ import {
   TrendingUp, Grid, Shield, ChevronLeft, Zap, Activity, 
   Plus, ArrowUpRight, Clock, CheckCircle, Crown, Bell,
   Sparkles, ArrowRight, BarChart3, Calendar, Phone, Star,
-  Target, Rocket, Gift, AlertCircle, X, ExternalLink, Lightbulb
+  Target, Rocket, Gift, AlertCircle, X, ExternalLink, Lightbulb,
+  Gauge, HardDrive
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useWhatsappStore from '../store/whatsappStore';
 import useStatsStore from '../store/statsStore';
 import Logo from '../components/atoms/Logo';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
+import api from '../services/api';
 
 // Tips content data
 const TIPS_DATA = {
@@ -155,6 +157,7 @@ export default function DashboardPage() {
   const [currentTime, setCurrentTime] = useState('');
   const [showMessage, setShowMessage] = useState(location.state?.message || null);
   const [selectedTip, setSelectedTip] = useState(null);
+  const [usage, setUsage] = useState(null);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -165,6 +168,7 @@ export default function DashboardPage() {
     fetchMe();
     fetchStatus();
     fetchDashboardStats();
+    loadUsage();
     
     // Set greeting based on time
     const hour = new Date().getHours();
@@ -189,6 +193,18 @@ export default function DashboardPage() {
     
     return () => clearInterval(interval);
   }, []);
+
+  const loadUsage = async () => {
+    try {
+      const { data } = await api.get('/subscriptions/usage');
+      setUsage(data);
+      
+      // Check usage alerts
+      await api.post('/notifications/check-usage');
+    } catch (e) {
+      console.error('Failed to load usage:', e);
+    }
+  };
 
   const handleLogout = () => {
     logout();
@@ -427,6 +443,52 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* Usage Card */}
+        {usage && (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-8">
+            <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-purple-50 flex items-center justify-between">
+              <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                <Gauge className="w-5 h-5 text-indigo-600" />
+                שימוש בחבילה החודשית
+              </h3>
+              <Link to="/pricing" className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
+                שדרג חבילה
+                <ChevronLeft className="w-4 h-4" />
+              </Link>
+            </div>
+            <div className="p-6">
+              <div className="grid md:grid-cols-3 gap-6">
+                {/* Bot Runs */}
+                <UsageBar
+                  label="הרצות בוט החודש"
+                  icon={Zap}
+                  used={usage.usage?.bot_runs || 0}
+                  limit={usage.limits?.max_bot_runs_per_month || 500}
+                  color="indigo"
+                />
+                
+                {/* Bots */}
+                <UsageBar
+                  label="בוטים"
+                  icon={Bot}
+                  used={usage.counts?.bots || 0}
+                  limit={usage.limits?.max_bots || 1}
+                  color="purple"
+                />
+                
+                {/* Contacts */}
+                <UsageBar
+                  label="אנשי קשר"
+                  icon={Users}
+                  used={usage.counts?.contacts || 0}
+                  limit={usage.limits?.max_contacts || 100}
+                  color="blue"
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -764,6 +826,88 @@ function TipCard({ icon: Icon, title, description, color, badge, onClick }) {
       </div>
       <ChevronLeft className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
     </button>
+  );
+}
+
+function UsageBar({ label, icon: Icon, used, limit, color }) {
+  const isUnlimited = limit === -1;
+  const percentage = isUnlimited ? 0 : Math.min(Math.round((used / limit) * 100), 100);
+  
+  const colorClasses = {
+    indigo: {
+      bg: 'bg-indigo-100',
+      bar: 'bg-gradient-to-r from-indigo-500 to-purple-500',
+      text: 'text-indigo-600',
+      icon: 'from-indigo-100 to-purple-100'
+    },
+    purple: {
+      bg: 'bg-purple-100',
+      bar: 'bg-gradient-to-r from-purple-500 to-pink-500',
+      text: 'text-purple-600',
+      icon: 'from-purple-100 to-pink-100'
+    },
+    blue: {
+      bg: 'bg-blue-100',
+      bar: 'bg-gradient-to-r from-blue-500 to-cyan-500',
+      text: 'text-blue-600',
+      icon: 'from-blue-100 to-cyan-100'
+    }
+  };
+  
+  const colors = colorClasses[color] || colorClasses.indigo;
+  
+  // Determine bar color based on percentage
+  const getBarColor = () => {
+    if (percentage >= 100) return 'bg-gradient-to-r from-red-500 to-rose-500';
+    if (percentage >= 80) return 'bg-gradient-to-r from-amber-500 to-orange-500';
+    return colors.bar;
+  };
+
+  return (
+    <div className="bg-gray-50 rounded-2xl p-4">
+      <div className="flex items-center gap-3 mb-3">
+        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${colors.icon} flex items-center justify-center`}>
+          <Icon className={`w-5 h-5 ${colors.text}`} />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-medium text-gray-700">{label}</p>
+          <p className="text-xs text-gray-500">
+            {isUnlimited ? (
+              <span className="text-green-600">ללא הגבלה ✓</span>
+            ) : (
+              <>
+                <span className="font-bold text-gray-900">{used.toLocaleString()}</span>
+                <span> / {limit.toLocaleString()}</span>
+              </>
+            )}
+          </p>
+        </div>
+        {!isUnlimited && (
+          <span className={`text-lg font-bold ${
+            percentage >= 100 ? 'text-red-600' : 
+            percentage >= 80 ? 'text-amber-600' : 
+            colors.text
+          }`}>
+            {percentage}%
+          </span>
+        )}
+      </div>
+      
+      {!isUnlimited && (
+        <div className={`h-3 ${colors.bg} rounded-full overflow-hidden`}>
+          <div 
+            className={`h-full ${getBarColor()} rounded-full transition-all duration-500`}
+            style={{ width: `${percentage}%` }}
+          />
+        </div>
+      )}
+      
+      {percentage >= 80 && !isUnlimited && (
+        <p className={`text-xs mt-2 ${percentage >= 100 ? 'text-red-600' : 'text-amber-600'}`}>
+          {percentage >= 100 ? '⚠️ הגעת למגבלה! שדרג כדי להמשיך' : '📊 מומלץ לשדרג את החבילה'}
+        </p>
+      )}
+    </div>
   );
 }
 

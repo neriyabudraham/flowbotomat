@@ -1,25 +1,30 @@
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middlewares/auth.middleware');
-const {
-  getNotifications,
-  markAsRead,
-  markAllAsRead,
-  deleteNotification,
-  getPreferences,
-  updatePreferences,
+const { 
+  getNotifications, 
+  markRead, 
+  markAllRead, 
+  getUnread,
+  checkUsage
 } = require('../controllers/notifications/notifications.controller');
 
+// All routes require authentication
 router.use(authMiddleware);
 
-// Notifications
+// Get all notifications
 router.get('/', getNotifications);
-router.put('/:id/read', markAsRead);
-router.put('/read-all', markAllAsRead);
-router.delete('/:id', deleteNotification);
 
-// Preferences
-router.get('/preferences', getPreferences);
-router.put('/preferences', updatePreferences);
+// Get unread count only
+router.get('/unread', getUnread);
+
+// Check usage and trigger alerts
+router.post('/check-usage', checkUsage);
+
+// Mark single notification as read
+router.patch('/:notificationId/read', markRead);
+
+// Mark all notifications as read
+router.patch('/read-all', markAllRead);
 
 module.exports = router;

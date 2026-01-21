@@ -120,4 +120,132 @@ async function deleteContact(req, res) {
   }
 }
 
-module.exports = { toggleBot, toggleBlock, deleteContact, takeoverConversation };
+/**
+ * Bulk delete contacts
+ */
+async function bulkDeleteContacts(req, res) {
+  try {
+    const userId = req.user.id;
+    const { contactIds } = req.body;
+    
+    if (!contactIds || !Array.isArray(contactIds) || contactIds.length === 0) {
+      return res.status(400).json({ error: 'נדרשת רשימת אנשי קשר למחיקה' });
+    }
+    
+    // Delete contacts that belong to this user
+    const result = await pool.query(
+      `DELETE FROM contacts 
+       WHERE id = ANY($1) AND user_id = $2
+       RETURNING id`,
+      [contactIds, userId]
+    );
+    
+    console.log(`[Contacts] Bulk deleted ${result.rows.length} contacts for user ${userId}`);
+    
+    res.json({ 
+      success: true, 
+      deletedCount: result.rows.length 
+    });
+  } catch (error) {
+    console.error('Bulk delete contacts error:', error);
+    res.status(500).json({ error: 'שגיאה במחיקה מרובה' });
+  }
+}
+
+/**
+ * Export contacts to CSV
+ */
+async function exportContacts(req, res) {
+  try {
+    const userId = req.user.id;
+    const { format = 'csv', contactIds } = req.query;
+    
+    // Build query
+    let query = `
+      SELECT 
+        c.id,
+        c.phone,
+        c.display_name,
+        c.profile_picture_url,
+        c.is_bot_active,
+        c.is_blocked,
+        c.created_at,
+        c.last_message_at,
+        (SELECT COUNT(*) FROM messages WHERE contact_id = c.id) as message_count
+      FROM contacts c
+      WHERE c.user_id = $1
+    `;
+    
+    const params = [userId];
+    
+    // If specific contacts requested
+    if (contactIds) {
+      const ids = contactIds.split(',');
+      query += ` AND c.id = ANY($2)`;
+      params.push(ids);
+    }
+    
+    query += ` ORDER BY c.created_at DESC`;
+    
+    const result = await pool.query(query, params);
+    
+    // Get variables for each contact
+    const contactsWithVars = await Promise.all(result.rows.map(async (contact) => {
+      const varsResult = await pool.query(
+        'SELECT key, value FROM contact_variables WHERE contact_id = $1',
+        [contact.id]
+      );
+      
+      const variables = {};
+      varsResult.rows.forEach(v => {
+        variables[v.key] = v.value;
+      });
+      
+      return {
+        ...contact,
+        variables
+      };
+    }));
+    
+    if (format === 'csv') {
+      // Generate CSV
+      const headers = ['מספר טלפון', 'שם תצוגה', 'בוט פעיל', 'חסום', 'תאריך יצירה', 'הודעה אחרונה', 'כמות הודעות', 'אימייל', 'שם מלא', 'עיר', 'חברה'];
+      
+      let csv = '\uFEFF'; // UTF-8 BOM for Hebrew support
+      csv += headers.join(',') + '\n';
+      
+      contactsWithVars.forEach(contact => {
+        const row = [
+          contact.phone,
+          `"${(contact.display_name || '').replace(/"/g, '""')}"`,
+          contact.is_bot_active ? 'כן' : 'לא',
+          contact.is_blocked ? 'כן' : 'לא',
+          contact.created_at ? new Date(contact.created_at).toLocaleDateString('he-IL') : '',
+          contact.last_message_at ? new Date(contact.last_message_at).toLocaleDateString('he-IL') : '',
+          contact.message_count || 0,
+          `"${(contact.variables?.email || '').replace(/"/g, '""')}"`,
+          `"${(contact.variables?.full_name || contact.variables?.first_name || '').replace(/"/g, '""')}"`,
+          `"${(contact.variables?.city || '').replace(/"/g, '""')}"`,
+          `"${(contact.variables?.company || '').replace(/"/g, '""')}"`,
+        ];
+        csv += row.join(',') + '\n';
+      });
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename=contacts_${Date.now()}.csv`);
+      res.send(csv);
+      
+    } else {
+      // Return JSON
+      res.json({ contacts: contactsWithVars });
+    }
+    
+    console.log(`[Contacts] Exported ${contactsWithVars.length} contacts for user ${userId}`);
+    
+  } catch (error) {
+    console.error('Export contacts error:', error);
+    res.status(500).json({ error: 'שגיאה בייצוא אנשי קשר' });
+  }
+}
+
+module.exports = { toggleBot, toggleBlock, deleteContact, takeoverConversation, bulkDeleteContacts, exportContacts };

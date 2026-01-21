@@ -31,7 +31,7 @@ const VARIABLE_ICONS = {
   company: Building,
 };
 
-export default function ContactProfile({ contact, onClose, onUpdate }) {
+export default function ContactProfile({ contact, onClose, onUpdate, onDelete }) {
   const [variables, setVariables] = useState([]);
   const [varDefinitions, setVarDefinitions] = useState([]);
   const [tags, setTags] = useState([]);
@@ -152,6 +152,20 @@ export default function ContactProfile({ contact, onClose, onUpdate }) {
       onUpdate({ ...contact, is_bot_active: !contact.is_bot_active });
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleDeleteContact = async () => {
+    const confirmed = window.confirm(`האם אתה בטוח שברצונך למחוק את ${contact.display_name || contact.phone}?`);
+    if (!confirmed) return;
+    
+    try {
+      await api.delete(`/contacts/${contact.id}`);
+      onDelete?.(contact.id);
+      onClose();
+    } catch (err) {
+      console.error(err);
+      alert('שגיאה במחיקת איש הקשר');
     }
   };
 
@@ -499,6 +513,20 @@ export default function ContactProfile({ contact, onClose, onUpdate }) {
               </div>
             </>
           )}
+        </div>
+        
+        {/* Delete Contact Button */}
+        <div className="bg-red-50 rounded-2xl p-4 border border-red-100 mt-4">
+          <button
+            onClick={handleDeleteContact}
+            className="w-full flex items-center justify-center gap-2 py-3 bg-red-100 hover:bg-red-200 text-red-700 rounded-xl font-medium transition-all"
+          >
+            <Trash2 className="w-5 h-5" />
+            מחק איש קשר
+          </button>
+          <p className="text-xs text-red-500 text-center mt-2">
+            פעולה זו לא ניתנת לביטול
+          </p>
         </div>
       </div>
     </div>
