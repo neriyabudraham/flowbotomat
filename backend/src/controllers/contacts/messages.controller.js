@@ -7,8 +7,7 @@ async function getMessages(req, res) {
   try {
     const userId = req.user.id;
     const { contactId } = req.params;
-    const { page = 1, limit = 50 } = req.query;
-    const offset = (page - 1) * limit;
+    const { limit = 50, before } = req.query;
     
     // Verify contact belongs to user
     const contactCheck = await pool.query(
@@ -20,26 +19,40 @@ async function getMessages(req, res) {
       return res.status(404).json({ error: 'איש קשר לא נמצא' });
     }
     
-    // Get messages (newest first for pagination, will reverse on frontend)
-    const result = await pool.query(
-      `SELECT * FROM messages 
-       WHERE contact_id = $1 
-       ORDER BY sent_at DESC 
-       LIMIT $2 OFFSET $3`,
-      [contactId, limit, offset]
-    );
+    // Build query based on whether we're loading older messages
+    let query, params;
+    if (before) {
+      // Load messages older than the specified timestamp
+      query = `SELECT * FROM messages 
+               WHERE contact_id = $1 AND sent_at < $2
+               ORDER BY sent_at DESC 
+               LIMIT $3`;
+      params = [contactId, before, parseInt(limit)];
+    } else {
+      // Load latest messages
+      query = `SELECT * FROM messages 
+               WHERE contact_id = $1 
+               ORDER BY sent_at DESC 
+               LIMIT $2`;
+      params = [contactId, parseInt(limit)];
+    }
     
-    // Get total count
-    const countResult = await pool.query(
-      'SELECT COUNT(*) FROM messages WHERE contact_id = $1',
-      [contactId]
-    );
+    const result = await pool.query(query, params);
+    
+    // Check if there are more messages
+    const hasMoreQuery = before 
+      ? 'SELECT EXISTS(SELECT 1 FROM messages WHERE contact_id = $1 AND sent_at < $2) as has_more'
+      : 'SELECT COUNT(*) > $2 as has_more FROM messages WHERE contact_id = $1';
+    
+    const hasMoreParams = before
+      ? [contactId, result.rows.length > 0 ? result.rows[result.rows.length - 1].sent_at : before]
+      : [contactId, parseInt(limit)];
+    
+    const hasMoreResult = await pool.query(hasMoreQuery, hasMoreParams);
     
     res.json({
       messages: result.rows.reverse(), // Return in chronological order
-      total: parseInt(countResult.rows[0].count),
-      page: parseInt(page),
-      limit: parseInt(limit),
+      hasMore: hasMoreResult.rows[0].has_more,
     });
   } catch (error) {
     console.error('Get messages error:', error);

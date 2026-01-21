@@ -15,8 +15,9 @@ export default function ContactsPage() {
   const [showProfile, setShowProfile] = useState(false);
   const { user, logout, fetchMe } = useAuthStore();
   const {
-    contacts, selectedContact, messages, isLoading,
+    contacts, selectedContact, messages, isLoading, hasMore, loadingMore,
     fetchContacts, selectContact, clearSelection, addMessage, addNewContact, toggleBot,
+    takeoverConversation, loadMoreMessages,
   } = useContactsStore();
 
   useEffect(() => {
@@ -76,6 +77,19 @@ export default function ContactsPage() {
     }
   };
 
+  const handleTakeover = async (minutes) => {
+    if (!selectedContact) return;
+    try {
+      await takeoverConversation(selectedContact.id, minutes);
+    } catch (err) {
+      console.error('Takeover error:', err);
+    }
+  };
+
+  const handleLoadMore = () => {
+    loadMoreMessages();
+  };
+
   const handleLogout = () => {
     disconnectSocket();
     logout();
@@ -125,7 +139,11 @@ export default function ContactsPage() {
             messages={messages}
             onSendMessage={handleSendMessage}
             onToggleBot={handleToggleBot}
+            onTakeover={handleTakeover}
             onShowProfile={() => setShowProfile(true)}
+            onLoadMore={handleLoadMore}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
             isLoading={isLoading}
           />
         </div>

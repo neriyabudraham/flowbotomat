@@ -43,9 +43,16 @@ class BotEngine {
       const contact = contactResult.rows[0];
       
       // Check if bot is disabled for this contact
-      if (!contact.bot_enabled) {
-        console.log('[BotEngine] Bot disabled for contact:', contactPhone);
-        return;
+      if (!contact.is_bot_active) {
+        // Check if takeover has expired
+        if (contact.takeover_until && new Date(contact.takeover_until) < new Date()) {
+          // Takeover expired, re-enable bot
+          await db.query('UPDATE contacts SET is_bot_active = true, takeover_until = NULL WHERE id = $1', [contact.id]);
+          console.log('[BotEngine] Takeover expired, re-enabling bot for:', contactPhone);
+        } else {
+          console.log('[BotEngine] Bot disabled for contact:', contactPhone);
+          return;
+        }
       }
       
       // Process each active bot
@@ -854,11 +861,11 @@ class BotEngine {
           break;
           
         case 'stop_bot':
-          await db.query('UPDATE contacts SET bot_enabled = false WHERE id = $1', [contact.id]);
+          await db.query('UPDATE contacts SET is_bot_active = false WHERE id = $1', [contact.id]);
           break;
           
         case 'enable_bot':
-          await db.query('UPDATE contacts SET bot_enabled = true WHERE id = $1', [contact.id]);
+          await db.query('UPDATE contacts SET is_bot_active = true, takeover_until = NULL WHERE id = $1', [contact.id]);
           break;
           
         case 'webhook':

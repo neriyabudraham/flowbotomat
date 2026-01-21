@@ -1,21 +1,71 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, XCircle, Phone, User } from 'lucide-react';
+import { Send, Bot, XCircle, Phone, User, Clock, UserCheck, Loader, ChevronUp } from 'lucide-react';
 import MessageBubble from '../molecules/MessageBubble';
 import Button from '../atoms/Button';
 
-export default function ChatView({ contact, messages, onSendMessage, onToggleBot, onShowProfile, isLoading }) {
+const TAKEOVER_DURATIONS = [
+  { label: '5 דקות', value: 5 },
+  { label: '15 דקות', value: 15 },
+  { label: '30 דקות', value: 30 },
+  { label: 'שעה', value: 60 },
+  { label: 'ללא הגבלה', value: 0 },
+];
+
+export default function ChatView({ 
+  contact, messages, onSendMessage, onToggleBot, onShowProfile, isLoading,
+  onLoadMore, hasMore, loadingMore, onTakeover
+}) {
   const [text, setText] = useState('');
+  const [showTakeoverMenu, setShowTakeoverMenu] = useState(false);
+  const [takeoverRemaining, setTakeoverRemaining] = useState(null);
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Takeover timer countdown
+  useEffect(() => {
+    if (contact?.takeover_until) {
+      const checkRemaining = () => {
+        const remaining = new Date(contact.takeover_until) - new Date();
+        if (remaining > 0) {
+          setTakeoverRemaining(Math.ceil(remaining / 1000 / 60)); // minutes
+        } else {
+          setTakeoverRemaining(null);
+        }
+      };
+      checkRemaining();
+      const interval = setInterval(checkRemaining, 30000); // Update every 30 seconds
+      return () => clearInterval(interval);
+    } else {
+      setTakeoverRemaining(null);
+    }
+  }, [contact?.takeover_until]);
 
   const handleSend = (e) => {
     e.preventDefault();
     if (!text.trim()) return;
     onSendMessage(text);
     setText('');
+  };
+
+  const handleTakeover = (minutes) => {
+    setShowTakeoverMenu(false);
+    if (onTakeover) {
+      onTakeover(minutes);
+    } else {
+      // Fallback: just disable bot
+      onToggleBot(false);
+    }
+  };
+
+  const handleScroll = () => {
+    const container = messagesContainerRef.current;
+    if (container && container.scrollTop < 100 && hasMore && !loadingMore) {
+      onLoadMore?.();
+    }
   };
 
   if (!contact) {
@@ -31,22 +81,81 @@ export default function ChatView({ contact, messages, onSendMessage, onToggleBot
     );
   }
 
+  // Check if in takeover mode
+  const isInTakeover = takeoverRemaining !== null || (contact && !contact.bot_enabled);
+
   return (
     <div className="h-full flex flex-col bg-white">
+      {/* Takeover Banner */}
+      {isInTakeover && (
+        <div className="bg-orange-500 text-white px-4 py-2 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <UserCheck className="w-5 h-5" />
+            <span className="font-medium">מצב השתלטות פעיל</span>
+            {takeoverRemaining && (
+              <span className="text-orange-100 text-sm flex items-center gap-1">
+                <Clock className="w-4 h-4" />
+                {takeoverRemaining} דקות נותרו
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => onToggleBot(true)}
+            className="px-3 py-1 bg-white text-orange-600 rounded-lg text-sm font-medium hover:bg-orange-50"
+          >
+            החזר בוט
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="p-4 border-b flex items-center justify-between bg-white">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 relative">
+          {/* Takeover Button */}
+          <div className="relative">
+            <button
+              onClick={() => setShowTakeoverMenu(!showTakeoverMenu)}
+              className={`p-2 rounded-lg transition-colors ${
+                isInTakeover
+                  ? 'bg-orange-100 text-orange-600 hover:bg-orange-200' 
+                  : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
+              }`}
+              title="השתלטות על השיחה"
+            >
+              <UserCheck className="w-5 h-5" />
+            </button>
+            
+            {/* Takeover Menu */}
+            {showTakeoverMenu && (
+              <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-lg border border-gray-200 py-1 z-50 min-w-[150px]">
+                <div className="px-3 py-2 text-xs text-gray-500 border-b">השתלט לכמה זמן?</div>
+                {TAKEOVER_DURATIONS.map((duration) => (
+                  <button
+                    key={duration.value}
+                    onClick={() => handleTakeover(duration.value)}
+                    className="w-full px-3 py-2 text-right text-sm hover:bg-gray-50 flex items-center gap-2"
+                  >
+                    <Clock className="w-4 h-4 text-gray-400" />
+                    {duration.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Bot Toggle */}
           <button
-            onClick={() => onToggleBot(!contact.is_bot_active)}
+            onClick={() => onToggleBot(!contact.bot_enabled)}
             className={`p-2 rounded-lg transition-colors ${
-              contact.is_bot_active 
+              contact.bot_enabled 
                 ? 'bg-green-100 text-green-600 hover:bg-green-200' 
                 : 'bg-red-100 text-red-600 hover:bg-red-200'
             }`}
-            title={contact.is_bot_active ? 'בוט פעיל - לחץ לכיבוי' : 'בוט כבוי - לחץ להפעלה'}
+            title={contact.bot_enabled ? 'בוט פעיל - לחץ לכיבוי' : 'בוט כבוי - לחץ להפעלה'}
           >
-            {contact.is_bot_active ? <Bot className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+            {contact.bot_enabled ? <Bot className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
           </button>
+          
           <button
             onClick={onShowProfile}
             className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
@@ -78,7 +187,29 @@ export default function ChatView({ contact, messages, onSendMessage, onToggleBot
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
+      <div 
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto p-4 bg-gray-50"
+      >
+        {/* Load More Button */}
+        {hasMore && (
+          <div className="text-center py-2 mb-4">
+            <button
+              onClick={onLoadMore}
+              disabled={loadingMore}
+              className="px-4 py-2 text-sm text-blue-600 hover:text-blue-700 flex items-center gap-2 mx-auto"
+            >
+              {loadingMore ? (
+                <Loader className="w-4 h-4 animate-spin" />
+              ) : (
+                <ChevronUp className="w-4 h-4" />
+              )}
+              {loadingMore ? 'טוען...' : 'טען הודעות קודמות'}
+            </button>
+          </div>
+        )}
+        
         {messages.length === 0 ? (
           <div className="text-center text-gray-500 py-8">
             <p>אין הודעות עדיין</p>
