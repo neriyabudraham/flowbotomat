@@ -140,12 +140,16 @@ export default function TriggerEditor({ data, onUpdate }) {
                 <input
                   type="checkbox"
                   checked={data.hasCooldown || false}
-                  onChange={(e) => onUpdate({ hasCooldown: e.target.checked, cooldownHours: e.target.checked ? 24 : null })}
+                  onChange={(e) => onUpdate({ 
+                    hasCooldown: e.target.checked, 
+                    cooldownValue: e.target.checked ? 1 : null,
+                    cooldownUnit: e.target.checked ? 'days' : null
+                  })}
                   className="w-5 h-5 mt-0.5 rounded border-gray-300 text-purple-600"
                 />
                 <div>
-                  <div className="font-medium text-gray-700">הגבלת זמן בין הפעלות</div>
-                  <div className="text-xs text-gray-500">לא יופעל שוב עד שיעבור זמן מסוים</div>
+                  <div className="font-medium text-gray-700">לא להפעיל שוב במשך...</div>
+                  <div className="text-xs text-gray-500">מונע הפעלה חוזרת לאותו משתמש עד שיעבור הזמן</div>
                 </div>
               </label>
               
@@ -153,12 +157,21 @@ export default function TriggerEditor({ data, onUpdate }) {
                 <div className="mt-2 mr-8 flex items-center gap-2">
                   <input
                     type="number"
-                    value={data.cooldownHours || 24}
-                    onChange={(e) => onUpdate({ cooldownHours: parseInt(e.target.value) || 24 })}
+                    value={data.cooldownValue || 1}
+                    onChange={(e) => onUpdate({ cooldownValue: parseInt(e.target.value) || 1 })}
                     min={1}
                     className="w-20 px-3 py-2 border border-gray-200 rounded-lg text-sm text-center"
                   />
-                  <span className="text-sm text-gray-500">שעות</span>
+                  <select
+                    value={data.cooldownUnit || 'days'}
+                    onChange={(e) => onUpdate({ cooldownUnit: e.target.value })}
+                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  >
+                    <option value="minutes">דקות</option>
+                    <option value="hours">שעות</option>
+                    <option value="days">ימים</option>
+                    <option value="weeks">שבועות</option>
+                  </select>
                 </div>
               )}
             </div>

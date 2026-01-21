@@ -317,8 +317,15 @@ class BotEngine {
     }
     
     // Cooldown check
-    if (triggerData.hasCooldown && triggerData.cooldownHours) {
-      const cooldownMs = triggerData.cooldownHours * 60 * 60 * 1000;
+    if (triggerData.hasCooldown && (triggerData.cooldownValue || triggerData.cooldownHours)) {
+      // Support both old (cooldownHours) and new (cooldownValue + cooldownUnit) format
+      let cooldownMs;
+      if (triggerData.cooldownValue && triggerData.cooldownUnit) {
+        const multipliers = { minutes: 60 * 1000, hours: 60 * 60 * 1000, days: 24 * 60 * 60 * 1000, weeks: 7 * 24 * 60 * 60 * 1000 };
+        cooldownMs = triggerData.cooldownValue * (multipliers[triggerData.cooldownUnit] || multipliers.days);
+      } else {
+        cooldownMs = triggerData.cooldownHours * 60 * 60 * 1000; // Backward compatibility
+      }
       const lastRun = await db.query(
         'SELECT created_at FROM bot_logs WHERE bot_id = $1 AND contact_id = $2 AND status = $3 ORDER BY created_at DESC LIMIT 1',
         [botId, contact.id, 'triggered']
@@ -557,70 +564,131 @@ class BotEngine {
   
   // Execute condition node
   async executeConditionNode(node, contact, message) {
-    const { variable, operator, value } = node.data;
+    const data = node.data;
+    
+    // Support new conditionGroup format or old single condition format
+    let result;
+    if (data.conditionGroup) {
+      result = this.evaluateConditionGroup(data.conditionGroup, contact, message);
+    } else {
+      // Old format - single condition
+      result = this.evaluateSingleCondition(data, contact, message);
+    }
+    
+    console.log('[BotEngine] Condition result:', result);
+    return result ? 'yes' : 'no';
+  }
+  
+  // Evaluate a group of conditions with AND/OR logic
+  evaluateConditionGroup(group, contact, message) {
+    const conditions = group.conditions || [];
+    const logic = group.logic || 'AND';
+    
+    if (conditions.length === 0) return true;
+    
+    const results = conditions.map(cond => {
+      if (cond.isGroup) {
+        return this.evaluateConditionGroup(cond, contact, message);
+      } else {
+        return this.evaluateSingleCondition(cond, contact, message);
+      }
+    });
+    
+    if (logic === 'AND') {
+      return results.every(r => r === true);
+    } else {
+      return results.some(r => r === true);
+    }
+  }
+  
+  // Evaluate a single condition
+  evaluateSingleCondition(condition, contact, message) {
+    const { variable, operator, value, varName } = condition;
     let checkValue = '';
+    
+    // Israel timezone for time checks
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
     
     // Get value to check
     switch (variable) {
       case 'message':
       case 'last_message':
-        checkValue = message;
+        checkValue = message || '';
         break;
       case 'contact_name':
         checkValue = contact.display_name || '';
         break;
       case 'phone':
-        checkValue = contact.phone;
+        checkValue = contact.phone || '';
         break;
       case 'is_first_contact':
-        checkValue = contact.message_count <= 1 ? 'true' : 'false';
+        checkValue = (contact.message_count || 0) <= 1 ? 'true' : 'false';
+        break;
+      case 'message_type':
+        checkValue = 'text'; // TODO: get actual message type
+        break;
+      case 'time':
+        checkValue = now.toTimeString().slice(0, 5); // HH:MM
+        break;
+      case 'day':
+        checkValue = String(now.getDay());
+        break;
+      case 'date':
+        checkValue = now.toISOString().slice(0, 10);
+        break;
+      case 'random':
+        checkValue = String(Math.floor(Math.random() * 100) + 1);
+        break;
+      case 'has_tag':
+        // TODO: check if contact has tag
+        checkValue = 'false';
+        break;
+      case 'contact_var':
+        // TODO: get contact variable
+        checkValue = '';
         break;
       default:
         checkValue = '';
     }
     
     // Check condition
-    let result = false;
-    const lowerCheck = checkValue.toLowerCase();
+    const lowerCheck = (checkValue || '').toLowerCase();
     const lowerValue = (value || '').toLowerCase();
     
     switch (operator) {
       case 'equals':
-        result = lowerCheck === lowerValue;
-        break;
+        return lowerCheck === lowerValue;
       case 'not_equals':
-        result = lowerCheck !== lowerValue;
-        break;
+        return lowerCheck !== lowerValue;
       case 'contains':
-        result = lowerCheck.includes(lowerValue);
-        break;
+        return lowerCheck.includes(lowerValue);
       case 'not_contains':
-        result = !lowerCheck.includes(lowerValue);
-        break;
+        return !lowerCheck.includes(lowerValue);
       case 'starts_with':
-        result = lowerCheck.startsWith(lowerValue);
-        break;
+        return lowerCheck.startsWith(lowerValue);
       case 'ends_with':
-        result = lowerCheck.endsWith(lowerValue);
-        break;
+        return lowerCheck.endsWith(lowerValue);
+      case 'greater_than':
+        return parseFloat(checkValue) > parseFloat(value);
+      case 'less_than':
+        return parseFloat(checkValue) < parseFloat(value);
       case 'is_empty':
-        result = checkValue.trim() === '';
-        break;
+        return (checkValue || '').trim() === '';
       case 'is_not_empty':
-        result = checkValue.trim() !== '';
-        break;
+        return (checkValue || '').trim() !== '';
       case 'is_true':
-        result = checkValue === 'true';
-        break;
+        return checkValue === 'true' || checkValue === true;
       case 'is_false':
-        result = checkValue === 'false';
-        break;
+        return checkValue === 'false' || checkValue === false || checkValue === '';
+      case 'matches_regex':
+        try {
+          return new RegExp(value, 'i').test(checkValue);
+        } catch {
+          return false;
+        }
       default:
-        result = false;
+        return false;
     }
-    
-    console.log('[BotEngine] Condition result:', result, '| variable:', variable, '| value:', checkValue);
-    return result ? 'yes' : 'no';
   }
   
   // Execute delay node

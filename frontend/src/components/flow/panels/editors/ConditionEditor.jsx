@@ -1,3 +1,6 @@
+import { Plus, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState } from 'react';
+
 const variables = [
   { id: 'message', label: 'תוכן ההודעה', group: 'הודעה' },
   { id: 'last_message', label: 'ההודעה האחרונה שהתקבלה', group: 'הודעה' },
@@ -10,8 +13,7 @@ const variables = [
   { id: 'time', label: 'שעה נוכחית', group: 'זמן' },
   { id: 'day', label: 'יום בשבוע', group: 'זמן' },
   { id: 'date', label: 'תאריך', group: 'זמן' },
-  { id: 'random', label: 'מספר אקראי', group: 'מתקדם' },
-  { id: 'custom', label: 'ביטוי מותאם', group: 'מתקדם' },
+  { id: 'random', label: 'מספר אקראי (1-100)', group: 'מתקדם' },
 ];
 
 const operators = [
@@ -24,15 +26,10 @@ const operators = [
   { id: 'matches_regex', label: 'תואם Regex', group: 'טקסט' },
   { id: 'greater_than', label: 'גדול מ', group: 'מספרים' },
   { id: 'less_than', label: 'קטן מ', group: 'מספרים' },
-  { id: 'greater_equal', label: 'גדול או שווה', group: 'מספרים' },
-  { id: 'less_equal', label: 'קטן או שווה', group: 'מספרים' },
   { id: 'is_empty', label: 'ריק', group: 'בדיקה' },
   { id: 'is_not_empty', label: 'לא ריק', group: 'בדיקה' },
-  { id: 'is_true', label: 'אמת', group: 'בדיקה' },
-  { id: 'is_false', label: 'שקר', group: 'בדיקה' },
-  { id: 'is_number', label: 'מספר', group: 'בדיקה' },
-  { id: 'is_email', label: 'אימייל תקין', group: 'בדיקה' },
-  { id: 'is_phone', label: 'טלפון תקין', group: 'בדיקה' },
+  { id: 'is_true', label: 'קיים/אמת', group: 'בדיקה' },
+  { id: 'is_false', label: 'לא קיים/שקר', group: 'בדיקה' },
 ];
 
 const messageTypes = [
@@ -43,7 +40,6 @@ const messageTypes = [
   { id: 'document', label: 'מסמך' },
   { id: 'sticker', label: 'סטיקר' },
   { id: 'location', label: 'מיקום' },
-  { id: 'contact', label: 'איש קשר' },
 ];
 
 const days = [
@@ -56,136 +52,239 @@ const days = [
   { id: '6', label: 'שבת' },
 ];
 
-export default function ConditionEditor({ data, onUpdate }) {
-  const needsValue = !['is_empty', 'is_not_empty', 'is_true', 'is_false', 'is_number', 'is_email', 'is_phone'].includes(data.operator);
-  const needsVarName = ['has_tag', 'contact_var', 'custom'].includes(data.variable);
+const groupedVariables = variables.reduce((acc, v) => {
+  if (!acc[v.group]) acc[v.group] = [];
+  acc[v.group].push(v);
+  return acc;
+}, {});
 
-  const groupedVariables = variables.reduce((acc, v) => {
-    if (!acc[v.group]) acc[v.group] = [];
-    acc[v.group].push(v);
-    return acc;
-  }, {});
+const groupedOperators = operators.reduce((acc, o) => {
+  if (!acc[o.group]) acc[o.group] = [];
+  acc[o.group].push(o);
+  return acc;
+}, {});
 
-  const groupedOperators = operators.reduce((acc, o) => {
-    if (!acc[o.group]) acc[o.group] = [];
-    acc[o.group].push(o);
-    return acc;
-  }, {});
+// Single condition component
+function ConditionRow({ condition, onChange, onRemove, canRemove }) {
+  const needsValue = !['is_empty', 'is_not_empty', 'is_true', 'is_false'].includes(condition.operator);
+  const needsVarName = ['has_tag', 'contact_var'].includes(condition.variable);
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-gray-500">
-        הגדר תנאי שיקבע איזה נתיב הבוט ילך.
-      </p>
-      
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          בדוק את
-        </label>
-        <select
-          value={data.variable || 'message'}
-          onChange={(e) => onUpdate({ variable: e.target.value })}
-          className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400 outline-none"
-        >
-          {Object.entries(groupedVariables).map(([group, vars]) => (
-            <optgroup key={group} label={group}>
-              {vars.map(v => (
-                <option key={v.id} value={v.id}>{v.label}</option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
+    <div className="bg-white border border-gray-200 rounded-xl p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <div className="flex-1 grid grid-cols-2 gap-2">
+          <select
+            value={condition.variable || 'message'}
+            onChange={(e) => onChange({ ...condition, variable: e.target.value })}
+            className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+          >
+            {Object.entries(groupedVariables).map(([group, vars]) => (
+              <optgroup key={group} label={group}>
+                {vars.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}
+              </optgroup>
+            ))}
+          </select>
+          
+          <select
+            value={condition.operator || 'equals'}
+            onChange={(e) => onChange({ ...condition, operator: e.target.value })}
+            className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+          >
+            {Object.entries(groupedOperators).map(([group, ops]) => (
+              <optgroup key={group} label={group}>
+                {ops.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+        
+        {canRemove && (
+          <button onClick={onRemove} className="p-1.5 text-gray-400 hover:text-red-500">
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
       
       {needsVarName && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            {data.variable === 'has_tag' ? 'שם התגית' : 
-             data.variable === 'contact_var' ? 'שם המשתנה' : 'ביטוי'}
-          </label>
-          <input
-            type="text"
-            value={data.varName || ''}
-            onChange={(e) => onUpdate({ varName: e.target.value })}
-            placeholder={data.variable === 'custom' ? 'לדוגמה: {{name}}.length > 3' : 'הזן ערך...'}
-            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400 outline-none"
-          />
-        </div>
+        <input
+          type="text"
+          value={condition.varName || ''}
+          onChange={(e) => onChange({ ...condition, varName: e.target.value })}
+          placeholder={condition.variable === 'has_tag' ? 'שם התגית' : 'שם המשתנה'}
+          className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+        />
       )}
       
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          תנאי
-        </label>
-        <select
-          value={data.operator || 'equals'}
-          onChange={(e) => onUpdate({ operator: e.target.value })}
-          className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400 outline-none"
-        >
-          {Object.entries(groupedOperators).map(([group, ops]) => (
-            <optgroup key={group} label={group}>
-              {ops.map(o => (
-                <option key={o.id} value={o.id}>{o.label}</option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-      </div>
-      
       {needsValue && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            ערך
-          </label>
-          {data.variable === 'message_type' ? (
-            <select
-              value={data.value || ''}
-              onChange={(e) => onUpdate({ value: e.target.value })}
-              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400 outline-none"
-            >
-              <option value="">בחר סוג...</option>
-              {messageTypes.map(t => (
-                <option key={t.id} value={t.id}>{t.label}</option>
-              ))}
-            </select>
-          ) : data.variable === 'day' ? (
-            <select
-              value={data.value || ''}
-              onChange={(e) => onUpdate({ value: e.target.value })}
-              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400 outline-none"
-            >
-              <option value="">בחר יום...</option>
-              {days.map(d => (
-                <option key={d.id} value={d.id}>{d.label}</option>
-              ))}
-            </select>
-          ) : data.variable === 'time' ? (
-            <input
-              type="time"
-              value={data.value || ''}
-              onChange={(e) => onUpdate({ value: e.target.value })}
-              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400 outline-none"
-            />
-          ) : (
-            <input
-              type="text"
-              value={data.value || ''}
-              onChange={(e) => onUpdate({ value: e.target.value })}
-              placeholder="ערך להשוואה..."
-              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400 outline-none"
-            />
+        condition.variable === 'message_type' ? (
+          <select
+            value={condition.value || ''}
+            onChange={(e) => onChange({ ...condition, value: e.target.value })}
+            className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+          >
+            <option value="">בחר סוג...</option>
+            {messageTypes.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
+        ) : condition.variable === 'day' ? (
+          <select
+            value={condition.value || ''}
+            onChange={(e) => onChange({ ...condition, value: e.target.value })}
+            className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+          >
+            <option value="">בחר יום...</option>
+            {days.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
+          </select>
+        ) : condition.variable === 'time' ? (
+          <input
+            type="time"
+            value={condition.value || ''}
+            onChange={(e) => onChange({ ...condition, value: e.target.value })}
+            className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+          />
+        ) : (
+          <input
+            type="text"
+            value={condition.value || ''}
+            onChange={(e) => onChange({ ...condition, value: e.target.value })}
+            placeholder="ערך להשוואה..."
+            className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+          />
+        )
+      )}
+    </div>
+  );
+}
+
+// Condition group component
+function ConditionGroup({ group, onChange, onRemove, canRemove, isRoot = false }) {
+  const conditions = group.conditions || [];
+  const logic = group.logic || 'AND';
+
+  const addCondition = () => {
+    onChange({
+      ...group,
+      conditions: [...conditions, { variable: 'message', operator: 'contains', value: '' }]
+    });
+  };
+
+  const addGroup = () => {
+    onChange({
+      ...group,
+      conditions: [...conditions, { isGroup: true, logic: 'OR', conditions: [{ variable: 'message', operator: 'contains', value: '' }] }]
+    });
+  };
+
+  const updateCondition = (index, newCondition) => {
+    const newConditions = [...conditions];
+    newConditions[index] = newCondition;
+    onChange({ ...group, conditions: newConditions });
+  };
+
+  const removeCondition = (index) => {
+    if (conditions.length <= 1 && !isRoot) return;
+    onChange({ ...group, conditions: conditions.filter((_, i) => i !== index) });
+  };
+
+  return (
+    <div className={`space-y-2 ${!isRoot ? 'bg-gray-50 rounded-xl p-3 border-2 border-dashed border-gray-200' : ''}`}>
+      {!isRoot && (
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-gray-500">קבוצת תנאים</span>
+          {canRemove && (
+            <button onClick={onRemove} className="text-xs text-red-500 hover:text-red-700">הסר קבוצה</button>
           )}
         </div>
       )}
       
+      {conditions.map((condition, index) => (
+        <div key={index}>
+          {index > 0 && (
+            <div className="flex justify-center py-1">
+              <button
+                onClick={() => onChange({ ...group, logic: logic === 'AND' ? 'OR' : 'AND' })}
+                className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
+                  logic === 'AND' 
+                    ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' 
+                    : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                }`}
+              >
+                {logic === 'AND' ? 'וגם' : 'או'}
+              </button>
+            </div>
+          )}
+          
+          {condition.isGroup ? (
+            <ConditionGroup
+              group={condition}
+              onChange={(newGroup) => updateCondition(index, newGroup)}
+              onRemove={() => removeCondition(index)}
+              canRemove={conditions.length > 1 || !isRoot}
+            />
+          ) : (
+            <ConditionRow
+              condition={condition}
+              onChange={(newCond) => updateCondition(index, newCond)}
+              onRemove={() => removeCondition(index)}
+              canRemove={conditions.length > 1 || !isRoot}
+            />
+          )}
+        </div>
+      ))}
+      
+      {/* Add buttons */}
+      <div className="flex gap-2 pt-2">
+        <button
+          onClick={addCondition}
+          className="flex-1 flex items-center justify-center gap-1 px-3 py-2 text-sm text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-lg"
+        >
+          <Plus className="w-3 h-3" />
+          תנאי
+        </button>
+        <button
+          onClick={addGroup}
+          className="flex-1 flex items-center justify-center gap-1 px-3 py-2 text-sm text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-lg"
+        >
+          <Plus className="w-3 h-3" />
+          קבוצה
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default function ConditionEditor({ data, onUpdate }) {
+  // Convert old format to new format if needed
+  const conditionGroup = data.conditionGroup || {
+    logic: 'AND',
+    conditions: data.variable ? [{ variable: data.variable, operator: data.operator, value: data.value, varName: data.varName }] : [{ variable: 'message', operator: 'contains', value: '' }]
+  };
+
+  const handleGroupChange = (newGroup) => {
+    onUpdate({ conditionGroup: newGroup });
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-gray-500">
+        הגדר תנאים מורכבים עם קבוצות. לחץ על "וגם"/"או" כדי לשנות את הלוגיקה.
+      </p>
+      
+      <ConditionGroup
+        group={conditionGroup}
+        onChange={handleGroupChange}
+        onRemove={() => {}}
+        canRemove={false}
+        isRoot={true}
+      />
+      
       <div className="bg-orange-50 rounded-xl p-4 space-y-2">
         <div className="flex items-center gap-2">
           <span className="w-4 h-4 rounded-full bg-green-500"></span>
-          <span className="text-sm text-gray-700">אם התנאי מתקיים → יציאה ירוקה</span>
+          <span className="text-sm text-gray-700">אם כל התנאים מתקיימים → יציאה ירוקה</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="w-4 h-4 rounded-full bg-red-500"></span>
-          <span className="text-sm text-gray-700">אם התנאי לא מתקיים → יציאה אדומה</span>
+          <span className="text-sm text-gray-700">אם לא מתקיימים → יציאה אדומה</span>
         </div>
       </div>
     </div>
