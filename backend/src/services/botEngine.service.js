@@ -1279,6 +1279,7 @@ class BotEngine {
       .replace(/\{\{name\}\}/gi, contact.display_name || '')
       .replace(/\{\{contact_phone\}\}/gi, contact.phone || '')
       .replace(/\{\{message\}\}/gi, message || '')
+      .replace(/\{\{last_message\}\}/gi, message || '')
       .replace(/\{\{bot_name\}\}/gi, botName || '')
       .replace(/\{\{date\}\}/gi, now.toLocaleDateString('he-IL'))
       .replace(/\{\{time\}\}/gi, now.toLocaleTimeString('he-IL'))

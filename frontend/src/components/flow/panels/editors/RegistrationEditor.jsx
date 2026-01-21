@@ -155,10 +155,9 @@ export default function RegistrationEditor({ data, onUpdate }) {
       {/* Registration Title */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">שם התהליך</label>
-        <input
-          type="text"
+        <TextInputWithVariables
           value={data.title || ''}
-          onChange={(e) => onUpdate({ title: e.target.value })}
+          onChange={(val) => onUpdate({ title: val })}
           placeholder="למשל: הרשמה לקורס"
           className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm"
         />
@@ -328,10 +327,9 @@ export default function RegistrationEditor({ data, onUpdate }) {
         </div>
         <div>
           <label className="block text-xs text-red-600 mb-1">מילת ביטול</label>
-          <input
-            type="text"
+          <TextInputWithVariables
             value={data.cancelKeyword || 'ביטול'}
-            onChange={(e) => onUpdate({ cancelKeyword: e.target.value })}
+            onChange={(val) => onUpdate({ cancelKeyword: val })}
             placeholder="ביטול"
             className="w-full px-3 py-2 bg-white border border-red-200 rounded-lg text-sm"
           />
@@ -699,10 +697,9 @@ function QuestionItem({ question, index, total, onUpdate, onRemove, onMoveUp, on
           
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">הודעת שגיאה</label>
-            <input
-              type="text"
+            <TextInputWithVariables
               value={question.errorMessage || ''}
-              onChange={(e) => onUpdate({ errorMessage: e.target.value })}
+              onChange={(val) => onUpdate({ errorMessage: val })}
               placeholder="התשובה לא תקינה, נסה שוב"
               className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
             />
