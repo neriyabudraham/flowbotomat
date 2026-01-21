@@ -287,13 +287,14 @@ class BotEngine {
       const keepSessionForMultiSelect = !singleSelect;
       
       if (singleSelect) {
-        // Single select - clear session after selection
+        // Single select - clear session before executing flow
         await this.clearSession(bot.id, contact.id);
         console.log('[BotEngine] Single select mode - session cleared');
-      } else {
-        // Multi select - keep session active for more selections
-        console.log('[BotEngine] Multi select mode - will restore session after flow execution');
       }
+      
+      // Store session data BEFORE executing flow (in case flow creates new session)
+      const originalSessionData = { ...session.waiting_data };
+      const originalNodeId = currentNode.id;
       
       // Find next edge
       let nextEdge;
@@ -317,22 +318,29 @@ class BotEngine {
       
       // For multi-select, restore the list session ONLY if no new session was created by the flow
       if (keepSessionForMultiSelect) {
-        // Check if the flow created a new session (e.g., registration, reply wait)
+        // Check if the flow created a new session (e.g., registration, reply wait, another list)
         const currentSession = await this.getSession(bot.id, contact.id);
-        if (!currentSession || currentSession.waiting_for === 'list_response') {
-          // No new session or still on list - restore for more selections
+        
+        // Only restore if:
+        // 1. No session exists (flow didn't create one)
+        // 2. OR current session is the same list node (shouldn't happen but just in case)
+        const shouldRestore = !currentSession || 
+          (currentSession.waiting_for === 'list_response' && currentSession.current_node_id === originalNodeId);
+        
+        if (shouldRestore) {
+          // Restore for more selections
           await this.saveSession(
             bot.id,
             contact.id,
-            currentNode.id,
+            originalNodeId,
             'list_response',
-            session.waiting_data,
+            originalSessionData,
             null // No timeout for list responses
           );
           console.log('[BotEngine] ✅ Multi-select session restored for more selections');
         } else {
-          // Flow created a new session (registration, reply, etc.) - don't override it
-          console.log('[BotEngine] ℹ️ New session created by flow (' + currentSession.waiting_for + '), not restoring list session');
+          // Flow created a new session (registration, reply, another list, etc.) - don't override it
+          console.log('[BotEngine] ℹ️ New session exists (' + (currentSession?.waiting_for || 'unknown') + ' on ' + (currentSession?.current_node_id || 'unknown') + '), not restoring list session');
         }
       }
       
