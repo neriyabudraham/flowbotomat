@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Bot, Play, Pause, Trash2, Edit2, X, Users, Zap, Settings, Tag, Variable, Info } from 'lucide-react';
+import { Plus, Bot, Play, Pause, Trash2, Edit2, X, Users, Zap, Settings, Tag, Variable, Info, Share2 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useBotsStore from '../store/botsStore';
 import Button from '../components/atoms/Button';
+import ShareBotModal from '../components/bots/ShareBotModal';
 import Logo from '../components/atoms/Logo';
 import api from '../services/api';
 
@@ -29,6 +30,7 @@ export default function BotsPage() {
   const [newSysVarName, setNewSysVarName] = useState('');
   const [newSysVarLabel, setNewSysVarLabel] = useState('');
   const [newSysVarValue, setNewSysVarValue] = useState('');
+  const [shareBot, setShareBot] = useState(null);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -540,12 +542,21 @@ export default function BotsPage() {
                       <button
                         onClick={(e) => { e.stopPropagation(); navigate(`/bots/${bot.id}`); }}
                         className="p-2.5 rounded-xl bg-blue-100 text-blue-600 hover:bg-blue-200"
+                        title="עריכה"
                       >
                         <Edit2 className="w-5 h-5" />
                       </button>
                       <button
+                        onClick={(e) => { e.stopPropagation(); setShareBot(bot); }}
+                        className="p-2.5 rounded-xl bg-purple-100 text-purple-600 hover:bg-purple-200"
+                        title="שיתוף"
+                      >
+                        <Share2 className="w-5 h-5" />
+                      </button>
+                      <button
                         onClick={(e) => handleDelete(e, bot)}
                         className="p-2.5 rounded-xl bg-red-100 text-red-600 hover:bg-red-200"
+                        title="מחיקה"
                       >
                         <Trash2 className="w-5 h-5" />
                       </button>
@@ -557,6 +568,11 @@ export default function BotsPage() {
           )}
         </div>
       </main>
+
+      {/* Share Bot Modal */}
+      {shareBot && (
+        <ShareBotModal bot={shareBot} onClose={() => setShareBot(null)} />
+      )}
     </div>
   );
 }
