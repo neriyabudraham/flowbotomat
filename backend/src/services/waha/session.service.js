@@ -84,6 +84,11 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
     {
       url: webhookUrl,
       events: events,
+      retries: {
+        delaySeconds: 2,
+        attempts: 2,
+        policy: 'constant',
+      },
     },
   ];
   
