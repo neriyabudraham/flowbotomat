@@ -196,7 +196,7 @@ export default function DashboardPage() {
 
   const loadUsage = async () => {
     try {
-      const { data } = await api.get('/subscriptions/usage');
+      const { data } = await api.get('/subscriptions/my/usage');
       setUsage(data);
       
       // Check usage alerts
