@@ -51,14 +51,14 @@ async function getGroups(req, res) {
     
     console.log('[Groups] Raw response:', JSON.stringify(response.data).substring(0, 500));
     
-    // Format groups - handle different WAHA response formats
+    // Format groups - handle WAHA response format
     const rawGroups = Array.isArray(response.data) ? response.data : (response.data?.groups || response.data?.data || []);
     
     const groups = rawGroups.map(group => ({
-      id: group.id || group.chatId || group.jid,
-      name: group.name || group.subject || group.groupName || 'קבוצה ללא שם',
-      participants: group.participants?.length || group.participantsCount || 0,
-    }));
+      id: group.JID || group.id || group.chatId || group.jid,
+      name: group.Name || group.name || group.subject || group.groupName || 'קבוצה ללא שם',
+      participants: group.Participants?.length || group.participants?.length || group.ParticipantCount || 0,
+    })).sort((a, b) => a.name.localeCompare(b.name, 'he')); // Sort alphabetically in Hebrew
     
     console.log('[Groups] Formatted', groups.length, 'groups');
     

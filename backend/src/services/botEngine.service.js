@@ -1112,6 +1112,11 @@ class BotEngine {
       await this.sendRegistrationSummary(node.data, contact, answers, connection, bot.name);
     }
     
+    // Send webhook if enabled
+    if (node.data.sendWebhook && node.data.webhookUrl) {
+      await this.sendRegistrationWebhook(node.data, contact, answers, bot.name);
+    }
+    
     // Execute complete path
     const completeEdge = flowData.edges.find(e => e.source === nodeId && e.sourceHandle === 'complete');
     if (completeEdge) {
@@ -1152,10 +1157,16 @@ class BotEngine {
   // Send registration summary
   async sendRegistrationSummary(nodeData, contact, answers, connection, botName) {
     try {
-      const { summaryTarget, summaryPhone, summaryGroupId, summaryTemplate } = nodeData;
+      const { summaryTarget, summaryPhone, summaryGroupId, summaryTemplate, title } = nodeData;
       
-      // Build summary text
-      let summaryText = summaryTemplate || '📋 רישום חדש!\n\n';
+      // Build summary text - use default template if none provided
+      let summaryText = summaryTemplate;
+      if (!summaryText || !summaryText.trim()) {
+        summaryText = `📋 *${title || 'רישום חדש'}*\n\n`;
+        for (const [key, value] of Object.entries(answers)) {
+          summaryText += `${key}: ${value}\n`;
+        }
+      }
       
       // Replace variables in template
       summaryText = this.replaceVariables(summaryText, contact, '', botName);
@@ -1181,6 +1192,60 @@ class BotEngine {
       console.log('[BotEngine] ✅ Registration summary sent to:', targetPhone);
     } catch (error) {
       console.error('[BotEngine] Error sending registration summary:', error.message);
+    }
+  }
+  
+  // Send registration webhook
+  async sendRegistrationWebhook(nodeData, contact, answers, botName) {
+    try {
+      const { webhookUrl, webhookBody, title } = nodeData;
+      
+      if (!webhookUrl) {
+        console.log('[BotEngine] No webhook URL configured');
+        return;
+      }
+      
+      // Prepare body - use custom or auto-generate
+      let bodyData;
+      if (webhookBody && webhookBody.trim()) {
+        // Replace variables in body
+        let processedBody = this.replaceVariables(webhookBody, contact, '', botName);
+        
+        // Replace answer variables
+        for (const [key, value] of Object.entries(answers)) {
+          const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'gi');
+          processedBody = processedBody.replace(regex, value);
+        }
+        
+        try {
+          bodyData = JSON.parse(processedBody);
+        } catch (e) {
+          console.error('[BotEngine] Invalid webhook body JSON:', e.message);
+          bodyData = { raw: processedBody };
+        }
+      } else {
+        // Auto-generate body from answers
+        bodyData = {
+          registration: title || 'רישום חדש',
+          timestamp: new Date().toISOString(),
+          contact: {
+            phone: contact.phone,
+            name: contact.display_name || ''
+          },
+          answers
+        };
+      }
+      
+      // Send webhook
+      const axios = require('axios');
+      await axios.post(webhookUrl, bodyData, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 10000
+      });
+      
+      console.log('[BotEngine] ✅ Registration webhook sent to:', webhookUrl);
+    } catch (error) {
+      console.error('[BotEngine] Error sending registration webhook:', error.message);
     }
   }
   

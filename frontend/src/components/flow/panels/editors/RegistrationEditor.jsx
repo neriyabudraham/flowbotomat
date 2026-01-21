@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, X, ChevronDown, ChevronUp, Settings, Zap, Clock } from 'lucide-react';
+import { Plus, X, ChevronDown, ChevronUp, Settings, Zap, Clock, Send, FileText, Copy } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 import api from '../../../../services/api';
 
@@ -28,10 +28,17 @@ const quickQuestions = [
   { id: 'company', label: 'חברה', question: 'באיזו חברה אתה עובד?', type: 'text', varName: 'company' },
 ];
 
+// Default messages
+const DEFAULT_TIMEOUT_MESSAGE = 'לא קיבלנו תשובה. תהליך הרישום בוטל. נשמח לעזור בפעם אחרת!';
+const DEFAULT_CANCEL_MESSAGE = 'הרישום בוטל. נשמח לעזור בפעם אחרת!';
+const DEFAULT_COMPLETION_MESSAGE = 'תודה! הרישום הושלם בהצלחה. 🎉';
+
 export default function RegistrationEditor({ data, onUpdate }) {
   const [showSummarySettings, setShowSummarySettings] = useState(false);
   const [showTimeoutSettings, setShowTimeoutSettings] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [showWebhookSettings, setShowWebhookSettings] = useState(false);
+  const [showAllGroups, setShowAllGroups] = useState(false);
   const [groups, setGroups] = useState([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
   
@@ -63,7 +70,8 @@ export default function RegistrationEditor({ data, onUpdate }) {
       varName: template.varName,
       required: true,
       errorMessage: 'התשובה לא תקינה, נסה שוב',
-      choices: []
+      choices: [],
+      expanded: false // Collapsed by default for quick add
     } : {
       id: Date.now(),
       question: '',
@@ -71,7 +79,8 @@ export default function RegistrationEditor({ data, onUpdate }) {
       varName: '',
       required: true,
       errorMessage: 'התשובה לא תקינה, נסה שוב',
-      choices: []
+      choices: [],
+      expanded: true // Expanded for manual add
     };
     
     onUpdate({ questions: [...questions, newQuestion] });
@@ -95,6 +104,39 @@ export default function RegistrationEditor({ data, onUpdate }) {
     newQuestions.splice(to, 0, removed);
     onUpdate({ questions: newQuestions });
   };
+  
+  // Generate quick summary template
+  const generateQuickSummary = () => {
+    let template = `📋 *${data.title || 'רישום חדש'}*\n\n`;
+    questions.forEach(q => {
+      if (q.varName) {
+        const label = quickQuestions.find(qQ => qQ.varName === q.varName)?.label || q.varName;
+        template += `${label}: {{${q.varName}}}\n`;
+      }
+    });
+    return template;
+  };
+  
+  // Generate quick webhook body
+  const generateQuickWebhookBody = () => {
+    const body = {
+      registration: data.title || 'רישום חדש',
+      timestamp: '{{date}} {{time}}',
+    };
+    questions.forEach(q => {
+      if (q.varName) {
+        body[q.varName] = `{{${q.varName}}}`;
+      }
+    });
+    return JSON.stringify(body, null, 2);
+  };
+  
+  // Filter groups by participant count
+  const displayedGroups = showAllGroups 
+    ? groups 
+    : groups.filter(g => g.participants <= 10);
+  
+  const hasMoreGroups = groups.some(g => g.participants > 10);
 
   return (
     <div className="space-y-4">
@@ -196,9 +238,9 @@ export default function RegistrationEditor({ data, onUpdate }) {
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">הודעת סיום</label>
         <TextInputWithVariables
-          value={data.completionMessage || ''}
+          value={data.completionMessage ?? DEFAULT_COMPLETION_MESSAGE}
           onChange={(v) => onUpdate({ completionMessage: v })}
-          placeholder="תודה! הרישום הושלם בהצלחה."
+          placeholder={DEFAULT_COMPLETION_MESSAGE}
           multiline
           rows={2}
         />
@@ -247,9 +289,9 @@ export default function RegistrationEditor({ data, onUpdate }) {
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">הודעה בעת טיימאאוט</label>
               <TextInputWithVariables
-                value={data.timeoutMessage || ''}
+                value={data.timeoutMessage ?? DEFAULT_TIMEOUT_MESSAGE}
                 onChange={(v) => onUpdate({ timeoutMessage: v })}
-                placeholder="לא קיבלנו תשובה. תהליך הרישום בוטל. נשמח לעזור בפעם אחרת!"
+                placeholder={DEFAULT_TIMEOUT_MESSAGE}
               />
             </div>
           </div>
@@ -275,9 +317,9 @@ export default function RegistrationEditor({ data, onUpdate }) {
         <div>
           <label className="block text-xs text-red-600 mb-1">הודעת ביטול</label>
           <TextInputWithVariables
-            value={data.cancelMessage || ''}
+            value={data.cancelMessage ?? DEFAULT_CANCEL_MESSAGE}
             onChange={(v) => onUpdate({ cancelMessage: v })}
-            placeholder="הרישום בוטל. נשמח לעזור בפעם אחרת!"
+            placeholder={DEFAULT_CANCEL_MESSAGE}
           />
         </div>
       </div>
@@ -290,7 +332,7 @@ export default function RegistrationEditor({ data, onUpdate }) {
           className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100"
         >
           <div className="flex items-center gap-2">
-            <Settings className="w-4 h-4 text-gray-500" />
+            <FileText className="w-4 h-4 text-gray-500" />
             <span className="font-medium text-gray-700">שליחת סיכום</span>
           </div>
           <div className="flex items-center gap-2">
@@ -311,7 +353,7 @@ export default function RegistrationEditor({ data, onUpdate }) {
                 className="w-5 h-5 rounded border-gray-300 text-indigo-600"
               />
               <div>
-                <div className="font-medium text-gray-700">שלח סיכום למזכירה</div>
+                <div className="font-medium text-gray-700">שלח סיכום</div>
                 <div className="text-xs text-gray-500">שלח את פרטי הרישום למספר/קבוצה</div>
               </div>
             </label>
@@ -367,18 +409,38 @@ export default function RegistrationEditor({ data, onUpdate }) {
                     {loadingGroups ? (
                       <div className="text-sm text-gray-500 py-2">טוען קבוצות...</div>
                     ) : groups.length > 0 ? (
-                      <select
-                        value={data.summaryGroupId || ''}
-                        onChange={(e) => onUpdate({ summaryGroupId: e.target.value })}
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm"
-                      >
-                        <option value="">בחר קבוצה...</option>
-                        {groups.map((group) => (
-                          <option key={group.id} value={group.id}>
-                            {group.name}
-                          </option>
-                        ))}
-                      </select>
+                      <>
+                        <select
+                          value={data.summaryGroupId || ''}
+                          onChange={(e) => onUpdate({ summaryGroupId: e.target.value })}
+                          className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm"
+                        >
+                          <option value="">בחר קבוצה...</option>
+                          {displayedGroups.map((group) => (
+                            <option key={group.id} value={group.id}>
+                              {group.name} ({group.participants} משתתפים)
+                            </option>
+                          ))}
+                        </select>
+                        {hasMoreGroups && !showAllGroups && (
+                          <button
+                            type="button"
+                            onClick={() => setShowAllGroups(true)}
+                            className="mt-2 text-xs text-indigo-600 hover:underline"
+                          >
+                            הצג את כל הקבוצות ({groups.length})
+                          </button>
+                        )}
+                        {showAllGroups && (
+                          <button
+                            type="button"
+                            onClick={() => setShowAllGroups(false)}
+                            className="mt-2 text-xs text-gray-500 hover:underline"
+                          >
+                            הצג רק קבוצות קטנות
+                          </button>
+                        )}
+                      </>
                     ) : (
                       <div className="text-sm text-gray-500 py-2">
                         לא נמצאו קבוצות.{' '}
@@ -389,7 +451,17 @@ export default function RegistrationEditor({ data, onUpdate }) {
                 )}
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">תבנית סיכום</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-medium text-gray-700">תבנית סיכום</label>
+                    <button
+                      type="button"
+                      onClick={() => onUpdate({ summaryTemplate: generateQuickSummary() })}
+                      className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
+                    >
+                      <Zap className="w-3 h-3" />
+                      יצירה מהירה
+                    </button>
+                  </div>
                   <TextInputWithVariables
                     value={data.summaryTemplate || ''}
                     onChange={(v) => onUpdate({ summaryTemplate: v })}
@@ -398,6 +470,82 @@ export default function RegistrationEditor({ data, onUpdate }) {
                     rows={4}
                   />
                   <p className="text-xs text-gray-400 mt-1">השתמש בשמות המשתנים שהגדרת בשאלות</p>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+      
+      {/* Webhook Settings */}
+      <div className="border border-gray-200 rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowWebhookSettings(!showWebhookSettings)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100"
+        >
+          <div className="flex items-center gap-2">
+            <Send className="w-4 h-4 text-gray-500" />
+            <span className="font-medium text-gray-700">שליחה לוובהוק</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {data.sendWebhook && (
+              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">פעיל</span>
+            )}
+            {showWebhookSettings ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </div>
+        </button>
+        
+        {showWebhookSettings && (
+          <div className="p-4 space-y-4 bg-white">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={data.sendWebhook || false}
+                onChange={(e) => onUpdate({ sendWebhook: e.target.checked })}
+                className="w-5 h-5 rounded border-gray-300 text-blue-600"
+              />
+              <div>
+                <div className="font-medium text-gray-700">שלח לוובהוק</div>
+                <div className="text-xs text-gray-500">שלח את הנתונים ל-URL חיצוני</div>
+              </div>
+            </label>
+            
+            {data.sendWebhook && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">כתובת URL</label>
+                  <input
+                    type="url"
+                    value={data.webhookUrl || ''}
+                    onChange={(e) => onUpdate({ webhookUrl: e.target.value })}
+                    placeholder="https://example.com/webhook"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm"
+                    dir="ltr"
+                  />
+                </div>
+                
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-medium text-gray-700">גוף הבקשה (JSON)</label>
+                    <button
+                      type="button"
+                      onClick={() => onUpdate({ webhookBody: generateQuickWebhookBody() })}
+                      className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
+                    >
+                      <Zap className="w-3 h-3" />
+                      יצירה מהירה
+                    </button>
+                  </div>
+                  <TextInputWithVariables
+                    value={data.webhookBody || ''}
+                    onChange={(v) => onUpdate({ webhookBody: v })}
+                    placeholder={generateQuickWebhookBody()}
+                    multiline
+                    rows={6}
+                    dir="ltr"
+                    className="font-mono"
+                  />
                 </div>
               </>
             )}
@@ -422,7 +570,7 @@ export default function RegistrationEditor({ data, onUpdate }) {
 
 // Question Item Component
 function QuestionItem({ question, index, total, onUpdate, onRemove, onMoveUp, onMoveDown }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(question.expanded !== false);
   const typeInfo = questionTypes.find(t => t.id === question.type) || questionTypes[0];
   
   return (
