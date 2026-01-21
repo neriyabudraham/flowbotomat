@@ -1,18 +1,17 @@
 import { useState, useRef } from 'react';
-import { Plus, X, GripVertical, MessageSquare, Image, FileText, Clock, Upload, CheckCircle, AlertCircle } from 'lucide-react';
+import { Plus, X, GripVertical, MessageSquare, Image, FileText, Clock, Upload, CheckCircle } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 
-// WhatsApp limits
 const LIMITS = {
   text: 4096,
   caption: 1024,
 };
 
 const actionTypes = [
-  { id: 'text', label: 'טקסט', icon: MessageSquare, description: 'הודעת טקסט' },
-  { id: 'image', label: 'תמונה', icon: Image, description: 'שליחת תמונה' },
-  { id: 'file', label: 'קובץ', icon: FileText, description: 'שליחת קובץ' },
-  { id: 'delay', label: 'השהייה', icon: Clock, description: 'המתנה' },
+  { id: 'text', label: 'טקסט', icon: MessageSquare },
+  { id: 'image', label: 'תמונה', icon: Image },
+  { id: 'file', label: 'קובץ', icon: FileText },
+  { id: 'delay', label: 'השהייה', icon: Clock },
 ];
 
 export default function MessageEditor({ data, onUpdate }) {
@@ -20,7 +19,10 @@ export default function MessageEditor({ data, onUpdate }) {
   const [dragIndex, setDragIndex] = useState(null);
 
   const addAction = (type) => {
-    const newAction = getDefaultAction(type);
+    const newAction = type === 'text' ? { type, content: '' } 
+      : type === 'image' ? { type, url: '', caption: '' }
+      : type === 'file' ? { type, url: '' }
+      : { type, delay: 1, unit: 'seconds' };
     onUpdate({ actions: [...actions, newAction] });
   };
 
@@ -30,19 +32,16 @@ export default function MessageEditor({ data, onUpdate }) {
   };
 
   const updateAction = (index, updates) => {
-    const newActions = actions.map((a, i) => i === index ? { ...a, ...updates } : a);
+    const newActions = [...actions];
+    newActions[index] = { ...newActions[index], ...updates };
     onUpdate({ actions: newActions });
   };
 
-  const handleDragStart = (e, index) => {
-    setDragIndex(index);
-    e.dataTransfer.effectAllowed = 'move';
-  };
-
+  const handleDragStart = (index) => setDragIndex(index);
+  
   const handleDragOver = (e, index) => {
     e.preventDefault();
     if (dragIndex === null || dragIndex === index) return;
-    
     const newActions = [...actions];
     const [removed] = newActions.splice(dragIndex, 1);
     newActions.splice(index, 0, removed);
@@ -50,31 +49,25 @@ export default function MessageEditor({ data, onUpdate }) {
     setDragIndex(index);
   };
 
-  const handleDragEnd = () => {
-    setDragIndex(null);
-  };
-
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-500">
-        הוסף תוכן לשליחה. ניתן לגרור כדי לשנות סדר.
-      </p>
+      <p className="text-sm text-gray-500">הוסף תוכן לשליחה. גרור לשינוי סדר.</p>
 
-      {/* Actions List */}
+      {/* Actions */}
       <div className="space-y-3">
         {actions.map((action, index) => (
           <div
             key={index}
             draggable
-            onDragStart={(e) => handleDragStart(e, index)}
+            onDragStart={() => handleDragStart(index)}
             onDragOver={(e) => handleDragOver(e, index)}
-            onDragEnd={handleDragEnd}
-            className={`transition-all ${dragIndex === index ? 'opacity-50 scale-95' : ''}`}
+            onDragEnd={() => setDragIndex(null)}
+            className={`transition-opacity ${dragIndex === index ? 'opacity-50' : ''}`}
           >
             <ActionItem
               action={action}
               index={index}
-              total={actions.length}
+              canRemove={actions.length > 1}
               onUpdate={(updates) => updateAction(index, updates)}
               onRemove={() => removeAction(index)}
             />
@@ -82,7 +75,7 @@ export default function MessageEditor({ data, onUpdate }) {
         ))}
       </div>
 
-      {/* Add Action Buttons */}
+      {/* Add buttons */}
       <div className="border-t border-gray-100 pt-4">
         <p className="text-sm text-gray-500 mb-3">הוסף תוכן:</p>
         <div className="grid grid-cols-2 gap-2">
@@ -99,6 +92,39 @@ export default function MessageEditor({ data, onUpdate }) {
         </div>
       </div>
 
+      {/* Wait for reply */}
+      <div className="border-t border-gray-100 pt-4">
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={data.waitForReply || false}
+            onChange={(e) => onUpdate({ waitForReply: e.target.checked })}
+            className="w-5 h-5 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+          />
+          <div>
+            <div className="font-medium text-gray-700">המתן לתגובה</div>
+            <div className="text-xs text-gray-500">הבוט יחכה לתגובה לפני שימשיך</div>
+          </div>
+        </label>
+        
+        {data.waitForReply && (
+          <div className="mt-3 mr-8">
+            <label className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">זמן המתנה:</span>
+              <input
+                type="number"
+                value={data.timeout || 60}
+                onChange={(e) => onUpdate({ timeout: parseInt(e.target.value) || null })}
+                min={10}
+                className="w-20 px-2 py-1 border border-gray-200 rounded-lg text-sm text-center"
+              />
+              <span className="text-sm text-gray-500">שניות</span>
+            </label>
+            <p className="text-xs text-gray-400 mt-1">השאר ריק להמתנה ללא הגבלה</p>
+          </div>
+        )}
+      </div>
+
       {/* Tip */}
       <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500">
         💡 לשליחת רשימת בחירה, הוסף מודול "רשימה" נפרד מהפלטה.
@@ -107,15 +133,14 @@ export default function MessageEditor({ data, onUpdate }) {
   );
 }
 
-function ActionItem({ action, index, total, onUpdate, onRemove }) {
+function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
   const Icon = actionTypes.find(a => a.id === action.type)?.icon || MessageSquare;
   const fileInputRef = useRef(null);
 
-  const handleFileUpload = async (e) => {
+  const handleFileUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     
-    // For now, convert to base64 or you can upload to server
     const reader = new FileReader();
     reader.onload = () => {
       onUpdate({ 
@@ -129,7 +154,7 @@ function ActionItem({ action, index, total, onUpdate, onRemove }) {
   };
 
   return (
-    <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 hover:border-gray-200 transition-colors">
+    <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
       <div className="flex items-center gap-2 mb-2">
         <div className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500">
           <GripVertical className="w-4 h-4" />
@@ -138,51 +163,34 @@ function ActionItem({ action, index, total, onUpdate, onRemove }) {
         <span className="text-sm font-medium text-gray-700 flex-1">
           {actionTypes.find(a => a.id === action.type)?.label}
         </span>
-        {total > 1 && (
-          <button onClick={onRemove} className="text-gray-400 hover:text-red-500 p-1 rounded hover:bg-red-50">
+        {canRemove && (
+          <button onClick={onRemove} className="text-gray-400 hover:text-red-500 p-1">
             <X className="w-4 h-4" />
           </button>
         )}
       </div>
 
       {action.type === 'text' && (
-        <div>
-          <div className="flex items-center justify-between text-xs mb-1">
-            <span className="text-gray-500">תוכן ההודעה</span>
-            <span className={`${(action.content?.length || 0) > LIMITS.text ? 'text-red-500' : 'text-gray-400'}`}>
-              {action.content?.length || 0}/{LIMITS.text}
-            </span>
-          </div>
-          <TextInputWithVariables
-            value={action.content || ''}
-            onChange={(v) => onUpdate({ content: v })}
-            placeholder="כתוב את ההודעה..."
-            maxLength={LIMITS.text}
-            multiline
-            rows={3}
-          />
-        </div>
+        <TextInputWithVariables
+          value={action.content || ''}
+          onChange={(v) => onUpdate({ content: v })}
+          placeholder="כתוב את ההודעה..."
+          maxLength={LIMITS.text}
+          multiline
+          rows={3}
+        />
       )}
 
       {action.type === 'image' && (
         <div className="space-y-2">
-          {/* Upload or URL */}
-          <div className="flex gap-2">
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex-1 flex items-center justify-center gap-2 py-3 bg-white border-2 border-dashed border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50 transition-colors"
-            >
-              <Upload className="w-4 h-4" />
-              <span className="text-sm">העלה תמונה</span>
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-          </div>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full flex items-center justify-center gap-2 py-3 bg-white border-2 border-dashed border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50"
+          >
+            <Upload className="w-4 h-4" />
+            <span className="text-sm">העלה תמונה</span>
+          </button>
+          <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
           
           {action.fileName && (
             <div className="flex items-center gap-2 p-2 bg-teal-50 rounded-lg text-sm text-teal-700">
@@ -197,43 +205,30 @@ function ActionItem({ action, index, total, onUpdate, onRemove }) {
             type="url"
             value={action.url || ''}
             onChange={(e) => onUpdate({ url: e.target.value, localFile: false })}
-            placeholder="הדבק כתובת URL לתמונה..."
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-200 outline-none"
+            placeholder="הדבק URL לתמונה..."
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
             dir="ltr"
           />
           
-          <div>
-            <div className="flex items-center justify-between text-xs mb-1">
-              <span className="text-gray-500">כיתוב (אופציונלי)</span>
-              <span className="text-gray-400">{action.caption?.length || 0}/{LIMITS.caption}</span>
-            </div>
-            <TextInputWithVariables
-              value={action.caption || ''}
-              onChange={(v) => onUpdate({ caption: v })}
-              placeholder="כיתוב לתמונה..."
-              maxLength={LIMITS.caption}
-            />
-          </div>
+          <TextInputWithVariables
+            value={action.caption || ''}
+            onChange={(v) => onUpdate({ caption: v })}
+            placeholder="כיתוב (אופציונלי)..."
+            maxLength={LIMITS.caption}
+          />
         </div>
       )}
 
       {action.type === 'file' && (
         <div className="space-y-2">
-          <div className="flex gap-2">
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex-1 flex items-center justify-center gap-2 py-3 bg-white border-2 border-dashed border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50 transition-colors"
-            >
-              <Upload className="w-4 h-4" />
-              <span className="text-sm">העלה קובץ</span>
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-          </div>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full flex items-center justify-center gap-2 py-3 bg-white border-2 border-dashed border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50"
+          >
+            <Upload className="w-4 h-4" />
+            <span className="text-sm">העלה קובץ</span>
+          </button>
+          <input ref={fileInputRef} type="file" onChange={handleFileUpload} className="hidden" />
           
           {action.fileName && (
             <div className="flex items-center gap-2 p-2 bg-teal-50 rounded-lg text-sm text-teal-700">
@@ -248,8 +243,8 @@ function ActionItem({ action, index, total, onUpdate, onRemove }) {
             type="url"
             value={action.url || ''}
             onChange={(e) => onUpdate({ url: e.target.value, localFile: false })}
-            placeholder="הדבק כתובת URL לקובץ..."
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-200 outline-none"
+            placeholder="הדבק URL לקובץ..."
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
             dir="ltr"
           />
         </div>
@@ -262,12 +257,12 @@ function ActionItem({ action, index, total, onUpdate, onRemove }) {
             value={action.delay || 1}
             onChange={(e) => onUpdate({ delay: Math.max(1, parseInt(e.target.value) || 1) })}
             min={1}
-            className="w-20 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-center focus:ring-2 focus:ring-teal-200 outline-none"
+            className="w-20 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-center"
           />
           <select
             value={action.unit || 'seconds'}
             onChange={(e) => onUpdate({ unit: e.target.value })}
-            className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-200 outline-none"
+            className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
           >
             <option value="seconds">שניות</option>
             <option value="minutes">דקות</option>
@@ -276,14 +271,4 @@ function ActionItem({ action, index, total, onUpdate, onRemove }) {
       )}
     </div>
   );
-}
-
-function getDefaultAction(type) {
-  switch (type) {
-    case 'text': return { type: 'text', content: '' };
-    case 'image': return { type: 'image', url: '', caption: '' };
-    case 'file': return { type: 'file', url: '' };
-    case 'delay': return { type: 'delay', delay: 1, unit: 'seconds' };
-    default: return { type };
-  }
 }

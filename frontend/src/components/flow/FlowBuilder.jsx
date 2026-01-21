@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect, useState } from 'react';
+import { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import {
   ReactFlow,
   Background,
@@ -30,62 +30,30 @@ const edgeTypes = {
   default: EdgeWithDelete,
 };
 
-const defaultTriggerNode = {
-  id: 'trigger_start',
-  type: 'trigger',
-  position: { x: 100, y: 200 },
-  data: { triggers: [{ type: 'any_message', value: '' }] },
-};
-
-function FlowBuilderInner({ initialData, onChange, onNodeSelect, onNodeDelete, onNodeDuplicate }) {
+function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete }) {
   const reactFlowWrapper = useRef(null);
-  const { screenToFlowPosition, getNode } = useReactFlow();
+  const { screenToFlowPosition } = useReactFlow();
   const [quickAddMenu, setQuickAddMenu] = useState(null);
   const [pendingConnection, setPendingConnection] = useState(null);
   const [miniMapCollapsed, setMiniMapCollapsed] = useState(false);
   
-  const initialNodes = initialData?.nodes?.length > 0 
-    ? initialData.nodes 
-    : [defaultTriggerNode];
-  
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialData?.nodes || []);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialData?.edges || []);
 
-  // Update nodes with callbacks
+  // Sync with parent
   useEffect(() => {
-    setNodes(nds => nds.map(node => ({
-      ...node,
-      data: {
-        ...node.data,
-        onEdit: () => onNodeSelect?.(node),
-        onDelete: () => handleDeleteNode(node.id),
-        onDuplicate: () => node.type !== 'trigger' && handleDuplicateNode(node.id),
-      }
-    })));
-  }, [onNodeSelect]);
-
-  // Notify parent of changes
-  useEffect(() => {
-    const cleanNodes = nodes.map(n => ({
-      ...n,
-      data: { 
-        ...n.data, 
-        onEdit: undefined, 
-        onDelete: undefined, 
-        onDuplicate: undefined 
-      }
-    }));
-    onChange?.({ nodes: cleanNodes, edges });
+    onChange?.({ nodes, edges });
   }, [nodes, edges]);
 
+  // Delete node
   const handleDeleteNode = useCallback((nodeId) => {
     setNodes(nds => nds.filter(n => n.id !== nodeId));
     setEdges(eds => eds.filter(e => e.source !== nodeId && e.target !== nodeId));
-    onNodeDelete?.(nodeId);
-  }, [setNodes, setEdges, onNodeDelete]);
+  }, [setNodes, setEdges]);
 
+  // Duplicate node
   const handleDuplicateNode = useCallback((nodeId) => {
-    const node = getNode(nodeId);
+    const node = nodes.find(n => n.id === nodeId);
     if (!node || node.type === 'trigger') return;
     
     const newNode = {
@@ -97,19 +65,46 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onNodeDelete, o
     };
     
     setNodes(nds => [...nds, newNode]);
-    onNodeDuplicate?.(newNode);
-  }, [getNode, setNodes, onNodeDuplicate]);
+  }, [nodes, setNodes]);
 
+  // Delete edge
   const handleDeleteEdge = useCallback((edgeId) => {
     setEdges(eds => eds.filter(e => e.id !== edgeId));
-  }, [setEdges]);
+    onEdgeDelete?.(edgeId);
+  }, [setEdges, onEdgeDelete]);
+
+  // Add callbacks to nodes
+  const nodesWithCallbacks = useMemo(() => {
+    return nodes.map(node => ({
+      ...node,
+      data: {
+        ...node.data,
+        onEdit: () => onNodeSelect?.(node),
+        onDelete: () => handleDeleteNode(node.id),
+        onDuplicate: () => handleDuplicateNode(node.id),
+      }
+    }));
+  }, [nodes, onNodeSelect, handleDeleteNode, handleDuplicateNode]);
+
+  // Add callbacks to edges
+  const edgesWithCallbacks = useMemo(() => {
+    return edges.map(edge => ({
+      ...edge,
+      data: { 
+        ...edge.data, 
+        onDelete: () => handleDeleteEdge(edge.id) 
+      }
+    }));
+  }, [edges, handleDeleteEdge]);
 
   const onConnect = useCallback(
-    (params) => setEdges((eds) => addEdge({
-      ...params,
-      type: 'default',
-      markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15 },
-    }, eds)),
+    (params) => {
+      setEdges((eds) => addEdge({
+        ...params,
+        type: 'default',
+        markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15 },
+      }, eds));
+    },
     [setEdges]
   );
 
@@ -161,14 +156,15 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onNodeDelete, o
     setPendingConnection(null);
     
     setTimeout(() => {
-      const node = { id: newNodeId, type, data: getDefaultData(type), position };
-      onNodeSelect?.(node);
-    }, 100);
+      onNodeSelect?.({ id: newNodeId, type, data: getDefaultData(type), position });
+    }, 50);
   }, [quickAddMenu, pendingConnection, screenToFlowPosition, setNodes, setEdges, onNodeSelect]);
 
   const onNodeClick = useCallback((event, node) => {
-    onNodeSelect?.(node);
-  }, [onNodeSelect]);
+    // Get the latest node data
+    const currentNode = nodes.find(n => n.id === node.id) || node;
+    onNodeSelect?.(currentNode);
+  }, [nodes, onNodeSelect]);
 
   const onDragOver = useCallback((event) => {
     event.preventDefault();
@@ -198,21 +194,16 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onNodeDelete, o
       
       setTimeout(() => {
         onNodeSelect?.({ ...newNode });
-      }, 100);
+      }, 50);
     },
     [screenToFlowPosition, setNodes, onNodeSelect]
   );
 
-  const edgesWithDelete = edges.map(edge => ({
-    ...edge,
-    data: { ...edge.data, onDelete: () => handleDeleteEdge(edge.id) }
-  }));
-
   return (
     <div className="h-full relative" ref={reactFlowWrapper}>
       <ReactFlow
-        nodes={nodes}
-        edges={edgesWithDelete}
+        nodes={nodesWithCallbacks}
+        edges={edgesWithCallbacks}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
@@ -234,6 +225,7 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onNodeDelete, o
         connectionLineType="smoothstep"
         minZoom={0.3}
         maxZoom={2}
+        deleteKeyCode={['Backspace', 'Delete']}
       >
         <Background color="#e2e8f0" gap={20} size={1} />
         <Controls 
@@ -242,28 +234,28 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onNodeDelete, o
           className="!bg-white !rounded-xl !border !border-gray-200 !shadow-lg"
         />
         
-        {/* Collapsible MiniMap */}
+        {/* MiniMap */}
         <div className="absolute bottom-4 right-4 z-10">
           <button
             onClick={() => setMiniMapCollapsed(!miniMapCollapsed)}
             className="absolute -top-8 right-0 px-2 py-1 bg-white border border-gray-200 rounded-t-lg text-xs text-gray-500 hover:bg-gray-50"
           >
-            {miniMapCollapsed ? '📍 הצג מפה' : '📍 הסתר'}
+            {miniMapCollapsed ? '📍 הצג' : '📍 הסתר'}
           </button>
           {!miniMapCollapsed && (
             <MiniMap 
               className="!bg-white !rounded-xl !border !border-gray-200 !shadow-lg !relative !bottom-0 !right-0"
               style={{ width: 150, height: 100 }}
               nodeColor={(n) => {
-                switch (n.type) {
-                  case 'trigger': return '#a855f7';
-                  case 'message': return '#14b8a6';
-                  case 'condition': return '#f97316';
-                  case 'delay': return '#3b82f6';
-                  case 'action': return '#ec4899';
-                  case 'list': return '#06b6d4';
-                  default: return '#6b7280';
-                }
+                const colors = {
+                  trigger: '#a855f7',
+                  message: '#14b8a6',
+                  condition: '#f97316',
+                  delay: '#3b82f6',
+                  action: '#ec4899',
+                  list: '#06b6d4',
+                };
+                return colors[n.type] || '#6b7280';
               }}
               maskColor="rgba(255, 255, 255, 0.8)"
               pannable
@@ -300,7 +292,7 @@ function getDefaultData(type) {
     case 'trigger':
       return { triggers: [{ type: 'any_message', value: '' }] };
     case 'message':
-      return { actions: [{ type: 'text', content: '' }] };
+      return { actions: [{ type: 'text', content: '' }], waitForReply: false };
     case 'condition':
       return { variable: 'message', operator: 'contains', value: '' };
     case 'delay':
@@ -308,7 +300,7 @@ function getDefaultData(type) {
     case 'action':
       return { actions: [{ type: 'add_tag', tagName: '' }] };
     case 'list':
-      return { title: '', body: '', buttonText: 'בחר', buttons: [], timeout: 60 };
+      return { title: '', body: '', buttonText: 'בחר', buttons: [], waitForReply: true, timeout: null };
     default:
       return {};
   }

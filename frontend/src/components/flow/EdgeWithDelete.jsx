@@ -13,6 +13,7 @@ export default function EdgeWithDelete({
   style = {},
   markerEnd,
   data,
+  selected,
 }) {
   const [isHovered, setIsHovered] = useState(false);
   
@@ -25,17 +26,19 @@ export default function EdgeWithDelete({
     targetPosition,
   });
 
+  const showDelete = isHovered || selected;
+
   return (
     <>
-      {/* Invisible wider path for easier hover detection */}
+      {/* Invisible wider path for easier hover */}
       <path
         d={edgePath}
         fill="none"
-        strokeWidth={20}
+        strokeWidth={30}
         stroke="transparent"
+        style={{ cursor: 'pointer' }}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        style={{ cursor: 'pointer' }}
       />
       
       <BaseEdge 
@@ -43,33 +46,35 @@ export default function EdgeWithDelete({
         markerEnd={markerEnd} 
         style={{
           ...style,
-          strokeWidth: isHovered ? 3 : 2,
-          stroke: isHovered ? '#f97316' : '#94a3b8',
-          transition: 'stroke 0.2s, stroke-width 0.2s',
+          strokeWidth: showDelete ? 3 : 2,
+          stroke: showDelete ? '#f97316' : '#94a3b8',
         }}
       />
       
-      <EdgeLabelRenderer>
-        <div
-          style={{
-            position: 'absolute',
-            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-            pointerEvents: 'all',
-          }}
-          className="nodrag nopan"
-          onMouseEnter={() => setIsHovered(true)}
-          onMouseLeave={() => setIsHovered(false)}
-        >
-          {isHovered && (
+      {showDelete && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+              pointerEvents: 'all',
+            }}
+            className="nodrag nopan"
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+          >
             <button
-              onClick={() => data?.onDelete?.()}
-              className="w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg transition-all animate-in fade-in zoom-in duration-150"
+              onClick={(e) => {
+                e.stopPropagation();
+                data?.onDelete?.();
+              }}
+              className="w-7 h-7 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg"
             >
               <X className="w-4 h-4" />
             </button>
-          )}
-        </div>
-      </EdgeLabelRenderer>
+          </div>
+        </EdgeLabelRenderer>
+      )}
     </>
   );
 }

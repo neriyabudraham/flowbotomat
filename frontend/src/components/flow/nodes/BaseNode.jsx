@@ -36,7 +36,7 @@ function BaseNode({
       }`}
     >
       {/* Hover Actions */}
-      <div className="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-auto">
+      <div className="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity z-50">
         <div className="flex items-center gap-1 bg-white rounded-xl shadow-lg border border-gray-200 p-1">
           <button 
             onClick={(e) => { e.stopPropagation(); data.onEdit?.(); }}
