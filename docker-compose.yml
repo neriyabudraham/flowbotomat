@@ -60,6 +60,7 @@ services:
     restart: unless-stopped
     environment:
       VITE_API_URL: ${VITE_API_URL}
+      VITE_SUMIT_PUBLIC_KEY: ${SUMIT_APIPublicKey}
     ports:
       - "3748:5173"
     volumes:
