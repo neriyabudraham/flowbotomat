@@ -26,12 +26,17 @@ async function createManaged(req, res) {
     
     // Check if user already has a connection
     const existing = await pool.query(
-      'SELECT id FROM whatsapp_connections WHERE user_id = $1',
+      'SELECT id, status FROM whatsapp_connections WHERE user_id = $1',
       [userId]
     );
     
+    // If connection exists and is connected, don't allow new one
     if (existing.rows.length > 0) {
-      return res.status(400).json({ error: 'כבר יש לך חיבור WhatsApp' });
+      if (existing.rows[0].status === 'connected') {
+        return res.status(400).json({ error: 'כבר יש לך חיבור WhatsApp פעיל' });
+      }
+      // Delete old non-connected entry
+      await pool.query('DELETE FROM whatsapp_connections WHERE id = $1', [existing.rows[0].id]);
     }
     
     // Get system WAHA credentials
@@ -90,12 +95,17 @@ async function createExternal(req, res) {
     
     // Check if user already has a connection
     const existing = await pool.query(
-      'SELECT id FROM whatsapp_connections WHERE user_id = $1',
+      'SELECT id, status FROM whatsapp_connections WHERE user_id = $1',
       [userId]
     );
     
+    // If connection exists and is connected, don't allow new one
     if (existing.rows.length > 0) {
-      return res.status(400).json({ error: 'כבר יש לך חיבור WhatsApp' });
+      if (existing.rows[0].status === 'connected') {
+        return res.status(400).json({ error: 'כבר יש לך חיבור WhatsApp פעיל' });
+      }
+      // Delete old non-connected entry
+      await pool.query('DELETE FROM whatsapp_connections WHERE id = $1', [existing.rows[0].id]);
     }
     
     // Test connection and get actual status from WAHA
