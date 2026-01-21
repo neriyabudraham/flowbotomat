@@ -22,19 +22,21 @@ async function getContactStats(req, res) {
     const messagesResult = await db.query(`
       SELECT 
         COUNT(*) as message_count,
-        MAX(created_at) as last_message_at
+        MAX(sent_at) as last_message_at
       FROM messages 
       WHERE contact_id = $1
     `, [contactId]);
     
     // Get last message content
     const lastMessageResult = await db.query(`
-      SELECT content, message_type, created_at
+      SELECT content, message_type, sent_at as created_at
       FROM messages 
       WHERE contact_id = $1 
-      ORDER BY created_at DESC 
+      ORDER BY sent_at DESC 
       LIMIT 1
     `, [contactId]);
+    
+    console.log(`[Stats] Contact ${contactId} - Message count: ${messagesResult.rows[0]?.message_count}`);
     
     // Get bots that this contact interacted with (count messages from each bot)
     const flowsResult = await db.query(`
@@ -101,7 +103,7 @@ async function getGlobalStats(req, res) {
     const todayMessagesResult = await db.query(`
       SELECT COUNT(*) as today 
       FROM messages 
-      WHERE user_id = $1 AND created_at > CURRENT_DATE
+      WHERE user_id = $1 AND sent_at > CURRENT_DATE
     `, [userId]);
     
     res.json({
