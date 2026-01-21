@@ -47,10 +47,11 @@ async function createManaged(req, res) {
     let wahaStatus = null;
     let existingSession = null;
     let dbConnection = null;
+    let useExistingDb = false;
     
     // Step 1: Check if user already has a connection in our DB
     const existing = await pool.query(
-      'SELECT id, status, session_name FROM whatsapp_connections WHERE user_id = $1',
+      'SELECT * FROM whatsapp_connections WHERE user_id = $1',
       [userId]
     );
     
@@ -58,22 +59,13 @@ async function createManaged(req, res) {
       dbConnection = existing.rows[0];
       sessionName = dbConnection.session_name;
       
-      // If connected, just return success
-      if (dbConnection.status === 'connected') {
-        console.log(`[WhatsApp] ✅ Already connected: ${sessionName}`);
-        return res.json({ 
-          success: true, 
-          connection: dbConnection,
-          existingSession: true,
-        });
-      }
+      console.log(`[WhatsApp] Found DB record: session=${sessionName}, status=${dbConnection.status}`);
       
-      // Has DB record but not connected - try to use existing session
-      console.log(`[WhatsApp] Found DB record with session: ${sessionName}, status: ${dbConnection.status}`);
-      
+      // Try to use this session from WAHA
       try {
         wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
         existingSession = { name: sessionName };
+        useExistingDb = true;
         console.log(`[WhatsApp] ✅ Session exists in WAHA: ${sessionName}, status: ${wahaStatus.status}`);
         
         // If stopped or failed, restart it
@@ -87,15 +79,28 @@ async function createManaged(req, res) {
           wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
         }
       } catch (err) {
-        // Session doesn't exist in WAHA anymore - will search by email below
-        console.log(`[WhatsApp] Session ${sessionName} not found in WAHA: ${err.message}`);
-        sessionName = null;
+        // Session doesn't exist in WAHA - need to create new one (but keep trying with same name first)
+        console.log(`[WhatsApp] Session ${sessionName} not found in WAHA, will recreate it`);
+        
+        // Try to create session with same name
+        try {
+          const sessionMetadata = { 'user.email': userEmail };
+          await wahaSession.createSession(baseUrl, apiKey, sessionName, sessionMetadata);
+          await wahaSession.startSession(baseUrl, apiKey, sessionName);
+          wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+          existingSession = { name: sessionName };
+          useExistingDb = true;
+          console.log(`[WhatsApp] ✅ Recreated session with same name: ${sessionName}`);
+        } catch (createErr) {
+          console.log(`[WhatsApp] Failed to recreate session: ${createErr.message}`);
+          sessionName = null;
+        }
       }
     }
     
-    // Step 2: If no session from DB, search in WAHA by email
-    if (!sessionName) {
-      console.log(`[WhatsApp] Searching for existing session with email: ${userEmail}`);
+    // Step 2: If no DB record, search in WAHA by email (only for new users)
+    if (!sessionName && !dbConnection) {
+      console.log(`[WhatsApp] No DB record, searching WAHA for email: ${userEmail}`);
       
       try {
         existingSession = await wahaSession.findSessionByEmail(baseUrl, apiKey, userEmail);
@@ -124,7 +129,7 @@ async function createManaged(req, res) {
     // Step 3: If still no session, create new one
     if (!sessionName) {
       const uniqueId = require('crypto').randomBytes(4).toString('hex');
-      sessionName = `fb_${uniqueId}`;
+      sessionName = `flow.botomat_${uniqueId}`;
       
       const sessionMetadata = {
         'user.email': userEmail,
@@ -137,11 +142,6 @@ async function createManaged(req, res) {
       console.log(`[WhatsApp] ✅ Created new session: ${sessionName}`);
       
       wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
-    }
-    
-    // Delete old DB record if exists (will be replaced with updated info)
-    if (dbConnection) {
-      await pool.query('DELETE FROM whatsapp_connections WHERE id = $1', [dbConnection.id]);
     }
     
     // Get updated status
@@ -181,19 +181,39 @@ async function createManaged(req, res) {
       console.error('[Webhook] Setup failed:', err.message);
     }
     
-    // Save connection to DB
-    const result = await pool.query(
-      `INSERT INTO whatsapp_connections 
-       (user_id, connection_type, session_name, status, phone_number, display_name, connected_at)
-       VALUES ($1, 'managed', $2, $3, $4, $5, $6)
-       RETURNING id, session_name, status, phone_number, display_name, created_at`,
-      [userId, sessionName, ourStatus, phoneNumber, displayName, connectedAt]
-    );
+    let result;
+    
+    // If using existing DB record, UPDATE instead of DELETE+INSERT
+    if (useExistingDb && dbConnection) {
+      result = await pool.query(
+        `UPDATE whatsapp_connections 
+         SET status = $1, phone_number = $2, display_name = $3, connected_at = $4
+         WHERE id = $5
+         RETURNING id, session_name, status, phone_number, display_name, created_at`,
+        [ourStatus, phoneNumber, displayName, connectedAt, dbConnection.id]
+      );
+      console.log(`[WhatsApp] ✅ Updated existing DB record: ${sessionName}`);
+    } else {
+      // Delete old record if exists (different session)
+      if (dbConnection) {
+        await pool.query('DELETE FROM whatsapp_connections WHERE id = $1', [dbConnection.id]);
+      }
+      
+      // Create new record
+      result = await pool.query(
+        `INSERT INTO whatsapp_connections 
+         (user_id, connection_type, session_name, status, phone_number, display_name, connected_at)
+         VALUES ($1, 'managed', $2, $3, $4, $5, $6)
+         RETURNING id, session_name, status, phone_number, display_name, created_at`,
+        [userId, sessionName, ourStatus, phoneNumber, displayName, connectedAt]
+      );
+      console.log(`[WhatsApp] ✅ Created new DB record: ${sessionName}`);
+    }
     
     res.json({ 
       success: true, 
       connection: result.rows[0],
-      existingSession: !!existingSession, // Let frontend know if this was an existing session
+      existingSession: !!existingSession,
     });
   } catch (error) {
     console.error('Create managed connection error:', error);
