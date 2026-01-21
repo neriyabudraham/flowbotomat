@@ -7,12 +7,13 @@ const validationService = require('./validation.service');
 class BotEngine {
   
   // Process incoming message
-  async processMessage(userId, contactPhone, message, messageType = 'text', selectedRowId = null) {
+  async processMessage(userId, contactPhone, message, messageType = 'text', selectedRowId = null, quotedListTitle = null) {
     console.log('[BotEngine] ========================================');
     console.log('[BotEngine] Processing message from:', contactPhone);
     console.log('[BotEngine] Message:', message);
     console.log('[BotEngine] Message type:', messageType);
     console.log('[BotEngine] Selected row ID:', selectedRowId);
+    console.log('[BotEngine] Quoted list title:', quotedListTitle);
     console.log('[BotEngine] User ID:', userId);
     
     try {
@@ -93,7 +94,7 @@ class BotEngine {
           // Waiting for list button click
           if (messageType === 'list_response') {
             // Got a list response - continue session
-            await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId);
+            await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId, quotedListTitle);
             return;
           } else {
             // Got regular message while waiting for list - check triggers normally
@@ -103,12 +104,12 @@ class BotEngine {
         } else if (session.waiting_for === 'reply') {
           // Waiting for any reply (text/media) - this BLOCKS new triggers
           console.log('[BotEngine] ⏳ Waiting for reply - continuing session');
-          await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId);
+          await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId, null);
           return;
         } else if (session.waiting_for === 'registration') {
           // Waiting for registration answer - this BLOCKS new triggers
           console.log('[BotEngine] 📝 Waiting for registration answer - continuing session');
-          await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId);
+          await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId, null);
           return;
         }
       }
@@ -213,7 +214,7 @@ class BotEngine {
   }
   
   // Continue from saved session
-  async continueSession(session, flowData, contact, message, userId, bot, messageType = 'text', selectedRowId = null) {
+  async continueSession(session, flowData, contact, message, userId, bot, messageType = 'text', selectedRowId = null, quotedListTitle = null) {
     const currentNode = flowData.nodes.find(n => n.id === session.current_node_id);
     if (!currentNode) {
       console.log('[BotEngine] Session node not found, clearing session');
@@ -237,6 +238,49 @@ class BotEngine {
         console.log('[BotEngine] ⚠️ Waiting for list_response but received:', messageType);
         console.log('[BotEngine] Ignoring non-list response');
         return;
+      }
+      
+      // IMPORTANT: Verify the list_response is for THIS list, not a different one
+      const sessionListTitle = session.waiting_data?.listTitle;
+      if (quotedListTitle && sessionListTitle && quotedListTitle !== sessionListTitle) {
+        console.log('[BotEngine] ⚠️ List response is for a DIFFERENT list!');
+        console.log('[BotEngine] Session list:', sessionListTitle);
+        console.log('[BotEngine] Clicked list:', quotedListTitle);
+        
+        // Find the correct list node by title
+        const correctListNode = flowData.nodes.find(n => 
+          n.type === 'list' && n.data?.title === quotedListTitle
+        );
+        
+        if (correctListNode) {
+          console.log('[BotEngine] Found correct list node:', correctListNode.id);
+          
+          // Clear current session
+          await this.clearSession(bot.id, contact.id);
+          
+          // Create a temporary session-like object for the correct list
+          const tempSession = {
+            ...session,
+            current_node_id: correctListNode.id,
+            waiting_data: {
+              buttons: (correctListNode.data.buttons || []).map((btn, i) => ({
+                id: `option_${i}`,
+                title: btn.title || '',
+                displayIndex: i,
+                originalIndex: i,
+              })),
+              listTitle: correctListNode.data.title,
+            }
+          };
+          
+          // Recursively call continueSession with the correct list
+          return await this.continueSession(tempSession, flowData, contact, message, userId, bot, messageType, selectedRowId, quotedListTitle);
+        } else {
+          console.log('[BotEngine] Could not find list node with title:', quotedListTitle);
+          console.log('[BotEngine] Clearing session - user needs to start again');
+          await this.clearSession(bot.id, contact.id);
+          return;
+        }
       }
       
       // Use selectedRowId directly from WAHA
@@ -1051,7 +1095,10 @@ class BotEngine {
         contact.id, 
         node.id, 
         'list_response',
-        { buttons: buttonsForSession },
+        { 
+          buttons: buttonsForSession,
+          listTitle: listData.title, // Save list title to verify list_response matches this list
+        },
         timeout || null // timeout in seconds, null = no timeout
       );
     }

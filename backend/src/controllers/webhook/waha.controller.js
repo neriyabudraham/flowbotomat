@@ -142,7 +142,14 @@ async function handleIncomingMessage(userId, event) {
   
   // Process with bot engine
   try {
-    await botEngine.processMessage(userId, phone, messageData.content, messageData.type, messageData.selectedRowId);
+    await botEngine.processMessage(
+      userId, 
+      phone, 
+      messageData.content, 
+      messageData.type, 
+      messageData.selectedRowId,
+      messageData.quotedListTitle // Pass the original list title for verification
+    );
   } catch (botError) {
     console.error('[Webhook] Bot engine error:', botError);
   }
@@ -203,11 +210,14 @@ function parseMessage(payload) {
   const listResponse = payload._data?.Message?.listResponseMessage;
   if (listResponse) {
     const selectedRowId = listResponse.singleSelectReply?.selectedRowID;
-    console.log('[Webhook] Detected LIST_RESPONSE, selectedRowID:', selectedRowId);
+    // Extract the original list title from quotedMessage to verify which list was clicked
+    const quotedListTitle = listResponse.contextInfo?.quotedMessage?.listMessage?.title;
+    console.log('[Webhook] Detected LIST_RESPONSE, selectedRowID:', selectedRowId, ', quotedListTitle:', quotedListTitle);
     return {
       type: 'list_response',
       content: listResponse.title || body,
       selectedRowId: selectedRowId,
+      quotedListTitle: quotedListTitle, // Title of the list that was clicked
     };
   }
   
@@ -215,11 +225,13 @@ function parseMessage(payload) {
   if (payload._data?.Info?.MediaType === 'list_response') {
     const listMsg = payload._data?.Message?.listResponseMessage;
     const selectedRowId = listMsg?.singleSelectReply?.selectedRowID;
-    console.log('[Webhook] Detected list_response via MediaType, selectedRowID:', selectedRowId);
+    const quotedListTitle = listMsg?.contextInfo?.quotedMessage?.listMessage?.title;
+    console.log('[Webhook] Detected list_response via MediaType, selectedRowID:', selectedRowId, ', quotedListTitle:', quotedListTitle);
     return {
       type: 'list_response',
       content: listMsg?.title || body,
       selectedRowId: selectedRowId,
+      quotedListTitle: quotedListTitle,
     };
   }
   
