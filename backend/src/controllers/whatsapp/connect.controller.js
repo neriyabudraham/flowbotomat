@@ -58,15 +58,17 @@ async function createManaged(req, res) {
       return res.status(500).json({ error: 'WAHA לא מוגדר במערכת' });
     }
     
-    // Generate unique session name (simple format)
-    const sessionName = `flowbotomat_${userId.split('-')[0]}`;
+    // Generate session name based on email (so same email = same session)
+    // Sanitize email for WAHA: only alphanumeric and underscore
+    const sanitizedEmail = userEmail.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+    const sessionName = `fb_${sanitizedEmail}`;
     
     // Metadata to attach to session (for identification in WAHA)
     const sessionMetadata = {
       'user.email': userEmail,
     };
     
-    console.log(`[WhatsApp] Session name: ${sessionName}, metadata:`, sessionMetadata);
+    console.log(`[WhatsApp] Looking for session: ${sessionName}`);
     
     // Check if session already exists in WAHA
     let wahaStatus = null;
@@ -75,21 +77,23 @@ async function createManaged(req, res) {
     try {
       wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
       sessionExists = true;
-      console.log(`[WhatsApp] Found existing session: ${sessionName}, status: ${wahaStatus.status}`);
+      console.log(`[WhatsApp] ✅ Found existing session: ${sessionName}, status: ${wahaStatus.status}`);
     } catch (err) {
       // Session doesn't exist - that's fine, we'll create it
-      console.log(`[WhatsApp] Session not found, will create: ${sessionName}`);
+      console.log(`[WhatsApp] Session not found, will create new: ${sessionName}`);
     }
     
     // If session doesn't exist, create it with metadata
     if (!sessionExists) {
       await wahaSession.createSession(baseUrl, apiKey, sessionName, sessionMetadata);
       await wahaSession.startSession(baseUrl, apiKey, sessionName);
-      console.log(`[WhatsApp] Created new session with metadata: ${sessionName}`);
+      console.log(`[WhatsApp] ✅ Created new session: ${sessionName}`);
     } else if (wahaStatus.status === 'STOPPED') {
       // Session exists but stopped - start it
       await wahaSession.startSession(baseUrl, apiKey, sessionName);
-      console.log(`[WhatsApp] Started existing stopped session: ${sessionName}`);
+      console.log(`[WhatsApp] ✅ Started existing stopped session: ${sessionName}`);
+    } else {
+      console.log(`[WhatsApp] ✅ Connecting to existing session: ${sessionName}`);
     }
     
     // Get updated status
