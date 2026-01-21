@@ -80,12 +80,15 @@ export default function PricingPage() {
       return;
     }
     
-    if (parseFloat(plan.price) === 0) {
-      try {
-        await api.post('/payment/subscribe', { planId: plan.id, billingPeriod: 'monthly' });
-        navigate('/dashboard', { state: { message: 'המנוי החינמי הופעל בהצלחה!', type: 'success' } });
-      } catch (err) {
-        alert(err.response?.data?.error || 'שגיאה בהפעלת המנוי');
+    // If selecting free plan while having a paid subscription - cancel subscription
+    if (parseFloat(plan.price) === 0 && currentSubscription) {
+      if (confirm('האם אתה בטוח שברצונך לבטל את המנוי ולעבור לתוכנית החינמית?')) {
+        try {
+          await api.post('/payment/cancel');
+          navigate('/dashboard', { state: { message: 'המנוי בוטל בהצלחה', type: 'success' } });
+        } catch (err) {
+          alert(err.response?.data?.error || 'שגיאה בביטול המנוי');
+        }
       }
       return;
     }
@@ -312,32 +315,53 @@ export default function PricingPage() {
                       </p>
 
                       {/* CTA Button */}
-                      {isCurrentPlan ? (
-                        <div className="w-full py-3.5 rounded-xl font-medium text-center bg-green-100 text-green-700 flex items-center justify-center gap-2">
-                          <CheckCircle className="w-5 h-5" />
-                          מנוי נוכחי
-                        </div>
-                      ) : isAuthenticated && isFree && currentSubscription ? (
-                        <button
-                          onClick={() => handleSelectPlan(plan)}
-                          className="w-full py-3.5 rounded-xl font-medium transition-all bg-amber-100 text-amber-700 hover:bg-amber-200"
-                        >
-                          שנמך לחינמי
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleSelectPlan(plan)}
-                          className={`w-full py-3.5 rounded-xl font-medium transition-all ${
-                            isPopular
-                              ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:shadow-lg hover:scale-[1.02]'
-                              : isFree
-                              ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                              : `bg-gradient-to-r ${gradient} text-white hover:shadow-lg hover:scale-[1.02]`
-                          }`}
-                        >
-                          {isFree ? 'התחל בחינם' : isDowngrade ? 'שנמך' : 'בחר תכנית'}
-                        </button>
-                      )}
+                      {(() => {
+                        // Current plan - not clickable
+                        if (isCurrentPlan) {
+                          return (
+                            <div className="w-full py-3.5 rounded-xl font-medium text-center bg-green-100 text-green-700 flex items-center justify-center gap-2 cursor-default">
+                              <CheckCircle className="w-5 h-5" />
+                              התוכנית הנוכחית
+                            </div>
+                          );
+                        }
+                        
+                        // Free plan for users without paid subscription - show as current (not clickable)
+                        if (isFree && isAuthenticated && !currentSubscription) {
+                          return (
+                            <div className="w-full py-3.5 rounded-xl font-medium text-center bg-green-100 text-green-700 flex items-center justify-center gap-2 cursor-default">
+                              <CheckCircle className="w-5 h-5" />
+                              התוכנית הנוכחית
+                            </div>
+                          );
+                        }
+                        
+                        // Free plan for users WITH paid subscription - downgrade/cancel
+                        if (isFree && isAuthenticated && currentSubscription) {
+                          return (
+                            <button
+                              onClick={() => handleSelectPlan(plan)}
+                              className="w-full py-3.5 rounded-xl font-medium transition-all bg-amber-100 text-amber-700 hover:bg-amber-200"
+                            >
+                              שנמך
+                            </button>
+                          );
+                        }
+                        
+                        // Regular plans
+                        return (
+                          <button
+                            onClick={() => handleSelectPlan(plan)}
+                            className={`w-full py-3.5 rounded-xl font-medium transition-all ${
+                              isPopular
+                                ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:shadow-lg hover:scale-[1.02]'
+                                : `bg-gradient-to-r ${gradient} text-white hover:shadow-lg hover:scale-[1.02]`
+                            }`}
+                          >
+                            {!isAuthenticated ? 'התחל עכשיו' : isDowngrade ? 'שנמך' : 'בחר תכנית'}
+                          </button>
+                        );
+                      })()}
 
                       {/* Features */}
                       <div className="mt-8 pt-6 border-t border-gray-100 space-y-4">
