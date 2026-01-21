@@ -77,6 +77,9 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
 
   // Add callbacks to nodes
   const nodesWithCallbacks = useMemo(() => {
+    // Count trigger nodes for conditional delete
+    const triggerCount = nodes.filter(n => n.type === 'trigger').length;
+    
     return nodes.map(node => ({
       ...node,
       data: {
@@ -84,6 +87,8 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
         onEdit: () => onNodeSelect?.(node),
         onDelete: () => handleDeleteNode(node.id),
         onDuplicate: () => handleDuplicateNode(node.id),
+        // Pass trigger count to trigger nodes
+        ...(node.type === 'trigger' ? { triggerCount } : {}),
       }
     }));
   }, [nodes, onNodeSelect, handleDeleteNode, handleDuplicateNode]);

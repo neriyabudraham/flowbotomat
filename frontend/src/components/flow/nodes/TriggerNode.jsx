@@ -19,6 +19,10 @@ const triggerLabels = {
 function TriggerNode({ data, selected }) {
   const triggers = data.triggers || [{ type: 'any_message' }];
   
+  // Can delete trigger only if there are multiple triggers in the flow
+  const triggerCount = data.triggerCount || 1;
+  const canDelete = triggerCount > 1;
+  
   return (
     <BaseNode
       data={data}
@@ -28,6 +32,8 @@ function TriggerNode({ data, selected }) {
       icon={Zap}
       title="טריגר התחלה"
       hasTarget={false}
+      canDelete={canDelete}
+      canDuplicate={false}
     >
       <div className="space-y-2">
         {triggers.map((trigger, i) => (

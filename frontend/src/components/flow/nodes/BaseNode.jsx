@@ -13,6 +13,8 @@ function BaseNode({
   hasSource = true,
   hasTarget = true,
   sourceHandles = [{ id: null, position: '50%' }],
+  canDelete: canDeleteProp,
+  canDuplicate: canDuplicateProp,
 }) {
   const colorClasses = {
     purple: { bg: 'from-purple-500 to-purple-600', border: 'border-purple-400', shadow: 'shadow-purple-200', handle: 'bg-purple-500' },
@@ -24,8 +26,9 @@ function BaseNode({
   };
 
   const colors = colorClasses[color] || colorClasses.purple;
-  const canDuplicate = type !== 'trigger';
-  const canDelete = type !== 'trigger';
+  // Use props if provided, otherwise default behavior
+  const canDuplicate = canDuplicateProp !== undefined ? canDuplicateProp : true;
+  const canDelete = canDeleteProp !== undefined ? canDeleteProp : true;
 
   return (
     <div 

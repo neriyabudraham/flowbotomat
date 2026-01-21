@@ -1,7 +1,7 @@
-import { Zap, MessageSquare, GitBranch, Clock, Cog, List, ClipboardList } from 'lucide-react';
+import { MessageSquare, GitBranch, Clock, Cog, List, ClipboardList } from 'lucide-react';
 
+// Trigger is created automatically with new bot, not in palette
 const nodeTypes = [
-  { type: 'trigger', label: 'טריגר', icon: Zap, color: 'purple', description: 'התחלת הפלואו' },
   { type: 'message', label: 'הודעה', icon: MessageSquare, color: 'teal', description: 'טקסט, תמונה, קובץ' },
   { type: 'list', label: 'רשימה', icon: List, color: 'cyan', description: 'רשימת בחירה' },
   { type: 'registration', label: 'תהליך רישום', icon: ClipboardList, color: 'indigo', description: 'שאלות ומיפוי' },
