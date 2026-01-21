@@ -11,9 +11,10 @@ import ConnectionStatus from '../components/molecules/ConnectionStatus';
 export default function WhatsappSetupPage() {
   const navigate = useNavigate();
   const [step, setStep] = useState('loading'); // loading, select, external, qr, connected
+  const [isCheckingExisting, setIsCheckingExisting] = useState(false);
   const {
-    connection, qrCode, isLoading, error,
-    fetchStatus, connectManaged, connectExternal, fetchQR, disconnect, clearError,
+    connection, qrCode, isLoading, error, existingSession,
+    fetchStatus, connectManaged, connectExternal, fetchQR, disconnect, clearError, checkExisting,
   } = useWhatsappStore();
 
   useEffect(() => {
@@ -29,10 +30,17 @@ export default function WhatsappSetupPage() {
         setStep('qr');
         fetchQR();
       } else {
+        // No connection in DB - check WAHA for existing session
         setStep('select');
+        setIsCheckingExisting(true);
+        await checkExisting();
+        setIsCheckingExisting(false);
       }
     } catch {
       setStep('select');
+      setIsCheckingExisting(true);
+      await checkExisting();
+      setIsCheckingExisting(false);
     }
   };
 
@@ -40,9 +48,14 @@ export default function WhatsappSetupPage() {
     clearError();
     if (type === 'managed') {
       try {
-        await connectManaged();
-        setStep('qr');
-        fetchQR();
+        const data = await connectManaged();
+        // Check if already connected (existing session)
+        if (data.connection?.status === 'connected') {
+          setStep('connected');
+        } else {
+          setStep('qr');
+          fetchQR();
+        }
       } catch {}
     } else {
       setStep('external');
@@ -72,6 +85,10 @@ export default function WhatsappSetupPage() {
     try {
       await disconnect();
       setStep('select');
+      // Re-check for existing sessions
+      setIsCheckingExisting(true);
+      await checkExisting();
+      setIsCheckingExisting(false);
     } catch {}
   };
 
@@ -104,7 +121,11 @@ export default function WhatsappSetupPage() {
           )}
 
           {step === 'select' && (
-            <ConnectionTypeSelector onSelect={handleSelectType} />
+            <ConnectionTypeSelector 
+              onSelect={handleSelectType} 
+              existingSession={existingSession}
+              isChecking={isCheckingExisting}
+            />
           )}
 
           {step === 'external' && (

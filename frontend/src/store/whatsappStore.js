@@ -6,6 +6,18 @@ const useWhatsappStore = create((set, get) => ({
   qrCode: null,
   isLoading: false,
   error: null,
+  existingSession: null, // { exists, sessionName, status, isConnected }
+
+  checkExisting: async () => {
+    try {
+      const { data } = await api.get('/whatsapp/check-existing');
+      set({ existingSession: data });
+      return data;
+    } catch (err) {
+      set({ existingSession: { exists: false } });
+      return { exists: false };
+    }
+  },
 
   fetchStatus: async () => {
     set({ isLoading: true, error: null });

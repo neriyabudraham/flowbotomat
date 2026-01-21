@@ -1,13 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middlewares/auth.middleware');
-const { createManaged, createExternal } = require('../controllers/whatsapp/connect.controller');
+const { createManaged, createExternal, checkExisting } = require('../controllers/whatsapp/connect.controller');
 const { getStatus, getQR } = require('../controllers/whatsapp/status.controller');
 const { disconnect } = require('../controllers/whatsapp/disconnect.controller');
 const { getGroups } = require('../controllers/whatsapp/groups.controller');
 
 // All routes require authentication
 router.use(authMiddleware);
+
+// Check if user has existing session in WAHA
+router.get('/check-existing', checkExisting);
 
 // Get connection status
 router.get('/status', getStatus);

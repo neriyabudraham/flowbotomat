@@ -242,4 +242,55 @@ async function createExternal(req, res) {
   }
 }
 
-module.exports = { createManaged, createExternal };
+/**
+ * Check if user has existing session in WAHA (by email)
+ */
+async function checkExisting(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    // Get user email
+    let userEmail = req.user.email;
+    if (!userEmail) {
+      const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
+      userEmail = userResult.rows[0]?.email;
+    }
+    
+    if (!userEmail) {
+      return res.json({ exists: false });
+    }
+    
+    // Get system WAHA credentials
+    const { baseUrl, apiKey } = getWahaCredentials();
+    
+    if (!baseUrl || !apiKey) {
+      return res.json({ exists: false });
+    }
+    
+    // Search in WAHA by email
+    console.log(`[WhatsApp] Checking existing session for: ${userEmail}`);
+    
+    const existingSession = await wahaSession.findSessionByEmail(baseUrl, apiKey, userEmail);
+    
+    if (existingSession) {
+      const status = await wahaSession.getSessionStatus(baseUrl, apiKey, existingSession.name);
+      console.log(`[WhatsApp] ✅ Found existing session: ${existingSession.name}, status: ${status.status}`);
+      
+      return res.json({
+        exists: true,
+        sessionName: existingSession.name,
+        status: status.status,
+        isConnected: status.status === 'WORKING',
+      });
+    }
+    
+    console.log(`[WhatsApp] No existing session found for: ${userEmail}`);
+    return res.json({ exists: false });
+    
+  } catch (error) {
+    console.error('Check existing error:', error.message);
+    return res.json({ exists: false });
+  }
+}
+
+module.exports = { createManaged, createExternal, checkExisting };
