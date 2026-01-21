@@ -176,7 +176,10 @@ export default function PrivacyPage() {
               </p>
               <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
                 <p className="text-blue-800 dark:text-blue-300">
-                  <strong>אימייל:</strong> privacy@flowbotomat.com
+                  <strong>אימייל:</strong> office@neriyabudraham.co.il
+                </p>
+                <p className="text-blue-800 dark:text-blue-300 mt-2">
+                  <strong>חברה:</strong> בוטומט שירותי אוטומציה
                 </p>
               </div>
             </section>
