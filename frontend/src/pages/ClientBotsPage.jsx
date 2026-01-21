@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Bot, Play, Pause, Edit2, Zap, Users, ArrowRight, Plus, Upload, X } from 'lucide-react';
+import { Bot, Play, Pause, Edit2, Zap, Users, ArrowRight, Plus, Upload, X, Download, Trash2, UserCheck } from 'lucide-react';
 import Button from '../components/atoms/Button';
 import Logo from '../components/atoms/Logo';
 import api from '../services/api';
@@ -117,6 +117,33 @@ export default function ClientBotsPage() {
     setImportName('');
   };
 
+  const handleExport = async (e, bot) => {
+    e.stopPropagation();
+    try {
+      const { data } = await api.get(`/bots/${bot.id}/export`);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${bot.name.replace(/[^a-zA-Z0-9א-ת]/g, '_')}_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('שגיאה בייצוא');
+    }
+  };
+
+  const handleDelete = async (e, bot) => {
+    e.stopPropagation();
+    if (!confirm(`למחוק את הבוט "${bot.name}"?`)) return;
+    try {
+      await api.delete(`/bots/${bot.id}`);
+      loadClientBots();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה במחיקה');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -220,6 +247,12 @@ export default function ClientBotsPage() {
                         {bot.is_active && (
                           <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">פעיל</span>
                         )}
+                        {bot.isCreator && (
+                          <span className="flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-medium rounded-full">
+                            <UserCheck className="w-3 h-3" />
+                            נוצר על ידך
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm text-gray-500 truncate">{bot.description || 'ללא תיאור'}</p>
                       
@@ -239,21 +272,41 @@ export default function ClientBotsPage() {
                     </div>
 
                     {permissions.can_edit_bots && (
-                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={(e) => handleToggle(e, bot)}
-                          className={`p-2.5 rounded-xl transition-colors ${
+                          className={`p-2 rounded-lg transition-colors ${
                             bot.is_active ? 'bg-green-100 text-green-600 hover:bg-green-200' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
                           }`}
+                          title={bot.is_active ? 'השהה' : 'הפעל'}
                         >
-                          {bot.is_active ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                          {bot.is_active ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); navigate(`/bots/${bot.id}?client=${clientId}`); }}
-                          className="p-2.5 rounded-xl bg-blue-100 text-blue-600 hover:bg-blue-200"
+                          className="p-2 rounded-lg bg-blue-100 text-blue-600 hover:bg-blue-200"
+                          title="עריכה"
                         >
-                          <Edit2 className="w-5 h-5" />
+                          <Edit2 className="w-4 h-4" />
                         </button>
+                        {bot.isCreator && (
+                          <>
+                            <button
+                              onClick={(e) => handleExport(e, bot)}
+                              className="p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"
+                              title="ייצוא"
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={(e) => handleDelete(e, bot)}
+                              className="p-2 rounded-lg bg-red-100 text-red-600 hover:bg-red-200"
+                              title="מחיקה"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

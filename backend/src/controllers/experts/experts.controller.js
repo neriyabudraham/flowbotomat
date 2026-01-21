@@ -268,8 +268,14 @@ async function getClientBots(req, res) {
       [clientId]
     );
     
+    // Add isCreator flag to each bot
+    const botsWithCreator = bots.rows.map(bot => ({
+      ...bot,
+      isCreator: bot.created_by === userId, // true if this expert created this bot
+    }));
+    
     res.json({ 
-      bots: bots.rows,
+      bots: botsWithCreator,
       permissions: {
         can_view_bots: perms.can_view_bots,
         can_edit_bots: perms.can_edit_bots,
@@ -288,7 +294,7 @@ async function getClientBots(req, res) {
  */
 async function createClientBot(req, res) {
   try {
-    const userId = req.user.id;
+    const expertId = req.user.id;
     const { clientId } = req.params;
     const { name, description } = req.body;
     
@@ -299,21 +305,22 @@ async function createClientBot(req, res) {
     // Verify expert relationship with edit permissions
     const relationship = await db.query(
       'SELECT * FROM expert_clients WHERE expert_id = $1 AND client_id = $2 AND is_active = true',
-      [userId, clientId]
+      [expertId, clientId]
     );
     
     if (relationship.rows.length === 0 || !relationship.rows[0].can_edit_bots) {
       return res.status(403).json({ error: 'אין לך הרשאה ליצור בוטים ללקוח זה' });
     }
     
+    // created_by stores the expert who created this bot for the client
     const result = await db.query(
-      `INSERT INTO bots (user_id, name, description)
-       VALUES ($1, $2, $3)
+      `INSERT INTO bots (user_id, name, description, created_by)
+       VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [clientId, name, description || '']
+      [clientId, name, description || '', expertId]
     );
     
-    console.log(`[Experts] Expert ${userId} created bot for client ${clientId}`);
+    console.log(`[Experts] Expert ${expertId} created bot for client ${clientId}`);
     
     res.status(201).json({ bot: result.rows[0] });
   } catch (error) {
@@ -327,7 +334,7 @@ async function createClientBot(req, res) {
  */
 async function importClientBot(req, res) {
   try {
-    const userId = req.user.id;
+    const expertId = req.user.id;
     const { clientId } = req.params;
     const { data, name } = req.body;
     
@@ -338,7 +345,7 @@ async function importClientBot(req, res) {
     // Verify expert relationship with edit permissions
     const relationship = await db.query(
       'SELECT * FROM expert_clients WHERE expert_id = $1 AND client_id = $2 AND is_active = true',
-      [userId, clientId]
+      [expertId, clientId]
     );
     
     if (relationship.rows.length === 0 || !relationship.rows[0].can_edit_bots) {
@@ -348,14 +355,15 @@ async function importClientBot(req, res) {
     const importedBot = data.bot;
     const botName = name || `${importedBot.name} (יובא)`;
     
+    // created_by stores the expert who imported this bot for the client
     const result = await db.query(
-      `INSERT INTO bots (user_id, name, description, flow_data, is_active)
-       VALUES ($1, $2, $3, $4, false)
+      `INSERT INTO bots (user_id, name, description, flow_data, is_active, created_by)
+       VALUES ($1, $2, $3, $4, false, $5)
        RETURNING *`,
-      [clientId, botName, importedBot.description, JSON.stringify(importedBot.flow_data)]
+      [clientId, botName, importedBot.description, JSON.stringify(importedBot.flow_data), expertId]
     );
     
-    console.log(`[Experts] Expert ${userId} imported bot for client ${clientId}`);
+    console.log(`[Experts] Expert ${expertId} imported bot for client ${clientId}`);
     
     res.json({
       success: true,

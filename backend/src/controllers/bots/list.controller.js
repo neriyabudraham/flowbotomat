@@ -4,20 +4,21 @@ const pool = require('../../config/database');
  * Check if user has access to a bot (owner, shared, or expert)
  */
 async function checkBotAccess(userId, botId) {
-  // Check ownership
+  // Check ownership and get created_by
   const ownerCheck = await pool.query(
-    'SELECT user_id FROM bots WHERE id = $1',
+    'SELECT user_id, created_by FROM bots WHERE id = $1',
     [botId]
   );
   
   if (ownerCheck.rows.length === 0) {
-    return { hasAccess: false, isOwner: false, permission: null, botOwnerId: null };
+    return { hasAccess: false, isOwner: false, permission: null, botOwnerId: null, createdBy: null };
   }
   
   const botOwnerId = ownerCheck.rows[0].user_id;
+  const createdBy = ownerCheck.rows[0].created_by;
   
   if (botOwnerId === userId) {
-    return { hasAccess: true, isOwner: true, permission: 'owner', botOwnerId };
+    return { hasAccess: true, isOwner: true, permission: 'owner', botOwnerId, createdBy };
   }
   
   // Check bot share
@@ -29,7 +30,7 @@ async function checkBotAccess(userId, botId) {
   );
   
   if (shareCheck.rows.length > 0) {
-    return { hasAccess: true, isOwner: false, permission: shareCheck.rows[0].permission, botOwnerId };
+    return { hasAccess: true, isOwner: false, permission: shareCheck.rows[0].permission, botOwnerId, createdBy };
   }
   
   // Check expert access
@@ -41,10 +42,12 @@ async function checkBotAccess(userId, botId) {
   
   if (expertCheck.rows.length > 0 && expertCheck.rows[0].can_view_bots) {
     const permission = expertCheck.rows[0].can_edit_bots ? 'edit' : 'view';
-    return { hasAccess: true, isOwner: false, permission, botOwnerId, isExpert: true };
+    // isCreator = true if this expert created this bot for the client
+    const isCreator = createdBy === userId;
+    return { hasAccess: true, isOwner: false, permission, botOwnerId, isExpert: true, createdBy, isCreator };
   }
   
-  return { hasAccess: false, isOwner: false, permission: null, botOwnerId };
+  return { hasAccess: false, isOwner: false, permission: null, botOwnerId, createdBy: null };
 }
 
 /**
@@ -92,12 +95,17 @@ async function getBot(req, res) {
       return res.status(404).json({ error: 'בוט לא נמצא' });
     }
     
+    const canEdit = access.isOwner || access.permission === 'edit' || access.permission === 'admin';
+    const canDelete = access.isOwner || access.permission === 'admin' || (access.isExpert && access.isCreator);
+    
     res.json({ 
       bot: result.rows[0],
       access: {
         isOwner: access.isOwner,
         permission: access.permission,
-        canEdit: access.isOwner || access.permission === 'edit' || access.permission === 'admin',
+        canEdit,
+        canDelete,
+        isCreator: access.isCreator || false,
       }
     });
   } catch (error) {

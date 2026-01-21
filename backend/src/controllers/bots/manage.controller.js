@@ -117,15 +117,23 @@ async function deleteBot(req, res) {
     const userId = req.user.id;
     const { botId } = req.params;
     
-    // Check access - only owner or admin can delete
+    // Check access
     const access = await checkBotAccess(userId, botId);
     
     if (!access.hasAccess) {
       return res.status(404).json({ error: 'בוט לא נמצא' });
     }
     
-    if (!access.isOwner && access.permission !== 'admin') {
-      return res.status(403).json({ error: 'רק הבעלים יכול למחוק את הבוט' });
+    // Who can delete:
+    // 1. Owner (the client who owns the bot)
+    // 2. Admin permission via share
+    // 3. Expert who created this bot (isCreator)
+    const canDelete = access.isOwner || 
+                      access.permission === 'admin' || 
+                      (access.isExpert && access.isCreator);
+    
+    if (!canDelete) {
+      return res.status(403).json({ error: 'אין לך הרשאה למחוק בוט זה' });
     }
     
     const result = await pool.query(
