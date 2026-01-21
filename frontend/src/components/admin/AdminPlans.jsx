@@ -187,7 +187,7 @@ export default function AdminPlans() {
               />
               <LimitRow
                 icon={MessageSquare}
-                label="הודעות/חודש"
+                label="הרצות פלואו/חודש"
                 value={plan.limits.messages_per_month}
                 editing={editingPlan === plan.id}
                 onChange={(v) => handleUpdatePlan(plan.id, { 

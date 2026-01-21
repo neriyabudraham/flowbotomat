@@ -376,8 +376,8 @@ export default function PricingPage() {
                           highlight={plan.max_bots === -1}
                         />
                         <Feature 
-                          icon={MessageSquare}
-                          label={`${getFeatureValue(plan, 'runs')} הודעות/חודש`}
+                          icon={Zap}
+                          label={`${getFeatureValue(plan, 'runs')} הרצות פלואו/חודש`}
                           included={true}
                           highlight={plan.max_bot_runs_per_month === -1}
                         />
@@ -467,8 +467,8 @@ export default function PricingPage() {
               answer="בהחלט! תוכל לשנות תכנית בכל עת מדף ההגדרות. השינוי ייכנס לתוקף מיידית והחיוב יתעדכן בהתאם."
             />
             <FAQ 
-              question="מה אם אגיע למגבלת השימוש?"
-              answer="תקבל התראה כשתתקרב למגבלה. תוכל לשדרג את התכנית או לחכות לחודש הבא כשהמכסה מתאפסת."
+              question="מה אם אגיע למגבלת הריצות?"
+              answer="תקבל התראה כשתתקרב למגבלה. תוכל לשדרג את התכנית או לחכות לחודש הבא כשהמכסה מתאפסת. כל פעם שהפלואו שלך מופעל, זה נחשב כריצה אחת."
             />
             <FAQ 
               question="האם יש תמיכה טכנית?"

@@ -43,7 +43,7 @@ export default function SignupPage() {
   const stats = [
     { value: '10K+', label: 'משתמשים פעילים' },
     { value: '50K+', label: 'בוטים נוצרו' },
-    { value: '1M+', label: 'הודעות בחודש' },
+    { value: '1M+', label: 'הרצות פלואו בחודש' },
   ];
 
   // Password strength indicator

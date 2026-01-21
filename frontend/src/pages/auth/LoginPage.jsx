@@ -31,7 +31,7 @@ export default function LoginPage() {
 
   const stats = [
     { value: '10K+', label: 'משתמשים פעילים' },
-    { value: '1M+', label: 'הודעות בחודש' },
+    { value: '1M+', label: 'הרצות פלואו בחודש' },
     { value: '99.9%', label: 'זמינות שירות' },
   ];
 
