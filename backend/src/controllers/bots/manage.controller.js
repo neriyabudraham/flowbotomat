@@ -1,4 +1,5 @@
 const pool = require('../../config/database');
+const { checkBotAccess } = require('./list.controller');
 
 /**
  * Create new bot
@@ -35,15 +36,27 @@ async function updateBot(req, res) {
     const { botId } = req.params;
     const { name, description, is_active } = req.body;
     
+    // Check access
+    const access = await checkBotAccess(userId, botId);
+    
+    if (!access.hasAccess) {
+      return res.status(404).json({ error: 'בוט לא נמצא' });
+    }
+    
+    const canEdit = access.isOwner || access.permission === 'edit' || access.permission === 'admin';
+    if (!canEdit) {
+      return res.status(403).json({ error: 'אין לך הרשאה לערוך בוט זה' });
+    }
+    
     const result = await pool.query(
       `UPDATE bots SET
          name = COALESCE($1, name),
          description = COALESCE($2, description),
          is_active = COALESCE($3, is_active),
          updated_at = NOW()
-       WHERE id = $4 AND user_id = $5
+       WHERE id = $4
        RETURNING *`,
-      [name, description, is_active, botId, userId]
+      [name, description, is_active, botId]
     );
     
     if (result.rows.length === 0) {
@@ -66,11 +79,23 @@ async function saveFlow(req, res) {
     const { botId } = req.params;
     const { flow_data } = req.body;
     
+    // Check access
+    const access = await checkBotAccess(userId, botId);
+    
+    if (!access.hasAccess) {
+      return res.status(404).json({ error: 'בוט לא נמצא' });
+    }
+    
+    const canEdit = access.isOwner || access.permission === 'edit' || access.permission === 'admin';
+    if (!canEdit) {
+      return res.status(403).json({ error: 'אין לך הרשאה לערוך בוט זה' });
+    }
+    
     const result = await pool.query(
       `UPDATE bots SET flow_data = $1, updated_at = NOW()
-       WHERE id = $2 AND user_id = $3
+       WHERE id = $2
        RETURNING *`,
-      [JSON.stringify(flow_data), botId, userId]
+      [JSON.stringify(flow_data), botId]
     );
     
     if (result.rows.length === 0) {
@@ -92,9 +117,20 @@ async function deleteBot(req, res) {
     const userId = req.user.id;
     const { botId } = req.params;
     
+    // Check access - only owner or admin can delete
+    const access = await checkBotAccess(userId, botId);
+    
+    if (!access.hasAccess) {
+      return res.status(404).json({ error: 'בוט לא נמצא' });
+    }
+    
+    if (!access.isOwner && access.permission !== 'admin') {
+      return res.status(403).json({ error: 'רק הבעלים יכול למחוק את הבוט' });
+    }
+    
     const result = await pool.query(
-      'DELETE FROM bots WHERE id = $1 AND user_id = $2 RETURNING id',
-      [botId, userId]
+      'DELETE FROM bots WHERE id = $1 RETURNING id',
+      [botId]
     );
     
     if (result.rows.length === 0) {

@@ -1,4 +1,5 @@
 const db = require('../../config/database');
+const { checkBotAccess } = require('./list.controller');
 
 /**
  * Get bot statistics
@@ -8,13 +9,10 @@ async function getBotStats(req, res) {
     const { botId } = req.params;
     const userId = req.user.id;
     
-    // Verify bot ownership
-    const botResult = await db.query(
-      'SELECT id FROM bots WHERE id = $1 AND user_id = $2',
-      [botId, userId]
-    );
+    // Verify bot access
+    const access = await checkBotAccess(userId, botId);
     
-    if (botResult.rows.length === 0) {
+    if (!access.hasAccess) {
       return res.status(404).json({ error: 'Bot not found' });
     }
     
@@ -65,13 +63,10 @@ async function getBotUsers(req, res) {
     const limit = parseInt(req.query.limit) || 20;
     const offset = (page - 1) * limit;
     
-    // Verify bot ownership
-    const botResult = await db.query(
-      'SELECT id FROM bots WHERE id = $1 AND user_id = $2',
-      [botId, userId]
-    );
+    // Verify bot access
+    const access = await checkBotAccess(userId, botId);
     
-    if (botResult.rows.length === 0) {
+    if (!access.hasAccess) {
       return res.status(404).json({ error: 'Bot not found' });
     }
     
@@ -118,13 +113,10 @@ async function getBotLogs(req, res) {
     const limit = parseInt(req.query.limit) || 50;
     const offset = (page - 1) * limit;
     
-    // Verify bot ownership
-    const botResult = await db.query(
-      'SELECT id FROM bots WHERE id = $1 AND user_id = $2',
-      [botId, userId]
-    );
+    // Verify bot access
+    const access = await checkBotAccess(userId, botId);
     
-    if (botResult.rows.length === 0) {
+    if (!access.hasAccess) {
       return res.status(404).json({ error: 'Bot not found' });
     }
     
