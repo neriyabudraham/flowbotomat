@@ -47,7 +47,7 @@ function App() {
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
-          <Route path="/api" element={<ApiPage />} />
+          <Route path="/developers" element={<ApiPage />} />
           <Route path="/clients/:clientId/bots" element={<ClientBotsPage />} />
         </Routes>
       </div>

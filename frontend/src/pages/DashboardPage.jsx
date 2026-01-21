@@ -560,7 +560,7 @@ export default function DashboardPage() {
               gradient="from-amber-500 to-orange-600"
             />
             <QuickActionCard
-              to="/api"
+              to="/developers"
               icon={Code}
               title="API"
               description="גישת מפתחים"

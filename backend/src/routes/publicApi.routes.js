@@ -20,7 +20,7 @@ router.get('/', (req, res) => {
   res.json({
     name: 'FlowBotomat API',
     version: '1.0.0',
-    documentation: 'https://flow.botomat.co.il/api',
+    documentation: 'https://flow.botomat.co.il/developers',
     endpoints: {
       messages: {
         text: 'POST /v1/messages/text',
