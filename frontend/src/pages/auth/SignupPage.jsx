@@ -10,10 +10,19 @@ export default function SignupPage() {
   const navigate = useNavigate();
   const { signup, isLoading, error, clearError } = useAuthStore();
   const [form, setForm] = useState({ name: '', email: '', password: '' });
+  const [acceptPrivacy, setAcceptPrivacy] = useState(false);
+  const [privacyError, setPrivacyError] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     clearError();
+    setPrivacyError(false);
+    
+    if (!acceptPrivacy) {
+      setPrivacyError(true);
+      return;
+    }
+    
     try {
       await signup(form.email, form.password, form.name);
       navigate('/verify', { state: { email: form.email } });
@@ -24,6 +33,7 @@ export default function SignupPage() {
     <AuthLayout title="הרשמה" subtitle="צור חשבון חדש">
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <Alert variant="error">{error}</Alert>}
+        {privacyError && <Alert variant="error">יש לאשר את מדיניות הפרטיות</Alert>}
         
         <Input
           label="שם"
@@ -52,7 +62,40 @@ export default function SignupPage() {
           minLength={8}
         />
         
-        <Button type="submit" isLoading={isLoading} className="w-full">
+        {/* Privacy Policy Checkbox */}
+        <label className={`flex items-start gap-3 cursor-pointer p-3 rounded-xl border transition-colors ${
+          privacyError ? 'border-red-300 bg-red-50' : 'border-gray-200 hover:bg-gray-50'
+        }`}>
+          <input
+            type="checkbox"
+            checked={acceptPrivacy}
+            onChange={(e) => {
+              setAcceptPrivacy(e.target.checked);
+              if (e.target.checked) setPrivacyError(false);
+            }}
+            className="w-5 h-5 mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <span className="text-sm text-gray-600">
+            קראתי ואני מסכים/ה ל
+            <Link 
+              to="/privacy" 
+              target="_blank"
+              className="text-blue-600 hover:underline mx-1"
+            >
+              מדיניות הפרטיות
+            </Link>
+            ול
+            <Link 
+              to="/terms" 
+              target="_blank"
+              className="text-blue-600 hover:underline mx-1"
+            >
+              תנאי השימוש
+            </Link>
+          </span>
+        </label>
+        
+        <Button type="submit" isLoading={isLoading} className="w-full" disabled={!acceptPrivacy}>
           הרשמה
         </Button>
         

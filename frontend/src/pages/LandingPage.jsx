@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
-  Bot, MessageCircle, Zap, Users, ArrowLeft, Check, Star, 
-  Workflow, Clock, Shield, Globe, Sparkles, ChevronLeft,
-  Send, Calendar, BarChart3, Settings2, Play, MousePointer,
-  ArrowDown, Plus, Type, Image, List
+  Bot, MessageCircle, Zap, Users, Check, 
+  ChevronLeft, Play, ArrowDown, List, 
+  Settings, Image, Type
 } from 'lucide-react';
 import Logo from '../components/atoms/Logo';
 import useAuthStore from '../store/authStore';
@@ -15,17 +14,7 @@ import Alert from '../components/atoms/Alert';
 export default function LandingPage() {
   const navigate = useNavigate();
   const { login, isLoading, error, clearError } = useAuthStore();
-  const [showLogin, setShowLogin] = useState(true);
   const [form, setForm] = useState({ email: '', password: '' });
-  const [demoStep, setDemoStep] = useState(0);
-
-  // Animate demo steps
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setDemoStep(prev => (prev + 1) % 4);
-    }, 3000);
-    return () => clearInterval(interval);
-  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -40,43 +29,25 @@ export default function LandingPage() {
     }
   };
 
-  const features = [
-    { icon: Bot, title: 'בוטים חכמים', desc: 'צור בוטים מתקדמים בלי לכתוב שורת קוד' },
-    { icon: MessageCircle, title: 'WhatsApp', desc: 'חיבור ישיר לוואטסאפ שלך' },
-    { icon: Zap, title: 'אוטומציה', desc: 'הפעל תהליכים אוטומטיים 24/7' },
-    { icon: Users, title: 'ניהול לקוחות', desc: 'צפה בכל השיחות במקום אחד' },
-    { icon: Workflow, title: 'זרימות עבודה', desc: 'עורך ויזואלי לבניית תרחישים' },
-    { icon: Calendar, title: 'תזמון', desc: 'שלח הודעות בזמנים שנקבעו מראש' },
-    { icon: BarChart3, title: 'סטטיסטיקות', desc: 'עקוב אחר ביצועי הבוטים שלך' },
-    { icon: Shield, title: 'אבטחה', desc: 'הצפנה מלאה ואבטחת מידע' },
-  ];
-
-  const demoSteps = [
-    { title: 'הוסף טריגר', desc: 'בחר מתי הבוט יופעל', icon: Play },
-    { title: 'הוסף הודעה', desc: 'הגדר תגובה אוטומטית', icon: MessageCircle },
-    { title: 'הוסף כפתורים', desc: 'צור אינטראקציה עם הלקוח', icon: List },
-    { title: 'הפעל!', desc: 'הבוט מוכן לשימוש', icon: Zap },
-  ];
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900" dir="rtl">
+    <div className="min-h-screen bg-white" dir="rtl">
       {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-slate-900/80 backdrop-blur-lg border-b border-white/10">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <Logo light />
-          <div className="flex items-center gap-4">
-            <Link to="/pricing" className="text-white/70 hover:text-white transition-colors">
+      <header className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
+          <Logo />
+          <div className="flex items-center gap-6">
+            <Link to="/pricing" className="text-gray-600 hover:text-gray-900 transition-colors text-sm font-medium">
               תמחור
             </Link>
-            <button 
-              onClick={() => setShowLogin(true)}
-              className="text-white/70 hover:text-white transition-colors"
+            <Link 
+              to="/login"
+              className="text-gray-600 hover:text-gray-900 transition-colors text-sm font-medium"
             >
               התחברות
-            </button>
+            </Link>
             <Link 
               to="/signup"
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium"
             >
               התחל בחינם
             </Link>
@@ -84,420 +55,323 @@ export default function LandingPage() {
         </div>
       </header>
 
-      <div className="flex min-h-screen pt-20">
-        {/* Left Side - Hero Content */}
-        <div className="flex-1 flex flex-col justify-center px-8 lg:px-16">
-          <div className="max-w-xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-purple-500/20 text-purple-300 rounded-full text-sm mb-6">
-              <Sparkles className="w-4 h-4" />
-              פלטפורמה #1 לבוטים בישראל
-            </div>
-            
-            <h1 className="text-4xl lg:text-5xl font-bold text-white mb-6 leading-tight">
-              בנה בוטים לוואטסאפ
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400"> בקלות מדהימה</span>
-            </h1>
-            
-            <p className="text-xl text-white/70 mb-8 leading-relaxed">
-              FlowBotomat מאפשרת לך ליצור בוטים אוטומטיים לוואטסאפ בלי ידע טכני. 
-              חבר את המספר שלך, בנה תרחישים, ותן לבוט לעבוד בשבילך.
-            </p>
-
-            <div className="flex flex-wrap gap-6 mb-10">
-              <div className="flex items-center gap-2 text-white/60">
-                <Check className="w-5 h-5 text-green-400" />
-                <span>14 ימי ניסיון חינם</span>
-              </div>
-              <div className="flex items-center gap-2 text-white/60">
-                <Check className="w-5 h-5 text-green-400" />
-                <span>ללא כרטיס אשראי</span>
-              </div>
-              <div className="flex items-center gap-2 text-white/60">
-                <Check className="w-5 h-5 text-green-400" />
-                <span>תמיכה בעברית</span>
-              </div>
-            </div>
-
-            <div className="flex gap-4">
-              <Link 
-                to="/signup"
-                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-xl font-medium transition-all shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50"
-              >
-                התחל בחינם
-                <ChevronLeft className="w-5 h-5" />
-              </Link>
-              <Link 
-                to="/pricing"
-                className="flex items-center gap-2 px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition-all border border-white/20"
-              >
-                צפה בתמחור
-              </Link>
-            </div>
-          </div>
-
-          {/* Features Grid */}
-          <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4 max-w-3xl">
-            {features.map((feature, i) => (
-              <div 
-                key={i}
-                className="p-4 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10 transition-colors"
-              >
-                <feature.icon className="w-6 h-6 text-purple-400 mb-2" />
-                <h3 className="text-white font-medium text-sm">{feature.title}</h3>
-                <p className="text-white/50 text-xs mt-1">{feature.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Right Side - Login Form */}
-        <div className="hidden lg:flex w-[480px] items-center justify-center p-8">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-8">
-            <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">התחברות</h2>
-              <p className="text-gray-500">ברוך הבא חזרה! הזן את הפרטים שלך</p>
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {error && <Alert variant="error">{error}</Alert>}
-              
-              <Input
-                label="אימייל"
-                type="email"
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-                placeholder="email@example.com"
-                required
-              />
-              
-              <Input
-                label="סיסמה"
-                type="password"
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                placeholder="הסיסמה שלך"
-                required
-              />
-              
-              <Button type="submit" isLoading={isLoading} className="w-full">
-                התחברות
-              </Button>
-              
-              <div className="relative my-6">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-200" />
-                </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="px-2 bg-white text-gray-500">או</span>
-                </div>
-              </div>
-              
-              <Link 
-                to="/signup"
-                className="block w-full text-center px-4 py-3 border-2 border-purple-200 text-purple-600 rounded-xl font-medium hover:bg-purple-50 transition-colors"
-              >
-                צור חשבון חדש
-              </Link>
-            </form>
-
-            <p className="text-center text-sm text-gray-400 mt-6">
-              בהתחברות אתה מסכים ל
-              <a href="#" className="text-purple-600 hover:underline">תנאי השימוש</a>
-              {' '}ול
-              <a href="#" className="text-purple-600 hover:underline">מדיניות הפרטיות</a>
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Bot Builder Demo Section */}
-      <section className="py-20 px-4 bg-gradient-to-b from-slate-900 to-slate-800">
+      {/* Hero Section */}
+      <section className="pt-32 pb-20 px-6">
         <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-              בנה בוט ב-
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">60 שניות</span>
-            </h2>
-            <p className="text-white/60 text-lg max-w-2xl mx-auto">
-              עורך ויזואלי פשוט וחזק - פשוט גרור ושחרר אלמנטים לבניית הבוט המושלם
-            </p>
-          </div>
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            {/* Left - Text */}
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-sm font-medium mb-6">
+                <Zap className="w-4 h-4" />
+                14 ימי ניסיון חינם
+              </div>
+              
+              <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-6 leading-tight">
+                בנה בוטים לוואטסאפ
+                <br />
+                <span className="text-blue-600">בדקות ספורות</span>
+              </h1>
+              
+              <p className="text-xl text-gray-600 mb-8 leading-relaxed">
+                עורך ויזואלי פשוט ועוצמתי. גרור, שחרר, וצור תרחישים אוטומטיים לעסק שלך.
+              </p>
 
-          <div className="grid lg:grid-cols-2 gap-8 items-center">
-            {/* Steps */}
-            <div className="space-y-4">
-              {demoSteps.map((step, index) => (
-                <div 
-                  key={index}
-                  className={`flex items-center gap-4 p-4 rounded-xl transition-all duration-500 ${
-                    demoStep === index 
-                      ? 'bg-purple-600/30 border border-purple-500/50 scale-105' 
-                      : 'bg-white/5 border border-white/10'
-                  }`}
-                >
-                  <div className={`p-3 rounded-xl ${
-                    demoStep === index ? 'bg-purple-600' : 'bg-white/10'
-                  }`}>
-                    <step.icon className={`w-6 h-6 ${demoStep === index ? 'text-white' : 'text-white/60'}`} />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-sm font-bold ${demoStep === index ? 'text-purple-400' : 'text-white/40'}`}>
-                        {index + 1}
-                      </span>
-                      <h3 className={`font-semibold ${demoStep === index ? 'text-white' : 'text-white/70'}`}>
-                        {step.title}
-                      </h3>
-                    </div>
-                    <p className={`text-sm ${demoStep === index ? 'text-white/80' : 'text-white/40'}`}>
-                      {step.desc}
-                    </p>
-                  </div>
-                  {demoStep === index && (
-                    <div className="mr-auto">
-                      <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                    </div>
-                  )}
+              <div className="flex flex-wrap gap-4 mb-10">
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Check className="w-5 h-5 text-green-500" />
+                  <span>ללא קוד</span>
                 </div>
-              ))}
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Check className="w-5 h-5 text-green-500" />
+                  <span>עברית מלאה</span>
+                </div>
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Check className="w-5 h-5 text-green-500" />
+                  <span>תמיכה מהירה</span>
+                </div>
+              </div>
+
+              <div className="flex gap-4">
+                <Link 
+                  to="/signup"
+                  className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors shadow-lg shadow-blue-600/20"
+                >
+                  התחל בחינם
+                  <ChevronLeft className="w-5 h-5" />
+                </Link>
+                <Link 
+                  to="/pricing"
+                  className="px-6 py-3 border border-gray-200 hover:border-gray-300 text-gray-700 rounded-lg font-medium transition-colors"
+                >
+                  צפה בתמחור
+                </Link>
+              </div>
             </div>
 
-            {/* Visual Demo */}
-            <div className="relative">
-              <div className="bg-slate-800/80 rounded-2xl border border-white/10 p-6 shadow-2xl">
-                {/* Mini Bot Editor */}
-                <div className="bg-slate-900 rounded-xl p-4 min-h-[350px] relative overflow-hidden">
-                  {/* Header */}
-                  <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/10">
-                    <div className="w-3 h-3 rounded-full bg-red-500" />
-                    <div className="w-3 h-3 rounded-full bg-yellow-500" />
-                    <div className="w-3 h-3 rounded-full bg-green-500" />
-                    <span className="text-white/40 text-sm mr-4">בוט חדש.flow</span>
-                  </div>
-
-                  {/* Nodes */}
-                  <div className="space-y-3">
-                    {/* Trigger Node */}
-                    <div className={`p-3 rounded-lg border transition-all duration-500 ${
-                      demoStep >= 0 ? 'bg-green-900/30 border-green-500/50 opacity-100' : 'opacity-30 border-white/10'
-                    }`}>
-                      <div className="flex items-center gap-2">
-                        <Play className="w-4 h-4 text-green-400" />
-                        <span className="text-white text-sm font-medium">טריגר: הודעה נכנסת</span>
-                      </div>
-                      <div className="text-white/50 text-xs mt-1">כל הודעה שמתחילה ב-"שלום"</div>
-                    </div>
-
-                    {/* Arrow */}
-                    <div className={`flex justify-center transition-opacity duration-500 ${demoStep >= 1 ? 'opacity-100' : 'opacity-30'}`}>
-                      <ArrowDown className="w-5 h-5 text-white/30" />
-                    </div>
-
-                    {/* Message Node */}
-                    <div className={`p-3 rounded-lg border transition-all duration-500 ${
-                      demoStep >= 1 ? 'bg-blue-900/30 border-blue-500/50 opacity-100' : 'opacity-30 border-white/10'
-                    }`}>
-                      <div className="flex items-center gap-2">
-                        <MessageCircle className="w-4 h-4 text-blue-400" />
-                        <span className="text-white text-sm font-medium">הודעת טקסט</span>
-                      </div>
-                      <div className="bg-slate-800 rounded p-2 mt-2 text-white/80 text-sm">
-                        שלום! 👋 ברוכים הבאים לעסק שלנו. איך אוכל לעזור?
-                      </div>
-                    </div>
-
-                    {/* Arrow */}
-                    <div className={`flex justify-center transition-opacity duration-500 ${demoStep >= 2 ? 'opacity-100' : 'opacity-30'}`}>
-                      <ArrowDown className="w-5 h-5 text-white/30" />
-                    </div>
-
-                    {/* Buttons Node */}
-                    <div className={`p-3 rounded-lg border transition-all duration-500 ${
-                      demoStep >= 2 ? 'bg-purple-900/30 border-purple-500/50 opacity-100' : 'opacity-30 border-white/10'
-                    }`}>
-                      <div className="flex items-center gap-2">
-                        <List className="w-4 h-4 text-purple-400" />
-                        <span className="text-white text-sm font-medium">כפתורי בחירה</span>
-                      </div>
-                      <div className="flex gap-2 mt-2">
-                        <div className="px-3 py-1.5 bg-purple-600/50 rounded-lg text-white text-xs">מידע על מוצרים</div>
-                        <div className="px-3 py-1.5 bg-purple-600/50 rounded-lg text-white text-xs">שעות פתיחה</div>
-                        <div className="px-3 py-1.5 bg-purple-600/50 rounded-lg text-white text-xs">דבר עם נציג</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Success Animation */}
-                  {demoStep === 3 && (
-                    <div className="absolute inset-0 bg-green-500/10 flex items-center justify-center rounded-xl animate-pulse">
-                      <div className="text-center">
-                        <div className="w-16 h-16 mx-auto mb-3 bg-green-500/20 rounded-full flex items-center justify-center">
-                          <Check className="w-8 h-8 text-green-400" />
-                        </div>
-                        <div className="text-green-400 font-semibold">הבוט פעיל!</div>
-                      </div>
-                    </div>
-                  )}
+            {/* Right - Login Form */}
+            <div className="hidden lg:block">
+              <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8">
+                <div className="text-center mb-6">
+                  <h2 className="text-xl font-bold text-gray-900 mb-1">התחברות</h2>
+                  <p className="text-gray-500 text-sm">ברוכים הבאים חזרה</p>
                 </div>
 
-                {/* Toolbar */}
-                <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/10">
-                  <div className="flex gap-2">
-                    <div className="p-2 bg-white/5 rounded-lg hover:bg-white/10 cursor-pointer">
-                      <Plus className="w-4 h-4 text-white/60" />
-                    </div>
-                    <div className="p-2 bg-white/5 rounded-lg hover:bg-white/10 cursor-pointer">
-                      <Type className="w-4 h-4 text-white/60" />
-                    </div>
-                    <div className="p-2 bg-white/5 rounded-lg hover:bg-white/10 cursor-pointer">
-                      <Image className="w-4 h-4 text-white/60" />
-                    </div>
-                  </div>
-                  <Link 
-                    to="/signup"
-                    className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-                  >
-                    נסה בעצמך →
-                  </Link>
-                </div>
-              </div>
-
-              {/* Floating Elements */}
-              <div className="absolute -top-4 -right-4 p-3 bg-green-500 rounded-xl shadow-lg animate-bounce">
-                <Zap className="w-5 h-5 text-white" />
-              </div>
-              <div className="absolute -bottom-4 -left-4 p-3 bg-purple-500 rounded-xl shadow-lg">
-                <Bot className="w-5 h-5 text-white" />
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  {error && <Alert variant="error">{error}</Alert>}
+                  
+                  <Input
+                    label="אימייל"
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    placeholder="email@example.com"
+                    required
+                  />
+                  
+                  <Input
+                    label="סיסמה"
+                    type="password"
+                    value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    placeholder="הסיסמה שלך"
+                    required
+                  />
+                  
+                  <Button type="submit" isLoading={isLoading} className="w-full">
+                    התחברות
+                  </Button>
+                  
+                  <p className="text-center text-sm text-gray-500">
+                    אין לך חשבון?{' '}
+                    <Link to="/signup" className="text-blue-600 hover:underline">
+                      הרשמה
+                    </Link>
+                  </p>
+                </form>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Testimonials / Trust Section */}
-      <section className="py-16 px-4 bg-slate-800">
-        <div className="max-w-4xl mx-auto text-center">
-          <div className="flex items-center justify-center gap-1 mb-4">
-            {[...Array(5)].map((_, i) => (
-              <Star key={i} className="w-6 h-6 text-yellow-400 fill-current" />
-            ))}
+      {/* Bot Editor Preview */}
+      <section className="py-20 px-6 bg-gray-50">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">
+              עורך ויזואלי אינטואיטיבי
+            </h2>
+            <p className="text-gray-600 text-lg max-w-2xl mx-auto">
+              פשוט גרור בלוקים, חבר ביניהם, והבוט מוכן
+            </p>
           </div>
-          <h3 className="text-2xl font-bold text-white mb-2">4.9/5 מתוך 500+ ביקורות</h3>
-          <p className="text-white/60 mb-8">אלפי עסקים כבר משתמשים ב-FlowBotomat לאוטומציה של השירות שלהם</p>
-          
-          <div className="grid md:grid-cols-3 gap-6">
-            <div className="bg-white/5 rounded-xl p-6 border border-white/10">
-              <p className="text-white/80 text-sm mb-4">"הצלחתי לבנות בוט שירות לקוחות תוך 10 דקות! חסכתי שעות עבודה כל יום."</p>
+
+          {/* Flow Editor Preview */}
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
+            {/* Editor Header */}
+            <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-purple-500 rounded-full flex items-center justify-center text-white font-bold">ר</div>
-                <div className="text-right">
-                  <div className="text-white text-sm font-medium">רון כהן</div>
-                  <div className="text-white/50 text-xs">בעל עסק</div>
+                <div className="flex gap-1.5">
+                  <div className="w-3 h-3 rounded-full bg-red-400" />
+                  <div className="w-3 h-3 rounded-full bg-yellow-400" />
+                  <div className="w-3 h-3 rounded-full bg-green-400" />
+                </div>
+                <span className="text-sm text-gray-500 font-medium">בוט שירות לקוחות</span>
+              </div>
+              <Link 
+                to="/signup"
+                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+              >
+                נסה בעצמך →
+              </Link>
+            </div>
+            
+            {/* Editor Content */}
+            <div className="flex">
+              {/* Sidebar - Node Palette */}
+              <div className="w-48 bg-gray-50 border-l border-gray-200 p-4">
+                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">בלוקים</div>
+                <div className="space-y-2">
+                  {[
+                    { icon: Play, label: 'טריגר', color: 'bg-green-100 text-green-700' },
+                    { icon: MessageCircle, label: 'הודעה', color: 'bg-blue-100 text-blue-700' },
+                    { icon: List, label: 'כפתורים', color: 'bg-purple-100 text-purple-700' },
+                    { icon: Settings, label: 'פעולה', color: 'bg-orange-100 text-orange-700' },
+                    { icon: Image, label: 'מדיה', color: 'bg-pink-100 text-pink-700' },
+                  ].map((item, i) => (
+                    <div 
+                      key={i}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg ${item.color} cursor-pointer hover:opacity-80 transition-opacity`}
+                    >
+                      <item.icon className="w-4 h-4" />
+                      <span className="text-sm font-medium">{item.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              {/* Canvas */}
+              <div className="flex-1 h-[400px] bg-[#fafafa] relative overflow-hidden" style={{ backgroundImage: 'radial-gradient(circle, #e5e7eb 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+                {/* Trigger Node */}
+                <div className="absolute top-8 right-8 w-64 bg-white rounded-xl border-2 border-green-400 shadow-lg">
+                  <div className="px-4 py-3 bg-green-50 border-b border-green-100 rounded-t-xl flex items-center gap-2">
+                    <div className="p-1.5 bg-green-500 rounded-lg">
+                      <Play className="w-4 h-4 text-white" fill="white" />
+                    </div>
+                    <span className="font-semibold text-green-800">טריגר</span>
+                  </div>
+                  <div className="p-4">
+                    <div className="text-sm text-gray-500 mb-1">הפעלה בעת:</div>
+                    <div className="text-gray-900 font-medium">הודעה נכנסת מתחילה ב-"שלום"</div>
+                  </div>
+                  {/* Connection Point */}
+                  <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-green-500 rounded-full border-4 border-white shadow" />
+                </div>
+
+                {/* Connection Line 1 */}
+                <svg className="absolute top-[140px] right-[140px] w-px h-16 pointer-events-none">
+                  <line x1="0" y1="0" x2="0" y2="60" stroke="#9ca3af" strokeWidth="2" strokeDasharray="4" />
+                </svg>
+
+                {/* Message Node */}
+                <div className="absolute top-[200px] right-8 w-64 bg-white rounded-xl border-2 border-blue-400 shadow-lg">
+                  <div className="px-4 py-3 bg-blue-50 border-b border-blue-100 rounded-t-xl flex items-center gap-2">
+                    <div className="p-1.5 bg-blue-500 rounded-lg">
+                      <MessageCircle className="w-4 h-4 text-white" />
+                    </div>
+                    <span className="font-semibold text-blue-800">הודעה</span>
+                  </div>
+                  <div className="p-4">
+                    <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700">
+                      שלום! 👋 ברוכים הבאים.<br/>
+                      איך אוכל לעזור לך היום?
+                    </div>
+                  </div>
+                  {/* Connection Point Top */}
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-blue-500 rounded-full border-4 border-white shadow" />
+                  {/* Connection Point Bottom */}
+                  <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-blue-500 rounded-full border-4 border-white shadow" />
+                </div>
+
+                {/* Connection Line 2 */}
+                <svg className="absolute top-[360px] right-[140px] w-px h-16 pointer-events-none">
+                  <line x1="0" y1="0" x2="0" y2="60" stroke="#9ca3af" strokeWidth="2" strokeDasharray="4" />
+                </svg>
+
+                {/* List/Buttons Node */}
+                <div className="absolute top-[420px] right-8 w-64 bg-white rounded-xl border-2 border-purple-400 shadow-lg">
+                  <div className="px-4 py-3 bg-purple-50 border-b border-purple-100 rounded-t-xl flex items-center gap-2">
+                    <div className="p-1.5 bg-purple-500 rounded-lg">
+                      <List className="w-4 h-4 text-white" />
+                    </div>
+                    <span className="font-semibold text-purple-800">כפתורי בחירה</span>
+                  </div>
+                  <div className="p-4 space-y-2">
+                    <div className="px-3 py-2 bg-purple-50 rounded-lg text-sm text-purple-700 text-center font-medium">🛒 מוצרים</div>
+                    <div className="px-3 py-2 bg-purple-50 rounded-lg text-sm text-purple-700 text-center font-medium">⏰ שעות פתיחה</div>
+                    <div className="px-3 py-2 bg-purple-50 rounded-lg text-sm text-purple-700 text-center font-medium">👤 דבר עם נציג</div>
+                  </div>
+                  {/* Connection Point Top */}
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-purple-500 rounded-full border-4 border-white shadow" />
+                </div>
+
+                {/* Floating Label */}
+                <div className="absolute top-4 left-4 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-full shadow-lg">
+                  גרור בלוקים לכאן
                 </div>
               </div>
             </div>
-            <div className="bg-white/5 rounded-xl p-6 border border-white/10">
-              <p className="text-white/80 text-sm mb-4">"הממשק הכי פשוט שראיתי. גם בלי רקע טכני הצלחתי לבנות בוטים מורכבים."</p>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-pink-500 rounded-full flex items-center justify-center text-white font-bold">מ</div>
-                <div className="text-right">
-                  <div className="text-white text-sm font-medium">מיכל לוי</div>
-                  <div className="text-white/50 text-xs">יועצת עסקית</div>
+          </div>
+        </div>
+      </section>
+
+      {/* Features Section */}
+      <section className="py-20 px-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">
+              כל מה שצריך לעסק שלך
+            </h2>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-8">
+            {[
+              { 
+                icon: Bot, 
+                title: 'בוטים חכמים', 
+                desc: 'צור תרחישים מורכבים עם תנאים, לופים ואינטגרציות'
+              },
+              { 
+                icon: MessageCircle, 
+                title: 'חיבור WhatsApp', 
+                desc: 'התחבר לוואטסאפ שלך תוך דקות וקבל הודעות בזמן אמת'
+              },
+              { 
+                icon: Users, 
+                title: 'ניהול אנשי קשר', 
+                desc: 'צפה בהיסטוריית שיחות, פילוח לקוחות ותיוגים'
+              },
+            ].map((feature, i) => (
+              <div key={i} className="text-center p-6">
+                <div className="w-14 h-14 mx-auto mb-4 bg-blue-50 rounded-xl flex items-center justify-center">
+                  <feature.icon className="w-7 h-7 text-blue-600" />
                 </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">{feature.title}</h3>
+                <p className="text-gray-600">{feature.desc}</p>
               </div>
-            </div>
-            <div className="bg-white/5 rounded-xl p-6 border border-white/10">
-              <p className="text-white/80 text-sm mb-4">"התמיכה מדהימה והמערכת עובדת 24/7. הלקוחות שלי מקבלים מענה מיידי."</p>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold">ד</div>
-                <div className="text-right">
-                  <div className="text-white text-sm font-medium">דוד אברהם</div>
-                  <div className="text-white/50 text-xs">סוכן ביטוח</div>
-                </div>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
       </section>
 
       {/* CTA Section */}
-      <section className="py-20 px-4 bg-gradient-to-r from-purple-600 to-pink-600">
+      <section className="py-20 px-6 bg-blue-600">
         <div className="max-w-3xl mx-auto text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+          <h2 className="text-3xl font-bold text-white mb-4">
             מוכנים להתחיל?
           </h2>
-          <p className="text-white/80 text-lg mb-8">
-            הצטרפו לאלפי עסקים שכבר משתמשים ב-FlowBotomat. 14 ימי ניסיון חינם, ללא התחייבות.
+          <p className="text-blue-100 text-lg mb-8">
+            הצטרפו לאלפי עסקים שכבר משתמשים בFlowBotomat
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link 
-              to="/signup"
-              className="px-8 py-4 bg-white text-purple-600 rounded-xl font-bold text-lg hover:bg-white/90 transition-colors shadow-lg"
-            >
-              התחל בחינם עכשיו
-            </Link>
-            <Link 
-              to="/pricing"
-              className="px-8 py-4 bg-white/20 text-white rounded-xl font-bold text-lg hover:bg-white/30 transition-colors border border-white/30"
-            >
-              צפה בתמחור
-            </Link>
-          </div>
+          <Link 
+            to="/signup"
+            className="inline-flex items-center gap-2 px-8 py-4 bg-white text-blue-600 rounded-lg font-bold text-lg hover:bg-blue-50 transition-colors"
+          >
+            התחל בחינם
+            <ChevronLeft className="w-5 h-5" />
+          </Link>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="py-12 px-4 bg-slate-900 border-t border-white/10">
+      <footer className="py-12 px-6 bg-gray-50 border-t border-gray-100">
         <div className="max-w-6xl mx-auto">
-          <div className="grid md:grid-cols-4 gap-8 mb-8">
-            <div>
-              <Logo light />
-              <p className="text-white/50 text-sm mt-4">
-                הפלטפורמה המובילה בישראל לבניית בוטים לוואטסאפ
-              </p>
+          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+            <Logo />
+            <div className="flex items-center gap-8 text-sm text-gray-500">
+              <Link to="/pricing" className="hover:text-gray-900">תמחור</Link>
+              <Link to="/privacy" className="hover:text-gray-900">מדיניות פרטיות</Link>
+              <Link to="/terms" className="hover:text-gray-900">תנאי שימוש</Link>
             </div>
-            <div>
-              <h4 className="text-white font-semibold mb-4">מוצר</h4>
-              <ul className="space-y-2 text-white/50 text-sm">
-                <li><Link to="/pricing" className="hover:text-white">תמחור</Link></li>
-                <li><a href="#" className="hover:text-white">תכונות</a></li>
-                <li><a href="#" className="hover:text-white">תבניות</a></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="text-white font-semibold mb-4">חברה</h4>
-              <ul className="space-y-2 text-white/50 text-sm">
-                <li><a href="#" className="hover:text-white">אודות</a></li>
-                <li><a href="#" className="hover:text-white">בלוג</a></li>
-                <li><a href="#" className="hover:text-white">צור קשר</a></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="text-white font-semibold mb-4">משפטי</h4>
-              <ul className="space-y-2 text-white/50 text-sm">
-                <li><a href="#" className="hover:text-white">תנאי שימוש</a></li>
-                <li><a href="#" className="hover:text-white">מדיניות פרטיות</a></li>
-              </ul>
-            </div>
-          </div>
-          <div className="pt-8 border-t border-white/10 text-center text-white/40 text-sm">
-            © 2026 FlowBotomat. כל הזכויות שמורות.
+            <p className="text-sm text-gray-400">
+              © 2026 FlowBotomat
+            </p>
           </div>
         </div>
       </footer>
 
-      {/* Mobile Login Button */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 p-4 bg-slate-900/90 backdrop-blur-lg border-t border-white/10 z-50">
+      {/* Mobile Bottom Bar */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-100 z-50">
         <div className="flex gap-3">
           <Link 
             to="/login"
-            className="flex-1 px-4 py-3 bg-white/10 text-white rounded-xl font-medium text-center"
+            className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-lg font-medium text-center"
           >
             התחברות
           </Link>
           <Link 
             to="/signup"
-            className="flex-1 px-4 py-3 bg-purple-600 text-white rounded-xl font-medium text-center"
+            className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg font-medium text-center"
           >
             הרשמה
           </Link>
