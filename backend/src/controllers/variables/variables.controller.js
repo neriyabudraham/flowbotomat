@@ -25,12 +25,14 @@ async function getVariables(req, res) {
       [userId]
     );
     
-    // Combine system variables (always available) with user-defined
+    // Separate user variables from custom system variables (constants)
     const userVariables = result.rows.filter(v => !v.is_system);
+    const customSystemVariables = result.rows.filter(v => v.is_system);
     
     res.json({
       systemVariables: SYSTEM_VARIABLES,
-      userVariables
+      userVariables,
+      customSystemVariables
     });
   } catch (error) {
     console.error('[Variables] Error fetching:', error);
@@ -42,7 +44,7 @@ async function getVariables(req, res) {
 async function createVariable(req, res) {
   try {
     const userId = req.user.id;
-    const { name, label, description, default_value, var_type } = req.body;
+    const { name, label, description, default_value, var_type, is_system } = req.body;
     
     if (!name) {
       return res.status(400).json({ error: 'שם המשתנה הוא שדה חובה' });
@@ -53,11 +55,17 @@ async function createVariable(req, res) {
       return res.status(400).json({ error: 'שם משתנה יכול להכיל רק אותיות אנגליות, מספרים וקו תחתון' });
     }
     
+    // Check if trying to override built-in system variable
+    const builtInNames = SYSTEM_VARIABLES.map(v => v.name);
+    if (builtInNames.includes(name.toLowerCase())) {
+      return res.status(400).json({ error: 'לא ניתן ליצור משתנה בשם זה - זהו משתנה מערכת מובנה' });
+    }
+    
     const result = await db.query(
-      `INSERT INTO user_variable_definitions (user_id, name, label, description, default_value, var_type)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO user_variable_definitions (user_id, name, label, description, default_value, var_type, is_system)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [userId, name.toLowerCase(), label || name, description || '', default_value || '', var_type || 'text']
+      [userId, name.toLowerCase(), label || name, description || '', default_value || '', var_type || 'text', is_system || false]
     );
     
     res.status(201).json(result.rows[0]);
@@ -77,19 +85,20 @@ async function updateVariable(req, res) {
     const { id } = req.params;
     const { label, description, default_value, var_type } = req.body;
     
+    // Allow updating both user variables and custom system variables (but not built-in)
     const result = await db.query(
       `UPDATE user_variable_definitions 
        SET label = COALESCE($1, label),
            description = COALESCE($2, description),
            default_value = COALESCE($3, default_value),
            var_type = COALESCE($4, var_type)
-       WHERE id = $5 AND user_id = $6 AND is_system = false
+       WHERE id = $5 AND user_id = $6
        RETURNING *`,
       [label, description, default_value, var_type, id, userId]
     );
     
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'משתנה לא נמצא או שאי אפשר לערוך אותו' });
+      return res.status(404).json({ error: 'משתנה לא נמצא' });
     }
     
     res.json(result.rows[0]);

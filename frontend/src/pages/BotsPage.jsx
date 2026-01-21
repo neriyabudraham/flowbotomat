@@ -22,9 +22,13 @@ export default function BotsPage() {
   // Variables state
   const [systemVariables, setSystemVariables] = useState([]);
   const [userVariables, setUserVariables] = useState([]);
+  const [customSystemVars, setCustomSystemVars] = useState([]);
   const [newVarName, setNewVarName] = useState('');
   const [newVarLabel, setNewVarLabel] = useState('');
   const [newVarDefault, setNewVarDefault] = useState('');
+  const [newSysVarName, setNewSysVarName] = useState('');
+  const [newSysVarLabel, setNewSysVarLabel] = useState('');
+  const [newSysVarValue, setNewSysVarValue] = useState('');
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -59,6 +63,7 @@ export default function BotsPage() {
       const res = await api.get('/variables');
       setSystemVariables(res.data.systemVariables || []);
       setUserVariables(res.data.userVariables || []);
+      setCustomSystemVars(res.data.customSystemVariables || []);
     } catch (e) {
       console.error('Failed to fetch variables:', e);
     }
@@ -70,7 +75,8 @@ export default function BotsPage() {
       await api.post('/variables', { 
         name: newVarName.trim().toLowerCase().replace(/\s+/g, '_'),
         label: newVarLabel.trim() || newVarName.trim(),
-        default_value: newVarDefault.trim()
+        default_value: newVarDefault.trim(),
+        is_system: false
       });
       setNewVarName('');
       setNewVarLabel('');
@@ -78,6 +84,33 @@ export default function BotsPage() {
       fetchVariables();
     } catch (e) {
       alert(e.response?.data?.error || 'שגיאה ביצירת משתנה');
+    }
+  };
+
+  const handleAddSystemVariable = async () => {
+    if (!newSysVarName.trim() || !newSysVarValue.trim()) return;
+    try {
+      await api.post('/variables', { 
+        name: newSysVarName.trim().toLowerCase().replace(/\s+/g, '_'),
+        label: newSysVarLabel.trim() || newSysVarName.trim(),
+        default_value: newSysVarValue.trim(),
+        is_system: true
+      });
+      setNewSysVarName('');
+      setNewSysVarLabel('');
+      setNewSysVarValue('');
+      fetchVariables();
+    } catch (e) {
+      alert(e.response?.data?.error || 'שגיאה ביצירת משתנה');
+    }
+  };
+
+  const handleUpdateSystemVariable = async (varId, newValue) => {
+    try {
+      await api.put(`/variables/${varId}`, { default_value: newValue });
+      fetchVariables();
+    } catch (e) {
+      alert('שגיאה בעדכון משתנה');
     }
   };
 
@@ -226,6 +259,14 @@ export default function BotsPage() {
                   <Tag className="w-4 h-4" /> תגיות
                 </button>
                 <button
+                  onClick={() => { setSettingsTab('constants'); fetchVariables(); }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    settingsTab === 'constants' ? 'bg-primary-100 text-primary-700 font-medium' : 'text-gray-500 hover:bg-gray-100'
+                  }`}
+                >
+                  <Settings className="w-4 h-4" /> קבועים
+                </button>
+                <button
                   onClick={() => { setSettingsTab('variables'); fetchVariables(); }}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                     settingsTab === 'variables' ? 'bg-primary-100 text-primary-700 font-medium' : 'text-gray-500 hover:bg-gray-100'
@@ -263,6 +304,82 @@ export default function BotsPage() {
                       </span>
                     ))}
                     {tags.length === 0 && <p className="text-gray-400 text-sm">אין תגיות</p>}
+                  </div>
+                </div>
+              )}
+              
+              {/* Constants Tab */}
+              {settingsTab === 'constants' && (
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="font-semibold text-gray-700 mb-2">משתנים קבועים</h3>
+                    <p className="text-sm text-gray-500 mb-4">
+                      משתנים עם ערך קבוע שניתן לשנות פעם אחת ויחול על כל הבוטים.
+                      לדוגמה: שם העסק, מספר טלפון לפניות, כתובת וכו'.
+                    </p>
+                    
+                    {/* Add new constant */}
+                    <div className="p-3 bg-purple-50 rounded-lg mb-4">
+                      <div className="grid grid-cols-3 gap-2 mb-2">
+                        <input
+                          type="text"
+                          value={newSysVarName}
+                          onChange={(e) => setNewSysVarName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                          placeholder="שם (באנגלית)"
+                          className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                          dir="ltr"
+                        />
+                        <input
+                          type="text"
+                          value={newSysVarLabel}
+                          onChange={(e) => setNewSysVarLabel(e.target.value)}
+                          placeholder="תווית (עברית)"
+                          className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                        />
+                        <input
+                          type="text"
+                          value={newSysVarValue}
+                          onChange={(e) => setNewSysVarValue(e.target.value)}
+                          placeholder="ערך"
+                          className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                        />
+                      </div>
+                      <Button 
+                        onClick={handleAddSystemVariable} 
+                        className="!rounded-lg w-full" 
+                        disabled={!newSysVarName.trim() || !newSysVarValue.trim()}
+                      >
+                        <Plus className="w-4 h-4 ml-2" /> הוסף קבוע
+                      </Button>
+                    </div>
+                    
+                    {/* Constants list */}
+                    <div className="space-y-2">
+                      {customSystemVars.map(v => (
+                        <div key={v.id} className="flex items-center gap-2 p-3 bg-white border border-purple-200 rounded-lg">
+                          <code className="text-purple-600 font-mono text-xs bg-purple-50 px-2 py-1 rounded">{`{{${v.name}}}`}</code>
+                          <span className="text-gray-600 text-sm">{v.label || v.name}</span>
+                          <span className="text-gray-400 mx-2">=</span>
+                          <input
+                            type="text"
+                            value={v.default_value || ''}
+                            onChange={(e) => handleUpdateSystemVariable(v.id, e.target.value)}
+                            className="flex-1 px-2 py-1 border border-gray-200 rounded text-sm"
+                          />
+                          <button 
+                            onClick={() => handleDeleteVariable(v.id)} 
+                            className="p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-500"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      {customSystemVars.length === 0 && (
+                        <p className="text-gray-400 text-sm text-center py-4">
+                          אין משתנים קבועים. הוסף משתנים כמו שם העסק, טלפון וכו'.
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

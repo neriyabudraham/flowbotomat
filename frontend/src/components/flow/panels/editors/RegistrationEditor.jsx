@@ -158,9 +158,6 @@ export default function RegistrationEditor({ data, onUpdate }) {
           placeholder="למשל: הרשמה לקורס"
           className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm"
         />
-        <p className="text-xs text-gray-400 mt-1">
-          ניתן להשתמש במשתנה <code className="bg-gray-100 px-1 rounded">{`{{registration_title}}`}</code> בהודעות ובסיכום
-        </p>
       </div>
       
       {/* Welcome Message (Optional) */}
@@ -472,25 +469,15 @@ export default function RegistrationEditor({ data, onUpdate }) {
                 )}
                 
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-sm font-medium text-gray-700">תבנית סיכום</label>
-                    <button
-                      type="button"
-                      onClick={() => onUpdate({ summaryTemplate: generateQuickSummary() })}
-                      className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
-                    >
-                      <Zap className="w-3 h-3" />
-                      יצירה מהירה
-                    </button>
-                  </div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">תבנית סיכום</label>
                   <TextInputWithVariables
-                    value={data.summaryTemplate || ''}
+                    value={data.summaryTemplate ?? generateQuickSummary()}
                     onChange={(v) => onUpdate({ summaryTemplate: v })}
-                    placeholder={'📋 רישום חדש!\n\nשם: {{full_name}}\nטלפון: {{phone}}\nמייל: {{email}}'}
+                    placeholder={generateQuickSummary()}
                     multiline
-                    rows={4}
+                    rows={6}
                   />
-                  <p className="text-xs text-gray-400 mt-1">השתמש בשמות המשתנים שהגדרת בשאלות</p>
+                  <p className="text-xs text-gray-400 mt-1">התבנית מתעדכנת אוטומטית לפי השאלות</p>
                 </div>
               </>
             )}
@@ -547,26 +534,17 @@ export default function RegistrationEditor({ data, onUpdate }) {
                 </div>
                 
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-sm font-medium text-gray-700">גוף הבקשה (JSON)</label>
-                    <button
-                      type="button"
-                      onClick={() => onUpdate({ webhookBody: generateQuickWebhookBody() })}
-                      className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
-                    >
-                      <Zap className="w-3 h-3" />
-                      יצירה מהירה
-                    </button>
-                  </div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">גוף הבקשה (JSON)</label>
                   <TextInputWithVariables
-                    value={data.webhookBody || ''}
+                    value={data.webhookBody ?? generateQuickWebhookBody()}
                     onChange={(v) => onUpdate({ webhookBody: v })}
                     placeholder={generateQuickWebhookBody()}
                     multiline
-                    rows={6}
+                    rows={8}
                     dir="ltr"
                     className="font-mono"
                   />
+                  <p className="text-xs text-gray-400 mt-1">התבנית מתעדכנת אוטומטית לפי השאלות</p>
                 </div>
               </>
             )}

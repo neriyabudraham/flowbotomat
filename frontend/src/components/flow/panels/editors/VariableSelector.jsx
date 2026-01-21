@@ -17,6 +17,7 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
   const [search, setSearch] = useState('');
   const [systemVariables, setSystemVariables] = useState(defaultSystemVariables);
   const [userVariables, setUserVariables] = useState([]);
+  const [constantVariables, setConstantVariables] = useState([]);
   const [loading, setLoading] = useState(false);
   const ref = useRef(null);
   const loadedRef = useRef(false);
@@ -50,6 +51,15 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
         icon: Hash,
       }));
       setUserVariables(usrVars);
+      
+      // Format constant variables (custom system vars)
+      const constVars = (res.data.customSystemVariables || []).map(v => ({
+        key: v.name,
+        label: v.label || v.name,
+        value: v.default_value,
+        icon: Settings,
+      }));
+      setConstantVariables(constVars);
       
       loadedRef.current = true;
     } catch (err) {
@@ -141,6 +151,26 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
                 </button>
               ))}
             </div>
+
+            {/* Constant Variables */}
+            {constantVariables.length > 0 && (
+              <div className="p-2 border-t border-gray-100">
+                <div className="text-xs font-medium text-gray-400 px-2 mb-1">קבועים</div>
+                {filterVars(constantVariables).map(v => (
+                  <button
+                    key={v.key}
+                    onClick={() => { onSelect(`{{${v.key}}}`); onClose(); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-purple-50 rounded-lg text-right transition-colors"
+                  >
+                    <v.icon className="w-4 h-4 text-purple-600" />
+                    <span className="flex-1 text-sm text-gray-700">{v.label}</span>
+                    <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                      {`{{${v.key}}}`}
+                    </code>
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* User Variables */}
             {userVariables.length > 0 && (

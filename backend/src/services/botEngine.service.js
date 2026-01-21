@@ -1179,8 +1179,8 @@ class BotEngine {
       // Replace registration_title variable
       summaryText = summaryText.replace(/\{\{registration_title\}\}/gi, registrationTitle);
       
-      // Replace variables in template
-      summaryText = this.replaceVariables(summaryText, contact, '', botName);
+      // Replace variables in template (including custom system variables)
+      summaryText = await this.replaceAllVariables(summaryText, contact, '', botName, contact.user_id);
       
       // Replace answer variables
       for (const [key, value] of Object.entries(answers)) {
@@ -1223,8 +1223,8 @@ class BotEngine {
         // Replace registration_title variable
         let processedBody = webhookBody.replace(/\{\{registration_title\}\}/gi, registrationTitle);
         
-        // Replace variables in body
-        processedBody = this.replaceVariables(processedBody, contact, '', botName);
+        // Replace variables in body (including custom system variables)
+        processedBody = await this.replaceAllVariables(processedBody, contact, '', botName, contact.user_id);
         
         // Replace answer variables
         for (const [key, value] of Object.entries(answers)) {
@@ -1265,7 +1265,7 @@ class BotEngine {
   }
   
   // Helper: Replace variables in text
-  replaceVariables(text, contact, message, botName = '') {
+  replaceVariables(text, contact, message, botName = '', userId = null) {
     if (!text) return '';
     
     // Israel timezone
@@ -1302,6 +1302,48 @@ class BotEngine {
       d.setDate(d.getDate() + parseInt(offset));
       return days[d.getDay()];
     });
+    
+    return result;
+  }
+  
+  // Replace variables including user-defined and custom system variables
+  async replaceAllVariables(text, contact, message, botName = '', userId = null) {
+    if (!text) return '';
+    
+    // First do basic replacements
+    let result = this.replaceVariables(text, contact, message, botName, userId);
+    
+    // Get contact variables
+    if (contact.id) {
+      try {
+        const contactVarsRes = await db.query(
+          'SELECT key, value FROM contact_variables WHERE contact_id = $1',
+          [contact.id]
+        );
+        for (const row of contactVarsRes.rows) {
+          const regex = new RegExp(`\\{\\{${row.key}\\}\\}`, 'gi');
+          result = result.replace(regex, row.value || '');
+        }
+      } catch (e) {
+        console.log('[BotEngine] Error fetching contact variables:', e.message);
+      }
+    }
+    
+    // Get custom system variables (constants)
+    if (userId) {
+      try {
+        const sysVarsRes = await db.query(
+          'SELECT name, default_value FROM user_variable_definitions WHERE user_id = $1 AND is_system = true',
+          [userId]
+        );
+        for (const row of sysVarsRes.rows) {
+          const regex = new RegExp(`\\{\\{${row.name}\\}\\}`, 'gi');
+          result = result.replace(regex, row.default_value || '');
+        }
+      } catch (e) {
+        console.log('[BotEngine] Error fetching system variables:', e.message);
+      }
+    }
     
     return result;
   }
