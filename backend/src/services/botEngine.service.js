@@ -114,9 +114,43 @@ class BotEngine {
         }
       }
       
-      // If this is a list_response but no session exists, ignore it
+      // If this is a list_response but no session exists, try to find the list by title
       if (messageType === 'list_response') {
-        console.log('[BotEngine] List response received but no active session - ignoring');
+        if (quotedListTitle) {
+          console.log('[BotEngine] List response without session - searching for list by title:', quotedListTitle);
+          
+          // Find the list node by title
+          const listNode = flowData.nodes.find(n => 
+            n.type === 'list' && n.data?.title === quotedListTitle
+          );
+          
+          if (listNode) {
+            console.log('[BotEngine] Found list node:', listNode.id);
+            
+            // Create a temporary session-like object
+            const tempSession = {
+              current_node_id: listNode.id,
+              waiting_for: 'list_response',
+              waiting_data: {
+                buttons: (listNode.data.buttons || []).map((btn, i) => ({
+                  id: `option_${i}`,
+                  title: btn.title || '',
+                  displayIndex: i,
+                  originalIndex: i,
+                })),
+                listTitle: listNode.data.title,
+              }
+            };
+            
+            // Process this list response
+            await this.continueSession(tempSession, flowData, contact, message, userId, bot, messageType, selectedRowId, quotedListTitle);
+            return;
+          } else {
+            console.log('[BotEngine] Could not find list node with title:', quotedListTitle);
+          }
+        }
+        
+        console.log('[BotEngine] List response received but no active session and no matching list - ignoring');
         return;
       }
       
