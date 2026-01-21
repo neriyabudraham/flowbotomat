@@ -260,14 +260,51 @@ class BotEngine {
       }
       
       // Handle session based on singleSelect
+      const keepSessionForMultiSelect = !singleSelect;
+      
       if (singleSelect) {
         // Single select - clear session after selection
         await this.clearSession(bot.id, contact.id);
         console.log('[BotEngine] Single select mode - session cleared');
       } else {
         // Multi select - keep session active for more selections
-        console.log('[BotEngine] Multi select mode - keeping session for more selections');
+        console.log('[BotEngine] Multi select mode - will restore session after flow execution');
       }
+      
+      // Find next edge
+      let nextEdge;
+      if (nextHandleId) {
+        nextEdge = flowData.edges.find(e => e.source === currentNode.id && e.sourceHandle === nextHandleId);
+      }
+      if (!nextEdge) {
+        // Fallback - try default edge (no handle)
+        nextEdge = flowData.edges.find(e => e.source === currentNode.id && !e.sourceHandle);
+        if (nextEdge) {
+          console.log('[BotEngine] Using default edge (no specific handle)');
+        }
+      }
+      
+      if (nextEdge) {
+        console.log('[BotEngine] ➡️ Following edge to:', nextEdge.target);
+        await this.executeNode(nextEdge.target, flowData, contact, message, userId, bot.id, bot.name);
+      } else {
+        console.log('[BotEngine] No next edge found from session node');
+      }
+      
+      // For multi-select, restore the list session after executing the flow
+      if (keepSessionForMultiSelect) {
+        await this.saveSession(
+          bot.id,
+          contact.id,
+          currentNode.id,
+          'list_response',
+          session.waiting_data,
+          null // No timeout for list responses
+        );
+        console.log('[BotEngine] ✅ Multi-select session restored for more selections');
+      }
+      
+      return;
       
     } else if (session.waiting_for === 'reply') {
       // For regular reply wait, clear session and continue
