@@ -8,6 +8,7 @@ const webhookRoutes = require('./webhook.routes');
 const contactsRoutes = require('./contacts.routes');
 const statsRoutes = require('./stats.routes');
 const userRoutes = require('./user.routes');
+const botsRoutes = require('./bots.routes');
 
 // Mount routes
 router.use('/auth', authRoutes);
@@ -16,5 +17,6 @@ router.use('/webhook', webhookRoutes);
 router.use('/contacts', contactsRoutes);
 router.use('/stats', statsRoutes);
 router.use('/user', userRoutes);
+router.use('/bots', botsRoutes);
 
 module.exports = router;

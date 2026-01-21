@@ -6,6 +6,8 @@ import DashboardPage from './pages/DashboardPage';
 import WhatsappSetupPage from './pages/WhatsappSetupPage';
 import ContactsPage from './pages/ContactsPage';
 import SettingsPage from './pages/SettingsPage';
+import BotsPage from './pages/BotsPage';
+import BotEditorPage from './pages/BotEditorPage';
 
 function App() {
   return (
@@ -20,6 +22,8 @@ function App() {
           <Route path="/whatsapp" element={<WhatsappSetupPage />} />
           <Route path="/contacts" element={<ContactsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/bots" element={<BotsPage />} />
+          <Route path="/bots/:botId" element={<BotEditorPage />} />
         </Routes>
       </div>
     </BrowserRouter>
