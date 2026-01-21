@@ -126,15 +126,28 @@ class BotEngine {
       // Log bot run
       await this.logBotRun(bot.id, contact.id, 'triggered');
       
-      // Find next node after trigger
-      const nextEdge = flowData.edges.find(e => e.source === triggerNode.id);
-      if (!nextEdge) {
+      // Find ALL next nodes after trigger (support multiple branches)
+      const nextEdges = flowData.edges.filter(e => e.source === triggerNode.id);
+      if (nextEdges.length === 0) {
         console.log('[BotEngine] No edge from trigger');
         return;
       }
       
-      // Execute flow starting from next node
-      await this.executeNode(nextEdge.target, flowData, contact, message, userId, bot.id, bot.name);
+      // Sort by target node Y position (top to bottom)
+      const sortedEdges = nextEdges.sort((a, b) => {
+        const nodeA = flowData.nodes.find(n => n.id === a.target);
+        const nodeB = flowData.nodes.find(n => n.id === b.target);
+        const posA = nodeA?.position?.y || 0;
+        const posB = nodeB?.position?.y || 0;
+        return posA - posB;
+      });
+      
+      console.log('[BotEngine] Executing', sortedEdges.length, 'branches from trigger');
+      
+      // Execute all branches sequentially (top to bottom)
+      for (const edge of sortedEdges) {
+        await this.executeNode(edge.target, flowData, contact, message, userId, bot.id, bot.name);
+      }
       
     } catch (error) {
       console.error('[BotEngine] Error processing bot:', error);
@@ -786,12 +799,22 @@ class BotEngine {
       
       // Build body with variable replacement
       let body = undefined;
-      if (action.body && ['POST', 'PUT', 'PATCH'].includes(action.method)) {
-        try {
-          const bodyStr = this.replaceVariables(action.body, contact, '', '');
-          body = JSON.parse(bodyStr);
-        } catch {
-          body = action.body;
+      if (['POST', 'PUT', 'PATCH'].includes(action.method)) {
+        // Support both JSON mode and key-value mode
+        if (action.bodyMode === 'keyvalue' && action.bodyParams) {
+          body = {};
+          for (const param of action.bodyParams) {
+            if (param.key) {
+              body[param.key] = this.replaceVariables(param.value || '', contact, '', '');
+            }
+          }
+        } else if (action.body) {
+          try {
+            const bodyStr = this.replaceVariables(action.body, contact, '', '');
+            body = JSON.parse(bodyStr);
+          } catch {
+            body = action.body;
+          }
         }
       }
       

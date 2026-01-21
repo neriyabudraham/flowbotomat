@@ -326,6 +326,7 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
               {/* Headers */}
               <div className="border border-gray-200 rounded-xl overflow-hidden">
                 <button
+                  type="button"
                   onClick={() => setShowHeaders(!showHeaders)}
                   className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 text-sm font-medium"
                 >
@@ -343,50 +344,130 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                 {showHeaders && (
                   <div className="p-4 space-y-2 bg-white">
                     {headers.map((header, i) => (
-                      <div key={i} className="flex gap-2">
+                      <div key={i} className="flex items-center gap-2">
                         <input
                           type="text"
                           value={header.key}
                           onChange={(e) => updateHeader(i, 'key', e.target.value)}
                           placeholder="Header Name"
-                          className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                          className="w-[140px] px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
                           dir="ltr"
                         />
                         <input
                           type="text"
                           value={header.value}
                           onChange={(e) => updateHeader(i, 'value', e.target.value)}
-                          placeholder="Value ({{variable}})"
-                          className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                          placeholder="Value {{variable}}"
+                          className="flex-1 min-w-0 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
                           dir="ltr"
                         />
-                        <button onClick={() => removeHeader(i)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg">
+                        <button 
+                          type="button"
+                          onClick={() => removeHeader(i)} 
+                          className="flex-shrink-0 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
+                        >
                           <X className="w-4 h-4" />
                         </button>
                       </div>
                     ))}
                     <button
+                      type="button"
                       onClick={addHeader}
                       className="w-full py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg border border-dashed border-blue-200"
                     >
                       + הוסף Header
                     </button>
+                    <p className="text-xs text-gray-400">ניתן להשתמש במשתנים בערכים: {'{{phone}}'}, {'{{contact_name}}'}</p>
                   </div>
                 )}
               </div>
               
               {/* Body */}
               {['POST', 'PUT', 'PATCH'].includes(action.method || 'GET') && (
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-600">Body (JSON)</label>
-                  <textarea
-                    value={action.body || ''}
-                    onChange={(e) => onUpdate({ body: e.target.value })}
-                    placeholder={'{\n  "name": "{{contact_name}}",\n  "phone": "{{phone}}"\n}'}
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-mono resize-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
-                    rows={6}
-                    dir="ltr"
-                  />
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-sm font-medium text-gray-600">Body</label>
+                    <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+                      <button
+                        type="button"
+                        onClick={() => onUpdate({ bodyMode: 'json' })}
+                        className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                          (action.bodyMode || 'json') === 'json' ? 'bg-white shadow text-gray-700' : 'text-gray-500'
+                        }`}
+                      >
+                        JSON
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onUpdate({ bodyMode: 'keyvalue' })}
+                        className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                          action.bodyMode === 'keyvalue' ? 'bg-white shadow text-gray-700' : 'text-gray-500'
+                        }`}
+                      >
+                        Key-Value
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {(action.bodyMode || 'json') === 'json' ? (
+                    <textarea
+                      value={action.body || ''}
+                      onChange={(e) => onUpdate({ body: e.target.value })}
+                      placeholder={'{\n  "name": "{{contact_name}}",\n  "phone": "{{phone}}"\n}'}
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-mono resize-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+                      rows={6}
+                      dir="ltr"
+                    />
+                  ) : (
+                    <div className="space-y-2">
+                      {(action.bodyParams || []).map((param, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={param.key}
+                            onChange={(e) => {
+                              const newParams = [...(action.bodyParams || [])];
+                              newParams[i] = { ...newParams[i], key: e.target.value };
+                              onUpdate({ bodyParams: newParams });
+                            }}
+                            placeholder="Key"
+                            className="w-[120px] px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                            dir="ltr"
+                          />
+                          <input
+                            type="text"
+                            value={param.value}
+                            onChange={(e) => {
+                              const newParams = [...(action.bodyParams || [])];
+                              newParams[i] = { ...newParams[i], value: e.target.value };
+                              onUpdate({ bodyParams: newParams });
+                            }}
+                            placeholder="Value {{variable}}"
+                            className="flex-1 min-w-0 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                            dir="ltr"
+                          />
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const newParams = (action.bodyParams || []).filter((_, idx) => idx !== i);
+                              onUpdate({ bodyParams: newParams });
+                            }}
+                            className="flex-shrink-0 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => onUpdate({ bodyParams: [...(action.bodyParams || []), { key: '', value: '' }] })}
+                        className="w-full py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg border border-dashed border-blue-200"
+                      >
+                        + הוסף פרמטר
+                      </button>
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-400">ניתן להשתמש במשתנים: {'{{phone}}'}, {'{{contact_name}}'}, {'{{משתנה_מותאם}}'}</p>
                 </div>
               )}
               
@@ -474,6 +555,7 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                         <div className="flex flex-wrap gap-1">
                           {availablePaths.slice(0, 20).map((path) => (
                             <button
+                              type="button"
                               key={path}
                               onClick={() => {
                                 onUpdate({ mappings: [...mappings, { path, varName: path.split('.').pop() }] });
@@ -488,30 +570,35 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                     )}
                     
                     {mappings.map((mapping, i) => (
-                      <div key={i} className="flex gap-2 items-center">
+                      <div key={i} className="flex items-center gap-2">
                         <input
                           type="text"
                           value={mapping.path}
                           onChange={(e) => updateMapping(i, 'path', e.target.value)}
                           placeholder="data.user.name"
-                          className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-mono"
+                          className="w-[140px] px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-mono"
                           dir="ltr"
                         />
-                        <span className="text-gray-400 font-bold">→</span>
+                        <span className="text-gray-400 font-bold flex-shrink-0">→</span>
                         <input
                           type="text"
                           value={mapping.varName}
                           onChange={(e) => updateMapping(i, 'varName', e.target.value)}
                           placeholder="שם_המשתנה"
-                          className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                          className="flex-1 min-w-0 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
                         />
-                        <button onClick={() => removeMapping(i)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg">
+                        <button 
+                          type="button"
+                          onClick={() => removeMapping(i)} 
+                          className="flex-shrink-0 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
+                        >
                           <X className="w-4 h-4" />
                         </button>
                       </div>
                     ))}
                     
                     <button
+                      type="button"
                       onClick={addMapping}
                       className="w-full py-2 text-sm text-purple-600 hover:bg-purple-50 rounded-lg border border-dashed border-purple-200"
                     >
