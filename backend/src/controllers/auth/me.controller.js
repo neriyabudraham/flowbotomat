@@ -7,22 +7,79 @@ const me = async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    const result = await db.query(
-      `SELECT u.id, u.email, u.name, u.role, u.language, u.theme, u.created_at,
-              p.name as plan_name, p.max_messages, p.max_flows, p.max_instances
-       FROM users u
-       LEFT JOIN plans p ON u.plan_id = p.id
-       WHERE u.id = $1`,
+    // Get user info
+    const userResult = await db.query(
+      `SELECT id, email, name, role, language, theme, created_at
+       FROM users WHERE id = $1`,
       [userId]
     );
 
-    const user = result.rows[0];
+    const user = userResult.rows[0];
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json({ user });
+    // Get subscription info
+    const subResult = await db.query(`
+      SELECT 
+        us.id as subscription_id,
+        us.status as subscription_status,
+        us.is_trial,
+        us.trial_ends_at,
+        us.started_at,
+        us.expires_at,
+        sp.id as plan_id,
+        sp.name as plan_name,
+        sp.name_he as plan_name_he,
+        sp.price,
+        sp.max_bots,
+        sp.max_bot_runs_per_month,
+        sp.max_contacts,
+        sp.allow_statistics,
+        sp.allow_waha_creation,
+        sp.allow_export,
+        sp.allow_api_access,
+        sp.priority_support
+      FROM user_subscriptions us
+      JOIN subscription_plans sp ON us.plan_id = sp.id
+      WHERE us.user_id = $1 AND us.status IN ('active', 'trial')
+    `, [userId]);
+
+    // Build subscription object
+    let subscription = null;
+    if (subResult.rows.length > 0) {
+      const sub = subResult.rows[0];
+      subscription = {
+        id: sub.subscription_id,
+        status: sub.subscription_status,
+        is_trial: sub.is_trial,
+        trial_ends_at: sub.trial_ends_at,
+        started_at: sub.started_at,
+        expires_at: sub.expires_at,
+        plan: {
+          id: sub.plan_id,
+          name: sub.plan_name,
+          name_he: sub.plan_name_he,
+          price: parseFloat(sub.price),
+          max_bots: sub.max_bots,
+          max_bot_runs_per_month: sub.max_bot_runs_per_month,
+          max_contacts: sub.max_contacts,
+          allow_statistics: sub.allow_statistics,
+          allow_waha_creation: sub.allow_waha_creation,
+          allow_export: sub.allow_export,
+          allow_api_access: sub.allow_api_access,
+          priority_support: sub.priority_support
+        }
+      };
+    }
+
+    res.json({ 
+      user: {
+        ...user,
+        subscription
+      }
+    });
   } catch (error) {
     console.error('Me error:', error);
     res.status(500).json({ error: 'Server error' });

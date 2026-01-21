@@ -18,10 +18,12 @@ async function getMySubscription(req, res) {
         sp.max_contacts,
         sp.allow_statistics,
         sp.allow_waha_creation,
-        sp.allow_export
+        sp.allow_export,
+        sp.allow_api_access,
+        sp.priority_support
       FROM user_subscriptions us
       JOIN subscription_plans sp ON us.plan_id = sp.id
-      WHERE us.user_id = $1 AND us.status = 'active'
+      WHERE us.user_id = $1 AND us.status IN ('active', 'trial')
     `, [userId]);
     
     // If no subscription, return free plan limits
