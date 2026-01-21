@@ -7,15 +7,17 @@ const templatesController = require('../controllers/templates/templates.controll
 // Public routes (still need auth to track usage)
 router.use(authMiddleware);
 
-// User routes
+// User routes - IMPORTANT: Static routes must come before dynamic :id routes
 router.get('/', templatesController.getTemplates);
 router.get('/categories', templatesController.getCategories);
 router.get('/my-templates', templatesController.getMyTemplates);
+router.post('/submit', templatesController.submitTemplate);
+
+// Dynamic :id routes must come AFTER static routes
 router.get('/:id', templatesController.getTemplate);
 router.get('/:id/my-rating', templatesController.getMyRating);
 router.post('/:id/use', templatesController.useTemplate);
 router.post('/:id/rate', templatesController.rateTemplate);
-router.post('/submit', templatesController.submitTemplate);
 
 // Admin routes
 router.get('/admin/all', adminMiddleware, templatesController.adminGetTemplates);

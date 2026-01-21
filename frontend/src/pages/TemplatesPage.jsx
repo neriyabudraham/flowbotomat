@@ -277,7 +277,7 @@ export default function TemplatesPage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-2 p-1.5 bg-gray-100 rounded-2xl w-fit mb-6">
+        <div className="flex items-center gap-2 p-1.5 bg-gray-100 rounded-2xl w-fit mb-8">
           <button
             onClick={() => setActiveTab('browse')}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all ${
