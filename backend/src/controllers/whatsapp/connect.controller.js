@@ -36,21 +36,6 @@ async function createManaged(req, res) {
       return res.status(400).json({ error: 'לא נמצא מייל למשתמש' });
     }
     
-    // Check if user already has a connection in our DB
-    const existing = await pool.query(
-      'SELECT id, status FROM whatsapp_connections WHERE user_id = $1',
-      [userId]
-    );
-    
-    // If connection exists and is connected, don't allow new one
-    if (existing.rows.length > 0) {
-      if (existing.rows[0].status === 'connected') {
-        return res.status(400).json({ error: 'כבר יש לך חיבור WhatsApp פעיל' });
-      }
-      // Delete old non-connected entry
-      await pool.query('DELETE FROM whatsapp_connections WHERE id = $1', [existing.rows[0].id]);
-    }
-    
     // Get system WAHA credentials
     const { baseUrl, apiKey } = getWahaCredentials();
     
@@ -58,22 +43,38 @@ async function createManaged(req, res) {
       return res.status(500).json({ error: 'WAHA לא מוגדר במערכת' });
     }
     
-    // First, search for existing session by email in metadata
-    console.log(`[WhatsApp] Searching for existing session with email: ${userEmail}`);
-    
     let sessionName = null;
     let wahaStatus = null;
     let existingSession = null;
+    let dbConnection = null;
     
-    try {
-      existingSession = await wahaSession.findSessionByEmail(baseUrl, apiKey, userEmail);
+    // Step 1: Check if user already has a connection in our DB
+    const existing = await pool.query(
+      'SELECT id, status, session_name FROM whatsapp_connections WHERE user_id = $1',
+      [userId]
+    );
+    
+    if (existing.rows.length > 0) {
+      dbConnection = existing.rows[0];
+      sessionName = dbConnection.session_name;
       
-      if (existingSession) {
-        sessionName = existingSession.name;
-        console.log(`[WhatsApp] ✅ Found existing session by email: ${sessionName}`);
-        
-        // Get current status
+      // If connected, just return success
+      if (dbConnection.status === 'connected') {
+        console.log(`[WhatsApp] ✅ Already connected: ${sessionName}`);
+        return res.json({ 
+          success: true, 
+          connection: dbConnection,
+          existingSession: true,
+        });
+      }
+      
+      // Has DB record but not connected - try to use existing session
+      console.log(`[WhatsApp] Found DB record with session: ${sessionName}, status: ${dbConnection.status}`);
+      
+      try {
         wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+        existingSession = { name: sessionName };
+        console.log(`[WhatsApp] ✅ Session exists in WAHA: ${sessionName}, status: ${wahaStatus.status}`);
         
         // If stopped or failed, restart it
         if (wahaStatus.status === 'STOPPED' || wahaStatus.status === 'FAILED') {
@@ -84,21 +85,47 @@ async function createManaged(req, res) {
           await wahaSession.startSession(baseUrl, apiKey, sessionName);
           console.log(`[WhatsApp] ✅ Restarted session: ${sessionName}`);
           wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
-        } else {
-          console.log(`[WhatsApp] ✅ Session already active: ${sessionName}, status: ${wahaStatus.status}`);
         }
+      } catch (err) {
+        // Session doesn't exist in WAHA anymore - will search by email below
+        console.log(`[WhatsApp] Session ${sessionName} not found in WAHA: ${err.message}`);
+        sessionName = null;
       }
-    } catch (err) {
-      console.log(`[WhatsApp] Error searching sessions: ${err.message}`);
     }
     
-    // If no existing session found, create new one
+    // Step 2: If no session from DB, search in WAHA by email
     if (!sessionName) {
-      // Generate unique session name with system prefix
+      console.log(`[WhatsApp] Searching for existing session with email: ${userEmail}`);
+      
+      try {
+        existingSession = await wahaSession.findSessionByEmail(baseUrl, apiKey, userEmail);
+        
+        if (existingSession) {
+          sessionName = existingSession.name;
+          console.log(`[WhatsApp] ✅ Found existing session by email: ${sessionName}`);
+          
+          wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+          
+          if (wahaStatus.status === 'STOPPED' || wahaStatus.status === 'FAILED') {
+            console.log(`[WhatsApp] Session is ${wahaStatus.status}, restarting...`);
+            try {
+              await wahaSession.stopSession(baseUrl, apiKey, sessionName);
+            } catch (e) { /* ignore */ }
+            await wahaSession.startSession(baseUrl, apiKey, sessionName);
+            console.log(`[WhatsApp] ✅ Restarted session: ${sessionName}`);
+            wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+          }
+        }
+      } catch (err) {
+        console.log(`[WhatsApp] Error searching sessions: ${err.message}`);
+      }
+    }
+    
+    // Step 3: If still no session, create new one
+    if (!sessionName) {
       const uniqueId = require('crypto').randomBytes(4).toString('hex');
       sessionName = `fb_${uniqueId}`;
       
-      // Metadata to attach to session (for identification in WAHA)
       const sessionMetadata = {
         'user.email': userEmail,
       };
@@ -109,8 +136,12 @@ async function createManaged(req, res) {
       await wahaSession.startSession(baseUrl, apiKey, sessionName);
       console.log(`[WhatsApp] ✅ Created new session: ${sessionName}`);
       
-      // Get status
       wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+    }
+    
+    // Delete old DB record if exists (will be replaced with updated info)
+    if (dbConnection) {
+      await pool.query('DELETE FROM whatsapp_connections WHERE id = $1', [dbConnection.id]);
     }
     
     // Get updated status
