@@ -32,13 +32,15 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <header className="bg-white dark:bg-gray-800 shadow sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-4 py-3 md:py-4 flex justify-between items-center">
           <Logo />
-          <div className="flex items-center gap-4">
-            <span className="text-gray-600">שלום, {user?.name || user?.email}</span>
-            <Button variant="ghost" onClick={handleLogout}>
+          <div className="flex items-center gap-2 md:gap-4">
+            <span className="text-gray-600 dark:text-gray-300 text-sm md:text-base hidden sm:block">
+              שלום, {user?.name || user?.email}
+            </span>
+            <Button variant="ghost" onClick={handleLogout} className="!px-2 md:!px-4">
               התנתק
             </Button>
           </div>
@@ -110,37 +112,37 @@ export default function DashboardPage() {
         </Link>
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Link to="/bots" className="bg-white rounded-xl shadow p-6 hover:shadow-lg transition-shadow">
-            <Workflow className="w-8 h-8 text-primary-500 mb-3" />
-            <h3 className="font-semibold text-gray-800">בוטים</h3>
-            <p className="text-sm text-gray-500">יצירת וניהול בוטים</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4">
+          <Link to="/bots" className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 md:p-6 hover:shadow-lg transition-shadow">
+            <Workflow className="w-6 h-6 md:w-8 md:h-8 text-primary-500 mb-2 md:mb-3" />
+            <h3 className="font-semibold text-gray-800 dark:text-white text-sm md:text-base">בוטים</h3>
+            <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 hidden sm:block">יצירת וניהול בוטים</p>
           </Link>
           
-          <Link to="/templates" className="bg-white rounded-xl shadow p-6 hover:shadow-lg transition-shadow border-2 border-purple-100">
-            <Grid className="w-8 h-8 text-purple-500 mb-3" />
-            <h3 className="font-semibold text-gray-800">תבניות</h3>
-            <p className="text-sm text-gray-500">גלריית בוטים מוכנים</p>
+          <Link to="/templates" className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 md:p-6 hover:shadow-lg transition-shadow border-2 border-purple-100 dark:border-purple-900">
+            <Grid className="w-6 h-6 md:w-8 md:h-8 text-purple-500 mb-2 md:mb-3" />
+            <h3 className="font-semibold text-gray-800 dark:text-white text-sm md:text-base">תבניות</h3>
+            <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 hidden sm:block">גלריית בוטים מוכנים</p>
           </Link>
           
-          <Link to="/contacts" className="bg-white rounded-xl shadow p-6 hover:shadow-lg transition-shadow">
-            <Users className="w-8 h-8 text-primary-500 mb-3" />
-            <h3 className="font-semibold text-gray-800">אנשי קשר</h3>
-            <p className="text-sm text-gray-500">צפייה בצ'אטים ואנשי קשר</p>
+          <Link to="/contacts" className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 md:p-6 hover:shadow-lg transition-shadow">
+            <Users className="w-6 h-6 md:w-8 md:h-8 text-primary-500 mb-2 md:mb-3" />
+            <h3 className="font-semibold text-gray-800 dark:text-white text-sm md:text-base">אנשי קשר</h3>
+            <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 hidden sm:block">צפייה בצ'אטים ואנשי קשר</p>
           </Link>
           
-          <Link to="/settings" className="bg-white rounded-xl shadow p-6 hover:shadow-lg transition-shadow">
-            <Settings className="w-8 h-8 text-primary-500 mb-3" />
-            <h3 className="font-semibold text-gray-800">הגדרות</h3>
-            <p className="text-sm text-gray-500">הגדרות חשבון</p>
+          <Link to="/settings" className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 md:p-6 hover:shadow-lg transition-shadow">
+            <Settings className="w-6 h-6 md:w-8 md:h-8 text-primary-500 mb-2 md:mb-3" />
+            <h3 className="font-semibold text-gray-800 dark:text-white text-sm md:text-base">הגדרות</h3>
+            <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 hidden sm:block">הגדרות חשבון</p>
           </Link>
           
           {/* Admin Panel - only for admins */}
           {user && ['admin', 'superadmin'].includes(user.role) && (
-            <Link to="/admin" className="bg-white rounded-xl shadow p-6 hover:shadow-lg transition-shadow border-2 border-red-100">
-              <Shield className="w-8 h-8 text-red-500 mb-3" />
-              <h3 className="font-semibold text-gray-800">ניהול מערכת</h3>
-              <p className="text-sm text-gray-500">פאנל אדמין</p>
+            <Link to="/admin" className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 md:p-6 hover:shadow-lg transition-shadow border-2 border-red-100 dark:border-red-900">
+              <Shield className="w-6 h-6 md:w-8 md:h-8 text-red-500 mb-2 md:mb-3" />
+              <h3 className="font-semibold text-gray-800 dark:text-white text-sm md:text-base">ניהול מערכת</h3>
+              <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 hidden sm:block">פאנל אדמין</p>
             </Link>
           )}
         </div>
