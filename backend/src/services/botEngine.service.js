@@ -476,7 +476,7 @@ class BotEngine {
         return;
         
       case 'registration':
-        await this.executeRegistrationNode(node, contact, userId, botName, botId);
+        await this.executeRegistrationNode(node, contact, message, userId, botName, botId);
         // Registration nodes wait for responses, session saved
         return;
     }
@@ -958,7 +958,7 @@ class BotEngine {
   }
   
   // Execute registration node
-  async executeRegistrationNode(node, contact, userId, botName = '', botId = null) {
+  async executeRegistrationNode(node, contact, triggerMessage, userId, botName = '', botId = null) {
     const connection = await this.getConnection(userId);
     if (!connection) {
       console.log('[BotEngine] No connection for registration');
@@ -983,7 +983,7 @@ class BotEngine {
     
     // Send welcome message if defined
     if (welcomeMessage && welcomeMessage.trim()) {
-      const welcomeText = this.replaceVariables(welcomeMessage, contact, '', botName);
+      const welcomeText = this.replaceVariables(welcomeMessage, contact, triggerMessage, botName);
       await wahaService.sendMessage(connection, contact.phone, welcomeText);
       console.log('[BotEngine] ✅ Welcome message sent');
       // Wait for configured delay before sending first question
@@ -992,14 +992,14 @@ class BotEngine {
     
     // Send first question
     const firstQuestion = questions[0];
-    const questionText = this.replaceVariables(firstQuestion.question, contact, '', botName);
+    const questionText = this.replaceVariables(firstQuestion.question, contact, triggerMessage, botName);
     await wahaService.sendMessage(connection, contact.phone, questionText);
     console.log('[BotEngine] ✅ First question sent:', questionText.substring(0, 50));
     
     // Calculate timeout in seconds
     const timeoutSeconds = timeout * (timeoutUnit === 'hours' ? 3600 : 60);
     
-    // Save session to wait for response
+    // Save session to wait for response (including trigger message for variable replacement)
     if (botId) {
       await this.saveSession(
         botId,
@@ -1010,7 +1010,8 @@ class BotEngine {
           currentQuestion: 0,
           questions: questions,
           answers: {},
-          cancelKeyword: cancelKeyword.toLowerCase()
+          cancelKeyword: cancelKeyword.toLowerCase(),
+          triggerMessage: triggerMessage // Save original message for variable replacement
         },
         timeoutSeconds
       );
@@ -1032,6 +1033,7 @@ class BotEngine {
     const currentQuestionIndex = waitingData.currentQuestion || 0;
     const answers = waitingData.answers || {};
     const cancelKeyword = waitingData.cancelKeyword || 'ביטול';
+    const triggerMessage = waitingData.triggerMessage || ''; // Original trigger message
     
     console.log('[BotEngine] Registration continue - question', currentQuestionIndex + 1, 'of', questions.length);
     
@@ -1043,7 +1045,7 @@ class BotEngine {
       // Send cancel message
       const cancelMessage = node.data.cancelMessage || 'הרישום בוטל.';
       await wahaService.sendMessage(connection, contact.phone, 
-        this.replaceVariables(cancelMessage, contact, '', bot.name)
+        this.replaceVariables(cancelMessage, contact, triggerMessage, bot.name)
       );
       
       // Execute cancel path
@@ -1088,7 +1090,7 @@ class BotEngine {
     if (nextQuestionIndex < questions.length) {
       // More questions - send next one
       const nextQuestion = questions[nextQuestionIndex];
-      const questionText = this.replaceVariables(nextQuestion.question, contact, '', bot.name);
+      const questionText = this.replaceVariables(nextQuestion.question, contact, triggerMessage, bot.name);
       await wahaService.sendMessage(connection, contact.phone, questionText);
       console.log('[BotEngine] ✅ Next question sent:', questionText.substring(0, 50));
       
@@ -1111,17 +1113,17 @@ class BotEngine {
     // Send completion message
     const completionMessage = node.data.completionMessage || 'תודה! הרישום הושלם בהצלחה.';
     await wahaService.sendMessage(connection, contact.phone, 
-      this.replaceVariables(completionMessage, contact, '', bot.name)
+      this.replaceVariables(completionMessage, contact, triggerMessage, bot.name)
     );
     
     // Send summary if enabled
     if (node.data.sendSummary) {
-      await this.sendRegistrationSummary(node.data, contact, answers, connection, bot.name);
+      await this.sendRegistrationSummary(node.data, contact, answers, connection, bot.name, triggerMessage);
     }
     
     // Send webhook if enabled
     if (node.data.sendWebhook && node.data.webhookUrl) {
-      await this.sendRegistrationWebhook(node.data, contact, answers, bot.name);
+      await this.sendRegistrationWebhook(node.data, contact, answers, bot.name, triggerMessage);
     }
     
     // Execute complete path
@@ -1162,10 +1164,12 @@ class BotEngine {
   }
   
   // Send registration summary
-  async sendRegistrationSummary(nodeData, contact, answers, connection, botName) {
+  async sendRegistrationSummary(nodeData, contact, answers, connection, botName, triggerMessage = '') {
     try {
       const { summaryTarget, summaryPhone, summaryGroupId, summaryTemplate, title, questions } = nodeData;
-      const registrationTitle = title || 'רישום חדש';
+      // Replace variables in title (including {{last_message}} and {{message}})
+      let registrationTitle = title || 'רישום חדש';
+      registrationTitle = this.replaceVariables(registrationTitle, contact, triggerMessage, botName);
       
       // Label mapping for common variables
       const labelMap = {
@@ -1235,10 +1239,12 @@ class BotEngine {
   }
   
   // Send registration webhook
-  async sendRegistrationWebhook(nodeData, contact, answers, botName) {
+  async sendRegistrationWebhook(nodeData, contact, answers, botName, triggerMessage = '') {
     try {
       const { webhookUrl, webhookBody, title } = nodeData;
-      const registrationTitle = title || 'רישום חדש';
+      // Replace variables in title (including {{last_message}} and {{message}})
+      let registrationTitle = title || 'רישום חדש';
+      registrationTitle = this.replaceVariables(registrationTitle, contact, triggerMessage, botName);
       
       if (!webhookUrl) {
         console.log('[BotEngine] No webhook URL configured');
