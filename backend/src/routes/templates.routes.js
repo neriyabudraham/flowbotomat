@@ -10,8 +10,12 @@ router.use(authMiddleware);
 // User routes
 router.get('/', templatesController.getTemplates);
 router.get('/categories', templatesController.getCategories);
+router.get('/my-templates', templatesController.getMyTemplates);
 router.get('/:id', templatesController.getTemplate);
+router.get('/:id/my-rating', templatesController.getMyRating);
 router.post('/:id/use', templatesController.useTemplate);
+router.post('/:id/rate', templatesController.rateTemplate);
+router.post('/submit', templatesController.submitTemplate);
 
 // Admin routes
 router.get('/admin/all', adminMiddleware, templatesController.adminGetTemplates);
@@ -19,5 +23,7 @@ router.post('/admin', adminMiddleware, templatesController.createTemplate);
 router.put('/admin/:id', adminMiddleware, templatesController.updateTemplate);
 router.delete('/admin/:id', adminMiddleware, templatesController.deleteTemplate);
 router.post('/admin/from-bot/:botId', adminMiddleware, templatesController.createFromBot);
+router.post('/admin/:id/approve', adminMiddleware, templatesController.approveTemplate);
+router.post('/admin/:id/reject', adminMiddleware, templatesController.rejectTemplate);
 
 module.exports = router;

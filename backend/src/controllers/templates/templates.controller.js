@@ -5,9 +5,9 @@ const db = require('../../config/database');
  */
 async function getTemplates(req, res) {
   try {
-    const { category, search, featured } = req.query;
+    const { category, search, featured, sort } = req.query;
     
-    let whereClause = 'is_published = true';
+    let whereClause = "is_published = true AND (status = 'approved' OR status IS NULL)";
     const params = [];
     let paramIndex = 1;
     
@@ -26,6 +26,16 @@ async function getTemplates(req, res) {
       whereClause += ' AND is_featured = true';
     }
     
+    // Sort options
+    let orderClause = 'is_featured DESC, sort_order ASC, use_count DESC, created_at DESC';
+    if (sort === 'rating') {
+      orderClause = 'rating DESC, rating_count DESC, use_count DESC';
+    } else if (sort === 'popular') {
+      orderClause = 'use_count DESC, rating DESC';
+    } else if (sort === 'newest') {
+      orderClause = 'created_at DESC';
+    }
+    
     const result = await db.query(`
       SELECT 
         t.*,
@@ -34,7 +44,7 @@ async function getTemplates(req, res) {
       FROM bot_templates t
       LEFT JOIN users u ON t.created_by = u.id
       WHERE ${whereClause}
-      ORDER BY is_featured DESC, sort_order ASC, use_count DESC, created_at DESC
+      ORDER BY ${orderClause}
     `, params);
     
     res.json({ templates: result.rows });
@@ -154,6 +164,156 @@ async function useTemplate(req, res) {
   }
 }
 
+/**
+ * Submit a template for approval (user)
+ */
+async function submitTemplate(req, res) {
+  try {
+    const userId = req.user.id;
+    const { botId, name, name_he, description, description_he, category } = req.body;
+    
+    if (!botId) {
+      return res.status(400).json({ error: 'נדרש לבחור בוט' });
+    }
+    
+    // Get bot
+    const botResult = await db.query(
+      'SELECT * FROM bots WHERE id = $1 AND user_id = $2',
+      [botId, userId]
+    );
+    
+    if (botResult.rows.length === 0) {
+      return res.status(404).json({ error: 'בוט לא נמצא' });
+    }
+    
+    const bot = botResult.rows[0];
+    
+    // Create template with pending status
+    const result = await db.query(`
+      INSERT INTO bot_templates (
+        name, name_he, description, description_he,
+        category, flow_data, trigger_config,
+        is_published, status, submitted_by, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, false, 'pending', $8, $8)
+      RETURNING *
+    `, [
+      name || bot.name,
+      name_he || null,
+      description || bot.description,
+      description_he || null,
+      category || 'general',
+      bot.flow_data,
+      bot.trigger_config,
+      userId
+    ]);
+    
+    res.json({ 
+      template: result.rows[0],
+      message: 'התבנית הוגשה לאישור. תקבל הודעה כשהיא תאושר.'
+    });
+  } catch (error) {
+    console.error('[Templates] Submit template error:', error);
+    res.status(500).json({ error: 'שגיאה בהגשת תבנית' });
+  }
+}
+
+/**
+ * Get user's submitted templates
+ */
+async function getMyTemplates(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    const result = await db.query(`
+      SELECT * FROM bot_templates 
+      WHERE submitted_by = $1 OR created_by = $1
+      ORDER BY created_at DESC
+    `, [userId]);
+    
+    res.json({ templates: result.rows });
+  } catch (error) {
+    console.error('[Templates] Get my templates error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת התבניות שלך' });
+  }
+}
+
+/**
+ * Rate a template
+ */
+async function rateTemplate(req, res) {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const { rating } = req.body;
+    
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'דירוג חייב להיות בין 1 ל-5' });
+    }
+    
+    // Check if user already rated this template
+    const existingRating = await db.query(
+      'SELECT * FROM template_ratings WHERE template_id = $1 AND user_id = $2',
+      [id, userId]
+    );
+    
+    if (existingRating.rows.length > 0) {
+      // Update existing rating
+      await db.query(
+        'UPDATE template_ratings SET rating = $1, updated_at = NOW() WHERE template_id = $2 AND user_id = $3',
+        [rating, id, userId]
+      );
+    } else {
+      // Create new rating
+      await db.query(
+        'INSERT INTO template_ratings (template_id, user_id, rating) VALUES ($1, $2, $3)',
+        [id, userId, rating]
+      );
+    }
+    
+    // Calculate and update average rating
+    const avgResult = await db.query(
+      'SELECT AVG(rating)::numeric(3,2) as avg_rating, COUNT(*) as count FROM template_ratings WHERE template_id = $1',
+      [id]
+    );
+    
+    await db.query(
+      'UPDATE bot_templates SET rating = $1, rating_count = $2 WHERE id = $3',
+      [avgResult.rows[0].avg_rating || 0, avgResult.rows[0].count || 0, id]
+    );
+    
+    res.json({ 
+      success: true, 
+      rating: parseFloat(avgResult.rows[0].avg_rating) || 0,
+      count: parseInt(avgResult.rows[0].count) || 0
+    });
+  } catch (error) {
+    console.error('[Templates] Rate template error:', error);
+    res.status(500).json({ error: 'שגיאה בדירוג' });
+  }
+}
+
+/**
+ * Get user's rating for a template
+ */
+async function getMyRating(req, res) {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    
+    const result = await db.query(
+      'SELECT rating FROM template_ratings WHERE template_id = $1 AND user_id = $2',
+      [id, userId]
+    );
+    
+    res.json({ 
+      rating: result.rows[0]?.rating || null 
+    });
+  } catch (error) {
+    console.error('[Templates] Get my rating error:', error);
+    res.status(500).json({ error: 'שגיאה' });
+  }
+}
+
 // ============ ADMIN FUNCTIONS ============
 
 /**
@@ -161,20 +321,97 @@ async function useTemplate(req, res) {
  */
 async function adminGetTemplates(req, res) {
   try {
+    const { status } = req.query;
+    
+    let whereClause = '1=1';
+    const params = [];
+    
+    if (status) {
+      whereClause += ' AND t.status = $1';
+      params.push(status);
+    }
+    
     const result = await db.query(`
       SELECT 
         t.*,
         u.name as creator_name,
-        u.email as creator_email
+        u.email as creator_email,
+        s.name as submitter_name,
+        s.email as submitter_email
       FROM bot_templates t
       LEFT JOIN users u ON t.created_by = u.id
-      ORDER BY sort_order ASC, created_at DESC
-    `);
+      LEFT JOIN users s ON t.submitted_by = s.id
+      WHERE ${whereClause}
+      ORDER BY 
+        CASE WHEN t.status = 'pending' THEN 0 ELSE 1 END,
+        t.created_at DESC
+    `, params);
     
     res.json({ templates: result.rows });
   } catch (error) {
     console.error('[Templates] Admin get templates error:', error);
     res.status(500).json({ error: 'שגיאה בטעינת תבניות' });
+  }
+}
+
+/**
+ * Approve a pending template (admin)
+ */
+async function approveTemplate(req, res) {
+  try {
+    const { id } = req.params;
+    
+    const result = await db.query(`
+      UPDATE bot_templates 
+      SET status = 'approved', is_published = true, updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    `, [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'תבנית לא נמצאה' });
+    }
+    
+    // TODO: Send notification to submitter
+    
+    res.json({ 
+      template: result.rows[0],
+      message: 'התבנית אושרה ופורסמה'
+    });
+  } catch (error) {
+    console.error('[Templates] Approve template error:', error);
+    res.status(500).json({ error: 'שגיאה באישור תבנית' });
+  }
+}
+
+/**
+ * Reject a pending template (admin)
+ */
+async function rejectTemplate(req, res) {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    
+    const result = await db.query(`
+      UPDATE bot_templates 
+      SET status = 'rejected', rejection_reason = $1, updated_at = NOW()
+      WHERE id = $2
+      RETURNING *
+    `, [reason || null, id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'תבנית לא נמצאה' });
+    }
+    
+    // TODO: Send notification to submitter
+    
+    res.json({ 
+      template: result.rows[0],
+      message: 'התבנית נדחתה'
+    });
+  } catch (error) {
+    console.error('[Templates] Reject template error:', error);
+    res.status(500).json({ error: 'שגיאה בדחיית תבנית' });
   }
 }
 
@@ -344,9 +581,15 @@ module.exports = {
   getCategories,
   getTemplate,
   useTemplate,
+  submitTemplate,
+  getMyTemplates,
+  rateTemplate,
+  getMyRating,
   adminGetTemplates,
   createTemplate,
   updateTemplate,
   deleteTemplate,
-  createFromBot
+  createFromBot,
+  approveTemplate,
+  rejectTemplate
 };
