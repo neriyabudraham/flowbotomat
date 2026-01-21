@@ -67,6 +67,32 @@ async function getQRCode(baseUrl, apiKey, sessionName) {
 }
 
 /**
+ * Get all sessions from WAHA
+ */
+async function getAllSessions(baseUrl, apiKey) {
+  const client = createClient(baseUrl, apiKey);
+  const response = await client.get('/api/sessions');
+  return response.data;
+}
+
+/**
+ * Find session by user.email in metadata
+ * @returns session object or null
+ */
+async function findSessionByEmail(baseUrl, apiKey, email) {
+  const sessions = await getAllSessions(baseUrl, apiKey);
+  
+  for (const session of sessions) {
+    const metadata = session.config?.metadata || {};
+    if (metadata['user.email'] === email) {
+      return session;
+    }
+  }
+  
+  return null;
+}
+
+/**
  * Add webhook to session (keeps ALL existing config)
  */
 async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
@@ -231,6 +257,8 @@ module.exports = {
   deleteSession,
   getSessionStatus,
   getQRCode,
+  getAllSessions,
+  findSessionByEmail,
   addWebhook,
   sendMessage,
   sendImage,
