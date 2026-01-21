@@ -299,7 +299,8 @@ export default function BotsPage() {
             <Button onClick={() => setShowCreate(true)} className="!rounded-xl">
               <Plus className="w-4 h-4 ml-2" />
               בוט חדש
-          </Button>
+            </Button>
+          </div>
         </div>
 
         {/* Create Modal */}
