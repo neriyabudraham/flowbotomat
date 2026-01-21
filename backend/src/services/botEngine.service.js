@@ -240,22 +240,28 @@ class BotEngine {
       }
       
       // Use selectedRowId directly from WAHA
-      if (selectedRowId) {
-        console.log('[BotEngine] Using selectedRowId from WAHA:', selectedRowId);
+      if (selectedRowId !== null && selectedRowId !== undefined) {
+        // Convert to string in case WAHA sends a number
+        const rowIdStr = String(selectedRowId);
+        console.log('[BotEngine] Using selectedRowId from WAHA:', rowIdStr, '(original type:', typeof selectedRowId, ')');
         
-        // Extract display index from selectedRowId (e.g., "option_0" -> 0)
+        // Extract display index from selectedRowId (e.g., "option_0" -> 0, or just "0")
         let displayIndex = -1;
-        if (selectedRowId.startsWith('option_')) {
-          displayIndex = parseInt(selectedRowId.replace('option_', ''));
-        } else if (/^\d+$/.test(selectedRowId)) {
-          displayIndex = parseInt(selectedRowId);
+        if (rowIdStr.startsWith('option_')) {
+          displayIndex = parseInt(rowIdStr.replace('option_', ''));
+        } else if (/^\d+$/.test(rowIdStr)) {
+          displayIndex = parseInt(rowIdStr);
         }
         
         console.log('[BotEngine] Display index:', displayIndex);
         
         // Get session buttons to find original index (for filtered lists)
         const sessionButtons = session.waiting_data?.buttons || [];
-        const selectedButton = sessionButtons.find(b => b.displayIndex === displayIndex || b.id === selectedRowId);
+        const selectedButton = sessionButtons.find(b => 
+          b.displayIndex === displayIndex || 
+          b.id === rowIdStr || 
+          b.id === `option_${displayIndex}`
+        );
         const originalIndex = selectedButton?.originalIndex ?? displayIndex;
         
         console.log('[BotEngine] Original index:', originalIndex);
@@ -269,7 +275,7 @@ class BotEngine {
           const possibleHandles = [
             String(originalIndex),          // Original index "0", "1", etc
             `option_${originalIndex}`,      // option_X format with original
-            selectedRowId,                  // Fallback: rowId from WAHA
+            rowIdStr,                       // Fallback: rowId from WAHA as string
           ];
           
           for (const handleId of possibleHandles) {
