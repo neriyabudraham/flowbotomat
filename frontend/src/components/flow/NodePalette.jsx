@@ -23,8 +23,8 @@ export default function NodePalette({ onAddNode }) {
   };
 
   return (
-    <div className="bg-white/80 backdrop-blur rounded-2xl shadow-lg border border-gray-200 p-4">
-      <h3 className="font-semibold mb-4 text-gray-700 text-sm">רכיבים</h3>
+    <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-4">
+      <h3 className="font-bold mb-4 text-gray-700">רכיבים</h3>
       <div className="space-y-2">
         {nodeTypes.map(({ type, label, icon: Icon, color, description }) => (
           <div
@@ -32,22 +32,25 @@ export default function NodePalette({ onAddNode }) {
             draggable
             onDragStart={(e) => handleDragStart(e, type)}
             onClick={() => onAddNode(type)}
-            className="group flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all bg-gray-50 hover:bg-gray-100 border border-transparent hover:border-gray-200"
+            className="group flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all bg-gray-50 hover:bg-gray-100 border border-transparent hover:border-gray-200 hover:shadow-md"
           >
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${colorClasses[color]}`}>
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-md transition-all group-hover:scale-110 ${colorClasses[color]}`}>
               <Icon className="w-5 h-5 text-white" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="font-medium text-gray-800 text-sm">{label}</div>
-              <div className="text-xs text-gray-500 truncate">{description}</div>
+              <div className="font-medium text-gray-800">{label}</div>
+              <div className="text-xs text-gray-500">{description}</div>
             </div>
           </div>
         ))}
       </div>
       
-      <div className="mt-4 pt-4 border-t border-gray-100">
+      <div className="mt-6 pt-4 border-t border-gray-100">
         <p className="text-xs text-gray-400 text-center">
-          לחץ או גרור להוספה
+          לחץ להוספה או גרור לקנבס
+        </p>
+        <p className="text-xs text-gray-400 text-center mt-1">
+          💡 משוך קו לרקע ליצירה מהירה
         </p>
       </div>
     </div>

@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Save, ArrowRight, Play, Pause } from 'lucide-react';
 import useBotsStore from '../store/botsStore';
 import FlowBuilder from '../components/flow/FlowBuilder';
 import NodePalette from '../components/flow/NodePalette';
+import NodeEditor from '../components/flow/panels/NodeEditor';
 import Button from '../components/atoms/Button';
 
 export default function BotEditorPage() {
@@ -11,9 +12,9 @@ export default function BotEditorPage() {
   const navigate = useNavigate();
   const { currentBot, fetchBot, saveFlow, updateBot, clearCurrentBot } = useBotsStore();
   const [flowData, setFlowData] = useState(null);
+  const [selectedNode, setSelectedNode] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
-  const flowBuilderRef = useRef(null);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -26,12 +27,11 @@ export default function BotEditorPage() {
       if (bot.flow_data && bot.flow_data.nodes?.length > 0) {
         setFlowData(bot.flow_data);
       } else {
-        // Default with trigger node
         setFlowData({
           nodes: [{
             id: 'trigger_start',
             type: 'trigger',
-            position: { x: 400, y: 100 },
+            position: { x: 100, y: 200 },
             data: { triggers: [{ type: 'any_message', value: '' }] },
           }],
           edges: [],
@@ -42,6 +42,35 @@ export default function BotEditorPage() {
     return () => clearCurrentBot();
   }, [botId]);
 
+  const handleNodeSelect = useCallback((node) => {
+    setSelectedNode(node);
+  }, []);
+
+  const handleNodeUpdate = useCallback((nodeId, newData) => {
+    setFlowData(prev => ({
+      ...prev,
+      nodes: prev.nodes.map(n => 
+        n.id === nodeId 
+          ? { ...n, data: { ...n.data, ...newData } }
+          : n
+      ),
+    }));
+    setSelectedNode(prev => prev?.id === nodeId 
+      ? { ...prev, data: { ...prev.data, ...newData } }
+      : prev
+    );
+    setHasChanges(true);
+  }, []);
+
+  const handleNodeDelete = useCallback((nodeId) => {
+    setFlowData(prev => ({
+      nodes: prev.nodes.filter(n => n.id !== nodeId),
+      edges: prev.edges.filter(e => e.source !== nodeId && e.target !== nodeId),
+    }));
+    setSelectedNode(null);
+    setHasChanges(true);
+  }, []);
+
   const handleAddNode = useCallback((type) => {
     if (!flowData) return;
     
@@ -49,7 +78,7 @@ export default function BotEditorPage() {
       id: `${type}_${Date.now()}`,
       type,
       position: { 
-        x: 200 + Math.random() * 100, 
+        x: 300 + Math.random() * 100, 
         y: 150 + (flowData.nodes?.length || 0) * 120 
       },
       data: getDefaultData(type),
@@ -60,6 +89,7 @@ export default function BotEditorPage() {
       nodes: [...(prev?.nodes || []), newNode],
     }));
     setHasChanges(true);
+    setSelectedNode(newNode);
   }, [flowData]);
 
   const handleFlowChange = useCallback((newData) => {
@@ -150,21 +180,34 @@ export default function BotEditorPage() {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Node Palette */}
-        <div className="w-56 p-4 flex-shrink-0 overflow-y-auto">
+        {/* Node Palette - Right side */}
+        <div className="w-56 p-4 flex-shrink-0 overflow-y-auto order-last">
           <NodePalette onAddNode={handleAddNode} />
         </div>
 
-        {/* Flow Canvas */}
-        <div className="flex-1 m-4 ml-0">
+        {/* Flow Canvas - Center */}
+        <div className="flex-1 m-4">
           <div className="h-full bg-white/50 backdrop-blur rounded-2xl border border-gray-200 shadow-inner overflow-hidden">
             <FlowBuilder 
               key={botId}
               initialData={flowData} 
               onChange={handleFlowChange}
+              onNodeSelect={handleNodeSelect}
             />
           </div>
         </div>
+
+        {/* Node Editor - Left side */}
+        {selectedNode && (
+          <div className="flex-shrink-0 order-first">
+            <NodeEditor
+              node={selectedNode}
+              onUpdate={handleNodeUpdate}
+              onClose={() => setSelectedNode(null)}
+              onDelete={handleNodeDelete}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

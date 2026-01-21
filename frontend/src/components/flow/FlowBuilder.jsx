@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect } from 'react';
+import { useCallback, useRef, useEffect, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -7,13 +7,13 @@ import {
   addEdge,
   useNodesState,
   useEdgesState,
+  useReactFlow,
+  ReactFlowProvider,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import TriggerNode from './TriggerNode';
-import MessageNode from './MessageNode';
-import ConditionNode from './ConditionNode';
-import DelayNode from './DelayNode';
-import ActionNode from './ActionNode';
+
+import { TriggerNode, MessageNode, ConditionNode, DelayNode, ActionNode } from './nodes';
+import QuickAddMenu from './panels/QuickAddMenu';
 
 const nodeTypes = {
   trigger: TriggerNode,
@@ -26,14 +26,16 @@ const nodeTypes = {
 const defaultTriggerNode = {
   id: 'trigger_start',
   type: 'trigger',
-  position: { x: 400, y: 100 },
+  position: { x: 100, y: 200 },
   data: { triggers: [{ type: 'any_message', value: '' }] },
 };
 
-export default function FlowBuilder({ initialData, onChange }) {
+function FlowBuilderInner({ initialData, onChange, onNodeSelect }) {
   const reactFlowWrapper = useRef(null);
+  const { screenToFlowPosition } = useReactFlow();
+  const [quickAddMenu, setQuickAddMenu] = useState(null);
+  const [pendingConnection, setPendingConnection] = useState(null);
   
-  // Initialize with trigger node if no nodes exist
   const initialNodes = initialData?.nodes?.length > 0 
     ? initialData.nodes 
     : [defaultTriggerNode];
@@ -41,7 +43,6 @@ export default function FlowBuilder({ initialData, onChange }) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialData?.edges || []);
 
-  // Notify parent of changes
   useEffect(() => {
     onChange?.({ nodes, edges });
   }, [nodes, edges]);
@@ -55,28 +56,74 @@ export default function FlowBuilder({ initialData, onChange }) {
     [setEdges]
   );
 
-  const updateNodeData = useCallback((nodeId, newData) => {
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.id === nodeId) {
-          return {
-            ...node,
-            data: { ...node.data, ...newData },
-          };
-        }
-        return node;
-      })
-    );
-  }, [setNodes]);
-
-  // Add onChange to each node's data
-  const nodesWithCallbacks = nodes.map((node) => ({
-    ...node,
-    data: {
-      ...node.data,
-      onChange: (newData) => updateNodeData(node.id, newData),
+  // Handle connection end on empty space - show quick add menu
+  const onConnectEnd = useCallback(
+    (event, connectionState) => {
+      if (!connectionState.isValid && connectionState.fromNode) {
+        const { clientX, clientY } = event.changedTouches?.[0] || event;
+        
+        setPendingConnection({
+          source: connectionState.fromNode.id,
+          sourceHandle: connectionState.fromHandle?.id,
+        });
+        
+        setQuickAddMenu({ x: clientX, y: clientY });
+      }
     },
-  }));
+    []
+  );
+
+  const handleQuickAdd = useCallback((type) => {
+    if (!quickAddMenu) return;
+    
+    const position = screenToFlowPosition({
+      x: quickAddMenu.x,
+      y: quickAddMenu.y,
+    });
+    
+    const newNodeId = `${type}_${Date.now()}`;
+    const newNode = {
+      id: newNodeId,
+      type,
+      position,
+      data: getDefaultData(type),
+    };
+    
+    setNodes((nds) => [...nds, newNode]);
+    
+    // Connect if there's a pending connection
+    if (pendingConnection) {
+      setEdges((eds) => addEdge({
+        source: pendingConnection.source,
+        sourceHandle: pendingConnection.sourceHandle,
+        target: newNodeId,
+        style: { strokeWidth: 2, stroke: '#94a3b8' },
+        type: 'smoothstep',
+      }, eds));
+    }
+    
+    setQuickAddMenu(null);
+    setPendingConnection(null);
+  }, [quickAddMenu, pendingConnection, screenToFlowPosition, setNodes, setEdges]);
+
+  // Handle node click for editing
+  const onNodeClick = useCallback((event, node) => {
+    onNodeSelect?.(node);
+  }, [onNodeSelect]);
+
+  // Add node from palette
+  const addNode = useCallback((type, position = null) => {
+    const newNode = {
+      id: `${type}_${Date.now()}`,
+      type,
+      position: position || { 
+        x: 300 + Math.random() * 100, 
+        y: 150 + nodes.length * 120 
+      },
+      data: getDefaultData(type),
+    };
+    setNodes((nds) => [...nds, newNode]);
+  }, [nodes.length, setNodes]);
 
   // Handle drop from palette
   const onDragOver = useCallback((event) => {
@@ -90,67 +137,49 @@ export default function FlowBuilder({ initialData, onChange }) {
       const type = event.dataTransfer.getData('application/reactflow');
       if (!type || !reactFlowWrapper.current) return;
 
-      const bounds = reactFlowWrapper.current.getBoundingClientRect();
-      const position = {
-        x: event.clientX - bounds.left,
-        y: event.clientY - bounds.top,
-      };
+      const position = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
 
-      const newNode = {
-        id: `${type}_${Date.now()}`,
-        type,
-        position,
-        data: getDefaultData(type),
-      };
-
-      setNodes((nds) => [...nds, newNode]);
+      addNode(type, position);
     },
-    [setNodes]
+    [screenToFlowPosition, addNode]
   );
 
-  // Add node function for click
-  const addNode = useCallback((type) => {
-    const newNode = {
-      id: `${type}_${Date.now()}`,
-      type,
-      position: { 
-        x: 200 + Math.random() * 100, 
-        y: 150 + nodes.length * 120 
-      },
-      data: getDefaultData(type),
-    };
-    setNodes((nds) => [...nds, newNode]);
-  }, [nodes.length, setNodes]);
-
   return (
-    <div className="h-full" ref={reactFlowWrapper}>
+    <div className="h-full relative" ref={reactFlowWrapper}>
       <ReactFlow
-        nodes={nodesWithCallbacks}
+        nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onConnectEnd={onConnectEnd}
+        onNodeClick={onNodeClick}
         onDragOver={onDragOver}
         onDrop={onDrop}
         nodeTypes={nodeTypes}
         fitView
         snapToGrid
-        snapGrid={[15, 15]}
+        snapGrid={[20, 20]}
         defaultEdgeOptions={{
           style: { strokeWidth: 2, stroke: '#94a3b8' },
           type: 'smoothstep',
         }}
         proOptions={{ hideAttribution: true }}
+        connectionLineStyle={{ strokeWidth: 2, stroke: '#94a3b8' }}
+        connectionLineType="smoothstep"
       >
         <Background color="#e2e8f0" gap={20} size={1} />
         <Controls 
           position="bottom-left" 
           showInteractive={false}
-          className="!bg-white/80 !backdrop-blur !rounded-xl !border !border-gray-200 !shadow-lg"
+          className="!bg-white !rounded-xl !border !border-gray-200 !shadow-lg"
         />
         <MiniMap 
           position="bottom-right"
-          className="!bg-white/80 !backdrop-blur !rounded-xl !border !border-gray-200 !shadow-lg"
+          className="!bg-white !rounded-xl !border !border-gray-200 !shadow-lg"
           nodeColor={(n) => {
             switch (n.type) {
               case 'trigger': return '#a855f7';
@@ -164,7 +193,27 @@ export default function FlowBuilder({ initialData, onChange }) {
           maskColor="rgba(255, 255, 255, 0.8)"
         />
       </ReactFlow>
+      
+      {/* Quick Add Menu */}
+      {quickAddMenu && (
+        <QuickAddMenu
+          position={quickAddMenu}
+          onSelect={handleQuickAdd}
+          onClose={() => {
+            setQuickAddMenu(null);
+            setPendingConnection(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+export default function FlowBuilder(props) {
+  return (
+    <ReactFlowProvider>
+      <FlowBuilderInner {...props} />
+    </ReactFlowProvider>
   );
 }
 
@@ -184,6 +233,3 @@ function getDefaultData(type) {
       return {};
   }
 }
-
-// Export addNode for external use
-FlowBuilder.getDefaultData = getDefaultData;
