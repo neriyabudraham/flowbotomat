@@ -11,6 +11,7 @@ async function savePaymentMethod(req, res) {
       cardNumber, 
       expiryMonth, 
       expiryYear, 
+      cvv,
       cardHolderName,
       citizenId 
     } = req.body;
@@ -20,7 +21,13 @@ async function savePaymentMethod(req, res) {
     }
     
     // Tokenize the card
-    const tokenResult = await sumitService.tokenizeCard(cardNumber);
+    const tokenResult = await sumitService.tokenizeCard({
+      cardNumber,
+      expiryMonth,
+      expiryYear,
+      cvv,
+      citizenId,
+    });
     
     if (!tokenResult.success) {
       return res.status(400).json({ error: tokenResult.error });

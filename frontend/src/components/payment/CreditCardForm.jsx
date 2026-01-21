@@ -77,6 +77,7 @@ export default function CreditCardForm({
         cardNumber: cardNum,
         expiryMonth: parseInt(form.expiryMonth),
         expiryYear: parseInt(form.expiryYear),
+        cvv: form.cvv,
         cardHolderName: form.cardHolderName.trim(),
         citizenId: form.citizenId,
       });
