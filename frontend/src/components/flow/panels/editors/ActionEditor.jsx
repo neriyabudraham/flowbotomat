@@ -1,5 +1,5 @@
-import { Plus, X, GripVertical, ChevronDown, ChevronUp, Play, Check, AlertCircle, Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { Plus, X, GripVertical, ChevronDown, ChevronUp, Play, Check, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import TextInputWithVariables from './TextInputWithVariables';
 import api from '../../../../services/api';
 
@@ -13,14 +13,11 @@ const actionTypes = [
   { id: 'delete_contact', label: 'מחק איש קשר', icon: '🗑️', category: 'basic' },
   
   // WhatsApp Actions
-  { id: 'send_voice', label: 'שלח הודעה קולית', icon: '🎤', hasValue: 'audio', category: 'whatsapp' },
-  { id: 'send_file', label: 'שלח קובץ', icon: '📎', hasValue: 'file', category: 'whatsapp' },
   { id: 'send_location', label: 'שלח מיקום', icon: '📍', hasValue: 'location', category: 'whatsapp' },
   { id: 'send_contact', label: 'שלח איש קשר', icon: '👤', hasValue: 'contact', category: 'whatsapp' },
   { id: 'send_link_preview', label: 'שלח קישור עם תצוגה', icon: '🔗', hasValue: 'linkpreview', category: 'whatsapp' },
   { id: 'mark_seen', label: 'סמן כנקרא', icon: '✅', category: 'whatsapp' },
-  { id: 'start_typing', label: 'התחל הקלדה', icon: '⌨️', category: 'whatsapp' },
-  { id: 'stop_typing', label: 'הפסק הקלדה', icon: '⏹️', category: 'whatsapp' },
+  { id: 'typing', label: 'מקליד/ה', icon: '⌨️', hasValue: 'typing', category: 'whatsapp' },
   { id: 'send_reaction', label: 'שלח ריאקציה', icon: '👍', hasValue: 'reaction', category: 'whatsapp' },
   
   // Group Actions
@@ -38,6 +35,14 @@ const actionTypes = [
   { id: 'webhook', label: 'Webhook', icon: '🌐', hasValue: 'url', category: 'integration' },
   { id: 'http_request', label: 'קריאת API', icon: '📡', hasValue: 'api', category: 'integration' },
   { id: 'notify', label: 'התראה', icon: '🔔', hasValue: 'text', category: 'integration' },
+];
+
+// All available emojis for reactions
+const ALL_EMOJIS = [
+  '👍', '👎', '❤️', '🔥', '🥰', '👏', '😁', '🤔', '🤯', '😢', 
+  '🎉', '🤩', '🤮', '💩', '🙏', '👌', '🕊️', '🤡', '🥱', '🥴',
+  '😍', '🤣', '😊', '😭', '😘', '🥺', '😩', '💀', '🤷', '🙄',
+  '😤', '😡', '🤦', '🙌', '✨', '💯', '🎯', '💪', '👀', '🤝'
 ];
 
 export default function ActionEditor({ data, onUpdate }) {
@@ -178,6 +183,29 @@ export default function ActionEditor({ data, onUpdate }) {
 
 function ActionItem({ action, canRemove, onUpdate, onRemove }) {
   const actionInfo = actionTypes.find(a => a.id === action.type) || actionTypes[0];
+  const [groups, setGroups] = useState([]);
+  const [loadingGroups, setLoadingGroups] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  
+  // Fetch groups when needed
+  const needsGroups = ['group', 'group_check', 'group_settings', 'group_subject', 'group_desc'].includes(actionInfo.hasValue);
+  
+  useEffect(() => {
+    if (needsGroups && groups.length === 0) {
+      loadGroups();
+    }
+  }, [needsGroups]);
+  
+  const loadGroups = async () => {
+    setLoadingGroups(true);
+    try {
+      const { data } = await api.get('/whatsapp/groups');
+      setGroups(data.groups || []);
+    } catch (err) {
+      console.error('Error loading groups:', err);
+    }
+    setLoadingGroups(false);
+  };
 
   return (
     <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
@@ -248,55 +276,6 @@ function ActionItem({ action, canRemove, onUpdate, onRemove }) {
         />
       )}
 
-      {/* Audio file for voice message */}
-      {actionInfo.hasValue === 'audio' && (
-        <div className="space-y-2">
-          <input
-            type="url"
-            value={action.audioUrl || ''}
-            onChange={(e) => onUpdate({ audioUrl: e.target.value })}
-            placeholder="URL לקובץ שמע (ogg/opus)..."
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-            dir="ltr"
-          />
-          <p className="text-xs text-gray-400">פורמט מומלץ: audio/ogg; codecs=opus</p>
-        </div>
-      )}
-
-      {/* File upload */}
-      {actionInfo.hasValue === 'file' && (
-        <div className="space-y-2">
-          <input
-            type="url"
-            value={action.fileUrl || ''}
-            onChange={(e) => onUpdate({ fileUrl: e.target.value })}
-            placeholder="URL לקובץ..."
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-            dir="ltr"
-          />
-          <input
-            type="text"
-            value={action.filename || ''}
-            onChange={(e) => onUpdate({ filename: e.target.value })}
-            placeholder="שם הקובץ (לדוגמה: document.pdf)"
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-            dir="ltr"
-          />
-          <select
-            value={action.mimetype || 'application/pdf'}
-            onChange={(e) => onUpdate({ mimetype: e.target.value })}
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-          >
-            <option value="application/pdf">PDF</option>
-            <option value="image/jpeg">תמונה (JPEG)</option>
-            <option value="image/png">תמונה (PNG)</option>
-            <option value="video/mp4">וידאו (MP4)</option>
-            <option value="audio/mpeg">שמע (MP3)</option>
-            <option value="application/msword">Word</option>
-            <option value="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">Excel</option>
-          </select>
-        </div>
-      )}
 
       {/* Location */}
       {actionInfo.hasValue === 'location' && (
@@ -395,41 +374,96 @@ function ActionItem({ action, canRemove, onUpdate, onRemove }) {
         </div>
       )}
 
-      {/* Reaction */}
+      {/* Reaction - All emojis */}
       {actionInfo.hasValue === 'reaction' && (
         <div className="space-y-2">
           <p className="text-xs text-gray-500">בחר אימוג'י לריאקציה:</p>
-          <div className="flex flex-wrap gap-2">
-            {['👍', '❤️', '😂', '😮', '😢', '🙏', '👏', '🔥', '🎉', '💯'].map(emoji => (
+          <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto p-2 bg-white rounded-lg border border-gray-200">
+            {ALL_EMOJIS.map(emoji => (
               <button
                 key={emoji}
                 type="button"
                 onClick={() => onUpdate({ reaction: emoji })}
-                className={`w-10 h-10 text-xl rounded-lg border-2 transition-colors ${
+                className={`w-9 h-9 text-lg rounded-lg border-2 transition-all hover:scale-110 ${
                   action.reaction === emoji 
-                    ? 'border-blue-500 bg-blue-50' 
-                    : 'border-gray-200 hover:border-gray-300'
+                    ? 'border-blue-500 bg-blue-50 scale-110' 
+                    : 'border-transparent hover:border-gray-300 hover:bg-gray-50'
                 }`}
               >
                 {emoji}
               </button>
             ))}
           </div>
+          {action.reaction && (
+            <div className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg">
+              <span className="text-2xl">{action.reaction}</span>
+              <span className="text-sm text-blue-700">אימוג'י נבחר</span>
+            </div>
+          )}
           <p className="text-xs text-gray-400">הריאקציה תישלח להודעה האחרונה שהתקבלה</p>
         </div>
       )}
+      
+      {/* Typing with duration */}
+      {actionInfo.hasValue === 'typing' && (
+        <div className="space-y-2">
+          <p className="text-xs text-gray-500">הבוט יציג "מקליד/ה..." למשך:</p>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min="1"
+              max="30"
+              value={action.typingDuration || 3}
+              onChange={(e) => onUpdate({ typingDuration: Math.min(30, Math.max(1, parseInt(e.target.value) || 3)) })}
+              className="w-20 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-center"
+            />
+            <span className="text-sm text-gray-500">שניות</span>
+          </div>
+          <p className="text-xs text-gray-400">מקסימום 30 שניות. הבוט יתחיל להקליד, יחכה, ואז יסיים.</p>
+        </div>
+      )}
 
-      {/* Group ID input */}
+      {/* Group selector */}
       {actionInfo.hasValue === 'group' && (
         <div className="space-y-2">
-          <input
-            type="text"
-            value={action.groupId || ''}
-            onChange={(e) => onUpdate({ groupId: e.target.value })}
-            placeholder="מזהה קבוצה (לדוגמה: 123456789@g.us)"
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-            dir="ltr"
-          />
+          <div className="flex items-center gap-2">
+            <select
+              value={action.groupId || ''}
+              onChange={(e) => onUpdate({ groupId: e.target.value, useVariable: false })}
+              className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+              disabled={loadingGroups || action.useVariable}
+            >
+              <option value="">-- בחר קבוצה --</option>
+              {groups.map(g => (
+                <option key={g.id} value={g.id}>{g.name} ({g.participants})</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={loadGroups}
+              disabled={loadingGroups}
+              className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+              title="רענן רשימת קבוצות"
+            >
+              <RefreshCw className={`w-4 h-4 ${loadingGroups ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-gray-500">
+            <input
+              type="checkbox"
+              checked={action.useVariable || false}
+              onChange={(e) => onUpdate({ useVariable: e.target.checked, groupId: '' })}
+              className="rounded"
+            />
+            <span>השתמש במשתנה</span>
+          </label>
+          {action.useVariable && (
+            <TextInputWithVariables
+              value={action.groupId || ''}
+              onChange={(v) => onUpdate({ groupId: v })}
+              placeholder="{{group_id}} או מזהה ידני..."
+            />
+          )}
           <p className="text-xs text-gray-400">איש הקשר הנוכחי יתווסף/יוסר מהקבוצה</p>
         </div>
       )}
@@ -437,14 +471,29 @@ function ActionItem({ action, canRemove, onUpdate, onRemove }) {
       {/* Group check */}
       {actionInfo.hasValue === 'group_check' && (
         <div className="space-y-2">
-          <input
-            type="text"
-            value={action.groupId || ''}
-            onChange={(e) => onUpdate({ groupId: e.target.value })}
-            placeholder="מזהה קבוצה לבדיקה..."
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-            dir="ltr"
-          />
+          <div className="flex items-center gap-2">
+            <select
+              value={action.groupId || ''}
+              onChange={(e) => onUpdate({ groupId: e.target.value, useVariable: false })}
+              className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+              disabled={loadingGroups || action.useVariable}
+            >
+              <option value="">-- בחר קבוצה --</option>
+              {groups.map(g => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+            <button type="button" onClick={loadGroups} disabled={loadingGroups} className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg">
+              <RefreshCw className={`w-4 h-4 ${loadingGroups ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-gray-500">
+            <input type="checkbox" checked={action.useVariable || false} onChange={(e) => onUpdate({ useVariable: e.target.checked, groupId: '' })} className="rounded" />
+            <span>השתמש במשתנה</span>
+          </label>
+          {action.useVariable && (
+            <TextInputWithVariables value={action.groupId || ''} onChange={(v) => onUpdate({ groupId: v })} placeholder="{{group_id}}" />
+          )}
           <input
             type="text"
             value={action.resultVar || 'is_member'}
@@ -459,14 +508,29 @@ function ActionItem({ action, canRemove, onUpdate, onRemove }) {
       {/* Group settings - admin only */}
       {actionInfo.hasValue === 'group_settings' && (
         <div className="space-y-2">
-          <input
-            type="text"
-            value={action.groupId || ''}
-            onChange={(e) => onUpdate({ groupId: e.target.value })}
-            placeholder="מזהה קבוצה..."
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-            dir="ltr"
-          />
+          <div className="flex items-center gap-2">
+            <select
+              value={action.groupId || ''}
+              onChange={(e) => onUpdate({ groupId: e.target.value, useVariable: false })}
+              className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+              disabled={loadingGroups || action.useVariable}
+            >
+              <option value="">-- בחר קבוצה --</option>
+              {groups.map(g => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+            <button type="button" onClick={loadGroups} disabled={loadingGroups} className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg">
+              <RefreshCw className={`w-4 h-4 ${loadingGroups ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-gray-500">
+            <input type="checkbox" checked={action.useVariable || false} onChange={(e) => onUpdate({ useVariable: e.target.checked, groupId: '' })} className="rounded" />
+            <span>השתמש במשתנה</span>
+          </label>
+          {action.useVariable && (
+            <TextInputWithVariables value={action.groupId || ''} onChange={(v) => onUpdate({ groupId: v })} placeholder="{{group_id}}" />
+          )}
           <select
             value={action.adminsOnly ? 'true' : 'false'}
             onChange={(e) => onUpdate({ adminsOnly: e.target.value === 'true' })}
@@ -481,14 +545,29 @@ function ActionItem({ action, canRemove, onUpdate, onRemove }) {
       {/* Group subject */}
       {actionInfo.hasValue === 'group_subject' && (
         <div className="space-y-2">
-          <input
-            type="text"
-            value={action.groupId || ''}
-            onChange={(e) => onUpdate({ groupId: e.target.value })}
-            placeholder="מזהה קבוצה..."
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-            dir="ltr"
-          />
+          <div className="flex items-center gap-2">
+            <select
+              value={action.groupId || ''}
+              onChange={(e) => onUpdate({ groupId: e.target.value, useVariable: false })}
+              className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+              disabled={loadingGroups || action.useVariable}
+            >
+              <option value="">-- בחר קבוצה --</option>
+              {groups.map(g => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+            <button type="button" onClick={loadGroups} disabled={loadingGroups} className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg">
+              <RefreshCw className={`w-4 h-4 ${loadingGroups ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-gray-500">
+            <input type="checkbox" checked={action.useVariable || false} onChange={(e) => onUpdate({ useVariable: e.target.checked, groupId: '' })} className="rounded" />
+            <span>השתמש במשתנה</span>
+          </label>
+          {action.useVariable && (
+            <TextInputWithVariables value={action.groupId || ''} onChange={(v) => onUpdate({ groupId: v })} placeholder="{{group_id}}" />
+          )}
           <TextInputWithVariables
             value={action.groupSubject || ''}
             onChange={(v) => onUpdate({ groupSubject: v })}
@@ -500,14 +579,29 @@ function ActionItem({ action, canRemove, onUpdate, onRemove }) {
       {/* Group description */}
       {actionInfo.hasValue === 'group_desc' && (
         <div className="space-y-2">
-          <input
-            type="text"
-            value={action.groupId || ''}
-            onChange={(e) => onUpdate({ groupId: e.target.value })}
-            placeholder="מזהה קבוצה..."
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-            dir="ltr"
-          />
+          <div className="flex items-center gap-2">
+            <select
+              value={action.groupId || ''}
+              onChange={(e) => onUpdate({ groupId: e.target.value, useVariable: false })}
+              className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+              disabled={loadingGroups || action.useVariable}
+            >
+              <option value="">-- בחר קבוצה --</option>
+              {groups.map(g => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+            <button type="button" onClick={loadGroups} disabled={loadingGroups} className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg">
+              <RefreshCw className={`w-4 h-4 ${loadingGroups ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-gray-500">
+            <input type="checkbox" checked={action.useVariable || false} onChange={(e) => onUpdate({ useVariable: e.target.checked, groupId: '' })} className="rounded" />
+            <span>השתמש במשתנה</span>
+          </label>
+          {action.useVariable && (
+            <TextInputWithVariables value={action.groupId || ''} onChange={(v) => onUpdate({ groupId: v })} placeholder="{{group_id}}" />
+          )}
           <TextInputWithVariables
             value={action.groupDescription || ''}
             onChange={(v) => onUpdate({ groupDescription: v })}

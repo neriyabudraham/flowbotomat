@@ -81,8 +81,9 @@ export default function ChatView({
     );
   }
 
-  // Check if in takeover mode
-  const isInTakeover = takeoverRemaining !== null || (contact && !contact.bot_enabled);
+  // Check if in takeover mode (use is_bot_active, fallback to bot_enabled for compatibility)
+  const isBotActive = contact?.is_bot_active ?? contact?.bot_enabled ?? true;
+  const isInTakeover = takeoverRemaining !== null || (contact && !isBotActive);
 
   return (
     <div className="h-full flex flex-col bg-white">
@@ -145,15 +146,15 @@ export default function ChatView({
 
           {/* Bot Toggle */}
           <button
-            onClick={() => onToggleBot(!contact.bot_enabled)}
+            onClick={() => onToggleBot(!isBotActive)}
             className={`p-2 rounded-lg transition-colors ${
-              contact.bot_enabled 
+              isBotActive 
                 ? 'bg-green-100 text-green-600 hover:bg-green-200' 
                 : 'bg-red-100 text-red-600 hover:bg-red-200'
             }`}
-            title={contact.bot_enabled ? 'בוט פעיל - לחץ לכיבוי' : 'בוט כבוי - לחץ להפעלה'}
+            title={isBotActive ? 'בוט פעיל - לחץ לכיבוי' : 'בוט כבוי - לחץ להפעלה'}
           >
-            {contact.bot_enabled ? <Bot className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+            {isBotActive ? <Bot className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
           </button>
           
           <button

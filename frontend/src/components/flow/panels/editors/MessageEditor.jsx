@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Clock, Upload, CheckCircle, Play } from 'lucide-react';
+import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Clock, Upload, CheckCircle, Play, Mic } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 
 const LIMITS = { text: 4096, caption: 1024 };
@@ -8,6 +8,7 @@ const actionTypes = [
   { id: 'text', label: 'טקסט', icon: MessageSquare },
   { id: 'image', label: 'תמונה', icon: Image },
   { id: 'video', label: 'סרטון', icon: Video },
+  { id: 'audio', label: 'הודעה קולית', icon: Mic },
   { id: 'file', label: 'קובץ', icon: FileText },
   { id: 'delay', label: 'השהייה', icon: Clock },
 ];
@@ -19,7 +20,8 @@ export default function MessageEditor({ data, onUpdate }) {
   const addAction = (type) => {
     const newAction = type === 'text' ? { type, content: '' } 
       : type === 'image' || type === 'video' ? { type, url: '', caption: '' }
-      : type === 'file' ? { type, url: '' }
+      : type === 'audio' ? { type, url: '' }
+      : type === 'file' ? { type, url: '', filename: '' }
       : { type, delay: 1, unit: 'seconds' };
     onUpdate({ actions: [...actions, newAction] });
   };
@@ -420,21 +422,86 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
         </div>
       )}
 
-      {action.type === 'file' && (
-        <div className="space-y-2">
+      {/* Audio/Voice message */}
+      {action.type === 'audio' && (
+        <div className="space-y-3">
+          {/* Upload */}
           <button 
             onClick={() => fileInputRef.current?.click()} 
-            className="w-full flex items-center justify-center gap-2 py-3 bg-white border-2 border-dashed border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50"
+            className="w-full flex items-center justify-center gap-2 py-4 bg-white border-2 border-dashed border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50 transition-colors"
           >
-            <Upload className="w-4 h-4" /><span className="text-sm">העלה קובץ</span>
+            <Mic className="w-5 h-5" />
+            <span className="text-sm">העלה הקלטה קולית</span>
           </button>
-          <input ref={fileInputRef} type="file" onChange={handleFileUpload} className="hidden" />
+          <input 
+            ref={fileInputRef} 
+            type="file" 
+            accept="audio/*" 
+            onChange={handleFileUpload} 
+            className="hidden" 
+          />
+          
           {action.fileName && (
-            <div className="flex items-center gap-2 p-2 bg-teal-50 rounded-lg text-sm text-teal-700">
-              <CheckCircle className="w-4 h-4" />{action.fileName}
+            <div className="flex items-center justify-between gap-2 p-2 bg-teal-50 rounded-lg text-sm text-teal-700">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4" />
+                <span className="truncate max-w-[150px]">{action.fileName}</span>
+              </div>
+              <button 
+                onClick={() => onUpdate({ url: '', fileName: '', localFile: false })}
+                className="text-red-500 hover:text-red-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
           )}
-          <div className="text-xs text-gray-400 text-center">או</div>
+          
+          <div className="text-xs text-gray-400 text-center">או הזן URL</div>
+          
+          <input 
+            type="url" 
+            value={action.url || ''} 
+            onChange={(e) => onUpdate({ url: e.target.value, localFile: false })} 
+            placeholder="URL לקובץ שמע (ogg/opus מומלץ)..." 
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm" 
+            dir="ltr" 
+          />
+          <p className="text-xs text-gray-400">פורמט מומלץ: ogg/opus. פורמטים נתמכים: mp3, ogg, wav</p>
+        </div>
+      )}
+
+      {/* File upload with auto-detect mimetype */}
+      {action.type === 'file' && (
+        <div className="space-y-3">
+          <button 
+            onClick={() => fileInputRef.current?.click()} 
+            className="w-full flex items-center justify-center gap-2 py-4 bg-white border-2 border-dashed border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50 transition-colors"
+          >
+            <Upload className="w-5 h-5" />
+            <span className="text-sm">העלה קובץ</span>
+          </button>
+          <input ref={fileInputRef} type="file" onChange={handleFileUpload} className="hidden" />
+          
+          {action.fileName && (
+            <div className="flex items-center justify-between gap-2 p-2 bg-teal-50 rounded-lg text-sm text-teal-700">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4" />
+                <span className="truncate max-w-[150px]">{action.fileName}</span>
+                {action.fileSize && (
+                  <span className="text-xs text-teal-600">({formatFileSize(action.fileSize)})</span>
+                )}
+              </div>
+              <button 
+                onClick={() => onUpdate({ url: '', fileName: '', localFile: false, fileSize: null })}
+                className="text-red-500 hover:text-red-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+          
+          <div className="text-xs text-gray-400 text-center">או הזן URL</div>
+          
           <input 
             type="url" 
             value={action.url || ''} 
@@ -443,6 +510,8 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
             className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm" 
             dir="ltr" 
           />
+          
+          <p className="text-xs text-gray-400">סוג הקובץ יזוהה אוטומטית. נתמכים: PDF, Word, Excel, תמונות, וידאו, שמע</p>
         </div>
       )}
 

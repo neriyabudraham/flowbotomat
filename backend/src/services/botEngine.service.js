@@ -759,6 +759,19 @@ class BotEngine {
             }
             break;
             
+          case 'audio':
+            if (action.url || action.fileData) {
+              const audioUrl = action.fileData || action.url;
+              console.log('[BotEngine] Sending voice message:', audioUrl.substring(0, 50) + '...');
+              const result = await wahaService.sendVoice(connection, contact.phone, audioUrl);
+              // Save outgoing message to DB
+              await this.saveOutgoingMessage(userId, contact.id, '', 'audio', audioUrl, result?.id?.id);
+              console.log('[BotEngine] ✅ Voice message sent');
+            } else {
+              console.log('[BotEngine] ⚠️ Audio action has no URL');
+            }
+            break;
+            
           case 'file':
             if (action.url || action.fileData) {
               const fileUrl = action.fileData || action.url;
@@ -1076,6 +1089,21 @@ class BotEngine {
           }
           break;
           
+        case 'typing':
+          {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              const duration = Math.min(30, Math.max(1, action.typingDuration || 3));
+              await wahaService.startTyping(connection, contact.phone);
+              console.log(`[BotEngine] ⌨️ Typing for ${duration} seconds...`);
+              await this.sleep(duration * 1000);
+              await wahaService.stopTyping(connection, contact.phone);
+              console.log('[BotEngine] ✅ Typing finished');
+            }
+          }
+          break;
+          
+        // Keep old actions for backward compatibility
         case 'start_typing':
           {
             const connection = await this.getConnection(userId);
