@@ -3,7 +3,8 @@ import { useNavigate, Link } from 'react-router-dom';
 import { 
   Key, Plus, Copy, Trash2, RefreshCw, Eye, EyeOff, 
   Clock, Activity, Shield, AlertTriangle, Check, X,
-  Code, Book, Zap, ChevronLeft, Lock, Crown, ExternalLink
+  Code, Book, Zap, ChevronLeft, Lock, Crown, ExternalLink,
+  Terminal, Play, ChevronDown, ChevronUp
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
@@ -20,6 +21,15 @@ export default function ApiPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [copiedKey, setCopiedKey] = useState(null);
   const [hasApiAccess, setHasApiAccess] = useState(false);
+  const [deleteModal, setDeleteModal] = useState({ show: false, keyId: null, keyName: '' });
+  const [regenerateModal, setRegenerateModal] = useState({ show: false, keyId: null, keyName: '' });
+  const [deleting, setDeleting] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  
+  // API Playground state
+  const [userApiKey, setUserApiKey] = useState('');
+  const [selectedEndpoint, setSelectedEndpoint] = useState(null);
+  const [expandedCurl, setExpandedCurl] = useState(null);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -100,56 +110,194 @@ export default function ApiPage() {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
+  const BASE_URL = 'https://flow.botomat.co.il/api/v1';
+  
   const apiDocs = [
     {
+      id: 'text',
       method: 'POST',
       endpoint: '/v1/messages/text',
       description: 'שלח הודעת טקסט',
-      body: '{ "phone": "972501234567", "message": "שלום!" }',
+      body: {
+        phone: '972501234567',
+        message: 'שלום! זו הודעת בדיקה'
+      },
+      params: [
+        { name: 'phone', type: 'string', required: true, description: 'מספר טלפון עם קידומת מדינה' },
+        { name: 'message', type: 'string', required: true, description: 'תוכן ההודעה' }
+      ]
     },
     {
+      id: 'image',
       method: 'POST',
       endpoint: '/v1/messages/image',
       description: 'שלח תמונה',
-      body: '{ "phone": "...", "imageUrl": "https://...", "caption": "..." }',
+      body: {
+        phone: '972501234567',
+        imageUrl: 'https://example.com/image.jpg',
+        caption: 'תיאור התמונה'
+      },
+      params: [
+        { name: 'phone', type: 'string', required: true, description: 'מספר טלפון' },
+        { name: 'imageUrl', type: 'string', required: true, description: 'קישור לתמונה' },
+        { name: 'caption', type: 'string', required: false, description: 'כיתוב לתמונה' }
+      ]
     },
     {
+      id: 'video',
       method: 'POST',
       endpoint: '/v1/messages/video',
       description: 'שלח סרטון',
-      body: '{ "phone": "...", "videoUrl": "https://...", "caption": "..." }',
+      body: {
+        phone: '972501234567',
+        videoUrl: 'https://example.com/video.mp4',
+        caption: 'תיאור הסרטון'
+      },
+      params: [
+        { name: 'phone', type: 'string', required: true, description: 'מספר טלפון' },
+        { name: 'videoUrl', type: 'string', required: true, description: 'קישור לסרטון' },
+        { name: 'caption', type: 'string', required: false, description: 'כיתוב לסרטון' }
+      ]
     },
     {
+      id: 'document',
       method: 'POST',
       endpoint: '/v1/messages/document',
       description: 'שלח מסמך/קובץ',
-      body: '{ "phone": "...", "documentUrl": "https://...", "filename": "..." }',
+      body: {
+        phone: '972501234567',
+        documentUrl: 'https://example.com/file.pdf',
+        filename: 'document.pdf',
+        caption: 'קובץ חשוב'
+      },
+      params: [
+        { name: 'phone', type: 'string', required: true, description: 'מספר טלפון' },
+        { name: 'documentUrl', type: 'string', required: true, description: 'קישור למסמך' },
+        { name: 'filename', type: 'string', required: false, description: 'שם הקובץ' },
+        { name: 'caption', type: 'string', required: false, description: 'כיתוב' }
+      ]
     },
     {
+      id: 'audio',
+      method: 'POST',
+      endpoint: '/v1/messages/audio',
+      description: 'שלח קובץ אודיו',
+      body: {
+        phone: '972501234567',
+        audioUrl: 'https://example.com/audio.mp3'
+      },
+      params: [
+        { name: 'phone', type: 'string', required: true, description: 'מספר טלפון' },
+        { name: 'audioUrl', type: 'string', required: true, description: 'קישור לקובץ אודיו' }
+      ]
+    },
+    {
+      id: 'buttons',
       method: 'POST',
       endpoint: '/v1/messages/buttons',
       description: 'שלח הודעה עם כפתורים',
-      body: '{ "phone": "...", "message": "...", "buttons": ["אפשרות 1", "אפשרות 2"] }',
+      body: {
+        phone: '972501234567',
+        message: 'בחר אפשרות:',
+        buttons: [
+          { id: 'btn1', text: 'אפשרות 1' },
+          { id: 'btn2', text: 'אפשרות 2' },
+          { id: 'btn3', text: 'אפשרות 3' }
+        ],
+        footer: 'FlowBotomat API'
+      },
+      params: [
+        { name: 'phone', type: 'string', required: true, description: 'מספר טלפון' },
+        { name: 'message', type: 'string', required: true, description: 'תוכן ההודעה' },
+        { name: 'buttons', type: 'array', required: true, description: 'מערך כפתורים (עד 3)' },
+        { name: 'footer', type: 'string', required: false, description: 'טקסט תחתון' }
+      ]
     },
     {
+      id: 'list',
       method: 'POST',
       endpoint: '/v1/messages/list',
-      description: 'שלח רשימה',
-      body: '{ "phone": "...", "message": "...", "buttonText": "בחר", "sections": [...] }',
+      description: 'שלח רשימת בחירה',
+      body: {
+        phone: '972501234567',
+        message: 'בחר מהרשימה:',
+        buttonText: 'לחץ לבחירה',
+        sections: [
+          {
+            title: 'קטגוריה 1',
+            rows: [
+              { id: 'item1', title: 'פריט 1', description: 'תיאור פריט 1' },
+              { id: 'item2', title: 'פריט 2', description: 'תיאור פריט 2' }
+            ]
+          }
+        ],
+        footer: 'FlowBotomat API'
+      },
+      params: [
+        { name: 'phone', type: 'string', required: true, description: 'מספר טלפון' },
+        { name: 'message', type: 'string', required: true, description: 'תוכן ההודעה' },
+        { name: 'buttonText', type: 'string', required: true, description: 'טקסט הכפתור' },
+        { name: 'sections', type: 'array', required: true, description: 'מערך סקשנים עם פריטים' },
+        { name: 'footer', type: 'string', required: false, description: 'טקסט תחתון' }
+      ]
     },
     {
+      id: 'location',
+      method: 'POST',
+      endpoint: '/v1/messages/location',
+      description: 'שלח מיקום',
+      body: {
+        phone: '972501234567',
+        latitude: 32.0853,
+        longitude: 34.7818,
+        name: 'תל אביב',
+        address: 'רוטשילד 1, תל אביב'
+      },
+      params: [
+        { name: 'phone', type: 'string', required: true, description: 'מספר טלפון' },
+        { name: 'latitude', type: 'number', required: true, description: 'קו רוחב' },
+        { name: 'longitude', type: 'number', required: true, description: 'קו אורך' },
+        { name: 'name', type: 'string', required: false, description: 'שם המיקום' },
+        { name: 'address', type: 'string', required: false, description: 'כתובת' }
+      ]
+    },
+    {
+      id: 'contacts',
       method: 'GET',
       endpoint: '/v1/contacts',
       description: 'קבל רשימת אנשי קשר',
       body: null,
+      params: [
+        { name: 'limit', type: 'number', required: false, description: 'מספר תוצאות (ברירת מחדל: 100)' },
+        { name: 'offset', type: 'number', required: false, description: 'דילוג על תוצאות' },
+        { name: 'search', type: 'string', required: false, description: 'חיפוש לפי שם או טלפון' }
+      ]
     },
     {
+      id: 'status',
       method: 'GET',
       endpoint: '/v1/status',
-      description: 'בדוק סטטוס חיבור',
+      description: 'בדוק סטטוס חיבור WhatsApp',
       body: null,
+      params: []
     },
   ];
+
+  const generateCurl = (doc, apiKey) => {
+    const key = apiKey || 'YOUR_API_KEY';
+    const url = `${BASE_URL}${doc.endpoint.replace('/v1', '')}`;
+    
+    if (doc.method === 'GET') {
+      return `curl -X GET "${url}" \\
+  -H "Authorization: Bearer ${key}" \\
+  -H "Content-Type: application/json"`;
+    }
+    
+    return `curl -X POST "${url}" \\
+  -H "Authorization: Bearer ${key}" \\
+  -H "Content-Type: application/json" \\
+  -d '${JSON.stringify(doc.body, null, 2)}'`;
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-purple-50" dir="rtl">
@@ -255,6 +403,161 @@ export default function ApiPage() {
             </div>
           </div>
         )}
+
+        {/* API Playground - Curl Generator */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm mb-8 overflow-hidden">
+          <div className="bg-gradient-to-r from-slate-800 to-slate-900 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-white flex items-center gap-3">
+                <Terminal className="w-6 h-6" />
+                מחולל פקודות cURL
+              </h2>
+            </div>
+            
+            {/* API Key Input */}
+            <div className="relative">
+              <input
+                type="text"
+                value={userApiKey}
+                onChange={(e) => setUserApiKey(e.target.value)}
+                placeholder="הדבק את ה-API Key שלך כאן..."
+                className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-slate-400 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                dir="ltr"
+              />
+              {userApiKey && (
+                <button
+                  onClick={() => setUserApiKey('')}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-600 rounded"
+                >
+                  <X className="w-4 h-4 text-slate-400" />
+                </button>
+              )}
+            </div>
+            {!userApiKey && (
+              <p className="text-slate-400 text-sm mt-2">הדבק את המפתח כדי לקבל פקודות curl מוכנות להעתקה</p>
+            )}
+          </div>
+
+          {/* Curl Commands */}
+          <div className="divide-y divide-gray-100">
+            {apiDocs.map((doc) => (
+              <div key={doc.id} className="group">
+                <button
+                  onClick={() => setExpandedCurl(expandedCurl === doc.id ? null : doc.id)}
+                  className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={`px-2.5 py-1 text-xs font-bold rounded ${
+                      doc.method === 'GET' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {doc.method}
+                    </span>
+                    <code className="text-sm font-mono text-gray-700">{doc.endpoint}</code>
+                    <span className="text-sm text-gray-500 hidden sm:inline">- {doc.description}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        copyToClipboard(generateCurl(doc, userApiKey), `curl-${doc.id}`);
+                      }}
+                      className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+                      title="העתק פקודת curl"
+                    >
+                      {copiedKey === `curl-${doc.id}` ? (
+                        <Check className="w-4 h-4 text-green-600" />
+                      ) : (
+                        <Copy className="w-4 h-4 text-gray-500" />
+                      )}
+                    </button>
+                    {expandedCurl === doc.id ? (
+                      <ChevronUp className="w-5 h-5 text-gray-400" />
+                    ) : (
+                      <ChevronDown className="w-5 h-5 text-gray-400" />
+                    )}
+                  </div>
+                </button>
+                
+                {expandedCurl === doc.id && (
+                  <div className="px-6 pb-6 bg-gray-50">
+                    {/* Parameters */}
+                    {doc.params && doc.params.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="text-sm font-medium text-gray-700 mb-2">פרמטרים:</h4>
+                        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-3 py-2 text-right font-medium text-gray-600">שם</th>
+                                <th className="px-3 py-2 text-right font-medium text-gray-600">סוג</th>
+                                <th className="px-3 py-2 text-right font-medium text-gray-600">חובה</th>
+                                <th className="px-3 py-2 text-right font-medium text-gray-600">תיאור</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {doc.params.map((param, i) => (
+                                <tr key={i}>
+                                  <td className="px-3 py-2 font-mono text-purple-600">{param.name}</td>
+                                  <td className="px-3 py-2 text-gray-500">{param.type}</td>
+                                  <td className="px-3 py-2">
+                                    {param.required ? (
+                                      <span className="text-red-500">כן</span>
+                                    ) : (
+                                      <span className="text-gray-400">לא</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-600">{param.description}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Curl Command */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-sm font-medium text-gray-700">פקודת cURL:</h4>
+                        <button
+                          onClick={() => copyToClipboard(generateCurl(doc, userApiKey), `curl-full-${doc.id}`)}
+                          className="text-xs text-purple-600 hover:text-purple-700 flex items-center gap-1"
+                        >
+                          {copiedKey === `curl-full-${doc.id}` ? (
+                            <>
+                              <Check className="w-3 h-3" />
+                              הועתק!
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              העתק
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <pre className="bg-slate-900 text-slate-100 rounded-xl p-4 overflow-x-auto text-sm font-mono whitespace-pre-wrap" dir="ltr">
+                        {generateCurl(doc, userApiKey)}
+                      </pre>
+                    </div>
+                    
+                    {/* Example Response */}
+                    <div className="mt-4">
+                      <h4 className="text-sm font-medium text-gray-700 mb-2">תגובה לדוגמה:</h4>
+                      <pre className="bg-slate-800 text-green-400 rounded-xl p-4 overflow-x-auto text-sm font-mono" dir="ltr">
+{`{
+  "success": true,
+  "messageId": "uuid-here",
+  "timestamp": "2024-01-21T12:00:00Z"
+}`}
+                      </pre>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
 
         <div className="grid lg:grid-cols-3 gap-8">
           {/* API Keys List */}
