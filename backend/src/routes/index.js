@@ -47,4 +47,31 @@ router.use('/api-keys', apiKeysRoutes);
 // Public API (v1)
 router.use('/v1', publicApiRoutes);
 
+// API Info at root /api
+router.get('/', (req, res) => {
+  res.json({
+    name: 'FlowBotomat API',
+    version: '1.0.0',
+    documentation: 'https://flow.botomat.co.il/api',
+    endpoints: {
+      messages: {
+        text: 'POST /api/v1/messages/text',
+        image: 'POST /api/v1/messages/image',
+        video: 'POST /api/v1/messages/video',
+        document: 'POST /api/v1/messages/document',
+        audio: 'POST /api/v1/messages/audio',
+        list: 'POST /api/v1/messages/list',
+        location: 'POST /api/v1/messages/location',
+      },
+      contacts: {
+        list: 'GET /api/v1/contacts',
+        messages: 'GET /api/v1/contacts/:phone/messages',
+      },
+      status: 'GET /api/v1/status',
+    },
+    authentication: 'Bearer token in Authorization header',
+    baseUrl: 'https://flow.botomat.co.il/api/v1',
+  });
+});
+
 module.exports = router;
