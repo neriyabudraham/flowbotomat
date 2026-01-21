@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Bot, Play, Pause, Edit2, Zap, Users, ArrowRight } from 'lucide-react';
+import { Bot, Play, Pause, Edit2, Zap, Users, ArrowRight, Plus, Upload, X } from 'lucide-react';
 import Button from '../components/atoms/Button';
 import Logo from '../components/atoms/Logo';
 import api from '../services/api';
@@ -14,6 +14,15 @@ export default function ClientBotsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [botStats, setBotStats] = useState({});
+  
+  // Create/Import modals
+  const [showCreate, setShowCreate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [newBotName, setNewBotName] = useState('');
+  const [newBotDesc, setNewBotDesc] = useState('');
+  const [importData, setImportData] = useState(null);
+  const [importName, setImportName] = useState('');
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     loadClientBots();
@@ -53,6 +62,59 @@ export default function ClientBotsPage() {
     } catch (err) {
       alert('שגיאה בשינוי סטטוס');
     }
+  };
+
+  const handleCreate = async () => {
+    if (!newBotName.trim()) return;
+    try {
+      await api.post(`/experts/client/${clientId}/bots`, { 
+        name: newBotName.trim(), 
+        description: newBotDesc.trim() 
+      });
+      setShowCreate(false);
+      setNewBotName('');
+      setNewBotDesc('');
+      loadClientBots();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה ביצירת בוט');
+    }
+  };
+
+  const handleFileSelect = async (file) => {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!data.bot) throw new Error('Invalid file');
+      setImportData(data);
+      setImportName(data.bot.name || 'בוט מיובא');
+    } catch (e) {
+      alert('שגיאה בקריאת הקובץ - ודא שהקובץ תקין');
+    }
+  };
+
+  const handleImportConfirm = async () => {
+    if (!importData || !importName.trim()) return;
+    setImporting(true);
+    try {
+      await api.post(`/experts/client/${clientId}/bots/import`, { 
+        data: importData, 
+        name: importName.trim() 
+      });
+      setShowImport(false);
+      setImportData(null);
+      setImportName('');
+      loadClientBots();
+    } catch (e) {
+      alert('שגיאה בייבוא');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleCancelImport = () => {
+    setShowImport(false);
+    setImportData(null);
+    setImportName('');
   };
 
   if (loading) {
@@ -98,15 +160,30 @@ export default function ClientBotsPage() {
 
       <main className="max-w-4xl mx-auto px-4 py-8">
         {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-2 text-sm text-blue-600 mb-2">
-            <Users className="w-4 h-4" />
-            ניהול חשבון לקוח
+        <div className="flex justify-between items-start mb-8">
+          <div>
+            <div className="flex items-center gap-2 text-sm text-blue-600 mb-2">
+              <Users className="w-4 h-4" />
+              ניהול חשבון לקוח
+            </div>
+            <h1 className="text-2xl font-bold text-gray-800">בוטים של הלקוח</h1>
+            <p className="text-gray-500 text-sm mt-1">
+              {permissions.can_edit_bots ? 'יש לך הרשאה לערוך' : 'צפייה בלבד'}
+            </p>
           </div>
-          <h1 className="text-2xl font-bold text-gray-800">בוטים של הלקוח</h1>
-          <p className="text-gray-500 text-sm mt-1">
-            {permissions.can_edit_bots ? 'יש לך הרשאה לערוך' : 'צפייה בלבד'}
-          </p>
+          
+          {permissions.can_edit_bots && (
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={() => setShowImport(true)} className="!rounded-xl">
+                <Upload className="w-4 h-4 ml-2" />
+                ייבוא
+              </Button>
+              <Button onClick={() => setShowCreate(true)} className="!rounded-xl">
+                <Plus className="w-4 h-4 ml-2" />
+                בוט חדש
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Bots List */}
@@ -172,7 +249,7 @@ export default function ClientBotsPage() {
                           {bot.is_active ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
                         </button>
                         <button
-                          onClick={(e) => { e.stopPropagation(); navigate(`/bots/${bot.id}`); }}
+                          onClick={(e) => { e.stopPropagation(); navigate(`/bots/${bot.id}?client=${clientId}`); }}
                           className="p-2.5 rounded-xl bg-blue-100 text-blue-600 hover:bg-blue-200"
                         >
                           <Edit2 className="w-5 h-5" />
@@ -185,6 +262,109 @@ export default function ClientBotsPage() {
             })
           )}
         </div>
+
+        {/* Create Modal */}
+        {showCreate && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowCreate(false)}>
+            <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-gray-800">יצירת בוט חדש ללקוח</h2>
+                <button onClick={() => setShowCreate(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">שם הבוט</label>
+                  <input
+                    type="text"
+                    value={newBotName}
+                    onChange={(e) => setNewBotName(e.target.value)}
+                    placeholder="לדוגמה: בוט תמיכה"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-200 outline-none"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">תיאור</label>
+                  <textarea
+                    value={newBotDesc}
+                    onChange={(e) => setNewBotDesc(e.target.value)}
+                    placeholder="מה הבוט עושה?"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl resize-none"
+                    rows={2}
+                  />
+                </div>
+              </div>
+              
+              <div className="flex gap-3 mt-6">
+                <Button variant="ghost" onClick={() => setShowCreate(false)} className="flex-1 !rounded-xl">ביטול</Button>
+                <Button onClick={handleCreate} className="flex-1 !rounded-xl" disabled={!newBotName.trim()}>צור בוט</Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Import Modal */}
+        {showImport && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={handleCancelImport}>
+            <div className="bg-white rounded-2xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-gray-800">ייבוא בוט ללקוח</h2>
+                <button onClick={handleCancelImport} className="p-2 hover:bg-gray-100 rounded-lg">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              
+              {!importData ? (
+                <div 
+                  className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center hover:border-primary-400 transition-colors cursor-pointer"
+                  onClick={() => document.getElementById('import-file-client').click()}
+                >
+                  <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600 mb-2">לחץ לבחירת קובץ</p>
+                  <p className="text-xs text-gray-400">קובץ JSON שיוצא ממערכת FlowBotomat</p>
+                  <input
+                    id="import-file-client"
+                    type="file"
+                    accept=".json"
+                    className="hidden"
+                    onChange={(e) => e.target.files[0] && handleFileSelect(e.target.files[0])}
+                  />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="p-4 bg-green-50 rounded-xl text-center">
+                    <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-2">
+                      <Bot className="w-6 h-6 text-green-600" />
+                    </div>
+                    <p className="text-green-700 font-medium">קובץ נקרא בהצלחה!</p>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">שם הבוט</label>
+                    <input
+                      type="text"
+                      value={importName}
+                      onChange={(e) => setImportName(e.target.value)}
+                      placeholder="הזן שם לבוט..."
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-200 outline-none"
+                      autoFocus
+                    />
+                  </div>
+                  
+                  <div className="flex gap-3 pt-2">
+                    <Button variant="ghost" onClick={handleCancelImport} className="flex-1 !rounded-xl">ביטול</Button>
+                    <Button onClick={handleImportConfirm} className="flex-1 !rounded-xl" disabled={!importName.trim() || importing}>
+                      {importing ? 'מייבא...' : 'ייבא בוט'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

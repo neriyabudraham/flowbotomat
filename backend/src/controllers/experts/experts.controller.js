@@ -284,6 +284,91 @@ async function getClientBots(req, res) {
 }
 
 /**
+ * Create bot for client (as expert)
+ */
+async function createClientBot(req, res) {
+  try {
+    const userId = req.user.id;
+    const { clientId } = req.params;
+    const { name, description } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ error: 'נדרש שם לבוט' });
+    }
+    
+    // Verify expert relationship with edit permissions
+    const relationship = await db.query(
+      'SELECT * FROM expert_clients WHERE expert_id = $1 AND client_id = $2 AND is_active = true',
+      [userId, clientId]
+    );
+    
+    if (relationship.rows.length === 0 || !relationship.rows[0].can_edit_bots) {
+      return res.status(403).json({ error: 'אין לך הרשאה ליצור בוטים ללקוח זה' });
+    }
+    
+    const result = await db.query(
+      `INSERT INTO bots (user_id, name, description)
+       VALUES ($1, $2, $3)
+       RETURNING *`,
+      [clientId, name, description || '']
+    );
+    
+    console.log(`[Experts] Expert ${userId} created bot for client ${clientId}`);
+    
+    res.status(201).json({ bot: result.rows[0] });
+  } catch (error) {
+    console.error('[Experts] Create client bot error:', error);
+    res.status(500).json({ error: 'שגיאה ביצירת בוט' });
+  }
+}
+
+/**
+ * Import bot for client (as expert)
+ */
+async function importClientBot(req, res) {
+  try {
+    const userId = req.user.id;
+    const { clientId } = req.params;
+    const { data, name } = req.body;
+    
+    if (!data || !data.bot) {
+      return res.status(400).json({ error: 'קובץ לא תקין' });
+    }
+    
+    // Verify expert relationship with edit permissions
+    const relationship = await db.query(
+      'SELECT * FROM expert_clients WHERE expert_id = $1 AND client_id = $2 AND is_active = true',
+      [userId, clientId]
+    );
+    
+    if (relationship.rows.length === 0 || !relationship.rows[0].can_edit_bots) {
+      return res.status(403).json({ error: 'אין לך הרשאה לייבא בוטים ללקוח זה' });
+    }
+    
+    const importedBot = data.bot;
+    const botName = name || `${importedBot.name} (יובא)`;
+    
+    const result = await db.query(
+      `INSERT INTO bots (user_id, name, description, flow_data, is_active)
+       VALUES ($1, $2, $3, $4, false)
+       RETURNING *`,
+      [clientId, botName, importedBot.description, JSON.stringify(importedBot.flow_data)]
+    );
+    
+    console.log(`[Experts] Expert ${userId} imported bot for client ${clientId}`);
+    
+    res.json({
+      success: true,
+      bot: result.rows[0],
+      message: 'הבוט יובא בהצלחה',
+    });
+  } catch (error) {
+    console.error('[Experts] Import client bot error:', error);
+    res.status(500).json({ error: 'שגיאה בייבוא' });
+  }
+}
+
+/**
  * Check if user has expert access to a resource
  */
 async function checkExpertAccess(expertId, clientId, permission = 'can_view_bots') {
@@ -305,5 +390,7 @@ module.exports = {
   removeExpert,
   leaveClient,
   getClientBots,
+  createClientBot,
+  importClientBot,
   checkExpertAccess,
 };

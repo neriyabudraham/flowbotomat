@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Save, ArrowRight, Edit2, RotateCcw, Play, X } from 'lucide-react';
 import useBotsStore from '../store/botsStore';
 import FlowBuilder from '../components/flow/FlowBuilder';
@@ -13,6 +13,8 @@ const STORAGE_KEY = 'flowbotomat_draft_';
 export default function BotEditorPage() {
   const { botId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const clientId = searchParams.get('client');
   const { currentBot, fetchBot, saveFlow, updateBot, clearCurrentBot } = useBotsStore();
   const [flowData, setFlowData] = useState(null);
   const [originalFlowData, setOriginalFlowData] = useState(null);
@@ -257,7 +259,12 @@ export default function BotEditorPage() {
   // Navigate back with warning
   const handleBack = () => {
     if (hasChanges && !confirm('יש שינויים שלא נשמרו. לצאת בכל זאת?')) return;
-    navigate('/bots');
+    // Return to client bots page if editing client's bot, otherwise to my bots
+    if (clientId) {
+      navigate(`/clients/${clientId}/bots`);
+    } else {
+      navigate('/bots');
+    }
   };
 
   if (!currentBot || !flowData) {
