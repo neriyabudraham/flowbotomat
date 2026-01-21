@@ -64,7 +64,26 @@ class BotEngine {
         return;
       }
       
-      // Find trigger node
+      // Check for existing session (waiting for response)
+      const session = await this.getSession(bot.id, contact.id);
+      
+      if (session && session.waiting_for) {
+        console.log('[BotEngine] 📍 Found active session, waiting for:', session.waiting_for);
+        console.log('[BotEngine] Current node:', session.current_node_id);
+        
+        // Check if session expired
+        if (session.expires_at && new Date(session.expires_at) < new Date()) {
+          console.log('[BotEngine] Session expired, handling timeout');
+          await this.handleSessionTimeout(session, flowData, contact, message, userId, bot);
+          return;
+        }
+        
+        // Continue from where we left off
+        await this.continueSession(session, flowData, contact, message, userId, bot);
+        return;
+      }
+      
+      // No active session - check trigger for new flow
       const triggerNode = flowData.nodes.find(n => n.type === 'trigger');
       if (!triggerNode) {
         console.log('[BotEngine] No trigger node in bot:', bot.id);
@@ -97,6 +116,108 @@ class BotEngine {
     } catch (error) {
       console.error('[BotEngine] Error processing bot:', error);
       await this.logBotRun(bot.id, contact.id, 'error', error.message);
+    }
+  }
+  
+  // Get active session for contact
+  async getSession(botId, contactId) {
+    const result = await db.query(
+      'SELECT * FROM bot_sessions WHERE bot_id = $1 AND contact_id = $2',
+      [botId, contactId]
+    );
+    return result.rows[0] || null;
+  }
+  
+  // Save session state
+  async saveSession(botId, contactId, nodeId, waitingFor, waitingData = {}, timeoutSeconds = null) {
+    const expiresAt = timeoutSeconds 
+      ? new Date(Date.now() + timeoutSeconds * 1000) 
+      : null;
+    
+    await db.query(
+      `INSERT INTO bot_sessions (bot_id, contact_id, current_node_id, waiting_for, waiting_data, expires_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       ON CONFLICT (bot_id, contact_id) 
+       DO UPDATE SET current_node_id = $3, waiting_for = $4, waiting_data = $5, expires_at = $6, updated_at = NOW()`,
+      [botId, contactId, nodeId, waitingFor, JSON.stringify(waitingData), expiresAt]
+    );
+    
+    console.log('[BotEngine] 💾 Session saved:', { nodeId, waitingFor, timeout: timeoutSeconds });
+  }
+  
+  // Clear session
+  async clearSession(botId, contactId) {
+    await db.query(
+      'DELETE FROM bot_sessions WHERE bot_id = $1 AND contact_id = $2',
+      [botId, contactId]
+    );
+    console.log('[BotEngine] 🗑️ Session cleared');
+  }
+  
+  // Continue from saved session
+  async continueSession(session, flowData, contact, message, userId, bot) {
+    const currentNode = flowData.nodes.find(n => n.id === session.current_node_id);
+    if (!currentNode) {
+      console.log('[BotEngine] Session node not found, clearing session');
+      await this.clearSession(bot.id, contact.id);
+      return;
+    }
+    
+    console.log('[BotEngine] ▶️ Continuing from node:', currentNode.type, currentNode.id);
+    
+    // Clear session first
+    await this.clearSession(bot.id, contact.id);
+    
+    // Find next node based on response
+    let nextHandleId = null;
+    
+    if (session.waiting_for === 'list_response') {
+      // Find which button was selected
+      const waitingData = session.waiting_data || {};
+      const buttons = waitingData.buttons || [];
+      const selectedIndex = buttons.findIndex(btn => 
+        btn.title === message || btn.id === message || message === String(buttons.indexOf(btn) + 1)
+      );
+      
+      if (selectedIndex >= 0) {
+        nextHandleId = `option_${selectedIndex}`;
+        console.log('[BotEngine] List response selected:', nextHandleId);
+      }
+    }
+    
+    // Find next edge
+    let nextEdge;
+    if (nextHandleId) {
+      nextEdge = flowData.edges.find(e => e.source === currentNode.id && e.sourceHandle === nextHandleId);
+    }
+    if (!nextEdge) {
+      nextEdge = flowData.edges.find(e => e.source === currentNode.id && !e.sourceHandle);
+    }
+    
+    if (nextEdge) {
+      await this.executeNode(nextEdge.target, flowData, contact, message, userId, bot.id, bot.name);
+    } else {
+      console.log('[BotEngine] No next edge found from session node');
+    }
+  }
+  
+  // Handle session timeout
+  async handleSessionTimeout(session, flowData, contact, message, userId, bot) {
+    const currentNode = flowData.nodes.find(n => n.id === session.current_node_id);
+    
+    // Clear session
+    await this.clearSession(bot.id, contact.id);
+    
+    if (!currentNode) return;
+    
+    // Find timeout edge
+    const timeoutEdge = flowData.edges.find(e => 
+      e.source === currentNode.id && e.sourceHandle === 'timeout'
+    );
+    
+    if (timeoutEdge) {
+      console.log('[BotEngine] ⏰ Executing timeout path');
+      await this.executeNode(timeoutEdge.target, flowData, contact, message, userId, bot.id, bot.name);
     }
   }
   
@@ -227,7 +348,8 @@ class BotEngine {
     
     switch (node.type) {
       case 'message':
-        await this.executeMessageNode(node, contact, message, userId, botName);
+        const shouldWait = await this.executeMessageNode(node, contact, message, userId, botName, botId);
+        if (shouldWait) return; // Wait for response, don't continue
         break;
         
       case 'condition':
@@ -243,8 +365,8 @@ class BotEngine {
         break;
         
       case 'list':
-        await this.executeListNode(node, contact, userId, botName);
-        // List nodes wait for response, so we don't continue automatically
+        await this.executeListNode(node, contact, userId, botName, botId);
+        // List nodes wait for response, session saved
         return;
     }
     
@@ -261,16 +383,19 @@ class BotEngine {
     }
   }
   
-  // Execute message node
-  async executeMessageNode(node, contact, originalMessage, userId, botName = '') {
+  // Execute message node - returns true if waiting for reply
+  async executeMessageNode(node, contact, originalMessage, userId, botName = '', botId = null) {
     const actions = node.data.actions || [];
-    console.log('[BotEngine] Message node has', actions.length, 'actions');
+    const waitForReply = node.data.waitForReply || false;
+    const timeout = node.data.timeout || null;
+    
+    console.log('[BotEngine] Message node has', actions.length, 'actions, waitForReply:', waitForReply);
     
     // Get WAHA connection
     const connection = await this.getConnection(userId);
     if (!connection) {
       console.log('[BotEngine] No WAHA connection for user:', userId);
-      return;
+      return false;
     }
     
     for (let i = 0; i < actions.length; i++) {
@@ -342,6 +467,15 @@ class BotEngine {
         await this.sleep(500);
       }
     }
+    
+    // If waitForReply is enabled, save session and return true
+    if (waitForReply && botId) {
+      await this.saveSession(botId, contact.id, node.id, 'reply', {}, timeout);
+      console.log('[BotEngine] ⏳ Waiting for reply...');
+      return true;
+    }
+    
+    return false;
   }
   
   // Execute condition node
@@ -462,11 +596,11 @@ class BotEngine {
   }
   
   // Execute list node
-  async executeListNode(node, contact, userId, botName = '') {
+  async executeListNode(node, contact, userId, botName = '', botId = null) {
     const connection = await this.getConnection(userId);
     if (!connection) return;
     
-    const { title, body, buttonText, buttons, footer } = node.data;
+    const { title, body, buttonText, buttons, footer, timeout } = node.data;
     
     // Prepare list data with variable replacement
     const listData = {
@@ -502,6 +636,18 @@ class BotEngine {
       }
       await wahaService.sendMessage(connection, contact.phone, text);
       console.log('[BotEngine] ✅ List sent as text fallback');
+    }
+    
+    // Save session to wait for response
+    if (botId) {
+      await this.saveSession(
+        botId, 
+        contact.id, 
+        node.id, 
+        'list_response',
+        { buttons: listData.buttons },
+        timeout || null // timeout in seconds, null = no timeout
+      );
     }
   }
   

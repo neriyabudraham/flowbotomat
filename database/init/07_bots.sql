@@ -27,4 +27,21 @@ CREATE TABLE IF NOT EXISTS bot_logs (
 
 CREATE INDEX IF NOT EXISTS idx_bot_logs_bot_id ON bot_logs(bot_id);
 
+-- Bot sessions (conversation state)
+CREATE TABLE IF NOT EXISTS bot_sessions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+  contact_id UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+  current_node_id VARCHAR(255),
+  waiting_for VARCHAR(50), -- 'reply', 'list_response', 'timeout'
+  waiting_data JSONB DEFAULT '{}',
+  expires_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(bot_id, contact_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bot_sessions_contact ON bot_sessions(contact_id);
+CREATE INDEX IF NOT EXISTS idx_bot_sessions_waiting ON bot_sessions(waiting_for);
+
 SELECT 'Bots tables created!' as status;
