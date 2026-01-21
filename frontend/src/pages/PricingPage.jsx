@@ -53,13 +53,25 @@ export default function PricingPage() {
     }
   };
 
-  const handleSelectPlan = (plan) => {
+  const handleSelectPlan = async (plan) => {
     if (!isAuthenticated) {
       navigate('/login', { state: { returnTo: `/pricing?openPlan=${plan.id}` } });
-    } else {
-      setSelectedPlan(plan);
-      setShowCheckoutModal(true);
+      return;
     }
+    
+    // If plan is free (0 price), activate it directly without checkout
+    if (parseFloat(plan.price) === 0) {
+      try {
+        await api.post('/payment/subscribe', { planId: plan.id, billingPeriod: 'monthly' });
+        navigate('/dashboard', { state: { message: 'המנוי החינמי הופעל בהצלחה!', type: 'success' } });
+      } catch (err) {
+        alert(err.response?.data?.error || 'שגיאה בהפעלת המנוי');
+      }
+      return;
+    }
+    
+    setSelectedPlan(plan);
+    setShowCheckoutModal(true);
   };
 
   // Check if we should open a plan modal from URL

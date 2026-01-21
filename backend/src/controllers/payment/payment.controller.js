@@ -255,16 +255,23 @@ async function subscribe(req, res) {
     }
     const plan = planResult.rows[0];
     
-    // Get payment method
-    const paymentResult = await db.query(
-      'SELECT * FROM user_payment_methods WHERE id = $1 AND user_id = $2 AND is_active = true',
-      [paymentMethodId, userId]
-    );
+    // Check if plan is free (price = 0)
+    const isFree = parseFloat(plan.price) === 0;
     
-    if (paymentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'אמצעי תשלום לא נמצא' });
+    let paymentMethod = null;
+    
+    if (!isFree) {
+      // Get payment method (required for paid plans)
+      const paymentResult = await db.query(
+        'SELECT * FROM user_payment_methods WHERE id = $1 AND user_id = $2 AND is_active = true',
+        [paymentMethodId, userId]
+      );
+      
+      if (paymentResult.rows.length === 0) {
+        return res.status(404).json({ error: 'אמצעי תשלום לא נמצא' });
+      }
+      paymentMethod = paymentResult.rows[0];
     }
-    const paymentMethod = paymentResult.rows[0];
     
     const now = new Date();
     const hasTrial = plan.trial_days > 0;
@@ -283,6 +290,36 @@ async function subscribe(req, res) {
     
     let subscription;
     let chargeResult = null;
+    
+    // Handle free plan - no payment needed
+    if (isFree) {
+      const subResult = await db.query(`
+        INSERT INTO user_subscriptions (
+          user_id, plan_id, status, is_trial, billing_period
+        ) VALUES ($1, $2, 'active', false, 'monthly')
+        ON CONFLICT (user_id) 
+        DO UPDATE SET 
+          plan_id = $2, 
+          status = 'active',
+          is_trial = false,
+          payment_method_id = NULL,
+          sumit_customer_id = NULL,
+          sumit_standing_order_id = NULL,
+          next_charge_date = NULL,
+          billing_period = 'monthly',
+          updated_at = NOW()
+        RETURNING *
+      `, [userId, planId]);
+      
+      subscription = subResult.rows[0];
+      
+      return res.json({ 
+        success: true, 
+        subscription,
+        message: 'המנוי החינמי הופעל בהצלחה',
+        trial: false
+      });
+    }
     
     if (hasTrial) {
       // Start trial - no charge yet
