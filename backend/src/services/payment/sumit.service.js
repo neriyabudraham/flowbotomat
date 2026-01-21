@@ -14,35 +14,34 @@ function getCredentials() {
 }
 
 /**
- * Tokenize a credit card (single use token)
+ * Tokenize a credit card (permanent token - for recurring charges)
+ * Uses /creditguy/vault/tokenize/ which creates a long-lived token
  */
-async function tokenizeCard({ cardNumber, expiryMonth, expiryYear, cvv, citizenId }) {
+async function tokenizeCard({ cardNumber }) {
   try {
     const credentials = getCredentials();
     
-    if (!credentials.CompanyID || !credentials.APIPublicKey) {
-      console.error('[Sumit] Missing credentials - CompanyID:', !!credentials.CompanyID, 'APIPublicKey:', !!credentials.APIPublicKey);
+    if (!credentials.CompanyID || !credentials.APIKey) {
+      console.error('[Sumit] Missing credentials for tokenization');
       throw new Error('Sumit credentials not configured');
     }
     
     const requestBody = {
       Credentials: {
         CompanyID: credentials.CompanyID,
-        APIPublicKey: credentials.APIPublicKey,
+        APIKey: credentials.APIKey,
       },
       CardNumber: cardNumber,
-      ExpirationMonth: parseInt(expiryMonth),
-      ExpirationYear: parseInt(expiryYear),
-      CVV: cvv || '',
-      CitizenID: citizenId || '',
+      GetFormatPreserving: true,
+      ForceFormatPreservingToken: null,
     };
     
-    console.log('[Sumit] Tokenizing card:');
+    console.log('[Sumit] Tokenizing card (permanent):');
     console.log('[Sumit] - CompanyID:', credentials.CompanyID);
     console.log('[Sumit] - CardNumber:', cardNumber ? cardNumber.substring(0, 4) + '****' : 'MISSING');
     
     const response = await axios.post(
-      `${SUMIT_BASE_URL}/creditguy/vault/tokenizesingleusejson/`,
+      `${SUMIT_BASE_URL}/creditguy/vault/tokenize/`,
       requestBody,
       {
         headers: {
@@ -54,10 +53,11 @@ async function tokenizeCard({ cardNumber, expiryMonth, expiryYear, cvv, citizenI
     
     console.log('[Sumit] Tokenize response:', JSON.stringify(response.data, null, 2));
     
-    if (response.data.Status === 0) {
+    if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
       return {
         success: true,
-        token: response.data.Data?.SingleUseToken,
+        token: response.data.Data?.Token || response.data.Token,
+        formatPreservingToken: response.data.Data?.FormatPreservingToken || response.data.FormatPreservingToken,
       };
     } else {
       return {
@@ -68,6 +68,9 @@ async function tokenizeCard({ cardNumber, expiryMonth, expiryYear, cvv, citizenI
     }
   } catch (error) {
     console.error('[Sumit] Tokenize error:', error.message);
+    if (error.response) {
+      console.error('[Sumit] Response data:', error.response.data);
+    }
     return {
       success: false,
       error: error.response?.data?.UserErrorMessage || 'שגיאה בתקשורת עם מערכת התשלומים',
@@ -147,13 +150,18 @@ async function createCustomer({ name, phone, email, citizenId, companyNumber }) 
 }
 
 /**
- * Charge a customer
+ * Charge a customer with a one-time payment (not recurring)
+ * Used for yearly subscriptions and manual charges
  */
-async function chargeCustomer({
-  customerId, // Sumit CustomerID
-  singleUseToken, // Token from tokenization
-  items, // [{ name, description, price, durationMonths, recurrence }]
-  options = {}
+async function chargeOneTime({
+  customerId,
+  cardToken, // Permanent token from tokenizeCard
+  expiryMonth,
+  expiryYear,
+  cvv,
+  citizenId,
+  amount,
+  description,
 }) {
   try {
     const credentials = getCredentials();
@@ -171,30 +179,31 @@ async function chargeCustomer({
         ID: customerId,
         SearchMode: 0,
       },
-      SingleUseToken: singleUseToken,
-      Items: items.map(item => ({
+      PaymentMethod: {
+        CreditCard_Token: cardToken,
+        CreditCard_ExpirationMonth: parseInt(expiryMonth),
+        CreditCard_ExpirationYear: parseInt(expiryYear),
+        CreditCard_CVV: cvv || null,
+        CreditCard_CitizenID: citizenId || null,
+        Type: 1, // Credit card
+      },
+      Items: [{
         Item: {
-          Name: item.name,
-          Description: item.description || null,
-          Duration_Months: item.durationMonths || 1,
+          Name: description || 'תשלום',
         },
         Quantity: 1,
-        UnitPrice: item.price,
+        UnitPrice: amount,
         Currency: 'ILS',
-        Duration_Months: item.durationMonths || 1,
-        Recurrence: item.recurrence || null,
-      })),
+      }],
       VATIncluded: true,
-      DocumentType: options.documentType || null,
-      AuthoriseOnly: options.authoriseOnly || false,
-      OnlyDocument: false,
+      DocumentType: null,
       ResponseLanguage: null,
     };
     
-    console.log('[Sumit] Charging customer:', customerId, 'amount:', items.reduce((sum, i) => sum + i.price, 0));
+    console.log('[Sumit] Charging one-time:', customerId, 'amount:', amount);
     
     const response = await axios.post(
-      `${SUMIT_BASE_URL}/billing/recurring/charge/`,
+      `${SUMIT_BASE_URL}/billing/payments/charge/`,
       requestBody,
       {
         headers: {
@@ -204,7 +213,7 @@ async function chargeCustomer({
       }
     );
     
-    console.log('[Sumit] Charge response:', JSON.stringify(response.data, null, 2));
+    console.log('[Sumit] Charge one-time response:', JSON.stringify(response.data, null, 2));
     
     if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
       return {
@@ -221,7 +230,106 @@ async function chargeCustomer({
       };
     }
   } catch (error) {
-    console.error('[Sumit] Charge error:', error.message);
+    console.error('[Sumit] Charge one-time error:', error.message);
+    if (error.response) {
+      console.error('[Sumit] Response data:', error.response.data);
+    }
+    return {
+      success: false,
+      error: error.response?.data?.UserErrorMessage || 'שגיאה בתקשורת עם מערכת התשלומים',
+    };
+  }
+}
+
+/**
+ * Charge a customer with recurring payment (monthly subscription)
+ */
+async function chargeRecurring({
+  customerId,
+  cardToken,
+  expiryMonth,
+  expiryYear,
+  cvv,
+  citizenId,
+  amount,
+  description,
+  durationMonths = 1,
+}) {
+  try {
+    const credentials = getCredentials();
+    
+    if (!credentials.CompanyID || !credentials.APIKey) {
+      throw new Error('Sumit credentials not configured');
+    }
+    
+    const requestBody = {
+      Credentials: {
+        CompanyID: credentials.CompanyID,
+        APIKey: credentials.APIKey,
+      },
+      Customer: {
+        ID: customerId,
+        SearchMode: 0,
+      },
+      PaymentMethod: {
+        CreditCard_Token: cardToken,
+        CreditCard_ExpirationMonth: parseInt(expiryMonth),
+        CreditCard_ExpirationYear: parseInt(expiryYear),
+        CreditCard_CVV: cvv || null,
+        CreditCard_CitizenID: citizenId || null,
+        Type: 1,
+      },
+      Items: [{
+        Item: {
+          Name: description || 'מנוי חודשי',
+          Duration_Months: durationMonths,
+        },
+        Quantity: 1,
+        UnitPrice: amount,
+        Currency: 'ILS',
+        Duration_Months: durationMonths,
+        Recurrence: null, // null = recurring until cancelled
+      }],
+      VATIncluded: true,
+      DocumentType: null,
+      ResponseLanguage: null,
+    };
+    
+    console.log('[Sumit] Charging recurring:', customerId, 'amount:', amount);
+    
+    const response = await axios.post(
+      `${SUMIT_BASE_URL}/billing/recurring/charge/`,
+      requestBody,
+      {
+        headers: {
+          'Content-Type': 'application/json-patch+json',
+          'accept': 'text/plain',
+        },
+      }
+    );
+    
+    console.log('[Sumit] Charge recurring response:', JSON.stringify(response.data, null, 2));
+    
+    if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
+      return {
+        success: true,
+        transactionId: response.data.Data?.TransactionID,
+        documentNumber: response.data.Data?.DocumentNumber,
+        standingOrderId: response.data.Data?.StandingOrderID,
+        data: response.data.Data,
+      };
+    } else {
+      return {
+        success: false,
+        error: response.data.UserErrorMessage || 'חיוב נכשל',
+        technicalError: response.data.TechnicalErrorDetails,
+      };
+    }
+  } catch (error) {
+    console.error('[Sumit] Charge recurring error:', error.message);
+    if (error.response) {
+      console.error('[Sumit] Response data:', error.response.data);
+    }
     return {
       success: false,
       error: error.response?.data?.UserErrorMessage || 'שגיאה בתקשורת עם מערכת התשלומים',
@@ -232,7 +340,7 @@ async function chargeCustomer({
 /**
  * Cancel a recurring payment / subscription
  */
-async function cancelRecurring(transactionId) {
+async function cancelRecurring(standingOrderId) {
   try {
     const credentials = getCredentials();
     
@@ -243,7 +351,7 @@ async function cancelRecurring(transactionId) {
           CompanyID: credentials.CompanyID,
           APIKey: credentials.APIKey,
         },
-        TransactionID: transactionId,
+        StandingOrderID: standingOrderId,
       },
       {
         headers: {
@@ -253,8 +361,10 @@ async function cancelRecurring(transactionId) {
       }
     );
     
+    console.log('[Sumit] Cancel recurring response:', JSON.stringify(response.data, null, 2));
+    
     return {
-      success: response.data.Status === 0,
+      success: response.data.Status === 0 || response.data.Status === 'Success (0)',
       error: response.data.UserErrorMessage,
     };
   } catch (error) {
@@ -269,7 +379,8 @@ async function cancelRecurring(transactionId) {
 module.exports = {
   tokenizeCard,
   createCustomer,
-  chargeCustomer,
+  chargeOneTime,
+  chargeRecurring,
   cancelRecurring,
   getCredentials,
 };

@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS user_subscriptions (
     plan_id UUID NOT NULL REFERENCES subscription_plans(id) ON DELETE RESTRICT,
     
     status VARCHAR(20) DEFAULT 'active', -- active, cancelled, expired, pending, trial
+    billing_period VARCHAR(20) DEFAULT 'monthly', -- monthly, yearly
     
     -- Trial info
     is_trial BOOLEAN DEFAULT false,
@@ -49,7 +50,8 @@ CREATE TABLE IF NOT EXISTS user_subscriptions (
     
     -- Payment reference
     payment_method_id UUID,
-    sumit_customer_id VARCHAR(255),
+    sumit_customer_id INTEGER,
+    sumit_standing_order_id VARCHAR(255), -- For recurring subscriptions
     
     -- Manual override by admin
     is_manual BOOLEAN DEFAULT false,

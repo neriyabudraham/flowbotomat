@@ -133,9 +133,9 @@ export default function PricingPage() {
               billingPeriod === 'yearly' ? 'right-1' : 'left-1'
             }`} />
           </button>
-          <span className={`text-sm ${billingPeriod === 'yearly' ? 'text-gray-900 dark:text-white font-medium' : 'text-gray-500'}`}>
+          <span className={`text-sm flex items-center gap-1 ${billingPeriod === 'yearly' ? 'text-gray-900 dark:text-white font-medium' : 'text-gray-500'}`}>
             שנתי
-            <span className="mr-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
+            <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
               חסוך 20%
             </span>
           </span>
@@ -155,12 +155,14 @@ export default function PricingPage() {
                 const Icon = PLAN_ICONS[plan.name] || Star;
                 const color = PLAN_COLORS[plan.name] || 'gray';
                 const isPopular = plan.name === 'Pro';
-                const price = billingPeriod === 'yearly' 
-                  ? Math.round(plan.price * 12 * 0.8) 
-                  : plan.price;
-                const monthlyPrice = billingPeriod === 'yearly'
-                  ? Math.round(plan.price * 0.8)
-                  : plan.price;
+                // Calculate prices with proper formatting
+                const yearlyTotal = (plan.price * 12 * 0.8).toFixed(2);
+                const yearlyMonthly = (plan.price * 0.8).toFixed(2);
+                const monthlyTotal = (plan.price * 12).toFixed(2);
+                const monthlyMonthly = parseFloat(plan.price).toFixed(2);
+                
+                const displayMonthlyPrice = billingPeriod === 'yearly' ? yearlyMonthly : monthlyMonthly;
+                const displayTotalPrice = billingPeriod === 'yearly' ? yearlyTotal : monthlyTotal;
 
                 return (
                   <div
@@ -191,13 +193,13 @@ export default function PricingPage() {
                       <div className="mb-6">
                         <div className="flex items-baseline gap-1">
                           <span className="text-4xl font-bold text-gray-900 dark:text-white">
-                            ₪{monthlyPrice}
+                            ₪{displayMonthlyPrice}
                           </span>
                           <span className="text-gray-500">/חודש</span>
                         </div>
                         {billingPeriod === 'yearly' && (
                           <p className="text-sm text-gray-500 mt-1">
-                            ₪{price} לשנה
+                            ₪{displayTotalPrice} לשנה
                           </p>
                         )}
                         {plan.trial_days > 0 && (

@@ -14,7 +14,7 @@ async function savePaymentMethod(req, res) {
       cvv,
       cardHolderName,
       citizenId,
-      companyNumber // מספר עוסק / ח.פ.
+      companyNumber
     } = req.body;
     
     if (!cardNumber || !expiryMonth || !expiryYear) {
@@ -32,14 +32,8 @@ async function savePaymentMethod(req, res) {
     }
     const user = userResult.rows[0];
     
-    // 1. Tokenize the card
-    const tokenResult = await sumitService.tokenizeCard({
-      cardNumber,
-      expiryMonth,
-      expiryYear,
-      cvv,
-      citizenId,
-    });
+    // 1. Tokenize the card (permanent token)
+    const tokenResult = await sumitService.tokenizeCard({ cardNumber });
     
     if (!tokenResult.success) {
       return res.status(400).json({ error: tokenResult.error });
@@ -133,6 +127,19 @@ async function deletePaymentMethod(req, res) {
     const userId = req.user.id;
     const { methodId } = req.params;
     
+    // Check if user has an active subscription using this payment method
+    const subCheck = await db.query(
+      `SELECT id FROM user_subscriptions 
+       WHERE user_id = $1 AND payment_method_id = $2 AND status IN ('active', 'trial')`,
+      [userId, methodId]
+    );
+    
+    if (subCheck.rows.length > 0) {
+      return res.status(400).json({ 
+        error: 'לא ניתן למחוק אמצעי תשלום המשויך למנוי פעיל. בטל את המנוי תחילה.'
+      });
+    }
+    
     // Soft delete
     const result = await db.query(`
       UPDATE user_payment_methods 
@@ -166,12 +173,12 @@ async function deletePaymentMethod(req, res) {
 }
 
 /**
- * Subscribe to a plan (start subscription with trial or charge)
+ * Subscribe to a plan
  */
 async function subscribe(req, res) {
   try {
     const userId = req.user.id;
-    const { planId, paymentMethodId } = req.body;
+    const { planId, paymentMethodId, billingPeriod = 'monthly' } = req.body;
     
     // Get user info
     const userResult = await db.query(
@@ -182,7 +189,6 @@ async function subscribe(req, res) {
     if (userResult.rows.length === 0) {
       return res.status(404).json({ error: 'משתמש לא נמצא' });
     }
-    const user = userResult.rows[0];
     
     // Get plan info
     const planResult = await db.query(
@@ -195,7 +201,7 @@ async function subscribe(req, res) {
     }
     const plan = planResult.rows[0];
     
-    // Get payment method with Sumit customer ID
+    // Get payment method
     const paymentResult = await db.query(
       'SELECT * FROM user_payment_methods WHERE id = $1 AND user_id = $2 AND is_active = true',
       [paymentMethodId, userId]
@@ -206,11 +212,23 @@ async function subscribe(req, res) {
     }
     const paymentMethod = paymentResult.rows[0];
     
-    // Check if this is a trial plan
-    const hasTrial = plan.trial_days > 0;
     const now = new Date();
+    const hasTrial = plan.trial_days > 0;
+    
+    // Calculate price based on billing period
+    let chargeAmount = parseFloat(plan.price);
+    let nextChargeDate = new Date(now);
+    
+    if (billingPeriod === 'yearly') {
+      // 20% discount for yearly
+      chargeAmount = parseFloat(plan.price) * 12 * 0.8;
+      nextChargeDate.setFullYear(nextChargeDate.getFullYear() + 1);
+    } else {
+      nextChargeDate.setMonth(nextChargeDate.getMonth() + 1);
+    }
     
     let subscription;
+    let chargeResult = null;
     
     if (hasTrial) {
       // Start trial - no charge yet
@@ -220,8 +238,8 @@ async function subscribe(req, res) {
       const subResult = await db.query(`
         INSERT INTO user_subscriptions (
           user_id, plan_id, status, is_trial, trial_ends_at, 
-          payment_method_id, next_charge_date, sumit_customer_id
-        ) VALUES ($1, $2, 'trial', true, $3, $4, $3, $5)
+          payment_method_id, next_charge_date, sumit_customer_id, billing_period
+        ) VALUES ($1, $2, 'trial', true, $3, $4, $3, $5, $6)
         ON CONFLICT (user_id) 
         DO UPDATE SET 
           plan_id = $2, 
@@ -231,9 +249,10 @@ async function subscribe(req, res) {
           payment_method_id = $4,
           next_charge_date = $3,
           sumit_customer_id = $5,
+          billing_period = $6,
           updated_at = NOW()
         RETURNING *
-      `, [userId, planId, trialEnds, paymentMethodId, paymentMethod.sumit_customer_id]);
+      `, [userId, planId, trialEnds, paymentMethodId, paymentMethod.sumit_customer_id, billingPeriod]);
       
       subscription = subResult.rows[0];
       
@@ -245,37 +264,42 @@ async function subscribe(req, res) {
         trialEndsAt: trialEnds
       });
     } else {
-      // Charge immediately using Sumit customer ID and token
-      const chargeResult = await sumitService.chargeCustomer({
-        customerId: paymentMethod.sumit_customer_id,
-        singleUseToken: paymentMethod.card_token,
-        items: [{
-          name: `מנוי ${plan.name_he}`,
-          description: plan.description_he,
-          price: parseFloat(plan.price),
-          durationMonths: plan.billing_period === 'yearly' ? 12 : 1,
-          recurrence: null,
-        }],
-      });
+      // Charge immediately
+      if (billingPeriod === 'yearly') {
+        // One-time charge for yearly
+        chargeResult = await sumitService.chargeOneTime({
+          customerId: paymentMethod.sumit_customer_id,
+          cardToken: paymentMethod.card_token,
+          expiryMonth: paymentMethod.card_expiry_month,
+          expiryYear: paymentMethod.card_expiry_year,
+          citizenId: paymentMethod.citizen_id,
+          amount: chargeAmount,
+          description: `מנוי שנתי - ${plan.name_he}`,
+        });
+      } else {
+        // Recurring charge for monthly
+        chargeResult = await sumitService.chargeRecurring({
+          customerId: paymentMethod.sumit_customer_id,
+          cardToken: paymentMethod.card_token,
+          expiryMonth: paymentMethod.card_expiry_month,
+          expiryYear: paymentMethod.card_expiry_year,
+          citizenId: paymentMethod.citizen_id,
+          amount: chargeAmount,
+          description: `מנוי חודשי - ${plan.name_he}`,
+          durationMonths: 1,
+        });
+      }
       
       if (!chargeResult.success) {
         return res.status(400).json({ error: chargeResult.error });
-      }
-      
-      // Calculate next charge date
-      const nextCharge = new Date(now);
-      if (plan.billing_period === 'yearly') {
-        nextCharge.setFullYear(nextCharge.getFullYear() + 1);
-      } else {
-        nextCharge.setMonth(nextCharge.getMonth() + 1);
       }
       
       // Save subscription
       const subResult = await db.query(`
         INSERT INTO user_subscriptions (
           user_id, plan_id, status, payment_method_id, 
-          sumit_customer_id, next_charge_date
-        ) VALUES ($1, $2, 'active', $3, $4, $5)
+          sumit_customer_id, sumit_standing_order_id, next_charge_date, billing_period
+        ) VALUES ($1, $2, 'active', $3, $4, $5, $6, $7)
         ON CONFLICT (user_id) 
         DO UPDATE SET 
           plan_id = $2, 
@@ -283,10 +307,18 @@ async function subscribe(req, res) {
           is_trial = false,
           payment_method_id = $3,
           sumit_customer_id = $4,
-          next_charge_date = $5,
+          sumit_standing_order_id = $5,
+          next_charge_date = $6,
+          billing_period = $7,
           updated_at = NOW()
         RETURNING *
-      `, [userId, planId, paymentMethodId, paymentMethod.sumit_customer_id, nextCharge]);
+      `, [
+        userId, planId, paymentMethodId, 
+        paymentMethod.sumit_customer_id, 
+        chargeResult.standingOrderId || null,
+        nextChargeDate,
+        billingPeriod
+      ]);
       
       subscription = subResult.rows[0];
       
@@ -298,8 +330,8 @@ async function subscribe(req, res) {
         ) VALUES ($1, $2, $3, $4, 'success', $5, $6, $7)
       `, [
         userId, subscription.id, paymentMethodId, 
-        plan.price, chargeResult.transactionId, chargeResult.documentNumber,
-        `מנוי ${plan.name_he}`
+        chargeAmount, chargeResult.transactionId, chargeResult.documentNumber,
+        `מנוי ${plan.name_he} (${billingPeriod === 'yearly' ? 'שנתי' : 'חודשי'})`
       ]);
       
       res.json({ 
@@ -322,6 +354,28 @@ async function cancelSubscription(req, res) {
   try {
     const userId = req.user.id;
     
+    // Get current subscription
+    const subResult = await db.query(
+      `SELECT * FROM user_subscriptions WHERE user_id = $1 AND status IN ('active', 'trial')`,
+      [userId]
+    );
+    
+    if (subResult.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא מנוי פעיל' });
+    }
+    
+    const subscription = subResult.rows[0];
+    
+    // Cancel recurring in Sumit if exists
+    if (subscription.sumit_standing_order_id) {
+      const cancelResult = await sumitService.cancelRecurring(subscription.sumit_standing_order_id);
+      if (!cancelResult.success) {
+        console.error('[Payment] Failed to cancel Sumit recurring:', cancelResult.error);
+        // Continue anyway - mark as cancelled in our system
+      }
+    }
+    
+    // Update subscription status
     const result = await db.query(`
       UPDATE user_subscriptions 
       SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
@@ -329,12 +383,9 @@ async function cancelSubscription(req, res) {
       RETURNING *
     `, [userId]);
     
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'לא נמצא מנוי פעיל' });
-    }
-    
     res.json({ 
       success: true, 
+      subscription: result.rows[0],
       message: 'המנוי בוטל. תוכל להמשיך להשתמש בשירות עד סוף תקופת החיוב הנוכחית.'
     });
   } catch (error) {
