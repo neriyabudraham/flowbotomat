@@ -35,6 +35,9 @@ export default function BotsPage() {
   const [sharedBots, setSharedBots] = useState([]);
   const [activeTab, setActiveTab] = useState('my'); // 'my' or 'shared'
   const [showImport, setShowImport] = useState(false);
+  const [importData, setImportData] = useState(null);
+  const [importName, setImportName] = useState('');
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -190,20 +193,38 @@ export default function BotsPage() {
     }
   };
 
-  const handleImport = async (file) => {
+  const handleFileSelect = async (file) => {
     try {
       const text = await file.text();
       const data = JSON.parse(text);
-      const name = prompt('שם לבוט המיובא:', data.bot?.name || 'בוט מיובא');
-      if (!name) return;
-      
-      await api.post('/bots/import', { data, name });
+      if (!data.bot) throw new Error('Invalid file');
+      setImportData(data);
+      setImportName(data.bot.name || 'בוט מיובא');
+    } catch (e) {
+      alert('שגיאה בקריאת הקובץ - ודא שהקובץ תקין');
+    }
+  };
+
+  const handleImportConfirm = async () => {
+    if (!importData || !importName.trim()) return;
+    setImporting(true);
+    try {
+      await api.post('/bots/import', { data: importData, name: importName.trim() });
       fetchBots();
       setShowImport(false);
-      alert('הבוט יובא בהצלחה!');
+      setImportData(null);
+      setImportName('');
     } catch (e) {
-      alert('שגיאה בייבוא - ודא שהקובץ תקין');
+      alert('שגיאה בייבוא');
+    } finally {
+      setImporting(false);
     }
+  };
+
+  const handleCancelImport = () => {
+    setShowImport(false);
+    setImportData(null);
+    setImportName('');
   };
 
   const handleAddTag = async () => {
@@ -585,30 +606,75 @@ export default function BotsPage() {
 
         {/* Import Modal */}
         {showImport && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowImport(false)}>
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={handleCancelImport}>
             <div className="bg-white rounded-2xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-gray-800">ייבוא בוט</h2>
-                <button onClick={() => setShowImport(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                <button onClick={handleCancelImport} className="p-2 hover:bg-gray-100 rounded-lg">
                   <X className="w-5 h-5 text-gray-500" />
                 </button>
               </div>
               
-              <div 
-                className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center hover:border-primary-400 transition-colors cursor-pointer"
-                onClick={() => document.getElementById('import-file').click()}
-              >
-                <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600 mb-2">לחץ לבחירת קובץ</p>
-                <p className="text-xs text-gray-400">קובץ JSON שיוצא ממערכת FlowBotomat</p>
-                <input
-                  id="import-file"
-                  type="file"
-                  accept=".json"
-                  className="hidden"
-                  onChange={(e) => e.target.files[0] && handleImport(e.target.files[0])}
-                />
-              </div>
+              {!importData ? (
+                // Step 1: Select file
+                <div 
+                  className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center hover:border-primary-400 transition-colors cursor-pointer"
+                  onClick={() => document.getElementById('import-file').click()}
+                >
+                  <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600 mb-2">לחץ לבחירת קובץ</p>
+                  <p className="text-xs text-gray-400">קובץ JSON שיוצא ממערכת FlowBotomat</p>
+                  <input
+                    id="import-file"
+                    type="file"
+                    accept=".json"
+                    className="hidden"
+                    onChange={(e) => e.target.files[0] && handleFileSelect(e.target.files[0])}
+                  />
+                </div>
+              ) : (
+                // Step 2: Enter name and confirm
+                <div className="space-y-4">
+                  <div className="p-4 bg-green-50 rounded-xl text-center">
+                    <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-2">
+                      <Bot className="w-6 h-6 text-green-600" />
+                    </div>
+                    <p className="text-green-700 font-medium">קובץ נקרא בהצלחה!</p>
+                    {importData.bot.description && (
+                      <p className="text-xs text-green-600 mt-1">{importData.bot.description}</p>
+                    )}
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">שם הבוט</label>
+                    <input
+                      type="text"
+                      value={importName}
+                      onChange={(e) => setImportName(e.target.value)}
+                      placeholder="הזן שם לבוט..."
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-200 outline-none"
+                      autoFocus
+                    />
+                  </div>
+                  
+                  <div className="flex gap-3 pt-2">
+                    <Button 
+                      variant="ghost" 
+                      onClick={handleCancelImport} 
+                      className="flex-1 !rounded-xl"
+                    >
+                      ביטול
+                    </Button>
+                    <Button 
+                      onClick={handleImportConfirm} 
+                      className="flex-1 !rounded-xl"
+                      disabled={!importName.trim() || importing}
+                    >
+                      {importing ? 'מייבא...' : 'ייבא בוט'}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
