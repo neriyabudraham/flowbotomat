@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Search, Users, MessageSquare, Filter, Bot, Activity, Sparkles, Trash2, Download, X, CheckSquare, Square, MoreHorizontal } from 'lucide-react';
 import ContactItem from '../molecules/ContactItem';
+import DeleteContactModal from '../contacts/DeleteContactModal';
 import api from '../../services/api';
 
 export default function ContactsList({ contacts, selectedId, onSelect, onSearch, stats, onContactsChange }) {
@@ -11,6 +12,7 @@ export default function ContactsList({ contacts, selectedId, onSelect, onSearch,
   const [showActions, setShowActions] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const handleSearch = (e) => {
     const value = e.target.value;
@@ -51,19 +53,19 @@ export default function ContactsList({ contacts, selectedId, onSelect, onSearch,
 
   const handleBulkDelete = async () => {
     if (selectedContacts.length === 0) return;
-    
-    const confirmed = window.confirm(`האם אתה בטוח שברצונך למחוק ${selectedContacts.length} אנשי קשר?`);
-    if (!confirmed) return;
-    
+    setShowDeleteModal(true);
+  };
+
+  const confirmBulkDelete = async () => {
     setDeleting(true);
     try {
       await api.post('/contacts/bulk-delete', { contactIds: selectedContacts });
       setSelectedContacts([]);
       setIsSelectionMode(false);
+      setShowDeleteModal(false);
       onContactsChange?.();
     } catch (error) {
       console.error('Bulk delete error:', error);
-      alert('שגיאה במחיקת אנשי קשר');
     }
     setDeleting(false);
   };
@@ -292,6 +294,15 @@ export default function ContactsList({ contacts, selectedId, onSelect, onSearch,
           </div>
         )}
       </div>
+
+      {/* Delete Modal */}
+      <DeleteContactModal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={confirmBulkDelete}
+        contactCount={selectedContacts.length}
+        isLoading={deleting}
+      />
     </div>
   );
 }

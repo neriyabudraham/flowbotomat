@@ -5,6 +5,7 @@ import {
   Check, Star, Activity, TrendingUp, ChevronDown, ChevronUp, Sparkles, Copy
 } from 'lucide-react';
 import api from '../../services/api';
+import DeleteContactModal from '../contacts/DeleteContactModal';
 
 const VARIABLE_LABELS = {
   email: 'אימייל',
@@ -52,6 +53,8 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
     variables: true,
     flows: true,
   });
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
     if (contact) {
@@ -156,17 +159,16 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
   };
 
   const handleDeleteContact = async () => {
-    const confirmed = window.confirm(`האם אתה בטוח שברצונך למחוק את ${contact.display_name || contact.phone}?`);
-    if (!confirmed) return;
-    
+    setDeleteLoading(true);
     try {
       await api.delete(`/contacts/${contact.id}`);
+      setShowDeleteModal(false);
       onDelete?.(contact.id);
       onClose();
     } catch (err) {
       console.error(err);
-      alert('שגיאה במחיקת איש הקשר');
     }
+    setDeleteLoading(false);
   };
 
   const toggleSection = (section) => {
@@ -518,7 +520,7 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
         {/* Delete Contact Button */}
         <div className="bg-red-50 rounded-2xl p-4 border border-red-100 mt-4">
           <button
-            onClick={handleDeleteContact}
+            onClick={() => setShowDeleteModal(true)}
             className="w-full flex items-center justify-center gap-2 py-3 bg-red-100 hover:bg-red-200 text-red-700 rounded-xl font-medium transition-all"
           >
             <Trash2 className="w-5 h-5" />
@@ -529,6 +531,15 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
           </p>
         </div>
       </div>
+
+      {/* Delete Modal */}
+      <DeleteContactModal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={handleDeleteContact}
+        contactName={contact.display_name || contact.phone}
+        isLoading={deleteLoading}
+      />
     </div>
   );
 }
