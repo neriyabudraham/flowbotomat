@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { Save, ArrowRight, Edit2, RotateCcw, Play, X } from 'lucide-react';
+import { Save, ArrowRight, Edit2, RotateCcw, Play, X, BarChart3 } from 'lucide-react';
 import useBotsStore from '../store/botsStore';
 import FlowBuilder from '../components/flow/FlowBuilder';
 import NodePalette from '../components/flow/NodePalette';
 import NodeEditor from '../components/flow/panels/NodeEditor';
 import FlowPreview from '../components/flow/panels/FlowPreview';
+import BotStatsPanel from '../components/bots/BotStatsPanel';
 import Button from '../components/atoms/Button';
 
 const STORAGE_KEY = 'flowbotomat_draft_';
@@ -29,6 +30,7 @@ export default function BotEditorPage() {
   const [botDescription, setBotDescription] = useState('');
   const [flowKey, setFlowKey] = useState(0);
   const [showPreview, setShowPreview] = useState(false);
+  const [showStats, setShowStats] = useState(false);
   const isInitialLoad = useRef(true);
   
   // Check if user can edit
@@ -364,6 +366,14 @@ export default function BotEditorPage() {
           
           <div className="flex items-center gap-3">
             <button
+              onClick={() => setShowStats(true)}
+              className="flex items-center justify-center gap-2 h-10 px-4 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-xl font-medium transition-all"
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span>סטטיסטיקות</span>
+            </button>
+            
+            <button
               onClick={() => setShowPreview(true)}
               className="flex items-center justify-center gap-2 h-10 px-4 bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 rounded-xl font-medium transition-all"
             >
@@ -447,6 +457,26 @@ export default function BotEditorPage() {
           </div>
         </div>
       </div>
+
+      {/* Stats Modal */}
+      {showStats && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <BarChart3 className="w-5 h-5 text-blue-600" />
+                <h2 className="font-semibold text-lg">סטטיסטיקות - {currentBot?.name}</h2>
+              </div>
+              <button onClick={() => setShowStats(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-6 overflow-auto max-h-[calc(90vh-80px)]">
+              <BotStatsPanel botId={botId} />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Preview Modal */}
       {showPreview && (
