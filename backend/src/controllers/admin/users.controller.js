@@ -41,7 +41,7 @@ async function getUsers(req, res) {
     
     // Get users
     const result = await db.query(
-      `SELECT id, email, name, role, is_verified, is_active, 
+      `SELECT id, email, name, role, plan, is_verified, is_active, 
               language, theme, created_at, last_login_at,
               (SELECT COUNT(*) FROM bots WHERE user_id = users.id) as bots_count,
               (SELECT COUNT(*) FROM contacts WHERE user_id = users.id) as contacts_count
@@ -106,7 +106,7 @@ async function getUser(req, res) {
 async function updateUser(req, res) {
   try {
     const { id } = req.params;
-    const { name, role, is_active, is_verified } = req.body;
+    const { name, role, plan, is_active, is_verified } = req.body;
     
     // Prevent changing own role if not superadmin
     if (req.user.id === id && role && req.user.role !== 'superadmin') {
@@ -124,6 +124,10 @@ async function updateUser(req, res) {
     if (role !== undefined) {
       updates.push(`role = $${paramIndex++}`);
       values.push(role);
+    }
+    if (plan !== undefined) {
+      updates.push(`plan = $${paramIndex++}`);
+      values.push(plan);
     }
     if (is_active !== undefined) {
       updates.push(`is_active = $${paramIndex++}`);
