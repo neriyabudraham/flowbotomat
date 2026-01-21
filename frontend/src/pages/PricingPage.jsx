@@ -26,6 +26,7 @@ export default function PricingPage() {
   const [billingPeriod, setBillingPeriod] = useState('monthly');
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
+  const [currentSubscription, setCurrentSubscription] = useState(null);
   
   // Check if user is authenticated
   const isAuthenticated = !!user;
@@ -36,11 +37,21 @@ export default function PricingPage() {
       const token = localStorage.getItem('accessToken');
       if (token) {
         await fetchMe();
+        await loadCurrentSubscription();
       }
       await loadPlans();
     };
     init();
   }, []);
+
+  const loadCurrentSubscription = async () => {
+    try {
+      const { data } = await api.get('/user/subscription');
+      setCurrentSubscription(data.subscription);
+    } catch (err) {
+      console.error('Failed to load subscription:', err);
+    }
+  };
 
   const loadPlans = async () => {
     try {
@@ -261,18 +272,46 @@ export default function PricingPage() {
                       </p>
 
                       {/* CTA Button */}
-                      <button
-                        onClick={() => handleSelectPlan(plan)}
-                        className={`w-full py-3 rounded-xl font-medium transition-colors ${
-                          isPopular
-                            ? 'bg-purple-600 text-white hover:bg-purple-700'
-                            : plan.price === 0
-                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200'
-                            : 'bg-blue-600 text-white hover:bg-blue-700'
-                        }`}
-                      >
-                        {plan.price === 0 ? 'התחל בחינם' : 'בחר תכנית'}
-                      </button>
+                      {(() => {
+                        const isCurrentPlan = currentSubscription?.plan_id === plan.id;
+                        const currentPlanPrice = plans.find(p => p.id === currentSubscription?.plan_id)?.price || 0;
+                        const isDowngrade = parseFloat(plan.price) < parseFloat(currentPlanPrice);
+                        const isFree = parseFloat(plan.price) === 0;
+                        
+                        if (isCurrentPlan) {
+                          return (
+                            <div className="w-full py-3 rounded-xl font-medium text-center bg-green-100 text-green-700 cursor-default">
+                              ✓ מנוי נוכחי
+                            </div>
+                          );
+                        }
+                        
+                        if (isAuthenticated && isFree && currentSubscription) {
+                          return (
+                            <button
+                              onClick={() => handleSelectPlan(plan)}
+                              className="w-full py-3 rounded-xl font-medium transition-colors bg-amber-100 text-amber-700 hover:bg-amber-200"
+                            >
+                              שנמך
+                            </button>
+                          );
+                        }
+                        
+                        return (
+                          <button
+                            onClick={() => handleSelectPlan(plan)}
+                            className={`w-full py-3 rounded-xl font-medium transition-colors ${
+                              isPopular
+                                ? 'bg-purple-600 text-white hover:bg-purple-700'
+                                : isFree
+                                ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                            }`}
+                          >
+                            {isFree ? 'התחל בחינם' : isDowngrade ? 'שנמך' : 'בחר תכנית'}
+                          </button>
+                        );
+                      })()}
 
                       {/* Features */}
                       <div className="mt-6 pt-6 border-t border-gray-100 dark:border-gray-700 space-y-3">
