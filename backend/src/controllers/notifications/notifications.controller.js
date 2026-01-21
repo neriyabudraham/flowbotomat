@@ -8,9 +8,9 @@ async function getNotifications(req, res) {
     const userId = req.user.id;
     const { limit = 20, offset = 0, unread_only = false } = req.query;
     
-    let whereClause = 'WHERE user_id = $1';
+    let whereClause = 'WHERE n.user_id = $1';
     if (unread_only === 'true') {
-      whereClause += ' AND is_read = FALSE';
+      whereClause += ' AND n.is_read = FALSE';
     }
     
     const result = await db.query(
