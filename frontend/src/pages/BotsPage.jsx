@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Bot, Play, Pause, Trash2, Edit2, X, Users, Zap, Settings, Tag, Variable, Info, Share2 } from 'lucide-react';
+import { Plus, Bot, Play, Pause, Trash2, Edit2, X, Users, Zap, Settings, Tag, Variable, Info, Share2, Download, Upload, Copy } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useBotsStore from '../store/botsStore';
 import Button from '../components/atoms/Button';
 import ShareBotModal from '../components/bots/ShareBotModal';
+import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
 import Logo from '../components/atoms/Logo';
 import api from '../services/api';
 
@@ -31,6 +32,9 @@ export default function BotsPage() {
   const [newSysVarLabel, setNewSysVarLabel] = useState('');
   const [newSysVarValue, setNewSysVarValue] = useState('');
   const [shareBot, setShareBot] = useState(null);
+  const [sharedBots, setSharedBots] = useState([]);
+  const [activeTab, setActiveTab] = useState('my'); // 'my' or 'shared'
+  const [showImport, setShowImport] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -41,7 +45,17 @@ export default function BotsPage() {
     fetchMe();
     fetchBots();
     fetchTags();
+    fetchSharedBots();
   }, []);
+
+  const fetchSharedBots = async () => {
+    try {
+      const { data } = await api.get('/sharing/shared-with-me');
+      setSharedBots(data.bots || []);
+    } catch (e) {
+      console.error('Failed to fetch shared bots:', e);
+    }
+  };
 
   // Fetch stats for each bot
   useEffect(() => {
@@ -148,6 +162,50 @@ export default function BotsPage() {
     await deleteBot(bot.id);
   };
 
+  const handleExport = async (e, bot) => {
+    e.stopPropagation();
+    try {
+      const { data } = await api.get(`/bots/${bot.id}/export`);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${bot.name.replace(/[^a-zA-Z0-9א-ת]/g, '_')}_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('שגיאה בייצוא');
+    }
+  };
+
+  const handleDuplicate = async (e, bot) => {
+    e.stopPropagation();
+    const newName = prompt('שם לעותק:', `${bot.name} (עותק)`);
+    if (!newName) return;
+    try {
+      await api.post(`/bots/${bot.id}/duplicate`, { name: newName });
+      fetchBots();
+    } catch (e) {
+      alert('שגיאה בשכפול');
+    }
+  };
+
+  const handleImport = async (file) => {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const name = prompt('שם לבוט המיובא:', data.bot?.name || 'בוט מיובא');
+      if (!name) return;
+      
+      await api.post('/bots/import', { data, name });
+      fetchBots();
+      setShowImport(false);
+      alert('הבוט יובא בהצלחה!');
+    } catch (e) {
+      alert('שגיאה בייבוא - ודא שהקובץ תקין');
+    }
+  };
+
   const handleAddTag = async () => {
     if (!newTag.trim()) return;
     try {
@@ -173,7 +231,8 @@ export default function BotsPage() {
             ← חזרה
           </Button>
           <Logo />
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <NotificationsDropdown />
             <Button variant="ghost" onClick={() => setShowSettings(true)}>
               <Settings className="w-4 h-4" />
             </Button>
@@ -185,14 +244,61 @@ export default function BotsPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-8">
+        {/* Tabs */}
+        <div className="flex items-center gap-4 mb-6 border-b border-gray-200">
+          <button
+            onClick={() => setActiveTab('my')}
+            className={`pb-3 px-1 font-medium transition-colors relative ${
+              activeTab === 'my' 
+                ? 'text-primary-600' 
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            הבוטים שלי
+            <span className="mr-2 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+              {bots.length}
+            </span>
+            {activeTab === 'my' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary-500" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('shared')}
+            className={`pb-3 px-1 font-medium transition-colors relative ${
+              activeTab === 'shared' 
+                ? 'text-primary-600' 
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            שותפו איתי
+            {sharedBots.length > 0 && (
+              <span className="mr-2 text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full">
+                {sharedBots.length}
+              </span>
+            )}
+            {activeTab === 'shared' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary-500" />
+            )}
+          </button>
+        </div>
+
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-2xl font-bold text-gray-800">הבוטים שלי</h1>
-            <p className="text-gray-500 text-sm mt-1">צור ונהל בוטים אוטומטיים</p>
+            <h1 className="text-2xl font-bold text-gray-800">
+              {activeTab === 'my' ? 'הבוטים שלי' : 'בוטים ששותפו איתי'}
+            </h1>
+            <p className="text-gray-500 text-sm mt-1">
+              {activeTab === 'my' ? 'צור ונהל בוטים אוטומטיים' : 'בוטים שמשתמשים אחרים שיתפו איתך'}
+            </p>
           </div>
-          <Button onClick={() => setShowCreate(true)} className="!rounded-xl">
-            <Plus className="w-4 h-4 ml-2" />
-            בוט חדש
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => setShowImport(true)} className="!rounded-xl">
+              <Upload className="w-4 h-4 ml-2" />
+              ייבוא
+            </Button>
+            <Button onClick={() => setShowCreate(true)} className="!rounded-xl">
+              <Plus className="w-4 h-4 ml-2" />
+              בוט חדש
           </Button>
         </div>
 
@@ -476,95 +582,204 @@ export default function BotsPage() {
           </div>
         )}
 
+        {/* Import Modal */}
+        {showImport && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowImport(false)}>
+            <div className="bg-white rounded-2xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-gray-800">ייבוא בוט</h2>
+                <button onClick={() => setShowImport(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              
+              <div 
+                className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center hover:border-primary-400 transition-colors cursor-pointer"
+                onClick={() => document.getElementById('import-file').click()}
+              >
+                <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600 mb-2">לחץ לבחירת קובץ</p>
+                <p className="text-xs text-gray-400">קובץ JSON שיוצא ממערכת FlowBotomat</p>
+                <input
+                  id="import-file"
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={(e) => e.target.files[0] && handleImport(e.target.files[0])}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Bots List */}
         <div className="space-y-4">
-          {bots.length === 0 ? (
-            <div className="text-center py-16">
-              <div className="w-20 h-20 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Bot className="w-10 h-10 text-gray-400" />
+          {activeTab === 'my' ? (
+            // My Bots Tab
+            bots.length === 0 ? (
+              <div className="text-center py-16">
+                <div className="w-20 h-20 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Bot className="w-10 h-10 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-700 mb-1">אין בוטים עדיין</h3>
+                <p className="text-gray-500 mb-6">צור את הבוט הראשון שלך</p>
+                <Button onClick={() => setShowCreate(true)} className="!rounded-xl">
+                  <Plus className="w-4 h-4 ml-2" />צור בוט ראשון
+                </Button>
               </div>
-              <h3 className="text-lg font-semibold text-gray-700 mb-1">אין בוטים עדיין</h3>
-              <p className="text-gray-500 mb-6">צור את הבוט הראשון שלך</p>
-              <Button onClick={() => setShowCreate(true)} className="!rounded-xl">
-                <Plus className="w-4 h-4 ml-2" />צור בוט ראשון
-              </Button>
-            </div>
+            ) : (
+              bots.map((bot) => {
+                const stats = botStats[bot.id] || {};
+                return (
+                  <div
+                    key={bot.id}
+                    onClick={() => navigate(`/bots/${bot.id}`)}
+                    className="bg-white/80 backdrop-blur rounded-2xl border border-gray-200 p-5 cursor-pointer hover:shadow-lg hover:border-primary-200 transition-all group"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
+                        bot.is_active ? 'bg-gradient-to-br from-green-400 to-green-500' : 'bg-gray-100'
+                      }`}>
+                        <Bot className={`w-7 h-7 ${bot.is_active ? 'text-white' : 'text-gray-400'}`} />
+                      </div>
+                      
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold text-gray-800">{bot.name}</h3>
+                          {bot.is_active && (
+                            <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">פעיל</span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-500 truncate">{bot.description || 'ללא תיאור'}</p>
+                        
+                        {/* Stats */}
+                        <div className="flex items-center gap-4 mt-2 text-xs text-gray-400">
+                          <span className="flex items-center gap-1">
+                            <Users className="w-3 h-3" />
+                            {stats.uniqueUsers || 0} יוזרים
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Zap className="w-3 h-3" />
+                            {stats.totalTriggers || 0} הפעלות
+                          </span>
+                          <span className="flex items-center gap-1">
+                            היום: {stats.triggersToday || 0}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={(e) => handleToggle(e, bot)}
+                          className={`p-2 rounded-lg transition-colors ${
+                            bot.is_active ? 'bg-green-100 text-green-600 hover:bg-green-200' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                          }`}
+                          title={bot.is_active ? 'השהה' : 'הפעל'}
+                        >
+                          {bot.is_active ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); navigate(`/bots/${bot.id}`); }}
+                          className="p-2 rounded-lg bg-blue-100 text-blue-600 hover:bg-blue-200"
+                          title="עריכה"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => handleDuplicate(e, bot)}
+                          className="p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          title="שכפול"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => handleExport(e, bot)}
+                          className="p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          title="ייצוא"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setShareBot(bot); }}
+                          className="p-2 rounded-lg bg-purple-100 text-purple-600 hover:bg-purple-200"
+                          title="שיתוף"
+                        >
+                          <Share2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => handleDelete(e, bot)}
+                          className="p-2 rounded-lg bg-red-100 text-red-600 hover:bg-red-200"
+                          title="מחיקה"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )
           ) : (
-            bots.map((bot) => {
-              const stats = botStats[bot.id] || {};
-              return (
+            // Shared Bots Tab
+            sharedBots.length === 0 ? (
+              <div className="text-center py-16">
+                <div className="w-20 h-20 bg-purple-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Share2 className="w-10 h-10 text-purple-300" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-700 mb-1">אין בוטים משותפים</h3>
+                <p className="text-gray-500">כשמישהו ישתף איתך בוט, הוא יופיע כאן</p>
+              </div>
+            ) : (
+              sharedBots.map((bot) => (
                 <div
                   key={bot.id}
                   onClick={() => navigate(`/bots/${bot.id}`)}
-                  className="bg-white/80 backdrop-blur rounded-2xl border border-gray-200 p-5 cursor-pointer hover:shadow-lg hover:border-primary-200 transition-all group"
+                  className="bg-white/80 backdrop-blur rounded-2xl border border-purple-200 p-5 cursor-pointer hover:shadow-lg hover:border-purple-300 transition-all group"
                 >
                   <div className="flex items-center gap-4">
-                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
-                      bot.is_active ? 'bg-gradient-to-br from-green-400 to-green-500' : 'bg-gray-100'
-                    }`}>
-                      <Bot className={`w-7 h-7 ${bot.is_active ? 'text-white' : 'text-gray-400'}`} />
+                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-400 to-purple-500 flex items-center justify-center">
+                      <Bot className="w-7 h-7 text-white" />
                     </div>
                     
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <h3 className="font-semibold text-gray-800">{bot.name}</h3>
-                        {bot.is_active && (
-                          <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">פעיל</span>
-                        )}
+                        <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                          bot.permission === 'admin' ? 'bg-purple-100 text-purple-700' :
+                          bot.permission === 'edit' ? 'bg-blue-100 text-blue-700' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          {bot.permission === 'admin' ? 'מנהל' : bot.permission === 'edit' ? 'עריכה' : 'צפייה'}
+                        </span>
                       </div>
                       <p className="text-sm text-gray-500 truncate">{bot.description || 'ללא תיאור'}</p>
-                      
-                      {/* Stats */}
-                      <div className="flex items-center gap-4 mt-2 text-xs text-gray-400">
-                        <span className="flex items-center gap-1">
-                          <Users className="w-3 h-3" />
-                          {stats.uniqueUsers || 0} יוזרים
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Zap className="w-3 h-3" />
-                          {stats.totalTriggers || 0} הפעלות
-                        </span>
-                        <span className="flex items-center gap-1">
-                          היום: {stats.triggersToday || 0}
-                        </span>
-                      </div>
+                      <p className="text-xs text-purple-500 mt-1">
+                        שותף על ידי: {bot.owner_name || bot.owner_email}
+                      </p>
                     </div>
 
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {(bot.permission === 'edit' || bot.permission === 'admin') && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); navigate(`/bots/${bot.id}`); }}
+                          className="p-2 rounded-lg bg-blue-100 text-blue-600 hover:bg-blue-200"
+                          title="עריכה"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      )}
                       <button
-                        onClick={(e) => handleToggle(e, bot)}
-                        className={`p-2.5 rounded-xl transition-colors ${
-                          bot.is_active ? 'bg-green-100 text-green-600 hover:bg-green-200' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                        }`}
+                        onClick={(e) => handleExport(e, bot)}
+                        className="p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        title="ייצוא"
                       >
-                        {bot.is_active ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); navigate(`/bots/${bot.id}`); }}
-                        className="p-2.5 rounded-xl bg-blue-100 text-blue-600 hover:bg-blue-200"
-                        title="עריכה"
-                      >
-                        <Edit2 className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setShareBot(bot); }}
-                        className="p-2.5 rounded-xl bg-purple-100 text-purple-600 hover:bg-purple-200"
-                        title="שיתוף"
-                      >
-                        <Share2 className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={(e) => handleDelete(e, bot)}
-                        className="p-2.5 rounded-xl bg-red-100 text-red-600 hover:bg-red-200"
-                        title="מחיקה"
-                      >
-                        <Trash2 className="w-5 h-5" />
+                        <Download className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
                 </div>
-              );
-            })
+              ))
+            )
           )}
         </div>
       </main>

@@ -1,0 +1,274 @@
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Bell, CheckCheck, Trash2, Share2, AlertTriangle, Info, Settings, ChevronRight } from 'lucide-react';
+import useNotificationsStore from '../store/notificationsStore';
+import Logo from '../components/atoms/Logo';
+
+const NOTIFICATION_ICONS = {
+  share_received: { icon: Share2, color: 'text-purple-500', bg: 'bg-purple-100' },
+  share_accepted: { icon: Share2, color: 'text-green-500', bg: 'bg-green-100' },
+  bot_error: { icon: AlertTriangle, color: 'text-red-500', bg: 'bg-red-100' },
+  quota_warning: { icon: AlertTriangle, color: 'text-amber-500', bg: 'bg-amber-100' },
+  system: { icon: Info, color: 'text-blue-500', bg: 'bg-blue-100' },
+};
+
+function formatTime(date) {
+  const now = new Date();
+  const d = new Date(date);
+  const diff = (now - d) / 1000;
+  
+  if (diff < 60) return 'עכשיו';
+  if (diff < 3600) return `לפני ${Math.floor(diff / 60)} דקות`;
+  if (diff < 86400) return `לפני ${Math.floor(diff / 3600)} שעות`;
+  if (diff < 604800) return `לפני ${Math.floor(diff / 86400)} ימים`;
+  return d.toLocaleDateString('he-IL');
+}
+
+export default function NotificationsPage() {
+  const navigate = useNavigate();
+  const [showSettings, setShowSettings] = useState(false);
+  
+  const { 
+    notifications, 
+    unreadCount, 
+    loading,
+    preferences,
+    fetchNotifications, 
+    markAsRead, 
+    markAllAsRead,
+    deleteNotification,
+    fetchPreferences,
+    updatePreferences,
+  } = useNotificationsStore();
+
+  useEffect(() => {
+    fetchNotifications();
+    fetchPreferences();
+  }, []);
+
+  const handleNotificationClick = (notification) => {
+    if (!notification.is_read) {
+      markAsRead(notification.id);
+    }
+    if (notification.action_url) {
+      navigate(notification.action_url);
+    }
+  };
+
+  const handlePreferenceChange = (key, value) => {
+    updatePreferences({ [key]: value });
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      {/* Header */}
+      <header className="bg-white/80 backdrop-blur-lg border-b border-gray-200 sticky top-0 z-40">
+        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button onClick={() => navigate('/bots')} className="hover:opacity-80">
+              <Logo size="sm" />
+            </button>
+            <div className="flex items-center gap-2">
+              <Bell className="w-5 h-5 text-gray-600" />
+              <h1 className="text-lg font-semibold text-gray-800">התראות</h1>
+              {unreadCount > 0 && (
+                <span className="px-2 py-0.5 bg-red-100 text-red-600 text-xs rounded-full">
+                  {unreadCount} חדשות
+                </span>
+              )}
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            {unreadCount > 0 && (
+              <button
+                onClick={markAllAsRead}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+              >
+                <CheckCheck className="w-4 h-4" />
+                סמן הכל כנקרא
+              </button>
+            )}
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className={`p-2 rounded-lg transition-colors ${
+                showSettings ? 'bg-gray-100' : 'hover:bg-gray-100'
+              }`}
+            >
+              <Settings className="w-5 h-5 text-gray-600" />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-4xl mx-auto px-6 py-8">
+        {/* Settings Panel */}
+        {showSettings && preferences && (
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
+            <h2 className="font-semibold text-gray-800 mb-4">הגדרות התראות</h2>
+            
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Email Notifications */}
+              <div>
+                <h3 className="text-sm font-medium text-gray-600 mb-3">התראות במייל</h3>
+                <div className="space-y-3">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={preferences.email_share_received}
+                      onChange={(e) => handlePreferenceChange('email_share_received', e.target.checked)}
+                      className="w-4 h-4 rounded text-primary-600"
+                    />
+                    <span className="text-sm text-gray-700">שיתוף בוט</span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={preferences.email_bot_errors}
+                      onChange={(e) => handlePreferenceChange('email_bot_errors', e.target.checked)}
+                      className="w-4 h-4 rounded text-primary-600"
+                    />
+                    <span className="text-sm text-gray-700">שגיאות בבוט</span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={preferences.email_quota_warnings}
+                      onChange={(e) => handlePreferenceChange('email_quota_warnings', e.target.checked)}
+                      className="w-4 h-4 rounded text-primary-600"
+                    />
+                    <span className="text-sm text-gray-700">אזהרות מכסה</span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={preferences.email_weekly_digest}
+                      onChange={(e) => handlePreferenceChange('email_weekly_digest', e.target.checked)}
+                      className="w-4 h-4 rounded text-primary-600"
+                    />
+                    <span className="text-sm text-gray-700">סיכום שבועי</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* App Notifications */}
+              <div>
+                <h3 className="text-sm font-medium text-gray-600 mb-3">התראות באפליקציה</h3>
+                <div className="space-y-3">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={preferences.app_share_received}
+                      onChange={(e) => handlePreferenceChange('app_share_received', e.target.checked)}
+                      className="w-4 h-4 rounded text-primary-600"
+                    />
+                    <span className="text-sm text-gray-700">שיתוף בוט</span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={preferences.app_bot_activity}
+                      onChange={(e) => handlePreferenceChange('app_bot_activity', e.target.checked)}
+                      className="w-4 h-4 rounded text-primary-600"
+                    />
+                    <span className="text-sm text-gray-700">פעילות בוט</span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={preferences.app_system_updates}
+                      onChange={(e) => handlePreferenceChange('app_system_updates', e.target.checked)}
+                      className="w-4 h-4 rounded text-primary-600"
+                    />
+                    <span className="text-sm text-gray-700">עדכוני מערכת</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Notifications List */}
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+          {loading ? (
+            <div className="py-20 text-center text-gray-500">
+              <div className="w-8 h-8 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+              טוען...
+            </div>
+          ) : notifications.length === 0 ? (
+            <div className="py-20 text-center text-gray-400">
+              <Bell className="w-16 h-16 mx-auto mb-4 opacity-30" />
+              <h3 className="text-lg font-medium text-gray-600 mb-2">אין התראות</h3>
+              <p>כשיהיו לך התראות חדשות, הן יופיעו כאן</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {notifications.map((notification) => {
+                const config = NOTIFICATION_ICONS[notification.type] || NOTIFICATION_ICONS.system;
+                const Icon = config.icon;
+                
+                return (
+                  <div
+                    key={notification.id}
+                    onClick={() => handleNotificationClick(notification)}
+                    className={`px-6 py-4 cursor-pointer hover:bg-gray-50 transition-colors ${
+                      !notification.is_read ? 'bg-blue-50/30' : ''
+                    }`}
+                  >
+                    <div className="flex gap-4">
+                      <div className={`w-12 h-12 rounded-2xl ${config.bg} flex items-center justify-center flex-shrink-0`}>
+                        <Icon className={`w-6 h-6 ${config.color}`} />
+                      </div>
+                      
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className={`${!notification.is_read ? 'font-semibold' : 'font-medium'} text-gray-800`}>
+                              {notification.title}
+                            </p>
+                            {notification.message && (
+                              <p className="text-sm text-gray-500 mt-1">
+                                {notification.message}
+                              </p>
+                            )}
+                            {notification.bot_name && (
+                              <p className="text-xs text-gray-400 mt-2">
+                                בוט: {notification.bot_name}
+                              </p>
+                            )}
+                          </div>
+                          
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-xs text-gray-400">
+                              {formatTime(notification.created_at)}
+                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteNotification(notification.id);
+                              }}
+                              className="p-1.5 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-500"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                            {notification.action_url && (
+                              <ChevronRight className="w-4 h-4 text-gray-400" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {!notification.is_read && (
+                        <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0" />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}

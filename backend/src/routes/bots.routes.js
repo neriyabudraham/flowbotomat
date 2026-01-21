@@ -4,6 +4,7 @@ const authMiddleware = require('../middlewares/auth.middleware');
 const { listBots, getBot } = require('../controllers/bots/list.controller');
 const { createBot, updateBot, saveFlow, deleteBot } = require('../controllers/bots/manage.controller');
 const { getBotStats, getBotUsers, getBotLogs } = require('../controllers/bots/stats.controller');
+const { exportBot, importBot, duplicateBot } = require('../controllers/bots/export.controller');
 
 router.use(authMiddleware);
 
@@ -18,5 +19,10 @@ router.delete('/:botId', deleteBot);
 router.get('/:botId/stats', getBotStats);
 router.get('/:botId/users', getBotUsers);
 router.get('/:botId/logs', getBotLogs);
+
+// Export/Import
+router.get('/:id/export', exportBot);
+router.post('/import', importBot);
+router.post('/:id/duplicate', duplicateBot);
 
 module.exports = router;

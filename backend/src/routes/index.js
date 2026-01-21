@@ -15,6 +15,7 @@ const templatesRoutes = require('./templates.routes');
 const validationsRoutes = require('./validations.routes');
 const adminRoutes = require('./admin.routes');
 const sharingRoutes = require('./sharing.routes');
+const notificationsRoutes = require('./notifications.routes');
 
 // Mount routes
 router.use('/auth', authRoutes);
@@ -30,5 +31,6 @@ router.use('/templates', templatesRoutes);
 router.use('/validations', validationsRoutes);
 router.use('/admin', adminRoutes);
 router.use('/sharing', sharingRoutes);
+router.use('/notifications', notificationsRoutes);
 
 module.exports = router;

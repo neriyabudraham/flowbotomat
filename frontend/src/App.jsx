@@ -10,6 +10,7 @@ import BotsPage from './pages/BotsPage';
 import BotEditorPage from './pages/BotEditorPage';
 import TemplatesPage from './pages/TemplatesPage';
 import AdminPage from './pages/AdminPage';
+import NotificationsPage from './pages/NotificationsPage';
 
 function App() {
   return (
@@ -28,6 +29,7 @@ function App() {
           <Route path="/bots/:botId" element={<BotEditorPage />} />
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/admin" element={<AdminPage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
         </Routes>
       </div>
     </BrowserRouter>
