@@ -2,6 +2,55 @@ const pool = require('../../config/database');
 const { getSocketManager } = require('../../services/socket/manager.service');
 
 /**
+ * Extract real phone number from payload
+ * Real phone numbers are typically 10-15 digits
+ * LIDs are longer random strings
+ */
+function extractRealPhone(payload) {
+  const candidates = [];
+  
+  // Collect all possible phone sources
+  if (payload._data?.Info?.SenderAlt) {
+    candidates.push(payload._data.Info.SenderAlt.split('@')[0]);
+  }
+  if (payload._data?.Info?.Sender) {
+    candidates.push(payload._data.Info.Sender.split('@')[0]);
+  }
+  if (payload._data?.Info?.Chat) {
+    candidates.push(payload._data.Info.Chat.split('@')[0]);
+  }
+  if (payload.from) {
+    candidates.push(payload.from.split('@')[0]);
+  }
+  if (payload.chatId) {
+    candidates.push(payload.chatId.split('@')[0]);
+  }
+  
+  // Filter to only numeric strings
+  const numericCandidates = candidates.filter(c => /^\d+$/.test(c));
+  
+  if (numericCandidates.length === 0) return null;
+  
+  // Sort by length - real phone numbers are typically 10-15 digits
+  // LIDs are usually longer (15+ digits)
+  numericCandidates.sort((a, b) => {
+    // Prefer numbers in valid phone range (10-15 digits)
+    const aValid = a.length >= 10 && a.length <= 15;
+    const bValid = b.length >= 10 && b.length <= 15;
+    
+    if (aValid && !bValid) return -1;
+    if (!aValid && bValid) return 1;
+    
+    // If both valid or both invalid, prefer shorter
+    return a.length - b.length;
+  });
+  
+  console.log(`[Webhook] Phone candidates: ${numericCandidates.join(', ')} -> selected: ${numericCandidates[0]}`);
+  
+  return numericCandidates[0];
+}
+
+/**
  * Handle incoming WAHA webhooks
  */
 async function handleWebhook(req, res) {
@@ -47,21 +96,8 @@ async function handleIncomingMessage(userId, event) {
     return;
   }
   
-  // Extract phone number - prefer SenderAlt (real phone) over LID
-  let phone = null;
-  
-  // First try to get real phone from SenderAlt (format: 972584254229@s.whatsapp.net)
-  if (payload._data?.Info?.SenderAlt) {
-    phone = payload._data.Info.SenderAlt.split('@')[0];
-  }
-  // Fallback to from field if not @lid
-  else if (payload.from && !payload.from.includes('@lid')) {
-    phone = payload.from.split('@')[0];
-  }
-  // Last resort - use LID
-  else if (payload.from) {
-    phone = payload.from.split('@')[0];
-  }
+  // Extract phone number - find the real phone number
+  const phone = extractRealPhone(payload);
   
   if (!phone) {
     console.log('[Webhook] Could not extract phone number');
