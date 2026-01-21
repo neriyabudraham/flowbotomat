@@ -6,12 +6,25 @@ const comparisonOptions = [
   { id: 'equals', label: 'שווה ל', icon: '=' },
   { id: 'not_equals', label: 'לא שווה ל', icon: '≠' },
   { id: 'contains', label: 'מכיל', icon: '⊃' },
+  { id: 'not_contains', label: 'לא מכיל', icon: '⊄' },
+  { id: 'starts_with', label: 'מתחיל ב', icon: '→' },
+  { id: 'ends_with', label: 'נגמר ב', icon: '←' },
   { id: 'greater_than', label: 'גדול מ', icon: '>' },
+  { id: 'greater_equal', label: 'גדול או שווה', icon: '≥' },
   { id: 'less_than', label: 'קטן מ', icon: '<' },
+  { id: 'less_equal', label: 'קטן או שווה', icon: '≤' },
   { id: 'exists', label: 'קיים', icon: '∃' },
   { id: 'not_exists', label: 'לא קיים', icon: '∄' },
+  { id: 'is_empty', label: 'ריק', icon: '∅' },
+  { id: 'not_empty', label: 'לא ריק', icon: '≠∅' },
   { id: 'is_true', label: 'אמת (true)', icon: '✓' },
   { id: 'is_false', label: 'שקר (false)', icon: '✗' },
+  { id: 'regex', label: 'ביטוי רגולרי', icon: '.*' },
+];
+
+const pathSourceOptions = [
+  { id: 'specific', label: 'נתיב ספציפי' },
+  { id: 'full', label: 'התגובה המלאה (data)' },
 ];
 
 export default function ValidationSelector({ value, onChange }) {
@@ -31,6 +44,7 @@ export default function ValidationSelector({ value, onChange }) {
     apiMethod: 'GET',
     apiHeaders: '{}',
     apiBody: '',
+    pathSource: 'specific', // 'specific' or 'full'
     responsePath: '',
     expectedValue: '',
     comparison: 'equals',
@@ -65,8 +79,12 @@ export default function ValidationSelector({ value, onChange }) {
   };
   
   const handleCreateNew = async () => {
-    if (!form.name || !form.apiUrl || !form.responsePath) {
-      alert('נא למלא את כל השדות הנדרשים');
+    if (!form.name || !form.apiUrl) {
+      alert('נא למלא שם ו-URL');
+      return;
+    }
+    if (form.pathSource === 'specific' && !form.responsePath) {
+      alert('נא להזין נתיב בתגובה');
       return;
     }
     
@@ -94,6 +112,7 @@ export default function ValidationSelector({ value, onChange }) {
       apiMethod: validation.api_method || 'GET',
       apiHeaders: JSON.stringify(validation.api_headers || {}),
       apiBody: validation.api_body || '',
+      pathSource: validation.path_source || (validation.response_path ? 'specific' : 'full'),
       responsePath: validation.response_path || '',
       expectedValue: validation.expected_value || '',
       comparison: validation.comparison || 'equals',
@@ -138,6 +157,7 @@ export default function ValidationSelector({ value, onChange }) {
       apiMethod: 'GET',
       apiHeaders: '{}',
       apiBody: '',
+      pathSource: 'specific',
       responsePath: '',
       expectedValue: '',
       comparison: 'equals',
@@ -461,18 +481,48 @@ function CreateValidationForm({ form, setForm, onSave, onCancel, onTest, testing
           <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl p-4 border border-indigo-100">
             <p className="text-sm text-indigo-700 mb-4">הרכיב יוצג רק אם התנאי מתקיים</p>
             
-            {/* Response Path */}
+            {/* Path Source Selection */}
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-600 mb-1">נתיב בתגובה *</label>
-              <input
-                type="text"
-                value={form.responsePath}
-                onChange={(e) => setForm({ ...form, responsePath: e.target.value })}
-                placeholder="data.isEligible או status"
-                className="w-full px-4 py-2.5 bg-white border border-indigo-200 rounded-xl text-sm font-mono focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none"
-                dir="ltr"
-              />
+              <label className="block text-sm font-medium text-gray-600 mb-2">מקור הערך לבדיקה</label>
+              <div className="flex gap-2">
+                {pathSourceOptions.map(opt => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setForm({ ...form, pathSource: opt.id, responsePath: opt.id === 'full' ? '' : form.responsePath })}
+                    className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                      form.pathSource === opt.id
+                        ? 'bg-indigo-500 text-white shadow-md'
+                        : 'bg-white border border-indigo-200 text-gray-600 hover:border-indigo-300'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
+            
+            {/* Response Path - only if specific path selected */}
+            {form.pathSource === 'specific' && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-600 mb-1">נתיב בתגובה *</label>
+                <input
+                  type="text"
+                  value={form.responsePath}
+                  onChange={(e) => setForm({ ...form, responsePath: e.target.value })}
+                  placeholder="data.isEligible או status או data[0].name"
+                  className="w-full px-4 py-2.5 bg-white border border-indigo-200 rounded-xl text-sm font-mono focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none"
+                  dir="ltr"
+                />
+                <p className="text-xs text-gray-400 mt-1">לדוגמא: data.user.isActive, items[0].status</p>
+              </div>
+            )}
+            
+            {form.pathSource === 'full' && (
+              <div className="mb-4 p-3 bg-white/50 rounded-lg border border-indigo-100">
+                <p className="text-xs text-indigo-600">הערך יהיה כל התגובה (ה-data המלא) כטקסט או JSON</p>
+              </div>
+            )}
             
             {/* Comparison */}
             <div className="grid grid-cols-2 gap-3">
@@ -489,14 +539,17 @@ function CreateValidationForm({ form, setForm, onSave, onCancel, onTest, testing
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">ערך צפוי</label>
+                <label className="block text-sm font-medium text-gray-600 mb-1">
+                  ערך צפוי {form.comparison === 'regex' && '(ביטוי רגולרי)'}
+                </label>
                 <input
                   type="text"
                   value={form.expectedValue}
                   onChange={(e) => setForm({ ...form, expectedValue: e.target.value })}
-                  placeholder="true"
+                  placeholder={form.comparison === 'regex' ? '^[0-9]+$' : 'true'}
                   className="w-full px-4 py-2.5 bg-white border border-indigo-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none"
-                  disabled={['exists', 'not_exists', 'is_true', 'is_false'].includes(form.comparison)}
+                  disabled={['exists', 'not_exists', 'is_true', 'is_false', 'is_empty', 'not_empty'].includes(form.comparison)}
+                  dir="ltr"
                 />
               </div>
             </div>

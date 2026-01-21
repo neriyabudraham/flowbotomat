@@ -50,11 +50,12 @@ class ValidationService {
       }
       
       // Check condition
-      const path = config.response_path || config.responsePath;
+      const pathSource = config.path_source || config.pathSource || 'specific';
+      const path = config.response_path || config.responsePath || '';
       const expected = config.expected_value || config.expectedValue;
       const comparison = config.comparison || 'equals';
       
-      const passed = this.checkCondition(response.data, path, expected, comparison);
+      const passed = this.checkCondition(response.data, path, expected, comparison, pathSource);
       console.log('[Validation] Result:', passed ? '✅ PASSED' : '❌ FAILED');
       
       return passed;
@@ -118,8 +119,15 @@ class ValidationService {
   }
   
   // Check condition
-  checkCondition(data, path, expectedValue, comparison) {
-    const actualValue = this.getNestedValue(data, path);
+  checkCondition(data, path, expectedValue, comparison, pathSource = 'specific') {
+    // If pathSource is 'full', use the entire data
+    let actualValue;
+    if (pathSource === 'full' || !path) {
+      actualValue = typeof data === 'object' ? JSON.stringify(data) : data;
+    } else {
+      actualValue = this.getNestedValue(data, path);
+    }
+    
     const actual = String(actualValue ?? '');
     const expected = String(expectedValue ?? '');
     
@@ -129,19 +137,40 @@ class ValidationService {
       case 'not_equals':
         return actual !== expected;
       case 'contains':
-        return actual.includes(expected);
+        return actual.toLowerCase().includes(expected.toLowerCase());
+      case 'not_contains':
+        return !actual.toLowerCase().includes(expected.toLowerCase());
+      case 'starts_with':
+        return actual.toLowerCase().startsWith(expected.toLowerCase());
+      case 'ends_with':
+        return actual.toLowerCase().endsWith(expected.toLowerCase());
       case 'greater_than':
         return parseFloat(actual) > parseFloat(expected);
+      case 'greater_equal':
+        return parseFloat(actual) >= parseFloat(expected);
       case 'less_than':
         return parseFloat(actual) < parseFloat(expected);
+      case 'less_equal':
+        return parseFloat(actual) <= parseFloat(expected);
       case 'exists':
         return actualValue !== undefined && actualValue !== null;
       case 'not_exists':
         return actualValue === undefined || actualValue === null;
+      case 'is_empty':
+        return actualValue === undefined || actualValue === null || actual === '' || actual === '[]' || actual === '{}';
+      case 'not_empty':
+        return actualValue !== undefined && actualValue !== null && actual !== '' && actual !== '[]' && actual !== '{}';
       case 'is_true':
         return actualValue === true || actual === 'true' || actual === '1';
       case 'is_false':
         return actualValue === false || actual === 'false' || actual === '0';
+      case 'regex':
+        try {
+          const regex = new RegExp(expected);
+          return regex.test(actual);
+        } catch {
+          return false;
+        }
       default:
         return actual === expected;
     }

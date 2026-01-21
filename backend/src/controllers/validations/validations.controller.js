@@ -25,19 +25,24 @@ async function createValidation(req, res) {
     const { 
       name, description, 
       apiUrl, apiMethod, apiHeaders, apiBody,
-      responsePath, expectedValue, comparison 
+      pathSource, responsePath, expectedValue, comparison 
     } = req.body;
     
-    if (!name || !apiUrl || !responsePath || expectedValue === undefined) {
-      return res.status(400).json({ error: 'שדות חובה חסרים' });
+    if (!name || !apiUrl) {
+      return res.status(400).json({ error: 'שם ו-URL חובה' });
+    }
+    
+    // If pathSource is 'specific', responsePath is required
+    if (pathSource === 'specific' && !responsePath) {
+      return res.status(400).json({ error: 'נתיב בתגובה חובה עבור נתיב ספציפי' });
     }
     
     const result = await db.query(
       `INSERT INTO validations 
-       (user_id, name, description, api_url, api_method, api_headers, api_body, response_path, expected_value, comparison)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       (user_id, name, description, api_url, api_method, api_headers, api_body, path_source, response_path, expected_value, comparison)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
-      [userId, name, description || '', apiUrl, apiMethod || 'GET', apiHeaders || {}, apiBody || '', responsePath, expectedValue, comparison || 'equals']
+      [userId, name, description || '', apiUrl, apiMethod || 'GET', apiHeaders || {}, apiBody || '', pathSource || 'specific', responsePath || '', expectedValue || '', comparison || 'equals']
     );
     
     res.status(201).json({ validation: result.rows[0] });
@@ -55,7 +60,7 @@ async function updateValidation(req, res) {
     const { 
       name, description, 
       apiUrl, apiMethod, apiHeaders, apiBody,
-      responsePath, expectedValue, comparison 
+      pathSource, responsePath, expectedValue, comparison 
     } = req.body;
     
     const result = await db.query(
@@ -66,13 +71,14 @@ async function updateValidation(req, res) {
        api_method = COALESCE($4, api_method),
        api_headers = COALESCE($5, api_headers),
        api_body = COALESCE($6, api_body),
-       response_path = COALESCE($7, response_path),
-       expected_value = COALESCE($8, expected_value),
-       comparison = COALESCE($9, comparison),
+       path_source = COALESCE($7, path_source),
+       response_path = COALESCE($8, response_path),
+       expected_value = COALESCE($9, expected_value),
+       comparison = COALESCE($10, comparison),
        updated_at = NOW()
-       WHERE id = $10 AND user_id = $11
+       WHERE id = $11 AND user_id = $12
        RETURNING *`,
-      [name, description, apiUrl, apiMethod, apiHeaders, apiBody, responsePath, expectedValue, comparison, id, userId]
+      [name, description, apiUrl, apiMethod, apiHeaders, apiBody, pathSource, responsePath, expectedValue, comparison, id, userId]
     );
     
     if (result.rows.length === 0) {
@@ -111,7 +117,7 @@ async function deleteValidation(req, res) {
 // Test validation (run API and check condition)
 async function testValidation(req, res) {
   try {
-    const { apiUrl, apiMethod, apiHeaders, apiBody, responsePath, expectedValue, comparison } = req.body;
+    const { apiUrl, apiMethod, apiHeaders, apiBody, pathSource, responsePath, expectedValue, comparison } = req.body;
     
     // Execute API call
     const result = await executeValidationApi(apiUrl, apiMethod, apiHeaders, apiBody);
@@ -125,12 +131,20 @@ async function testValidation(req, res) {
     }
     
     // Check condition
-    const passed = checkCondition(result.data, responsePath, expectedValue, comparison);
+    const passed = checkCondition(result.data, pathSource, responsePath, expectedValue, comparison);
+    
+    // Get extracted value for display
+    let extractedValue;
+    if (pathSource === 'full' || !responsePath) {
+      extractedValue = typeof result.data === 'object' ? JSON.stringify(result.data).substring(0, 200) : result.data;
+    } else {
+      extractedValue = getNestedValue(result.data, responsePath);
+    }
     
     res.json({ 
       success: true, 
       response: result.data,
-      extractedValue: getNestedValue(result.data, responsePath),
+      extractedValue,
       passed 
     });
   } catch (error) {
@@ -193,8 +207,15 @@ function getNestedValue(obj, path) {
 }
 
 // Helper: Check condition
-function checkCondition(data, path, expectedValue, comparison) {
-  const actualValue = getNestedValue(data, path);
+function checkCondition(data, pathSource, path, expectedValue, comparison) {
+  // If pathSource is 'full', use the entire data
+  let actualValue;
+  if (pathSource === 'full' || !path) {
+    actualValue = typeof data === 'object' ? JSON.stringify(data) : data;
+  } else {
+    actualValue = getNestedValue(data, path);
+  }
+  
   const actual = String(actualValue ?? '');
   const expected = String(expectedValue ?? '');
   
@@ -204,19 +225,40 @@ function checkCondition(data, path, expectedValue, comparison) {
     case 'not_equals':
       return actual !== expected;
     case 'contains':
-      return actual.includes(expected);
+      return actual.toLowerCase().includes(expected.toLowerCase());
+    case 'not_contains':
+      return !actual.toLowerCase().includes(expected.toLowerCase());
+    case 'starts_with':
+      return actual.toLowerCase().startsWith(expected.toLowerCase());
+    case 'ends_with':
+      return actual.toLowerCase().endsWith(expected.toLowerCase());
     case 'greater_than':
       return parseFloat(actual) > parseFloat(expected);
+    case 'greater_equal':
+      return parseFloat(actual) >= parseFloat(expected);
     case 'less_than':
       return parseFloat(actual) < parseFloat(expected);
+    case 'less_equal':
+      return parseFloat(actual) <= parseFloat(expected);
     case 'exists':
       return actualValue !== undefined && actualValue !== null;
     case 'not_exists':
       return actualValue === undefined || actualValue === null;
+    case 'is_empty':
+      return actualValue === undefined || actualValue === null || actual === '' || actual === '[]' || actual === '{}';
+    case 'not_empty':
+      return actualValue !== undefined && actualValue !== null && actual !== '' && actual !== '[]' && actual !== '{}';
     case 'is_true':
       return actualValue === true || actual === 'true' || actual === '1';
     case 'is_false':
       return actualValue === false || actual === 'false' || actual === '0';
+    case 'regex':
+      try {
+        const regex = new RegExp(expected);
+        return regex.test(actual);
+      } catch {
+        return false;
+      }
     default:
       return actual === expected;
   }
