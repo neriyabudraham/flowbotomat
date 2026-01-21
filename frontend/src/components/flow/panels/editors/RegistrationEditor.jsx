@@ -107,7 +107,10 @@ export default function RegistrationEditor({ data, onUpdate }) {
   
   // Generate quick summary template
   const generateQuickSummary = () => {
-    let template = `📋 *${data.title || 'רישום חדש'}*\n\n`;
+    let template = `📋 *רישום חדש*\n\n`;
+    template += `🔹 תהליך: {{registration_title}}\n`;
+    template += `🔹 מטלפון: {{phone}}\n\n`;
+    
     questions.forEach(q => {
       if (q.varName) {
         const label = quickQuestions.find(qQ => qQ.varName === q.varName)?.label || q.varName;
@@ -120,7 +123,8 @@ export default function RegistrationEditor({ data, onUpdate }) {
   // Generate quick webhook body
   const generateQuickWebhookBody = () => {
     const body = {
-      registration: data.title || 'רישום חדש',
+      registration_title: '{{registration_title}}',
+      contact_phone: '{{phone}}',
       timestamp: '{{date}} {{time}}',
     };
     questions.forEach(q => {
@@ -146,7 +150,7 @@ export default function RegistrationEditor({ data, onUpdate }) {
       
       {/* Registration Title */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">שם התהליך (פנימי)</label>
+        <label className="block text-sm font-medium text-gray-700 mb-2">שם התהליך</label>
         <input
           type="text"
           value={data.title || ''}
@@ -154,6 +158,9 @@ export default function RegistrationEditor({ data, onUpdate }) {
           placeholder="למשל: הרשמה לקורס"
           className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm"
         />
+        <p className="text-xs text-gray-400 mt-1">
+          ניתן להשתמש במשתנה <code className="bg-gray-100 px-1 rounded">{`{{registration_title}}`}</code> בהודעות ובסיכום
+        </p>
       </div>
       
       {/* Welcome Message (Optional) */}

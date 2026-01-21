@@ -1165,15 +1165,19 @@ class BotEngine {
   async sendRegistrationSummary(nodeData, contact, answers, connection, botName) {
     try {
       const { summaryTarget, summaryPhone, summaryGroupId, summaryTemplate, title } = nodeData;
+      const registrationTitle = title || 'רישום חדש';
       
       // Build summary text - use default template if none provided
       let summaryText = summaryTemplate;
       if (!summaryText || !summaryText.trim()) {
-        summaryText = `📋 *${title || 'רישום חדש'}*\n\n`;
+        summaryText = `📋 *רישום חדש*\n\n🔹 תהליך: ${registrationTitle}\n🔹 מטלפון: ${contact.phone}\n\n`;
         for (const [key, value] of Object.entries(answers)) {
           summaryText += `${key}: ${value}\n`;
         }
       }
+      
+      // Replace registration_title variable
+      summaryText = summaryText.replace(/\{\{registration_title\}\}/gi, registrationTitle);
       
       // Replace variables in template
       summaryText = this.replaceVariables(summaryText, contact, '', botName);
@@ -1206,6 +1210,7 @@ class BotEngine {
   async sendRegistrationWebhook(nodeData, contact, answers, botName) {
     try {
       const { webhookUrl, webhookBody, title } = nodeData;
+      const registrationTitle = title || 'רישום חדש';
       
       if (!webhookUrl) {
         console.log('[BotEngine] No webhook URL configured');
@@ -1215,8 +1220,11 @@ class BotEngine {
       // Prepare body - use custom or auto-generate
       let bodyData;
       if (webhookBody && webhookBody.trim()) {
+        // Replace registration_title variable
+        let processedBody = webhookBody.replace(/\{\{registration_title\}\}/gi, registrationTitle);
+        
         // Replace variables in body
-        let processedBody = this.replaceVariables(webhookBody, contact, '', botName);
+        processedBody = this.replaceVariables(processedBody, contact, '', botName);
         
         // Replace answer variables
         for (const [key, value] of Object.entries(answers)) {
@@ -1233,7 +1241,7 @@ class BotEngine {
       } else {
         // Auto-generate body from answers
         bodyData = {
-          registration: title || 'רישום חדש',
+          registration_title: registrationTitle,
           timestamp: new Date().toISOString(),
           contact: {
             phone: contact.phone,
