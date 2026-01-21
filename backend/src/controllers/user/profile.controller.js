@@ -111,10 +111,15 @@ async function getSubscription(req, res) {
         sp.name as plan_name,
         sp.name_he as plan_name_he,
         sp.price as plan_price,
-        sp.features as plan_features
+        sp.max_bots,
+        sp.max_bot_runs_per_month,
+        sp.max_contacts,
+        sp.allow_statistics,
+        sp.allow_waha_creation,
+        sp.allow_export
       FROM user_subscriptions us
       LEFT JOIN subscription_plans sp ON sp.id = us.plan_id
-      WHERE us.user_id = $1
+      WHERE us.user_id = $1 AND us.status = 'active'
     `, [userId]);
     
     if (result.rows.length === 0) {

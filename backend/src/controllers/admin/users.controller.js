@@ -46,10 +46,9 @@ async function getUsers(req, res) {
               (SELECT COUNT(*) FROM bots WHERE user_id = u.id) as bots_count,
               (SELECT COUNT(*) FROM contacts WHERE user_id = u.id) as contacts_count,
               us.status as subscription_status,
-              us.billing_period,
-              us.is_trial,
-              us.trial_ends_at,
-              us.next_charge_date,
+              us.is_manual,
+              us.expires_at,
+              us.started_at,
               sp.name as plan_name,
               sp.name_he as plan_name_he,
               sp.price as plan_price

@@ -301,26 +301,30 @@ function RoleBadge({ role }) {
 
 function SubscriptionBadge({ user, onClick }) {
   // Determine display based on real subscription data
-  const hasSubscription = user.subscription_status && user.subscription_status !== 'cancelled' && user.subscription_status !== 'expired';
+  const hasSubscription = user.subscription_status && user.subscription_status === 'active';
   
   let badgeClass = 'bg-gray-100 text-gray-600';
   let label = 'חינמי';
   let subLabel = null;
   
   if (hasSubscription) {
-    if (user.is_trial) {
-      badgeClass = 'bg-yellow-100 text-yellow-700';
-      label = user.plan_name_he || 'ניסיון';
-      const trialEnds = user.trial_ends_at ? new Date(user.trial_ends_at) : null;
-      if (trialEnds) {
-        const daysLeft = Math.ceil((trialEnds - new Date()) / (1000 * 60 * 60 * 24));
-        subLabel = `${daysLeft > 0 ? daysLeft : 0} ימים נותרו`;
-      }
-    } else {
-      badgeClass = 'bg-blue-100 text-blue-700';
-      label = user.plan_name_he || user.plan_name || 'בתשלום';
-      if (user.billing_period === 'yearly') {
-        badgeClass = 'bg-purple-100 text-purple-700';
+    badgeClass = 'bg-blue-100 text-blue-700';
+    label = user.plan_name_he || user.plan_name || 'בתשלום';
+    
+    if (user.is_manual) {
+      badgeClass = 'bg-purple-100 text-purple-700';
+      subLabel = 'ידני';
+    }
+    
+    if (user.expires_at) {
+      const expiresAt = new Date(user.expires_at);
+      const daysLeft = Math.ceil((expiresAt - new Date()) / (1000 * 60 * 60 * 24));
+      if (daysLeft <= 7 && daysLeft > 0) {
+        badgeClass = 'bg-yellow-100 text-yellow-700';
+        subLabel = `${daysLeft} ימים נותרו`;
+      } else if (daysLeft <= 0) {
+        badgeClass = 'bg-red-100 text-red-700';
+        subLabel = 'פג תוקף';
       }
     }
   }
@@ -366,7 +370,7 @@ function UserDetailsModal({ user, onClose }) {
               <label className="text-sm text-gray-500">תוכנית</label>
               <div>
                 {user.plan_name_he || user.plan_name || 'חינמי'}
-                {user.is_trial && <span className="text-xs text-yellow-600 mr-1">(ניסיון)</span>}
+                {user.is_manual && <span className="text-xs text-purple-600 mr-1">(ידני)</span>}
               </div>
             </div>
             <div>
@@ -396,10 +400,16 @@ function UserDetailsModal({ user, onClose }) {
                 )}
               </div>
             </div>
-            {user.next_charge_date && (
+            {user.expires_at && (
               <div className="col-span-2">
-                <label className="text-sm text-gray-500">חיוב הבא</label>
-                <div className="font-medium">{new Date(user.next_charge_date).toLocaleDateString('he-IL')}</div>
+                <label className="text-sm text-gray-500">תאריך תפוגה</label>
+                <div className="font-medium">{new Date(user.expires_at).toLocaleDateString('he-IL')}</div>
+              </div>
+            )}
+            {user.started_at && (
+              <div className="col-span-2">
+                <label className="text-sm text-gray-500">תחילת מנוי</label>
+                <div className="font-medium">{new Date(user.started_at).toLocaleDateString('he-IL')}</div>
               </div>
             )}
           </div>
@@ -416,7 +426,7 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
   const [formData, setFormData] = useState({
     planId: '',
     status: user.subscription_status || 'active',
-    expiresAt: user.next_charge_date ? new Date(user.next_charge_date).toISOString().split('T')[0] : '',
+    expiresAt: user.expires_at ? new Date(user.expires_at).toISOString().split('T')[0] : '',
     adminNotes: '',
   });
 
