@@ -11,7 +11,7 @@ async function exportBot(req, res) {
     // Get bot with ownership check
     const bot = await db.query(
       `SELECT b.*, 
-        (SELECT COUNT(*) FROM bot_shares WHERE bot_id = b.id AND shared_with_id = $2 AND permission IN ('edit', 'admin')) > 0 as has_edit_access
+        (SELECT allow_export FROM bot_shares WHERE bot_id = b.id AND shared_with_id = $2) as share_allow_export
        FROM bots b 
        WHERE b.id = $1 AND (b.user_id = $2 OR EXISTS (
          SELECT 1 FROM bot_shares WHERE bot_id = b.id AND shared_with_id = $2
@@ -24,6 +24,11 @@ async function exportBot(req, res) {
     }
     
     const botData = bot.rows[0];
+    
+    // If user is not owner, check if export is allowed
+    if (botData.user_id !== userId && botData.share_allow_export !== true) {
+      return res.status(403).json({ error: 'אין לך הרשאה לייצא בוט זה' });
+    }
     
     // Create export object
     const exportData = {
@@ -100,9 +105,12 @@ async function duplicateBot(req, res) {
     const userId = req.user.id;
     const { name } = req.body;
     
-    // Get original bot
+    // Get original bot with share info
     const original = await db.query(
-      `SELECT * FROM bots WHERE id = $1 AND (user_id = $2 OR EXISTS (
+      `SELECT b.*, 
+        (SELECT allow_export FROM bot_shares WHERE bot_id = b.id AND shared_with_id = $2) as share_allow_export
+       FROM bots b 
+       WHERE b.id = $1 AND (b.user_id = $2 OR EXISTS (
          SELECT 1 FROM bot_shares WHERE bot_id = $1 AND shared_with_id = $2
        ))`,
       [id, userId]
@@ -113,6 +121,12 @@ async function duplicateBot(req, res) {
     }
     
     const bot = original.rows[0];
+    
+    // If user is not owner, check if export/duplicate is allowed
+    if (bot.user_id !== userId && bot.share_allow_export !== true) {
+      return res.status(403).json({ error: 'אין לך הרשאה לשכפל בוט זה' });
+    }
+    
     const newName = name || `${bot.name} (עותק)`;
     
     // Create duplicate

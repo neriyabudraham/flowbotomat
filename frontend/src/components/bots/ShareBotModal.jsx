@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Users, Mail, Copy, Check, Trash2, UserPlus, Eye, Edit, Shield } from 'lucide-react';
+import { X, Users, Mail, Copy, Check, Trash2, UserPlus, Eye, Edit, Shield, Download } from 'lucide-react';
 import api from '../../services/api';
 
 const PERMISSIONS = [
@@ -14,6 +14,7 @@ export default function ShareBotModal({ bot, onClose }) {
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState('');
   const [permission, setPermission] = useState('view');
+  const [allowExport, setAllowExport] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [message, setMessage] = useState(null);
 
@@ -43,15 +44,26 @@ export default function ShareBotModal({ bot, onClose }) {
     try {
       const { data } = await api.post(`/sharing/bot/${bot.id}`, { 
         email: email.trim(), 
-        permission 
+        permission,
+        allow_export: allowExport
       });
       setMessage({ type: 'success', text: data.message });
       setEmail('');
+      setAllowExport(false);
       loadShares();
     } catch (err) {
       setMessage({ type: 'error', text: err.response?.data?.error || 'שגיאה בשיתוף' });
     } finally {
       setSharing(false);
+    }
+  };
+
+  const handleUpdateAllowExport = async (shareId, newValue) => {
+    try {
+      await api.put(`/sharing/${shareId}`, { allow_export: newValue });
+      loadShares();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בעדכון');
     }
   };
 
@@ -133,6 +145,20 @@ export default function ShareBotModal({ bot, onClose }) {
               </button>
             </div>
             
+            {/* Allow Export Option */}
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={allowExport}
+                onChange={(e) => setAllowExport(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-600 flex items-center gap-1">
+                <Download className="w-4 h-4" />
+                אפשר הורדה ושכפול
+              </span>
+            </label>
+            
             {message && (
               <div className={`p-3 rounded-lg text-sm ${
                 message.type === 'success' 
@@ -165,40 +191,56 @@ export default function ShareBotModal({ bot, onClose }) {
                   return (
                     <div 
                       key={share.id}
-                      className="flex items-center justify-between p-3 bg-gray-50 rounded-xl"
+                      className="p-3 bg-gray-50 rounded-xl space-y-2"
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                          <span className="text-sm font-medium text-blue-700">
-                            {(share.name || share.email)[0].toUpperCase()}
-                          </span>
-                        </div>
-                        <div>
-                          <div className="font-medium text-gray-800">
-                            {share.name || 'משתמש'}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                            <span className="text-sm font-medium text-blue-700">
+                              {(share.name || share.email)[0].toUpperCase()}
+                            </span>
                           </div>
-                          <div className="text-sm text-gray-500">{share.email}</div>
+                          <div>
+                            <div className="font-medium text-gray-800">
+                              {share.name || 'משתמש'}
+                            </div>
+                            <div className="text-sm text-gray-500">{share.email}</div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={share.permission}
+                            onChange={(e) => handleUpdatePermission(share.id, e.target.value)}
+                            className="px-2 py-1 text-sm border border-gray-200 rounded-lg"
+                          >
+                            {PERMISSIONS.map(p => (
+                              <option key={p.id} value={p.id}>{p.label}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => handleRemoveShare(share.id)}
+                            className="p-1.5 hover:bg-red-50 rounded text-red-500"
+                            title="הסר גישה"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
                       
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={share.permission}
-                          onChange={(e) => handleUpdatePermission(share.id, e.target.value)}
-                          className="px-2 py-1 text-sm border border-gray-200 rounded-lg"
-                        >
-                          {PERMISSIONS.map(p => (
-                            <option key={p.id} value={p.id}>{p.label}</option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() => handleRemoveShare(share.id)}
-                          className="p-1.5 hover:bg-red-50 rounded text-red-500"
-                          title="הסר גישה"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+                      {/* Allow Export Toggle */}
+                      <label className="flex items-center gap-2 cursor-pointer pr-13">
+                        <input
+                          type="checkbox"
+                          checked={share.allow_export || false}
+                          onChange={(e) => handleUpdateAllowExport(share.id, e.target.checked)}
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+                        />
+                        <span className="text-xs text-gray-500 flex items-center gap-1">
+                          <Download className="w-3 h-3" />
+                          מאפשר הורדה ושכפול
+                        </span>
+                      </label>
                     </div>
                   );
                 })}

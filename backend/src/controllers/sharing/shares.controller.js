@@ -60,7 +60,7 @@ async function getSharedWithMe(req, res) {
     const userId = req.user.id;
     
     const result = await db.query(
-      `SELECT b.*, bs.permission, u.email as owner_email, u.name as owner_name
+      `SELECT b.*, bs.permission, bs.allow_export, u.email as owner_email, u.name as owner_name
        FROM bot_shares bs
        JOIN bots b ON bs.bot_id = b.id
        JOIN users u ON bs.owner_id = u.id
@@ -83,7 +83,7 @@ async function getSharedWithMe(req, res) {
 async function shareBot(req, res) {
   try {
     const { botId } = req.params;
-    const { email, permission = 'view' } = req.body;
+    const { email, permission = 'view', allow_export = false } = req.body;
     const userId = req.user.id;
     
     if (!email) {
@@ -115,10 +115,10 @@ async function shareBot(req, res) {
       const inviteToken = crypto.randomBytes(32).toString('hex');
       
       await db.query(
-        `INSERT INTO share_invitations (bot_id, inviter_id, invite_email, invite_token, permission)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO share_invitations (bot_id, inviter_id, invite_email, invite_token, permission, allow_export)
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (invite_token) DO NOTHING`,
-        [botId, userId, email.toLowerCase(), inviteToken, permission]
+        [botId, userId, email.toLowerCase(), inviteToken, permission, allow_export]
       );
       
       // TODO: Send invitation email
@@ -144,10 +144,10 @@ async function shareBot(req, res) {
     );
     
     if (existingShare.rows.length > 0) {
-      // Update permission
+      // Update permission and allow_export
       await db.query(
-        'UPDATE bot_shares SET permission = $1, updated_at = NOW() WHERE bot_id = $2 AND shared_with_id = $3',
-        [permission, botId, targetUserId]
+        'UPDATE bot_shares SET permission = $1, allow_export = $2, updated_at = NOW() WHERE bot_id = $3 AND shared_with_id = $4',
+        [permission, allow_export, botId, targetUserId]
       );
       
       return res.json({
@@ -159,9 +159,9 @@ async function shareBot(req, res) {
     
     // Create share
     await db.query(
-      `INSERT INTO bot_shares (bot_id, owner_id, shared_with_id, permission)
-       VALUES ($1, $2, $3, $4)`,
-      [botId, userId, targetUserId, permission]
+      `INSERT INTO bot_shares (bot_id, owner_id, shared_with_id, permission, allow_export)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [botId, userId, targetUserId, permission, allow_export]
     );
     
     res.json({
@@ -176,12 +176,12 @@ async function shareBot(req, res) {
 }
 
 /**
- * Update share permission
+ * Update share permission or allow_export
  */
 async function updateShare(req, res) {
   try {
     const { shareId } = req.params;
-    const { permission } = req.body;
+    const { permission, allow_export } = req.body;
     const userId = req.user.id;
     
     // Verify ownership
@@ -198,9 +198,31 @@ async function updateShare(req, res) {
       return res.status(403).json({ error: 'אין לך הרשאה' });
     }
     
+    // Build update query dynamically
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+    
+    if (permission !== undefined) {
+      updates.push(`permission = $${paramIndex++}`);
+      values.push(permission);
+    }
+    
+    if (allow_export !== undefined) {
+      updates.push(`allow_export = $${paramIndex++}`);
+      values.push(allow_export);
+    }
+    
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'לא נשלחו פרמטרים לעדכון' });
+    }
+    
+    updates.push('updated_at = NOW()');
+    values.push(shareId);
+    
     await db.query(
-      'UPDATE bot_shares SET permission = $1, updated_at = NOW() WHERE id = $2',
-      [permission, shareId]
+      `UPDATE bot_shares SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
+      values
     );
     
     res.json({ success: true });

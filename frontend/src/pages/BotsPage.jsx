@@ -857,13 +857,24 @@ export default function BotsPage() {
                           <Edit2 className="w-4 h-4" />
                         </button>
                       )}
-                      <button
-                        onClick={(e) => handleExport(e, bot)}
-                        className="p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"
-                        title="ייצוא"
-                      >
-                        <Download className="w-4 h-4" />
-                      </button>
+                      {bot.allow_export && (
+                        <>
+                          <button
+                            onClick={(e) => handleDuplicateClick(e, bot)}
+                            className="p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"
+                            title="שכפול"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={(e) => handleExport(e, bot)}
+                            className="p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"
+                            title="ייצוא"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
