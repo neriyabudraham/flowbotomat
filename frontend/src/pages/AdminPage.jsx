@@ -11,12 +11,15 @@ import AdminUsers from '../components/admin/AdminUsers';
 import AdminPlans from '../components/admin/AdminPlans';
 import AdminSettings from '../components/admin/AdminSettings';
 import AdminLogs from '../components/admin/AdminLogs';
+import AdminBackups from '../components/admin/AdminBackups';
+import { Database } from 'lucide-react';
 
 const TABS = [
   { id: 'dashboard', label: 'דשבורד', icon: BarChart3 },
   { id: 'users', label: 'משתמשים', icon: Users },
   { id: 'plans', label: 'תוכניות', icon: Package },
   { id: 'settings', label: 'הגדרות', icon: Settings },
+  { id: 'backups', label: 'גיבויים', icon: Database },
   { id: 'logs', label: 'לוגים', icon: Activity },
 ];
 
@@ -42,6 +45,8 @@ export default function AdminPage() {
         return <AdminPlans />;
       case 'settings':
         return <AdminSettings />;
+      case 'backups':
+        return <AdminBackups />;
       case 'logs':
         return <AdminLogs />;
       default:

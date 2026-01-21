@@ -6,6 +6,7 @@ const { adminMiddleware, superadminMiddleware } = require('../middlewares/admin.
 // Controllers
 const usersController = require('../controllers/admin/users.controller');
 const settingsController = require('../controllers/admin/settings.controller');
+const backupsController = require('../controllers/admin/backups.controller');
 
 // All admin routes require auth + admin role
 router.use(authMiddleware);
@@ -26,5 +27,11 @@ router.put('/settings/:key', superadminMiddleware, settingsController.updateSett
 
 // Logs
 router.get('/logs', settingsController.getLogs);
+
+// Backups (superadmin only)
+router.get('/backups', superadminMiddleware, backupsController.listBackups);
+router.post('/backups', superadminMiddleware, backupsController.createBackup);
+router.get('/backups/:filename', superadminMiddleware, backupsController.downloadBackup);
+router.delete('/backups/:filename', superadminMiddleware, backupsController.deleteBackup);
 
 module.exports = router;

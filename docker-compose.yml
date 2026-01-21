@@ -67,6 +67,25 @@ services:
     networks:
       - flowbotomat_network
 
+backup:
+    image: postgres:15-alpine
+    container_name: flowbotomat_backup
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - ./scripts/backup.sh:/backup.sh:ro
+      - backups_data:/backups
+    depends_on:
+      - db
+    networks:
+      - flowbotomat_network
+    entrypoint: /bin/sh
+    command: -c "chmod +x /backup.sh && echo '0 3 * * * /backup.sh >> /var/log/backup.log 2>&1' | crontab - && crond -f -l 2"
+
 networks:
   flowbotomat_network:
     driver: bridge
@@ -74,3 +93,4 @@ networks:
 volumes:
   postgres_data:
   uploads_data:
+  backups_data:
