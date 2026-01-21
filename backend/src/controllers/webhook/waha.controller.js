@@ -92,8 +92,14 @@ async function handleIncomingMessage(userId, event) {
   // Log incoming payload for debugging
   console.log('[Webhook] Incoming message payload:', JSON.stringify(payload, null, 2));
   
-  // Skip outgoing messages and status updates
-  if (payload.fromMe || payload.from === 'status@broadcast') {
+  // Skip status updates
+  if (payload.from === 'status@broadcast') {
+    return;
+  }
+  
+  // Handle outgoing messages (sent from device, not from bot)
+  if (payload.fromMe) {
+    await handleOutgoingDeviceMessage(userId, payload);
     return;
   }
   
@@ -308,6 +314,84 @@ function parseMessage(payload) {
   
   // Default: treat as text
   return { type: 'text', content: body };
+}
+
+/**
+ * Handle outgoing messages sent from the actual device (not from bot)
+ */
+async function handleOutgoingDeviceMessage(userId, payload) {
+  // Extract the recipient's phone number
+  const toPhone = payload.to?.split('@')[0] || payload.chatId?.split('@')[0];
+  
+  if (!toPhone || !toPhone.match(/^\d+$/)) {
+    console.log('[Webhook] Could not extract recipient phone from outgoing message');
+    return;
+  }
+  
+  console.log(`[Webhook] Outgoing device message to: ${toPhone}`);
+  
+  // Find the contact
+  const contactResult = await pool.query(
+    'SELECT * FROM contacts WHERE user_id = $1 AND phone = $2',
+    [userId, toPhone]
+  );
+  
+  let contact;
+  if (contactResult.rows.length === 0) {
+    // Create contact if doesn't exist
+    const newContact = await pool.query(
+      `INSERT INTO contacts (user_id, phone, display_name)
+       VALUES ($1, $2, $3)
+       RETURNING *`,
+      [userId, toPhone, toPhone]
+    );
+    contact = newContact.rows[0];
+    console.log(`[Webhook] Created new contact for outgoing message: ${toPhone}`);
+  } else {
+    contact = contactResult.rows[0];
+  }
+  
+  // Check if message already exists (to avoid duplicates)
+  const existingMsg = await pool.query(
+    'SELECT id FROM messages WHERE wa_message_id = $1',
+    [payload.id]
+  );
+  
+  if (existingMsg.rows.length > 0) {
+    console.log('[Webhook] Outgoing message already exists, skipping');
+    return;
+  }
+  
+  // Parse message content
+  const messageData = parseMessage(payload);
+  
+  // Save outgoing message
+  const result = await pool.query(
+    `INSERT INTO messages 
+     (user_id, contact_id, wa_message_id, direction, message_type, 
+      content, media_url, media_mime_type, media_filename, latitude, longitude, sent_at, status)
+     VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, $9, $10, $11, 'sent')
+     RETURNING *`,
+    [userId, contact.id, payload.id, messageData.type, messageData.content,
+     messageData.mediaUrl, messageData.mimeType, messageData.filename,
+     messageData.latitude, messageData.longitude, 
+     payload.timestamp ? new Date(payload.timestamp * 1000) : new Date()]
+  );
+  
+  // Update contact's last message time
+  await pool.query(
+    `UPDATE contacts SET last_message_at = NOW(), last_message = $1, updated_at = NOW() WHERE id = $2`,
+    [messageData.content?.substring(0, 100) || '', contact.id]
+  );
+  
+  // Emit to frontend via Socket.io - use 'outgoing_message' event for device-sent messages
+  const socketManager = getSocketManager();
+  socketManager.emitToUser(userId, 'outgoing_message', {
+    message: result.rows[0],
+    contact,
+  });
+  
+  console.log(`[Webhook] Outgoing device message saved for user ${userId} to ${toPhone}`);
 }
 
 /**

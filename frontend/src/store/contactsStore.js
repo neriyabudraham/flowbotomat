@@ -70,19 +70,31 @@ const useContactsStore = create((set, get) => ({
   },
 
   addMessage: (message) => {
-    const { selectedContact, contacts } = get();
+    const { selectedContact, contacts, messages } = get();
+    
+    // Check for duplicate message (same id)
+    const existingMsg = messages.find(m => m.id === message.id || m.wa_message_id === message.wa_message_id);
+    if (existingMsg) {
+      console.log('[Store] Duplicate message, skipping:', message.id);
+      return;
+    }
     
     // Add to messages if viewing this contact
     if (selectedContact && message.contact_id === selectedContact.id) {
-      set({ messages: [...get().messages, message] });
+      set({ messages: [...messages, message] });
     }
     
-    // Update contact in list
+    // Update contact in list - move to top and update last message
     const updatedContacts = contacts.map(c => 
       c.id === message.contact_id 
-        ? { ...c, last_message: message.content, last_message_at: message.sent_at }
+        ? { ...c, last_message: message.content?.substring(0, 100) || '', last_message_at: message.sent_at }
         : c
-    );
+    ).sort((a, b) => {
+      // Sort by last_message_at descending (most recent first)
+      const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+      const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+      return bTime - aTime;
+    });
     set({ contacts: updatedContacts });
   },
 

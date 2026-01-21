@@ -68,4 +68,51 @@ async function getContactStats(req, res) {
   }
 }
 
-module.exports = { getContactStats };
+/**
+ * Get global contacts statistics for the user
+ */
+async function getGlobalStats(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    // Total contacts count
+    const contactsResult = await db.query(
+      'SELECT COUNT(*) as total FROM contacts WHERE user_id = $1',
+      [userId]
+    );
+    
+    // Active contacts (messaged in last hour)
+    const activeResult = await db.query(`
+      SELECT COUNT(*) as active 
+      FROM contacts 
+      WHERE user_id = $1 AND last_message_at > NOW() - INTERVAL '1 hour'
+    `, [userId]);
+    
+    // Total messages count
+    const messagesResult = await db.query(`
+      SELECT COUNT(*) as total 
+      FROM messages 
+      WHERE user_id = $1
+    `, [userId]);
+    
+    // Messages today
+    const todayMessagesResult = await db.query(`
+      SELECT COUNT(*) as today 
+      FROM messages 
+      WHERE user_id = $1 AND created_at > CURRENT_DATE
+    `, [userId]);
+    
+    res.json({
+      totalContacts: parseInt(contactsResult.rows[0]?.total || 0),
+      activeChats: parseInt(activeResult.rows[0]?.active || 0),
+      messagesCount: parseInt(messagesResult.rows[0]?.total || 0),
+      messagesToday: parseInt(todayMessagesResult.rows[0]?.today || 0),
+    });
+    
+  } catch (error) {
+    console.error('[Contacts] Get global stats error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת סטטיסטיקות' });
+  }
+}
+
+module.exports = { getContactStats, getGlobalStats };
