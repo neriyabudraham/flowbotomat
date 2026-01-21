@@ -1,11 +1,12 @@
-import { Zap, MessageSquare, GitBranch, Clock, Cog } from 'lucide-react';
+import { Zap, MessageSquare, GitBranch, Clock, Cog, List } from 'lucide-react';
 
 const nodeTypes = [
   { type: 'trigger', label: 'טריגר', icon: Zap, color: 'purple', description: 'התחלת הפלואו' },
-  { type: 'message', label: 'הודעה', icon: MessageSquare, color: 'teal', description: 'שליחת הודעה' },
+  { type: 'message', label: 'הודעה', icon: MessageSquare, color: 'teal', description: 'טקסט, תמונה, קובץ' },
+  { type: 'list', label: 'רשימה', icon: List, color: 'cyan', description: 'רשימת בחירה' },
   { type: 'condition', label: 'תנאי', icon: GitBranch, color: 'orange', description: 'בדיקת תנאי' },
   { type: 'delay', label: 'השהייה', icon: Clock, color: 'blue', description: 'המתנה' },
-  { type: 'action', label: 'פעולה', icon: Cog, color: 'pink', description: 'ביצוע פעולה' },
+  { type: 'action', label: 'פעולה', icon: Cog, color: 'pink', description: 'תגית, משתנה, API' },
 ];
 
 const colorClasses = {
@@ -14,6 +15,7 @@ const colorClasses = {
   orange: 'bg-orange-500 group-hover:bg-orange-600',
   blue: 'bg-blue-500 group-hover:bg-blue-600',
   pink: 'bg-pink-500 group-hover:bg-pink-600',
+  cyan: 'bg-cyan-500 group-hover:bg-cyan-600',
 };
 
 export default function NodePalette({ onAddNode }) {

@@ -1,5 +1,6 @@
 const variables = [
   { id: 'message', label: 'תוכן ההודעה', group: 'הודעה' },
+  { id: 'last_message', label: 'ההודעה האחרונה שהתקבלה', group: 'הודעה' },
   { id: 'message_type', label: 'סוג ההודעה', group: 'הודעה' },
   { id: 'contact_name', label: 'שם איש קשר', group: 'איש קשר' },
   { id: 'phone', label: 'מספר טלפון', group: 'איש קשר' },

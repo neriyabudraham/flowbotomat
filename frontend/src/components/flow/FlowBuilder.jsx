@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { TriggerNode, MessageNode, ConditionNode, DelayNode, ActionNode } from './nodes';
+import { TriggerNode, MessageNode, ConditionNode, DelayNode, ActionNode, ListNode } from './nodes';
 import QuickAddMenu from './panels/QuickAddMenu';
 import EdgeWithDelete from './EdgeWithDelete';
 
@@ -23,6 +23,7 @@ const nodeTypes = {
   condition: ConditionNode,
   delay: DelayNode,
   action: ActionNode,
+  list: ListNode,
 };
 
 const edgeTypes = {
@@ -41,6 +42,7 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onNodeDelete, o
   const { screenToFlowPosition, getNode } = useReactFlow();
   const [quickAddMenu, setQuickAddMenu] = useState(null);
   const [pendingConnection, setPendingConnection] = useState(null);
+  const [miniMapCollapsed, setMiniMapCollapsed] = useState(false);
   
   const initialNodes = initialData?.nodes?.length > 0 
     ? initialData.nodes 
@@ -57,7 +59,7 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onNodeDelete, o
         ...node.data,
         onEdit: () => onNodeSelect?.(node),
         onDelete: () => handleDeleteNode(node.id),
-        onDuplicate: () => handleDuplicateNode(node.id),
+        onDuplicate: () => node.type !== 'trigger' && handleDuplicateNode(node.id),
       }
     })));
   }, [onNodeSelect]);
@@ -66,7 +68,12 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onNodeDelete, o
   useEffect(() => {
     const cleanNodes = nodes.map(n => ({
       ...n,
-      data: { ...n.data, onEdit: undefined, onDelete: undefined, onDuplicate: undefined }
+      data: { 
+        ...n.data, 
+        onEdit: undefined, 
+        onDelete: undefined, 
+        onDuplicate: undefined 
+      }
     }));
     onChange?.({ nodes: cleanNodes, edges });
   }, [nodes, edges]);
@@ -79,7 +86,7 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onNodeDelete, o
 
   const handleDuplicateNode = useCallback((nodeId) => {
     const node = getNode(nodeId);
-    if (!node) return;
+    if (!node || node.type === 'trigger') return;
     
     const newNode = {
       ...node,
@@ -153,7 +160,6 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onNodeDelete, o
     setQuickAddMenu(null);
     setPendingConnection(null);
     
-    // Open editor for new node
     setTimeout(() => {
       const node = { id: newNodeId, type, data: getDefaultData(type), position };
       onNodeSelect?.(node);
@@ -197,7 +203,6 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onNodeDelete, o
     [screenToFlowPosition, setNodes, onNodeSelect]
   );
 
-  // Add edges with delete callback
   const edgesWithDelete = edges.map(edge => ({
     ...edge,
     data: { ...edge.data, onDelete: () => handleDeleteEdge(edge.id) }
@@ -225,7 +230,7 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onNodeDelete, o
           markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15 },
         }}
         proOptions={{ hideAttribution: true }}
-        connectionLineStyle={{ strokeWidth: 2, stroke: '#94a3b8' }}
+        connectionLineStyle={{ strokeWidth: 2, stroke: '#64748b' }}
         connectionLineType="smoothstep"
         minZoom={0.3}
         maxZoom={2}
@@ -236,21 +241,36 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onNodeDelete, o
           showInteractive={false}
           className="!bg-white !rounded-xl !border !border-gray-200 !shadow-lg"
         />
-        <MiniMap 
-          position="bottom-right"
-          className="!bg-white !rounded-xl !border !border-gray-200 !shadow-lg"
-          nodeColor={(n) => {
-            switch (n.type) {
-              case 'trigger': return '#a855f7';
-              case 'message': return '#14b8a6';
-              case 'condition': return '#f97316';
-              case 'delay': return '#3b82f6';
-              case 'action': return '#ec4899';
-              default: return '#6b7280';
-            }
-          }}
-          maskColor="rgba(255, 255, 255, 0.8)"
-        />
+        
+        {/* Collapsible MiniMap */}
+        <div className="absolute bottom-4 right-4 z-10">
+          <button
+            onClick={() => setMiniMapCollapsed(!miniMapCollapsed)}
+            className="absolute -top-8 right-0 px-2 py-1 bg-white border border-gray-200 rounded-t-lg text-xs text-gray-500 hover:bg-gray-50"
+          >
+            {miniMapCollapsed ? '📍 הצג מפה' : '📍 הסתר'}
+          </button>
+          {!miniMapCollapsed && (
+            <MiniMap 
+              className="!bg-white !rounded-xl !border !border-gray-200 !shadow-lg !relative !bottom-0 !right-0"
+              style={{ width: 150, height: 100 }}
+              nodeColor={(n) => {
+                switch (n.type) {
+                  case 'trigger': return '#a855f7';
+                  case 'message': return '#14b8a6';
+                  case 'condition': return '#f97316';
+                  case 'delay': return '#3b82f6';
+                  case 'action': return '#ec4899';
+                  case 'list': return '#06b6d4';
+                  default: return '#6b7280';
+                }
+              }}
+              maskColor="rgba(255, 255, 255, 0.8)"
+              pannable
+              zoomable
+            />
+          )}
+        </div>
       </ReactFlow>
       
       {quickAddMenu && (
@@ -287,6 +307,8 @@ function getDefaultData(type) {
       return { delay: 1, unit: 'seconds' };
     case 'action':
       return { actions: [{ type: 'add_tag', tagName: '' }] };
+    case 'list':
+      return { title: '', body: '', buttonText: 'בחר', buttons: [], timeout: 60 };
     default:
       return {};
   }

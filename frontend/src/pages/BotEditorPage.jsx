@@ -1,23 +1,23 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Save, ArrowRight, Play, Pause, Edit2 } from 'lucide-react';
+import { Save, ArrowRight, Edit2 } from 'lucide-react';
 import useBotsStore from '../store/botsStore';
 import FlowBuilder from '../components/flow/FlowBuilder';
 import NodePalette from '../components/flow/NodePalette';
 import NodeEditor from '../components/flow/panels/NodeEditor';
 import Button from '../components/atoms/Button';
-import api from '../services/api';
 
 export default function BotEditorPage() {
   const { botId } = useParams();
   const navigate = useNavigate();
   const { currentBot, fetchBot, saveFlow, updateBot, clearCurrentBot } = useBotsStore();
-  const [flowData, setFlowData] = useState(null);
+  const flowDataRef = useRef(null);
   const [selectedNode, setSelectedNode] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [botName, setBotName] = useState('');
+  const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -29,9 +29,9 @@ export default function BotEditorPage() {
     fetchBot(botId).then((bot) => {
       setBotName(bot.name);
       if (bot.flow_data && bot.flow_data.nodes?.length > 0) {
-        setFlowData(bot.flow_data);
+        flowDataRef.current = bot.flow_data;
       } else {
-        setFlowData({
+        flowDataRef.current = {
           nodes: [{
             id: 'trigger_start',
             type: 'trigger',
@@ -39,28 +39,31 @@ export default function BotEditorPage() {
             data: { triggers: [{ type: 'any_message', value: '' }] },
           }],
           edges: [],
-        });
+        };
       }
+      setIsLoaded(true);
     });
     
     return () => clearCurrentBot();
   }, [botId]);
 
   const handleNodeSelect = useCallback((node) => {
-    // Find the node in flowData to get latest data
-    const currentNode = flowData?.nodes?.find(n => n.id === node.id) || node;
+    const currentNode = flowDataRef.current?.nodes?.find(n => n.id === node.id) || node;
     setSelectedNode(currentNode);
-  }, [flowData]);
+  }, []);
 
   const handleNodeUpdate = useCallback((nodeId, newData) => {
-    setFlowData(prev => ({
-      ...prev,
-      nodes: prev.nodes.map(n => 
+    if (!flowDataRef.current) return;
+    
+    flowDataRef.current = {
+      ...flowDataRef.current,
+      nodes: flowDataRef.current.nodes.map(n => 
         n.id === nodeId 
           ? { ...n, data: { ...n.data, ...newData } }
           : n
       ),
-    }));
+    };
+    
     setSelectedNode(prev => prev?.id === nodeId 
       ? { ...prev, data: { ...prev.data, ...newData } }
       : prev
@@ -81,36 +84,44 @@ export default function BotEditorPage() {
   }, []);
 
   const handleAddNode = useCallback((type) => {
-    if (!flowData) return;
+    if (!flowDataRef.current) return;
     
     const newNode = {
       id: `${type}_${Date.now()}`,
       type,
       position: { 
         x: 300 + Math.random() * 100, 
-        y: 150 + (flowData.nodes?.length || 0) * 120 
+        y: 150 + (flowDataRef.current.nodes?.length || 0) * 120 
       },
       data: getDefaultData(type),
     };
     
-    setFlowData(prev => ({
-      ...prev,
-      nodes: [...(prev?.nodes || []), newNode],
-    }));
+    flowDataRef.current = {
+      ...flowDataRef.current,
+      nodes: [...(flowDataRef.current.nodes || []), newNode],
+    };
     setHasChanges(true);
     setSelectedNode(newNode);
-  }, [flowData]);
-
-  const handleFlowChange = useCallback((newData) => {
-    setFlowData(newData);
-    setHasChanges(true);
   }, []);
 
+  const handleFlowChange = useCallback((newData) => {
+    flowDataRef.current = newData;
+    setHasChanges(true);
+    
+    // Update selected node if it exists in new data
+    if (selectedNode) {
+      const updatedNode = newData.nodes?.find(n => n.id === selectedNode.id);
+      if (updatedNode) {
+        setSelectedNode(updatedNode);
+      }
+    }
+  }, [selectedNode]);
+
   const handleSave = async () => {
-    if (!flowData) return;
+    if (!flowDataRef.current) return;
     setIsSaving(true);
     try {
-      await saveFlow(botId, flowData);
+      await saveFlow(botId, flowDataRef.current);
       setHasChanges(false);
     } catch (err) {
       console.error(err);
@@ -129,7 +140,7 @@ export default function BotEditorPage() {
     setIsEditingName(false);
   };
 
-  if (!currentBot || !flowData) {
+  if (!currentBot || !isLoaded) {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
         <div className="flex flex-col items-center gap-3">
@@ -153,7 +164,6 @@ export default function BotEditorPage() {
               <ArrowRight className="w-5 h-5 text-gray-600" />
             </button>
             
-            {/* Editable Name */}
             {isEditingName ? (
               <input
                 type="text"
@@ -176,7 +186,7 @@ export default function BotEditorPage() {
             
             {hasChanges && (
               <span className="text-xs text-orange-500 bg-orange-50 px-2 py-1 rounded-full">
-                יש שינויים
+                שינויים לא נשמרו
               </span>
             )}
           </div>
@@ -196,10 +206,7 @@ export default function BotEditorPage() {
                   פעיל
                 </>
               ) : (
-                <>
-                  <Pause className="w-4 h-4" />
-                  לא פעיל
-                </>
+                'לא פעיל'
               )}
             </button>
             
@@ -227,7 +234,7 @@ export default function BotEditorPage() {
           <div className="h-full bg-white/50 backdrop-blur rounded-2xl border border-gray-200 shadow-inner overflow-hidden">
             <FlowBuilder 
               key={botId}
-              initialData={flowData} 
+              initialData={flowDataRef.current} 
               onChange={handleFlowChange}
               onNodeSelect={handleNodeSelect}
               onNodeDelete={handleNodeDelete}
@@ -245,11 +252,13 @@ export default function BotEditorPage() {
               onClose={() => setSelectedNode(null)}
               onDelete={(nodeId) => {
                 handleNodeDelete(nodeId);
-                setFlowData(prev => ({
-                  ...prev,
-                  nodes: prev.nodes.filter(n => n.id !== nodeId),
-                  edges: prev.edges.filter(e => e.source !== nodeId && e.target !== nodeId),
-                }));
+                if (flowDataRef.current) {
+                  flowDataRef.current = {
+                    ...flowDataRef.current,
+                    nodes: flowDataRef.current.nodes.filter(n => n.id !== nodeId),
+                    edges: flowDataRef.current.edges.filter(e => e.source !== nodeId && e.target !== nodeId),
+                  };
+                }
               }}
             />
           </div>
@@ -271,6 +280,8 @@ function getDefaultData(type) {
       return { delay: 1, unit: 'seconds' };
     case 'action':
       return { actions: [{ type: 'add_tag', tagName: '' }] };
+    case 'list':
+      return { title: '', body: '', buttonText: 'בחר', buttons: [], timeout: 60 };
     default:
       return {};
   }

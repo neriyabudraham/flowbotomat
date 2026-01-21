@@ -4,6 +4,7 @@ import MessageEditor from './editors/MessageEditor';
 import ConditionEditor from './editors/ConditionEditor';
 import DelayEditor from './editors/DelayEditor';
 import ActionEditor from './editors/ActionEditor';
+import ListEditor from './editors/ListEditor';
 
 const editors = {
   trigger: TriggerEditor,
@@ -11,6 +12,7 @@ const editors = {
   condition: ConditionEditor,
   delay: DelayEditor,
   action: ActionEditor,
+  list: ListEditor,
 };
 
 const titles = {
@@ -19,6 +21,16 @@ const titles = {
   condition: 'עריכת תנאי',
   delay: 'עריכת השהייה',
   action: 'עריכת פעולה',
+  list: 'עריכת רשימת בחירה',
+};
+
+const colors = {
+  trigger: 'bg-purple-50 border-purple-200',
+  message: 'bg-teal-50 border-teal-200',
+  condition: 'bg-orange-50 border-orange-200',
+  delay: 'bg-blue-50 border-blue-200',
+  action: 'bg-pink-50 border-pink-200',
+  list: 'bg-cyan-50 border-cyan-200',
 };
 
 export default function NodeEditor({ node, onUpdate, onClose, onDelete }) {
@@ -32,13 +44,13 @@ export default function NodeEditor({ node, onUpdate, onClose, onDelete }) {
   };
   
   return (
-    <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-full shadow-xl">
+    <div className="w-96 bg-white border-r border-gray-200 flex flex-col h-full shadow-xl">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
+      <div className={`flex items-center justify-between px-4 py-3 border-b ${colors[node.type] || 'bg-gray-50 border-gray-200'}`}>
         <h3 className="font-bold text-gray-800">{titles[node.type]}</h3>
         <button
           onClick={onClose}
-          className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+          className="p-2 hover:bg-white/50 rounded-lg transition-colors"
         >
           <X className="w-5 h-5 text-gray-500" />
         </button>
