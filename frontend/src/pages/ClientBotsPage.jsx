@@ -23,6 +23,13 @@ export default function ClientBotsPage() {
   const [importData, setImportData] = useState(null);
   const [importName, setImportName] = useState('');
   const [importing, setImporting] = useState(false);
+  
+  // Duplicate/Delete modals
+  const [showDuplicate, setShowDuplicate] = useState(false);
+  const [duplicateBot, setDuplicateBot] = useState(null);
+  const [duplicateName, setDuplicateName] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteBot, setDeleteBot] = useState(null);
 
   useEffect(() => {
     loadClientBots();
@@ -133,21 +140,40 @@ export default function ClientBotsPage() {
     }
   };
 
-  const handleDelete = async (e, bot) => {
+  const handleDeleteClick = (e, bot) => {
     e.stopPropagation();
-    if (!confirm(`למחוק את הבוט "${bot.name}"?`)) return;
+    setDeleteBot(bot);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteBot) return;
     try {
-      await api.delete(`/bots/${bot.id}`);
+      await api.delete(`/bots/${deleteBot.id}`);
+      setShowDeleteConfirm(false);
+      setDeleteBot(null);
       loadClientBots();
     } catch (err) {
       alert(err.response?.data?.error || 'שגיאה במחיקה');
     }
   };
 
-  const handleDuplicate = async (e, bot) => {
+  const handleDuplicateClick = (e, bot) => {
     e.stopPropagation();
+    setDuplicateBot(bot);
+    setDuplicateName(`${bot.name} (עותק)`);
+    setShowDuplicate(true);
+  };
+
+  const handleDuplicateConfirm = async () => {
+    if (!duplicateBot || !duplicateName.trim()) return;
     try {
-      await api.post(`/experts/client/${clientId}/bots/duplicate/${bot.id}`);
+      await api.post(`/experts/client/${clientId}/bots/duplicate/${duplicateBot.id}`, {
+        name: duplicateName.trim()
+      });
+      setShowDuplicate(false);
+      setDuplicateBot(null);
+      setDuplicateName('');
       loadClientBots();
     } catch (err) {
       alert(err.response?.data?.error || 'שגיאה בשכפול');
@@ -302,7 +328,7 @@ export default function ClientBotsPage() {
                         {bot.isCreator && (
                           <>
                             <button
-                              onClick={(e) => handleDuplicate(e, bot)}
+                              onClick={(e) => handleDuplicateClick(e, bot)}
                               className="p-2 rounded-lg bg-purple-100 text-purple-600 hover:bg-purple-200"
                               title="שכפול"
                             >
@@ -316,7 +342,7 @@ export default function ClientBotsPage() {
                               <Download className="w-4 h-4" />
                             </button>
                             <button
-                              onClick={(e) => handleDelete(e, bot)}
+                              onClick={(e) => handleDeleteClick(e, bot)}
                               className="p-2 rounded-lg bg-red-100 text-red-600 hover:bg-red-200"
                               title="מחיקה"
                             >
@@ -432,6 +458,68 @@ export default function ClientBotsPage() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Duplicate Modal */}
+        {showDuplicate && duplicateBot && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowDuplicate(false)}>
+            <div className="bg-white rounded-2xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-gray-800">שכפול בוט</h2>
+                <button onClick={() => setShowDuplicate(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              
+              <div className="p-4 bg-purple-50 rounded-xl mb-4 text-center">
+                <Copy className="w-8 h-8 text-purple-500 mx-auto mb-2" />
+                <p className="text-purple-700 text-sm">יוצר עותק של "<span className="font-medium">{duplicateBot.name}</span>"</p>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">שם הבוט החדש</label>
+                <input
+                  type="text"
+                  value={duplicateName}
+                  onChange={(e) => setDuplicateName(e.target.value)}
+                  placeholder="הזן שם..."
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-200 outline-none"
+                  autoFocus
+                />
+              </div>
+              
+              <div className="flex gap-3 mt-6">
+                <Button variant="ghost" onClick={() => setShowDuplicate(false)} className="flex-1 !rounded-xl">ביטול</Button>
+                <Button onClick={handleDuplicateConfirm} className="flex-1 !rounded-xl" disabled={!duplicateName.trim()}>שכפל</Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteConfirm && deleteBot && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowDeleteConfirm(false)}>
+            <div className="bg-white rounded-2xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-gray-800">מחיקת בוט</h2>
+                <button onClick={() => setShowDeleteConfirm(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              
+              <div className="p-4 bg-red-50 rounded-xl mb-4 text-center">
+                <Trash2 className="w-8 h-8 text-red-500 mx-auto mb-2" />
+                <p className="text-red-700">האם למחוק את הבוט</p>
+                <p className="text-red-800 font-bold text-lg">"{deleteBot.name}"?</p>
+                <p className="text-red-600 text-sm mt-2">פעולה זו לא ניתנת לביטול</p>
+              </div>
+              
+              <div className="flex gap-3">
+                <Button variant="ghost" onClick={() => setShowDeleteConfirm(false)} className="flex-1 !rounded-xl">ביטול</Button>
+                <Button onClick={handleDeleteConfirm} className="flex-1 !rounded-xl !bg-red-500 hover:!bg-red-600">מחק</Button>
+              </div>
             </div>
           </div>
         )}

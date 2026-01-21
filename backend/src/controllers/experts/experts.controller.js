@@ -383,6 +383,7 @@ async function duplicateClientBot(req, res) {
   try {
     const expertId = req.user.id;
     const { clientId, botId } = req.params;
+    const { name } = req.body; // Custom name from modal
     
     // Verify expert relationship with edit permissions
     const relationship = await db.query(
@@ -411,12 +412,15 @@ async function duplicateClientBot(req, res) {
       return res.status(403).json({ error: 'ניתן לשכפל רק בוטים שיצרת' });
     }
     
+    // Use provided name or default
+    const newName = name?.trim() || `${bot.name} (עותק)`;
+    
     // Create duplicate
     const result = await db.query(
       `INSERT INTO bots (user_id, name, description, flow_data, is_active, created_by)
        VALUES ($1, $2, $3, $4, false, $5)
        RETURNING *`,
-      [clientId, `${bot.name} (עותק)`, bot.description, bot.flow_data, expertId]
+      [clientId, newName, bot.description, bot.flow_data, expertId]
     );
     
     console.log(`[Experts] Expert ${expertId} duplicated bot ${botId} for client ${clientId}`);
