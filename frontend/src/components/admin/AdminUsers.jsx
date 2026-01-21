@@ -8,6 +8,11 @@ import useAuthStore from '../../store/authStore';
 
 export default function AdminUsers() {
   const { user: currentUser } = useAuthStore();
+  
+  // Safety check - if no user, don't render
+  if (!currentUser) {
+    return <div className="text-center py-8 text-gray-500">טוען...</div>;
+  }
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
