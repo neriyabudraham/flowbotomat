@@ -67,7 +67,7 @@ services:
     networks:
       - flowbotomat_network
 
-backup:
+  backup:
     image: postgres:15-alpine
     container_name: flowbotomat_backup
     restart: unless-stopped
