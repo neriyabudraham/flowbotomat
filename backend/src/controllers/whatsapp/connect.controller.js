@@ -24,7 +24,17 @@ function getWebhookUrl(userId) {
 async function createManaged(req, res) {
   try {
     const userId = req.user.id;
-    const userEmail = req.user.email;
+    
+    // Get user email - from token or from DB
+    let userEmail = req.user.email;
+    if (!userEmail) {
+      const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
+      userEmail = userResult.rows[0]?.email;
+    }
+    
+    if (!userEmail) {
+      return res.status(400).json({ error: 'לא נמצא מייל למשתמש' });
+    }
     
     // Check if user already has a connection in our DB
     const existing = await pool.query(
