@@ -80,9 +80,24 @@ class BotEngine {
           return;
         }
         
-        // Continue from where we left off - pass selectedRowId for list responses
-        await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId);
-        return;
+        // Handle based on what we're waiting for
+        if (session.waiting_for === 'list_response') {
+          // Waiting for list button click
+          if (messageType === 'list_response') {
+            // Got a list response - continue session
+            await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId);
+            return;
+          } else {
+            // Got regular message while waiting for list - check triggers normally
+            console.log('[BotEngine] 📝 Received text while waiting for list - checking triggers');
+            // Don't return - fall through to trigger check below
+          }
+        } else if (session.waiting_for === 'reply') {
+          // Waiting for any reply (text/media) - this BLOCKS new triggers
+          console.log('[BotEngine] ⏳ Waiting for reply - continuing session');
+          await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId);
+          return;
+        }
       }
       
       // If this is a list_response but no session exists, ignore it
