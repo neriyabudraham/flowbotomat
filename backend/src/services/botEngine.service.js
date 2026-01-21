@@ -58,7 +58,7 @@ class BotEngine {
       
       // Process each active bot
       for (const bot of botsResult.rows) {
-        await this.processBot(bot, contact, message, messageType, userId, selectedRowId);
+        await this.processBot(bot, contact, message, messageType, userId, selectedRowId, quotedListTitle);
       }
       
     } catch (error) {
@@ -67,7 +67,7 @@ class BotEngine {
   }
   
   // Process single bot
-  async processBot(bot, contact, message, messageType, userId, selectedRowId = null) {
+  async processBot(bot, contact, message, messageType, userId, selectedRowId = null, quotedListTitle = null) {
     try {
       const flowData = bot.flow_data;
       if (!flowData || !flowData.nodes || flowData.nodes.length === 0) {
