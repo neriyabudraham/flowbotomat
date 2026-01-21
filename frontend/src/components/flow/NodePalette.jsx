@@ -1,22 +1,22 @@
-import { MessageSquare, GitBranch, Clock, Cog, List, ClipboardList, Sparkles } from 'lucide-react';
+import { MessageSquare, GitBranch, Clock, Cog, List, ClipboardList, Plus } from 'lucide-react';
 
 // Trigger is created automatically with new bot, not in palette
 const nodeTypes = [
-  { type: 'message', label: 'הודעה', icon: MessageSquare, color: 'teal', description: 'שלח טקסט, תמונה, סרטון או קובץ', emoji: '💬' },
-  { type: 'list', label: 'רשימה', icon: List, color: 'cyan', description: 'רשימת בחירה עם כפתורים', emoji: '📋' },
-  { type: 'registration', label: 'תהליך רישום', icon: ClipboardList, color: 'indigo', description: 'שאלות ומיפוי נתונים', emoji: '📝' },
-  { type: 'condition', label: 'תנאי', icon: GitBranch, color: 'orange', description: 'הסתעפות לפי תנאים', emoji: '🔀' },
-  { type: 'delay', label: 'השהייה', icon: Clock, color: 'blue', description: 'המתנה לפני המשך', emoji: '⏱️' },
-  { type: 'action', label: 'פעולה', icon: Cog, color: 'pink', description: 'תגיות, משתנים וקריאות API', emoji: '⚡' },
+  { type: 'message', label: 'הודעה', icon: MessageSquare, color: 'teal', description: 'טקסט, תמונה, סרטון או קובץ' },
+  { type: 'list', label: 'רשימה', icon: List, color: 'cyan', description: 'בחירה עם כפתורים' },
+  { type: 'registration', label: 'רישום', icon: ClipboardList, color: 'indigo', description: 'שאלות ומיפוי נתונים' },
+  { type: 'condition', label: 'תנאי', icon: GitBranch, color: 'orange', description: 'הסתעפות לפי תנאים' },
+  { type: 'delay', label: 'השהייה', icon: Clock, color: 'blue', description: 'המתנה לפני המשך' },
+  { type: 'action', label: 'פעולה', icon: Cog, color: 'pink', description: 'תגיות ומשתנים' },
 ];
 
 const colorConfig = {
-  teal: { bg: 'bg-gradient-to-br from-teal-400 to-teal-600', border: 'border-teal-200', hover: 'hover:border-teal-300 hover:shadow-teal-100' },
-  cyan: { bg: 'bg-gradient-to-br from-cyan-400 to-cyan-600', border: 'border-cyan-200', hover: 'hover:border-cyan-300 hover:shadow-cyan-100' },
-  indigo: { bg: 'bg-gradient-to-br from-indigo-400 to-indigo-600', border: 'border-indigo-200', hover: 'hover:border-indigo-300 hover:shadow-indigo-100' },
-  orange: { bg: 'bg-gradient-to-br from-orange-400 to-orange-600', border: 'border-orange-200', hover: 'hover:border-orange-300 hover:shadow-orange-100' },
-  blue: { bg: 'bg-gradient-to-br from-blue-400 to-blue-600', border: 'border-blue-200', hover: 'hover:border-blue-300 hover:shadow-blue-100' },
-  pink: { bg: 'bg-gradient-to-br from-pink-400 to-pink-600', border: 'border-pink-200', hover: 'hover:border-pink-300 hover:shadow-pink-100' },
+  teal: 'from-teal-500 to-teal-600',
+  cyan: 'from-cyan-500 to-cyan-600',
+  indigo: 'from-indigo-500 to-indigo-600',
+  orange: 'from-orange-500 to-orange-600',
+  blue: 'from-blue-500 to-blue-600',
+  pink: 'from-pink-500 to-pink-600',
 };
 
 export default function NodePalette({ onAddNode }) {
@@ -26,58 +26,47 @@ export default function NodePalette({ onAddNode }) {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+    <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl border border-gray-100 overflow-hidden w-[200px]">
       {/* Header */}
-      <div className="bg-gradient-to-r from-gray-800 to-gray-900 px-5 py-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h3 className="font-bold text-white">הוסף רכיב</h3>
-            <p className="text-xs text-gray-400">לחץ להוספה או גרור לקנבס</p>
-          </div>
-        </div>
+      <div className="px-4 py-3 border-b border-gray-100">
+        <h3 className="font-bold text-gray-800 text-sm">רכיבים</h3>
       </div>
       
       {/* Node List */}
-      <div className="p-3 space-y-2">
-        {nodeTypes.map(({ type, label, icon: Icon, color, description, emoji }) => {
-          const colors = colorConfig[color];
+      <div className="p-2 space-y-1.5">
+        {nodeTypes.map(({ type, label, icon: Icon, color, description }) => {
+          const gradient = colorConfig[color];
           return (
             <div
               key={type}
               draggable
               onDragStart={(e) => handleDragStart(e, type)}
               onClick={() => onAddNode(type)}
-              className={`group flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 border-2 ${colors.border} ${colors.hover} hover:shadow-lg bg-white`}
+              className="group cursor-pointer"
             >
-              {/* Icon */}
-              <div className={`w-11 h-11 rounded-xl ${colors.bg} flex items-center justify-center shadow-md transition-transform group-hover:scale-110`}>
-                <Icon className="w-5 h-5 text-white" />
-              </div>
-              
-              {/* Content */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-base">{emoji}</span>
-                  <span className="font-semibold text-gray-800">{label}</span>
+              {/* Mini Node Card - resembles actual nodes */}
+              <div className="bg-white rounded-xl border-2 border-gray-100 hover:border-gray-200 transition-all duration-200 hover:shadow-md overflow-hidden">
+                {/* Colored Header - like real nodes */}
+                <div className={`flex items-center gap-2 px-3 py-2 bg-gradient-to-l ${gradient}`}>
+                  <div className="w-6 h-6 rounded-md bg-white/20 flex items-center justify-center">
+                    <Icon className="w-3.5 h-3.5 text-white" />
+                  </div>
+                  <span className="font-semibold text-white text-sm">{label}</span>
+                  <Plus className="w-4 h-4 text-white/60 mr-auto opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
-                <p className="text-xs text-gray-500 mt-0.5">{description}</p>
-              </div>
-              
-              {/* Add indicator */}
-              <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <span className="text-gray-600 font-bold">+</span>
+                {/* Description */}
+                <div className="px-3 py-2">
+                  <p className="text-xs text-gray-500 leading-relaxed">{description}</p>
+                </div>
               </div>
             </div>
           );
         })}
       </div>
       
-      {/* Footer */}
-      <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
-        <p className="text-xs text-gray-500 text-center">💡 משוך קו לרקע ליצירה מהירה</p>
+      {/* Footer hint */}
+      <div className="px-3 py-2 bg-gray-50 border-t border-gray-100">
+        <p className="text-[10px] text-gray-400 text-center">גרור או לחץ להוספה</p>
       </div>
     </div>
   );
