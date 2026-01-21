@@ -2,10 +2,7 @@ import { useState, useRef } from 'react';
 import { Plus, X, GripVertical, MessageSquare, Image, FileText, Clock, Upload, CheckCircle } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 
-const LIMITS = {
-  text: 4096,
-  caption: 1024,
-};
+const LIMITS = { text: 4096, caption: 1024 };
 
 const actionTypes = [
   { id: 'text', label: 'טקסט', icon: MessageSquare },
@@ -92,13 +89,16 @@ export default function MessageEditor({ data, onUpdate }) {
         </div>
       </div>
 
-      {/* Wait for reply */}
+      {/* Wait for reply - Optional with button */}
       <div className="border-t border-gray-100 pt-4">
         <label className="flex items-center gap-3 cursor-pointer">
           <input
             type="checkbox"
             checked={data.waitForReply || false}
-            onChange={(e) => onUpdate({ waitForReply: e.target.checked })}
+            onChange={(e) => onUpdate({ 
+              waitForReply: e.target.checked,
+              timeout: e.target.checked ? null : undefined 
+            })}
             className="w-5 h-5 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
           />
           <div>
@@ -108,26 +108,36 @@ export default function MessageEditor({ data, onUpdate }) {
         </label>
         
         {data.waitForReply && (
-          <div className="mt-3 mr-8">
-            <label className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">זמן המתנה:</span>
+          <div className="mt-3 mr-8 space-y-2">
+            <label className="flex items-center gap-3 cursor-pointer">
               <input
-                type="number"
-                value={data.timeout || 60}
-                onChange={(e) => onUpdate({ timeout: parseInt(e.target.value) || null })}
-                min={10}
-                className="w-20 px-2 py-1 border border-gray-200 rounded-lg text-sm text-center"
+                type="checkbox"
+                checked={data.timeout !== null && data.timeout !== undefined}
+                onChange={(e) => onUpdate({ timeout: e.target.checked ? 60 : null })}
+                className="w-4 h-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
               />
-              <span className="text-sm text-gray-500">שניות</span>
+              <span className="text-sm text-gray-600">הגבל זמן המתנה</span>
             </label>
-            <p className="text-xs text-gray-400 mt-1">השאר ריק להמתנה ללא הגבלה</p>
+            
+            {data.timeout !== null && data.timeout !== undefined && (
+              <div className="flex items-center gap-2 mr-7">
+                <input
+                  type="number"
+                  value={data.timeout}
+                  onChange={(e) => onUpdate({ timeout: parseInt(e.target.value) || 60 })}
+                  min={10}
+                  className="w-20 px-2 py-1 border border-gray-200 rounded-lg text-sm text-center"
+                />
+                <span className="text-sm text-gray-500">שניות</span>
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* Tip */}
       <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500">
-        💡 לשליחת רשימת בחירה, הוסף מודול "רשימה" נפרד מהפלטה.
+        💡 לרשימת בחירה, הוסף מודול "רשימה" מהפלטה.
       </div>
     </div>
   );
@@ -140,15 +150,9 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
   const handleFileUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
     const reader = new FileReader();
     reader.onload = () => {
-      onUpdate({ 
-        localFile: true,
-        fileName: file.name,
-        fileData: reader.result,
-        url: URL.createObjectURL(file)
-      });
+      onUpdate({ localFile: true, fileName: file.name, fileData: reader.result, url: URL.createObjectURL(file) });
     };
     reader.readAsDataURL(file);
   };
@@ -191,79 +195,33 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
             <span className="text-sm">העלה תמונה</span>
           </button>
           <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-          
           {action.fileName && (
             <div className="flex items-center gap-2 p-2 bg-teal-50 rounded-lg text-sm text-teal-700">
-              <CheckCircle className="w-4 h-4" />
-              {action.fileName}
+              <CheckCircle className="w-4 h-4" />{action.fileName}
             </div>
           )}
-          
           <div className="text-xs text-gray-400 text-center">או</div>
-          
-          <input
-            type="url"
-            value={action.url || ''}
-            onChange={(e) => onUpdate({ url: e.target.value, localFile: false })}
-            placeholder="הדבק URL לתמונה..."
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-            dir="ltr"
-          />
-          
-          <TextInputWithVariables
-            value={action.caption || ''}
-            onChange={(v) => onUpdate({ caption: v })}
-            placeholder="כיתוב (אופציונלי)..."
-            maxLength={LIMITS.caption}
-          />
+          <input type="url" value={action.url || ''} onChange={(e) => onUpdate({ url: e.target.value, localFile: false })} placeholder="URL לתמונה..." className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm" dir="ltr" />
+          <TextInputWithVariables value={action.caption || ''} onChange={(v) => onUpdate({ caption: v })} placeholder="כיתוב..." maxLength={LIMITS.caption} />
         </div>
       )}
 
       {action.type === 'file' && (
         <div className="space-y-2">
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full flex items-center justify-center gap-2 py-3 bg-white border-2 border-dashed border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50"
-          >
-            <Upload className="w-4 h-4" />
-            <span className="text-sm">העלה קובץ</span>
+          <button onClick={() => fileInputRef.current?.click()} className="w-full flex items-center justify-center gap-2 py-3 bg-white border-2 border-dashed border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50">
+            <Upload className="w-4 h-4" /><span className="text-sm">העלה קובץ</span>
           </button>
           <input ref={fileInputRef} type="file" onChange={handleFileUpload} className="hidden" />
-          
-          {action.fileName && (
-            <div className="flex items-center gap-2 p-2 bg-teal-50 rounded-lg text-sm text-teal-700">
-              <CheckCircle className="w-4 h-4" />
-              {action.fileName}
-            </div>
-          )}
-          
+          {action.fileName && <div className="flex items-center gap-2 p-2 bg-teal-50 rounded-lg text-sm text-teal-700"><CheckCircle className="w-4 h-4" />{action.fileName}</div>}
           <div className="text-xs text-gray-400 text-center">או</div>
-          
-          <input
-            type="url"
-            value={action.url || ''}
-            onChange={(e) => onUpdate({ url: e.target.value, localFile: false })}
-            placeholder="הדבק URL לקובץ..."
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-            dir="ltr"
-          />
+          <input type="url" value={action.url || ''} onChange={(e) => onUpdate({ url: e.target.value, localFile: false })} placeholder="URL לקובץ..." className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm" dir="ltr" />
         </div>
       )}
 
       {action.type === 'delay' && (
         <div className="flex gap-2">
-          <input
-            type="number"
-            value={action.delay || 1}
-            onChange={(e) => onUpdate({ delay: Math.max(1, parseInt(e.target.value) || 1) })}
-            min={1}
-            className="w-20 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-center"
-          />
-          <select
-            value={action.unit || 'seconds'}
-            onChange={(e) => onUpdate({ unit: e.target.value })}
-            className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-          >
+          <input type="number" value={action.delay || 1} onChange={(e) => onUpdate({ delay: Math.max(1, parseInt(e.target.value) || 1) })} min={1} className="w-20 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-center" />
+          <select value={action.unit || 'seconds'} onChange={(e) => onUpdate({ unit: e.target.value })} className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm">
             <option value="seconds">שניות</option>
             <option value="minutes">דקות</option>
           </select>

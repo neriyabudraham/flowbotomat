@@ -1,5 +1,6 @@
 const pool = require('../../config/database');
 const { getSocketManager } = require('../../services/socket/manager.service');
+const botEngine = require('../../services/botEngine.service');
 
 /**
  * Extract real phone number from payload
@@ -138,6 +139,13 @@ async function handleIncomingMessage(userId, event) {
   });
   
   console.log(`[Webhook] Message saved for user ${userId} from ${phone}`);
+  
+  // Process with bot engine
+  try {
+    await botEngine.processMessage(userId, phone, messageData.content, messageData.type);
+  } catch (botError) {
+    console.error('[Webhook] Bot engine error:', botError);
+  }
 }
 
 /**

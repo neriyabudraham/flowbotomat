@@ -105,6 +105,58 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
   return response.data;
 }
 
+/**
+ * Send text message
+ */
+async function sendMessage(connection, phone, text) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  
+  const response = await client.post(`/api/sendText`, {
+    session: connection.session_name,
+    chatId: chatId,
+    text: text,
+  });
+  
+  console.log(`[WAHA] Sent message to ${phone}`);
+  return response.data;
+}
+
+/**
+ * Send image
+ */
+async function sendImage(connection, phone, imageUrl, caption = '') {
+  const client = createClient(connection.base_url, connection.api_key);
+  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  
+  const response = await client.post(`/api/sendImage`, {
+    session: connection.session_name,
+    chatId: chatId,
+    file: { url: imageUrl },
+    caption: caption,
+  });
+  
+  console.log(`[WAHA] Sent image to ${phone}`);
+  return response.data;
+}
+
+/**
+ * Send file
+ */
+async function sendFile(connection, phone, fileUrl, filename = 'file') {
+  const client = createClient(connection.base_url, connection.api_key);
+  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  
+  const response = await client.post(`/api/sendFile`, {
+    session: connection.session_name,
+    chatId: chatId,
+    file: { url: fileUrl },
+  });
+  
+  console.log(`[WAHA] Sent file to ${phone}`);
+  return response.data;
+}
+
 module.exports = {
   createSession,
   startSession,
@@ -113,4 +165,7 @@ module.exports = {
   getSessionStatus,
   getQRCode,
   addWebhook,
+  sendMessage,
+  sendImage,
+  sendFile,
 };
