@@ -42,9 +42,9 @@ export default function PricingPage() {
 
   const handleSelectPlan = (plan) => {
     if (!isAuthenticated) {
-      navigate('/register', { state: { selectedPlan: plan.id } });
+      navigate('/login', { state: { returnTo: `/checkout?plan=${plan.id}&period=${billingPeriod}` } });
     } else {
-      navigate('/settings', { state: { tab: 'subscription', selectedPlan: plan.id } });
+      navigate(`/checkout?plan=${plan.id}&period=${billingPeriod}`);
     }
   };
 

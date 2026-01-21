@@ -15,6 +15,7 @@ import AdminPage from './pages/AdminPage';
 import NotificationsPage from './pages/NotificationsPage';
 import ClientBotsPage from './pages/ClientBotsPage';
 import PricingPage from './pages/PricingPage';
+import CheckoutPage from './pages/CheckoutPage';
 import useThemeStore from './store/themeStore';
 
 function App() {
@@ -30,6 +31,7 @@ function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/verify" element={<VerifyPage />} />
