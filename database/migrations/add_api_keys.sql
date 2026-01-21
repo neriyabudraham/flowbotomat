@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
     key_hash VARCHAR(255) NOT NULL, -- hashed API key
-    key_prefix VARCHAR(10) NOT NULL, -- first 8 chars for display (e.g., "sk_live_abc")
+    key_prefix VARCHAR(20) NOT NULL, -- first 15 chars for display (e.g., "sk_live_abc1234")
     permissions JSONB DEFAULT '["send_message", "send_image", "send_video", "send_document", "send_list", "get_contacts"]',
     is_active BOOLEAN DEFAULT true,
     last_used_at TIMESTAMP,

@@ -65,7 +65,7 @@ async function createApiKey(req, res) {
     // Generate new key
     const apiKey = generateApiKey();
     const keyHash = hashApiKey(apiKey);
-    const keyPrefix = apiKey.substring(0, 12) + '...'; // Show first 12 chars
+    const keyPrefix = apiKey.substring(0, 15); // Show first 15 chars
     
     // Default permissions
     const defaultPermissions = [
@@ -259,7 +259,7 @@ async function regenerateApiKey(req, res) {
     // Generate new key
     const newApiKey = generateApiKey();
     const newKeyHash = hashApiKey(newApiKey);
-    const newKeyPrefix = newApiKey.substring(0, 12) + '...';
+    const newKeyPrefix = newApiKey.substring(0, 15);
     
     // Update
     await db.query(`
