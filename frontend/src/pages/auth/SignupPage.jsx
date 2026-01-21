@@ -54,7 +54,7 @@ export default function SignupPage() {
           <div className="space-y-4 mb-8">
             {[
               { icon: Sparkles, text: '14 ימי ניסיון חינם' },
-              { icon: Bot, text: 'בנה בוטים ללא הגבלה' },
+              { icon: Bot, text: 'עורך ויזואלי פשוט' },
               { icon: Zap, text: 'חיבור WhatsApp קל ומהיר' },
               { icon: Shield, text: 'אבטחה ברמה הגבוהה ביותר' },
             ].map((item, i) => (

@@ -51,7 +51,7 @@ export default function LoginPage() {
 
           <div className="space-y-4">
             {[
-              { icon: Bot, text: 'ניהול בוטים ללא הגבלה' },
+              { icon: Bot, text: 'בוטים אוטומטיים לWhatsApp' },
               { icon: Zap, text: 'עורך ויזואלי אינטואיטיבי' },
               { icon: Shield, text: 'אבטחה ברמה הגבוהה ביותר' },
             ].map((item, i) => (

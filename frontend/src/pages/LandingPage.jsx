@@ -2,13 +2,14 @@ import { useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
   Bot, MessageCircle, Zap, Users, Check, ChevronLeft, Play, 
-  List, Settings, Clock, BarChart3, Shield, Sparkles,
+  List, Clock, BarChart3, Shield, Sparkles,
   Globe, Headphones, Workflow, Database, RefreshCw, X
 } from 'lucide-react';
 import {
   ReactFlow,
   Background,
   Controls,
+  addEdge,
   useNodesState,
   useEdgesState,
   Handle,
@@ -24,7 +25,7 @@ import Input from '../components/atoms/Input';
 import Button from '../components/atoms/Button';
 import Alert from '../components/atoms/Alert';
 
-// Custom Edge with Delete Button
+// Custom Edge with Delete Button - Animated
 function DemoEdgeWithDelete({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data }) {
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX, sourceY, sourcePosition,
@@ -33,7 +34,7 @@ function DemoEdgeWithDelete({ id, sourceX, sourceY, targetX, targetY, sourcePosi
 
   return (
     <>
-      <BaseEdge path={edgePath} style={{ stroke: '#6366f1', strokeWidth: 3 }} />
+      <BaseEdge path={edgePath} style={{ stroke: '#6366f1', strokeWidth: 3 }} className="animated" />
       <EdgeLabelRenderer>
         <div
           style={{
@@ -55,7 +56,7 @@ function DemoEdgeWithDelete({ id, sourceX, sourceY, targetX, targetY, sourcePosi
   );
 }
 
-// Custom Node Components for Demo - HORIZONTAL
+// Custom Node Components for Demo - HORIZONTAL (Left to Right)
 function DemoTriggerNode({ data }) {
   return (
     <div className="w-64 bg-white rounded-xl border-2 border-green-400 shadow-xl">
@@ -67,7 +68,7 @@ function DemoTriggerNode({ data }) {
         <div className="text-xs text-gray-400 mb-1">הפעלה בעת:</div>
         <div className="text-gray-800 font-medium text-sm">{data.label}</div>
       </div>
-      <Handle type="source" position={Position.Left} className="!bg-green-500 !w-4 !h-4 !border-2 !border-white" />
+      <Handle type="source" position={Position.Right} className="!bg-green-500 !w-4 !h-4 !border-2 !border-white" />
     </div>
   );
 }
@@ -75,7 +76,7 @@ function DemoTriggerNode({ data }) {
 function DemoMessageNode({ data }) {
   return (
     <div className="w-64 bg-white rounded-xl border-2 border-blue-400 shadow-xl">
-      <Handle type="target" position={Position.Right} className="!bg-blue-500 !w-4 !h-4 !border-2 !border-white" />
+      <Handle type="target" position={Position.Left} className="!bg-blue-500 !w-4 !h-4 !border-2 !border-white" />
       <div className="px-4 py-3 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-t-lg flex items-center gap-2">
         <MessageCircle className="w-5 h-5 text-white" />
         <span className="font-bold text-white">הודעה</span>
@@ -85,7 +86,7 @@ function DemoMessageNode({ data }) {
           {data.label}
         </div>
       </div>
-      <Handle type="source" position={Position.Left} className="!bg-blue-500 !w-4 !h-4 !border-2 !border-white" />
+      <Handle type="source" position={Position.Right} className="!bg-blue-500 !w-4 !h-4 !border-2 !border-white" />
     </div>
   );
 }
@@ -93,7 +94,7 @@ function DemoMessageNode({ data }) {
 function DemoButtonsNode({ data }) {
   return (
     <div className="w-64 bg-white rounded-xl border-2 border-purple-400 shadow-xl">
-      <Handle type="target" position={Position.Right} className="!bg-purple-500 !w-4 !h-4 !border-2 !border-white" />
+      <Handle type="target" position={Position.Left} className="!bg-purple-500 !w-4 !h-4 !border-2 !border-white" />
       <div className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-t-lg flex items-center gap-2">
         <List className="w-5 h-5 text-white" />
         <span className="font-bold text-white">כפתורי בחירה</span>
@@ -105,7 +106,7 @@ function DemoButtonsNode({ data }) {
           </div>
         ))}
       </div>
-      <Handle type="source" position={Position.Left} className="!bg-purple-500 !w-4 !h-4 !border-2 !border-white" />
+      <Handle type="source" position={Position.Right} className="!bg-purple-500 !w-4 !h-4 !border-2 !border-white" />
     </div>
   );
 }
@@ -120,24 +121,24 @@ const demoEdgeTypes = {
   default: DemoEdgeWithDelete,
 };
 
-// Horizontal flow - right to left (RTL)
+// Horizontal flow - left to right (LTR)
 const initialNodes = [
   {
     id: '1',
     type: 'trigger',
-    position: { x: 700, y: 150 },
+    position: { x: 50, y: 150 },
     data: { label: 'הודעה נכנסת מתחילה ב-"שלום"' },
   },
   {
     id: '2',
     type: 'message',
-    position: { x: 380, y: 150 },
+    position: { x: 370, y: 150 },
     data: { label: 'שלום! 👋 ברוכים הבאים.\nאיך אוכל לעזור?' },
   },
   {
     id: '3',
     type: 'buttons',
-    position: { x: 60, y: 150 },
+    position: { x: 690, y: 150 },
     data: { buttons: ['🛒 מוצרים', '⏰ שעות פתיחה', '📞 נציג'] },
   },
 ];
@@ -156,6 +157,10 @@ function InteractiveFlowDemo() {
     setEdges((eds) => eds.filter((e) => e.id !== edgeId));
   }, [setEdges]);
 
+  const onConnect = useCallback((params) => {
+    setEdges((eds) => addEdge({ ...params, type: 'default' }, eds));
+  }, [setEdges]);
+
   // Add delete callback to edges
   const edgesWithCallbacks = edges.map(edge => ({
     ...edge,
@@ -168,6 +173,7 @@ function InteractiveFlowDemo() {
       edges={edgesWithCallbacks}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
+      onConnect={onConnect}
       nodeTypes={demoNodeTypes}
       edgeTypes={demoEdgeTypes}
       fitView
