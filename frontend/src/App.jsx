@@ -13,6 +13,7 @@ import TemplatesPage from './pages/TemplatesPage';
 import AdminPage from './pages/AdminPage';
 import NotificationsPage from './pages/NotificationsPage';
 import ClientBotsPage from './pages/ClientBotsPage';
+import PricingPage from './pages/PricingPage';
 import useThemeStore from './store/themeStore';
 
 function App() {
@@ -27,6 +28,7 @@ function App() {
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
         <Routes>
           <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/pricing" element={<PricingPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/verify" element={<VerifyPage />} />

@@ -7,11 +7,14 @@ import ConnectionTypeSelector from '../components/molecules/ConnectionTypeSelect
 import ExternalConnectionForm from '../components/molecules/ExternalConnectionForm';
 import QRCodeDisplay from '../components/molecules/QRCodeDisplay';
 import ConnectionStatus from '../components/molecules/ConnectionStatus';
+import PaymentRequiredModal from '../components/payment/PaymentRequiredModal';
 
 export default function WhatsappSetupPage() {
   const navigate = useNavigate();
   const [step, setStep] = useState('loading'); // loading, select, external, qr, connected
   const [isCheckingExisting, setIsCheckingExisting] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [pendingConnectionType, setPendingConnectionType] = useState(null);
   const {
     connection, qrCode, isLoading, error, existingSession,
     fetchStatus, connectManaged, connectExternal, fetchQR, disconnect, clearError, checkExisting,
@@ -56,10 +59,33 @@ export default function WhatsappSetupPage() {
           setStep('qr');
           fetchQR();
         }
-      } catch {}
+      } catch (err) {
+        // Check if payment is required
+        if (err.response?.data?.code === 'PAYMENT_REQUIRED') {
+          setPendingConnectionType('managed');
+          setShowPaymentModal(true);
+        }
+      }
     } else {
       setStep('external');
     }
+  };
+
+  const handlePaymentSuccess = async () => {
+    setShowPaymentModal(false);
+    // Retry the connection after payment method is added
+    if (pendingConnectionType === 'managed') {
+      try {
+        const data = await connectManaged();
+        if (data.connection?.status === 'connected') {
+          setStep('connected');
+        } else {
+          setStep('qr');
+          fetchQR();
+        }
+      } catch {}
+    }
+    setPendingConnectionType(null);
   };
 
   const handleExternalConnect = async (baseUrl, apiKey, sessionName) => {
@@ -163,6 +189,18 @@ export default function WhatsappSetupPage() {
           </button>
         )}
       </div>
+
+      {/* Payment Required Modal */}
+      <PaymentRequiredModal
+        isOpen={showPaymentModal}
+        onClose={() => {
+          setShowPaymentModal(false);
+          setPendingConnectionType(null);
+        }}
+        onSuccess={handlePaymentSuccess}
+        title="נדרש אמצעי תשלום"
+        description="על מנת לחבר WhatsApp, נדרש להזין פרטי כרטיס אשראי. לא תחויב כעת - רק בעת שדרוג לתכנית בתשלום."
+      />
     </div>
   );
 }

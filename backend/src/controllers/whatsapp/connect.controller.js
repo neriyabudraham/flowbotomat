@@ -26,6 +26,19 @@ async function createManaged(req, res) {
   try {
     const userId = req.user.id;
     
+    // Check if user has a payment method (required for WhatsApp connection)
+    const paymentCheck = await pool.query(
+      'SELECT id FROM user_payment_methods WHERE user_id = $1 AND is_active = true LIMIT 1',
+      [userId]
+    );
+    
+    if (paymentCheck.rows.length === 0) {
+      return res.status(402).json({ 
+        error: 'נדרש להזין פרטי כרטיס אשראי לפני חיבור WhatsApp',
+        code: 'PAYMENT_REQUIRED'
+      });
+    }
+    
     // Get user email - from token or from DB
     let userEmail = req.user.email;
     if (!userEmail) {

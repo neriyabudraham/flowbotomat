@@ -18,6 +18,7 @@ const sharingRoutes = require('./sharing.routes');
 const notificationsRoutes = require('./notifications.routes');
 const expertsRoutes = require('./experts.routes');
 const subscriptionsRoutes = require('./subscriptions.routes');
+const paymentRoutes = require('./payment.routes');
 
 // Mount routes
 router.use('/auth', authRoutes);
@@ -36,5 +37,6 @@ router.use('/sharing', sharingRoutes);
 router.use('/notifications', notificationsRoutes);
 router.use('/experts', expertsRoutes);
 router.use('/subscriptions', subscriptionsRoutes);
+router.use('/payment', paymentRoutes);
 
 module.exports = router;

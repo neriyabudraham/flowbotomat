@@ -7,7 +7,7 @@ async function getMySubscription(req, res) {
   try {
     const userId = req.user.id;
     
-    const { data } = await db.query(`
+    const result = await db.query(`
       SELECT 
         us.*,
         sp.name as plan_name,
@@ -25,14 +25,14 @@ async function getMySubscription(req, res) {
     `, [userId]);
     
     // If no subscription, return free plan limits
-    if (!data || data.length === 0) {
-      const { data: freePlan } = await db.query(
+    if (result.rows.length === 0) {
+      const freePlanResult = await db.query(
         `SELECT * FROM subscription_plans WHERE price = 0 AND is_active = true LIMIT 1`
       );
       
       return res.json({
         subscription: null,
-        plan: freePlan?.[0] || {
+        plan: freePlanResult.rows[0] || {
           name_he: 'חינם',
           max_bots: 1,
           max_bot_runs_per_month: 500,
@@ -44,7 +44,7 @@ async function getMySubscription(req, res) {
       });
     }
     
-    res.json({ subscription: data[0], plan: data[0] });
+    res.json({ subscription: result.rows[0], plan: result.rows[0] });
   } catch (error) {
     console.error('[Subscriptions] Get my subscription error:', error);
     res.status(500).json({ error: 'שגיאה בטעינת מנוי' });
@@ -62,23 +62,22 @@ async function getMyUsage(req, res) {
     const month = now.getMonth() + 1;
     
     // Get or create usage record
-    let { data } = await db.query(`
+    let usageResult = await db.query(`
       SELECT * FROM usage_tracking 
       WHERE user_id = $1 AND period_year = $2 AND period_month = $3
     `, [userId, year, month]);
     
-    if (!data || data.length === 0) {
+    if (usageResult.rows.length === 0) {
       // Create new usage record
-      const { data: newUsage } = await db.query(`
+      usageResult = await db.query(`
         INSERT INTO usage_tracking (user_id, period_year, period_month)
         VALUES ($1, $2, $3)
         RETURNING *
       `, [userId, year, month]);
-      data = newUsage;
     }
     
     // Get subscription limits
-    const { data: subData } = await db.query(`
+    const subResult = await db.query(`
       SELECT sp.max_bot_runs_per_month, sp.max_contacts, sp.max_bots
       FROM user_subscriptions us
       JOIN subscription_plans sp ON us.plan_id = sp.id
@@ -86,29 +85,29 @@ async function getMyUsage(req, res) {
     `, [userId]);
     
     // Default to free plan limits if no subscription
-    const limits = subData?.[0] || {
+    const limits = subResult.rows[0] || {
       max_bot_runs_per_month: 500,
       max_contacts: 100,
       max_bots: 1
     };
     
     // Get actual counts
-    const { data: botCount } = await db.query(
+    const botCountResult = await db.query(
       'SELECT COUNT(*) as count FROM bots WHERE user_id = $1',
       [userId]
     );
     
-    const { data: contactCount } = await db.query(
+    const contactCountResult = await db.query(
       'SELECT COUNT(*) as count FROM contacts WHERE user_id = $1',
       [userId]
     );
     
     res.json({
-      usage: data[0],
+      usage: usageResult.rows[0],
       limits,
       counts: {
-        bots: parseInt(botCount?.[0]?.count || 0),
-        contacts: parseInt(contactCount?.[0]?.count || 0)
+        bots: parseInt(botCountResult.rows[0]?.count || 0),
+        contacts: parseInt(contactCountResult.rows[0]?.count || 0)
       }
     });
   } catch (error) {
@@ -126,7 +125,7 @@ async function getAllSubscriptions(req, res) {
       return res.status(403).json({ error: 'אין הרשאה' });
     }
     
-    const { data } = await db.query(`
+    const result = await db.query(`
       SELECT 
         us.*,
         u.name as user_name,
@@ -138,7 +137,7 @@ async function getAllSubscriptions(req, res) {
       ORDER BY us.created_at DESC
     `);
     
-    res.json({ subscriptions: data });
+    res.json({ subscriptions: result.rows });
   } catch (error) {
     console.error('[Subscriptions] Get all error:', error);
     res.status(500).json({ error: 'שגיאה בטעינת מנויים' });
@@ -157,27 +156,27 @@ async function assignSubscription(req, res) {
     const { userId, planId, expiresAt, adminNotes } = req.body;
     
     // Verify user exists
-    const { data: user } = await db.query(
+    const userResult = await db.query(
       'SELECT id FROM users WHERE id = $1',
       [userId]
     );
     
-    if (!user || user.length === 0) {
+    if (userResult.rows.length === 0) {
       return res.status(404).json({ error: 'משתמש לא נמצא' });
     }
     
     // Verify plan exists
-    const { data: plan } = await db.query(
+    const planResult = await db.query(
       'SELECT id FROM subscription_plans WHERE id = $1',
       [planId]
     );
     
-    if (!plan || plan.length === 0) {
+    if (planResult.rows.length === 0) {
       return res.status(404).json({ error: 'תכנית לא נמצאה' });
     }
     
     // Upsert subscription
-    const { data } = await db.query(`
+    const result = await db.query(`
       INSERT INTO user_subscriptions (user_id, plan_id, expires_at, is_manual, admin_notes)
       VALUES ($1, $2, $3, true, $4)
       ON CONFLICT (user_id) 
@@ -191,7 +190,7 @@ async function assignSubscription(req, res) {
       RETURNING *
     `, [userId, planId, expiresAt || null, adminNotes || null]);
     
-    res.json({ subscription: data[0] });
+    res.json({ subscription: result.rows[0] });
   } catch (error) {
     console.error('[Subscriptions] Assign error:', error);
     res.status(500).json({ error: 'שגיאה בהקצאת מנוי' });
@@ -209,18 +208,18 @@ async function cancelSubscription(req, res) {
     
     const { subscriptionId } = req.params;
     
-    const { data } = await db.query(`
+    const result = await db.query(`
       UPDATE user_subscriptions 
       SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
       WHERE id = $1
       RETURNING *
     `, [subscriptionId]);
     
-    if (!data || data.length === 0) {
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: 'מנוי לא נמצא' });
     }
     
-    res.json({ subscription: data[0] });
+    res.json({ subscription: result.rows[0] });
   } catch (error) {
     console.error('[Subscriptions] Cancel error:', error);
     res.status(500).json({ error: 'שגיאה בביטול מנוי' });
@@ -252,7 +251,7 @@ async function checkLimit(userId, limitType) {
   const month = now.getMonth() + 1;
   
   // Get subscription limits
-  const { data: subData } = await db.query(`
+  const subResult = await db.query(`
     SELECT sp.*
     FROM user_subscriptions us
     JOIN subscription_plans sp ON us.plan_id = sp.id
@@ -260,7 +259,7 @@ async function checkLimit(userId, limitType) {
   `, [userId]);
   
   // Default to free plan
-  const limits = subData?.[0] || {
+  const limits = subResult.rows[0] || {
     max_bots: 1,
     max_bot_runs_per_month: 500,
     max_contacts: 100,
@@ -273,12 +272,12 @@ async function checkLimit(userId, limitType) {
   if (limitType === 'bot_runs') {
     if (limits.max_bot_runs_per_month === -1) return { allowed: true, limit: -1, used: 0 };
     
-    const { data: usage } = await db.query(`
+    const usageResult = await db.query(`
       SELECT bot_runs FROM usage_tracking 
       WHERE user_id = $1 AND period_year = $2 AND period_month = $3
     `, [userId, year, month]);
     
-    const used = usage?.[0]?.bot_runs || 0;
+    const used = usageResult.rows[0]?.bot_runs || 0;
     return {
       allowed: used < limits.max_bot_runs_per_month,
       limit: limits.max_bot_runs_per_month,
@@ -289,12 +288,12 @@ async function checkLimit(userId, limitType) {
   if (limitType === 'bots') {
     if (limits.max_bots === -1) return { allowed: true, limit: -1, used: 0 };
     
-    const { data: count } = await db.query(
+    const countResult = await db.query(
       'SELECT COUNT(*) as count FROM bots WHERE user_id = $1',
       [userId]
     );
     
-    const used = parseInt(count?.[0]?.count || 0);
+    const used = parseInt(countResult.rows[0]?.count || 0);
     return {
       allowed: used < limits.max_bots,
       limit: limits.max_bots,
@@ -305,12 +304,12 @@ async function checkLimit(userId, limitType) {
   if (limitType === 'contacts') {
     if (limits.max_contacts === -1) return { allowed: true, limit: -1, used: 0 };
     
-    const { data: count } = await db.query(
+    const countResult = await db.query(
       'SELECT COUNT(*) as count FROM contacts WHERE user_id = $1',
       [userId]
     );
     
-    const used = parseInt(count?.[0]?.count || 0);
+    const used = parseInt(countResult.rows[0]?.count || 0);
     return {
       allowed: used < limits.max_contacts,
       limit: limits.max_contacts,
