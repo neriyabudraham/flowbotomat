@@ -80,15 +80,22 @@ async function getAllSessions(baseUrl, apiKey) {
  * @returns session object or null
  */
 async function findSessionByEmail(baseUrl, apiKey, email) {
+  console.log(`[WAHA] Searching for session with email: ${email}`);
+  
   const sessions = await getAllSessions(baseUrl, apiKey);
+  console.log(`[WAHA] Found ${sessions.length} total sessions`);
   
   for (const session of sessions) {
     const metadata = session.config?.metadata || {};
+    console.log(`[WAHA] Session "${session.name}" metadata:`, JSON.stringify(metadata));
+    
     if (metadata['user.email'] === email) {
+      console.log(`[WAHA] ✅ Match found: ${session.name}`);
       return session;
     }
   }
   
+  console.log(`[WAHA] ❌ No session found with email: ${email}`);
   return null;
 }
 
