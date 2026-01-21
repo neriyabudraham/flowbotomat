@@ -99,10 +99,33 @@ export default function BotEditorPage() {
   // Get selected node
   const selectedNode = flowData?.nodes?.find(n => n.id === selectedNodeId) || null;
 
-  // Check if flow actually changed
+  // Check if flow actually changed (compare only nodes and edges, excluding callbacks)
   const checkForChanges = useCallback((newData) => {
     if (!originalFlowData) return false;
-    return JSON.stringify(newData) !== JSON.stringify(originalFlowData);
+    
+    // Clean data for comparison (remove runtime callbacks)
+    const cleanForCompare = (data) => ({
+      nodes: data.nodes?.map(n => ({
+        id: n.id,
+        type: n.type,
+        position: n.position,
+        data: Object.fromEntries(
+          Object.entries(n.data || {}).filter(([k]) => !['onEdit', 'onDelete', 'onDuplicate', 'triggerCount'].includes(k))
+        )
+      })) || [],
+      edges: data.edges?.map(e => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle,
+        targetHandle: e.targetHandle
+      })) || []
+    });
+    
+    const cleanNew = cleanForCompare(newData);
+    const cleanOriginal = cleanForCompare(originalFlowData);
+    
+    return JSON.stringify(cleanNew) !== JSON.stringify(cleanOriginal);
   }, [originalFlowData]);
 
   // Node update handler
@@ -306,30 +329,37 @@ export default function BotEditorPage() {
             )}
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <button
               onClick={() => setShowPreview(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 hover:bg-purple-200 rounded-xl font-medium transition-colors"
+              className="flex items-center justify-center gap-2 h-10 px-4 bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 rounded-xl font-medium transition-all"
             >
               <Play className="w-4 h-4" />
-              תצוגה מקדימה
+              <span>תצוגה מקדימה</span>
             </button>
             
             <button
               onClick={handleToggle}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all ${
-                currentBot.is_active ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              className={`flex items-center justify-center gap-2 h-10 px-4 rounded-xl font-medium transition-all border ${
+                currentBot.is_active 
+                  ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' 
+                  : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
               }`}
             >
-              {currentBot.is_active ? (
-                <><div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>פעיל</>
-              ) : 'לא פעיל'}
+              <div className={`w-2 h-2 rounded-full ${currentBot.is_active ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+              <span>{currentBot.is_active ? 'פעיל' : 'לא פעיל'}</span>
             </button>
             
-            <Button onClick={handleSave} disabled={isSaving || !hasChanges} className="!rounded-xl">
-              <Save className="w-4 h-4 ml-2" />
-              {isSaving ? 'שומר...' : 'שמור'}
-            </Button>
+            {hasChanges && (
+              <button 
+                onClick={handleSave} 
+                disabled={isSaving}
+                className="flex items-center justify-center gap-2 h-10 px-5 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white rounded-xl font-medium shadow-md hover:shadow-lg transition-all disabled:opacity-50"
+              >
+                <Save className="w-4 h-4" />
+                <span>{isSaving ? 'שומר...' : 'שמור'}</span>
+              </button>
+            )}
           </div>
         </div>
       </header>
