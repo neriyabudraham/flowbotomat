@@ -68,14 +68,15 @@ export default function FlowPreview({ flowData, onClose }) {
     setPendingListNode(null);
     setWaitingForInput(false);
     setIsRunning(true);
+    setLastUserMessage(buttonTitle);
     
-    // Find the edge that matches this button index
+    // Find the edge that matches this button index (handle ID is just the index as string)
     const edge = flowData.edges.find(e => 
-      e.source === nodeId && e.sourceHandle === `button-${buttonIndex}`
+      e.source === nodeId && e.sourceHandle === String(buttonIndex)
     );
     
     if (edge) {
-      await executeNode(edge.target, lastUserMessage || buttonTitle);
+      await executeNode(edge.target, buttonTitle);
     } else {
       setMessages(prev => [...prev, { type: 'system', content: `אין המשך מוגדר לכפתור "${buttonTitle}"` }]);
     }
@@ -109,6 +110,9 @@ export default function FlowPreview({ flowData, onClose }) {
       case 'list':
         await executeListNode(node);
         return; // List waits for input
+      case 'registration':
+        nextHandleId = await executeRegistrationNode(node);
+        break;
     }
     
     // Find next
@@ -266,6 +270,31 @@ export default function FlowPreview({ flowData, onClose }) {
     }]);
     setIsRunning(false);
     setWaitingForInput(true);
+  };
+
+  // Execute registration node
+  const executeRegistrationNode = async (node) => {
+    const { fields } = node.data;
+    const fieldLabels = {
+      full_name: 'שם מלא',
+      email: 'אימייל',
+      phone: 'טלפון',
+      city: 'עיר',
+      notes: 'הערות',
+      custom: 'שדה מותאם'
+    };
+    
+    const fieldsList = (fields || []).map(f => fieldLabels[f.type] || f.label || f.type).join(', ');
+    setMessages(prev => [...prev, { 
+      type: 'system', 
+      content: `📋 טופס רישום: ${fieldsList || 'ללא שדות'}`
+    }]);
+    
+    // Simulate successful registration
+    await new Promise(r => setTimeout(r, 800));
+    setMessages(prev => [...prev, { type: 'system', content: '✅ רישום הושלם (סימולציה)' }]);
+    
+    return 'complete'; // Return handle ID for next node
   };
 
   // Check trigger
