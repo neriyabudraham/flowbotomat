@@ -1,69 +1,83 @@
 const db = require('../../config/database');
 
-// Get all templates
+/**
+ * Get all published templates (for users)
+ */
 async function getTemplates(req, res) {
   try {
-    const { type, category } = req.query;
-    const userId = req.user?.id;
+    const { category, search, featured } = req.query;
     
-    let query = `
-      SELECT t.*, u.name as creator_name, u.email as creator_email
-      FROM templates t
-      LEFT JOIN users u ON t.creator_id = u.id
-      WHERE t.is_active = true
-    `;
+    let whereClause = 'is_published = true';
     const params = [];
     let paramIndex = 1;
     
-    // Filter by type
-    if (type) {
-      query += ` AND t.type = $${paramIndex}`;
-      params.push(type);
-      paramIndex++;
-    }
-    
-    // Filter by category
     if (category && category !== 'all') {
-      query += ` AND t.category = $${paramIndex}`;
+      whereClause += ` AND category = $${paramIndex++}`;
       params.push(category);
+    }
+    
+    if (search) {
+      whereClause += ` AND (name ILIKE $${paramIndex} OR name_he ILIKE $${paramIndex} OR description ILIKE $${paramIndex} OR description_he ILIKE $${paramIndex})`;
+      params.push(`%${search}%`);
       paramIndex++;
     }
     
-    // For community templates, only show approved or own
-    query += ` AND (t.type = 'system' OR t.is_approved = true OR t.creator_id = $${paramIndex})`;
-    params.push(userId || '00000000-0000-0000-0000-000000000000');
+    if (featured === 'true') {
+      whereClause += ' AND is_featured = true';
+    }
     
-    query += ' ORDER BY t.type DESC, t.installs_count DESC, t.created_at DESC';
+    const result = await db.query(`
+      SELECT 
+        t.*,
+        u.name as creator_name,
+        u.email as creator_email
+      FROM bot_templates t
+      LEFT JOIN users u ON t.created_by = u.id
+      WHERE ${whereClause}
+      ORDER BY is_featured DESC, sort_order ASC, use_count DESC, created_at DESC
+    `, params);
     
-    const result = await db.query(query, params);
-    
-    // Get categories
-    const categoriesRes = await db.query(
-      `SELECT DISTINCT category FROM templates WHERE is_active = true ORDER BY category`
-    );
-    
-    res.json({
-      templates: result.rows,
-      categories: categoriesRes.rows.map(r => r.category)
-    });
+    res.json({ templates: result.rows });
   } catch (error) {
-    console.error('[Templates] Error listing:', error);
+    console.error('[Templates] Get templates error:', error);
     res.status(500).json({ error: 'שגיאה בטעינת תבניות' });
   }
 }
 
-// Get single template
+/**
+ * Get template categories
+ */
+async function getCategories(req, res) {
+  try {
+    const result = await db.query(`
+      SELECT * FROM template_categories 
+      WHERE is_active = true 
+      ORDER BY sort_order ASC
+    `);
+    
+    res.json({ categories: result.rows });
+  } catch (error) {
+    console.error('[Templates] Get categories error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת קטגוריות' });
+  }
+}
+
+/**
+ * Get single template
+ */
 async function getTemplate(req, res) {
   try {
     const { id } = req.params;
     
-    const result = await db.query(
-      `SELECT t.*, u.name as creator_name 
-       FROM templates t 
-       LEFT JOIN users u ON t.creator_id = u.id
-       WHERE t.id = $1`,
-      [id]
-    );
+    const result = await db.query(`
+      SELECT 
+        t.*,
+        u.name as creator_name,
+        u.email as creator_email
+      FROM bot_templates t
+      LEFT JOIN users u ON t.created_by = u.id
+      WHERE t.id = $1
+    `, [id]);
     
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'תבנית לא נמצאה' });
@@ -71,128 +85,269 @@ async function getTemplate(req, res) {
     
     res.json({ template: result.rows[0] });
   } catch (error) {
-    console.error('[Templates] Error getting:', error);
+    console.error('[Templates] Get template error:', error);
     res.status(500).json({ error: 'שגיאה בטעינת תבנית' });
   }
 }
 
-// Create community template from existing bot
+/**
+ * Use template - create a bot from template
+ */
+async function useTemplate(req, res) {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const { name } = req.body;
+    
+    // Get template
+    const templateResult = await db.query(
+      'SELECT * FROM bot_templates WHERE id = $1 AND is_published = true',
+      [id]
+    );
+    
+    if (templateResult.rows.length === 0) {
+      return res.status(404).json({ error: 'תבנית לא נמצאה' });
+    }
+    
+    const template = templateResult.rows[0];
+    
+    // Check if user has premium access if template is premium
+    if (template.is_premium) {
+      const subResult = await db.query(
+        `SELECT id FROM user_subscriptions WHERE user_id = $1 AND status IN ('active', 'trial')`,
+        [userId]
+      );
+      if (subResult.rows.length === 0) {
+        return res.status(403).json({ 
+          error: 'תבנית זו זמינה למנויים בלבד',
+          upgrade_required: true
+        });
+      }
+    }
+    
+    // Create bot from template
+    const botResult = await db.query(`
+      INSERT INTO bots (user_id, name, description, flow_data, trigger_config, is_active)
+      VALUES ($1, $2, $3, $4, $5, false)
+      RETURNING *
+    `, [
+      userId,
+      name || template.name_he || template.name,
+      template.description_he || template.description,
+      template.flow_data,
+      template.trigger_config
+    ]);
+    
+    // Increment use count
+    await db.query(
+      'UPDATE bot_templates SET use_count = use_count + 1 WHERE id = $1',
+      [id]
+    );
+    
+    res.json({ 
+      success: true, 
+      bot: botResult.rows[0],
+      message: 'הבוט נוצר בהצלחה מהתבנית'
+    });
+  } catch (error) {
+    console.error('[Templates] Use template error:', error);
+    res.status(500).json({ error: 'שגיאה ביצירת בוט מתבנית' });
+  }
+}
+
+// ============ ADMIN FUNCTIONS ============
+
+/**
+ * Get all templates (admin)
+ */
+async function adminGetTemplates(req, res) {
+  try {
+    const result = await db.query(`
+      SELECT 
+        t.*,
+        u.name as creator_name,
+        u.email as creator_email
+      FROM bot_templates t
+      LEFT JOIN users u ON t.created_by = u.id
+      ORDER BY sort_order ASC, created_at DESC
+    `);
+    
+    res.json({ templates: result.rows });
+  } catch (error) {
+    console.error('[Templates] Admin get templates error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת תבניות' });
+  }
+}
+
+/**
+ * Create template (admin)
+ */
 async function createTemplate(req, res) {
   try {
     const userId = req.user.id;
-    const { name, description, botId, category, tags } = req.body;
+    const { 
+      name, name_he, description, description_he,
+      category, tags, flow_data, trigger_config,
+      is_published, is_featured, is_premium, price, sort_order
+    } = req.body;
     
-    if (!name || !botId) {
-      return res.status(400).json({ error: 'שם ובוט הם שדות חובה' });
+    if (!name) {
+      return res.status(400).json({ error: 'שם התבנית הוא שדה חובה' });
     }
     
-    // Get bot flow data
-    const botRes = await db.query(
-      'SELECT flow_data FROM bots WHERE id = $1 AND user_id = $2',
-      [botId, userId]
-    );
+    const result = await db.query(`
+      INSERT INTO bot_templates (
+        name, name_he, description, description_he,
+        category, tags, flow_data, trigger_config,
+        is_published, is_featured, is_premium, price, sort_order,
+        created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      RETURNING *
+    `, [
+      name, name_he || null, description || null, description_he || null,
+      category || 'general', tags || [], flow_data || { nodes: [], edges: [] }, trigger_config || {},
+      is_published || false, is_featured || false, is_premium || false, price || 0, sort_order || 0,
+      userId
+    ]);
     
-    if (botRes.rows.length === 0) {
-      return res.status(404).json({ error: 'בוט לא נמצא' });
-    }
-    
-    const result = await db.query(
-      `INSERT INTO templates (name, description, category, type, creator_id, flow_data, tags)
-       VALUES ($1, $2, $3, 'community', $4, $5, $6)
-       RETURNING *`,
-      [name, description || '', category || 'general', userId, botRes.rows[0].flow_data, tags || []]
-    );
-    
-    res.status(201).json({ template: result.rows[0] });
+    res.json({ template: result.rows[0] });
   } catch (error) {
-    console.error('[Templates] Error creating:', error);
+    console.error('[Templates] Create template error:', error);
     res.status(500).json({ error: 'שגיאה ביצירת תבנית' });
   }
 }
 
-// Install template to create new bot
-async function installTemplate(req, res) {
+/**
+ * Update template (admin)
+ */
+async function updateTemplate(req, res) {
   try {
-    const userId = req.user.id;
     const { id } = req.params;
-    const { botName } = req.body;
+    const updates = req.body;
     
-    // Get template
-    const templateRes = await db.query(
-      'SELECT * FROM templates WHERE id = $1 AND is_active = true',
-      [id]
-    );
+    const allowedFields = [
+      'name', 'name_he', 'description', 'description_he',
+      'category', 'tags', 'flow_data', 'trigger_config',
+      'thumbnail_url', 'preview_images', 'demo_video_url',
+      'is_published', 'is_featured', 'is_premium', 'price', 'sort_order'
+    ];
     
-    if (templateRes.rows.length === 0) {
+    const setClause = [];
+    const values = [];
+    let paramIndex = 1;
+    
+    for (const [key, value] of Object.entries(updates)) {
+      if (allowedFields.includes(key)) {
+        setClause.push(`${key} = $${paramIndex++}`);
+        values.push(value);
+      }
+    }
+    
+    if (setClause.length === 0) {
+      return res.status(400).json({ error: 'אין שדות לעדכון' });
+    }
+    
+    values.push(id);
+    
+    const result = await db.query(`
+      UPDATE bot_templates 
+      SET ${setClause.join(', ')}, updated_at = NOW()
+      WHERE id = $${paramIndex}
+      RETURNING *
+    `, values);
+    
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: 'תבנית לא נמצאה' });
     }
     
-    const template = templateRes.rows[0];
-    
-    // Create new bot from template
-    const botRes = await db.query(
-      `INSERT INTO bots (user_id, name, description, flow_data, is_active)
-       VALUES ($1, $2, $3, $4, false)
-       RETURNING *`,
-      [
-        userId, 
-        botName || `${template.name} (עותק)`,
-        template.description || '',
-        template.flow_data
-      ]
-    );
-    
-    // Track install
-    await db.query(
-      `INSERT INTO template_installs (template_id, user_id, bot_id)
-       VALUES ($1, $2, $3)
-       ON CONFLICT DO NOTHING`,
-      [id, userId, botRes.rows[0].id]
-    );
-    
-    // Update install count
-    await db.query(
-      'UPDATE templates SET installs_count = installs_count + 1 WHERE id = $1',
-      [id]
-    );
-    
-    res.status(201).json({ 
-      bot: botRes.rows[0],
-      message: 'התבנית הותקנה בהצלחה!'
-    });
+    res.json({ template: result.rows[0] });
   } catch (error) {
-    console.error('[Templates] Error installing:', error);
-    res.status(500).json({ error: 'שגיאה בהתקנת תבנית' });
+    console.error('[Templates] Update template error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון תבנית' });
   }
 }
 
-// Delete own template
+/**
+ * Delete template (admin)
+ */
 async function deleteTemplate(req, res) {
   try {
-    const userId = req.user.id;
     const { id } = req.params;
     
     const result = await db.query(
-      `DELETE FROM templates WHERE id = $1 AND creator_id = $2 AND type = 'community'
-       RETURNING id`,
-      [id, userId]
+      'DELETE FROM bot_templates WHERE id = $1 RETURNING id',
+      [id]
     );
     
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'תבנית לא נמצאה או שאין הרשאה למחוק' });
+      return res.status(404).json({ error: 'תבנית לא נמצאה' });
     }
     
     res.json({ success: true });
   } catch (error) {
-    console.error('[Templates] Error deleting:', error);
+    console.error('[Templates] Delete template error:', error);
     res.status(500).json({ error: 'שגיאה במחיקת תבנית' });
+  }
+}
+
+/**
+ * Create template from existing bot (admin)
+ */
+async function createFromBot(req, res) {
+  try {
+    const { botId } = req.params;
+    const userId = req.user.id;
+    const { name, name_he, description, description_he, category } = req.body;
+    
+    // Get bot
+    const botResult = await db.query(
+      'SELECT * FROM bots WHERE id = $1',
+      [botId]
+    );
+    
+    if (botResult.rows.length === 0) {
+      return res.status(404).json({ error: 'בוט לא נמצא' });
+    }
+    
+    const bot = botResult.rows[0];
+    
+    // Create template from bot
+    const result = await db.query(`
+      INSERT INTO bot_templates (
+        name, name_he, description, description_he,
+        category, flow_data, trigger_config,
+        is_published, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8)
+      RETURNING *
+    `, [
+      name || bot.name,
+      name_he || null,
+      description || bot.description,
+      description_he || null,
+      category || 'general',
+      bot.flow_data,
+      bot.trigger_config,
+      userId
+    ]);
+    
+    res.json({ 
+      template: result.rows[0],
+      message: 'התבנית נוצרה בהצלחה מהבוט'
+    });
+  } catch (error) {
+    console.error('[Templates] Create from bot error:', error);
+    res.status(500).json({ error: 'שגיאה ביצירת תבנית מבוט' });
   }
 }
 
 module.exports = {
   getTemplates,
+  getCategories,
   getTemplate,
+  useTemplate,
+  adminGetTemplates,
   createTemplate,
-  installTemplate,
-  deleteTemplate
+  updateTemplate,
+  deleteTemplate,
+  createFromBot
 };
