@@ -48,11 +48,11 @@ async function createManaged(req, res) {
     await wahaSession.createSession(baseUrl, apiKey, sessionName);
     await wahaSession.startSession(baseUrl, apiKey, sessionName);
     
-    // Setup webhook for this user
+    // Setup webhook for this user (adds to existing webhooks)
     const webhookUrl = getWebhookUrl(userId);
     try {
-      await wahaSession.updateWebhooks(baseUrl, apiKey, sessionName, webhookUrl, WEBHOOK_EVENTS);
-      console.log(`[Webhook] Configured for user ${userId}: ${webhookUrl}`);
+      await wahaSession.addWebhook(baseUrl, apiKey, sessionName, webhookUrl, WEBHOOK_EVENTS);
+      console.log(`[Webhook] Added for user ${userId}: ${webhookUrl}`);
     } catch (err) {
       console.error('[Webhook] Setup failed:', err.message);
     }
@@ -128,10 +128,10 @@ async function createExternal(req, res) {
       connectedAt = new Date();
     }
     
-    // Setup webhook for this user
+    // Setup webhook for this user (adds to existing webhooks)
     const webhookUrl = getWebhookUrl(userId);
     try {
-      await wahaSession.updateWebhooks(baseUrl, apiKey, sessionName, webhookUrl, WEBHOOK_EVENTS);
+      await wahaSession.addWebhook(baseUrl, apiKey, sessionName, webhookUrl, WEBHOOK_EVENTS);
       console.log(`[Webhook] Configured for user ${userId}: ${webhookUrl}`);
     } catch (err) {
       console.error('[Webhook] Setup failed:', err.message);
