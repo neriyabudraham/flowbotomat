@@ -985,16 +985,17 @@ class BotEngine {
     }
     
     // Prepare list data with variable replacement
+    // IMPORTANT: Use displayIndex (i) for WhatsApp ID so it matches what we save in session
     const listData = {
       title: this.replaceVariables(title || '', contact, '', botName),
       body: this.replaceVariables(body || '', contact, '', botName),
       footer: this.replaceVariables(footer || '', contact, '', botName),
       buttonText: this.replaceVariables(buttonText || 'בחר', contact, '', botName),
-      buttons: filteredButtons.map((btn, i) => ({
-        id: `option_${btn.originalIndex ?? i}`, // Keep original index for edge matching
+      buttons: filteredButtons.map((btn, displayIndex) => ({
+        id: `option_${displayIndex}`, // Use displayIndex for WhatsApp - matches session storage
         title: this.replaceVariables(btn.title || '', contact, '', botName),
         description: btn.description ? this.replaceVariables(btn.description, contact, '', botName) : null,
-        originalIndex: btn.originalIndex ?? i, // Track original position
+        originalIndex: btn.originalIndex ?? displayIndex, // Track original position for edge matching
       })),
     };
     
