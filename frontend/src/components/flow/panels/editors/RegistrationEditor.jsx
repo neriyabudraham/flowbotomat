@@ -105,6 +105,42 @@ export default function RegistrationEditor({ data, onUpdate }) {
     onUpdate({ questions: newQuestions });
   };
   
+  // Label mapping for common variables
+  const labelMap = {
+    full_name: 'שם מלא',
+    first_name: 'שם פרטי',
+    last_name: 'שם משפחה',
+    phone: 'טלפון',
+    email: 'אימייל',
+    id_number: 'תעודת זהות',
+    city: 'עיר',
+    address: 'כתובת',
+    birthday: 'תאריך לידה',
+    company: 'חברה',
+  };
+  
+  // Get label for variable
+  const getLabel = (varName, question) => {
+    // First check quick questions
+    const quickQ = quickQuestions.find(qQ => qQ.varName === varName);
+    if (quickQ?.label) return quickQ.label;
+    
+    // Then check label map
+    if (labelMap[varName]) return labelMap[varName];
+    
+    // Then try to extract from question text
+    if (question) {
+      const cleanQuestion = question.replace(/\?$/, '').trim();
+      // Try to get a short label from "מה ה... שלך" pattern
+      const match = cleanQuestion.match(/מה ה?(.+?) שלך/);
+      if (match) return match[1].trim();
+      // Otherwise use the full question (up to 20 chars)
+      if (cleanQuestion.length <= 25) return cleanQuestion;
+    }
+    
+    return varName;
+  };
+
   // Generate quick summary template
   const generateQuickSummary = () => {
     let template = `📋 *רישום חדש*\n\n`;
@@ -113,9 +149,7 @@ export default function RegistrationEditor({ data, onUpdate }) {
     
     questions.forEach(q => {
       if (q.varName) {
-        // Use question text or quick question label as display name
-        const quickQ = quickQuestions.find(qQ => qQ.varName === q.varName);
-        const label = quickQ?.label || q.question?.split('?')[0]?.trim() || q.varName;
+        const label = getLabel(q.varName, q.question);
         template += `*${label}:* {{${q.varName}}}\n`;
       }
     });

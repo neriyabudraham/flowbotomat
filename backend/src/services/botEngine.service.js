@@ -1164,15 +1164,43 @@ class BotEngine {
   // Send registration summary
   async sendRegistrationSummary(nodeData, contact, answers, connection, botName) {
     try {
-      const { summaryTarget, summaryPhone, summaryGroupId, summaryTemplate, title } = nodeData;
+      const { summaryTarget, summaryPhone, summaryGroupId, summaryTemplate, title, questions } = nodeData;
       const registrationTitle = title || 'רישום חדש';
+      
+      // Label mapping for common variables
+      const labelMap = {
+        full_name: 'שם מלא',
+        first_name: 'שם פרטי',
+        last_name: 'שם משפחה',
+        phone: 'טלפון',
+        email: 'אימייל',
+        id_number: 'תעודת זהות',
+        city: 'עיר',
+        address: 'כתובת',
+        birthday: 'תאריך לידה',
+        company: 'חברה',
+      };
+      
+      // Build label map from questions if available
+      if (questions && Array.isArray(questions)) {
+        questions.forEach(q => {
+          if (q.varName) {
+            // Use question text (without ?) as label, or existing label map
+            const questionLabel = q.question?.replace(/\?$/, '').trim();
+            if (questionLabel && !labelMap[q.varName]) {
+              labelMap[q.varName] = questionLabel;
+            }
+          }
+        });
+      }
       
       // Build summary text - use default template if none provided
       let summaryText = summaryTemplate;
       if (!summaryText || !summaryText.trim()) {
         summaryText = `📋 *רישום חדש*\n\n🔹 תהליך: ${registrationTitle}\n🔹 מטלפון: ${contact.phone}\n\n`;
         for (const [key, value] of Object.entries(answers)) {
-          summaryText += `${key}: ${value}\n`;
+          const label = labelMap[key] || key;
+          summaryText += `*${label}:* ${value}\n`;
         }
       }
       
