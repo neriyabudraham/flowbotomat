@@ -59,17 +59,31 @@ export default function BotEditorPage() {
       if (draft) {
         try {
           const draftData = JSON.parse(draft);
-          setFlowData(draftData);
-          setHasDraft(true);
-          setHasChanges(true);
+          // Only show as draft if it's actually different from saved
+          const cleanForCompare = (data) => JSON.stringify({
+            nodes: data.nodes?.map(n => ({ id: n.id, type: n.type, position: n.position, data: n.data })) || [],
+            edges: data.edges?.map(e => ({ id: e.id, source: e.source, target: e.target })) || []
+          });
+          if (cleanForCompare(draftData) !== cleanForCompare(savedData)) {
+            setFlowData(draftData);
+            setHasDraft(true);
+            setHasChanges(true);
+          } else {
+            setFlowData(savedData);
+            localStorage.removeItem(draftKey);
+          }
         } catch (e) {
           setFlowData(savedData);
         }
       } else {
         setFlowData(savedData);
+        setHasChanges(false);
       }
       
-      isInitialLoad.current = false;
+      // Delay setting isInitialLoad to false to allow first render
+      setTimeout(() => {
+        isInitialLoad.current = false;
+      }, 100);
     });
     
     return () => clearCurrentBot();
@@ -144,11 +158,18 @@ export default function BotEditorPage() {
 
   // Flow change handler
   const handleFlowChange = useCallback((newData) => {
-    setFlowData(newData);
-    if (!isInitialLoad.current) {
-      setHasChanges(checkForChanges(newData));
-    }
-  }, [checkForChanges]);
+    setFlowData(prev => {
+      // Skip if data is exactly the same reference (initial render)
+      if (prev === newData) return prev;
+      
+      // Only check for changes after initial load
+      if (!isInitialLoad.current && originalFlowData) {
+        const hasRealChanges = checkForChanges(newData);
+        setHasChanges(hasRealChanges);
+      }
+      return newData;
+    });
+  }, [checkForChanges, originalFlowData]);
 
   // Node select
   const handleNodeSelect = useCallback((node) => {

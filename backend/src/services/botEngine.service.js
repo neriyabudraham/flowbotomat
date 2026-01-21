@@ -1548,6 +1548,24 @@ class BotEngine {
     );
   }
   
+  // Helper: Get all contact variables
+  async getContactVariables(contactId) {
+    try {
+      const result = await db.query(
+        'SELECT key, value FROM contact_variables WHERE contact_id = $1',
+        [contactId]
+      );
+      const vars = {};
+      for (const row of result.rows) {
+        vars[row.key] = row.value;
+      }
+      return vars;
+    } catch (e) {
+      console.log('[BotEngine] Error fetching contact variables:', e.message);
+      return {};
+    }
+  }
+  
   // Helper: Set contact variable
   async setContactVariable(contactId, key, value) {
     // Save the value to contact
