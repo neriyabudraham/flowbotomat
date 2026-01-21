@@ -47,14 +47,20 @@ async function handleIncomingMessage(userId, event) {
     return;
   }
   
-  // Extract phone number - handle different WAHA formats
+  // Extract phone number - prefer SenderAlt (real phone) over LID
   let phone = null;
-  if (payload.from) {
+  
+  // First try to get real phone from SenderAlt (format: 972584254229@s.whatsapp.net)
+  if (payload._data?.Info?.SenderAlt) {
+    phone = payload._data.Info.SenderAlt.split('@')[0];
+  }
+  // Fallback to from field if not @lid
+  else if (payload.from && !payload.from.includes('@lid')) {
     phone = payload.from.split('@')[0];
-  } else if (payload.chatId) {
-    phone = payload.chatId.split('@')[0];
-  } else if (payload._data?.from) {
-    phone = payload._data.from.split('@')[0];
+  }
+  // Last resort - use LID
+  else if (payload.from) {
+    phone = payload.from.split('@')[0];
   }
   
   if (!phone) {
@@ -102,10 +108,15 @@ async function handleIncomingMessage(userId, event) {
  * Get or create contact
  */
 async function getOrCreateContact(userId, phone, payload) {
-  // Extract name from various WAHA payload formats
-  const displayName = payload.notifyName || payload.pushName || 
-                      payload._data?.notifyName || payload._data?.pushName || phone;
-  const waId = payload.from || payload.chatId || `${phone}@s.whatsapp.net`;
+  // Extract name from various WAHA payload formats - prefer _data.Info.PushName
+  const displayName = payload._data?.Info?.PushName || 
+                      payload._data?.Info?.VerifiedName?.Details?.verifiedName ||
+                      payload.notifyName || payload.pushName || phone;
+  
+  // Get the real WhatsApp ID
+  const waId = payload._data?.Info?.SenderAlt || payload.from || `${phone}@s.whatsapp.net`;
+  
+  console.log(`[Webhook] Contact info - phone: ${phone}, name: ${displayName}, waId: ${waId}`);
   
   // Try to find existing contact
   const existing = await pool.query(
