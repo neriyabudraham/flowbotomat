@@ -1,5 +1,7 @@
 const db = require('../config/database');
 const wahaService = require('./waha/session.service');
+const { decrypt } = require('./crypto/encrypt.service');
+const { getWahaCredentials } = require('./settings/system.service');
 
 class BotEngine {
   
@@ -457,35 +459,47 @@ class BotEngine {
       .replace(/\{\{time\}\}/gi, new Date().toLocaleTimeString('he-IL'));
   }
   
-  // Helper: Get WAHA connection
+  // Helper: Get WAHA connection with decrypted credentials
   async getConnection(userId) {
-    // Try to find connected connection, or any active connection
-    let result = await db.query(
-      "SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' LIMIT 1",
+    const result = await db.query(
+      "SELECT * FROM whatsapp_connections WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1",
       [userId]
     );
-    
-    if (result.rows.length === 0) {
-      // Try any connection as fallback
-      result = await db.query(
-        "SELECT * FROM whatsapp_connections WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1",
-        [userId]
-      );
-      console.log('[BotEngine] Using fallback connection, status:', result.rows[0]?.status);
-    }
     
     if (result.rows.length === 0) {
       console.log('[BotEngine] No WhatsApp connection found for user:', userId);
       return null;
     }
     
+    const connection = result.rows[0];
+    
+    // Get decrypted credentials
+    let base_url, api_key;
+    
+    if (connection.connection_type === 'managed') {
+      // Use system WAHA credentials
+      const creds = getWahaCredentials();
+      base_url = creds.baseUrl;
+      api_key = creds.apiKey;
+    } else {
+      // Decrypt external credentials
+      base_url = decrypt(connection.external_base_url);
+      api_key = decrypt(connection.external_api_key);
+    }
+    
     console.log('[BotEngine] Found connection:', {
-      id: result.rows[0].id,
-      status: result.rows[0].status,
-      base_url: result.rows[0].base_url,
+      id: connection.id,
+      status: connection.status,
+      type: connection.connection_type,
+      base_url: base_url ? base_url.substring(0, 30) + '...' : 'N/A',
     });
     
-    return result.rows[0];
+    // Return connection object with decrypted values
+    return {
+      ...connection,
+      base_url,
+      api_key,
+    };
   }
   
   // Helper: Sleep
