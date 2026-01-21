@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useEffect } from 'react';
 import {
   ReactFlow,
   Background,
@@ -23,13 +23,35 @@ const nodeTypes = {
   action: ActionNode,
 };
 
-export default function FlowBuilder({ initialData, onSave }) {
+const defaultTriggerNode = {
+  id: 'trigger_start',
+  type: 'trigger',
+  position: { x: 400, y: 100 },
+  data: { triggers: [{ type: 'any_message', value: '' }] },
+};
+
+export default function FlowBuilder({ initialData, onChange }) {
   const reactFlowWrapper = useRef(null);
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialData?.nodes || []);
+  
+  // Initialize with trigger node if no nodes exist
+  const initialNodes = initialData?.nodes?.length > 0 
+    ? initialData.nodes 
+    : [defaultTriggerNode];
+  
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialData?.edges || []);
 
+  // Notify parent of changes
+  useEffect(() => {
+    onChange?.({ nodes, edges });
+  }, [nodes, edges]);
+
   const onConnect = useCallback(
-    (params) => setEdges((eds) => addEdge(params, eds)),
+    (params) => setEdges((eds) => addEdge({
+      ...params,
+      style: { strokeWidth: 2, stroke: '#94a3b8' },
+      type: 'smoothstep',
+    }, eds)),
     [setEdges]
   );
 
@@ -56,9 +78,49 @@ export default function FlowBuilder({ initialData, onSave }) {
     },
   }));
 
-  const handleSave = () => {
-    onSave?.({ nodes, edges });
-  };
+  // Handle drop from palette
+  const onDragOver = useCallback((event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback(
+    (event) => {
+      event.preventDefault();
+      const type = event.dataTransfer.getData('application/reactflow');
+      if (!type || !reactFlowWrapper.current) return;
+
+      const bounds = reactFlowWrapper.current.getBoundingClientRect();
+      const position = {
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+      };
+
+      const newNode = {
+        id: `${type}_${Date.now()}`,
+        type,
+        position,
+        data: getDefaultData(type),
+      };
+
+      setNodes((nds) => [...nds, newNode]);
+    },
+    [setNodes]
+  );
+
+  // Add node function for click
+  const addNode = useCallback((type) => {
+    const newNode = {
+      id: `${type}_${Date.now()}`,
+      type,
+      position: { 
+        x: 200 + Math.random() * 100, 
+        y: 150 + nodes.length * 120 
+      },
+      data: getDefaultData(type),
+    };
+    setNodes((nds) => [...nds, newNode]);
+  }, [nodes.length, setNodes]);
 
   return (
     <div className="h-full" ref={reactFlowWrapper}>
@@ -68,6 +130,8 @@ export default function FlowBuilder({ initialData, onSave }) {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
         nodeTypes={nodeTypes}
         fitView
         snapToGrid
@@ -76,11 +140,17 @@ export default function FlowBuilder({ initialData, onSave }) {
           style: { strokeWidth: 2, stroke: '#94a3b8' },
           type: 'smoothstep',
         }}
+        proOptions={{ hideAttribution: true }}
       >
-        <Background color="#e2e8f0" gap={15} />
-        <Controls position="bottom-left" />
+        <Background color="#e2e8f0" gap={20} size={1} />
+        <Controls 
+          position="bottom-left" 
+          showInteractive={false}
+          className="!bg-white/80 !backdrop-blur !rounded-xl !border !border-gray-200 !shadow-lg"
+        />
         <MiniMap 
           position="bottom-right"
+          className="!bg-white/80 !backdrop-blur !rounded-xl !border !border-gray-200 !shadow-lg"
           nodeColor={(n) => {
             switch (n.type) {
               case 'trigger': return '#a855f7';
@@ -91,8 +161,29 @@ export default function FlowBuilder({ initialData, onSave }) {
               default: return '#6b7280';
             }
           }}
+          maskColor="rgba(255, 255, 255, 0.8)"
         />
       </ReactFlow>
     </div>
   );
 }
+
+function getDefaultData(type) {
+  switch (type) {
+    case 'trigger':
+      return { triggers: [{ type: 'any_message', value: '' }] };
+    case 'message':
+      return { content: '' };
+    case 'condition':
+      return { variable: 'message', operator: 'equals', value: '' };
+    case 'delay':
+      return { delay: 1, unit: 'seconds' };
+    case 'action':
+      return { actionType: 'add_tag', tagName: '' };
+    default:
+      return {};
+  }
+}
+
+// Export addNode for external use
+FlowBuilder.getDefaultData = getDefaultData;
