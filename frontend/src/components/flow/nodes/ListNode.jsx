@@ -74,7 +74,7 @@ function ListNode({ data, selected }) {
               <Handle
                 type="source"
                 position={Position.Right}
-                id={`btn_${btn.id || i}`}
+                id={String(i)}
                 style={{ top: '50%', right: '-8px' }}
                 className="!w-3 !h-3 bg-cyan-500 !border-2 !border-white !relative !transform-none"
               />

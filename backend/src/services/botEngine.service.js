@@ -175,13 +175,45 @@ class BotEngine {
       // Find which button was selected
       const waitingData = session.waiting_data || {};
       const buttons = waitingData.buttons || [];
-      const selectedIndex = buttons.findIndex(btn => 
-        btn.title === message || btn.id === message || message === String(buttons.indexOf(btn) + 1)
-      );
+      
+      console.log('[BotEngine] Looking for button match, message:', message);
+      console.log('[BotEngine] Available buttons:', JSON.stringify(buttons));
+      
+      // Try to match by title, id, or index
+      let selectedIndex = -1;
+      for (let i = 0; i < buttons.length; i++) {
+        const btn = buttons[i];
+        if (btn.title === message || btn.id === message || String(i + 1) === message) {
+          selectedIndex = i;
+          break;
+        }
+      }
       
       if (selectedIndex >= 0) {
-        nextHandleId = `option_${selectedIndex}`;
-        console.log('[BotEngine] List response selected:', nextHandleId);
+        // Try different handle naming conventions
+        const possibleHandles = [
+          `btn_${selectedIndex}`,           // Frontend uses btn_X
+          `btn_option_${selectedIndex}`,    // Alternative
+          `option_${selectedIndex}`,        // Backend default
+          String(selectedIndex),            // Simple index
+        ];
+        
+        console.log('[BotEngine] Selected index:', selectedIndex);
+        console.log('[BotEngine] Trying handles:', possibleHandles);
+        
+        // Find edges from this node
+        const nodeEdges = flowData.edges.filter(e => e.source === currentNode.id);
+        console.log('[BotEngine] Available edges from node:', nodeEdges.map(e => ({ target: e.target, handle: e.sourceHandle })));
+        
+        // Try to find matching edge
+        for (const handleId of possibleHandles) {
+          const edge = nodeEdges.find(e => e.sourceHandle === handleId);
+          if (edge) {
+            nextHandleId = handleId;
+            console.log('[BotEngine] Found matching handle:', handleId);
+            break;
+          }
+        }
       }
     }
     
@@ -191,10 +223,15 @@ class BotEngine {
       nextEdge = flowData.edges.find(e => e.source === currentNode.id && e.sourceHandle === nextHandleId);
     }
     if (!nextEdge) {
-      nextEdge = flowData.edges.find(e => e.source === currentNode.id && !e.sourceHandle);
+      // Fallback - try any edge from this node
+      nextEdge = flowData.edges.find(e => e.source === currentNode.id);
+      if (nextEdge) {
+        console.log('[BotEngine] Using fallback edge (no handle match)');
+      }
     }
     
     if (nextEdge) {
+      console.log('[BotEngine] ➡️ Following edge to:', nextEdge.target);
       await this.executeNode(nextEdge.target, flowData, contact, message, userId, bot.id, bot.name);
     } else {
       console.log('[BotEngine] No next edge found from session node');
@@ -640,12 +677,19 @@ class BotEngine {
     
     // Save session to wait for response
     if (botId) {
+      // Save buttons with their original data for matching
+      const buttonsForSession = (buttons || []).map((btn, i) => ({
+        id: btn.id || `option_${i}`,
+        title: btn.title || '',
+        index: i,
+      }));
+      
       await this.saveSession(
         botId, 
         contact.id, 
         node.id, 
         'list_response',
-        { buttons: listData.buttons },
+        { buttons: buttonsForSession },
         timeout || null // timeout in seconds, null = no timeout
       );
     }
