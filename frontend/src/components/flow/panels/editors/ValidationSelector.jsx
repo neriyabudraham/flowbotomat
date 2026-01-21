@@ -1,24 +1,25 @@
 import { useState, useEffect } from 'react';
-import { Shield, Plus, X, Play, Check, AlertCircle, ChevronDown, Trash2, Edit2 } from 'lucide-react';
+import { Shield, Plus, X, Play, Check, AlertCircle, ChevronDown, ChevronUp, Trash2, Settings, Globe, Code } from 'lucide-react';
 import api from '../../../../services/api';
 
 const comparisonOptions = [
-  { id: 'equals', label: 'שווה ל' },
-  { id: 'not_equals', label: 'לא שווה ל' },
-  { id: 'contains', label: 'מכיל' },
-  { id: 'greater_than', label: 'גדול מ' },
-  { id: 'less_than', label: 'קטן מ' },
-  { id: 'exists', label: 'קיים' },
-  { id: 'not_exists', label: 'לא קיים' },
-  { id: 'is_true', label: 'אמת (true)' },
-  { id: 'is_false', label: 'שקר (false)' },
+  { id: 'equals', label: 'שווה ל', icon: '=' },
+  { id: 'not_equals', label: 'לא שווה ל', icon: '≠' },
+  { id: 'contains', label: 'מכיל', icon: '⊃' },
+  { id: 'greater_than', label: 'גדול מ', icon: '>' },
+  { id: 'less_than', label: 'קטן מ', icon: '<' },
+  { id: 'exists', label: 'קיים', icon: '∃' },
+  { id: 'not_exists', label: 'לא קיים', icon: '∄' },
+  { id: 'is_true', label: 'אמת (true)', icon: '✓' },
+  { id: 'is_false', label: 'שקר (false)', icon: '✗' },
 ];
 
-export default function ValidationSelector({ value, onChange, buttonMode = false }) {
+export default function ValidationSelector({ value, onChange }) {
   const [isOpen, setIsOpen] = useState(false);
   const [validations, setValidations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   
@@ -58,7 +59,8 @@ export default function ValidationSelector({ value, onChange, buttonMode = false
     setIsOpen(false);
   };
   
-  const handleClear = () => {
+  const handleClear = (e) => {
+    e?.stopPropagation();
     onChange(null);
   };
   
@@ -69,14 +71,35 @@ export default function ValidationSelector({ value, onChange, buttonMode = false
     }
     
     try {
-      const res = await api.post('/validations', form);
-      setValidations([...validations, res.data.validation]);
-      handleSelect(res.data.validation);
+      if (editingId) {
+        const res = await api.put(`/validations/${editingId}`, form);
+        setValidations(validations.map(v => v.id === editingId ? res.data.validation : v));
+      } else {
+        const res = await api.post('/validations', form);
+        setValidations([...validations, res.data.validation]);
+      }
       setShowCreate(false);
+      setEditingId(null);
       resetForm();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה ביצירת אימות');
+      alert(err.response?.data?.error || 'שגיאה בשמירת אימות');
     }
+  };
+  
+  const handleEdit = (validation) => {
+    setForm({
+      name: validation.name || '',
+      description: validation.description || '',
+      apiUrl: validation.api_url || '',
+      apiMethod: validation.api_method || 'GET',
+      apiHeaders: JSON.stringify(validation.api_headers || {}),
+      apiBody: validation.api_body || '',
+      responsePath: validation.response_path || '',
+      expectedValue: validation.expected_value || '',
+      comparison: validation.comparison || 'equals',
+    });
+    setEditingId(validation.id);
+    setShowCreate(true);
   };
   
   const handleTest = async () => {
@@ -120,276 +143,422 @@ export default function ValidationSelector({ value, onChange, buttonMode = false
       comparison: 'equals',
     });
     setTestResult(null);
+    setEditingId(null);
   };
   
   const selectedValidation = validations.find(v => v.id === value?.validationId);
   
   return (
-    <div className="relative">
+    <>
       {/* Trigger Button */}
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
+        onClick={() => setIsOpen(true)}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
           value?.validationId 
-            ? 'bg-purple-100 text-purple-700 hover:bg-purple-200' 
-            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-md hover:shadow-lg' 
+            : 'bg-gray-100 text-gray-600 hover:bg-purple-50 hover:text-purple-600 border border-gray-200 hover:border-purple-200'
         }`}
       >
         <Shield className="w-3.5 h-3.5" />
-        {value?.validationId ? (selectedValidation?.name || 'אימות') : 'אימות'}
+        {value?.validationId ? (selectedValidation?.name || value.validationName || 'אימות') : 'הוסף אימות'}
         {value?.validationId && (
           <X 
-            className="w-3 h-3 hover:text-red-500" 
-            onClick={(e) => { e.stopPropagation(); handleClear(); }}
+            className="w-3 h-3 hover:scale-125 transition-transform" 
+            onClick={handleClear}
           />
         )}
       </button>
       
-      {/* Dropdown Modal */}
+      {/* Full Screen Modal */}
       {isOpen && (
-        <div className="absolute top-full right-0 mt-1 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden">
-          {/* Header */}
-          <div className="bg-purple-50 px-4 py-3 border-b border-purple-100 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Shield className="w-5 h-5 text-purple-600" />
-              <span className="font-semibold text-purple-900">בחר אימות</span>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-indigo-50">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg">
+                  <Shield className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-gray-800">
+                    {showCreate ? (editingId ? 'עריכת אימות' : 'יצירת אימות חדש') : 'ניהול אימותים'}
+                  </h2>
+                  <p className="text-sm text-gray-500">
+                    {showCreate ? 'הגדר קריאת API ותנאי להצגת הרכיב' : 'בחר אימות קיים או צור חדש'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => { setIsOpen(false); setShowCreate(false); resetForm(); }}
+                className="p-2 hover:bg-white/70 rounded-xl transition-colors"
+              >
+                <X className="w-6 h-6 text-gray-500" />
+              </button>
             </div>
-            <button onClick={() => setIsOpen(false)} className="text-gray-400 hover:text-gray-600">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          
-          {/* Content */}
-          <div className="max-h-96 overflow-y-auto">
-            {showCreate ? (
-              <CreateValidationForm 
-                form={form}
-                setForm={setForm}
-                onSave={handleCreateNew}
-                onCancel={() => { setShowCreate(false); resetForm(); }}
-                onTest={handleTest}
-                testing={testing}
-                testResult={testResult}
-              />
-            ) : (
-              <>
-                {/* Validation List */}
-                {loading ? (
-                  <div className="p-4 text-center text-gray-500">טוען...</div>
-                ) : validations.length === 0 ? (
-                  <div className="p-4 text-center text-gray-500">
-                    <Shield className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                    <p>אין אימותים</p>
-                    <p className="text-xs">צור אימות חדש</p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-gray-100">
-                    {validations.map(validation => (
-                      <div 
-                        key={validation.id}
-                        className={`p-3 hover:bg-gray-50 cursor-pointer flex items-center justify-between group ${
-                          value?.validationId === validation.id ? 'bg-purple-50' : ''
-                        }`}
-                        onClick={() => handleSelect(validation)}
+            
+            {/* Content */}
+            <div className="flex-1 overflow-auto">
+              {showCreate ? (
+                <CreateValidationForm 
+                  form={form}
+                  setForm={setForm}
+                  onSave={handleCreateNew}
+                  onCancel={() => { setShowCreate(false); resetForm(); }}
+                  onTest={handleTest}
+                  testing={testing}
+                  testResult={testResult}
+                  isEditing={!!editingId}
+                />
+              ) : (
+                <div className="p-6">
+                  {/* Validation List */}
+                  {loading ? (
+                    <div className="py-16 text-center">
+                      <div className="w-10 h-10 border-3 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                      <p className="mt-4 text-gray-500">טוען אימותים...</p>
+                    </div>
+                  ) : validations.length === 0 ? (
+                    <div className="py-16 text-center">
+                      <div className="w-20 h-20 bg-purple-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <Shield className="w-10 h-10 text-purple-300" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-700 mb-2">אין אימותים</h3>
+                      <p className="text-gray-500 mb-6">צור אימות API כדי לסנן רכיבים דינמית</p>
+                      <button
+                        onClick={() => setShowCreate(true)}
+                        className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white rounded-xl font-medium shadow-lg hover:shadow-xl transition-all"
                       >
-                        <div className="flex-1">
-                          <div className="font-medium text-gray-800 text-sm">{validation.name}</div>
-                          {validation.description && (
-                            <div className="text-xs text-gray-500">{validation.description}</div>
-                          )}
-                          <div className="text-xs text-gray-400 mt-0.5 font-mono truncate">
-                            {validation.api_url?.substring(0, 40)}...
+                        <Plus className="w-5 h-5" />
+                        צור אימות ראשון
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {/* Create New Button */}
+                      <button
+                        onClick={() => setShowCreate(true)}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-4 border-2 border-dashed border-purple-200 rounded-xl text-purple-600 hover:bg-purple-50 hover:border-purple-300 transition-all"
+                      >
+                        <Plus className="w-5 h-5" />
+                        <span className="font-medium">צור אימות חדש</span>
+                      </button>
+                      
+                      {/* Validation Cards */}
+                      {validations.map(validation => (
+                        <div 
+                          key={validation.id}
+                          className={`p-4 rounded-xl border-2 transition-all cursor-pointer ${
+                            value?.validationId === validation.id 
+                              ? 'border-purple-500 bg-purple-50 shadow-md' 
+                              : 'border-gray-200 hover:border-purple-200 hover:bg-gray-50'
+                          }`}
+                          onClick={() => handleSelect(validation)}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-start gap-3">
+                              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                                value?.validationId === validation.id 
+                                  ? 'bg-purple-500 text-white' 
+                                  : 'bg-gray-100 text-gray-500'
+                              }`}>
+                                <Globe className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <h4 className="font-semibold text-gray-800">{validation.name}</h4>
+                                {validation.description && (
+                                  <p className="text-sm text-gray-500 mt-0.5">{validation.description}</p>
+                                )}
+                                <div className="flex items-center gap-2 mt-2">
+                                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                    validation.api_method === 'GET' ? 'bg-green-100 text-green-700' :
+                                    validation.api_method === 'POST' ? 'bg-blue-100 text-blue-700' :
+                                    'bg-orange-100 text-orange-700'
+                                  }`}>
+                                    {validation.api_method}
+                                  </span>
+                                  <span className="text-xs text-gray-400 font-mono truncate max-w-[200px]">
+                                    {validation.api_url}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                              <button
+                                onClick={() => handleEdit(validation)}
+                                className="p-2 hover:bg-blue-100 rounded-lg text-blue-600 transition-colors"
+                                title="עריכה"
+                              >
+                                <Settings className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDelete(validation.id)}
+                                className="p-2 hover:bg-red-100 rounded-lg text-red-500 transition-colors"
+                                title="מחיקה"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                          
+                          {/* Condition Preview */}
+                          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 text-xs text-gray-500">
+                            <Code className="w-3.5 h-3.5" />
+                            <span className="font-mono">{validation.response_path}</span>
+                            <span className="px-1.5 py-0.5 bg-gray-200 rounded">
+                              {comparisonOptions.find(c => c.id === validation.comparison)?.icon || '='}
+                            </span>
+                            <span className="font-mono">{validation.expected_value}</span>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDelete(validation.id); }}
-                            className="p-1 hover:bg-red-100 rounded text-red-500"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                
-                {/* Create New Button */}
-                <div className="p-3 border-t border-gray-100">
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            
+            {/* Footer */}
+            {!showCreate && validations.length > 0 && (
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
+                <p className="text-sm text-gray-500">
+                  {value?.validationId ? `נבחר: ${selectedValidation?.name || 'אימות'}` : 'לחץ על אימות לבחירה'}
+                </p>
+                <div className="flex gap-2">
+                  {value?.validationId && (
+                    <button
+                      onClick={handleClear}
+                      className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm font-medium"
+                    >
+                      הסר אימות
+                    </button>
+                  )}
                   <button
-                    onClick={() => setShowCreate(true)}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium"
+                    onClick={() => setIsOpen(false)}
+                    className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm font-medium"
                   >
-                    <Plus className="w-4 h-4" />
-                    צור אימות חדש
+                    סגור
                   </button>
                 </div>
-              </>
+              </div>
             )}
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
 // Form for creating new validation
-function CreateValidationForm({ form, setForm, onSave, onCancel, onTest, testing, testResult }) {
+function CreateValidationForm({ form, setForm, onSave, onCancel, onTest, testing, testResult, isEditing }) {
+  const [showHeaders, setShowHeaders] = useState(false);
+  
   return (
-    <div className="p-4 space-y-3">
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">שם האימות *</label>
-        <input
-          type="text"
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-          placeholder="בדיקת זכאות"
-          className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-        />
-      </div>
-      
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">תיאור</label>
-        <input
-          type="text"
-          value={form.description}
-          onChange={(e) => setForm({ ...form, description: e.target.value })}
-          placeholder="בדיקת זכאות למבצע"
-          className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-        />
-      </div>
-      
-      <div className="flex gap-2">
-        <div className="w-24">
-          <label className="block text-xs font-medium text-gray-600 mb-1">שיטה</label>
-          <select
-            value={form.apiMethod}
-            onChange={(e) => setForm({ ...form, apiMethod: e.target.value })}
-            className="w-full px-2 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-          >
-            <option value="GET">GET</option>
-            <option value="POST">POST</option>
-          </select>
-        </div>
-        <div className="flex-1">
-          <label className="block text-xs font-medium text-gray-600 mb-1">כתובת API *</label>
-          <input
-            type="text"
-            value={form.apiUrl}
-            onChange={(e) => setForm({ ...form, apiUrl: e.target.value })}
-            placeholder="https://api.example.com/check?phone={{contact_phone}}"
-            className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-mono"
-            dir="ltr"
-          />
-        </div>
-      </div>
-      
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">כותרות (Headers - JSON)</label>
-        <input
-          type="text"
-          value={form.apiHeaders}
-          onChange={(e) => setForm({ ...form, apiHeaders: e.target.value })}
-          placeholder='{"Authorization": "Bearer xxx"}'
-          className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-mono"
-          dir="ltr"
-        />
-      </div>
-      
-      {['POST', 'PUT', 'PATCH'].includes(form.apiMethod) && (
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">גוף הבקשה (Body)</label>
-          <textarea
-            value={form.apiBody}
-            onChange={(e) => setForm({ ...form, apiBody: e.target.value })}
-            placeholder='{"phone": "{{contact_phone}}"}'
-            className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-mono h-16"
-            dir="ltr"
-          />
-        </div>
-      )}
-      
-      <div className="pt-2 border-t border-gray-100">
-        <label className="block text-xs font-medium text-purple-600 mb-2">תנאי להצגה</label>
-        
-        <div className="flex gap-2">
-          <div className="flex-1">
-            <label className="block text-xs text-gray-500 mb-1">נתיב בתגובה *</label>
-            <input
-              type="text"
-              value={form.responsePath}
-              onChange={(e) => setForm({ ...form, responsePath: e.target.value })}
-              placeholder="data.isEligible"
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-mono"
-              dir="ltr"
-            />
+    <div className="p-6">
+      <div className="grid grid-cols-2 gap-6">
+        {/* Left Column - API Configuration */}
+        <div className="space-y-4">
+          <h3 className="font-semibold text-gray-700 flex items-center gap-2">
+            <span className="w-6 h-6 bg-purple-100 text-purple-700 rounded-full flex items-center justify-center text-xs font-bold">1</span>
+            הגדרת קריאת API
+          </h3>
+          
+          {/* Name & Description */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">שם האימות *</label>
+              <input
+                type="text"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="בדיקת זכאות"
+                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">תיאור</label>
+              <input
+                type="text"
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                placeholder="בדיקת זכאות למבצע"
+                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+              />
+            </div>
           </div>
-          <div className="w-28">
-            <label className="block text-xs text-gray-500 mb-1">השוואה</label>
-            <select
-              value={form.comparison}
-              onChange={(e) => setForm({ ...form, comparison: e.target.value })}
-              className="w-full px-2 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+          
+          {/* Method & URL */}
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Method & URL *</label>
+            <div className="flex gap-2">
+              <select
+                value={form.apiMethod}
+                onChange={(e) => setForm({ ...form, apiMethod: e.target.value })}
+                className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+              >
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+              </select>
+              <input
+                type="text"
+                value={form.apiUrl}
+                onChange={(e) => setForm({ ...form, apiUrl: e.target.value })}
+                placeholder="https://api.example.com/check?phone={{contact_phone}}"
+                className="flex-1 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-mono focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                dir="ltr"
+              />
+            </div>
+            <p className="text-xs text-gray-400 mt-1">ניתן להשתמש במשתנים: {'{{contact_phone}}'}, {'{{name}}'}</p>
+          </div>
+          
+          {/* Headers */}
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowHeaders(!showHeaders)}
+              className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 text-sm font-medium"
             >
-              {comparisonOptions.map(opt => (
-                <option key={opt.id} value={opt.id}>{opt.label}</option>
-              ))}
-            </select>
+              <span>Headers (אופציונלי)</span>
+              {showHeaders ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+            
+            {showHeaders && (
+              <div className="p-4">
+                <textarea
+                  value={form.apiHeaders}
+                  onChange={(e) => setForm({ ...form, apiHeaders: e.target.value })}
+                  placeholder='{"Authorization": "Bearer xxx", "Content-Type": "application/json"}'
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-mono focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none h-20"
+                  dir="ltr"
+                />
+              </div>
+            )}
           </div>
-          <div className="w-24">
-            <label className="block text-xs text-gray-500 mb-1">ערך</label>
-            <input
-              type="text"
-              value={form.expectedValue}
-              onChange={(e) => setForm({ ...form, expectedValue: e.target.value })}
-              placeholder="true"
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-              disabled={['exists', 'not_exists', 'is_true', 'is_false'].includes(form.comparison)}
-            />
-          </div>
-        </div>
-      </div>
-      
-      {/* Test Result */}
-      {testResult && (
-        <div className={`p-3 rounded-lg text-sm ${testResult.passed ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
-          <div className="flex items-center gap-2 font-medium">
-            {testResult.passed ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-            {testResult.passed ? 'האימות עבר בהצלחה!' : 'האימות נכשל'}
-          </div>
-          {testResult.extractedValue !== undefined && (
-            <div className="text-xs mt-1 opacity-75">
-              ערך שהתקבל: <span className="font-mono">{String(testResult.extractedValue)}</span>
+          
+          {/* Body for POST */}
+          {['POST', 'PUT', 'PATCH'].includes(form.apiMethod) && (
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">גוף הבקשה (Body)</label>
+              <textarea
+                value={form.apiBody}
+                onChange={(e) => setForm({ ...form, apiBody: e.target.value })}
+                placeholder='{"phone": "{{contact_phone}}"}'
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-mono focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none h-24"
+                dir="ltr"
+              />
             </div>
           )}
-          {testResult.error && (
-            <div className="text-xs mt-1">{testResult.error}</div>
+        </div>
+        
+        {/* Right Column - Condition */}
+        <div className="space-y-4">
+          <h3 className="font-semibold text-gray-700 flex items-center gap-2">
+            <span className="w-6 h-6 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-xs font-bold">2</span>
+            תנאי להצגה
+          </h3>
+          
+          <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl p-4 border border-indigo-100">
+            <p className="text-sm text-indigo-700 mb-4">הרכיב יוצג רק אם התנאי מתקיים</p>
+            
+            {/* Response Path */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-600 mb-1">נתיב בתגובה *</label>
+              <input
+                type="text"
+                value={form.responsePath}
+                onChange={(e) => setForm({ ...form, responsePath: e.target.value })}
+                placeholder="data.isEligible או status"
+                className="w-full px-4 py-2.5 bg-white border border-indigo-200 rounded-xl text-sm font-mono focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none"
+                dir="ltr"
+              />
+            </div>
+            
+            {/* Comparison */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">השוואה</label>
+                <select
+                  value={form.comparison}
+                  onChange={(e) => setForm({ ...form, comparison: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-white border border-indigo-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none"
+                >
+                  {comparisonOptions.map(opt => (
+                    <option key={opt.id} value={opt.id}>{opt.icon} {opt.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">ערך צפוי</label>
+                <input
+                  type="text"
+                  value={form.expectedValue}
+                  onChange={(e) => setForm({ ...form, expectedValue: e.target.value })}
+                  placeholder="true"
+                  className="w-full px-4 py-2.5 bg-white border border-indigo-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none"
+                  disabled={['exists', 'not_exists', 'is_true', 'is_false'].includes(form.comparison)}
+                />
+              </div>
+            </div>
+          </div>
+          
+          {/* Test Button */}
+          <button
+            onClick={onTest}
+            disabled={testing || !form.apiUrl}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 rounded-xl text-sm font-medium transition-colors"
+          >
+            <Play className="w-4 h-4" />
+            {testing ? 'בודק...' : 'בדיקת קריאה'}
+          </button>
+          
+          {/* Test Result */}
+          {testResult && (
+            <div className={`p-4 rounded-xl ${
+              testResult.passed 
+                ? 'bg-green-50 border border-green-200' 
+                : 'bg-red-50 border border-red-200'
+            }`}>
+              <div className="flex items-center gap-2 font-medium mb-2">
+                {testResult.passed ? (
+                  <>
+                    <Check className="w-5 h-5 text-green-600" />
+                    <span className="text-green-700">האימות עבר בהצלחה!</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="w-5 h-5 text-red-600" />
+                    <span className="text-red-700">האימות נכשל</span>
+                  </>
+                )}
+              </div>
+              {testResult.extractedValue !== undefined && (
+                <div className="text-sm opacity-80">
+                  <span className="text-gray-600">ערך שהתקבל: </span>
+                  <span className="font-mono bg-white px-2 py-0.5 rounded">{String(testResult.extractedValue)}</span>
+                </div>
+              )}
+              {testResult.error && (
+                <div className="text-sm text-red-600 mt-1">{testResult.error}</div>
+              )}
+            </div>
           )}
         </div>
-      )}
+      </div>
       
-      {/* Buttons */}
-      <div className="flex gap-2 pt-2">
+      {/* Action Buttons */}
+      <div className="flex justify-end gap-3 mt-6 pt-6 border-t border-gray-200">
         <button
           onClick={onCancel}
-          className="flex-1 px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50"
+          className="px-6 py-2.5 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
         >
           ביטול
         </button>
         <button
-          onClick={onTest}
-          disabled={testing || !form.apiUrl}
-          className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm flex items-center gap-1"
-        >
-          <Play className="w-3.5 h-3.5" />
-          {testing ? 'בודק...' : 'בדיקה'}
-        </button>
-        <button
           onClick={onSave}
-          className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium"
+          className="px-6 py-2.5 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white rounded-xl text-sm font-medium shadow-lg hover:shadow-xl transition-all"
         >
-          שמור
+          {isEditing ? 'עדכן אימות' : 'צור אימות'}
         </button>
       </div>
     </div>
