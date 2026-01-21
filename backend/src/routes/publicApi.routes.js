@@ -37,8 +37,8 @@ router.post('/messages/document', checkPermission('send_document'), sendDocument
 // Send audio
 router.post('/messages/audio', checkPermission('send_audio'), sendAudioMessage);
 
-// Send buttons
-router.post('/messages/buttons', checkPermission('send_buttons'), sendButtonsMessage);
+// Buttons not supported by GOWS engine
+// router.post('/messages/buttons', checkPermission('send_buttons'), sendButtonsMessage);
 
 // Send list
 router.post('/messages/list', checkPermission('send_list'), sendListMessage);

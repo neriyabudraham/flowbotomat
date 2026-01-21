@@ -192,28 +192,6 @@ export default function ApiPage() {
       ]
     },
     {
-      id: 'buttons',
-      method: 'POST',
-      endpoint: '/v1/messages/buttons',
-      description: 'שלח הודעה עם כפתורים',
-      body: {
-        phone: '972501234567',
-        message: 'בחר אפשרות:',
-        buttons: [
-          { id: 'btn1', text: 'אפשרות 1' },
-          { id: 'btn2', text: 'אפשרות 2' },
-          { id: 'btn3', text: 'אפשרות 3' }
-        ],
-        footer: 'FlowBotomat API'
-      },
-      params: [
-        { name: 'phone', type: 'string', required: true, description: 'מספר טלפון' },
-        { name: 'message', type: 'string', required: true, description: 'תוכן ההודעה' },
-        { name: 'buttons', type: 'array', required: true, description: 'מערך כפתורים (עד 3)' },
-        { name: 'footer', type: 'string', required: false, description: 'טקסט תחתון' }
-      ]
-    },
-    {
       id: 'list',
       method: 'POST',
       endpoint: '/v1/messages/list',
