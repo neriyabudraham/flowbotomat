@@ -140,33 +140,84 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
   const Icon = actionTypes.find(a => a.id === action.type)?.icon || MessageSquare;
   const fileInputRef = useRef(null);
   const [previewError, setPreviewError] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   const handleFileUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     
-    // Check file size (max 25MB)
-    const maxSize = 25 * 1024 * 1024;
+    setUploadError('');
+    setIsLoading(true);
+    setUploadProgress(0);
+    
+    // Check file size - different limits for different types
+    const maxSizeVideo = 16 * 1024 * 1024; // 16MB for video
+    const maxSizeImage = 5 * 1024 * 1024;   // 5MB for images
+    const maxSizeFile = 25 * 1024 * 1024;   // 25MB for files
+    
+    const maxSize = action.type === 'video' ? maxSizeVideo 
+                  : action.type === 'image' ? maxSizeImage 
+                  : maxSizeFile;
+    
     if (file.size > maxSize) {
-      alert('הקובץ גדול מדי. גודל מקסימלי: 25MB');
+      const maxSizeMB = maxSize / (1024 * 1024);
+      setUploadError(`הקובץ גדול מדי (${(file.size / (1024 * 1024)).toFixed(1)}MB). גודל מקסימלי: ${maxSizeMB}MB`);
+      setIsLoading(false);
+      return;
+    }
+    
+    // Validate file type
+    if (action.type === 'video' && !file.type.startsWith('video/')) {
+      setUploadError('יש לבחור קובץ וידאו');
+      setIsLoading(false);
+      return;
+    }
+    
+    if (action.type === 'image' && !file.type.startsWith('image/')) {
+      setUploadError('יש לבחור קובץ תמונה');
+      setIsLoading(false);
       return;
     }
     
     const reader = new FileReader();
+    
+    // Progress tracking
+    reader.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const progress = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(progress);
+      }
+    };
+    
     reader.onload = () => {
+      const objectUrl = URL.createObjectURL(file);
       onUpdate({ 
         localFile: true, 
         fileName: file.name, 
         fileData: reader.result, 
-        url: URL.createObjectURL(file),
-        previewUrl: URL.createObjectURL(file)
+        url: objectUrl,
+        previewUrl: objectUrl,
+        fileSize: file.size
       });
       setPreviewError(false);
+      setIsLoading(false);
+      setUploadProgress(100);
     };
+    
     reader.onerror = () => {
-      alert('שגיאה בקריאת הקובץ. נסה שוב.');
+      setUploadError('שגיאה בקריאת הקובץ. נסה שוב.');
+      setIsLoading(false);
     };
+    
     reader.readAsDataURL(file);
+  };
+
+  const formatFileSize = (bytes) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   const previewUrl = action.previewUrl || action.url;
@@ -202,8 +253,33 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
 
       {(action.type === 'image' || action.type === 'video') && (
         <div className="space-y-3">
+          {/* Error message */}
+          {uploadError && (
+            <div className="flex items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg text-sm border border-red-200">
+              <X className="w-4 h-4 flex-shrink-0" />
+              <span>{uploadError}</span>
+            </div>
+          )}
+          
+          {/* Loading state */}
+          {isLoading && (
+            <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-6 h-6 border-2 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-sm text-gray-600">מעלה {action.type === 'image' ? 'תמונה' : 'סרטון'}...</span>
+              </div>
+              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-teal-500 transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                ></div>
+              </div>
+              <p className="text-xs text-gray-400 mt-1 text-center">{uploadProgress}%</p>
+            </div>
+          )}
+          
           {/* Preview */}
-          {previewUrl && !previewError && (
+          {previewUrl && !previewError && !isLoading && (
             <div className="relative rounded-lg overflow-hidden bg-gray-100">
               {action.type === 'image' ? (
                 <img 
@@ -217,32 +293,41 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
                   <video 
                     src={previewUrl} 
                     className="w-full h-32 object-cover"
+                    controls
                     onError={() => setPreviewError(true)}
                   />
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                    <Play className="w-10 h-10 text-white" />
-                  </div>
                 </div>
               )}
               <button
-                onClick={() => { onUpdate({ url: '', previewUrl: '', localFile: false, fileName: '' }); setPreviewError(false); }}
+                onClick={() => { onUpdate({ url: '', previewUrl: '', localFile: false, fileName: '', fileSize: null }); setPreviewError(false); setUploadError(''); }}
                 className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
               >
                 <X className="w-3 h-3" />
               </button>
             </div>
           )}
+          
+          {/* Preview error */}
+          {previewError && (
+            <div className="p-3 bg-yellow-50 text-yellow-700 rounded-lg text-sm border border-yellow-200 flex items-center gap-2">
+              <span>⚠️</span>
+              <span>לא ניתן להציג תצוגה מקדימה. ה{action.type === 'image' ? 'תמונה' : 'סרטון'} יישלח בכל זאת.</span>
+            </div>
+          )}
 
           {/* Upload */}
-          {!previewUrl && (
+          {!previewUrl && !isLoading && (
             <>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full flex items-center justify-center gap-2 py-4 bg-white border-2 border-dashed border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50"
+                className="w-full flex items-center justify-center gap-2 py-4 bg-white border-2 border-dashed border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50 transition-colors"
               >
                 <Upload className="w-5 h-5" />
                 <span className="text-sm">העלה {action.type === 'image' ? 'תמונה' : 'סרטון'}</span>
               </button>
+              <p className="text-xs text-gray-400 text-center">
+                גודל מקסימלי: {action.type === 'video' ? '16MB' : '5MB'}
+              </p>
               <input 
                 ref={fileInputRef} 
                 type="file" 
@@ -256,7 +341,7 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
               <input
                 type="url"
                 value={action.url || ''}
-                onChange={(e) => { onUpdate({ url: e.target.value, previewUrl: e.target.value, localFile: false }); setPreviewError(false); }}
+                onChange={(e) => { onUpdate({ url: e.target.value, previewUrl: e.target.value, localFile: false }); setPreviewError(false); setUploadError(''); }}
                 placeholder="https://..."
                 className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
                 dir="ltr"
@@ -264,9 +349,15 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
             </>
           )}
 
-          {action.fileName && (
-            <div className="flex items-center gap-2 p-2 bg-teal-50 rounded-lg text-sm text-teal-700">
-              <CheckCircle className="w-4 h-4" />{action.fileName}
+          {action.fileName && !isLoading && (
+            <div className="flex items-center justify-between gap-2 p-2 bg-teal-50 rounded-lg text-sm text-teal-700">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4" />
+                <span className="truncate max-w-[150px]">{action.fileName}</span>
+              </div>
+              {action.fileSize && (
+                <span className="text-xs text-teal-600">{formatFileSize(action.fileSize)}</span>
+              )}
             </div>
           )}
           
