@@ -1,7 +1,10 @@
-import { useState } from 'react';
-import { CreditCard, Lock, User, Calendar, Shield } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { CreditCard, Lock, User, Shield } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
+
+// Sumit API Public Key (for tokenization)
+const SUMIT_PUBLIC_KEY = import.meta.env.VITE_SUMIT_PUBLIC_KEY;
 
 export default function CreditCardForm({ 
   onSuccess, 
@@ -41,6 +44,40 @@ export default function CreditCardForm({
     }
   };
 
+  /**
+   * Get short-term token from Sumit API
+   */
+  const getSumitToken = async (cardData) => {
+    return new Promise((resolve, reject) => {
+      // Check if Sumit SDK is loaded
+      if (typeof window.SumitTokenize === 'undefined') {
+        // If not loaded, use direct API call
+        console.log('[Sumit] SDK not loaded, using direct API');
+        resolve(null); // Will fallback to backend tokenization
+        return;
+      }
+      
+      window.SumitTokenize({
+        PublicKey: SUMIT_PUBLIC_KEY,
+        CardNumber: cardData.cardNumber,
+        ExpirationMonth: cardData.expiryMonth,
+        ExpirationYear: cardData.expiryYear,
+        CVV: cardData.cvv,
+        CitizenID: cardData.citizenId,
+        Callback: (response) => {
+          if (response.Status === 0 || response.Status === 'Success (0)') {
+            resolve({
+              token: response.SingleUseToken,
+              last4: cardData.cardNumber.slice(-4),
+            });
+          } else {
+            reject(new Error(response.UserErrorMessage || 'שגיאה ביצירת טוקן'));
+          }
+        }
+      });
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -75,15 +112,40 @@ export default function CreditCardForm({
     setLoading(true);
     
     try {
-      const { data } = await api.post('/payment/methods', {
-        cardNumber: cardNum,
+      let tokenData = null;
+      
+      // Try to get short-term token from Sumit
+      try {
+        tokenData = await getSumitToken({
+          cardNumber: cardNum,
+          expiryMonth: parseInt(form.expiryMonth),
+          expiryYear: parseInt(form.expiryYear),
+          cvv: form.cvv,
+          citizenId: form.citizenId,
+        });
+      } catch (tokenError) {
+        console.error('[Sumit] Token error:', tokenError);
+        // Continue - backend will handle without token
+      }
+      
+      // Send to backend
+      const requestData = {
+        singleUseToken: tokenData?.token,
         expiryMonth: parseInt(form.expiryMonth),
         expiryYear: parseInt(form.expiryYear),
-        cvv: form.cvv,
         cardHolderName: form.cardHolderName.trim(),
         citizenId: form.citizenId,
         companyNumber: form.companyNumber || null,
-      });
+        lastDigits: tokenData?.last4 || cardNum.slice(-4),
+      };
+      
+      // If no token, send card number for backend tokenization (fallback)
+      if (!tokenData?.token) {
+        requestData.cardNumber = cardNum;
+        requestData.cvv = form.cvv;
+      }
+      
+      const { data } = await api.post('/payment/methods', requestData);
       
       if (data.success) {
         onSuccess?.(data.paymentMethod);
@@ -91,7 +153,7 @@ export default function CreditCardForm({
         setError(data.error || 'שגיאה בשמירת הכרטיס');
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'שגיאה בשמירת פרטי התשלום');
+      setError(err.response?.data?.error || err.message || 'שגיאה בשמירת פרטי התשלום');
     } finally {
       setLoading(false);
     }
@@ -104,17 +166,17 @@ export default function CreditCardForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Security Notice */}
-      <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-4 flex items-start gap-3">
+      <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-3">
         <Shield className="w-5 h-5 text-green-600 mt-0.5" />
         <div>
-          <p className="text-sm text-green-800 dark:text-green-300 font-medium">חיבור מאובטח</p>
-          <p className="text-xs text-green-600 dark:text-green-400 mt-1">{description}</p>
+          <p className="text-sm text-green-800 font-medium">חיבור מאובטח</p>
+          <p className="text-xs text-green-600 mt-1">{description}</p>
         </div>
       </div>
 
       {/* Card Number */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
           מספר כרטיס
         </label>
         <div className="relative">
@@ -124,7 +186,7 @@ export default function CreditCardForm({
             value={form.cardNumber}
             onChange={handleCardNumberChange}
             placeholder="0000 0000 0000 0000"
-            className="w-full pr-10 pl-4 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-left"
+            className="w-full pr-10 pl-4 py-3 border border-gray-200 rounded-xl bg-white text-left"
             dir="ltr"
             inputMode="numeric"
             autoComplete="cc-number"
@@ -135,13 +197,13 @@ export default function CreditCardForm({
       {/* Expiry & CVV */}
       <div className="grid grid-cols-3 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
             חודש
           </label>
           <select
             value={form.expiryMonth}
             onChange={(e) => setForm({ ...form, expiryMonth: e.target.value })}
-            className="w-full px-3 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800"
+            className="w-full px-3 py-3 border border-gray-200 rounded-xl bg-white"
             autoComplete="cc-exp-month"
           >
             <option value="">MM</option>
@@ -151,13 +213,13 @@ export default function CreditCardForm({
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
             שנה
           </label>
           <select
             value={form.expiryYear}
             onChange={(e) => setForm({ ...form, expiryYear: e.target.value })}
-            className="w-full px-3 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800"
+            className="w-full px-3 py-3 border border-gray-200 rounded-xl bg-white"
             autoComplete="cc-exp-year"
           >
             <option value="">YYYY</option>
@@ -167,7 +229,7 @@ export default function CreditCardForm({
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
             CVV
           </label>
           <div className="relative">
@@ -177,7 +239,7 @@ export default function CreditCardForm({
               value={form.cvv}
               onChange={(e) => setForm({ ...form, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) })}
               placeholder="***"
-              className="w-full pr-9 pl-3 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-center"
+              className="w-full pr-9 pl-3 py-3 border border-gray-200 rounded-xl bg-white text-center"
               inputMode="numeric"
               maxLength={4}
               autoComplete="cc-csc"
@@ -188,7 +250,7 @@ export default function CreditCardForm({
 
       {/* Card Holder Name */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
           שם בעל הכרטיס
         </label>
         <div className="relative">
@@ -198,7 +260,7 @@ export default function CreditCardForm({
             value={form.cardHolderName}
             onChange={(e) => setForm({ ...form, cardHolderName: e.target.value })}
             placeholder="ישראל ישראלי"
-            className="w-full pr-10 pl-4 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800"
+            className="w-full pr-10 pl-4 py-3 border border-gray-200 rounded-xl bg-white"
             autoComplete="cc-name"
           />
         </div>
@@ -207,7 +269,7 @@ export default function CreditCardForm({
       {/* Citizen ID */}
       {showCitizenId && (
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
             תעודת זהות
           </label>
           <input
@@ -215,7 +277,7 @@ export default function CreditCardForm({
             value={form.citizenId}
             onChange={(e) => setForm({ ...form, citizenId: e.target.value.replace(/\D/g, '').slice(0, 9) })}
             placeholder="123456789"
-            className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-left"
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white text-left"
             dir="ltr"
             inputMode="numeric"
             maxLength={9}
@@ -226,7 +288,7 @@ export default function CreditCardForm({
       {/* Company Number (optional) */}
       {showCompanyNumber && (
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
             ח.פ. / עוסק מורשה <span className="text-gray-400 font-normal">(אופציונלי)</span>
           </label>
           <input
@@ -234,7 +296,7 @@ export default function CreditCardForm({
             value={form.companyNumber}
             onChange={(e) => setForm({ ...form, companyNumber: e.target.value.replace(/\D/g, '').slice(0, 9) })}
             placeholder="514000123"
-            className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-left"
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white text-left"
             dir="ltr"
             inputMode="numeric"
             maxLength={9}
@@ -244,7 +306,7 @@ export default function CreditCardForm({
 
       {/* Error */}
       {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 p-3 rounded-xl text-sm">
+        <div className="bg-red-50 text-red-700 p-3 rounded-xl text-sm">
           {error}
         </div>
       )}

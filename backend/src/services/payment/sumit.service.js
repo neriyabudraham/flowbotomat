@@ -14,15 +14,19 @@ function getCredentials() {
 }
 
 /**
- * Tokenize a credit card (permanent token - for recurring charges)
- * Uses /creditguy/vault/tokenize/ which creates a long-lived token
+ * Set payment method for customer (long-term tokenization)
+ * Uses the short-term token from JavaScript API to create a permanent payment method
+ * @param {object} params - Parameters
+ * @param {number} params.customerId - Sumit customer ID
+ * @param {string} params.singleUseToken - Short-term token from frontend JS API
+ * @param {object} params.customerInfo - Customer details for creation/lookup
  */
-async function tokenizeCard({ cardNumber }) {
+async function setPaymentMethodForCustomer({ customerId, singleUseToken, customerInfo }) {
   try {
     const credentials = getCredentials();
     
     if (!credentials.CompanyID || !credentials.APIKey) {
-      console.error('[Sumit] Missing credentials for tokenization');
+      console.error('[Sumit] Missing credentials');
       throw new Error('Sumit credentials not configured');
     }
     
@@ -31,17 +35,26 @@ async function tokenizeCard({ cardNumber }) {
         CompanyID: credentials.CompanyID,
         APIKey: credentials.APIKey,
       },
-      CardNumber: cardNumber,
-      GetFormatPreserving: true,
-      ForceFormatPreservingToken: null,
+      Customer: customerId ? {
+        ID: customerId,
+        SearchMode: 0, // Search by ID
+      } : {
+        Name: customerInfo?.name || 'לקוח',
+        Phone: customerInfo?.phone || null,
+        EmailAddress: customerInfo?.email || null,
+        CompanyNumber: customerInfo?.companyNumber || null,
+        ExternalIdentifier: customerInfo?.externalId || null,
+        SearchMode: 0,
+      },
+      SingleUseToken: singleUseToken,
+      PaymentMethod: null, // Will be set from token
     };
     
-    console.log('[Sumit] Tokenizing card (permanent):');
-    console.log('[Sumit] - CompanyID:', credentials.CompanyID);
-    console.log('[Sumit] - CardNumber:', cardNumber ? cardNumber.substring(0, 4) + '****' : 'MISSING');
+    console.log('[Sumit] Setting payment method for customer:', customerId || 'new');
+    console.log('[Sumit] Token (first 10 chars):', singleUseToken?.substring(0, 10) + '...');
     
     const response = await axios.post(
-      `${SUMIT_BASE_URL}/creditguy/vault/tokenize/`,
+      `${SUMIT_BASE_URL}/billing/paymentmethods/setforcustomer/`,
       requestBody,
       {
         headers: {
@@ -51,23 +64,109 @@ async function tokenizeCard({ cardNumber }) {
       }
     );
     
-    console.log('[Sumit] Tokenize response:', JSON.stringify(response.data, null, 2));
+    console.log('[Sumit] Set payment method response:', JSON.stringify(response.data, null, 2));
     
     if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
       return {
         success: true,
-        token: response.data.Data?.Token || response.data.Token,
-        formatPreservingToken: response.data.Data?.FormatPreservingToken || response.data.FormatPreservingToken,
+        customerId: response.data.Data?.CustomerID || customerId,
+        paymentMethodId: response.data.Data?.PaymentMethodID,
+        last4Digits: response.data.Data?.Last4Digits,
+        cardBrand: response.data.Data?.CardBrand,
+        data: response.data.Data,
       };
     } else {
       return {
         success: false,
-        error: response.data.UserErrorMessage || 'טוקניזציה נכשלה',
+        error: response.data.UserErrorMessage || 'שמירת אמצעי תשלום נכשלה',
         technicalError: response.data.TechnicalErrorDetails,
       };
     }
   } catch (error) {
-    console.error('[Sumit] Tokenize error:', error.message);
+    console.error('[Sumit] Set payment method error:', error.message);
+    if (error.response) {
+      console.error('[Sumit] Response data:', error.response.data);
+    }
+    return {
+      success: false,
+      error: error.response?.data?.UserErrorMessage || 'שגיאה בתקשורת עם מערכת התשלומים',
+    };
+  }
+}
+
+/**
+ * Set payment method for customer using raw card data (fallback when no frontend token)
+ * This creates the payment method directly without a pre-existing token
+ */
+async function setPaymentMethodForCustomerWithCard({ 
+  customerId, 
+  cardNumber, 
+  expiryMonth, 
+  expiryYear, 
+  cvv, 
+  citizenId,
+  customerInfo 
+}) {
+  try {
+    const credentials = getCredentials();
+    
+    if (!credentials.CompanyID || !credentials.APIKey) {
+      console.error('[Sumit] Missing credentials');
+      throw new Error('Sumit credentials not configured');
+    }
+    
+    const requestBody = {
+      Credentials: {
+        CompanyID: credentials.CompanyID,
+        APIKey: credentials.APIKey,
+      },
+      Customer: {
+        ID: customerId,
+        SearchMode: 0,
+      },
+      PaymentMethod: {
+        CreditCard_Number: cardNumber,
+        CreditCard_ExpirationMonth: parseInt(expiryMonth),
+        CreditCard_ExpirationYear: parseInt(expiryYear),
+        CreditCard_CVV: cvv || null,
+        CreditCard_CitizenID: citizenId || null,
+        Type: 1, // Credit card
+      },
+      SingleUseToken: null,
+    };
+    
+    console.log('[Sumit] Setting payment method with card data for customer:', customerId);
+    
+    const response = await axios.post(
+      `${SUMIT_BASE_URL}/billing/paymentmethods/setforcustomer/`,
+      requestBody,
+      {
+        headers: {
+          'Content-Type': 'application/json-patch+json',
+          'accept': 'text/plain',
+        },
+      }
+    );
+    
+    console.log('[Sumit] Set payment method (card) response:', JSON.stringify(response.data, null, 2));
+    
+    if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
+      return {
+        success: true,
+        customerId: response.data.Data?.CustomerID || customerId,
+        paymentMethodId: response.data.Data?.PaymentMethodID,
+        last4Digits: cardNumber?.slice(-4),
+        data: response.data.Data,
+      };
+    } else {
+      return {
+        success: false,
+        error: response.data.UserErrorMessage || 'שמירת אמצעי תשלום נכשלה',
+        technicalError: response.data.TechnicalErrorDetails,
+      };
+    }
+  } catch (error) {
+    console.error('[Sumit] Set payment method (card) error:', error.message);
     if (error.response) {
       console.error('[Sumit] Response data:', error.response.data);
     }
@@ -377,7 +476,8 @@ async function cancelRecurring(standingOrderId) {
 }
 
 module.exports = {
-  tokenizeCard,
+  setPaymentMethodForCustomer,
+  setPaymentMethodForCustomerWithCard,
   createCustomer,
   chargeOneTime,
   chargeRecurring,

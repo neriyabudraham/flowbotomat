@@ -2,24 +2,36 @@ const db = require('../../config/database');
 const sumitService = require('../../services/payment/sumit.service');
 
 /**
- * Save payment method (tokenize card + create customer in Sumit)
+ * Save payment method (using short-term token from frontend + long-term storage in Sumit)
+ * 
+ * Flow:
+ * 1. Frontend gets short-term token via Sumit JS API (or sends card details for backend tokenization)
+ * 2. Frontend sends: singleUseToken OR (cardNumber, cvv), expiryMonth, expiryYear, cardHolderName, citizenId, lastDigits
+ * 3. Backend creates customer in Sumit (or uses existing)
+ * 4. Backend calls setPaymentMethodForCustomer to save card long-term
  */
 async function savePaymentMethod(req, res) {
   try {
     const userId = req.user.id;
     const { 
-      cardNumber, 
+      singleUseToken, // Short-term token from Sumit JS API
+      cardNumber, // Fallback: raw card number if token not available
+      cvv, // Fallback: CVV for backend tokenization
       expiryMonth, 
       expiryYear, 
-      cvv,
       cardHolderName,
       citizenId,
-      companyNumber
+      companyNumber,
+      lastDigits // Last 4 digits sent from frontend
     } = req.body;
     
-    if (!cardNumber || !expiryMonth || !expiryYear) {
+    // Need either token or card number
+    if (!singleUseToken && !cardNumber) {
       return res.status(400).json({ error: 'נדרשים פרטי כרטיס אשראי' });
     }
+    
+    let tokenToUse = singleUseToken;
+    let cardLastDigits = lastDigits || (cardNumber ? cardNumber.slice(-4) : '****');
     
     // Get user info
     const userResult = await db.query(
@@ -32,35 +44,78 @@ async function savePaymentMethod(req, res) {
     }
     const user = userResult.rows[0];
     
-    // 1. Tokenize the card (permanent token)
-    const tokenResult = await sumitService.tokenizeCard({ cardNumber });
-    
-    if (!tokenResult.success) {
-      return res.status(400).json({ error: tokenResult.error });
+    // If no token from frontend, we need to get one via backend API
+    // This is a fallback - frontend tokenization is preferred
+    if (!tokenToUse && cardNumber) {
+      console.log('[Payment] No frontend token, using backend tokenization');
+      // For backend tokenization we'll create token directly with card data
+      // This requires the card details to create a short-term token
+      // We'll pass the card data directly to setPaymentMethodForCustomer
     }
     
-    // 2. Create customer in Sumit
-    const customerResult = await sumitService.createCustomer({
-      name: cardHolderName || user.name,
-      email: user.email,
-      citizenId: citizenId,
-      companyNumber: companyNumber,
-    });
+    // Check if user already has a Sumit customer
+    let sumitCustomerId = null;
+    const existingMethod = await db.query(
+      'SELECT sumit_customer_id FROM user_payment_methods WHERE user_id = $1 AND sumit_customer_id IS NOT NULL LIMIT 1',
+      [userId]
+    );
     
-    if (!customerResult.success) {
-      return res.status(400).json({ error: customerResult.error || 'שגיאה ביצירת לקוח במערכת התשלומים' });
+    if (existingMethod.rows.length > 0) {
+      sumitCustomerId = existingMethod.rows[0].sumit_customer_id;
+    } else {
+      // Create new customer in Sumit
+      const customerResult = await sumitService.createCustomer({
+        name: cardHolderName || user.name || user.email,
+        email: user.email,
+        citizenId: citizenId,
+        companyNumber: companyNumber,
+      });
+      
+      if (!customerResult.success) {
+        return res.status(400).json({ error: customerResult.error || 'שגיאה ביצירת לקוח במערכת התשלומים' });
+      }
+      sumitCustomerId = customerResult.customerId;
     }
     
-    // Get last 4 digits
-    const lastDigits = cardNumber.slice(-4);
+    let paymentResult;
     
-    // Deactivate any existing payment methods
+    if (tokenToUse) {
+      // Use the short-term token from frontend
+      paymentResult = await sumitService.setPaymentMethodForCustomer({
+        customerId: sumitCustomerId,
+        singleUseToken: tokenToUse,
+        customerInfo: {
+          name: cardHolderName || user.name,
+          email: user.email,
+        }
+      });
+    } else {
+      // Fallback: Use card details directly (setPaymentMethodForCustomer with card data)
+      paymentResult = await sumitService.setPaymentMethodForCustomerWithCard({
+        customerId: sumitCustomerId,
+        cardNumber: cardNumber,
+        expiryMonth: expiryMonth,
+        expiryYear: expiryYear,
+        cvv: cvv,
+        citizenId: citizenId,
+        customerInfo: {
+          name: cardHolderName || user.name,
+          email: user.email,
+        }
+      });
+    }
+    
+    if (!paymentResult.success) {
+      return res.status(400).json({ error: paymentResult.error || 'שגיאה בשמירת כרטיס אשראי' });
+    }
+    
+    // Deactivate any existing payment methods for this user
     await db.query(
       'UPDATE user_payment_methods SET is_default = false WHERE user_id = $1',
       [userId]
     );
     
-    // Save the new payment method with Sumit customer ID
+    // Save the new payment method with Sumit IDs
     const result = await db.query(`
       INSERT INTO user_payment_methods (
         user_id, card_token, card_last_digits, 
@@ -70,13 +125,13 @@ async function savePaymentMethod(req, res) {
       RETURNING id, card_last_digits, card_expiry_month, card_expiry_year, card_holder_name, created_at
     `, [
       userId, 
-      tokenResult.token, 
-      lastDigits,
-      expiryMonth, 
-      expiryYear, 
+      paymentResult.paymentMethodId || tokenToUse || 'stored', // Store Sumit payment method ID
+      cardLastDigits || paymentResult.last4Digits || '****',
+      expiryMonth || null, 
+      expiryYear || null, 
       cardHolderName,
       citizenId,
-      customerResult.customerId
+      sumitCustomerId
     ]);
     
     // Update user's has_payment_method flag
