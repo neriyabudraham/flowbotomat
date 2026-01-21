@@ -1,5 +1,4 @@
 const axios = require('axios');
-const FormData = require('form-data');
 
 const SUMIT_BASE_URL = 'https://api.sumit.co.il';
 
@@ -8,7 +7,7 @@ const SUMIT_BASE_URL = 'https://api.sumit.co.il';
  */
 function getCredentials() {
   return {
-    CompanyID: process.env.SUMIT_CompanyID || '',
+    CompanyID: parseInt(process.env.SUMIT_CompanyID) || 0,
     APIKey: process.env.SUMIT_APIKey || '',
     APIPublicKey: process.env.SUMIT_APIPublicKey || '',
   };
@@ -16,7 +15,7 @@ function getCredentials() {
 
 /**
  * Tokenize a credit card (single use token)
- * Uses multipart/form-data format
+ * Uses JSON format
  */
 async function tokenizeCard({ cardNumber, expiryMonth, expiryYear, cvv, citizenId }) {
   try {
@@ -27,30 +26,32 @@ async function tokenizeCard({ cardNumber, expiryMonth, expiryYear, cvv, citizenI
       throw new Error('Sumit credentials not configured');
     }
     
-    const formData = new FormData();
-    formData.append('CardNumber', cardNumber);
-    formData.append('ExpirationMonth', String(expiryMonth).padStart(2, '0'));
-    formData.append('ExpirationYear', String(expiryYear));
-    formData.append('CVV', cvv || '');
-    formData.append('CitizenID', citizenId || '');
-    formData.append('Credentials.CompanyID', credentials.CompanyID);
-    formData.append('Credentials.APIPublicKey', credentials.APIPublicKey);
-    formData.append('ResponseLanguage', '');
+    const requestBody = {
+      Credentials: {
+        CompanyID: credentials.CompanyID,
+        APIPublicKey: credentials.APIPublicKey,
+      },
+      CardNumber: cardNumber,
+      ExpirationMonth: parseInt(expiryMonth),
+      ExpirationYear: parseInt(expiryYear),
+      CVV: cvv || '',
+      CitizenID: citizenId || '',
+    };
     
     console.log('[Sumit] Tokenizing card:');
     console.log('[Sumit] - CompanyID:', credentials.CompanyID);
     console.log('[Sumit] - APIPublicKey:', credentials.APIPublicKey ? credentials.APIPublicKey.substring(0, 10) + '...' : 'MISSING');
     console.log('[Sumit] - CardNumber:', cardNumber ? cardNumber.substring(0, 4) + '****' : 'MISSING');
-    console.log('[Sumit] - ExpirationMonth:', String(expiryMonth).padStart(2, '0'));
+    console.log('[Sumit] - ExpirationMonth:', expiryMonth);
     console.log('[Sumit] - ExpirationYear:', expiryYear);
     
     const response = await axios.post(
       `${SUMIT_BASE_URL}/creditguy/vault/tokenizesingleuse/`,
-      formData,
+      requestBody,
       {
         headers: {
-          ...formData.getHeaders(),
-          'accept': 'text/plain',
+          'Content-Type': 'application/json',
+          'accept': 'application/json',
         },
       }
     );
