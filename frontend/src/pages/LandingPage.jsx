@@ -236,11 +236,11 @@ export default function LandingPage() {
     },
   ];
 
-  const stats = [
-    { value: '10,000+', label: 'משתמשים פעילים', icon: Users },
-    { value: '1M+', label: 'הודעות בחודש', icon: MessageCircle },
-    { value: '99.9%', label: 'זמינות שירות', icon: TrendingUp },
-    { value: '4.9/5', label: 'דירוג ממוצע', icon: Star },
+  const benefits = [
+    { value: '24/7', label: 'מענה אוטומטי ללקוחות', icon: Clock },
+    { value: '80%', label: 'חיסכון בזמן טיפול', icon: TrendingUp },
+    { value: '3X', label: 'יותר לידים בחודש', icon: Users },
+    { value: '100%', label: 'עברית מלאה', icon: Globe },
   ];
 
   const testimonials = [
@@ -365,7 +365,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Stats Section */}
+      {/* Benefits Section */}
       <section className="py-16 px-6 bg-gradient-to-r from-gray-900 to-gray-800 relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute inset-0" style={{ 
@@ -374,14 +374,17 @@ export default function LandingPage() {
           }} />
         </div>
         <div className="max-w-7xl mx-auto relative z-10">
+          <div className="text-center mb-10">
+            <h3 className="text-2xl font-bold text-white">למה לבחור ב-FlowBotomat?</h3>
+          </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-8">
-            {stats.map((stat, i) => (
+            {benefits.map((benefit, i) => (
               <div key={i} className="text-center">
                 <div className="w-14 h-14 mx-auto mb-4 bg-white/10 rounded-2xl flex items-center justify-center">
-                  <stat.icon className="w-7 h-7 text-white" />
+                  <benefit.icon className="w-7 h-7 text-white" />
                 </div>
-                <div className="text-3xl lg:text-4xl font-bold text-white mb-1">{stat.value}</div>
-                <div className="text-gray-400">{stat.label}</div>
+                <div className="text-3xl lg:text-4xl font-bold text-white mb-1">{benefit.value}</div>
+                <div className="text-gray-400">{benefit.label}</div>
               </div>
             ))}
           </div>
@@ -544,7 +547,7 @@ export default function LandingPage() {
             </Link>
           </div>
           <p className="text-white/60 text-sm mt-6">
-            ללא כרטיס אשראי • ביטול בכל עת
+            ביטול בכל עת • תשלום רק אחרי 14 יום
           </p>
         </div>
       </section>
