@@ -5,13 +5,145 @@ import {
   TrendingUp, Grid, Shield, ChevronLeft, Zap, Activity, 
   Plus, ArrowUpRight, Clock, CheckCircle, Crown, Bell,
   Sparkles, ArrowRight, BarChart3, Calendar, Phone, Star,
-  Target, Rocket, Gift, AlertCircle, X, ExternalLink
+  Target, Rocket, Gift, AlertCircle, X, ExternalLink, Lightbulb
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useWhatsappStore from '../store/whatsappStore';
 import useStatsStore from '../store/statsStore';
 import Logo from '../components/atoms/Logo';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
+
+// Tips content data
+const TIPS_DATA = {
+  'create-bot': {
+    icon: Bot,
+    title: 'יצירת בוט ראשון',
+    color: 'blue',
+    content: [
+      {
+        title: '1. התחל עם טריגר',
+        description: 'כל בוט מתחיל בטריגר - מילה או ביטוי שמפעיל את הבוט. בחר מילה פשוטה וקלה לזכור.'
+      },
+      {
+        title: '2. הוסף הודעת פתיחה',
+        description: 'צור הודעה ראשונה שתישלח ללקוח. היא צריכה להיות ברורה ולהסביר מה הבוט יכול לעזור.'
+      },
+      {
+        title: '3. הוסף כפתורים או אפשרויות',
+        description: 'תן ללקוחות אפשרויות לבחור. כפתורים מגדילים את אחוזי התגובה משמעותית.'
+      },
+      {
+        title: '4. בדוק ופרסם',
+        description: 'השתמש בתצוגה מקדימה כדי לבדוק את הבוט לפני הפעלתו.'
+      }
+    ],
+    tips: ['התחל עם בוט פשוט', 'הוסף תמונות להודעות', 'תן תמיד אפשרות לדבר עם נציג']
+  },
+  'conditions': {
+    icon: Workflow,
+    title: 'שימוש בתנאים ומשתנים',
+    color: 'indigo',
+    content: [
+      {
+        title: 'מה זה משתנה?',
+        description: 'משתנה הוא מידע ששומרים על הלקוח - כמו שם, עיר, או העדפות. אפשר להשתמש בו להתאמה אישית.'
+      },
+      {
+        title: 'יצירת תנאי',
+        description: 'תנאי מאפשר לשלוח הודעות שונות ללקוחות שונים. למשל: אם הלקוח מתל אביב - שלח הודעה X.'
+      },
+      {
+        title: 'שימוש במשתנים בהודעות',
+        description: 'הוסף {{name}} להודעה כדי לפנות ללקוח בשמו. זה מגדיל מעורבות!'
+      }
+    ],
+    tips: ['שמור מידע חשוב כמשתנים', 'השתמש בתנאים לסגמנטציה', 'בדוק את הלוגיקה לפני פרסום']
+  },
+  'messages': {
+    icon: MessageSquare,
+    title: 'הודעות שמניבות תגובות',
+    color: 'green',
+    content: [
+      {
+        title: 'היה קצר וממוקד',
+        description: 'הודעות קצרות מקבלות יותר תגובות. הגבל כל הודעה ל-2-3 משפטים.'
+      },
+      {
+        title: 'השתמש באימוג\'י',
+        description: 'אימוג\'י מוסיפים צבע וחמימות להודעות. אל תגזים - 1-2 לכל הודעה.'
+      },
+      {
+        title: 'צור דחיפות',
+        description: 'מילים כמו "עכשיו", "מוגבל", "בלעדי" מעודדות פעולה מהירה.'
+      },
+      {
+        title: 'שאל שאלות',
+        description: 'שאלות מזמינות תגובה. "מה מעניין אותך?" עדיף על "הנה הקטלוג שלנו".'
+      }
+    ],
+    tips: ['בדוק A/B על הודעות שונות', 'הוסף תמונות ווידאו', 'תזמן הודעות לשעות אופטימליות']
+  },
+  'contacts': {
+    icon: Users,
+    title: 'ניהול אנשי קשר',
+    color: 'cyan',
+    content: [
+      {
+        title: 'תייג את הלקוחות',
+        description: 'תגים עוזרים לסנן ולמצוא לקוחות. צור תגים כמו "VIP", "מתעניין", "לקוח קיים".'
+      },
+      {
+        title: 'צפה בהיסטוריה',
+        description: 'כל שיחה עם לקוח נשמרת. צפה בהודעות קודמות כדי להבין את ההקשר.'
+      },
+      {
+        title: 'ייצא נתונים',
+        description: 'ייצא את רשימת אנשי הקשר ל-Excel לגיבוי או לניתוח נוסף.'
+      }
+    ],
+    tips: ['עדכן תגים באופן קבוע', 'מחק אנשי קשר לא רלוונטיים', 'השתמש בחיפוש למציאה מהירה']
+  },
+  'stats': {
+    icon: BarChart3,
+    title: 'קריאת סטטיסטיקות',
+    color: 'purple',
+    content: [
+      {
+        title: 'הודעות נכנסות vs יוצאות',
+        description: 'עקוב אחרי היחס. אם יש יותר יוצאות מנכנסות - כנראה שאתה שולח יותר מדי.'
+      },
+      {
+        title: 'אחוזי מעורבות',
+        description: 'כמה לקוחות מגיבים? אחוז מעל 30% נחשב טוב לבוטים.'
+      },
+      {
+        title: 'שעות פעילות',
+        description: 'מתי הלקוחות הכי פעילים? תזמן הודעות לשעות האלה.'
+      }
+    ],
+    tips: ['בדוק סטטיסטיקות שבועית', 'השווה בין תקופות', 'התמקד במגמות, לא במספרים בודדים']
+  },
+  'automation': {
+    icon: Zap,
+    title: 'אוטומציות מתקדמות',
+    color: 'amber',
+    content: [
+      {
+        title: 'תגובות אוטומטיות',
+        description: 'הגדר תגובות לשאלות נפוצות. חסוך זמן ותן מענה מיידי 24/7.'
+      },
+      {
+        title: 'רצפי הודעות',
+        description: 'צור סדרה של הודעות שנשלחות באופן אוטומטי לאורך זמן.'
+      },
+      {
+        title: 'טריגרים חכמים',
+        description: 'הפעל בוטים על בסיס מילות מפתח, זמן, או פעולות של הלקוח.'
+      }
+    ],
+    tips: ['התחל עם אוטומציה אחת פשוטה', 'בדוק שהבוט לא נתקע', 'תן תמיד אפשרות יציאה']
+  }
+};
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -22,6 +154,7 @@ export default function DashboardPage() {
   const [greeting, setGreeting] = useState('');
   const [currentTime, setCurrentTime] = useState('');
   const [showMessage, setShowMessage] = useState(location.state?.message || null);
+  const [selectedTip, setSelectedTip] = useState(null);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -423,7 +556,7 @@ export default function DashboardPage() {
                 <Rocket className="w-5 h-5 text-purple-600" />
                 טיפים ומשאבים
               </h3>
-              <p className="text-sm text-gray-500 mt-1">למד איך להפיק את המקסימום מהמערכת</p>
+              <p className="text-sm text-gray-500 mt-1">לחץ על טיפ כדי ללמוד עוד</p>
             </div>
             <div className="p-4 space-y-3">
               <TipCard 
@@ -432,30 +565,35 @@ export default function DashboardPage() {
                 description="מדריך צעד אחר צעד ליצירת בוט אפקטיבי"
                 color="blue"
                 badge="מומלץ"
+                onClick={() => setSelectedTip('create-bot')}
               />
               <TipCard 
                 icon={Workflow}
                 title="שימוש בתנאים ומשתנים"
                 description="איך ליצור תהליכים חכמים ומותאמים אישית"
                 color="indigo"
+                onClick={() => setSelectedTip('conditions')}
               />
               <TipCard 
                 icon={MessageSquare}
                 title="הודעות שמניבות תגובות"
                 description="טיפים לכתיבת הודעות שגורמות ללקוחות לפעול"
                 color="green"
+                onClick={() => setSelectedTip('messages')}
               />
               <TipCard 
                 icon={Users}
                 title="ניהול אנשי קשר"
                 description="איך לסנן, לתייג ולנהל את הלקוחות שלך"
                 color="cyan"
+                onClick={() => setSelectedTip('contacts')}
               />
               <TipCard 
                 icon={BarChart3}
                 title="קריאת סטטיסטיקות"
                 description="הבן את הנתונים ושפר את הביצועים"
                 color="purple"
+                onClick={() => setSelectedTip('stats')}
               />
               <TipCard 
                 icon={Zap}
@@ -463,10 +601,19 @@ export default function DashboardPage() {
                 description="טריגרים, תגובות אוטומטיות ועוד"
                 color="amber"
                 badge="PRO"
+                onClick={() => setSelectedTip('automation')}
               />
             </div>
           </div>
         </div>
+
+        {/* Tip Modal */}
+        {selectedTip && TIPS_DATA[selectedTip] && (
+          <TipModal 
+            tip={TIPS_DATA[selectedTip]} 
+            onClose={() => setSelectedTip(null)} 
+          />
+        )}
 
         {/* Upgrade Banner - Only for users without paid subscription */}
         {user && (!user.subscription || user.subscription.plan?.price === 0 || user.subscription.plan?.price === '0') && (
@@ -582,7 +729,7 @@ function SetupStep({ completed, number, text, link }) {
   );
 }
 
-function TipCard({ icon: Icon, title, description, color, badge }) {
+function TipCard({ icon: Icon, title, description, color, badge, onClick }) {
   const colors = {
     blue: 'from-blue-500 to-indigo-600',
     indigo: 'from-indigo-500 to-purple-600',
@@ -593,7 +740,10 @@ function TipCard({ icon: Icon, title, description, color, badge }) {
   };
 
   return (
-    <div className="flex items-center gap-4 p-4 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer group">
+    <button 
+      onClick={onClick}
+      className="w-full flex items-center gap-4 p-4 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer group text-right"
+    >
       <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${colors[color]} flex items-center justify-center group-hover:scale-110 transition-transform shadow-lg`}>
         <Icon className="w-5 h-5 text-white" />
       </div>
@@ -613,6 +763,94 @@ function TipCard({ icon: Icon, title, description, color, badge }) {
         <p className="text-sm text-gray-500">{description}</p>
       </div>
       <ChevronLeft className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
+    </button>
+  );
+}
+
+function TipModal({ tip, onClose }) {
+  const Icon = tip.icon;
+  const colors = {
+    blue: 'from-blue-500 to-indigo-600',
+    indigo: 'from-indigo-500 to-purple-600',
+    green: 'from-green-500 to-emerald-600',
+    cyan: 'from-cyan-500 to-blue-600',
+    purple: 'from-purple-500 to-pink-600',
+    amber: 'from-amber-500 to-orange-600',
+  };
+
+  return (
+    <div 
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+        onClick={e => e.stopPropagation()}
+        dir="rtl"
+      >
+        {/* Header */}
+        <div className={`bg-gradient-to-r ${colors[tip.color]} p-6 text-white rounded-t-3xl`}>
+          <button 
+            onClick={onClose}
+            className="absolute top-4 left-4 p-2 hover:bg-white/20 rounded-xl transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 bg-white/20 backdrop-blur rounded-2xl flex items-center justify-center">
+              <Icon className="w-8 h-8" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold">{tip.title}</h2>
+              <p className="text-white/70">מדריך מפורט</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-6 space-y-6">
+          {/* Steps */}
+          <div className="space-y-4">
+            {tip.content.map((item, index) => (
+              <div key={index} className="flex gap-4">
+                <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${colors[tip.color]} flex items-center justify-center text-white font-bold text-sm flex-shrink-0`}>
+                  {index + 1}
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 mb-1">{item.title}</h3>
+                  <p className="text-gray-600 text-sm">{item.description}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Pro Tips */}
+          {tip.tips && tip.tips.length > 0 && (
+            <div className="bg-amber-50 rounded-2xl p-4 border border-amber-200">
+              <h3 className="font-bold text-amber-800 mb-3 flex items-center gap-2">
+                <Lightbulb className="w-5 h-5" />
+                טיפים נוספים
+              </h3>
+              <ul className="space-y-2">
+                {tip.tips.map((t, i) => (
+                  <li key={i} className="flex items-center gap-2 text-amber-900 text-sm">
+                    <CheckCircle className="w-4 h-4 text-amber-600" />
+                    {t}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Action Button */}
+          <button
+            onClick={onClose}
+            className={`w-full py-4 bg-gradient-to-r ${colors[tip.color]} text-white rounded-xl font-bold hover:shadow-lg transition-all`}
+          >
+            הבנתי, תודה!
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

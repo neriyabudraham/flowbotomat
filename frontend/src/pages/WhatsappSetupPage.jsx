@@ -483,12 +483,6 @@ export default function WhatsappSetupPage() {
                     </p>
                   </div>
                 </div>
-                
-                {connection?.session_name && (
-                  <div className="mt-4 pt-4 border-t border-green-200">
-                    <p className="text-sm text-gray-500">שם הסשן: <span className="font-medium text-gray-700">{connection.session_name}</span></p>
-                  </div>
-                )}
               </div>
               
               {/* Actions */}
