@@ -21,7 +21,9 @@ export default function BotEditorPage() {
   const [hasChanges, setHasChanges] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [botName, setBotName] = useState('');
+  const [botDescription, setBotDescription] = useState('');
   const [flowKey, setFlowKey] = useState(0);
   const [showPreview, setShowPreview] = useState(false);
   const isInitialLoad = useRef(true);
@@ -36,6 +38,7 @@ export default function BotEditorPage() {
     
     fetchBot(botId).then((bot) => {
       setBotName(bot.name);
+      setBotDescription(bot.description || '');
       
       const defaultData = {
         nodes: [{
@@ -213,6 +216,14 @@ export default function BotEditorPage() {
     setIsEditingName(false);
   };
 
+  // Save description
+  const handleDescriptionSave = async () => {
+    if (botDescription !== (currentBot?.description || '')) {
+      await updateBot(botId, { description: botDescription.trim() });
+    }
+    setIsEditingDescription(false);
+  };
+
   // Navigate back with warning
   const handleBack = () => {
     if (hasChanges && !confirm('יש שינויים שלא נשמרו. לצאת בכל זאת?')) return;
@@ -240,22 +251,44 @@ export default function BotEditorPage() {
               <ArrowRight className="w-5 h-5 text-gray-600" />
             </button>
             
-            {isEditingName ? (
-              <input
-                type="text"
-                value={botName}
-                onChange={(e) => setBotName(e.target.value)}
-                onBlur={handleNameSave}
-                onKeyDown={(e) => e.key === 'Enter' && handleNameSave()}
-                className="px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-200 outline-none"
-                autoFocus
-              />
-            ) : (
-              <button onClick={() => setIsEditingName(true)} className="flex items-center gap-2 hover:bg-gray-100 px-3 py-1 rounded-lg transition-colors">
-                <h1 className="font-semibold text-lg text-gray-800">{currentBot.name}</h1>
-                <Edit2 className="w-4 h-4 text-gray-400" />
-              </button>
-            )}
+            <div className="flex flex-col">
+              {isEditingName ? (
+                <input
+                  type="text"
+                  value={botName}
+                  onChange={(e) => setBotName(e.target.value)}
+                  onBlur={handleNameSave}
+                  onKeyDown={(e) => e.key === 'Enter' && handleNameSave()}
+                  className="px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-200 outline-none"
+                  autoFocus
+                />
+              ) : (
+                <button onClick={() => setIsEditingName(true)} className="flex items-center gap-2 hover:bg-gray-100 px-3 py-1 rounded-lg transition-colors">
+                  <h1 className="font-semibold text-lg text-gray-800">{currentBot.name}</h1>
+                  <Edit2 className="w-4 h-4 text-gray-400" />
+                </button>
+              )}
+              
+              {isEditingDescription ? (
+                <input
+                  type="text"
+                  value={botDescription}
+                  onChange={(e) => setBotDescription(e.target.value)}
+                  onBlur={handleDescriptionSave}
+                  onKeyDown={(e) => e.key === 'Enter' && handleDescriptionSave()}
+                  placeholder="הוסף תיאור..."
+                  className="mr-3 px-2 py-0.5 text-sm border border-gray-200 rounded focus:ring-1 focus:ring-primary-200 outline-none"
+                  autoFocus
+                />
+              ) : (
+                <button 
+                  onClick={() => setIsEditingDescription(true)} 
+                  className="mr-3 text-xs text-gray-400 hover:text-gray-600 text-right"
+                >
+                  {currentBot.description || botDescription || 'לחץ להוספת תיאור...'}
+                </button>
+              )}
+            </div>
             
             {hasChanges && (
               <div className="flex items-center gap-2">

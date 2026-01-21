@@ -454,16 +454,36 @@ class BotEngine {
         return;
     }
     
-    // Find next node
-    let nextEdge;
+    // Find all next edges (support multiple outputs)
+    let nextEdges;
     if (nextHandleId) {
-      nextEdge = flowData.edges.find(e => e.source === nodeId && e.sourceHandle === nextHandleId);
+      nextEdges = flowData.edges.filter(e => e.source === nodeId && e.sourceHandle === nextHandleId);
     } else {
-      nextEdge = flowData.edges.find(e => e.source === nodeId);
+      // Get all edges without specific handle
+      nextEdges = flowData.edges.filter(e => e.source === nodeId && !e.sourceHandle);
     }
     
-    if (nextEdge) {
-      await this.executeNode(nextEdge.target, flowData, contact, message, userId, botId, botName);
+    if (nextEdges.length === 0 && !nextHandleId) {
+      // Fallback - get any edge from this node
+      nextEdges = flowData.edges.filter(e => e.source === nodeId);
+    }
+    
+    if (nextEdges.length > 0) {
+      // Sort by target node Y position (higher first)
+      const sortedEdges = nextEdges.sort((a, b) => {
+        const nodeA = flowData.nodes.find(n => n.id === a.target);
+        const nodeB = flowData.nodes.find(n => n.id === b.target);
+        const posA = nodeA?.position?.y || 0;
+        const posB = nodeB?.position?.y || 0;
+        return posA - posB; // Lower Y first (top to bottom)
+      });
+      
+      console.log('[BotEngine] Executing', sortedEdges.length, 'branches sequentially');
+      
+      // Execute all branches sequentially (top to bottom)
+      for (const edge of sortedEdges) {
+        await this.executeNode(edge.target, flowData, contact, message, userId, botId, botName);
+      }
     }
   }
   
@@ -736,8 +756,84 @@ class BotEngine {
             await this.sendWebhook(action.webhookUrl, contact);
           }
           break;
+          
+        case 'http_request':
+          await this.executeHttpRequest(action, contact);
+          break;
       }
     }
+  }
+  
+  // Execute HTTP request action
+  async executeHttpRequest(action, contact) {
+    if (!action.apiUrl) return;
+    
+    const axios = require('axios');
+    
+    try {
+      // Build headers
+      const headers = {};
+      if (action.headers && Array.isArray(action.headers)) {
+        for (const h of action.headers) {
+          if (h.key) {
+            headers[h.key] = this.replaceVariables(h.value || '', contact, '', '');
+          }
+        }
+      }
+      if (!headers['Content-Type'] && ['POST', 'PUT', 'PATCH'].includes(action.method)) {
+        headers['Content-Type'] = 'application/json';
+      }
+      
+      // Build body with variable replacement
+      let body = undefined;
+      if (action.body && ['POST', 'PUT', 'PATCH'].includes(action.method)) {
+        try {
+          const bodyStr = this.replaceVariables(action.body, contact, '', '');
+          body = JSON.parse(bodyStr);
+        } catch {
+          body = action.body;
+        }
+      }
+      
+      const url = this.replaceVariables(action.apiUrl, contact, '', '');
+      console.log('[BotEngine] HTTP Request:', action.method, url);
+      
+      const response = await axios({
+        method: action.method || 'GET',
+        url,
+        headers,
+        data: body,
+        timeout: 30000
+      });
+      
+      console.log('[BotEngine] ✅ HTTP Response status:', response.status);
+      
+      // Apply response mappings
+      if (action.mappings && Array.isArray(action.mappings)) {
+        for (const mapping of action.mappings) {
+          if (mapping.path && mapping.varName) {
+            const value = this.getValueFromPath(response.data, mapping.path);
+            if (value !== undefined) {
+              await this.setContactVariable(contact.id, mapping.varName, String(value));
+              console.log('[BotEngine] Mapped', mapping.path, '→', mapping.varName, '=', value);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[BotEngine] ❌ HTTP Request failed:', error.message);
+    }
+  }
+  
+  // Get value from nested path (e.g., "data.user.name")
+  getValueFromPath(obj, path) {
+    const parts = path.split('.');
+    let current = obj;
+    for (const part of parts) {
+      if (current === null || current === undefined) return undefined;
+      current = current[part];
+    }
+    return current;
   }
   
   // Execute list node
