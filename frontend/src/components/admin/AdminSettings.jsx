@@ -50,10 +50,12 @@ export default function AdminSettings() {
 
   const sections = {
     app: { label: 'הגדרות אפליקציה', icon: '⚙️' },
-    smtp: { label: 'הגדרות מייל (SMTP)', icon: '📧' },
     security: { label: 'אבטחה', icon: '🔒' },
     backup: { label: 'גיבויים', icon: '💾' },
   };
+  
+  // Filter out settings that shouldn't be shown in UI
+  const hiddenSettings = ['smtp', 'plans']; // smtp is in .env, plans has its own tab
 
   return (
     <div className="space-y-6">
@@ -69,7 +71,9 @@ export default function AdminSettings() {
       </div>
 
       <div className="space-y-4">
-        {Object.entries(settings).map(([key, setting]) => {
+        {Object.entries(settings)
+          .filter(([key]) => !hiddenSettings.includes(key))
+          .map(([key, setting]) => {
           const section = sections[key] || { label: key, icon: '📋' };
           const isExpanded = expandedSections.includes(key);
           
