@@ -127,15 +127,14 @@ async function useTemplate(req, res) {
     
     // Create bot from template
     const botResult = await db.query(`
-      INSERT INTO bots (user_id, name, description, flow_data, trigger_config, is_active)
-      VALUES ($1, $2, $3, $4, $5, false)
+      INSERT INTO bots (user_id, name, description, flow_data, is_active)
+      VALUES ($1, $2, $3, $4, false)
       RETURNING *
     `, [
       userId,
       name || template.name_he || template.name,
       template.description_he || template.description,
-      template.flow_data,
-      template.trigger_config
+      template.flow_data
     ]);
     
     // Increment use count

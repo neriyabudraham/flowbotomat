@@ -23,7 +23,7 @@ async function savePaymentMethod(req, res) {
     
     // Get user info
     const userResult = await db.query(
-      'SELECT id, name, email, phone FROM users WHERE id = $1',
+      'SELECT id, name, email FROM users WHERE id = $1',
       [userId]
     );
     
@@ -42,7 +42,6 @@ async function savePaymentMethod(req, res) {
     // 2. Create customer in Sumit
     const customerResult = await sumitService.createCustomer({
       name: cardHolderName || user.name,
-      phone: user.phone,
       email: user.email,
       citizenId: citizenId,
       companyNumber: companyNumber,
@@ -182,7 +181,7 @@ async function subscribe(req, res) {
     
     // Get user info
     const userResult = await db.query(
-      'SELECT id, name, email, phone FROM users WHERE id = $1',
+      'SELECT id, name, email FROM users WHERE id = $1',
       [userId]
     );
     
