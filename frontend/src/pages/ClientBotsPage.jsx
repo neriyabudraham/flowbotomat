@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Bot, Play, Pause, Edit2, Zap, Users, ArrowRight, Plus, Upload, X, Download, Trash2, UserCheck } from 'lucide-react';
+import { Bot, Play, Pause, Edit2, Zap, Users, ArrowRight, Plus, Upload, X, Download, Trash2, UserCheck, Copy } from 'lucide-react';
 import Button from '../components/atoms/Button';
 import Logo from '../components/atoms/Logo';
 import api from '../services/api';
@@ -141,6 +141,16 @@ export default function ClientBotsPage() {
       loadClientBots();
     } catch (err) {
       alert(err.response?.data?.error || 'שגיאה במחיקה');
+    }
+  };
+
+  const handleDuplicate = async (e, bot) => {
+    e.stopPropagation();
+    try {
+      await api.post(`/experts/client/${clientId}/bots/duplicate/${bot.id}`);
+      loadClientBots();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בשכפול');
     }
   };
 
@@ -291,6 +301,13 @@ export default function ClientBotsPage() {
                         </button>
                         {bot.isCreator && (
                           <>
+                            <button
+                              onClick={(e) => handleDuplicate(e, bot)}
+                              className="p-2 rounded-lg bg-purple-100 text-purple-600 hover:bg-purple-200"
+                              title="שכפול"
+                            >
+                              <Copy className="w-4 h-4" />
+                            </button>
                             <button
                               onClick={(e) => handleExport(e, bot)}
                               className="p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"

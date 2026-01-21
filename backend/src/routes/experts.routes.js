@@ -11,6 +11,7 @@ const {
   getClientBots,
   createClientBot,
   importClientBot,
+  duplicateClientBot,
 } = require('../controllers/experts/experts.controller');
 
 router.use(authMiddleware);
@@ -27,5 +28,6 @@ router.delete('/client/:clientId/leave', leaveClient);
 router.get('/client/:clientId/bots', getClientBots);
 router.post('/client/:clientId/bots', createClientBot);
 router.post('/client/:clientId/bots/import', importClientBot);
+router.post('/client/:clientId/bots/duplicate/:botId', duplicateClientBot);
 
 module.exports = router;

@@ -377,6 +377,61 @@ async function importClientBot(req, res) {
 }
 
 /**
+ * Duplicate bot for client (as expert) - only bots the expert created
+ */
+async function duplicateClientBot(req, res) {
+  try {
+    const expertId = req.user.id;
+    const { clientId, botId } = req.params;
+    
+    // Verify expert relationship with edit permissions
+    const relationship = await db.query(
+      'SELECT * FROM expert_clients WHERE expert_id = $1 AND client_id = $2 AND is_active = true',
+      [expertId, clientId]
+    );
+    
+    if (relationship.rows.length === 0 || !relationship.rows[0].can_edit_bots) {
+      return res.status(403).json({ error: 'אין לך הרשאה לשכפל בוטים ללקוח זה' });
+    }
+    
+    // Get original bot and verify the expert created it
+    const original = await db.query(
+      'SELECT * FROM bots WHERE id = $1 AND user_id = $2',
+      [botId, clientId]
+    );
+    
+    if (original.rows.length === 0) {
+      return res.status(404).json({ error: 'בוט לא נמצא' });
+    }
+    
+    const bot = original.rows[0];
+    
+    // Only allow duplicating bots that this expert created
+    if (bot.created_by !== expertId) {
+      return res.status(403).json({ error: 'ניתן לשכפל רק בוטים שיצרת' });
+    }
+    
+    // Create duplicate
+    const result = await db.query(
+      `INSERT INTO bots (user_id, name, description, flow_data, is_active, created_by)
+       VALUES ($1, $2, $3, $4, false, $5)
+       RETURNING *`,
+      [clientId, `${bot.name} (עותק)`, bot.description, bot.flow_data, expertId]
+    );
+    
+    console.log(`[Experts] Expert ${expertId} duplicated bot ${botId} for client ${clientId}`);
+    
+    res.json({
+      success: true,
+      bot: result.rows[0],
+    });
+  } catch (error) {
+    console.error('[Experts] Duplicate client bot error:', error);
+    res.status(500).json({ error: 'שגיאה בשכפול' });
+  }
+}
+
+/**
  * Check if user has expert access to a resource
  */
 async function checkExpertAccess(expertId, clientId, permission = 'can_view_bots') {
@@ -400,5 +455,6 @@ module.exports = {
   getClientBots,
   createClientBot,
   importClientBot,
+  duplicateClientBot,
   checkExpertAccess,
 };
