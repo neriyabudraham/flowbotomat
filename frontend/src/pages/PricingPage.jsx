@@ -38,6 +38,7 @@ export default function PricingPage() {
   const [billingPeriod, setBillingPeriod] = useState('monthly');
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
   const [currentSubscription, setCurrentSubscription] = useState(null);
   
   const isAuthenticated = !!user;
@@ -80,21 +81,24 @@ export default function PricingPage() {
       return;
     }
     
-    // If selecting free plan while having a paid subscription - cancel subscription
+    // If selecting free plan while having a paid subscription - show cancel modal
     if (parseFloat(plan.price) === 0 && currentSubscription) {
-      if (confirm('האם אתה בטוח שברצונך לבטל את המנוי ולעבור לתוכנית החינמית?')) {
-        try {
-          await api.post('/payment/cancel');
-          navigate('/dashboard', { state: { message: 'המנוי בוטל בהצלחה', type: 'success' } });
-        } catch (err) {
-          alert(err.response?.data?.error || 'שגיאה בביטול המנוי');
-        }
-      }
+      setShowCancelModal(true);
       return;
     }
     
     setSelectedPlan(plan);
     setShowCheckoutModal(true);
+  };
+
+  const handleCancelSubscription = async () => {
+    try {
+      await api.post('/payment/cancel');
+      setShowCancelModal(false);
+      navigate('/dashboard', { state: { message: 'המנוי בוטל בהצלחה', type: 'success' } });
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בביטול המנוי');
+    }
   };
 
   useEffect(() => {
@@ -520,6 +524,15 @@ export default function PricingPage() {
           }}
         />
       )}
+
+      {/* Cancel Subscription Modal */}
+      {showCancelModal && (
+        <CancelSubscriptionModal
+          subscription={currentSubscription}
+          onClose={() => setShowCancelModal(false)}
+          onConfirm={handleCancelSubscription}
+        />
+      )}
     </div>
   );
 }
@@ -539,6 +552,98 @@ function Feature({ icon: Icon, label, included, highlight }) {
       <span className={`text-sm ${included ? (highlight ? 'text-gray-900 font-medium' : 'text-gray-700') : 'text-gray-400'}`}>
         {label}
       </span>
+    </div>
+  );
+}
+
+function CancelSubscriptionModal({ subscription, onClose, onConfirm }) {
+  const [confirmed, setConfirmed] = useState(false);
+  const [processing, setProcessing] = useState(false);
+
+  const handleCancel = async () => {
+    setProcessing(true);
+    await onConfirm();
+    setProcessing(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div 
+        className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl"
+        onClick={e => e.stopPropagation()}
+        dir="rtl"
+      >
+        {/* Header */}
+        <div className="bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 p-8 text-center text-white">
+          <div className="w-20 h-20 bg-white/20 backdrop-blur rounded-full flex items-center justify-center mx-auto mb-4">
+            <Crown className="w-10 h-10" />
+          </div>
+          <h2 className="text-2xl font-bold mb-2">אנחנו מצטערים שאתם הולכים 😢</h2>
+          <p className="text-white/80">האם אתה בטוח שברצונך לבטל את המנוי?</p>
+        </div>
+
+        {/* Content */}
+        <div className="p-6 space-y-6">
+          {/* What happens after cancellation */}
+          <div className="bg-gray-50 rounded-2xl p-5">
+            <h3 className="font-bold text-gray-900 mb-4 text-center">מה קורה אחרי הביטול?</h3>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="p-1 bg-green-100 rounded-full">
+                  <Check className="w-4 h-4 text-green-600" />
+                </div>
+                <span className="text-gray-700">המנוי שלך יישאר פעיל עד <span className="font-semibold text-blue-600">סוף תקופת החיוב</span></span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="p-1 bg-green-100 rounded-full">
+                  <Check className="w-4 h-4 text-green-600" />
+                </div>
+                <span className="text-gray-700">לא תחויב יותר באופן אוטומטי</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="p-1 bg-amber-100 rounded-full">
+                  <AlertCircle className="w-4 h-4 text-amber-600" />
+                </div>
+                <span className="text-gray-700">לאחר התאריך, תאבד גישה לפיצ'רים מתקדמים</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="p-1 bg-green-100 rounded-full">
+                  <Check className="w-4 h-4 text-green-600" />
+                </div>
+                <span className="text-gray-700">תוכל לחדש את המנוי בכל עת</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Confirmation checkbox */}
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              onChange={(e) => setConfirmed(e.target.checked)}
+              className="w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+            />
+            <span className="text-gray-700">אני מבין/ה ורוצה לבטל את המנוי</span>
+          </label>
+
+          {/* Buttons */}
+          <div className="flex gap-3">
+            <button
+              onClick={handleCancel}
+              disabled={!confirmed || processing}
+              className="flex-1 py-3.5 border-2 border-gray-200 rounded-xl font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              {processing ? 'מבטל...' : 'בטל מנוי'}
+            </button>
+            <button
+              onClick={onClose}
+              className="flex-1 py-3.5 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-xl font-bold hover:shadow-lg transition-all flex items-center justify-center gap-2"
+            >
+              להישאר במנוי! 🎉
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
