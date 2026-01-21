@@ -30,9 +30,9 @@ export default function LoginPage() {
   };
 
   const stats = [
-    { value: '10K+', label: 'משתמשים פעילים' },
-    { value: '1M+', label: 'הרצות פלואו בחודש' },
-    { value: '99.9%', label: 'זמינות שירות' },
+    { value: '✓', label: 'ללא התקנה נדרשת' },
+    { value: '✓', label: 'תמיכה בעברית מלאה' },
+    { value: '✓', label: 'ניסיון חינם' },
   ];
 
   const features = [
