@@ -488,6 +488,7 @@ class BotEngine {
       console.log('[BotEngine] ✅ List sent');
     } catch (listError) {
       console.error('[BotEngine] ❌ List send failed:', listError.message);
+      console.error('[BotEngine] Error details:', listError.response?.data || 'No details');
       // Fallback to text message
       let text = `*${listData.title}*\n\n${listData.body}`;
       if (listData.buttons.length > 0) {

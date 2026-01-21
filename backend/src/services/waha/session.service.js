@@ -183,26 +183,37 @@ async function sendList(connection, phone, listData) {
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
   
-  const response = await client.post(`/api/sendList`, {
+  const rows = (listData.buttons || []).map((btn, i) => {
+    const row = {
+      title: (btn.title || `אפשרות ${i + 1}`).substring(0, 24), // Max 24 chars
+      rowId: btn.id || `option_${i}`,
+    };
+    if (btn.description) {
+      row.description = btn.description.substring(0, 72); // Max 72 chars
+    }
+    return row;
+  });
+  
+  const payload = {
     session: connection.session_name,
     chatId: chatId,
     message: {
-      title: listData.title || '',
-      description: listData.body || '',
-      footer: listData.footer || '',
-      button: listData.buttonText || 'בחר',
+      title: (listData.title || '').substring(0, 60),
+      description: listData.body || 'בחר אפשרות',
+      footer: (listData.footer || '').substring(0, 60),
+      button: (listData.buttonText || 'בחר').substring(0, 20),
       sections: [
         {
-          title: '',
-          rows: (listData.buttons || []).map((btn, i) => ({
-            title: btn.title || `אפשרות ${i + 1}`,
-            rowId: btn.id || `option_${i}`,
-            description: btn.description || null,
-          })),
+          title: 'אפשרויות',
+          rows: rows,
         },
       ],
     },
-  });
+  };
+  
+  console.log('[WAHA] Sending list payload:', JSON.stringify(payload, null, 2));
+  
+  const response = await client.post(`/api/sendList`, payload);
   
   console.log(`[WAHA] Sent list to ${phone}`);
   return response.data;
