@@ -468,23 +468,40 @@ class BotEngine {
     
     const { title, body, buttonText, buttons, footer } = node.data;
     
-    // For now, send as regular message with options (WAHA list support varies)
-    let text = `*${this.replaceVariables(title || '', contact, '', botName)}*\n\n${this.replaceVariables(body || '', contact, '', botName)}`;
-    if (buttons && buttons.length > 0) {
-      text += '\n\n';
-      buttons.forEach((btn, i) => {
-        const btnTitle = this.replaceVariables(btn.title || '', contact, '', botName);
-        const btnDesc = btn.description ? ' - ' + this.replaceVariables(btn.description, contact, '', botName) : '';
-        text += `${i + 1}. ${btnTitle}${btnDesc}\n`;
-      });
-    }
-    if (footer) {
-      text += `\n_${this.replaceVariables(footer, contact, '', botName)}_`;
-    }
+    // Prepare list data with variable replacement
+    const listData = {
+      title: this.replaceVariables(title || '', contact, '', botName),
+      body: this.replaceVariables(body || '', contact, '', botName),
+      footer: this.replaceVariables(footer || '', contact, '', botName),
+      buttonText: this.replaceVariables(buttonText || 'בחר', contact, '', botName),
+      buttons: (buttons || []).map((btn, i) => ({
+        id: `option_${i}`,
+        title: this.replaceVariables(btn.title || '', contact, '', botName),
+        description: btn.description ? this.replaceVariables(btn.description, contact, '', botName) : null,
+      })),
+    };
     
-    console.log('[BotEngine] Sending list message');
-    await wahaService.sendMessage(connection, contact.phone, text);
-    console.log('[BotEngine] ✅ List sent');
+    console.log('[BotEngine] Sending list message with', listData.buttons.length, 'options');
+    
+    try {
+      await wahaService.sendList(connection, contact.phone, listData);
+      console.log('[BotEngine] ✅ List sent');
+    } catch (listError) {
+      console.error('[BotEngine] ❌ List send failed:', listError.message);
+      // Fallback to text message
+      let text = `*${listData.title}*\n\n${listData.body}`;
+      if (listData.buttons.length > 0) {
+        text += '\n\n';
+        listData.buttons.forEach((btn, i) => {
+          text += `${i + 1}. ${btn.title}${btn.description ? ' - ' + btn.description : ''}\n`;
+        });
+      }
+      if (listData.footer) {
+        text += `\n_${listData.footer}_`;
+      }
+      await wahaService.sendMessage(connection, contact.phone, text);
+      console.log('[BotEngine] ✅ List sent as text fallback');
+    }
   }
   
   // Helper: Replace variables in text

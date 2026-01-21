@@ -176,6 +176,38 @@ async function sendVideo(connection, phone, videoUrl, caption = '') {
   return response.data;
 }
 
+/**
+ * Send list message
+ */
+async function sendList(connection, phone, listData) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  
+  const response = await client.post(`/api/sendList`, {
+    session: connection.session_name,
+    chatId: chatId,
+    message: {
+      title: listData.title || '',
+      description: listData.body || '',
+      footer: listData.footer || '',
+      button: listData.buttonText || 'בחר',
+      sections: [
+        {
+          title: '',
+          rows: (listData.buttons || []).map((btn, i) => ({
+            title: btn.title || `אפשרות ${i + 1}`,
+            rowId: btn.id || `option_${i}`,
+            description: btn.description || null,
+          })),
+        },
+      ],
+    },
+  });
+  
+  console.log(`[WAHA] Sent list to ${phone}`);
+  return response.data;
+}
+
 module.exports = {
   createSession,
   startSession,
@@ -188,4 +220,5 @@ module.exports = {
   sendImage,
   sendFile,
   sendVideo,
+  sendList,
 };
