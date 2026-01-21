@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import VariableSelector from './VariableSelector';
 
 export default function TextInputWithVariables({ 
@@ -11,6 +11,7 @@ export default function TextInputWithVariables({
   className = '',
   dir = 'rtl',
   noEmoji = false,
+  label,
 }) {
   const [showVariables, setShowVariables] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
@@ -20,33 +21,38 @@ export default function TextInputWithVariables({
   const charCount = value?.length || 0;
   const isOverLimit = maxLength && charCount > maxLength;
   const isNearLimit = maxLength && charCount > maxLength * 0.9;
-  
-  // Check for emoji if noEmoji is true
   const hasEmoji = noEmoji && /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(value || '');
 
-  const handleKeyDown = (e) => {
-    if (e.key === '{' && !e.shiftKey) {
-      e.preventDefault(); // Prevent the { from being typed
-      const rect = inputRef.current?.getBoundingClientRect();
-      if (rect) {
-        setSelectorPosition({
-          top: rect.bottom + 5,
-          left: Math.max(rect.left, 10),
-        });
+  // Listen for { key globally on this input
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      if (document.activeElement !== inputRef.current) return;
+      
+      if (e.key === '{' || e.key === 'ה') { // ה is { in Hebrew keyboard
+        e.preventDefault();
+        const rect = inputRef.current?.getBoundingClientRect();
+        if (rect) {
+          setSelectorPosition({
+            top: rect.bottom + 5,
+            left: Math.min(rect.left + 100, window.innerWidth - 300),
+          });
+        }
+        setCursorPosition(inputRef.current?.selectionStart || 0);
+        setShowVariables(true);
       }
-      setCursorPosition(e.target.selectionStart || 0);
-      setShowVariables(true);
-    }
-  };
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, []);
 
   const handleSelectVariable = (variable) => {
-    const before = value.slice(0, cursorPosition);
-    const after = value.slice(cursorPosition);
+    const before = (value || '').slice(0, cursorPosition);
+    const after = (value || '').slice(cursorPosition);
     const newValue = before + variable + after;
     onChange(newValue);
     setShowVariables(false);
     
-    // Focus back and set cursor after variable
     setTimeout(() => {
       if (inputRef.current) {
         inputRef.current.focus();
@@ -60,12 +66,22 @@ export default function TextInputWithVariables({
 
   return (
     <div className="relative">
+      {label && (
+        <div className="flex items-center justify-between text-xs mb-1">
+          <span className="text-gray-500">{label}</span>
+          {maxLength && (
+            <span className={`${isOverLimit ? 'text-red-500' : isNearLimit ? 'text-orange-500' : 'text-gray-400'}`}>
+              {charCount}/{maxLength}
+            </span>
+          )}
+        </div>
+      )}
+      
       <InputComponent
         ref={inputRef}
         type={multiline ? undefined : 'text'}
-        value={value}
+        value={value || ''}
         onChange={(e) => onChange(e.target.value)}
-        onKeyDown={handleKeyDown}
         placeholder={placeholder}
         rows={multiline ? rows : undefined}
         dir={dir}
@@ -78,23 +94,23 @@ export default function TextInputWithVariables({
       
       {/* Status bar */}
       <div className="flex items-center justify-between mt-1">
-        <div className="text-xs text-gray-400">
-          💡 הקלד <code className="bg-gray-100 px-1 rounded">{'{'}</code> למשתנה
-        </div>
+        <button
+          type="button"
+          onClick={() => {
+            const rect = inputRef.current?.getBoundingClientRect();
+            if (rect) {
+              setSelectorPosition({ top: rect.bottom + 5, left: rect.left });
+            }
+            setCursorPosition(inputRef.current?.selectionStart || (value?.length || 0));
+            setShowVariables(true);
+          }}
+          className="text-xs text-teal-600 hover:text-teal-700 flex items-center gap-1"
+        >
+          <span className="bg-teal-100 px-1.5 py-0.5 rounded">{'{ }'}</span>
+          הוסף משתנה
+        </button>
         
-        <div className="flex items-center gap-2">
-          {hasEmoji && (
-            <span className="text-xs text-red-500">⚠️ ללא אימוג'י</span>
-          )}
-          {maxLength && (
-            <span className={`text-xs ${
-              isOverLimit ? 'text-red-500 font-medium' : 
-              isNearLimit ? 'text-orange-500' : 'text-gray-400'
-            }`}>
-              {charCount}/{maxLength}
-            </span>
-          )}
-        </div>
+        {hasEmoji && <span className="text-xs text-red-500">⚠️ ללא אימוג'י</span>}
       </div>
 
       {/* Variable Selector */}

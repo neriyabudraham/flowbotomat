@@ -5,12 +5,19 @@ class BotEngine {
   
   // Process incoming message
   async processMessage(userId, contactPhone, message, messageType = 'text') {
+    console.log('[BotEngine] ========================================');
+    console.log('[BotEngine] Processing message from:', contactPhone);
+    console.log('[BotEngine] Message:', message);
+    console.log('[BotEngine] User ID:', userId);
+    
     try {
       // Get all active bots for this user
       const botsResult = await db.query(
         'SELECT * FROM bots WHERE user_id = $1 AND is_active = true',
         [userId]
       );
+      
+      console.log('[BotEngine] Active bots found:', botsResult.rows.length);
       
       if (botsResult.rows.length === 0) {
         console.log('[BotEngine] No active bots for user:', userId);
@@ -69,7 +76,8 @@ class BotEngine {
         return;
       }
       
-      console.log('[BotEngine] Trigger matched! Starting flow for bot:', bot.name);
+      console.log('[BotEngine] ✅ Trigger matched! Starting flow for bot:', bot.name);
+      console.log('[BotEngine] Flow data has', flowData.nodes.length, 'nodes and', flowData.edges.length, 'edges');
       
       // Log bot run
       await this.logBotRun(bot.id, contact.id, 'triggered');
@@ -263,10 +271,18 @@ class BotEngine {
     }
     
     for (const action of actions) {
+      console.log('[BotEngine] Executing action:', action.type);
+      
       switch (action.type) {
         case 'text':
           const text = this.replaceVariables(action.content, contact, originalMessage);
-          await wahaService.sendMessage(connection, contact.phone, text);
+          console.log('[BotEngine] Sending text message:', text.substring(0, 50) + '...');
+          try {
+            await wahaService.sendMessage(connection, contact.phone, text);
+            console.log('[BotEngine] Message sent successfully');
+          } catch (sendError) {
+            console.error('[BotEngine] Failed to send message:', sendError.message);
+          }
           break;
           
         case 'image':
@@ -443,10 +459,32 @@ class BotEngine {
   
   // Helper: Get WAHA connection
   async getConnection(userId) {
-    const result = await db.query(
-      "SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected'",
+    // Try to find connected connection, or any active connection
+    let result = await db.query(
+      "SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' LIMIT 1",
       [userId]
     );
+    
+    if (result.rows.length === 0) {
+      // Try any connection as fallback
+      result = await db.query(
+        "SELECT * FROM whatsapp_connections WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1",
+        [userId]
+      );
+      console.log('[BotEngine] Using fallback connection, status:', result.rows[0]?.status);
+    }
+    
+    if (result.rows.length === 0) {
+      console.log('[BotEngine] No WhatsApp connection found for user:', userId);
+      return null;
+    }
+    
+    console.log('[BotEngine] Found connection:', {
+      id: result.rows[0].id,
+      status: result.rows[0].status,
+      base_url: result.rows[0].base_url,
+    });
+    
     return result.rows[0];
   }
   
