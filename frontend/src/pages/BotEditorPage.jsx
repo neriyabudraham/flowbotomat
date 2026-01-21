@@ -336,8 +336,8 @@ export default function BotEditorPage() {
 
       {/* Main */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Right Panel - Editor or Palette (switches automatically) */}
-        <div className="flex-shrink-0 order-first">
+        {/* Right Panel - Editor or Palette (switches automatically, same width) */}
+        <div className="w-96 flex-shrink-0 order-first h-full">
           {selectedNode ? (
             <NodeEditor
               node={selectedNode}
@@ -346,7 +346,7 @@ export default function BotEditorPage() {
               onDelete={handleNodeDelete}
             />
           ) : (
-            <div className="w-64 p-3 overflow-y-auto h-full">
+            <div className="h-full p-3 bg-white border-r border-gray-200 overflow-y-auto">
               <NodePalette onAddNode={handleAddNode} />
             </div>
           )}
