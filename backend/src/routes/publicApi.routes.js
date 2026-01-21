@@ -15,7 +15,34 @@ const {
   getStatus,
 } = require('../controllers/api/messaging.controller');
 
-// All routes require API key authentication
+// API Info (public - no auth required)
+router.get('/', (req, res) => {
+  res.json({
+    name: 'FlowBotomat API',
+    version: '1.0.0',
+    documentation: 'https://flow.botomat.co.il/api',
+    endpoints: {
+      messages: {
+        text: 'POST /v1/messages/text',
+        image: 'POST /v1/messages/image',
+        video: 'POST /v1/messages/video',
+        document: 'POST /v1/messages/document',
+        audio: 'POST /v1/messages/audio',
+        list: 'POST /v1/messages/list',
+        location: 'POST /v1/messages/location',
+      },
+      contacts: {
+        list: 'GET /v1/contacts',
+        messages: 'GET /v1/contacts/:phone/messages',
+      },
+      status: 'GET /v1/status',
+    },
+    authentication: 'Bearer token in Authorization header',
+    baseUrl: 'https://flow.botomat.co.il/api/v1',
+  });
+});
+
+// All other routes require API key authentication
 router.use(apiKeyAuth);
 
 // ===== STATUS =====
