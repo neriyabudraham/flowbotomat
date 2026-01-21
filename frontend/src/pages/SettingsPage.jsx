@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Lock, Globe, Save } from 'lucide-react';
+import { User, Lock, Globe, Save, Palette } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Button from '../components/atoms/Button';
 import Logo from '../components/atoms/Logo';
+import ThemeToggle from '../components/atoms/ThemeToggle';
 import ExpertAccessManager from '../components/settings/ExpertAccessManager';
 import MyClientsManager from '../components/settings/MyClientsManager';
 import api from '../services/api';
@@ -73,8 +74,8 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
+      <header className="bg-white dark:bg-gray-800 shadow">
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <Button variant="ghost" onClick={() => navigate('/dashboard')}>
             ← חזרה
@@ -98,8 +99,8 @@ export default function SettingsPage() {
         )}
 
         {/* Profile Section */}
-        <div className="bg-white rounded-xl shadow p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 mb-6">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 dark:text-white">
             <User className="w-5 h-5" />
             פרטי פרופיל
           </h2>
@@ -147,9 +148,21 @@ export default function SettingsPage() {
           </form>
         </div>
 
+        {/* Theme Section */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 mb-6">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 dark:text-white">
+            <Palette className="w-5 h-5" />
+            ערכת נושא
+          </h2>
+          <div className="flex items-center justify-between">
+            <p className="text-gray-600 dark:text-gray-300">בחר את מצב התצוגה המועדף</p>
+            <ThemeToggle showLabel />
+          </div>
+        </div>
+
         {/* Password Section */}
-        <div className="bg-white rounded-xl shadow p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 mb-6">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 dark:text-white">
             <Lock className="w-5 h-5" />
             שינוי סיסמה
           </h2>
