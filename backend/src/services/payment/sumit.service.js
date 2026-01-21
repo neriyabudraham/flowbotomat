@@ -37,7 +37,12 @@ async function tokenizeCard({ cardNumber, expiryMonth, expiryYear, cvv, citizenI
     formData.append('Credentials.APIPublicKey', credentials.APIPublicKey);
     formData.append('ResponseLanguage', '');
     
-    console.log('[Sumit] Tokenizing card with CompanyID:', credentials.CompanyID);
+    console.log('[Sumit] Tokenizing card:');
+    console.log('[Sumit] - CompanyID:', credentials.CompanyID);
+    console.log('[Sumit] - APIPublicKey:', credentials.APIPublicKey ? credentials.APIPublicKey.substring(0, 10) + '...' : 'MISSING');
+    console.log('[Sumit] - CardNumber:', cardNumber ? cardNumber.substring(0, 4) + '****' : 'MISSING');
+    console.log('[Sumit] - ExpirationMonth:', String(expiryMonth).padStart(2, '0'));
+    console.log('[Sumit] - ExpirationYear:', expiryYear);
     
     const response = await axios.post(
       `${SUMIT_BASE_URL}/creditguy/vault/tokenizesingleuse/`,
@@ -50,7 +55,7 @@ async function tokenizeCard({ cardNumber, expiryMonth, expiryYear, cvv, citizenI
       }
     );
     
-    console.log('[Sumit] Tokenize response status:', response.data.Status);
+    console.log('[Sumit] Tokenize response:', JSON.stringify(response.data, null, 2));
     
     // Status 0 = Success
     if (response.data.Status === 0) {
