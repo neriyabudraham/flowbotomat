@@ -64,8 +64,6 @@ async function createManaged(req, res) {
     // Metadata to attach to session (for identification in WAHA)
     const sessionMetadata = {
       'user.email': userEmail,
-      'user.id': userId,
-      'platform': 'FlowBotomat',
     };
     
     console.log(`[WhatsApp] Session name: ${sessionName}, metadata:`, sessionMetadata);
