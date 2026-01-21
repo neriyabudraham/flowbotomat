@@ -197,7 +197,8 @@ async function createCustomer({ name, phone, email, citizenId, companyNumber }) 
         Name: name,
         Phone: phone || null,
         EmailAddress: email || null,
-        ID: citizenId || null,
+        ID: null, // This is Sumit's internal customer ID - leave null for new customers
+        Personal_ID: citizenId || null, // This is the citizen ID / תעודת זהות
         CompanyNumber: companyNumber || null,
         SearchMode: null,
         ExternalIdentifier: null,
