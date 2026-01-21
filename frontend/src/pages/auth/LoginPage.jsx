@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import useAuthStore from '../../store/authStore';
 import AuthLayout from '../../components/molecules/AuthLayout';
 import Input from '../../components/atoms/Input';
@@ -8,18 +8,22 @@ import Alert from '../../components/atoms/Alert';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login, isLoading, error, clearError } = useAuthStore();
   const [form, setForm] = useState({ email: '', password: '' });
+
+  // Get return URL from location state
+  const returnTo = location.state?.returnTo || '/dashboard';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     clearError();
     try {
       await login(form.email, form.password);
-      navigate('/dashboard');
+      navigate(returnTo);
     } catch (err) {
       if (err.response?.data?.code === 'NOT_VERIFIED') {
-        navigate('/verify', { state: { email: form.email } });
+        navigate('/verify', { state: { email: form.email, returnTo } });
       }
     }
   };

@@ -20,12 +20,20 @@ const PLAN_COLORS = {
 
 export default function PricingPage() {
   const navigate = useNavigate();
-  const { user, isAuthenticated } = useAuthStore();
+  const { user, fetchMe } = useAuthStore();
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [billingPeriod, setBillingPeriod] = useState('monthly');
+  
+  // Check if user is authenticated
+  const isAuthenticated = !!user;
 
   useEffect(() => {
+    // Try to load user if token exists
+    const token = localStorage.getItem('accessToken');
+    if (token && !user) {
+      fetchMe();
+    }
     loadPlans();
   }, []);
 
@@ -72,23 +80,28 @@ export default function PricingPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 dark:from-gray-900 dark:to-gray-800" dir="rtl">
       {/* Header */}
-      <header className="py-6 px-4">
+      <header className="py-6 px-4 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm sticky top-0 z-10 border-b border-gray-100 dark:border-gray-700">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div 
             className="text-2xl font-bold text-blue-600 cursor-pointer"
-            onClick={() => navigate('/')}
+            onClick={() => navigate(isAuthenticated ? '/dashboard' : '/')}
           >
             FlowBotomat
           </div>
           <div className="flex items-center gap-4">
             {isAuthenticated ? (
-              <button
-                onClick={() => navigate('/dashboard')}
-                className="flex items-center gap-2 px-4 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800"
-              >
-                <span>לדשבורד</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-4">
+                <span className="text-gray-600 dark:text-gray-300 hidden sm:block">
+                  שלום, {user?.name || 'משתמש'}
+                </span>
+                <button
+                  onClick={() => navigate('/dashboard')}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors"
+                >
+                  <ArrowRight className="w-4 h-4" />
+                  <span>לדשבורד</span>
+                </button>
+              </div>
             ) : (
               <>
                 <button
@@ -98,7 +111,7 @@ export default function PricingPage() {
                   התחברות
                 </button>
                 <button
-                  onClick={() => navigate('/register')}
+                  onClick={() => navigate('/signup')}
                   className="px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700"
                 >
                   הרשמה חינם
