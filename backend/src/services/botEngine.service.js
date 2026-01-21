@@ -92,7 +92,7 @@ class BotEngine {
       }
       
       // Execute flow starting from next node
-      await this.executeNode(nextEdge.target, flowData, contact, message, userId, bot.id);
+      await this.executeNode(nextEdge.target, flowData, contact, message, userId, bot.id, bot.name);
       
     } catch (error) {
       console.error('[BotEngine] Error processing bot:', error);
@@ -214,7 +214,7 @@ class BotEngine {
   }
   
   // Execute a node
-  async executeNode(nodeId, flowData, contact, message, userId, botId) {
+  async executeNode(nodeId, flowData, contact, message, userId, botId, botName = '') {
     const node = flowData.nodes.find(n => n.id === nodeId);
     if (!node) {
       console.log('[BotEngine] Node not found:', nodeId);
@@ -227,7 +227,7 @@ class BotEngine {
     
     switch (node.type) {
       case 'message':
-        await this.executeMessageNode(node, contact, message, userId);
+        await this.executeMessageNode(node, contact, message, userId, botName);
         break;
         
       case 'condition':
@@ -243,7 +243,7 @@ class BotEngine {
         break;
         
       case 'list':
-        await this.executeListNode(node, contact, userId);
+        await this.executeListNode(node, contact, userId, botName);
         // List nodes wait for response, so we don't continue automatically
         return;
     }
@@ -257,13 +257,14 @@ class BotEngine {
     }
     
     if (nextEdge) {
-      await this.executeNode(nextEdge.target, flowData, contact, message, userId, botId);
+      await this.executeNode(nextEdge.target, flowData, contact, message, userId, botId, botName);
     }
   }
   
   // Execute message node
-  async executeMessageNode(node, contact, originalMessage, userId) {
+  async executeMessageNode(node, contact, originalMessage, userId, botName = '') {
     const actions = node.data.actions || [];
+    console.log('[BotEngine] Message node has', actions.length, 'actions');
     
     // Get WAHA connection
     const connection = await this.getConnection(userId);
@@ -272,38 +273,73 @@ class BotEngine {
       return;
     }
     
-    for (const action of actions) {
-      console.log('[BotEngine] Executing action:', action.type);
+    for (let i = 0; i < actions.length; i++) {
+      const action = actions[i];
+      console.log(`[BotEngine] Executing action ${i + 1}/${actions.length}:`, action.type);
       
-      switch (action.type) {
-        case 'text':
-          const text = this.replaceVariables(action.content, contact, originalMessage);
-          console.log('[BotEngine] Sending text message:', text.substring(0, 50) + '...');
-          try {
-            await wahaService.sendMessage(connection, contact.phone, text);
-            console.log('[BotEngine] Message sent successfully');
-          } catch (sendError) {
-            console.error('[BotEngine] Failed to send message:', sendError.message);
-          }
-          break;
-          
-        case 'image':
-          if (action.url) {
-            const caption = this.replaceVariables(action.caption || '', contact, originalMessage);
-            await wahaService.sendImage(connection, contact.phone, action.url, caption);
-          }
-          break;
-          
-        case 'file':
-          if (action.url) {
-            await wahaService.sendFile(connection, contact.phone, action.url);
-          }
-          break;
-          
-        case 'delay':
-          const ms = (action.delay || 1) * (action.unit === 'minutes' ? 60000 : 1000);
-          await this.sleep(ms);
-          break;
+      try {
+        switch (action.type) {
+          case 'text':
+            if (action.content) {
+              const text = this.replaceVariables(action.content, contact, originalMessage, botName);
+              console.log('[BotEngine] Sending text:', text.substring(0, 50) + '...');
+              await wahaService.sendMessage(connection, contact.phone, text);
+              console.log('[BotEngine] ✅ Text sent');
+            }
+            break;
+            
+          case 'image':
+            if (action.url || action.fileData) {
+              const imageUrl = action.fileData || action.url;
+              const caption = this.replaceVariables(action.caption || '', contact, originalMessage, botName);
+              console.log('[BotEngine] Sending image:', imageUrl.substring(0, 50) + '...');
+              await wahaService.sendImage(connection, contact.phone, imageUrl, caption);
+              console.log('[BotEngine] ✅ Image sent');
+            } else {
+              console.log('[BotEngine] ⚠️ Image action has no URL');
+            }
+            break;
+            
+          case 'video':
+            if (action.url || action.fileData) {
+              const videoUrl = action.fileData || action.url;
+              const caption = this.replaceVariables(action.caption || '', contact, originalMessage, botName);
+              console.log('[BotEngine] Sending video:', videoUrl.substring(0, 50) + '...');
+              await wahaService.sendVideo(connection, contact.phone, videoUrl, caption);
+              console.log('[BotEngine] ✅ Video sent');
+            } else {
+              console.log('[BotEngine] ⚠️ Video action has no URL');
+            }
+            break;
+            
+          case 'file':
+            if (action.url || action.fileData) {
+              const fileUrl = action.fileData || action.url;
+              console.log('[BotEngine] Sending file:', fileUrl.substring(0, 50) + '...');
+              await wahaService.sendFile(connection, contact.phone, fileUrl, action.fileName);
+              console.log('[BotEngine] ✅ File sent');
+            } else {
+              console.log('[BotEngine] ⚠️ File action has no URL');
+            }
+            break;
+            
+          case 'delay':
+            const ms = (action.delay || 1) * (action.unit === 'minutes' ? 60000 : 1000);
+            console.log('[BotEngine] Waiting', ms, 'ms...');
+            await this.sleep(ms);
+            console.log('[BotEngine] ✅ Delay completed');
+            break;
+            
+          default:
+            console.log('[BotEngine] Unknown action type:', action.type);
+        }
+      } catch (actionError) {
+        console.error(`[BotEngine] ❌ Action ${action.type} failed:`, actionError.message);
+      }
+      
+      // Small delay between actions to avoid rate limiting
+      if (i < actions.length - 1) {
+        await this.sleep(500);
       }
     }
   }
@@ -426,37 +462,71 @@ class BotEngine {
   }
   
   // Execute list node
-  async executeListNode(node, contact, userId) {
+  async executeListNode(node, contact, userId, botName = '') {
     const connection = await this.getConnection(userId);
     if (!connection) return;
     
     const { title, body, buttonText, buttons, footer } = node.data;
     
-    // For now, send as regular message with options
-    let text = `*${title}*\n\n${body}`;
+    // For now, send as regular message with options (WAHA list support varies)
+    let text = `*${this.replaceVariables(title || '', contact, '', botName)}*\n\n${this.replaceVariables(body || '', contact, '', botName)}`;
     if (buttons && buttons.length > 0) {
       text += '\n\n';
       buttons.forEach((btn, i) => {
-        text += `${i + 1}. ${btn.title}${btn.description ? ' - ' + btn.description : ''}\n`;
+        const btnTitle = this.replaceVariables(btn.title || '', contact, '', botName);
+        const btnDesc = btn.description ? ' - ' + this.replaceVariables(btn.description, contact, '', botName) : '';
+        text += `${i + 1}. ${btnTitle}${btnDesc}\n`;
       });
     }
     if (footer) {
-      text += `\n_${footer}_`;
+      text += `\n_${this.replaceVariables(footer, contact, '', botName)}_`;
     }
     
+    console.log('[BotEngine] Sending list message');
     await wahaService.sendMessage(connection, contact.phone, text);
+    console.log('[BotEngine] ✅ List sent');
   }
   
   // Helper: Replace variables in text
-  replaceVariables(text, contact, message) {
+  replaceVariables(text, contact, message, botName = '') {
     if (!text) return '';
     
-    return text
+    // Israel timezone
+    const israelTime = new Date().toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' });
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
+    
+    const days = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+    
+    // Basic replacements
+    let result = text
       .replace(/\{\{name\}\}/gi, contact.display_name || '')
       .replace(/\{\{phone\}\}/gi, contact.phone || '')
       .replace(/\{\{message\}\}/gi, message || '')
-      .replace(/\{\{date\}\}/gi, new Date().toLocaleDateString('he-IL'))
-      .replace(/\{\{time\}\}/gi, new Date().toLocaleTimeString('he-IL'));
+      .replace(/\{\{bot_name\}\}/gi, botName || '')
+      .replace(/\{\{date\}\}/gi, now.toLocaleDateString('he-IL'))
+      .replace(/\{\{time\}\}/gi, now.toLocaleTimeString('he-IL'))
+      .replace(/\{\{day\}\}/gi, days[now.getDay()]);
+    
+    // Date/time formulas: {{date+1d}}, {{time+2h}}, {{day+1}}
+    result = result.replace(/\{\{date([+-]\d+)d?\}\}/gi, (_, offset) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() + parseInt(offset));
+      return d.toLocaleDateString('he-IL');
+    });
+    
+    result = result.replace(/\{\{time([+-]\d+)h?\}\}/gi, (_, offset) => {
+      const d = new Date(now);
+      d.setHours(d.getHours() + parseInt(offset));
+      return d.toLocaleTimeString('he-IL');
+    });
+    
+    result = result.replace(/\{\{day([+-]\d+)\}\}/gi, (_, offset) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() + parseInt(offset));
+      return days[d.getDay()];
+    });
+    
+    return result;
   }
   
   // Helper: Get WAHA connection with decrypted credentials

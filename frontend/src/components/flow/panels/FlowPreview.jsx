@@ -158,15 +158,16 @@ export default function FlowPreview({ flowData, onClose }) {
 
   // Execute list node
   const executeListNode = async (node) => {
-    const { title, body, buttons } = node.data;
-    let text = `📋 *${title || 'רשימה'}*\n${body || ''}`;
-    if (buttons?.length) {
-      text += '\n\n';
-      buttons.forEach((btn, i) => {
-        text += `${i + 1}. ${btn.title}\n`;
-      });
-    }
-    setMessages(prev => [...prev, { type: 'bot', content: text }]);
+    const { title, body, buttons, buttonText } = node.data;
+    setMessages(prev => [...prev, { 
+      type: 'bot', 
+      content: body || '',
+      list: {
+        title: title || 'רשימה',
+        buttonText: buttonText || 'בחר',
+        buttons: buttons || []
+      }
+    }]);
   };
 
   // Check trigger
@@ -230,15 +231,35 @@ export default function FlowPreview({ flowData, onClose }) {
               {msg.type === 'system' ? (
                 <div className="text-xs text-gray-500 bg-gray-200 px-3 py-1 rounded-full">{msg.content}</div>
               ) : (
-                <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${
+                <div className={`max-w-[80%] rounded-2xl ${
                   msg.type === 'user' 
                     ? 'bg-white border border-gray-200 rounded-tr-none' 
                     : 'bg-purple-500 text-white rounded-tl-none'
                 }`}>
                   {msg.image && (
-                    <img src={msg.image} alt="" className="rounded-lg mb-2 max-h-40 object-cover" onError={(e) => e.target.style.display = 'none'} />
+                    <img src={msg.image} alt="" className="rounded-t-2xl max-h-40 object-cover w-full" onError={(e) => e.target.style.display = 'none'} />
                   )}
-                  <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
+                  {msg.content && (
+                    <div className="whitespace-pre-wrap text-sm px-4 py-2">{msg.content}</div>
+                  )}
+                  {/* List buttons */}
+                  {msg.list && (
+                    <div className="border-t border-purple-400">
+                      <div className="px-4 py-2 text-xs font-medium border-b border-purple-400">{msg.list.title}</div>
+                      {msg.list.buttons.map((btn, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            setMessages(prev => [...prev, { type: 'user', content: btn.title }]);
+                          }}
+                          className="w-full px-4 py-2 text-sm text-right hover:bg-purple-400 transition-colors border-b border-purple-400 last:border-b-0"
+                        >
+                          {btn.title}
+                          {btn.description && <span className="block text-xs opacity-75">{btn.description}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

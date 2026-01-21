@@ -151,9 +151,28 @@ async function sendFile(connection, phone, fileUrl, filename = 'file') {
     session: connection.session_name,
     chatId: chatId,
     file: { url: fileUrl },
+    fileName: filename,
   });
   
   console.log(`[WAHA] Sent file to ${phone}`);
+  return response.data;
+}
+
+/**
+ * Send video
+ */
+async function sendVideo(connection, phone, videoUrl, caption = '') {
+  const client = createClient(connection.base_url, connection.api_key);
+  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  
+  const response = await client.post(`/api/sendVideo`, {
+    session: connection.session_name,
+    chatId: chatId,
+    file: { url: videoUrl },
+    caption: caption,
+  });
+  
+  console.log(`[WAHA] Sent video to ${phone}`);
   return response.data;
 }
 
@@ -168,4 +187,5 @@ module.exports = {
   sendMessage,
   sendImage,
   sendFile,
+  sendVideo,
 };
