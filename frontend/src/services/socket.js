@@ -5,19 +5,33 @@ let socket = null;
 export function connectSocket(userId) {
   if (socket?.connected) return socket;
   
-  const url = import.meta.env.VITE_API_URL?.replace('/api', '') || '';
+  // Connect to backend server (port 3749)
+  const apiUrl = import.meta.env.VITE_API_URL || '/api';
+  // Remove /api suffix and connect to base URL
+  const baseUrl = apiUrl.replace('/api', '');
   
-  socket = io(url, {
+  console.log('🔌 Connecting socket to:', baseUrl);
+  
+  socket = io(baseUrl, {
     transports: ['websocket', 'polling'],
+    path: '/socket.io',
   });
   
   socket.on('connect', () => {
-    console.log('🔌 Socket connected');
+    console.log('🔌 Socket connected, joining room for user:', userId);
     socket.emit('join_room', userId);
   });
   
-  socket.on('disconnect', () => {
-    console.log('🔌 Socket disconnected');
+  socket.on('connect_error', (err) => {
+    console.error('🔌 Socket connection error:', err.message);
+  });
+  
+  socket.on('disconnect', (reason) => {
+    console.log('🔌 Socket disconnected:', reason);
+  });
+  
+  socket.on('new_message', (data) => {
+    console.log('🔌 Received new_message event:', data);
   });
   
   return socket;

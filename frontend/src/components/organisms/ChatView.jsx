@@ -62,7 +62,9 @@ export default function ChatView({ contact, messages, onSendMessage, onToggleBot
             <img src={contact.profile_picture_url} alt="" className="w-full h-full rounded-full object-cover" />
           ) : (
             <span className="text-lg font-semibold text-gray-600">
-              {contact.display_name?.charAt(0) || contact.phone?.charAt(0)}
+              {contact.display_name && contact.display_name !== contact.phone 
+                ? contact.display_name.charAt(0).toUpperCase() 
+                : '👤'}
             </span>
           )}
         </div>

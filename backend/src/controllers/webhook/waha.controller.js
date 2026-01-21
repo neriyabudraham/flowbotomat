@@ -39,13 +39,30 @@ async function handleWebhook(req, res) {
 async function handleIncomingMessage(userId, event) {
   const { payload } = event;
   
+  // Log incoming payload for debugging
+  console.log('[Webhook] Incoming message payload:', JSON.stringify(payload, null, 2));
+  
   // Skip outgoing messages and status updates
   if (payload.fromMe || payload.from === 'status@broadcast') {
     return;
   }
   
-  const phone = payload.from?.split('@')[0];
-  if (!phone) return;
+  // Extract phone number - handle different WAHA formats
+  let phone = null;
+  if (payload.from) {
+    phone = payload.from.split('@')[0];
+  } else if (payload.chatId) {
+    phone = payload.chatId.split('@')[0];
+  } else if (payload._data?.from) {
+    phone = payload._data.from.split('@')[0];
+  }
+  
+  if (!phone) {
+    console.log('[Webhook] Could not extract phone number');
+    return;
+  }
+  
+  console.log(`[Webhook] Extracted phone: ${phone}`);
   
   // Get or create contact
   const contact = await getOrCreateContact(userId, phone, payload);
@@ -85,6 +102,11 @@ async function handleIncomingMessage(userId, event) {
  * Get or create contact
  */
 async function getOrCreateContact(userId, phone, payload) {
+  // Extract name from various WAHA payload formats
+  const displayName = payload.notifyName || payload.pushName || 
+                      payload._data?.notifyName || payload._data?.pushName || phone;
+  const waId = payload.from || payload.chatId || `${phone}@s.whatsapp.net`;
+  
   // Try to find existing contact
   const existing = await pool.query(
     'SELECT * FROM contacts WHERE user_id = $1 AND phone = $2',
@@ -92,13 +114,19 @@ async function getOrCreateContact(userId, phone, payload) {
   );
   
   if (existing.rows.length > 0) {
-    return existing.rows[0];
+    // Update name if we have a better one now
+    const contact = existing.rows[0];
+    if (displayName && displayName !== phone && contact.display_name !== displayName) {
+      await pool.query(
+        'UPDATE contacts SET display_name = $1, updated_at = NOW() WHERE id = $2',
+        [displayName, contact.id]
+      );
+      contact.display_name = displayName;
+    }
+    return contact;
   }
   
   // Create new contact
-  const displayName = payload.notifyName || payload.pushName || phone;
-  const waId = payload.from;
-  
   const result = await pool.query(
     `INSERT INTO contacts (user_id, phone, wa_id, display_name)
      VALUES ($1, $2, $3, $4)

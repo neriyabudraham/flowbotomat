@@ -1,7 +1,11 @@
 import { User, Bot, XCircle } from 'lucide-react';
 
 export default function ContactItem({ contact, isSelected, onClick }) {
-  const initials = contact.display_name?.charAt(0) || contact.phone?.charAt(0) || '?';
+  // Get initials - prefer name over phone number
+  const name = contact.display_name && contact.display_name !== contact.phone 
+    ? contact.display_name 
+    : null;
+  const initials = name?.charAt(0)?.toUpperCase() || '👤';
   
   return (
     <button
