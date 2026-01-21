@@ -336,10 +336,23 @@ export default function BotEditorPage() {
 
       {/* Main */}
       <div className="flex-1 flex overflow-hidden">
-        <div className="w-56 p-4 flex-shrink-0 overflow-y-auto order-last">
-          <NodePalette onAddNode={handleAddNode} />
+        {/* Right Panel - Editor or Palette (switches automatically) */}
+        <div className="flex-shrink-0 order-first">
+          {selectedNode ? (
+            <NodeEditor
+              node={selectedNode}
+              onUpdate={handleNodeUpdate}
+              onClose={() => setSelectedNodeId(null)}
+              onDelete={handleNodeDelete}
+            />
+          ) : (
+            <div className="w-64 p-3 overflow-y-auto h-full">
+              <NodePalette onAddNode={handleAddNode} />
+            </div>
+          )}
         </div>
 
+        {/* Canvas */}
         <div className="flex-1 m-4">
           <div className="h-full bg-white/50 backdrop-blur rounded-2xl border border-gray-200 shadow-inner overflow-hidden">
             <FlowBuilder 
@@ -351,17 +364,6 @@ export default function BotEditorPage() {
             />
           </div>
         </div>
-
-        {selectedNode && (
-          <div className="flex-shrink-0 order-first">
-            <NodeEditor
-              node={selectedNode}
-              onUpdate={handleNodeUpdate}
-              onClose={() => setSelectedNodeId(null)}
-              onDelete={handleNodeDelete}
-            />
-          </div>
-        )}
       </div>
 
       {/* Preview Modal */}
