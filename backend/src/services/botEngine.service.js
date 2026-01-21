@@ -6,10 +6,12 @@ const { getWahaCredentials } = require('./settings/system.service');
 class BotEngine {
   
   // Process incoming message
-  async processMessage(userId, contactPhone, message, messageType = 'text') {
+  async processMessage(userId, contactPhone, message, messageType = 'text', selectedRowId = null) {
     console.log('[BotEngine] ========================================');
     console.log('[BotEngine] Processing message from:', contactPhone);
     console.log('[BotEngine] Message:', message);
+    console.log('[BotEngine] Message type:', messageType);
+    console.log('[BotEngine] Selected row ID:', selectedRowId);
     console.log('[BotEngine] User ID:', userId);
     
     try {
@@ -47,7 +49,7 @@ class BotEngine {
       
       // Process each active bot
       for (const bot of botsResult.rows) {
-        await this.processBot(bot, contact, message, messageType, userId);
+        await this.processBot(bot, contact, message, messageType, userId, selectedRowId);
       }
       
     } catch (error) {
@@ -56,7 +58,7 @@ class BotEngine {
   }
   
   // Process single bot
-  async processBot(bot, contact, message, messageType, userId) {
+  async processBot(bot, contact, message, messageType, userId, selectedRowId = null) {
     try {
       const flowData = bot.flow_data;
       if (!flowData || !flowData.nodes || flowData.nodes.length === 0) {
@@ -78,8 +80,14 @@ class BotEngine {
           return;
         }
         
-        // Continue from where we left off
-        await this.continueSession(session, flowData, contact, message, userId, bot);
+        // Continue from where we left off - pass selectedRowId for list responses
+        await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId);
+        return;
+      }
+      
+      // If this is a list_response but no session exists, ignore it
+      if (messageType === 'list_response') {
+        console.log('[BotEngine] List response received but no active session - ignoring');
         return;
       }
       
@@ -155,7 +163,7 @@ class BotEngine {
   }
   
   // Continue from saved session
-  async continueSession(session, flowData, contact, message, userId, bot) {
+  async continueSession(session, flowData, contact, message, userId, bot, messageType = 'text', selectedRowId = null) {
     const currentNode = flowData.nodes.find(n => n.id === session.current_node_id);
     if (!currentNode) {
       console.log('[BotEngine] Session node not found, clearing session');
@@ -164,6 +172,7 @@ class BotEngine {
     }
     
     console.log('[BotEngine] ▶️ Continuing from node:', currentNode.type, currentNode.id);
+    console.log('[BotEngine] Message type:', messageType, '| Selected row ID:', selectedRowId);
     
     // Clear session first
     await this.clearSession(bot.id, contact.id);
@@ -172,49 +181,55 @@ class BotEngine {
     let nextHandleId = null;
     
     if (session.waiting_for === 'list_response') {
-      // Find which button was selected
-      const waitingData = session.waiting_data || {};
-      const buttons = waitingData.buttons || [];
-      
-      console.log('[BotEngine] Looking for button match, message:', message);
-      console.log('[BotEngine] Available buttons:', JSON.stringify(buttons));
-      
-      // Try to match by title, id, or index
-      let selectedIndex = -1;
-      for (let i = 0; i < buttons.length; i++) {
-        const btn = buttons[i];
-        if (btn.title === message || btn.id === message || String(i + 1) === message) {
-          selectedIndex = i;
-          break;
-        }
+      // Check if this is actually a list response
+      if (messageType !== 'list_response') {
+        console.log('[BotEngine] ⚠️ Waiting for list_response but received:', messageType);
+        console.log('[BotEngine] Ignoring non-list response, keeping session');
+        // Re-save session since we cleared it
+        const waitingData = session.waiting_data || {};
+        await this.saveSession(bot.id, contact.id, session.current_node_id, 'list_response', waitingData, null);
+        return;
       }
       
-      if (selectedIndex >= 0) {
-        // Try different handle naming conventions
-        const possibleHandles = [
-          `btn_${selectedIndex}`,           // Frontend uses btn_X
-          `btn_option_${selectedIndex}`,    // Alternative
-          `option_${selectedIndex}`,        // Backend default
-          String(selectedIndex),            // Simple index
-        ];
+      // Use selectedRowId directly from WAHA
+      if (selectedRowId) {
+        console.log('[BotEngine] Using selectedRowId from WAHA:', selectedRowId);
         
-        console.log('[BotEngine] Selected index:', selectedIndex);
-        console.log('[BotEngine] Trying handles:', possibleHandles);
+        // Extract index from selectedRowId (e.g., "option_0" -> 0, or just "0" -> 0)
+        let selectedIndex = -1;
+        if (selectedRowId.startsWith('option_')) {
+          selectedIndex = parseInt(selectedRowId.replace('option_', ''));
+        } else if (/^\d+$/.test(selectedRowId)) {
+          selectedIndex = parseInt(selectedRowId);
+        }
+        
+        console.log('[BotEngine] Extracted index:', selectedIndex);
         
         // Find edges from this node
         const nodeEdges = flowData.edges.filter(e => e.source === currentNode.id);
-        console.log('[BotEngine] Available edges from node:', nodeEdges.map(e => ({ target: e.target, handle: e.sourceHandle })));
+        console.log('[BotEngine] Available edges:', nodeEdges.map(e => ({ target: e.target, handle: e.sourceHandle })));
         
-        // Try to find matching edge
-        for (const handleId of possibleHandles) {
-          const edge = nodeEdges.find(e => e.sourceHandle === handleId);
-          if (edge) {
-            nextHandleId = handleId;
-            console.log('[BotEngine] Found matching handle:', handleId);
-            break;
+        // Try to find matching edge - use simple index as handle
+        if (selectedIndex >= 0) {
+          const possibleHandles = [
+            String(selectedIndex),          // Simple index "0", "1", etc (what frontend uses now)
+            selectedRowId,                  // Original rowId from WAHA
+            `option_${selectedIndex}`,      // option_X format
+          ];
+          
+          for (const handleId of possibleHandles) {
+            const edge = nodeEdges.find(e => e.sourceHandle === handleId);
+            if (edge) {
+              nextHandleId = handleId;
+              console.log('[BotEngine] ✅ Found matching handle:', handleId);
+              break;
+            }
           }
         }
       }
+    } else if (session.waiting_for === 'reply') {
+      // For regular reply wait, just continue to next node
+      console.log('[BotEngine] Got reply, continuing flow');
     }
     
     // Find next edge
@@ -223,10 +238,10 @@ class BotEngine {
       nextEdge = flowData.edges.find(e => e.source === currentNode.id && e.sourceHandle === nextHandleId);
     }
     if (!nextEdge) {
-      // Fallback - try any edge from this node
-      nextEdge = flowData.edges.find(e => e.source === currentNode.id);
+      // Fallback - try default edge (no handle)
+      nextEdge = flowData.edges.find(e => e.source === currentNode.id && !e.sourceHandle);
       if (nextEdge) {
-        console.log('[BotEngine] Using fallback edge (no handle match)');
+        console.log('[BotEngine] Using default edge (no specific handle)');
       }
     }
     

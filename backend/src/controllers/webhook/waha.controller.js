@@ -142,7 +142,7 @@ async function handleIncomingMessage(userId, event) {
   
   // Process with bot engine
   try {
-    await botEngine.processMessage(userId, phone, messageData.content, messageData.type);
+    await botEngine.processMessage(userId, phone, messageData.content, messageData.type, messageData.selectedRowId);
   } catch (botError) {
     console.error('[Webhook] Bot engine error:', botError);
   }
@@ -198,6 +198,30 @@ async function getOrCreateContact(userId, phone, payload) {
  */
 function parseMessage(payload) {
   const body = payload.body || '';
+  
+  // Check for list response (button click)
+  const listResponse = payload._data?.Message?.listResponseMessage;
+  if (listResponse) {
+    const selectedRowId = listResponse.singleSelectReply?.selectedRowID;
+    console.log('[Webhook] Detected LIST_RESPONSE, selectedRowID:', selectedRowId);
+    return {
+      type: 'list_response',
+      content: listResponse.title || body,
+      selectedRowId: selectedRowId,
+    };
+  }
+  
+  // Check MediaType for list_response as fallback
+  if (payload._data?.Info?.MediaType === 'list_response') {
+    const listMsg = payload._data?.Message?.listResponseMessage;
+    const selectedRowId = listMsg?.singleSelectReply?.selectedRowID;
+    console.log('[Webhook] Detected list_response via MediaType, selectedRowID:', selectedRowId);
+    return {
+      type: 'list_response',
+      content: listMsg?.title || body,
+      selectedRowId: selectedRowId,
+    };
+  }
   
   // Text message
   if (payload.type === 'chat' || !payload.type) {
