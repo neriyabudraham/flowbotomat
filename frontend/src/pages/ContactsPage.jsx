@@ -100,7 +100,7 @@ export default function ContactsPage() {
   // When selecting a contact on mobile, hide the sidebar
   const handleSelectContact = (id) => {
     selectContact(id);
-    setShowProfile(false);
+    setShowProfile(true); // Open profile panel by default
     setShowMobileSidebar(false);
   };
 

@@ -7,6 +7,7 @@ const { toggleBot, toggleBlock, deleteContact, takeoverConversation } = require(
 const { sendMessage } = require('../controllers/contacts/send.controller');
 const { getVariables, setVariable, deleteVariable } = require('../controllers/contacts/variables.controller');
 const { getAllTags, createTag, deleteTag, getContactTags, addTagToContact, removeTagFromContact } = require('../controllers/contacts/tags.controller');
+const { getContactStats } = require('../controllers/contacts/stats.controller');
 
 // All routes require authentication
 router.use(authMiddleware);
@@ -24,6 +25,9 @@ router.get('/:contactId', getContact);
 
 // Get messages for contact
 router.get('/:contactId/messages', getMessages);
+
+// Get contact statistics
+router.get('/:contactId/stats', getContactStats);
 
 // Send message to contact
 router.post('/:contactId/messages', sendMessage);

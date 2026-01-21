@@ -5,6 +5,7 @@ const { createManaged, createExternal, checkExisting } = require('../controllers
 const { getStatus, getQR } = require('../controllers/whatsapp/status.controller');
 const { disconnect, deleteConnection } = require('../controllers/whatsapp/disconnect.controller');
 const { getGroups } = require('../controllers/whatsapp/groups.controller');
+const { getLabels } = require('../controllers/whatsapp/labels.controller');
 
 // All routes require authentication
 router.use(authMiddleware);
@@ -20,6 +21,9 @@ router.get('/qr', getQR);
 
 // Get WhatsApp groups
 router.get('/groups', getGroups);
+
+// Get WhatsApp Business labels
+router.get('/labels', getLabels);
 
 // Create managed connection (system WAHA)
 router.post('/connect/managed', createManaged);

@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Clock, Upload, CheckCircle, Play, Mic } from 'lucide-react';
+import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Upload, CheckCircle, Play, Mic } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 
 const LIMITS = { text: 4096, caption: 1024 };
@@ -10,7 +10,6 @@ const actionTypes = [
   { id: 'video', label: 'סרטון', icon: Video },
   { id: 'audio', label: 'הודעה קולית', icon: Mic },
   { id: 'file', label: 'קובץ', icon: FileText },
-  { id: 'delay', label: 'השהייה', icon: Clock },
 ];
 
 export default function MessageEditor({ data, onUpdate }) {
@@ -21,8 +20,7 @@ export default function MessageEditor({ data, onUpdate }) {
     const newAction = type === 'text' ? { type, content: '' } 
       : type === 'image' || type === 'video' ? { type, url: '', caption: '' }
       : type === 'audio' ? { type, url: '' }
-      : type === 'file' ? { type, url: '', filename: '' }
-      : { type, delay: 1, unit: 'seconds' };
+      : { type, url: '', filename: '' }; // file
     onUpdate({ actions: [...actions, newAction] });
   };
 
@@ -515,25 +513,6 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
         </div>
       )}
 
-      {action.type === 'delay' && (
-        <div className="flex gap-2">
-          <input 
-            type="number" 
-            value={action.delay || 1} 
-            onChange={(e) => onUpdate({ delay: Math.max(1, parseInt(e.target.value) || 1) })} 
-            min={1} 
-            className="w-20 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-center" 
-          />
-          <select 
-            value={action.unit || 'seconds'} 
-            onChange={(e) => onUpdate({ unit: e.target.value })} 
-            className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-          >
-            <option value="seconds">שניות</option>
-            <option value="minutes">דקות</option>
-          </select>
-        </div>
-      )}
     </div>
   );
 }

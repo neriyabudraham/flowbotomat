@@ -8,16 +8,19 @@ const actionTypes = [
   { id: 'add_tag', label: 'הוסף תגית', icon: '🏷️', hasValue: 'tag', category: 'basic' },
   { id: 'remove_tag', label: 'הסר תגית', icon: '🏷️', hasValue: 'tag', category: 'basic' },
   { id: 'set_variable', label: 'הגדר משתנה', icon: '📝', hasValue: 'keyvalue', category: 'basic' },
+  { id: 'delete_variable', label: 'מחק משתנה', icon: '🗑️', hasValue: 'varname', category: 'basic' },
   { id: 'stop_bot', label: 'עצור בוט', icon: '🛑', category: 'basic' },
-  { id: 'enable_bot', label: 'הפעל בוט', icon: '▶️', category: 'basic' },
   { id: 'delete_contact', label: 'מחק איש קשר', icon: '🗑️', category: 'basic' },
+  
+  // Timing Actions
+  { id: 'delay', label: 'השהייה', icon: '⏱️', hasValue: 'delay', category: 'timing' },
+  { id: 'typing', label: 'מקליד/ה', icon: '⌨️', hasValue: 'typing', category: 'timing' },
   
   // WhatsApp Actions
   { id: 'send_location', label: 'שלח מיקום', icon: '📍', hasValue: 'location', category: 'whatsapp' },
   { id: 'send_contact', label: 'שלח איש קשר', icon: '👤', hasValue: 'contact', category: 'whatsapp' },
   { id: 'send_link_preview', label: 'שלח קישור עם תצוגה', icon: '🔗', hasValue: 'linkpreview', category: 'whatsapp' },
   { id: 'mark_seen', label: 'סמן כנקרא', icon: '✅', category: 'whatsapp' },
-  { id: 'typing', label: 'מקליד/ה', icon: '⌨️', hasValue: 'typing', category: 'whatsapp' },
   { id: 'send_reaction', label: 'שלח ריאקציה', icon: '👍', hasValue: 'reaction', category: 'whatsapp' },
   
   // Group Actions
@@ -100,6 +103,25 @@ export default function ActionEditor({ data, onUpdate }) {
             ))}
           </div>
         </div>
+        
+        {/* Timing Actions */}
+        <details open>
+          <summary className="text-xs text-gray-400 mb-2 font-medium cursor-pointer hover:text-gray-600">
+            ⏱️ תזמון
+          </summary>
+          <div className="grid grid-cols-2 gap-1.5 mt-2">
+            {actionTypes.filter(a => a.category === 'timing').map(({ id, label, icon }) => (
+              <button
+                key={id}
+                onClick={() => addAction(id)}
+                className="flex items-center gap-2 p-2 bg-amber-50 hover:bg-amber-100 hover:text-amber-700 rounded-lg text-sm transition-colors"
+              >
+                <span>{icon}</span>
+                <span className="truncate text-xs">{label}</span>
+              </button>
+            ))}
+          </div>
+        </details>
         
         {/* WhatsApp Actions */}
         <details>
@@ -422,6 +444,47 @@ function ActionItem({ action, canRemove, onUpdate, onRemove }) {
           <p className="text-xs text-gray-400">מקסימום 30 שניות. הבוט יתחיל להקליד, יחכה, ואז יסיים.</p>
         </div>
       )}
+      
+      {/* Delay */}
+      {actionInfo.hasValue === 'delay' && (
+        <div className="space-y-2">
+          <p className="text-xs text-gray-500">המתן לפני הפעולה הבאה:</p>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min="1"
+              max="300"
+              value={action.delay || 1}
+              onChange={(e) => onUpdate({ delay: Math.min(300, Math.max(1, parseInt(e.target.value) || 1)) })}
+              className="w-20 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-center"
+            />
+            <select
+              value={action.unit || 'seconds'}
+              onChange={(e) => onUpdate({ unit: e.target.value })}
+              className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+            >
+              <option value="seconds">שניות</option>
+              <option value="minutes">דקות</option>
+            </select>
+          </div>
+          <p className="text-xs text-gray-400">מקסימום 300 שניות / 5 דקות</p>
+        </div>
+      )}
+      
+      {/* Delete Variable */}
+      {actionInfo.hasValue === 'varname' && (
+        <div className="space-y-2">
+          <p className="text-xs text-gray-500">שם המשתנה למחיקה:</p>
+          <input
+            type="text"
+            value={action.varName || ''}
+            onChange={(e) => onUpdate({ varName: e.target.value })}
+            placeholder="שם המשתנה (לדוגמה: email)"
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+          />
+          <p className="text-xs text-gray-400">המשתנה יימחק מפרופיל איש הקשר</p>
+        </div>
+      )}
 
       {/* Group selector */}
       {actionInfo.hasValue === 'group' && (
@@ -612,21 +675,81 @@ function ActionItem({ action, canRemove, onUpdate, onRemove }) {
         </div>
       )}
 
-      {/* Label */}
+      {/* Label with API fetch */}
       {actionInfo.hasValue === 'label' && (
-        <div className="space-y-2">
-          <p className="text-xs text-gray-500">זמין רק ב-WhatsApp Business</p>
-          <input
-            type="text"
-            value={action.labelId || ''}
-            onChange={(e) => onUpdate({ labelId: e.target.value })}
-            placeholder="מזהה תווית (לדוגמה: 1)"
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-            dir="ltr"
-          />
-          <p className="text-xs text-gray-400">ניתן לקבל את מזהי התוויות מ-API: GET /api/labels</p>
+        <LabelSelector action={action} onUpdate={onUpdate} />
+      )}
+    </div>
+  );
+}
+
+// Label Selector Component
+function LabelSelector({ action, onUpdate }) {
+  const [labels, setLabels] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  
+  const loadLabels = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data } = await api.get('/whatsapp/labels');
+      setLabels(data.labels || []);
+    } catch (err) {
+      console.error('Error loading labels:', err);
+      setError('לא ניתן לטעון תוויות. ודא שיש לך WhatsApp Business');
+    }
+    setLoading(false);
+  };
+  
+  useEffect(() => {
+    loadLabels();
+  }, []);
+  
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-gray-500">זמין רק ב-WhatsApp Business</p>
+      
+      <div className="flex items-center gap-2">
+        <select
+          value={action.labelId || ''}
+          onChange={(e) => {
+            const selected = labels.find(l => l.id === e.target.value);
+            onUpdate({ labelId: e.target.value, labelName: selected?.name || '' });
+          }}
+          className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+          disabled={loading}
+        >
+          <option value="">-- בחר תווית --</option>
+          {labels.map(l => (
+            <option key={l.id} value={l.id}>
+              {l.name} {l.color && `(${l.color})`}
+            </option>
+          ))}
+        </select>
+        <button 
+          type="button" 
+          onClick={loadLabels} 
+          disabled={loading} 
+          className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+          title="רענן תוויות"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+      
+      {error && (
+        <p className="text-xs text-red-500">{error}</p>
+      )}
+      
+      {action.labelId && action.labelName && (
+        <div className="flex items-center gap-2 p-2 bg-purple-50 rounded-lg">
+          <span className="text-purple-600">🔖</span>
+          <span className="text-sm text-purple-700">{action.labelName}</span>
         </div>
       )}
+      
+      <p className="text-xs text-gray-400">התווית תוגדר לאיש הקשר הנוכחי</p>
     </div>
   );
 }

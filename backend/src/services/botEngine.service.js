@@ -995,12 +995,28 @@ class BotEngine {
           }
           break;
           
-        case 'stop_bot':
-          await db.query('UPDATE contacts SET is_bot_active = false WHERE id = $1', [contact.id]);
+        case 'delete_variable':
+          if (action.varName) {
+            await this.deleteContactVariable(contact.id, action.varName);
+            console.log(`[BotEngine] ✅ Deleted variable: ${action.varName}`);
+          }
           break;
           
-        case 'enable_bot':
-          await db.query('UPDATE contacts SET is_bot_active = true, takeover_until = NULL WHERE id = $1', [contact.id]);
+        case 'delay':
+          {
+            let delayMs = (action.delay || 1) * 1000; // default to seconds
+            if (action.unit === 'minutes') {
+              delayMs = (action.delay || 1) * 60 * 1000;
+            }
+            delayMs = Math.min(delayMs, 5 * 60 * 1000); // max 5 minutes
+            console.log(`[BotEngine] ⏱️ Waiting ${delayMs / 1000} seconds...`);
+            await this.sleep(delayMs);
+            console.log('[BotEngine] ✅ Delay finished');
+          }
+          break;
+          
+        case 'stop_bot':
+          await db.query('UPDATE contacts SET is_bot_active = false WHERE id = $1', [contact.id]);
           break;
           
         case 'webhook':
@@ -1970,6 +1986,14 @@ class BotEngine {
       // Ignore errors - table might not exist yet
       console.log('[BotEngine] Could not auto-add variable definition:', err.message);
     }
+  }
+  
+  // Helper: Delete contact variable
+  async deleteContactVariable(contactId, key) {
+    await db.query(
+      'DELETE FROM contact_variables WHERE contact_id = $1 AND key = $2',
+      [contactId, key]
+    );
   }
   
   // Helper: Send webhook
