@@ -144,6 +144,14 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
   const handleFileUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    
+    // Check file size (max 25MB)
+    const maxSize = 25 * 1024 * 1024;
+    if (file.size > maxSize) {
+      alert('הקובץ גדול מדי. גודל מקסימלי: 25MB');
+      return;
+    }
+    
     const reader = new FileReader();
     reader.onload = () => {
       onUpdate({ 
@@ -154,6 +162,9 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
         previewUrl: URL.createObjectURL(file)
       });
       setPreviewError(false);
+    };
+    reader.onerror = () => {
+      alert('שגיאה בקריאת הקובץ. נסה שוב.');
     };
     reader.readAsDataURL(file);
   };

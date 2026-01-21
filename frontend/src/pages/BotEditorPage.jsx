@@ -20,6 +20,7 @@ export default function BotEditorPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
+  const [showSaved, setShowSaved] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [botName, setBotName] = useState('');
@@ -53,37 +54,18 @@ export default function BotEditorPage() {
       const savedData = bot.flow_data?.nodes?.length > 0 ? bot.flow_data : defaultData;
       setOriginalFlowData(JSON.parse(JSON.stringify(savedData)));
       
-      // Check for unsaved draft
+      // Clear any old drafts and start fresh from saved data
       const draftKey = STORAGE_KEY + botId;
-      const draft = localStorage.getItem(draftKey);
-      if (draft) {
-        try {
-          const draftData = JSON.parse(draft);
-          // Only show as draft if it's actually different from saved
-          const cleanForCompare = (data) => JSON.stringify({
-            nodes: data.nodes?.map(n => ({ id: n.id, type: n.type, position: n.position, data: n.data })) || [],
-            edges: data.edges?.map(e => ({ id: e.id, source: e.source, target: e.target })) || []
-          });
-          if (cleanForCompare(draftData) !== cleanForCompare(savedData)) {
-            setFlowData(draftData);
-            setHasDraft(true);
-            setHasChanges(true);
-          } else {
-            setFlowData(savedData);
-            localStorage.removeItem(draftKey);
-          }
-        } catch (e) {
-          setFlowData(savedData);
-        }
-      } else {
-        setFlowData(savedData);
-        setHasChanges(false);
-      }
+      localStorage.removeItem(draftKey);
+      
+      setFlowData(savedData);
+      setHasChanges(false);
+      setHasDraft(false);
       
       // Delay setting isInitialLoad to false to allow first render
       setTimeout(() => {
         isInitialLoad.current = false;
-      }, 100);
+      }, 200);
     });
     
     return () => clearCurrentBot();
@@ -231,8 +213,12 @@ export default function BotEditorPage() {
       setHasChanges(false);
       setHasDraft(false);
       localStorage.removeItem(STORAGE_KEY + botId);
+      // Show success message
+      setShowSaved(true);
+      setTimeout(() => setShowSaved(false), 3000);
     } catch (err) {
       console.error(err);
+      alert('שגיאה בשמירה. נסה שוב.');
     }
     setIsSaving(false);
   };
@@ -337,7 +323,7 @@ export default function BotEditorPage() {
             {hasChanges && (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-orange-500 bg-orange-50 px-2 py-1 rounded-full">
-                  {hasDraft ? '🔄 משוחזר מטיוטה' : 'שינויים לא נשמרו'}
+                  ⚠️ שינויים לא נשמרו
                 </span>
                 <button
                   onClick={handleDiscard}
@@ -380,6 +366,12 @@ export default function BotEditorPage() {
                 <Save className="w-4 h-4" />
                 <span>{isSaving ? 'שומר...' : 'שמור'}</span>
               </button>
+            )}
+            
+            {showSaved && !hasChanges && (
+              <span className="text-xs text-green-600 bg-green-50 px-3 py-2 rounded-lg border border-green-200">
+                ✓ נשמר בהצלחה
+              </span>
             )}
           </div>
         </div>
