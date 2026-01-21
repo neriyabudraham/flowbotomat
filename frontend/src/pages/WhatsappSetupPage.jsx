@@ -119,6 +119,7 @@ export default function WhatsappSetupPage() {
             <QRCodeDisplay
               qrCode={qrCode}
               onRefresh={handleRefreshQR}
+              onCancel={handleDisconnect}
               isLoading={isLoading}
             />
           )}

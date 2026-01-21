@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, X } from 'lucide-react';
 import Button from '../atoms/Button';
 
-export default function QRCodeDisplay({ qrCode, onRefresh, isLoading }) {
+export default function QRCodeDisplay({ qrCode, onRefresh, onCancel, isLoading }) {
   const [countdown, setCountdown] = useState(30);
 
   useEffect(() => {
@@ -44,17 +44,28 @@ export default function QRCodeDisplay({ qrCode, onRefresh, isLoading }) {
         רענון אוטומטי בעוד {countdown} שניות
       </div>
       
-      <Button
-        variant="ghost"
-        onClick={() => {
-          setCountdown(30);
-          onRefresh();
-        }}
-        isLoading={isLoading}
-      >
-        <RefreshCw className="w-4 h-4 ml-2" />
-        רענן QR
-      </Button>
+      <div className="flex gap-2 justify-center">
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setCountdown(30);
+            onRefresh();
+          }}
+          isLoading={isLoading}
+        >
+          <RefreshCw className="w-4 h-4 ml-2" />
+          רענן QR
+        </Button>
+        
+        <Button
+          variant="danger"
+          onClick={onCancel}
+          isLoading={isLoading}
+        >
+          <X className="w-4 h-4 ml-2" />
+          בטל
+        </Button>
+      </div>
     </div>
   );
 }
