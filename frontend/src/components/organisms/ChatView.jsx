@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, XCircle, Phone, MoreVertical } from 'lucide-react';
+import { Send, Bot, XCircle, Phone, User } from 'lucide-react';
 import MessageBubble from '../molecules/MessageBubble';
 import Button from '../atoms/Button';
 
-export default function ChatView({ contact, messages, onSendMessage, onToggleBot, isLoading }) {
+export default function ChatView({ contact, messages, onSendMessage, onToggleBot, onShowProfile, isLoading }) {
   const [text, setText] = useState('');
   const messagesEndRef = useRef(null);
 
@@ -47,17 +47,24 @@ export default function ChatView({ contact, messages, onSendMessage, onToggleBot
           >
             {contact.is_bot_active ? <Bot className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
           </button>
+          <button
+            onClick={onShowProfile}
+            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+            title="פרטי איש קשר"
+          >
+            <User className="w-5 h-5 text-gray-600" />
+          </button>
         </div>
         
-        <div className="text-right">
+        <button onClick={onShowProfile} className="text-right hover:opacity-80">
           <h3 className="font-semibold">{contact.display_name || contact.phone}</h3>
           <p className="text-sm text-gray-500 flex items-center justify-end gap-1">
             <Phone className="w-3 h-3" />
             <span dir="ltr">+{contact.phone}</span>
           </p>
-        </div>
+        </button>
         
-        <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center">
+        <button onClick={onShowProfile} className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center hover:opacity-80">
           {contact.profile_picture_url ? (
             <img src={contact.profile_picture_url} alt="" className="w-full h-full rounded-full object-cover" />
           ) : (
@@ -67,7 +74,7 @@ export default function ChatView({ contact, messages, onSendMessage, onToggleBot
                 : '👤'}
             </span>
           )}
-        </div>
+        </button>
       </div>
 
       {/* Messages */}

@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import useContactsStore from '../store/contactsStore';
@@ -7,10 +7,12 @@ import Logo from '../components/atoms/Logo';
 import Button from '../components/atoms/Button';
 import ContactsList from '../components/organisms/ContactsList';
 import ChatView from '../components/organisms/ChatView';
+import ContactProfile from '../components/organisms/ContactProfile';
 import api from '../services/api';
 
 export default function ContactsPage() {
   const navigate = useNavigate();
+  const [showProfile, setShowProfile] = useState(false);
   const { user, logout, fetchMe } = useAuthStore();
   const {
     contacts, selectedContact, messages, isLoading,
@@ -102,6 +104,20 @@ export default function ContactsPage() {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
+        {/* Contact Profile Sidebar */}
+        {showProfile && selectedContact && (
+          <div className="w-80 flex-shrink-0">
+            <ContactProfile
+              contact={selectedContact}
+              onClose={() => setShowProfile(false)}
+              onUpdate={(updated) => {
+                // Update contact in store
+                selectContact(updated.id);
+              }}
+            />
+          </div>
+        )}
+
         {/* Chat View */}
         <div className="flex-1">
           <ChatView
@@ -109,6 +125,7 @@ export default function ContactsPage() {
             messages={messages}
             onSendMessage={handleSendMessage}
             onToggleBot={handleToggleBot}
+            onShowProfile={() => setShowProfile(true)}
             isLoading={isLoading}
           />
         </div>
@@ -118,7 +135,10 @@ export default function ContactsPage() {
           <ContactsList
             contacts={contacts}
             selectedId={selectedContact?.id}
-            onSelect={selectContact}
+            onSelect={(id) => {
+              selectContact(id);
+              setShowProfile(false);
+            }}
             onSearch={handleSearch}
           />
         </div>
