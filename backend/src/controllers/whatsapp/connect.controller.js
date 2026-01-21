@@ -58,11 +58,17 @@ async function createManaged(req, res) {
       return res.status(500).json({ error: 'WAHA לא מוגדר במערכת' });
     }
     
-    // Generate session name based on email (sanitize for WAHA - only alphanumeric and underscore)
-    // Format: user_email_example_gmail_com
-    const sanitizedEmail = userEmail.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-    const sessionName = `user_${sanitizedEmail}`;
-    console.log(`[WhatsApp] Session name for ${userEmail}: ${sessionName}`);
+    // Generate unique session name (simple format)
+    const sessionName = `flowbotomat_${userId.split('-')[0]}`;
+    
+    // Metadata to attach to session (for identification in WAHA)
+    const sessionMetadata = {
+      'user.email': userEmail,
+      'user.id': userId,
+      'platform': 'FlowBotomat',
+    };
+    
+    console.log(`[WhatsApp] Session name: ${sessionName}, metadata:`, sessionMetadata);
     
     // Check if session already exists in WAHA
     let wahaStatus = null;
@@ -77,11 +83,11 @@ async function createManaged(req, res) {
       console.log(`[WhatsApp] Session not found, will create: ${sessionName}`);
     }
     
-    // If session doesn't exist, create it
+    // If session doesn't exist, create it with metadata
     if (!sessionExists) {
-      await wahaSession.createSession(baseUrl, apiKey, sessionName);
+      await wahaSession.createSession(baseUrl, apiKey, sessionName, sessionMetadata);
       await wahaSession.startSession(baseUrl, apiKey, sessionName);
-      console.log(`[WhatsApp] Created new session: ${sessionName}`);
+      console.log(`[WhatsApp] Created new session with metadata: ${sessionName}`);
     } else if (wahaStatus.status === 'STOPPED') {
       // Session exists but stopped - start it
       await wahaSession.startSession(baseUrl, apiKey, sessionName);

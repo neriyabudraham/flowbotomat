@@ -2,13 +2,18 @@ const { createClient } = require('./client.service');
 
 /**
  * Create a new WAHA session
+ * @param {string} baseUrl - WAHA base URL
+ * @param {string} apiKey - WAHA API key
+ * @param {string} sessionName - Session name (alphanumeric + underscore only)
+ * @param {object} metadata - Optional metadata (e.g., { "user.email": "example@gmail.com" })
  */
-async function createSession(baseUrl, apiKey, sessionName) {
+async function createSession(baseUrl, apiKey, sessionName, metadata = {}) {
   const client = createClient(baseUrl, apiKey);
   const response = await client.post('/api/sessions', {
     name: sessionName,
     config: {
       webhooks: [],
+      metadata: metadata,
     },
   });
   return response.data;
