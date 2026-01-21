@@ -1,24 +1,33 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import { 
+  MessageCircle, ArrowLeft, Smartphone, Server, QrCode, 
+  CheckCircle, XCircle, RefreshCw, Trash2, Wifi, WifiOff,
+  Shield, Zap, Clock, AlertCircle, Phone, Settings,
+  ChevronLeft, Loader2, ExternalLink, Copy, Check
+} from 'lucide-react';
 import useWhatsappStore from '../store/whatsappStore';
 import Logo from '../components/atoms/Logo';
-import Alert from '../components/atoms/Alert';
-import ConnectionTypeSelector from '../components/molecules/ConnectionTypeSelector';
-import ExternalConnectionForm from '../components/molecules/ExternalConnectionForm';
-import QRCodeDisplay from '../components/molecules/QRCodeDisplay';
-import ConnectionStatus from '../components/molecules/ConnectionStatus';
 import PaymentRequiredModal from '../components/payment/PaymentRequiredModal';
 
 export default function WhatsappSetupPage() {
   const navigate = useNavigate();
-  const [step, setStep] = useState('loading'); // loading, select, external, qr, connected
+  const [step, setStep] = useState('loading');
   const [isCheckingExisting, setIsCheckingExisting] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [pendingConnectionType, setPendingConnectionType] = useState(null);
+  const [copiedWebhook, setCopiedWebhook] = useState(false);
   const {
     connection, qrCode, isLoading, error, existingSession,
     fetchStatus, connectManaged, connectExternal, fetchQR, disconnect, deleteConnection, clearError, checkExisting,
   } = useWhatsappStore();
+
+  // External form state
+  const [externalForm, setExternalForm] = useState({
+    baseUrl: '',
+    apiKey: '',
+    sessionName: ''
+  });
 
   useEffect(() => {
     checkStatus();
@@ -33,7 +42,6 @@ export default function WhatsappSetupPage() {
         setStep('qr');
         fetchQR();
       } else {
-        // No connection in DB - check WAHA for existing session
         setStep('select');
         setIsCheckingExisting(true);
         await checkExisting();
@@ -52,7 +60,6 @@ export default function WhatsappSetupPage() {
     if (type === 'managed') {
       try {
         const data = await connectManaged();
-        // Check if already connected (existing session)
         if (data.connection?.status === 'connected') {
           setStep('connected');
         } else {
@@ -60,7 +67,6 @@ export default function WhatsappSetupPage() {
           fetchQR();
         }
       } catch (err) {
-        // Check if payment is required
         if (err.response?.data?.code === 'PAYMENT_REQUIRED') {
           setPendingConnectionType('managed');
           setShowPaymentModal(true);
@@ -73,7 +79,6 @@ export default function WhatsappSetupPage() {
 
   const handlePaymentSuccess = async () => {
     setShowPaymentModal(false);
-    // Retry the connection after payment method is added
     if (pendingConnectionType === 'managed') {
       try {
         const data = await connectManaged();
@@ -88,18 +93,17 @@ export default function WhatsappSetupPage() {
     setPendingConnectionType(null);
   };
 
-  const handleExternalConnect = async (baseUrl, apiKey, sessionName) => {
+  const handleExternalConnect = async (e) => {
+    e.preventDefault();
     clearError();
     try {
-      const data = await connectExternal(baseUrl, apiKey, sessionName);
-      // Check actual status - might already be connected!
+      const data = await connectExternal(externalForm.baseUrl, externalForm.apiKey, externalForm.sessionName);
       if (data.connection?.status === 'connected') {
         setStep('connected');
       } else if (data.connection?.status === 'qr_pending') {
         setStep('qr');
         fetchQR();
       } else {
-        // disconnected or other - go to QR
         setStep('qr');
         fetchQR();
       }
@@ -111,7 +115,6 @@ export default function WhatsappSetupPage() {
     try {
       await disconnect();
       setStep('select');
-      // Re-check for existing sessions
       setIsCheckingExisting(true);
       await checkExisting();
       setIsCheckingExisting(false);
@@ -119,11 +122,11 @@ export default function WhatsappSetupPage() {
   };
 
   const handleDelete = async () => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק את החיבור? פעולה זו לא ניתנת לביטול.')) return;
     clearError();
     try {
       await deleteConnection();
       setStep('select');
-      // Re-check for existing sessions (should find none after delete)
       setIsCheckingExisting(true);
       await checkExisting();
       setIsCheckingExisting(false);
@@ -141,67 +144,394 @@ export default function WhatsappSetupPage() {
     } catch {}
   };
 
+  const copyWebhook = () => {
+    navigator.clipboard.writeText(`${window.location.origin}/api/webhook/waha`);
+    setCopiedWebhook(true);
+    setTimeout(() => setCopiedWebhook(false), 2000);
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="max-w-md w-full">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-emerald-50" dir="rtl">
+      {/* Header */}
+      <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
+        <div className="max-w-4xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={() => navigate('/dashboard')}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+              </button>
+              <div className="h-8 w-px bg-gray-200" />
+              <Logo />
+            </div>
+            <Link 
+              to="/dashboard"
+              className="text-sm text-gray-500 hover:text-gray-700"
+            >
+              חזרה לדשבורד
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-2xl mx-auto px-6 py-12">
+        {/* Hero Section */}
         <div className="text-center mb-8">
-          <Logo size="lg" />
-          <p className="text-gray-500 mt-2">חיבור WhatsApp</p>
+          <div className="w-20 h-20 bg-gradient-to-br from-green-500 to-emerald-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-lg">
+            <MessageCircle className="w-10 h-10 text-white" />
+          </div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">חיבור WhatsApp</h1>
+          <p className="text-gray-500">חבר את WhatsApp שלך כדי להתחיל לקבל ולשלוח הודעות</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-xl p-6">
-          {error && (
-            <Alert variant="error" className="mb-4">{error}</Alert>
-          )}
-
-          {step === 'loading' && (
-            <div className="text-center py-8 text-gray-500">טוען...</div>
-          )}
-
-          {step === 'select' && (
-            <ConnectionTypeSelector 
-              onSelect={handleSelectType} 
-              existingSession={existingSession}
-              isChecking={isCheckingExisting}
-            />
-          )}
-
-          {step === 'external' && (
-            <ExternalConnectionForm
-              onSubmit={handleExternalConnect}
-              onBack={() => setStep('select')}
-              isLoading={isLoading}
-            />
-          )}
-
-          {step === 'qr' && (
-            <QRCodeDisplay
-              qrCode={qrCode}
-              onRefresh={handleRefreshQR}
-              onCancel={handleDisconnect}
-              isLoading={isLoading}
-            />
-          )}
-
-          {step === 'connected' && (
-            <ConnectionStatus
-              connection={connection}
-              onDisconnect={handleDisconnect}
-              onDelete={handleDelete}
-              isLoading={isLoading}
-            />
-          )}
-        </div>
-
-        {step === 'connected' && (
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="w-full mt-4 text-primary-500 hover:underline"
-          >
-            המשך לדשבורד ←
-          </button>
+        {/* Error Alert */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-red-700">
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <span>{error}</span>
+            <button onClick={clearError} className="mr-auto">
+              <XCircle className="w-5 h-5 hover:text-red-900" />
+            </button>
+          </div>
         )}
-      </div>
+
+        {/* Main Card */}
+        <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+          
+          {/* Loading State */}
+          {step === 'loading' && (
+            <div className="p-12 text-center">
+              <Loader2 className="w-12 h-12 text-green-500 animate-spin mx-auto mb-4" />
+              <p className="text-gray-500">בודק סטטוס חיבור...</p>
+            </div>
+          )}
+
+          {/* Select Connection Type */}
+          {step === 'select' && (
+            <div className="p-8">
+              <h2 className="text-xl font-bold text-gray-900 mb-2 text-center">בחר סוג חיבור</h2>
+              <p className="text-gray-500 text-center mb-8">איך תרצה לחבר את WhatsApp שלך?</p>
+              
+              {/* Existing Session Alert */}
+              {existingSession && (
+                <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-2xl">
+                  <div className="flex items-center gap-3 text-blue-700">
+                    <Wifi className="w-5 h-5" />
+                    <div>
+                      <p className="font-medium">נמצא חיבור קיים!</p>
+                      <p className="text-sm text-blue-600">יש לך סשן קיים ב-WAHA. לחץ על "חיבור מהיר" להתחבר אוטומטית.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {/* Managed Option */}
+                <button
+                  onClick={() => handleSelectType('managed')}
+                  disabled={isLoading}
+                  className="w-full p-6 bg-gradient-to-r from-green-50 to-emerald-50 hover:from-green-100 hover:to-emerald-100 border-2 border-green-200 hover:border-green-300 rounded-2xl text-right transition-all group disabled:opacity-50"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-lg">
+                      <Smartphone className="w-7 h-7 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="text-lg font-bold text-gray-900">חיבור מהיר</h3>
+                        <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-bold rounded-full">מומלץ</span>
+                      </div>
+                      <p className="text-gray-500 text-sm mb-3">סרוק קוד QR והתחבר תוך שניות. אנחנו מנהלים הכל.</p>
+                      <div className="flex items-center gap-4 text-xs text-gray-400">
+                        <span className="flex items-center gap-1"><Zap className="w-3 h-3" /> מהיר</span>
+                        <span className="flex items-center gap-1"><Shield className="w-3 h-3" /> מאובטח</span>
+                        <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> ללא הגדרות</span>
+                      </div>
+                    </div>
+                    <ChevronLeft className="w-5 h-5 text-gray-400 group-hover:text-green-500 transition-colors" />
+                  </div>
+                </button>
+
+                {/* External Option */}
+                <button
+                  onClick={() => handleSelectType('external')}
+                  disabled={isLoading}
+                  className="w-full p-6 bg-gray-50 hover:bg-gray-100 border-2 border-gray-200 hover:border-gray-300 rounded-2xl text-right transition-all group disabled:opacity-50"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="w-14 h-14 bg-gradient-to-br from-gray-500 to-slate-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-lg">
+                      <Server className="w-7 h-7 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="text-lg font-bold text-gray-900">שרת חיצוני</h3>
+                        <span className="px-2 py-0.5 bg-gray-200 text-gray-600 text-xs font-bold rounded-full">מתקדם</span>
+                      </div>
+                      <p className="text-gray-500 text-sm mb-3">חבר את ה-WAHA שלך. שליטה מלאה על התשתית.</p>
+                      <div className="flex items-center gap-4 text-xs text-gray-400">
+                        <span className="flex items-center gap-1"><Settings className="w-3 h-3" /> הגדרות מתקדמות</span>
+                        <span className="flex items-center gap-1"><Server className="w-3 h-3" /> שרת משלך</span>
+                      </div>
+                    </div>
+                    <ChevronLeft className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors" />
+                  </div>
+                </button>
+              </div>
+              
+              {isCheckingExisting && (
+                <p className="text-center text-sm text-gray-400 mt-4 flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  בודק חיבורים קיימים...
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* External Connection Form */}
+          {step === 'external' && (
+            <div className="p-8">
+              <button
+                onClick={() => setStep('select')}
+                className="flex items-center gap-2 text-gray-500 hover:text-gray-700 mb-6"
+              >
+                <ArrowLeft className="w-4 h-4 rotate-180" />
+                חזרה
+              </button>
+              
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 bg-gradient-to-br from-gray-500 to-slate-600 rounded-xl flex items-center justify-center">
+                  <Server className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">חיבור שרת חיצוני</h2>
+                  <p className="text-gray-500 text-sm">הזן את פרטי ה-WAHA שלך</p>
+                </div>
+              </div>
+              
+              <form onSubmit={handleExternalConnect} className="space-y-5">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">כתובת WAHA (Base URL)</label>
+                  <input
+                    type="url"
+                    value={externalForm.baseUrl}
+                    onChange={(e) => setExternalForm({ ...externalForm, baseUrl: e.target.value })}
+                    placeholder="https://waha.example.com"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/30 focus:border-green-400 transition-all"
+                    dir="ltr"
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">API Key (אופציונלי)</label>
+                  <input
+                    type="text"
+                    value={externalForm.apiKey}
+                    onChange={(e) => setExternalForm({ ...externalForm, apiKey: e.target.value })}
+                    placeholder="your-api-key"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/30 focus:border-green-400 transition-all"
+                    dir="ltr"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">שם הסשן</label>
+                  <input
+                    type="text"
+                    value={externalForm.sessionName}
+                    onChange={(e) => setExternalForm({ ...externalForm, sessionName: e.target.value })}
+                    placeholder="default"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/30 focus:border-green-400 transition-all"
+                    dir="ltr"
+                    required
+                  />
+                </div>
+
+                {/* Webhook URL */}
+                <div className="p-4 bg-blue-50 rounded-xl">
+                  <label className="block text-sm font-medium text-blue-900 mb-2">Webhook URL (הגדר ב-WAHA)</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={`${window.location.origin}/api/webhook/waha`}
+                      readOnly
+                      className="flex-1 px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm text-gray-600"
+                      dir="ltr"
+                    />
+                    <button
+                      type="button"
+                      onClick={copyWebhook}
+                      className="p-2 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors"
+                    >
+                      {copiedWebhook ? <Check className="w-5 h-5 text-green-600" /> : <Copy className="w-5 h-5 text-blue-600" />}
+                    </button>
+                  </div>
+                </div>
+                
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full py-4 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      מתחבר...
+                    </>
+                  ) : (
+                    <>
+                      <Wifi className="w-5 h-5" />
+                      התחבר
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* QR Code Display */}
+          {step === 'qr' && (
+            <div className="p-8">
+              <div className="text-center mb-6">
+                <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center mx-auto mb-4">
+                  <QrCode className="w-6 h-6 text-white" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">סרוק את קוד ה-QR</h2>
+                <p className="text-gray-500 text-sm">פתח את WhatsApp בטלפון &gt; הגדרות &gt; מכשירים מקושרים &gt; קשר מכשיר</p>
+              </div>
+              
+              {/* QR Code */}
+              <div className="bg-white rounded-2xl border-2 border-gray-100 p-6 flex items-center justify-center mb-6">
+                {qrCode ? (
+                  <div className="relative">
+                    <img 
+                      src={qrCode} 
+                      alt="QR Code" 
+                      className="w-64 h-64"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center bg-white/80 opacity-0 hover:opacity-100 transition-opacity rounded-lg">
+                      <button
+                        onClick={handleRefreshQR}
+                        className="p-3 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors"
+                      >
+                        <RefreshCw className="w-6 h-6" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="w-64 h-64 flex items-center justify-center">
+                    <Loader2 className="w-12 h-12 text-green-500 animate-spin" />
+                  </div>
+                )}
+              </div>
+              
+              {/* Tips */}
+              <div className="bg-gray-50 rounded-xl p-4 mb-6">
+                <p className="text-sm text-gray-600 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-500" />
+                  אם הקוד פג תוקף, לחץ על כפתור הריענון. הקוד בתוקף למשך כ-60 שניות.
+                </p>
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={handleRefreshQR}
+                  disabled={isLoading}
+                  className="flex-1 py-3 border-2 border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
+                  רענן קוד
+                </button>
+                <button
+                  onClick={handleDisconnect}
+                  className="flex-1 py-3 border-2 border-red-200 text-red-600 rounded-xl font-medium hover:bg-red-50 transition-colors"
+                >
+                  ביטול
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Connected State */}
+          {step === 'connected' && (
+            <div className="p-8">
+              {/* Success Header */}
+              <div className="text-center mb-8">
+                <div className="w-20 h-20 bg-gradient-to-br from-green-500 to-emerald-600 rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+                  <CheckCircle className="w-10 h-10 text-white" />
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">WhatsApp מחובר!</h2>
+                <p className="text-gray-500">החיבור פעיל ומוכן לשימוש</p>
+              </div>
+              
+              {/* Connection Details */}
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl p-6 mb-6 border border-green-200">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-center p-4 bg-white rounded-xl">
+                    <Phone className="w-6 h-6 text-green-600 mx-auto mb-2" />
+                    <p className="text-sm text-gray-500">מספר טלפון</p>
+                    <p className="font-bold text-gray-900">{connection?.phone_number || 'לא זמין'}</p>
+                  </div>
+                  <div className="text-center p-4 bg-white rounded-xl">
+                    <Wifi className="w-6 h-6 text-green-600 mx-auto mb-2" />
+                    <p className="text-sm text-gray-500">סטטוס</p>
+                    <p className="font-bold text-green-600 flex items-center justify-center gap-1">
+                      <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                      מחובר
+                    </p>
+                  </div>
+                </div>
+                
+                {connection?.session_name && (
+                  <div className="mt-4 pt-4 border-t border-green-200">
+                    <p className="text-sm text-gray-500">שם הסשן: <span className="font-medium text-gray-700">{connection.session_name}</span></p>
+                  </div>
+                )}
+              </div>
+              
+              {/* Actions */}
+              <div className="space-y-3">
+                <Link
+                  to="/dashboard"
+                  className="w-full py-4 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                >
+                  המשך לדשבורד
+                  <ChevronLeft className="w-5 h-5" />
+                </Link>
+                
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleDisconnect}
+                    disabled={isLoading}
+                    className="flex-1 py-3 border-2 border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <WifiOff className="w-5 h-5" />
+                    נתק
+                  </button>
+                  <button
+                    onClick={handleDelete}
+                    disabled={isLoading}
+                    className="flex-1 py-3 border-2 border-red-200 text-red-600 rounded-xl font-medium hover:bg-red-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                    מחק חיבור
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Help Section */}
+        <div className="mt-8 text-center">
+          <p className="text-gray-400 text-sm">
+            נתקלת בבעיה? 
+            <a href="#" className="text-green-600 hover:text-green-700 mr-1">צור קשר עם התמיכה</a>
+          </p>
+        </div>
+      </main>
 
       {/* Payment Required Modal */}
       <PaymentRequiredModal

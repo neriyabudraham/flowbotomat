@@ -416,39 +416,60 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Tips & Resources */}
+          {/* Tips & Resources - Expanded */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100">
+            <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-purple-50 to-pink-50">
               <h3 className="font-bold text-gray-900 flex items-center gap-2">
                 <Rocket className="w-5 h-5 text-purple-600" />
                 טיפים ומשאבים
               </h3>
+              <p className="text-sm text-gray-500 mt-1">למד איך להפיק את המקסימום מהמערכת</p>
             </div>
             <div className="p-4 space-y-3">
               <TipCard 
                 icon={Bot}
-                title="איך ליצור בוט אפקטיבי?"
-                description="למד את הטכניקות הטובות ביותר ליצירת בוטים"
+                title="יצירת בוט ראשון"
+                description="מדריך צעד אחר צעד ליצירת בוט אפקטיבי"
                 color="blue"
+                badge="מומלץ"
+              />
+              <TipCard 
+                icon={Workflow}
+                title="שימוש בתנאים ומשתנים"
+                description="איך ליצור תהליכים חכמים ומותאמים אישית"
+                color="indigo"
               />
               <TipCard 
                 icon={MessageSquare}
-                title="תבניות הודעות מומלצות"
-                description="הודעות שמניבות תגובות גבוהות"
+                title="הודעות שמניבות תגובות"
+                description="טיפים לכתיבת הודעות שגורמות ללקוחות לפעול"
                 color="green"
               />
               <TipCard 
+                icon={Users}
+                title="ניהול אנשי קשר"
+                description="איך לסנן, לתייג ולנהל את הלקוחות שלך"
+                color="cyan"
+              />
+              <TipCard 
                 icon={BarChart3}
-                title="הבן את הסטטיסטיקות"
-                description="איך לקרוא ולנתח את הנתונים"
+                title="קריאת סטטיסטיקות"
+                description="הבן את הנתונים ושפר את הביצועים"
                 color="purple"
+              />
+              <TipCard 
+                icon={Zap}
+                title="אוטומציות מתקדמות"
+                description="טריגרים, תגובות אוטומטיות ועוד"
+                color="amber"
+                badge="PRO"
               />
             </div>
           </div>
         </div>
 
-        {/* Upgrade Banner (for free users) */}
-        {user && !user.subscription?.plan_id && (
+        {/* Upgrade Banner - Only for users without paid subscription */}
+        {user && (!user.subscription || user.subscription.plan?.price === 0 || user.subscription.plan?.price === '0') && (
           <div className="bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 rounded-2xl p-6 mb-8">
             <div className="flex flex-col md:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-4">
@@ -561,23 +582,37 @@ function SetupStep({ completed, number, text, link }) {
   );
 }
 
-function TipCard({ icon: Icon, title, description, color }) {
+function TipCard({ icon: Icon, title, description, color, badge }) {
   const colors = {
     blue: 'from-blue-500 to-indigo-600',
+    indigo: 'from-indigo-500 to-purple-600',
     green: 'from-green-500 to-emerald-600',
+    cyan: 'from-cyan-500 to-blue-600',
     purple: 'from-purple-500 to-pink-600',
+    amber: 'from-amber-500 to-orange-600',
   };
 
   return (
     <div className="flex items-center gap-4 p-4 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer group">
-      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${colors[color]} flex items-center justify-center group-hover:scale-110 transition-transform`}>
+      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${colors[color]} flex items-center justify-center group-hover:scale-110 transition-transform shadow-lg`}>
         <Icon className="w-5 h-5 text-white" />
       </div>
       <div className="flex-1">
-        <p className="font-medium text-gray-900">{title}</p>
+        <div className="flex items-center gap-2">
+          <p className="font-medium text-gray-900">{title}</p>
+          {badge && (
+            <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${
+              badge === 'PRO' 
+                ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-white' 
+                : 'bg-blue-100 text-blue-700'
+            }`}>
+              {badge}
+            </span>
+          )}
+        </div>
         <p className="text-sm text-gray-500">{description}</p>
       </div>
-      <ChevronLeft className="w-4 h-4 text-gray-400" />
+      <ChevronLeft className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
     </div>
   );
 }
