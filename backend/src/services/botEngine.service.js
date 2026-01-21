@@ -174,8 +174,9 @@ class BotEngine {
     console.log('[BotEngine] ▶️ Continuing from node:', currentNode.type, currentNode.id);
     console.log('[BotEngine] Message type:', messageType, '| Selected row ID:', selectedRowId);
     
-    // Clear session first
-    await this.clearSession(bot.id, contact.id);
+    // Get node data
+    const nodeData = currentNode.data || {};
+    const singleSelect = nodeData.singleSelect === true; // Default to false (allow multiple selections)
     
     // Find next node based on response
     let nextHandleId = null;
@@ -184,10 +185,7 @@ class BotEngine {
       // Check if this is actually a list response
       if (messageType !== 'list_response') {
         console.log('[BotEngine] ⚠️ Waiting for list_response but received:', messageType);
-        console.log('[BotEngine] Ignoring non-list response, keeping session');
-        // Re-save session since we cleared it
-        const waitingData = session.waiting_data || {};
-        await this.saveSession(bot.id, contact.id, session.current_node_id, 'list_response', waitingData, null);
+        console.log('[BotEngine] Ignoring non-list response');
         return;
       }
       
@@ -227,8 +225,20 @@ class BotEngine {
           }
         }
       }
+      
+      // Handle session based on singleSelect
+      if (singleSelect) {
+        // Single select - clear session after selection
+        await this.clearSession(bot.id, contact.id);
+        console.log('[BotEngine] Single select mode - session cleared');
+      } else {
+        // Multi select - keep session active for more selections
+        console.log('[BotEngine] Multi select mode - keeping session for more selections');
+      }
+      
     } else if (session.waiting_for === 'reply') {
-      // For regular reply wait, just continue to next node
+      // For regular reply wait, clear session and continue
+      await this.clearSession(bot.id, contact.id);
       console.log('[BotEngine] Got reply, continuing flow');
     }
     

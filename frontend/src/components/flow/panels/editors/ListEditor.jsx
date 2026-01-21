@@ -186,6 +186,22 @@ export default function ListEditor({ data, onUpdate }) {
         )}
       </div>
 
+      {/* Single Select Option */}
+      <div className="bg-purple-50 rounded-xl p-4">
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={data.singleSelect || false}
+            onChange={(e) => onUpdate({ singleSelect: e.target.checked })}
+            className="w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+          />
+          <div>
+            <div className="font-medium text-purple-700">בחירה חד פעמית</div>
+            <div className="text-xs text-purple-500">אם מופעל, המשתמש יוכל לבחור רק פעם אחת. אחרת יוכל לבחור כמה פעמים שירצה.</div>
+          </div>
+        </label>
+      </div>
+
       {/* Timeout (optional) */}
       <div className="bg-orange-50 rounded-xl p-4">
         <label className="flex items-center gap-3 cursor-pointer">
