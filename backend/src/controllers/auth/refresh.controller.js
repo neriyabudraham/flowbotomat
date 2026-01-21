@@ -18,11 +18,12 @@ const refresh = async (req, res) => {
       return res.status(401).json({ error: 'Invalid refresh token' });
     }
 
-    // Fetch user email for token
-    const result = await db.query('SELECT email FROM users WHERE id = $1', [payload.userId]);
+    // Fetch user email and role for token
+    const result = await db.query('SELECT email, role FROM users WHERE id = $1', [payload.userId]);
     const email = result.rows[0]?.email || null;
+    const role = result.rows[0]?.role || 'user';
 
-    const accessToken = generateAccessToken(payload.userId, email);
+    const accessToken = generateAccessToken(payload.userId, email, role);
 
     res.json({ accessToken });
   } catch (error) {

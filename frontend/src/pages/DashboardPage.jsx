@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { MessageCircle, Workflow, Users, Settings, Bot, MessageSquare, TrendingUp, Grid } from 'lucide-react';
+import { MessageCircle, Workflow, Users, Settings, Bot, MessageSquare, TrendingUp, Grid, Shield } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useWhatsappStore from '../store/whatsappStore';
 import useStatsStore from '../store/statsStore';
@@ -134,6 +134,15 @@ export default function DashboardPage() {
             <h3 className="font-semibold text-gray-800">הגדרות</h3>
             <p className="text-sm text-gray-500">הגדרות חשבון</p>
           </Link>
+          
+          {/* Admin Panel - only for admins */}
+          {user && ['admin', 'superadmin'].includes(user.role) && (
+            <Link to="/admin" className="bg-white rounded-xl shadow p-6 hover:shadow-lg transition-shadow border-2 border-red-100">
+              <Shield className="w-8 h-8 text-red-500 mb-3" />
+              <h3 className="font-semibold text-gray-800">ניהול מערכת</h3>
+              <p className="text-sm text-gray-500">פאנל אדמין</p>
+            </Link>
+          )}
         </div>
       </main>
     </div>

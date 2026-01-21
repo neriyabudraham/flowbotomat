@@ -9,6 +9,7 @@ import SettingsPage from './pages/SettingsPage';
 import BotsPage from './pages/BotsPage';
 import BotEditorPage from './pages/BotEditorPage';
 import TemplatesPage from './pages/TemplatesPage';
+import AdminPage from './pages/AdminPage';
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
           <Route path="/bots" element={<BotsPage />} />
           <Route path="/bots/:botId" element={<BotEditorPage />} />
           <Route path="/templates" element={<TemplatesPage />} />
+          <Route path="/admin" element={<AdminPage />} />
         </Routes>
       </div>
     </BrowserRouter>
