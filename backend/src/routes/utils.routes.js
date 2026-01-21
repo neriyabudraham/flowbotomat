@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
-const { authenticateToken } = require('../middleware/auth.middleware');
+const { authenticateToken } = require('../middlewares/auth.middleware');
 
 // Test API call (for flow builder)
 router.post('/test-api', authenticateToken, async (req, res) => {
