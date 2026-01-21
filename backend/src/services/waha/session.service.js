@@ -61,6 +61,24 @@ async function getQRCode(baseUrl, apiKey, sessionName) {
   return response.data;
 }
 
+/**
+ * Update session webhooks
+ */
+async function updateWebhooks(baseUrl, apiKey, sessionName, webhookUrl, events) {
+  const client = createClient(baseUrl, apiKey);
+  const response = await client.put(`/api/sessions/${sessionName}`, {
+    config: {
+      webhooks: [
+        {
+          url: webhookUrl,
+          events: events,
+        },
+      ],
+    },
+  });
+  return response.data;
+}
+
 module.exports = {
   createSession,
   startSession,
@@ -68,4 +86,5 @@ module.exports = {
   deleteSession,
   getSessionStatus,
   getQRCode,
+  updateWebhooks,
 };

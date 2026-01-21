@@ -4,6 +4,19 @@ const { getWahaCredentials } = require('../../services/settings/system.service')
 const { encrypt, decrypt } = require('../../services/crypto/encrypt.service');
 const wahaSession = require('../../services/waha/session.service');
 
+// Webhook events we want to receive
+const WEBHOOK_EVENTS = [
+  'message',
+  'message.ack',
+  'session.status',
+];
+
+// Build webhook URL for user
+function getWebhookUrl(userId) {
+  const appUrl = process.env.APP_URL || 'https://flow.botomat.co.il';
+  return `${appUrl}/api/webhook/waha/${userId}`;
+}
+
 /**
  * Create managed WhatsApp connection (system WAHA)
  */
@@ -34,6 +47,15 @@ async function createManaged(req, res) {
     // Create session in WAHA
     await wahaSession.createSession(baseUrl, apiKey, sessionName);
     await wahaSession.startSession(baseUrl, apiKey, sessionName);
+    
+    // Setup webhook for this user
+    const webhookUrl = getWebhookUrl(userId);
+    try {
+      await wahaSession.updateWebhooks(baseUrl, apiKey, sessionName, webhookUrl, WEBHOOK_EVENTS);
+      console.log(`[Webhook] Configured for user ${userId}: ${webhookUrl}`);
+    } catch (err) {
+      console.error('[Webhook] Setup failed:', err.message);
+    }
     
     // Save connection to DB
     const result = await pool.query(
@@ -104,6 +126,16 @@ async function createExternal(req, res) {
       phoneNumber = wahaStatus.me.id?.split('@')[0] || null;
       displayName = wahaStatus.me.pushName || null;
       connectedAt = new Date();
+    }
+    
+    // Setup webhook for this user
+    const webhookUrl = getWebhookUrl(userId);
+    try {
+      await wahaSession.updateWebhooks(baseUrl, apiKey, sessionName, webhookUrl, WEBHOOK_EVENTS);
+      console.log(`[Webhook] Configured for user ${userId}: ${webhookUrl}`);
+    } catch (err) {
+      console.error('[Webhook] Setup failed:', err.message);
+      // Continue anyway - webhook can be configured manually
     }
     
     // Save connection to DB (encrypt sensitive data)

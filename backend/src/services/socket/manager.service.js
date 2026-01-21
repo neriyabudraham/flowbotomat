@@ -44,8 +44,17 @@ const emitToUser = (userId, event, data) => {
   }
 };
 
+/**
+ * Get socket manager object with all methods
+ */
+const getSocketManager = () => ({
+  emitToUser,
+  getIO,
+});
+
 module.exports = {
   initSocket,
   getIO,
   emitToUser,
+  getSocketManager,
 };

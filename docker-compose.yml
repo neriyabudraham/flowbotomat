@@ -36,6 +36,8 @@ services:
       SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
       APP_URL: ${APP_URL}
+      WAHA_BASE_URL: ${WAHA_BASE_URL}
+      WAHA_API_KEY: ${WAHA_API_KEY}
     ports:
       - "3749:4000"
     volumes:
