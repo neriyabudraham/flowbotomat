@@ -75,10 +75,14 @@ async function createManaged(req, res) {
         // Get current status
         wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
         
-        // If stopped, start it
-        if (wahaStatus.status === 'STOPPED') {
+        // If stopped or failed, restart it
+        if (wahaStatus.status === 'STOPPED' || wahaStatus.status === 'FAILED') {
+          console.log(`[WhatsApp] Session is ${wahaStatus.status}, restarting...`);
+          try {
+            await wahaSession.stopSession(baseUrl, apiKey, sessionName);
+          } catch (e) { /* ignore */ }
           await wahaSession.startSession(baseUrl, apiKey, sessionName);
-          console.log(`[WhatsApp] ✅ Started existing stopped session: ${sessionName}`);
+          console.log(`[WhatsApp] ✅ Restarted session: ${sessionName}`);
           wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
         } else {
           console.log(`[WhatsApp] ✅ Session already active: ${sessionName}, status: ${wahaStatus.status}`);
