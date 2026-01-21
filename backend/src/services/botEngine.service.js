@@ -268,6 +268,10 @@ class BotEngine {
       // For regular reply wait, clear session and continue
       await this.clearSession(bot.id, contact.id);
       console.log('[BotEngine] Got reply, continuing flow');
+    } else if (session.waiting_for === 'registration') {
+      // Continue registration flow
+      console.log('[BotEngine] Continuing registration flow');
+      return await this.continueRegistration(session, flowData, contact, message, userId, bot);
     }
     
     // Find next edge
@@ -464,6 +468,11 @@ class BotEngine {
       case 'list':
         await this.executeListNode(node, contact, userId, botName, botId);
         // List nodes wait for response, session saved
+        return;
+        
+      case 'registration':
+        await this.executeRegistrationNode(node, contact, userId, botName, botId);
+        // Registration nodes wait for responses, session saved
         return;
     }
     
@@ -940,6 +949,238 @@ class BotEngine {
         { buttons: buttonsForSession },
         timeout || null // timeout in seconds, null = no timeout
       );
+    }
+  }
+  
+  // Execute registration node
+  async executeRegistrationNode(node, contact, userId, botName = '', botId = null) {
+    const connection = await this.getConnection(userId);
+    if (!connection) {
+      console.log('[BotEngine] No connection for registration');
+      return;
+    }
+    
+    const { 
+      welcomeMessage, 
+      questions = [], 
+      timeout = 2, 
+      timeoutUnit = 'hours',
+      cancelKeyword = 'ביטול'
+    } = node.data;
+    
+    console.log('[BotEngine] Starting registration with', questions.length, 'questions');
+    
+    if (questions.length === 0) {
+      console.log('[BotEngine] No questions in registration, skipping');
+      return;
+    }
+    
+    // Send welcome message if defined
+    if (welcomeMessage && welcomeMessage.trim()) {
+      const welcomeText = this.replaceVariables(welcomeMessage, contact, '', botName);
+      await wahaService.sendMessage(connection, contact.phone, welcomeText);
+      console.log('[BotEngine] ✅ Welcome message sent');
+      await this.sleep(500);
+    }
+    
+    // Send first question
+    const firstQuestion = questions[0];
+    const questionText = this.replaceVariables(firstQuestion.question, contact, '', botName);
+    await wahaService.sendMessage(connection, contact.phone, questionText);
+    console.log('[BotEngine] ✅ First question sent:', questionText.substring(0, 50));
+    
+    // Calculate timeout in seconds
+    const timeoutSeconds = timeout * (timeoutUnit === 'hours' ? 3600 : 60);
+    
+    // Save session to wait for response
+    if (botId) {
+      await this.saveSession(
+        botId,
+        contact.id,
+        node.id,
+        'registration',
+        {
+          currentQuestion: 0,
+          questions: questions,
+          answers: {},
+          cancelKeyword: cancelKeyword.toLowerCase()
+        },
+        timeoutSeconds
+      );
+      console.log('[BotEngine] 💾 Registration session saved, waiting for answer');
+    }
+  }
+  
+  // Continue registration flow (called from continueSession)
+  async continueRegistration(session, flowData, contact, message, userId, bot) {
+    const connection = await this.getConnection(userId);
+    if (!connection) return false;
+    
+    const nodeId = session.current_node_id;
+    const node = flowData.nodes.find(n => n.id === nodeId);
+    if (!node) return false;
+    
+    const waitingData = session.waiting_data || {};
+    const questions = waitingData.questions || [];
+    const currentQuestionIndex = waitingData.currentQuestion || 0;
+    const answers = waitingData.answers || {};
+    const cancelKeyword = waitingData.cancelKeyword || 'ביטול';
+    
+    console.log('[BotEngine] Registration continue - question', currentQuestionIndex + 1, 'of', questions.length);
+    
+    // Check for cancel keyword
+    if (message.toLowerCase().trim() === cancelKeyword) {
+      console.log('[BotEngine] Registration cancelled by user');
+      await this.clearSession(bot.id, contact.id);
+      
+      // Send cancel message
+      const cancelMessage = node.data.cancelMessage || 'הרישום בוטל.';
+      await wahaService.sendMessage(connection, contact.phone, 
+        this.replaceVariables(cancelMessage, contact, '', bot.name)
+      );
+      
+      // Execute cancel path
+      const cancelEdge = flowData.edges.find(e => e.source === nodeId && e.sourceHandle === 'cancel');
+      if (cancelEdge) {
+        await this.executeNode(cancelEdge.target, flowData, contact, message, userId, bot.id, bot.name);
+      }
+      return true;
+    }
+    
+    // Validate current answer
+    const currentQuestion = questions[currentQuestionIndex];
+    const isValid = this.validateRegistrationAnswer(message, currentQuestion.type);
+    
+    if (!isValid) {
+      // Send error message
+      const errorMessage = currentQuestion.errorMessage || 'התשובה לא תקינה, נסה שוב';
+      await wahaService.sendMessage(connection, contact.phone, errorMessage);
+      
+      // Re-save session (same state)
+      await this.saveSession(
+        bot.id,
+        contact.id,
+        nodeId,
+        'registration',
+        waitingData,
+        (node.data.timeout || 2) * ((node.data.timeoutUnit || 'hours') === 'hours' ? 3600 : 60)
+      );
+      return true;
+    }
+    
+    // Save answer
+    answers[currentQuestion.varName || `q${currentQuestionIndex}`] = message;
+    
+    // Save to contact variables
+    if (currentQuestion.varName) {
+      await this.setContactVariable(contact.id, currentQuestion.varName, message);
+    }
+    
+    const nextQuestionIndex = currentQuestionIndex + 1;
+    
+    if (nextQuestionIndex < questions.length) {
+      // More questions - send next one
+      const nextQuestion = questions[nextQuestionIndex];
+      const questionText = this.replaceVariables(nextQuestion.question, contact, '', bot.name);
+      await wahaService.sendMessage(connection, contact.phone, questionText);
+      console.log('[BotEngine] ✅ Next question sent:', questionText.substring(0, 50));
+      
+      // Update session
+      await this.saveSession(
+        bot.id,
+        contact.id,
+        nodeId,
+        'registration',
+        { ...waitingData, currentQuestion: nextQuestionIndex, answers },
+        (node.data.timeout || 2) * ((node.data.timeoutUnit || 'hours') === 'hours' ? 3600 : 60)
+      );
+      return true;
+    }
+    
+    // All questions answered - complete registration
+    console.log('[BotEngine] ✅ Registration completed');
+    await this.clearSession(bot.id, contact.id);
+    
+    // Send completion message
+    const completionMessage = node.data.completionMessage || 'תודה! הרישום הושלם בהצלחה.';
+    await wahaService.sendMessage(connection, contact.phone, 
+      this.replaceVariables(completionMessage, contact, '', bot.name)
+    );
+    
+    // Send summary if enabled
+    if (node.data.sendSummary) {
+      await this.sendRegistrationSummary(node.data, contact, answers, connection, bot.name);
+    }
+    
+    // Execute complete path
+    const completeEdge = flowData.edges.find(e => e.source === nodeId && e.sourceHandle === 'complete');
+    if (completeEdge) {
+      await this.executeNode(completeEdge.target, flowData, contact, message, userId, bot.id, bot.name);
+    }
+    
+    return true;
+  }
+  
+  // Validate registration answer based on type
+  validateRegistrationAnswer(answer, type) {
+    if (!answer || !answer.trim()) return false;
+    
+    switch (type) {
+      case 'text':
+        return answer.trim().length > 0;
+      case 'number':
+        return !isNaN(parseFloat(answer)) && isFinite(answer);
+      case 'phone':
+        const phoneClean = answer.replace(/[-\s+]/g, '');
+        return /^(0[0-9]{9}|972[0-9]{9}|[0-9]{10,12})$/.test(phoneClean);
+      case 'email':
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(answer);
+      case 'date':
+        // Accept various date formats
+        return answer.trim().length > 0;
+      case 'image':
+      case 'file':
+        // For now, accept any response (would need media handling)
+        return true;
+      case 'choice':
+        return answer.trim().length > 0;
+      default:
+        return true;
+    }
+  }
+  
+  // Send registration summary
+  async sendRegistrationSummary(nodeData, contact, answers, connection, botName) {
+    try {
+      const { summaryTarget, summaryPhone, summaryGroupId, summaryTemplate } = nodeData;
+      
+      // Build summary text
+      let summaryText = summaryTemplate || '📋 רישום חדש!\n\n';
+      
+      // Replace variables in template
+      summaryText = this.replaceVariables(summaryText, contact, '', botName);
+      
+      // Replace answer variables
+      for (const [key, value] of Object.entries(answers)) {
+        const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'gi');
+        summaryText = summaryText.replace(regex, value);
+      }
+      
+      // Determine target
+      let targetPhone;
+      if (summaryTarget === 'group' && summaryGroupId) {
+        targetPhone = summaryGroupId;
+      } else if (summaryPhone) {
+        targetPhone = summaryPhone;
+      } else {
+        console.log('[BotEngine] No summary target configured');
+        return;
+      }
+      
+      await wahaService.sendMessage(connection, targetPhone, summaryText);
+      console.log('[BotEngine] ✅ Registration summary sent to:', targetPhone);
+    } catch (error) {
+      console.error('[BotEngine] Error sending registration summary:', error.message);
     }
   }
   

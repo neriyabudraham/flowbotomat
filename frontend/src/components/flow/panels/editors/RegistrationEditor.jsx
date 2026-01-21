@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, X, GripVertical, ChevronDown, ChevronUp, Settings } from 'lucide-react';
+import { Plus, X, ChevronDown, ChevronUp, Settings, Zap, Clock } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 import api from '../../../../services/api';
 
@@ -14,8 +14,24 @@ const questionTypes = [
   { id: 'file', label: 'קובץ', icon: '📎' },
 ];
 
+// Quick questions templates
+const quickQuestions = [
+  { id: 'full_name', label: 'שם מלא', question: 'מה השם המלא שלך?', type: 'text', varName: 'full_name' },
+  { id: 'first_name', label: 'שם פרטי', question: 'מה השם הפרטי שלך?', type: 'text', varName: 'first_name' },
+  { id: 'last_name', label: 'שם משפחה', question: 'מה שם המשפחה שלך?', type: 'text', varName: 'last_name' },
+  { id: 'phone', label: 'טלפון', question: 'מה מספר הטלפון שלך?', type: 'phone', varName: 'phone' },
+  { id: 'email', label: 'מייל', question: 'מה כתובת המייל שלך?', type: 'email', varName: 'email' },
+  { id: 'id_number', label: 'תעודת זהות', question: 'מה מספר תעודת הזהות שלך?', type: 'number', varName: 'id_number' },
+  { id: 'city', label: 'עיר', question: 'באיזו עיר אתה גר?', type: 'text', varName: 'city' },
+  { id: 'address', label: 'כתובת', question: 'מה הכתובת המלאה שלך?', type: 'text', varName: 'address' },
+  { id: 'birthday', label: 'תאריך לידה', question: 'מה תאריך הלידה שלך?', type: 'date', varName: 'birthday' },
+  { id: 'company', label: 'חברה', question: 'באיזו חברה אתה עובד?', type: 'text', varName: 'company' },
+];
+
 export default function RegistrationEditor({ data, onUpdate }) {
   const [showSummarySettings, setShowSummarySettings] = useState(false);
+  const [showTimeoutSettings, setShowTimeoutSettings] = useState(false);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [groups, setGroups] = useState([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
   
@@ -23,7 +39,7 @@ export default function RegistrationEditor({ data, onUpdate }) {
   
   // Load WhatsApp groups
   useEffect(() => {
-    if (data.sendSummary && data.summaryTarget === 'group' && groups.length === 0) {
+    if (data.sendSummary && data.summaryTarget === 'group') {
       loadGroups();
     }
   }, [data.sendSummary, data.summaryTarget]);
@@ -39,18 +55,27 @@ export default function RegistrationEditor({ data, onUpdate }) {
     setLoadingGroups(false);
   };
   
-  const addQuestion = () => {
-    onUpdate({
-      questions: [...questions, {
-        id: Date.now(),
-        question: '',
-        type: 'text',
-        varName: '',
-        required: true,
-        errorMessage: 'התשובה לא תקינה, נסה שוב',
-        choices: []
-      }]
-    });
+  const addQuestion = (template = null) => {
+    const newQuestion = template ? {
+      id: Date.now(),
+      question: template.question,
+      type: template.type,
+      varName: template.varName,
+      required: true,
+      errorMessage: 'התשובה לא תקינה, נסה שוב',
+      choices: []
+    } : {
+      id: Date.now(),
+      question: '',
+      type: 'text',
+      varName: '',
+      required: true,
+      errorMessage: 'התשובה לא תקינה, נסה שוב',
+      choices: []
+    };
+    
+    onUpdate({ questions: [...questions, newQuestion] });
+    setShowQuickAdd(false);
   };
   
   const updateQuestion = (index, updates) => {
@@ -89,16 +114,52 @@ export default function RegistrationEditor({ data, onUpdate }) {
         />
       </div>
       
-      {/* Welcome Message */}
+      {/* Welcome Message (Optional) */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">הודעת פתיחה</label>
+        <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+          הודעת פתיחה
+          <span className="text-xs text-gray-400 font-normal">(אופציונלי)</span>
+        </label>
         <TextInputWithVariables
           value={data.welcomeMessage || ''}
           onChange={(v) => onUpdate({ welcomeMessage: v })}
-          placeholder="שלום! בוא נתחיל את תהליך הרישום..."
+          placeholder="שלום! בוא נתחיל את תהליך הרישום... (השאר ריק לדילוג)"
           multiline
           rows={2}
         />
+      </div>
+      
+      {/* Quick Add Questions */}
+      <div className="border border-indigo-200 rounded-xl overflow-hidden bg-indigo-50">
+        <button
+          type="button"
+          onClick={() => setShowQuickAdd(!showQuickAdd)}
+          className="w-full flex items-center justify-between px-4 py-3 hover:bg-indigo-100"
+        >
+          <div className="flex items-center gap-2 text-indigo-700">
+            <Zap className="w-4 h-4" />
+            <span className="font-medium">הוספה מהירה</span>
+          </div>
+          {showQuickAdd ? <ChevronUp className="w-4 h-4 text-indigo-500" /> : <ChevronDown className="w-4 h-4 text-indigo-500" />}
+        </button>
+        
+        {showQuickAdd && (
+          <div className="p-3 border-t border-indigo-200 bg-white">
+            <div className="grid grid-cols-2 gap-2">
+              {quickQuestions.map((q) => (
+                <button
+                  key={q.id}
+                  type="button"
+                  onClick={() => addQuestion(q)}
+                  className="flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-indigo-50 rounded-lg text-sm transition-colors"
+                >
+                  <span className="text-indigo-600">+</span>
+                  <span>{q.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       
       {/* Questions */}
@@ -122,11 +183,12 @@ export default function RegistrationEditor({ data, onUpdate }) {
         ))}
         
         <button
-          onClick={addQuestion}
+          type="button"
+          onClick={() => addQuestion()}
           className="w-full flex items-center justify-center gap-2 px-4 py-3 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-xl font-medium transition-colors"
         >
           <Plus className="w-4 h-4" />
-          הוסף שאלה
+          הוסף שאלה חדשה
         </button>
       </div>
       
@@ -140,6 +202,58 @@ export default function RegistrationEditor({ data, onUpdate }) {
           multiline
           rows={2}
         />
+      </div>
+      
+      {/* Timeout Settings */}
+      <div className="border border-gray-200 rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowTimeoutSettings(!showTimeoutSettings)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100"
+        >
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-gray-500" />
+            <span className="font-medium text-gray-700">טיימאאוט (אי מענה)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">
+              {data.timeout || 2} {(data.timeoutUnit || 'hours') === 'hours' ? 'שעות' : 'דקות'}
+            </span>
+            {showTimeoutSettings ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </div>
+        </button>
+        
+        {showTimeoutSettings && (
+          <div className="p-4 space-y-4 bg-white">
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                value={data.timeout || 2}
+                onChange={(e) => onUpdate({ timeout: parseInt(e.target.value) || 2 })}
+                min={1}
+                className="w-20 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-center"
+              />
+              <select
+                value={data.timeoutUnit || 'hours'}
+                onChange={(e) => onUpdate({ timeoutUnit: e.target.value })}
+                className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+              >
+                <option value="minutes">דקות</option>
+                <option value="hours">שעות</option>
+              </select>
+              <span className="text-sm text-gray-500">המתנה לתגובה</span>
+            </div>
+            
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">הודעה בעת טיימאאוט</label>
+              <TextInputWithVariables
+                value={data.timeoutMessage || ''}
+                onChange={(v) => onUpdate({ timeoutMessage: v })}
+                placeholder="לא קיבלנו תשובה. תהליך הרישום בוטל. נשמח לעזור בפעם אחרת!"
+              />
+            </div>
+          </div>
+        )}
       </div>
       
       {/* Cancel Settings */}
@@ -171,6 +285,7 @@ export default function RegistrationEditor({ data, onUpdate }) {
       {/* Summary Settings */}
       <div className="border border-gray-200 rounded-xl overflow-hidden">
         <button
+          type="button"
           onClick={() => setShowSummarySettings(!showSummarySettings)}
           className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100"
         >
@@ -207,6 +322,7 @@ export default function RegistrationEditor({ data, onUpdate }) {
                   <label className="block text-sm font-medium text-gray-700 mb-2">יעד</label>
                   <div className="flex gap-2">
                     <button
+                      type="button"
                       onClick={() => onUpdate({ summaryTarget: 'phone' })}
                       className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
                         (data.summaryTarget || 'phone') === 'phone'
@@ -217,6 +333,7 @@ export default function RegistrationEditor({ data, onUpdate }) {
                       📱 מספר טלפון
                     </button>
                     <button
+                      type="button"
                       onClick={() => {
                         onUpdate({ summaryTarget: 'group' });
                         if (groups.length === 0) loadGroups();
@@ -265,7 +382,7 @@ export default function RegistrationEditor({ data, onUpdate }) {
                     ) : (
                       <div className="text-sm text-gray-500 py-2">
                         לא נמצאו קבוצות.{' '}
-                        <button onClick={loadGroups} className="text-indigo-600 hover:underline">רענן</button>
+                        <button type="button" onClick={loadGroups} className="text-indigo-600 hover:underline">רענן</button>
                       </div>
                     )}
                   </div>
@@ -276,7 +393,7 @@ export default function RegistrationEditor({ data, onUpdate }) {
                   <TextInputWithVariables
                     value={data.summaryTemplate || ''}
                     onChange={(v) => onUpdate({ summaryTemplate: v })}
-                    placeholder={'📋 רישום חדש!\n\nשם: {{שם}}\nטלפון: {{טלפון}}\nמייל: {{מייל}}'}
+                    placeholder={'📋 רישום חדש!\n\nשם: {{full_name}}\nטלפון: {{phone}}\nמייל: {{email}}'}
                     multiline
                     rows={4}
                   />
@@ -296,7 +413,7 @@ export default function RegistrationEditor({ data, onUpdate }) {
         </div>
         <div className="flex items-center gap-2">
           <span className="w-4 h-4 rounded-full bg-red-500"></span>
-          <span className="text-sm text-gray-700">ביטול → יציאה אדומה</span>
+          <span className="text-sm text-gray-700">ביטול / טיימאאוט → יציאה אדומה</span>
         </div>
       </div>
     </div>
@@ -314,6 +431,7 @@ function QuestionItem({ question, index, total, onUpdate, onRemove, onMoveUp, on
       <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border-b border-gray-100">
         <div className="flex flex-col">
           <button
+            type="button"
             onClick={onMoveUp}
             disabled={index === 0}
             className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
@@ -321,6 +439,7 @@ function QuestionItem({ question, index, total, onUpdate, onRemove, onMoveUp, on
             <ChevronUp className="w-3 h-3" />
           </button>
           <button
+            type="button"
             onClick={onMoveDown}
             disabled={index === total - 1}
             className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
@@ -346,6 +465,7 @@ function QuestionItem({ question, index, total, onUpdate, onRemove, onMoveUp, on
         )}
         
         <button
+          type="button"
           onClick={() => setExpanded(!expanded)}
           className="p-1 text-gray-400 hover:text-gray-600"
         >
@@ -353,6 +473,7 @@ function QuestionItem({ question, index, total, onUpdate, onRemove, onMoveUp, on
         </button>
         
         <button
+          type="button"
           onClick={onRemove}
           className="p-1 text-gray-400 hover:text-red-500"
         >

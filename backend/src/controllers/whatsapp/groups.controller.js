@@ -36,6 +36,8 @@ async function getGroups(req, res) {
     }
     
     // Fetch groups from WAHA
+    console.log('[Groups] Fetching from:', `${baseUrl}/api/${sessionName}/groups`);
+    
     const response = await axios.get(
       `${baseUrl}/api/${sessionName}/groups`,
       {
@@ -47,13 +49,18 @@ async function getGroups(req, res) {
       }
     );
     
-    // Format groups
-    const groups = (response.data || []).map(group => ({
-      id: group.id,
-      name: group.name || group.subject || 'קבוצה ללא שם',
-      participants: group.participants?.length || 0,
-      isAdmin: group.participants?.some(p => p.isAdmin && p.id === connection.phone) || false
+    console.log('[Groups] Raw response:', JSON.stringify(response.data).substring(0, 500));
+    
+    // Format groups - handle different WAHA response formats
+    const rawGroups = Array.isArray(response.data) ? response.data : (response.data?.groups || response.data?.data || []);
+    
+    const groups = rawGroups.map(group => ({
+      id: group.id || group.chatId || group.jid,
+      name: group.name || group.subject || group.groupName || 'קבוצה ללא שם',
+      participants: group.participants?.length || group.participantsCount || 0,
     }));
+    
+    console.log('[Groups] Formatted', groups.length, 'groups');
     
     res.json({ groups });
     
