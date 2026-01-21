@@ -14,6 +14,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { TriggerNode, MessageNode, ConditionNode, DelayNode, ActionNode, ListNode } from './nodes';
+import RegistrationNode from './nodes/RegistrationNode';
 import QuickAddMenu from './panels/QuickAddMenu';
 import EdgeWithDelete from './EdgeWithDelete';
 
@@ -24,6 +25,7 @@ const nodeTypes = {
   delay: DelayNode,
   action: ActionNode,
   list: ListNode,
+  registration: RegistrationNode,
 };
 
 const edgeTypes = {

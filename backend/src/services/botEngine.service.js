@@ -719,6 +719,27 @@ class BotEngine {
         } catch {
           return false;
         }
+      case 'is_text':
+        // Check if it's plain text (not a number, not special)
+        return typeof checkValue === 'string' && checkValue.trim() !== '' && isNaN(parseFloat(checkValue));
+      case 'is_number':
+        return !isNaN(parseFloat(checkValue)) && isFinite(checkValue);
+      case 'is_email':
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(checkValue);
+      case 'is_phone':
+        // Support formats: 0500000000, 972500000000, 050-0000000, 050-000-0000, +972-50-000-0000
+        const phoneClean = (checkValue || '').replace(/[-\s+]/g, '');
+        return /^(0[0-9]{9}|972[0-9]{9}|[0-9]{10,12})$/.test(phoneClean);
+      case 'is_image':
+        return condition.messageType === 'image';
+      case 'is_video':
+        return condition.messageType === 'video';
+      case 'is_audio':
+        return condition.messageType === 'audio';
+      case 'is_document':
+        return condition.messageType === 'document';
+      case 'is_pdf':
+        return condition.messageType === 'document' && (condition.fileName || '').toLowerCase().endsWith('.pdf');
       default:
         return false;
     }

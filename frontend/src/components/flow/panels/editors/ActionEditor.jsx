@@ -410,13 +410,14 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                   </div>
                   
                   {(action.bodyMode || 'json') === 'json' ? (
-                    <textarea
+                    <TextInputWithVariables
                       value={action.body || ''}
-                      onChange={(e) => onUpdate({ body: e.target.value })}
+                      onChange={(v) => onUpdate({ body: v })}
                       placeholder={'{\n  "name": "{{contact_name}}",\n  "phone": "{{phone}}"\n}'}
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-mono resize-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+                      multiline
                       rows={6}
                       dir="ltr"
+                      className="font-mono"
                     />
                   ) : (
                     <div className="space-y-2">

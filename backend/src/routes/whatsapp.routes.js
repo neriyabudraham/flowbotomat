@@ -4,6 +4,7 @@ const authMiddleware = require('../middlewares/auth.middleware');
 const { createManaged, createExternal } = require('../controllers/whatsapp/connect.controller');
 const { getStatus, getQR } = require('../controllers/whatsapp/status.controller');
 const { disconnect } = require('../controllers/whatsapp/disconnect.controller');
+const { getGroups } = require('../controllers/whatsapp/groups.controller');
 
 // All routes require authentication
 router.use(authMiddleware);
@@ -13,6 +14,9 @@ router.get('/status', getStatus);
 
 // Get QR code
 router.get('/qr', getQR);
+
+// Get WhatsApp groups
+router.get('/groups', getGroups);
 
 // Create managed connection (system WAHA)
 router.post('/connect/managed', createManaged);

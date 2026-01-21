@@ -30,6 +30,15 @@ const operators = [
   { id: 'is_not_empty', label: 'לא ריק', group: 'בדיקה' },
   { id: 'is_true', label: 'קיים/אמת', group: 'בדיקה' },
   { id: 'is_false', label: 'לא קיים/שקר', group: 'בדיקה' },
+  { id: 'is_text', label: 'זה טקסט', group: 'סוג נתון' },
+  { id: 'is_number', label: 'זה מספר', group: 'סוג נתון' },
+  { id: 'is_email', label: 'זה מייל תקין', group: 'סוג נתון' },
+  { id: 'is_phone', label: 'זה מספר טלפון', group: 'סוג נתון' },
+  { id: 'is_image', label: 'זו תמונה', group: 'סוג מדיה' },
+  { id: 'is_video', label: 'זה סרטון', group: 'סוג מדיה' },
+  { id: 'is_audio', label: 'זה קובץ שמע', group: 'סוג מדיה' },
+  { id: 'is_document', label: 'זה מסמך', group: 'סוג מדיה' },
+  { id: 'is_pdf', label: 'זה קובץ PDF', group: 'סוג מדיה' },
 ];
 
 const messageTypes = [

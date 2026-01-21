@@ -380,6 +380,15 @@ function getDefaultData(type) {
     case 'delay': return { delay: 1, unit: 'seconds' };
     case 'action': return { actions: [{ type: 'add_tag', tagName: '' }] };
     case 'list': return { title: '', body: '', buttonText: 'בחר', buttons: [], waitForReply: true, timeout: null };
+    case 'registration': return { 
+      title: '', 
+      welcomeMessage: '', 
+      questions: [], 
+      completionMessage: 'תודה! הרישום הושלם בהצלחה.', 
+      cancelKeyword: 'ביטול',
+      cancelMessage: 'הרישום בוטל.',
+      sendSummary: false 
+    };
     default: return {};
   }
 }

@@ -1,8 +1,9 @@
-import { MessageSquare, GitBranch, Clock, Cog, List, X } from 'lucide-react';
+import { MessageSquare, GitBranch, Clock, Cog, List, X, ClipboardList } from 'lucide-react';
 
 const nodeTypes = [
   { type: 'message', label: 'הודעה', icon: MessageSquare, color: 'teal', description: 'טקסט, תמונה, קובץ' },
   { type: 'list', label: 'רשימה', icon: List, color: 'cyan', description: 'רשימת בחירה' },
+  { type: 'registration', label: 'תהליך רישום', icon: ClipboardList, color: 'indigo', description: 'שאלות ומיפוי' },
   { type: 'condition', label: 'תנאי', icon: GitBranch, color: 'orange', description: 'בדוק תנאי' },
   { type: 'delay', label: 'השהייה', icon: Clock, color: 'blue', description: 'המתן' },
   { type: 'action', label: 'פעולה', icon: Cog, color: 'pink', description: 'תגית, משתנה, API' },
@@ -14,6 +15,7 @@ const colorClasses = {
   orange: 'hover:bg-orange-50 hover:border-orange-200',
   blue: 'hover:bg-blue-50 hover:border-blue-200',
   pink: 'hover:bg-pink-50 hover:border-pink-200',
+  indigo: 'hover:bg-indigo-50 hover:border-indigo-200',
 };
 
 const iconColors = {
@@ -22,6 +24,7 @@ const iconColors = {
   orange: 'bg-orange-500',
   blue: 'bg-blue-500',
   pink: 'bg-pink-500',
+  indigo: 'bg-indigo-500',
 };
 
 export default function QuickAddMenu({ position, onSelect, onClose }) {
