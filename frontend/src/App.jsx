@@ -5,6 +5,7 @@ import VerifyPage from './pages/auth/VerifyPage';
 import DashboardPage from './pages/DashboardPage';
 import WhatsappSetupPage from './pages/WhatsappSetupPage';
 import ContactsPage from './pages/ContactsPage';
+import SettingsPage from './pages/SettingsPage';
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/whatsapp" element={<WhatsappSetupPage />} />
           <Route path="/contacts" element={<ContactsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </div>
     </BrowserRouter>

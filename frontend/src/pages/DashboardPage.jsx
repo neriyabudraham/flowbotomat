@@ -1,15 +1,19 @@
 import { useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { MessageCircle, Workflow, Users, Settings } from 'lucide-react';
+import { MessageCircle, Workflow, Users, Settings, Bot, MessageSquare, TrendingUp } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useWhatsappStore from '../store/whatsappStore';
+import useStatsStore from '../store/statsStore';
 import Button from '../components/atoms/Button';
 import Logo from '../components/atoms/Logo';
+import StatCard from '../components/atoms/StatCard';
+import ActivityChart from '../components/molecules/ActivityChart';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { user, logout, fetchMe } = useAuthStore();
   const { connection, fetchStatus } = useWhatsappStore();
+  const { stats, activity, fetchDashboardStats } = useStatsStore();
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -19,6 +23,7 @@ export default function DashboardPage() {
     }
     fetchMe();
     fetchStatus();
+    fetchDashboardStats();
   }, []);
 
   const handleLogout = () => {
@@ -41,6 +46,39 @@ export default function DashboardPage() {
       </header>
       
       <main className="max-w-7xl mx-auto px-4 py-8">
+        {/* Stats Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <StatCard 
+            icon={Users} 
+            label="אנשי קשר" 
+            value={stats?.totalContacts || 0}
+            color="blue"
+          />
+          <StatCard 
+            icon={MessageSquare} 
+            label="הודעות היום" 
+            value={stats?.todayMessages || 0}
+            color="green"
+          />
+          <StatCard 
+            icon={Bot} 
+            label="בוטים פעילים" 
+            value={stats?.activeBots || 0}
+            color="purple"
+          />
+          <StatCard 
+            icon={TrendingUp} 
+            label="סה״כ הודעות" 
+            value={stats?.totalMessages || 0}
+            color="orange"
+          />
+        </div>
+
+        {/* Activity Chart */}
+        <div className="mb-6">
+          <ActivityChart data={activity} />
+        </div>
+
         {/* WhatsApp Status Card */}
         <Link to="/whatsapp" className="block mb-6">
           <div className={`bg-white rounded-xl shadow p-6 border-2 transition-all hover:shadow-lg ${
@@ -86,12 +124,11 @@ export default function DashboardPage() {
             <p className="text-sm text-gray-500">צפייה בצ'אטים ואנשי קשר</p>
           </Link>
           
-          <div className="bg-white rounded-xl shadow p-6 opacity-50 cursor-not-allowed">
+          <Link to="/settings" className="bg-white rounded-xl shadow p-6 hover:shadow-lg transition-shadow">
             <Settings className="w-8 h-8 text-primary-500 mb-3" />
             <h3 className="font-semibold text-gray-800">הגדרות</h3>
             <p className="text-sm text-gray-500">הגדרות חשבון</p>
-            <span className="text-xs text-gray-400">בקרוב...</span>
-          </div>
+          </Link>
         </div>
       </main>
     </div>

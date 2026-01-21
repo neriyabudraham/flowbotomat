@@ -6,11 +6,15 @@ const authRoutes = require('./auth.routes');
 const whatsappRoutes = require('./whatsapp.routes');
 const webhookRoutes = require('./webhook.routes');
 const contactsRoutes = require('./contacts.routes');
+const statsRoutes = require('./stats.routes');
+const userRoutes = require('./user.routes');
 
 // Mount routes
 router.use('/auth', authRoutes);
 router.use('/whatsapp', whatsappRoutes);
 router.use('/webhook', webhookRoutes);
 router.use('/contacts', contactsRoutes);
+router.use('/stats', statsRoutes);
+router.use('/user', userRoutes);
 
 module.exports = router;
