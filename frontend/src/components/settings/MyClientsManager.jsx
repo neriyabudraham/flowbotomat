@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Bot, LogOut, ChevronLeft, Eye, Edit, BarChart3 } from 'lucide-react';
+import { Users, Bot, LogOut, ChevronLeft, Eye, Edit, BarChart3, X, AlertTriangle } from 'lucide-react';
 import api from '../../services/api';
 
 export default function MyClientsManager() {
   const navigate = useNavigate();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [leaveModal, setLeaveModal] = useState(null); // { clientId, clientName }
 
   useEffect(() => {
     loadClients();
@@ -23,12 +24,13 @@ export default function MyClientsManager() {
     }
   };
 
-  const handleLeave = async (clientId, clientName) => {
-    if (!confirm(`האם לצאת מניהול החשבון של ${clientName}?`)) return;
+  const handleLeave = async () => {
+    if (!leaveModal) return;
     
     try {
-      await api.delete(`/experts/client/${clientId}/leave`);
+      await api.delete(`/experts/client/${leaveModal.clientId}/leave`);
       loadClients();
+      setLeaveModal(null);
     } catch (err) {
       alert(err.response?.data?.error || 'שגיאה ביציאה');
     }
@@ -108,7 +110,7 @@ export default function MyClientsManager() {
                   <ChevronLeft className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => handleLeave(client.client_id, client.client_name || client.client_email)}
+                  onClick={() => setLeaveModal({ clientId: client.client_id, clientName: client.client_name || client.client_email })}
                   className="p-2 hover:bg-red-50 rounded-lg text-red-500"
                   title="צא מניהול"
                 >
@@ -119,6 +121,44 @@ export default function MyClientsManager() {
           </div>
         ))}
       </div>
+
+      {/* Leave Confirmation Modal */}
+      {leaveModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setLeaveModal(null)}>
+          <div 
+            className="bg-white rounded-2xl max-w-md w-full overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 mx-auto mb-4 bg-yellow-100 rounded-full flex items-center justify-center">
+                <AlertTriangle className="w-8 h-8 text-yellow-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">יציאה מניהול</h3>
+              <p className="text-gray-600 mb-6">
+                האם אתה בטוח שברצונך לצאת מניהול החשבון של{' '}
+                <strong>{leaveModal.clientName}</strong>?
+              </p>
+              <p className="text-sm text-gray-500 mb-6">
+                לא תוכל לגשת לבוטים ולנתונים של לקוח זה עד שיאשר שוב גישה.
+              </p>
+            </div>
+            <div className="flex border-t">
+              <button
+                onClick={() => setLeaveModal(null)}
+                className="flex-1 px-4 py-3 text-gray-600 hover:bg-gray-50 font-medium"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={handleLeave}
+                className="flex-1 px-4 py-3 text-red-600 hover:bg-red-50 font-medium border-r"
+              >
+                יציאה מניהול
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

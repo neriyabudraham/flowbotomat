@@ -155,11 +155,11 @@ export default function PricingPage() {
                 const Icon = PLAN_ICONS[plan.name] || Star;
                 const color = PLAN_COLORS[plan.name] || 'gray';
                 const isPopular = plan.name === 'Pro';
-                // Calculate prices with proper formatting
-                const yearlyTotal = (plan.price * 12 * 0.8).toFixed(2);
-                const yearlyMonthly = (plan.price * 0.8).toFixed(2);
-                const monthlyTotal = (plan.price * 12).toFixed(2);
-                const monthlyMonthly = parseFloat(plan.price).toFixed(2);
+                // Calculate prices - floor to avoid cents
+                const yearlyTotal = Math.floor(plan.price * 12 * 0.8);
+                const yearlyMonthly = Math.floor(plan.price * 0.8);
+                const monthlyTotal = Math.floor(plan.price * 12);
+                const monthlyMonthly = Math.floor(parseFloat(plan.price));
                 
                 const displayMonthlyPrice = billingPeriod === 'yearly' ? yearlyMonthly : monthlyMonthly;
                 const displayTotalPrice = billingPeriod === 'yearly' ? yearlyTotal : monthlyTotal;

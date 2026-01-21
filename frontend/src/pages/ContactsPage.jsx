@@ -1,11 +1,10 @@
 import { useEffect, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, ArrowRight, Users, Search } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useContactsStore from '../store/contactsStore';
 import { connectSocket, getSocket, disconnectSocket } from '../services/socket';
 import Logo from '../components/atoms/Logo';
-import Button from '../components/atoms/Button';
 import ContactsList from '../components/organisms/ContactsList';
 import ChatView from '../components/organisms/ChatView';
 import ContactProfile from '../components/organisms/ContactProfile';
@@ -106,70 +105,48 @@ export default function ContactsPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-gray-100 dark:bg-gray-900">
+    <div className="h-screen flex flex-col bg-gray-100" dir="rtl">
       {/* Header */}
-      <header className="bg-white dark:bg-gray-800 shadow-sm z-10">
-        <div className="px-2 md:px-4 py-3 flex justify-between items-center">
-          <div className="flex items-center gap-2 md:gap-4">
+      <header className="bg-white border-b border-gray-200 z-10">
+        <div className="px-3 py-3 flex justify-between items-center">
+          <div className="flex items-center gap-3">
             {/* Mobile menu toggle */}
             <button 
               onClick={() => setShowMobileSidebar(!showMobileSidebar)}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 md:hidden"
+              className="p-2 rounded-xl hover:bg-gray-100 md:hidden"
             >
               {showMobileSidebar ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
-            <Button variant="ghost" onClick={() => navigate('/dashboard')} className="hidden sm:flex">
-              ← חזרה
-            </Button>
+            <button 
+              onClick={() => navigate('/dashboard')}
+              className="hidden sm:flex items-center gap-2 text-gray-600 hover:text-gray-900"
+            >
+              <ArrowRight className="w-5 h-5" />
+              <span>חזרה</span>
+            </button>
           </div>
           <Logo />
-          <div className="flex items-center gap-2 md:gap-4">
-            <span className="text-gray-600 dark:text-gray-300 text-xs md:text-sm hidden sm:block">{user?.email}</span>
-            <Button variant="ghost" onClick={handleLogout} className="!px-2 md:!px-4">
+          <div className="flex items-center gap-3">
+            <span className="text-gray-500 text-sm hidden sm:block">{user?.email}</span>
+            <button 
+              onClick={handleLogout}
+              className="text-gray-500 hover:text-red-600 text-sm"
+            >
               התנתק
-            </Button>
+            </button>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Contact Profile Sidebar - Desktop */}
-        {showProfile && selectedContact && (
-          <div className="hidden md:block w-80 flex-shrink-0">
-            <ContactProfile
-              contact={selectedContact}
-              onClose={() => setShowProfile(false)}
-              onUpdate={(updated) => {
-                selectContact(updated.id);
-              }}
-            />
-          </div>
-        )}
-
-        {/* Chat View */}
-        <div className={`flex-1 ${showMobileSidebar ? 'hidden md:block' : 'block'}`}>
-          <ChatView
-            contact={selectedContact}
-            messages={messages}
-            onSendMessage={handleSendMessage}
-            onToggleBot={handleToggleBot}
-            onTakeover={handleTakeover}
-            onShowProfile={() => setShowProfile(true)}
-            onLoadMore={handleLoadMore}
-            hasMore={hasMore}
-            loadingMore={loadingMore}
-            isLoading={isLoading}
-          />
-        </div>
-
-        {/* Contacts Sidebar - Responsive */}
+        {/* Contacts Sidebar - Right side (RTL) */}
         <div className={`
           ${showMobileSidebar ? 'block' : 'hidden'} 
           md:block
-          w-full md:w-80 flex-shrink-0
+          w-full md:w-80 lg:w-96 flex-shrink-0
           absolute md:relative inset-0 md:inset-auto
-          bg-white dark:bg-gray-800 md:bg-transparent
+          bg-white border-l border-gray-200
           z-10 md:z-auto
         `}>
           <ContactsList
@@ -180,9 +157,52 @@ export default function ContactsPage() {
           />
         </div>
 
+        {/* Chat View - Center */}
+        <div className={`flex-1 ${showMobileSidebar ? 'hidden md:flex' : 'flex'} flex-col bg-white`}>
+          {selectedContact ? (
+            <ChatView
+              contact={selectedContact}
+              messages={messages}
+              onSendMessage={handleSendMessage}
+              onToggleBot={handleToggleBot}
+              onTakeover={handleTakeover}
+              onShowProfile={() => setShowProfile(true)}
+              onLoadMore={handleLoadMore}
+              hasMore={hasMore}
+              loadingMore={loadingMore}
+              isLoading={isLoading}
+            />
+          ) : (
+            <div className="flex-1 flex items-center justify-center bg-gradient-to-br from-gray-50 to-blue-50">
+              <div className="text-center p-8">
+                <div className="w-20 h-20 mx-auto mb-4 bg-blue-100 rounded-full flex items-center justify-center">
+                  <Users className="w-10 h-10 text-blue-600" />
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">בחר איש קשר</h3>
+                <p className="text-gray-500 max-w-xs mx-auto">
+                  בחר איש קשר מהרשימה כדי לצפות בשיחה ולנהל את האוטומציות
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Contact Profile Sidebar - Left side (RTL) */}
+        {showProfile && selectedContact && (
+          <div className="hidden md:block w-80 flex-shrink-0 border-r border-gray-200">
+            <ContactProfile
+              contact={selectedContact}
+              onClose={() => setShowProfile(false)}
+              onUpdate={(updated) => {
+                selectContact(updated.id);
+              }}
+            />
+          </div>
+        )}
+
         {/* Mobile Profile Overlay */}
         {showProfile && selectedContact && (
-          <div className="md:hidden absolute inset-0 bg-white dark:bg-gray-800 z-20">
+          <div className="md:hidden absolute inset-0 bg-white z-20">
             <ContactProfile
               contact={selectedContact}
               onClose={() => setShowProfile(false)}

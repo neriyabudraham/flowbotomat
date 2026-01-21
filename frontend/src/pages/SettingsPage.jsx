@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Lock, Globe, Save, Palette } from 'lucide-react';
+import { User, Lock, Globe, Save, ArrowRight } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Button from '../components/atoms/Button';
 import Logo from '../components/atoms/Logo';
-import ThemeToggle from '../components/atoms/ThemeToggle';
 import ExpertAccessManager from '../components/settings/ExpertAccessManager';
 import MyClientsManager from '../components/settings/MyClientsManager';
 import SubscriptionManager from '../components/settings/SubscriptionManager';
@@ -75,34 +74,47 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
-      <header className="bg-white dark:bg-gray-800 shadow">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <Button variant="ghost" onClick={() => navigate('/dashboard')}>
-            ← חזרה
-          </Button>
+    <div className="min-h-screen bg-gray-50" dir="rtl">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
+          <button 
+            onClick={() => navigate('/dashboard')}
+            className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
+          >
+            <ArrowRight className="w-5 h-5" />
+            <span>חזרה לדשבורד</span>
+          </button>
           <Logo />
-          <Button variant="ghost" onClick={handleLogout}>
+          <button 
+            onClick={handleLogout}
+            className="text-gray-600 hover:text-red-600"
+          >
             התנתק
-          </Button>
+          </button>
         </div>
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-8">
-        <h1 className="text-2xl font-bold mb-6">הגדרות</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-6">הגדרות</h1>
 
         {message.text && (
-          <div className={`mb-4 p-3 rounded-lg ${
+          <div className={`mb-4 p-3 rounded-xl ${
             message.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
           }`}>
             {message.text}
           </div>
         )}
 
+        {/* Subscription Section */}
+        <div className="mb-6">
+          <SubscriptionManager />
+        </div>
+
         {/* Profile Section */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 dark:text-white">
-            <User className="w-5 h-5" />
+        <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900">
+            <User className="w-5 h-5 text-blue-600" />
             פרטי פרופיל
           </h2>
           <form onSubmit={handleProfileSubmit} className="space-y-4">
@@ -114,7 +126,7 @@ export default function SettingsPage() {
                 type="email"
                 value={user?.email || ''}
                 disabled
-                className="w-full px-4 py-2 border rounded-lg bg-gray-50 text-gray-500"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50 text-gray-500"
               />
             </div>
             <div>
@@ -125,7 +137,7 @@ export default function SettingsPage() {
                 type="text"
                 value={profile.name}
                 onChange={(e) => setProfile({ ...profile, name: e.target.value })}
-                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
             <div>
@@ -136,7 +148,7 @@ export default function SettingsPage() {
               <select
                 value={profile.language}
                 onChange={(e) => setProfile({ ...profile, language: e.target.value })}
-                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
               >
                 <option value="he">עברית</option>
                 <option value="en">English</option>
@@ -149,22 +161,10 @@ export default function SettingsPage() {
           </form>
         </div>
 
-        {/* Theme Section */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 dark:text-white">
-            <Palette className="w-5 h-5" />
-            ערכת נושא
-          </h2>
-          <div className="flex items-center justify-between">
-            <p className="text-gray-600 dark:text-gray-300">בחר את מצב התצוגה המועדף</p>
-            <ThemeToggle showLabel />
-          </div>
-        </div>
-
         {/* Password Section */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 dark:text-white">
-            <Lock className="w-5 h-5" />
+        <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900">
+            <Lock className="w-5 h-5 text-blue-600" />
             שינוי סיסמה
           </h2>
           <form onSubmit={handlePasswordSubmit} className="space-y-4">
@@ -176,7 +176,7 @@ export default function SettingsPage() {
                 type="password"
                 value={passwords.current}
                 onChange={(e) => setPasswords({ ...passwords, current: e.target.value })}
-                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
             <div>
@@ -187,7 +187,7 @@ export default function SettingsPage() {
                 type="password"
                 value={passwords.new}
                 onChange={(e) => setPasswords({ ...passwords, new: e.target.value })}
-                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
             <div>
@@ -198,7 +198,7 @@ export default function SettingsPage() {
                 type="password"
                 value={passwords.confirm}
                 onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
-                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
             <Button type="submit" variant="secondary" disabled={isLoading}>
@@ -206,11 +206,6 @@ export default function SettingsPage() {
               שנה סיסמה
             </Button>
           </form>
-        </div>
-
-        {/* Subscription Section */}
-        <div className="mb-6">
-          <SubscriptionManager />
         </div>
 
         {/* Expert Access Section */}
