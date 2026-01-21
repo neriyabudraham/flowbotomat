@@ -1,20 +1,21 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
   Bot, MessageCircle, Zap, Users, Check, ChevronLeft, Play, 
-  List, Settings, Image, Clock, BarChart3, Shield, Sparkles,
-  Globe, Headphones, Workflow, Database, Send, RefreshCw
+  List, Settings, Clock, BarChart3, Shield, Sparkles,
+  Globe, Headphones, Workflow, Database, RefreshCw, X
 } from 'lucide-react';
 import {
   ReactFlow,
   Background,
   Controls,
-  addEdge,
   useNodesState,
   useEdgesState,
-  MarkerType,
   Handle,
   Position,
+  BaseEdge,
+  EdgeLabelRenderer,
+  getBezierPath,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import Logo from '../components/atoms/Logo';
@@ -23,27 +24,58 @@ import Input from '../components/atoms/Input';
 import Button from '../components/atoms/Button';
 import Alert from '../components/atoms/Alert';
 
-// Custom Node Components for Demo
+// Custom Edge with Delete Button
+function DemoEdgeWithDelete({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data }) {
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX, sourceY, sourcePosition,
+    targetX, targetY, targetPosition,
+  });
+
+  return (
+    <>
+      <BaseEdge path={edgePath} style={{ stroke: '#6366f1', strokeWidth: 3 }} />
+      <EdgeLabelRenderer>
+        <div
+          style={{
+            position: 'absolute',
+            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+            pointerEvents: 'all',
+          }}
+          className="nodrag nopan"
+        >
+          <button
+            onClick={() => data?.onDelete?.(id)}
+            className="w-7 h-7 bg-white border-2 border-gray-300 rounded-full flex items-center justify-center hover:bg-red-50 hover:border-red-400 transition-colors shadow-lg group"
+          >
+            <X className="w-4 h-4 text-gray-400 group-hover:text-red-500" />
+          </button>
+        </div>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
+// Custom Node Components for Demo - HORIZONTAL
 function DemoTriggerNode({ data }) {
   return (
-    <div className="w-72 bg-white rounded-xl border-2 border-green-400 shadow-xl">
+    <div className="w-64 bg-white rounded-xl border-2 border-green-400 shadow-xl">
       <div className="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-500 rounded-t-lg flex items-center gap-2">
         <Play className="w-5 h-5 text-white" fill="white" />
         <span className="font-bold text-white">טריגר</span>
       </div>
       <div className="p-4">
         <div className="text-xs text-gray-400 mb-1">הפעלה בעת:</div>
-        <div className="text-gray-800 font-medium">{data.label}</div>
+        <div className="text-gray-800 font-medium text-sm">{data.label}</div>
       </div>
-      <Handle type="source" position={Position.Bottom} className="!bg-green-500 !w-4 !h-4 !border-2 !border-white" />
+      <Handle type="source" position={Position.Left} className="!bg-green-500 !w-4 !h-4 !border-2 !border-white" />
     </div>
   );
 }
 
 function DemoMessageNode({ data }) {
   return (
-    <div className="w-72 bg-white rounded-xl border-2 border-blue-400 shadow-xl">
-      <Handle type="target" position={Position.Top} className="!bg-blue-500 !w-4 !h-4 !border-2 !border-white" />
+    <div className="w-64 bg-white rounded-xl border-2 border-blue-400 shadow-xl">
+      <Handle type="target" position={Position.Right} className="!bg-blue-500 !w-4 !h-4 !border-2 !border-white" />
       <div className="px-4 py-3 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-t-lg flex items-center gap-2">
         <MessageCircle className="w-5 h-5 text-white" />
         <span className="font-bold text-white">הודעה</span>
@@ -53,43 +85,27 @@ function DemoMessageNode({ data }) {
           {data.label}
         </div>
       </div>
-      <Handle type="source" position={Position.Bottom} className="!bg-blue-500 !w-4 !h-4 !border-2 !border-white" />
+      <Handle type="source" position={Position.Left} className="!bg-blue-500 !w-4 !h-4 !border-2 !border-white" />
     </div>
   );
 }
 
 function DemoButtonsNode({ data }) {
   return (
-    <div className="w-72 bg-white rounded-xl border-2 border-purple-400 shadow-xl">
-      <Handle type="target" position={Position.Top} className="!bg-purple-500 !w-4 !h-4 !border-2 !border-white" />
+    <div className="w-64 bg-white rounded-xl border-2 border-purple-400 shadow-xl">
+      <Handle type="target" position={Position.Right} className="!bg-purple-500 !w-4 !h-4 !border-2 !border-white" />
       <div className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-t-lg flex items-center gap-2">
         <List className="w-5 h-5 text-white" />
         <span className="font-bold text-white">כפתורי בחירה</span>
       </div>
       <div className="p-4 space-y-2">
         {data.buttons?.map((btn, i) => (
-          <div key={i} className="px-4 py-2.5 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-lg text-sm text-purple-700 text-center font-medium hover:scale-105 transition-transform cursor-pointer">
+          <div key={i} className="px-3 py-2 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-lg text-xs text-purple-700 text-center font-medium hover:scale-105 transition-transform cursor-pointer">
             {btn}
           </div>
         ))}
       </div>
-      <Handle type="source" position={Position.Bottom} className="!bg-purple-500 !w-4 !h-4 !border-2 !border-white" />
-    </div>
-  );
-}
-
-function DemoActionNode({ data }) {
-  return (
-    <div className="w-72 bg-white rounded-xl border-2 border-orange-400 shadow-xl">
-      <Handle type="target" position={Position.Top} className="!bg-orange-500 !w-4 !h-4 !border-2 !border-white" />
-      <div className="px-4 py-3 bg-gradient-to-r from-orange-500 to-amber-500 rounded-t-lg flex items-center gap-2">
-        <Settings className="w-5 h-5 text-white" />
-        <span className="font-bold text-white">פעולה</span>
-      </div>
-      <div className="p-4">
-        <div className="text-sm text-gray-700">{data.label}</div>
-      </div>
-      <Handle type="source" position={Position.Bottom} className="!bg-orange-500 !w-4 !h-4 !border-2 !border-white" />
+      <Handle type="source" position={Position.Left} className="!bg-purple-500 !w-4 !h-4 !border-2 !border-white" />
     </div>
   );
 }
@@ -98,33 +114,37 @@ const demoNodeTypes = {
   trigger: DemoTriggerNode,
   message: DemoMessageNode,
   buttons: DemoButtonsNode,
-  action: DemoActionNode,
 };
 
+const demoEdgeTypes = {
+  default: DemoEdgeWithDelete,
+};
+
+// Horizontal flow - right to left (RTL)
 const initialNodes = [
   {
     id: '1',
     type: 'trigger',
-    position: { x: 250, y: 0 },
+    position: { x: 700, y: 150 },
     data: { label: 'הודעה נכנסת מתחילה ב-"שלום"' },
   },
   {
     id: '2',
     type: 'message',
-    position: { x: 250, y: 180 },
-    data: { label: 'שלום! 👋 ברוכים הבאים לעסק שלנו.\nאיך אוכל לעזור לך היום?' },
+    position: { x: 380, y: 150 },
+    data: { label: 'שלום! 👋 ברוכים הבאים.\nאיך אוכל לעזור?' },
   },
   {
     id: '3',
     type: 'buttons',
-    position: { x: 250, y: 380 },
-    data: { buttons: ['🛒 מוצרים ומחירים', '⏰ שעות פתיחה', '📞 דבר עם נציג'] },
+    position: { x: 60, y: 150 },
+    data: { buttons: ['🛒 מוצרים', '⏰ שעות פתיחה', '📞 נציג'] },
   },
 ];
 
 const initialEdges = [
-  { id: 'e1-2', source: '1', target: '2', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
-  { id: 'e2-3', source: '2', target: '3', animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
+  { id: 'e1-2', source: '1', target: '2', type: 'default' },
+  { id: 'e2-3', source: '2', target: '3', type: 'default' },
 ];
 
 // Interactive Flow Demo Component
@@ -132,20 +152,26 @@ function InteractiveFlowDemo() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  const onConnect = useCallback((params) => {
-    setEdges((eds) => addEdge({ ...params, animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } }, eds));
+  const handleDeleteEdge = useCallback((edgeId) => {
+    setEdges((eds) => eds.filter((e) => e.id !== edgeId));
   }, [setEdges]);
+
+  // Add delete callback to edges
+  const edgesWithCallbacks = edges.map(edge => ({
+    ...edge,
+    data: { ...edge.data, onDelete: handleDeleteEdge },
+  }));
 
   return (
     <ReactFlow
       nodes={nodes}
-      edges={edges}
+      edges={edgesWithCallbacks}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
-      onConnect={onConnect}
       nodeTypes={demoNodeTypes}
+      edgeTypes={demoEdgeTypes}
       fitView
-      fitViewOptions={{ padding: 0.3 }}
+      fitViewOptions={{ padding: 0.2 }}
       minZoom={0.5}
       maxZoom={1.5}
       className="bg-gradient-to-br from-slate-50 to-blue-50"
@@ -181,7 +207,7 @@ export default function LandingPage() {
     {
       icon: Bot,
       title: 'בוטים אוטומטיים',
-      desc: 'צור תרחישים מורכבים עם תנאים, לופים ומשתנים. הבוט עונה ללקוחות 24/7 באופן אוטומטי.',
+      desc: 'צור תרחישים מורכבים עם תנאים, לופים ומשתנים. הבוט עונה ללקוחות 24/7.',
       color: 'from-blue-500 to-indigo-600',
     },
     {
@@ -262,7 +288,7 @@ export default function LandingPage() {
             <div className="max-w-xl">
               <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-100 to-indigo-100 text-blue-700 rounded-full text-sm font-medium mb-6">
                 <Sparkles className="w-4 h-4" />
-                14 ימי ניסיון חינם • ללא כרטיס אשראי
+                14 ימי ניסיון חינם • ביטול בכל עת
               </div>
               
               <h1 className="text-4xl lg:text-5xl xl:text-6xl font-extrabold text-gray-900 mb-6 leading-tight">
@@ -365,7 +391,7 @@ export default function LandingPage() {
               בנה בוטים בגרור ושחרר
             </h2>
             <p className="text-gray-600 text-lg max-w-2xl mx-auto">
-              נסה בעצמך! גרור את הבלוקים, חבר ביניהם, וראה איך קל לבנות בוט
+              נסה בעצמך! גרור את הבלוקים, לחץ על ה-X למחיקת חיבור
             </p>
           </div>
 
@@ -390,7 +416,7 @@ export default function LandingPage() {
             </div>
             
             {/* Flow Canvas */}
-            <div className="h-[550px]">
+            <div className="h-[450px]">
               <InteractiveFlowDemo />
             </div>
 
@@ -399,7 +425,7 @@ export default function LandingPage() {
               <div className="flex items-center gap-3 text-sm text-gray-500">
                 <span className="flex items-center gap-1">
                   <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  גרור את הבלוקים כדי לשחק
+                  גרור את הבלוקים • לחץ X למחיקת קו
                 </span>
               </div>
               <div className="flex items-center gap-6 text-sm text-gray-400">
@@ -465,7 +491,7 @@ export default function LandingPage() {
         <div className="max-w-4xl mx-auto text-center">
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 text-white rounded-full text-sm font-medium mb-6">
             <Sparkles className="w-4 h-4" />
-            התחל היום ללא התחייבות
+            התחל היום
           </div>
           <h2 className="text-4xl lg:text-5xl font-bold text-white mb-6">
             מוכנים לשדרג את העסק?
@@ -483,7 +509,7 @@ export default function LandingPage() {
             </Link>
           </div>
           <p className="text-gray-400 text-sm mt-6">
-            ללא צורך בכרטיס אשראי • ביטול בכל עת
+            ביטול בכל עת
           </p>
         </div>
       </section>
@@ -502,7 +528,6 @@ export default function LandingPage() {
             <div className="flex items-center gap-8 text-sm text-gray-400">
               <Link to="/pricing" className="hover:text-white transition-colors">תמחור</Link>
               <Link to="/privacy" className="hover:text-white transition-colors">מדיניות פרטיות</Link>
-              <Link to="/terms" className="hover:text-white transition-colors">תנאי שימוש</Link>
             </div>
             <p className="text-sm text-gray-500">
               © 2026 בוטומט שירותי אוטומציה
