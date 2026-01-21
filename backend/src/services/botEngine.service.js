@@ -308,17 +308,25 @@ class BotEngine {
         console.log('[BotEngine] No next edge found from session node');
       }
       
-      // For multi-select, restore the list session after executing the flow
+      // For multi-select, restore the list session ONLY if no new session was created by the flow
       if (keepSessionForMultiSelect) {
-        await this.saveSession(
-          bot.id,
-          contact.id,
-          currentNode.id,
-          'list_response',
-          session.waiting_data,
-          null // No timeout for list responses
-        );
-        console.log('[BotEngine] ✅ Multi-select session restored for more selections');
+        // Check if the flow created a new session (e.g., registration, reply wait)
+        const currentSession = await this.getSession(bot.id, contact.id);
+        if (!currentSession || currentSession.waiting_for === 'list_response') {
+          // No new session or still on list - restore for more selections
+          await this.saveSession(
+            bot.id,
+            contact.id,
+            currentNode.id,
+            'list_response',
+            session.waiting_data,
+            null // No timeout for list responses
+          );
+          console.log('[BotEngine] ✅ Multi-select session restored for more selections');
+        } else {
+          // Flow created a new session (registration, reply, etc.) - don't override it
+          console.log('[BotEngine] ℹ️ New session created by flow (' + currentSession.waiting_for + '), not restoring list session');
+        }
       }
       
       return;
