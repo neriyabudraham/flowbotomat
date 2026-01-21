@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, X, Star, Zap, Crown, Building, ArrowRight } from 'lucide-react';
+import { Check, X, Star, Zap, Crown, Building, ArrowRight, CreditCard, Lock, Loader2, Shield, AlertCircle } from 'lucide-react';
 import api from '../services/api';
 import useAuthStore from '../store/authStore';
 
@@ -24,17 +24,22 @@ export default function PricingPage() {
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [billingPeriod, setBillingPeriod] = useState('monthly');
+  const [selectedPlan, setSelectedPlan] = useState(null);
+  const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   
   // Check if user is authenticated
   const isAuthenticated = !!user;
 
   useEffect(() => {
-    // Try to load user if token exists
-    const token = localStorage.getItem('accessToken');
-    if (token && !user) {
-      fetchMe();
-    }
-    loadPlans();
+    const init = async () => {
+      // Try to load user if token exists
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        await fetchMe();
+      }
+      await loadPlans();
+    };
+    init();
   }, []);
 
   const loadPlans = async () => {
@@ -50,11 +55,27 @@ export default function PricingPage() {
 
   const handleSelectPlan = (plan) => {
     if (!isAuthenticated) {
-      navigate('/login', { state: { returnTo: `/checkout?plan=${plan.id}&period=${billingPeriod}` } });
+      navigate('/login', { state: { returnTo: `/pricing?openPlan=${plan.id}` } });
     } else {
-      navigate(`/checkout?plan=${plan.id}&period=${billingPeriod}`);
+      setSelectedPlan(plan);
+      setShowCheckoutModal(true);
     }
   };
+
+  // Check if we should open a plan modal from URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const openPlanId = params.get('openPlan');
+    if (openPlanId && isAuthenticated && plans.length > 0) {
+      const plan = plans.find(p => p.id === openPlanId);
+      if (plan) {
+        setSelectedPlan(plan);
+        setShowCheckoutModal(true);
+        // Clean URL
+        window.history.replaceState({}, '', '/pricing');
+      }
+    }
+  }, [isAuthenticated, plans]);
 
   const getFeatureValue = (plan, feature) => {
     switch (feature) {
@@ -315,6 +336,27 @@ export default function PricingPage() {
           <p>© 2026 FlowBotomat. כל הזכויות שמורות.</p>
         </div>
       </footer>
+
+      {/* Checkout Modal */}
+      {showCheckoutModal && selectedPlan && (
+        <CheckoutModal 
+          plan={selectedPlan}
+          billingPeriod={billingPeriod}
+          onClose={() => {
+            setShowCheckoutModal(false);
+            setSelectedPlan(null);
+          }}
+          onSuccess={() => {
+            setShowCheckoutModal(false);
+            navigate('/dashboard', { 
+              state: { 
+                message: 'המנוי הופעל בהצלחה!',
+                type: 'success'
+              }
+            });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -353,6 +395,322 @@ function FAQ({ question, answer }) {
           {answer}
         </div>
       )}
+    </div>
+  );
+}
+
+function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
+  const [paymentMethod, setPaymentMethod] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState(null);
+  const [showCardForm, setShowCardForm] = useState(false);
+  const [cardForm, setCardForm] = useState({
+    cardNumber: '',
+    cardHolder: '',
+    expiryMonth: '',
+    expiryYear: '',
+    cvv: '',
+    citizenId: '',
+  });
+
+  useEffect(() => {
+    loadPaymentMethod();
+  }, []);
+
+  const loadPaymentMethod = async () => {
+    try {
+      const { data } = await api.get('/payment/methods');
+      if (data.paymentMethods?.length > 0) {
+        setPaymentMethod(data.paymentMethods[0]);
+      } else {
+        setShowCardForm(true);
+      }
+    } catch (err) {
+      console.error('Failed to load payment method:', err);
+      setShowCardForm(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const calculatePrice = () => {
+    if (billingPeriod === 'yearly') {
+      const yearlyTotal = Math.floor(plan.price * 12 * 0.8);
+      const yearlyMonthly = Math.floor(plan.price * 0.8);
+      return { monthly: yearlyMonthly, total: yearlyTotal };
+    }
+    return { monthly: Math.floor(plan.price), total: Math.floor(plan.price) };
+  };
+
+  const formatCardNumber = (value) => {
+    const v = value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
+    const matches = v.match(/\d{4,16}/g);
+    const match = (matches && matches[0]) || '';
+    const parts = [];
+    for (let i = 0, len = match.length; i < len; i += 4) {
+      parts.push(match.substring(i, i + 4));
+    }
+    return parts.length ? parts.join(' ') : value;
+  };
+
+  const handleSaveCard = async () => {
+    try {
+      setProcessing(true);
+      setError(null);
+      
+      if (!cardForm.cardNumber || !cardForm.cardHolder || !cardForm.expiryMonth || 
+          !cardForm.expiryYear || !cardForm.cvv || !cardForm.citizenId) {
+        setError('נא למלא את כל השדות');
+        setProcessing(false);
+        return;
+      }
+      
+      const { data } = await api.post('/payment/methods', {
+        cardNumber: cardForm.cardNumber.replace(/\s/g, ''),
+        cardHolderName: cardForm.cardHolder,
+        expiryMonth: cardForm.expiryMonth,
+        expiryYear: cardForm.expiryYear,
+        cvv: cardForm.cvv,
+        citizenId: cardForm.citizenId,
+      });
+      
+      setPaymentMethod(data.paymentMethod);
+      setShowCardForm(false);
+    } catch (err) {
+      setError(err.response?.data?.error || 'שגיאה בשמירת פרטי האשראי');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleSubscribe = async () => {
+    try {
+      setProcessing(true);
+      setError(null);
+      
+      await api.post('/payment/subscribe', {
+        planId: plan.id,
+        billingPeriod,
+        paymentMethodId: paymentMethod?.id,
+      });
+      
+      onSuccess();
+    } catch (err) {
+      setError(err.response?.data?.error || 'שגיאה בהפעלת המנוי');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const prices = calculatePrice();
+  const Icon = PLAN_ICONS[plan.name] || Star;
+  const isTrial = plan.trial_days > 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div 
+        className="bg-white dark:bg-gray-800 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+        onClick={e => e.stopPropagation()}
+        dir="rtl"
+      >
+        {/* Header */}
+        <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-6 text-white">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-white/20 rounded-xl">
+              <Icon className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold">{plan.name_he}</h2>
+              <p className="text-white/80 text-sm">
+                {billingPeriod === 'yearly' ? 'חיוב שנתי' : 'חיוב חודשי'}
+              </p>
+            </div>
+            <div className="mr-auto text-left">
+              <div className="text-2xl font-bold">₪{prices.monthly}</div>
+              <div className="text-white/80 text-sm">/חודש</div>
+            </div>
+          </div>
+          {isTrial && (
+            <div className="mt-4 p-2 bg-white/20 rounded-lg text-center text-sm">
+              ✨ {plan.trial_days} ימי ניסיון חינם - לא תחויב היום
+            </div>
+          )}
+        </div>
+
+        {/* Content */}
+        <div className="p-6 space-y-4">
+          {error && (
+            <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-center gap-2 text-red-700 dark:text-red-300">
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              <span className="text-sm">{error}</span>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+            </div>
+          ) : showCardForm ? (
+            /* Card Form */
+            <div className="space-y-4">
+              <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                <CreditCard className="w-5 h-5" />
+                פרטי כרטיס אשראי
+              </h3>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מספר כרטיס</label>
+                <input
+                  type="text"
+                  value={cardForm.cardNumber}
+                  onChange={(e) => setCardForm({ ...cardForm, cardNumber: formatCardNumber(e.target.value) })}
+                  placeholder="1234 5678 9012 3456"
+                  maxLength={19}
+                  className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                  dir="ltr"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">שם בעל הכרטיס</label>
+                <input
+                  type="text"
+                  value={cardForm.cardHolder}
+                  onChange={(e) => setCardForm({ ...cardForm, cardHolder: e.target.value })}
+                  placeholder="ישראל ישראלי"
+                  className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+              
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">חודש</label>
+                  <select
+                    value={cardForm.expiryMonth}
+                    onChange={(e) => setCardForm({ ...cardForm, expiryMonth: e.target.value })}
+                    className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="">MM</option>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                      <option key={m} value={m.toString().padStart(2, '0')}>
+                        {m.toString().padStart(2, '0')}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">שנה</label>
+                  <select
+                    value={cardForm.expiryYear}
+                    onChange={(e) => setCardForm({ ...cardForm, expiryYear: e.target.value })}
+                    className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="">YY</option>
+                    {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() + i).map(y => (
+                      <option key={y} value={y.toString().slice(-2)}>{y}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">CVV</label>
+                  <input
+                    type="text"
+                    value={cardForm.cvv}
+                    onChange={(e) => setCardForm({ ...cardForm, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) })}
+                    placeholder="123"
+                    maxLength={4}
+                    className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                    dir="ltr"
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תעודת זהות</label>
+                <input
+                  type="text"
+                  value={cardForm.citizenId}
+                  onChange={(e) => setCardForm({ ...cardForm, citizenId: e.target.value.replace(/\D/g, '').slice(0, 9) })}
+                  placeholder="123456789"
+                  maxLength={9}
+                  className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                  dir="ltr"
+                />
+              </div>
+
+              <button
+                onClick={handleSaveCard}
+                disabled={processing}
+                className="w-full py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2 font-medium"
+              >
+                {processing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Shield className="w-5 h-5" />}
+                {processing ? 'שומר...' : 'שמור והמשך'}
+              </button>
+            </div>
+          ) : (
+            /* Payment Method Display */
+            <div className="space-y-4">
+              <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-xl">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-8 bg-gradient-to-r from-blue-600 to-blue-800 rounded flex items-center justify-center text-white text-xs font-bold">
+                      VISA
+                    </div>
+                    <div>
+                      <div className="font-medium text-gray-900 dark:text-white">
+                        **** **** **** {paymentMethod?.card_last_digits}
+                      </div>
+                      <div className="text-sm text-gray-500">{paymentMethod?.card_holder_name}</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowCardForm(true)}
+                    className="text-blue-600 hover:text-blue-700 text-sm"
+                  >
+                    שנה
+                  </button>
+                </div>
+              </div>
+
+              <button
+                onClick={handleSubscribe}
+                disabled={processing}
+                className="w-full py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 font-bold text-lg"
+              >
+                {processing ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Lock className="w-5 h-5" />
+                )}
+                {processing ? 'מעבד...' : isTrial ? `התחל ${plan.trial_days} ימי ניסיון חינם` : `שלם ₪${prices.total}`}
+              </button>
+            </div>
+          )}
+
+          {/* Security Note */}
+          <div className="flex items-center justify-center gap-4 text-gray-400 text-xs pt-2">
+            <div className="flex items-center gap-1">
+              <Lock className="w-3 h-3" />
+              SSL מוצפן
+            </div>
+            <div className="flex items-center gap-1">
+              <Shield className="w-3 h-3" />
+              PCI DSS
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 pb-6">
+          <button
+            onClick={onClose}
+            className="w-full py-2 text-gray-500 hover:text-gray-700 text-sm"
+          >
+            ביטול
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
