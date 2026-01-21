@@ -411,11 +411,11 @@ async function sendButtonsMessage(req, res) {
     const { client, session } = await getWhatsAppClient(userId);
     const chatId = formatPhoneToWaId(phone);
     
-    // Format buttons for WAHA
+    // Format buttons for WAHA (new format)
     const formattedButtons = buttons.map((btn, i) => ({
-      buttonId: btn.id || `btn_${i}`,
-      buttonText: { displayText: btn.text || btn },
-      type: 1,
+      type: 'reply',
+      text: btn.text || btn,
+      id: btn.id || `btn_${i}`,
     }));
     
     const result = await sendAndSave(
@@ -424,7 +424,7 @@ async function sendButtonsMessage(req, res) {
       () => client.post('/api/sendButtons', {
         session,
         chatId,
-        title: message,
+        body: message,
         footer: footer || '',
         buttons: formattedButtons,
       }),
@@ -461,23 +461,29 @@ async function sendListMessage(req, res) {
     const { client, session } = await getWhatsAppClient(userId);
     const chatId = formatPhoneToWaId(phone);
     
+    // Format for WAHA list
+    const formattedSections = sections.map(section => ({
+      title: section.title || 'אפשרויות',
+      rows: section.rows.map((row, i) => ({
+        rowId: row.id || `row_${i}`,
+        title: (row.title || '').substring(0, 24),
+        description: (row.description || '').substring(0, 72),
+      })),
+    }));
+    
     const result = await sendAndSave(
       userId,
       phone,
       () => client.post('/api/sendList', {
         session,
         chatId,
-        title: message,
-        buttonText,
-        footer: footer || '',
-        sections: sections.map(section => ({
-          title: section.title,
-          rows: section.rows.map((row, i) => ({
-            rowId: row.id || `row_${i}`,
-            title: row.title,
-            description: row.description || '',
-          })),
-        })),
+        message: {
+          title: '',
+          description: message,
+          footer: footer || '',
+          button: buttonText,
+          sections: formattedSections,
+        },
       }),
       'list',
       message,
