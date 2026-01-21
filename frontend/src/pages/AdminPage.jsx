@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Shield, BarChart3, Users, Package, Settings, Activity, ArrowLeft
+  Shield, BarChart3, Users, Package, Settings, Activity, ArrowLeft, Database, CreditCard
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 
@@ -12,11 +12,12 @@ import AdminPlans from '../components/admin/AdminPlans';
 import AdminSettings from '../components/admin/AdminSettings';
 import AdminLogs from '../components/admin/AdminLogs';
 import AdminBackups from '../components/admin/AdminBackups';
-import { Database } from 'lucide-react';
+import AdminSubscriptions from '../components/admin/AdminSubscriptions';
 
 const TABS = [
   { id: 'dashboard', label: 'דשבורד', icon: BarChart3 },
   { id: 'users', label: 'משתמשים', icon: Users },
+  { id: 'subscriptions', label: 'מנויים', icon: CreditCard },
   { id: 'plans', label: 'תוכניות', icon: Package },
   { id: 'settings', label: 'הגדרות', icon: Settings },
   { id: 'backups', label: 'גיבויים', icon: Database },
@@ -41,6 +42,8 @@ export default function AdminPage() {
         return <AdminDashboard />;
       case 'users':
         return <AdminUsers />;
+      case 'subscriptions':
+        return <AdminSubscriptions />;
       case 'plans':
         return <AdminPlans />;
       case 'settings':

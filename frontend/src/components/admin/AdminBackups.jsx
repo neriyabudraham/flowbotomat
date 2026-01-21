@@ -1,13 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Database, Download, Trash2, Plus, RefreshCw, Calendar, HardDrive } from 'lucide-react';
+import { Database, Download, Trash2, Plus, RefreshCw, Calendar, HardDrive, CheckCircle, XCircle } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
+import ConfirmModal from '../organisms/ConfirmModal';
 
 export default function AdminBackups() {
   const [backups, setBackups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState(null);
+  const [confirmCreate, setConfirmCreate] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [notification, setNotification] = useState(null);
 
   const fetchBackups = async () => {
     try {
@@ -24,36 +28,56 @@ export default function AdminBackups() {
     fetchBackups();
   }, []);
 
+  const showNotification = (type, message) => {
+    setNotification({ type, message });
+    setTimeout(() => setNotification(null), 3000);
+  };
+
   const handleCreate = async () => {
-    if (!confirm('ליצור גיבוי חדש?')) return;
-    
     setCreating(true);
+    setConfirmCreate(false);
     try {
       await api.post('/admin/backups');
       await fetchBackups();
-      alert('גיבוי נוצר בהצלחה');
+      showNotification('success', 'גיבוי נוצר בהצלחה');
     } catch (err) {
-      alert('שגיאה ביצירת גיבוי');
+      showNotification('error', err.response?.data?.error || 'שגיאה ביצירת גיבוי');
     } finally {
       setCreating(false);
     }
   };
 
-  const handleDownload = (filename) => {
-    window.open(`${api.defaults.baseURL}/admin/backups/${filename}`, '_blank');
+  const handleDownload = async (filename) => {
+    try {
+      const response = await api.get(`/admin/backups/${filename}`, {
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      showNotification('error', 'שגיאה בהורדת גיבוי');
+    }
   };
 
-  const handleDelete = async (filename) => {
-    if (!confirm(`למחוק את הגיבוי ${filename}?`)) return;
+  const handleDelete = async () => {
+    if (!confirmDelete) return;
     
-    setDeleting(filename);
+    setDeleting(confirmDelete);
     try {
-      await api.delete(`/admin/backups/${filename}`);
+      await api.delete(`/admin/backups/${confirmDelete}`);
       await fetchBackups();
+      showNotification('success', 'גיבוי נמחק');
     } catch (err) {
-      alert('שגיאה במחיקת גיבוי');
+      showNotification('error', 'שגיאה במחיקת גיבוי');
     } finally {
       setDeleting(null);
+      setConfirmDelete(null);
     }
   };
 
@@ -85,7 +109,7 @@ export default function AdminBackups() {
           >
             <RefreshCw className="w-4 h-4" />
           </Button>
-          <Button onClick={handleCreate} disabled={creating}>
+          <Button onClick={() => setConfirmCreate(true)} disabled={creating}>
             {creating ? (
               <RefreshCw className="w-4 h-4 animate-spin ml-2" />
             ) : (
@@ -152,7 +176,7 @@ export default function AdminBackups() {
                         <Download className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleDelete(backup.filename)}
+                        onClick={() => setConfirmDelete(backup.filename)}
                         disabled={deleting === backup.filename}
                         className="p-1.5 hover:bg-red-50 rounded text-red-600 disabled:opacity-50"
                         title="מחק"
@@ -167,6 +191,46 @@ export default function AdminBackups() {
           </table>
         </div>
       )}
+
+      {/* Notification */}
+      {notification && (
+        <div className={`fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:w-80 p-4 rounded-xl shadow-lg flex items-center gap-3 z-50 ${
+          notification.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+        }`}>
+          {notification.type === 'success' ? (
+            <CheckCircle className="w-5 h-5 flex-shrink-0" />
+          ) : (
+            <XCircle className="w-5 h-5 flex-shrink-0" />
+          )}
+          <span>{notification.message}</span>
+        </div>
+      )}
+
+      {/* Confirm Create Modal */}
+      <ConfirmModal
+        isOpen={confirmCreate}
+        onClose={() => setConfirmCreate(false)}
+        onConfirm={handleCreate}
+        title="יצירת גיבוי"
+        message="האם ליצור גיבוי חדש של מסד הנתונים?"
+        confirmText="צור גיבוי"
+        cancelText="ביטול"
+        variant="info"
+        loading={creating}
+      />
+
+      {/* Confirm Delete Modal */}
+      <ConfirmModal
+        isOpen={!!confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={handleDelete}
+        title="מחיקת גיבוי"
+        message={`האם למחוק את הגיבוי ${confirmDelete}?`}
+        confirmText="מחק"
+        cancelText="ביטול"
+        variant="danger"
+        loading={!!deleting}
+      />
     </div>
   );
 }

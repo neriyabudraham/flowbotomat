@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { X, Users, Mail, Copy, Check, Trash2, UserPlus, Eye, Edit, Shield, Download } from 'lucide-react';
+import { X, Users, Mail, Copy, Check, Trash2, UserPlus, Eye, Edit, Shield, Download, AlertTriangle } from 'lucide-react';
 import api from '../../services/api';
+import ConfirmModal from '../organisms/ConfirmModal';
 
 const PERMISSIONS = [
   { id: 'view', label: 'צפייה בלבד', icon: Eye, color: 'text-gray-600' },
@@ -17,6 +18,8 @@ export default function ShareBotModal({ bot, onClose }) {
   const [allowExport, setAllowExport] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [message, setMessage] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadShares();
@@ -63,7 +66,7 @@ export default function ShareBotModal({ bot, onClose }) {
       await api.put(`/sharing/${shareId}`, { allow_export: newValue });
       loadShares();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בעדכון');
+      setMessage({ type: 'error', text: err.response?.data?.error || 'שגיאה בעדכון' });
     }
   };
 
@@ -72,18 +75,22 @@ export default function ShareBotModal({ bot, onClose }) {
       await api.put(`/sharing/${shareId}`, { permission: newPermission });
       loadShares();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בעדכון');
+      setMessage({ type: 'error', text: err.response?.data?.error || 'שגיאה בעדכון' });
     }
   };
 
-  const handleRemoveShare = async (shareId) => {
-    if (!confirm('האם להסיר את השיתוף?')) return;
+  const handleRemoveShare = async () => {
+    if (!confirmDelete) return;
     
+    setDeleting(true);
     try {
-      await api.delete(`/sharing/${shareId}`);
+      await api.delete(`/sharing/${confirmDelete.id}`);
       loadShares();
+      setConfirmDelete(null);
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בהסרה');
+      setMessage({ type: 'error', text: err.response?.data?.error || 'שגיאה בהסרה' });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -219,7 +226,7 @@ export default function ShareBotModal({ bot, onClose }) {
                             ))}
                           </select>
                           <button
-                            onClick={() => handleRemoveShare(share.id)}
+                            onClick={() => setConfirmDelete({ id: share.id, name: share.name || share.email })}
                             className="p-1.5 hover:bg-red-50 rounded text-red-500"
                             title="הסר גישה"
                           >
@@ -287,6 +294,19 @@ export default function ShareBotModal({ bot, onClose }) {
           </div>
         </div>
       </div>
+
+      {/* Confirm Delete Modal */}
+      <ConfirmModal
+        isOpen={!!confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={handleRemoveShare}
+        title="הסרת שיתוף"
+        message={confirmDelete ? `האם להסיר את השיתוף עם ${confirmDelete.name}?` : ''}
+        confirmText="הסר"
+        cancelText="ביטול"
+        variant="danger"
+        loading={deleting}
+      />
     </div>
   );
 }

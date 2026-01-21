@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const { getWahaCredentials } = require('../../services/settings/system.service');
 const { encrypt, decrypt } = require('../../services/crypto/encrypt.service');
 const wahaSession = require('../../services/waha/session.service');
+const { checkLimit } = require('../subscriptions/subscriptions.controller');
 
 // Webhook events we want to receive
 const WEBHOOK_EVENTS = [
@@ -78,6 +79,15 @@ async function createManaged(req, res) {
     
     // Step 2: If no session found in WAHA, create new one
     if (!sessionName) {
+      // Check subscription for WAHA creation permission
+      const wahaAccess = await checkLimit(userId, 'waha_creation');
+      if (!wahaAccess.allowed) {
+        return res.status(403).json({ 
+          error: 'יצירת חיבור WhatsApp מנוהל דורשת מנוי בתשלום. ניתן לחבר WAHA חיצוני בחינם.',
+          upgrade_required: true
+        });
+      }
+      
       const uniqueId = require('crypto').randomBytes(4).toString('hex');
       sessionName = `flow.botomat_${uniqueId}`;
       

@@ -1,5 +1,6 @@
 const db = require('../../config/database');
 const { checkBotAccess } = require('./list.controller');
+const { checkLimit } = require('../subscriptions/subscriptions.controller');
 
 /**
  * Get bot statistics
@@ -14,6 +15,15 @@ async function getBotStats(req, res) {
     
     if (!access.hasAccess) {
       return res.status(404).json({ error: 'Bot not found' });
+    }
+    
+    // Check subscription for statistics access
+    const statsAccess = await checkLimit(access.ownerId, 'statistics');
+    if (!statsAccess.allowed) {
+      return res.status(403).json({ 
+        error: 'גישה לסטטיסטיקות דורשת מנוי בתשלום',
+        upgrade_required: true
+      });
     }
     
     // Get total triggers
@@ -156,6 +166,15 @@ async function getBotStatsTimeline(req, res) {
       return res.status(404).json({ error: 'Bot not found' });
     }
     
+    // Check subscription for statistics access
+    const statsAccess = await checkLimit(access.ownerId, 'statistics');
+    if (!statsAccess.allowed) {
+      return res.status(403).json({ 
+        error: 'גישה לסטטיסטיקות דורשת מנוי בתשלום',
+        upgrade_required: true
+      });
+    }
+    
     // Get daily triggers for the last N days
     const triggersResult = await db.query(
       `SELECT DATE(started_at) as date, COUNT(*) as count
@@ -239,6 +258,15 @@ async function exportBotStats(req, res) {
     
     if (!access.hasAccess) {
       return res.status(404).json({ error: 'Bot not found' });
+    }
+    
+    // Check subscription for statistics access
+    const statsAccess = await checkLimit(access.ownerId, 'statistics');
+    if (!statsAccess.allowed) {
+      return res.status(403).json({ 
+        error: 'גישה לסטטיסטיקות דורשת מנוי בתשלום',
+        upgrade_required: true
+      });
     }
     
     // Get all logs for export

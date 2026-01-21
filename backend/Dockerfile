@@ -2,6 +2,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Install PostgreSQL client for pg_dump backups
+RUN apk add --no-cache postgresql-client
+
 # Install dependencies
 COPY package*.json ./
 RUN npm install

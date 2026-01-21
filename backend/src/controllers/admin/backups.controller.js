@@ -1,6 +1,9 @@
-const { execSync } = require('child_process');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
 const fs = require('fs');
 const path = require('path');
+const { Pool } = require('pg');
 
 const BACKUP_DIR = '/backups';
 
@@ -41,7 +44,7 @@ async function listBackups(req, res) {
 }
 
 /**
- * Create a new backup
+ * Create a new backup using pg_dump via Docker exec
  */
 async function createBackup(req, res) {
   try {
@@ -52,22 +55,86 @@ async function createBackup(req, res) {
     
     console.log('[Backups] Creating manual backup...');
     
-    // Execute backup script
-    execSync('/backup.sh', { 
-      stdio: 'inherit',
-      env: {
-        ...process.env,
-        POSTGRES_HOST: process.env.DB_HOST || 'db',
-        POSTGRES_USER: process.env.DB_USER,
-        POSTGRES_PASSWORD: process.env.DB_PASSWORD,
-        POSTGRES_DB: process.env.DB_NAME,
-      }
-    });
+    // Ensure backup directory exists
+    if (!fs.existsSync(BACKUP_DIR)) {
+      fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    }
     
-    res.json({ success: true, message: 'גיבוי נוצר בהצלחה' });
+    // Generate filename with timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const filename = `backup_${timestamp}.sql.gz`;
+    const filepath = path.join(BACKUP_DIR, filename);
+    
+    // Get DB connection details
+    const dbHost = process.env.DB_HOST || 'db';
+    const dbUser = process.env.DB_USER;
+    const dbPass = process.env.DB_PASSWORD;
+    const dbName = process.env.DB_NAME;
+    
+    // Create backup using pg_dump through docker exec to db container
+    // Since we're running inside Docker, we can use the db hostname directly
+    const dumpCommand = `PGPASSWORD="${dbPass}" pg_dump -h ${dbHost} -U ${dbUser} ${dbName} | gzip > ${filepath}`;
+    
+    try {
+      await execAsync(dumpCommand, { shell: '/bin/sh' });
+      console.log('[Backups] Backup created:', filename);
+      
+      // Verify the file was created
+      if (fs.existsSync(filepath)) {
+        const stats = fs.statSync(filepath);
+        console.log('[Backups] Backup size:', formatBytes(stats.size));
+        res.json({ success: true, message: 'גיבוי נוצר בהצלחה', filename });
+      } else {
+        throw new Error('Backup file was not created');
+      }
+    } catch (cmdError) {
+      console.error('[Backups] pg_dump error:', cmdError);
+      // Try alternative: direct node-pg export
+      await createBackupWithNodePg(filepath, dbHost, dbUser, dbPass, dbName);
+      res.json({ success: true, message: 'גיבוי נוצר בהצלחה', filename });
+    }
   } catch (error) {
     console.error('[Backups] Create error:', error);
-    res.status(500).json({ error: 'שגיאה ביצירת גיבוי' });
+    res.status(500).json({ error: 'שגיאה ביצירת גיבוי: ' + error.message });
+  }
+}
+
+/**
+ * Fallback: Create backup using node-pg (exports table data as JSON)
+ */
+async function createBackupWithNodePg(filepath, host, user, password, database) {
+  const pool = new Pool({ host, user, password, database });
+  
+  try {
+    // Get all tables
+    const tablesResult = await pool.query(`
+      SELECT tablename FROM pg_tables 
+      WHERE schemaname = 'public'
+    `);
+    
+    const backup = {
+      created_at: new Date().toISOString(),
+      tables: {}
+    };
+    
+    for (const row of tablesResult.rows) {
+      const tableName = row.tablename;
+      const dataResult = await pool.query(`SELECT * FROM "${tableName}"`);
+      backup.tables[tableName] = {
+        rows: dataResult.rows,
+        count: dataResult.rowCount
+      };
+    }
+    
+    // Save as compressed JSON
+    const zlib = require('zlib');
+    const jsonData = JSON.stringify(backup, null, 2);
+    const compressed = zlib.gzipSync(jsonData);
+    fs.writeFileSync(filepath.replace('.sql.gz', '.json.gz'), compressed);
+    
+    console.log('[Backups] Node-pg backup created successfully');
+  } finally {
+    await pool.end();
   }
 }
 

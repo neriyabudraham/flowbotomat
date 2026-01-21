@@ -3,6 +3,7 @@ const wahaService = require('./waha/session.service');
 const { decrypt } = require('./crypto/encrypt.service');
 const { getWahaCredentials } = require('./settings/system.service');
 const validationService = require('./validation.service');
+const { checkLimit, incrementBotRuns } = require('../controllers/subscriptions/subscriptions.controller');
 
 class BotEngine {
   
@@ -171,8 +172,18 @@ class BotEngine {
       console.log('[BotEngine] ✅ Trigger matched! Starting flow for bot:', bot.name);
       console.log('[BotEngine] Flow data has', flowData.nodes.length, 'nodes and', flowData.edges.length, 'edges');
       
-      // Log bot run
+      // Check subscription limit for bot runs
+      const runsLimit = await checkLimit(userId, 'bot_runs');
+      if (!runsLimit.allowed) {
+        console.log('[BotEngine] ⚠️ User has reached monthly bot runs limit:', runsLimit.limit);
+        // Optionally send a message to the contact
+        // For now, just log and skip
+        return;
+      }
+      
+      // Log bot run and increment usage
       await this.logBotRun(bot.id, contact.id, 'triggered');
+      await incrementBotRuns(userId);
       
       // Find ALL next nodes after trigger (support multiple branches)
       const nextEdges = flowData.edges.filter(e => e.source === triggerNode.id);
