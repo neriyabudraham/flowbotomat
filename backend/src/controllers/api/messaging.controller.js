@@ -102,7 +102,6 @@ async function getOrCreateContact(userId, phone) {
  * POST /v1/messages/text
  */
 async function sendTextMessage(req, res) {
-  const startTime = Date.now();
   try {
     const userId = req.user.id;
     const { phone, message } = req.body;
@@ -118,33 +117,50 @@ async function sendTextMessage(req, res) {
     const { client, session } = await getWhatsAppClient(userId);
     const chatId = formatPhoneToWaId(phone);
     
-    const wahaResponse = await client.post('/api/sendText', {
-      session,
-      chatId,
-      text: message,
-    });
+    // Send message via WAHA
+    let wahaResponse;
+    try {
+      wahaResponse = await client.post('/api/sendText', {
+        session,
+        chatId,
+        text: message,
+      });
+    } catch (wahaError) {
+      console.error('[API] WAHA send error:', wahaError.response?.data || wahaError.message);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to send via WhatsApp',
+        code: 'WAHA_ERROR'
+      });
+    }
     
-    // Get or create contact
-    const contact = await getOrCreateContact(userId, phone);
+    // Message sent successfully - now save to DB
+    let savedMessage = null;
+    let contact = null;
     
-    // Save message
-    const savedMessage = await saveMessage(
-      userId, 
-      contact.id, 
-      wahaResponse.data?.id?.id, 
-      'text', 
-      message
-    );
+    try {
+      contact = await getOrCreateContact(userId, phone);
+      savedMessage = await saveMessage(
+        userId, 
+        contact.id, 
+        wahaResponse.data?.id?.id || wahaResponse.data?.key?.id, 
+        'text', 
+        message
+      );
+    } catch (dbError) {
+      // Message was sent but DB save failed - still return success
+      console.error('[API] DB save error (message was sent):', dbError.message);
+    }
     
     res.json({
       success: true,
-      messageId: savedMessage.id,
-      waMessageId: wahaResponse.data?.id?.id,
-      timestamp: savedMessage.sent_at,
+      messageId: savedMessage?.id || null,
+      waMessageId: wahaResponse.data?.id?.id || wahaResponse.data?.key?.id,
+      timestamp: savedMessage?.sent_at || new Date().toISOString(),
     });
     
   } catch (error) {
-    console.error('[API] Send text error:', error);
+    console.error('[API] Send text error:', error.message);
     
     if (error.message === 'NO_WHATSAPP_CONNECTION') {
       return res.status(400).json({
@@ -160,6 +176,43 @@ async function sendTextMessage(req, res) {
       code: 'SEND_FAILED'
     });
   }
+}
+
+/**
+ * Helper to send message and save to DB
+ */
+async function sendAndSave(userId, phone, wahaCall, messageType, content, metadata = {}) {
+  // Send via WAHA
+  let wahaResponse;
+  try {
+    wahaResponse = await wahaCall();
+  } catch (wahaError) {
+    console.error(`[API] WAHA ${messageType} error:`, wahaError.response?.data || wahaError.message);
+    throw { type: 'WAHA_ERROR', message: wahaError.response?.data?.message || 'Failed to send via WhatsApp' };
+  }
+  
+  // Save to DB (non-blocking - message was already sent)
+  let savedMessage = null;
+  try {
+    const contact = await getOrCreateContact(userId, phone);
+    savedMessage = await saveMessage(
+      userId, 
+      contact.id, 
+      wahaResponse.data?.id?.id || wahaResponse.data?.key?.id, 
+      messageType, 
+      content,
+      metadata
+    );
+  } catch (dbError) {
+    console.error(`[API] DB save error (${messageType} was sent):`, dbError.message);
+  }
+  
+  return {
+    success: true,
+    messageId: savedMessage?.id || null,
+    waMessageId: wahaResponse.data?.id?.id || wahaResponse.data?.key?.id,
+    timestamp: savedMessage?.sent_at || new Date().toISOString(),
+  };
 }
 
 /**
@@ -182,29 +235,21 @@ async function sendImageMessage(req, res) {
     const { client, session } = await getWhatsAppClient(userId);
     const chatId = formatPhoneToWaId(phone);
     
-    const wahaResponse = await client.post('/api/sendImage', {
-      session,
-      chatId,
-      file: { url: imageUrl },
-      caption: caption || '',
-    });
-    
-    const contact = await getOrCreateContact(userId, phone);
-    const savedMessage = await saveMessage(
+    const result = await sendAndSave(
       userId, 
-      contact.id, 
-      wahaResponse.data?.id?.id, 
-      'image', 
+      phone,
+      () => client.post('/api/sendImage', {
+        session,
+        chatId,
+        file: { url: imageUrl },
+        caption: caption || '',
+      }),
+      'image',
       caption || '[תמונה]',
       { imageUrl }
     );
     
-    res.json({
-      success: true,
-      messageId: savedMessage.id,
-      waMessageId: wahaResponse.data?.id?.id,
-      timestamp: savedMessage.sent_at,
-    });
+    res.json(result);
     
   } catch (error) {
     console.error('[API] Send image error:', error);
@@ -232,29 +277,21 @@ async function sendVideoMessage(req, res) {
     const { client, session } = await getWhatsAppClient(userId);
     const chatId = formatPhoneToWaId(phone);
     
-    const wahaResponse = await client.post('/api/sendVideo', {
-      session,
-      chatId,
-      file: { url: videoUrl },
-      caption: caption || '',
-    });
-    
-    const contact = await getOrCreateContact(userId, phone);
-    const savedMessage = await saveMessage(
-      userId, 
-      contact.id, 
-      wahaResponse.data?.id?.id, 
-      'video', 
+    const result = await sendAndSave(
+      userId,
+      phone,
+      () => client.post('/api/sendVideo', {
+        session,
+        chatId,
+        file: { url: videoUrl },
+        caption: caption || '',
+      }),
+      'video',
       caption || '[סרטון]',
       { videoUrl }
     );
     
-    res.json({
-      success: true,
-      messageId: savedMessage.id,
-      waMessageId: wahaResponse.data?.id?.id,
-      timestamp: savedMessage.sent_at,
-    });
+    res.json(result);
     
   } catch (error) {
     console.error('[API] Send video error:', error);
@@ -282,30 +319,22 @@ async function sendDocumentMessage(req, res) {
     const { client, session } = await getWhatsAppClient(userId);
     const chatId = formatPhoneToWaId(phone);
     
-    const wahaResponse = await client.post('/api/sendFile', {
-      session,
-      chatId,
-      file: { url: documentUrl },
-      filename: filename || 'document',
-      caption: caption || '',
-    });
-    
-    const contact = await getOrCreateContact(userId, phone);
-    const savedMessage = await saveMessage(
-      userId, 
-      contact.id, 
-      wahaResponse.data?.id?.id, 
-      'document', 
+    const result = await sendAndSave(
+      userId,
+      phone,
+      () => client.post('/api/sendFile', {
+        session,
+        chatId,
+        file: { url: documentUrl },
+        filename: filename || 'document',
+        caption: caption || '',
+      }),
+      'document',
       caption || '[מסמך]',
       { documentUrl, filename }
     );
     
-    res.json({
-      success: true,
-      messageId: savedMessage.id,
-      waMessageId: wahaResponse.data?.id?.id,
-      timestamp: savedMessage.sent_at,
-    });
+    res.json(result);
     
   } catch (error) {
     console.error('[API] Send document error:', error);
@@ -333,28 +362,20 @@ async function sendAudioMessage(req, res) {
     const { client, session } = await getWhatsAppClient(userId);
     const chatId = formatPhoneToWaId(phone);
     
-    const wahaResponse = await client.post('/api/sendFile', {
-      session,
-      chatId,
-      file: { url: audioUrl },
-    });
-    
-    const contact = await getOrCreateContact(userId, phone);
-    const savedMessage = await saveMessage(
-      userId, 
-      contact.id, 
-      wahaResponse.data?.id?.id, 
-      'audio', 
+    const result = await sendAndSave(
+      userId,
+      phone,
+      () => client.post('/api/sendFile', {
+        session,
+        chatId,
+        file: { url: audioUrl },
+      }),
+      'audio',
       '[הודעה קולית]',
       { audioUrl }
     );
     
-    res.json({
-      success: true,
-      messageId: savedMessage.id,
-      waMessageId: wahaResponse.data?.id?.id,
-      timestamp: savedMessage.sent_at,
-    });
+    res.json(result);
     
   } catch (error) {
     console.error('[API] Send audio error:', error);
@@ -397,30 +418,22 @@ async function sendButtonsMessage(req, res) {
       type: 1,
     }));
     
-    const wahaResponse = await client.post('/api/sendButtons', {
-      session,
-      chatId,
-      title: message,
-      footer: footer || '',
-      buttons: formattedButtons,
-    });
-    
-    const contact = await getOrCreateContact(userId, phone);
-    const savedMessage = await saveMessage(
-      userId, 
-      contact.id, 
-      wahaResponse.data?.id?.id, 
-      'buttons', 
+    const result = await sendAndSave(
+      userId,
+      phone,
+      () => client.post('/api/sendButtons', {
+        session,
+        chatId,
+        title: message,
+        footer: footer || '',
+        buttons: formattedButtons,
+      }),
+      'buttons',
       message,
       { buttons, footer }
     );
     
-    res.json({
-      success: true,
-      messageId: savedMessage.id,
-      waMessageId: wahaResponse.data?.id?.id,
-      timestamp: savedMessage.sent_at,
-    });
+    res.json(result);
     
   } catch (error) {
     console.error('[API] Send buttons error:', error);
@@ -448,38 +461,30 @@ async function sendListMessage(req, res) {
     const { client, session } = await getWhatsAppClient(userId);
     const chatId = formatPhoneToWaId(phone);
     
-    const wahaResponse = await client.post('/api/sendList', {
-      session,
-      chatId,
-      title: message,
-      buttonText,
-      footer: footer || '',
-      sections: sections.map(section => ({
-        title: section.title,
-        rows: section.rows.map((row, i) => ({
-          rowId: row.id || `row_${i}`,
-          title: row.title,
-          description: row.description || '',
+    const result = await sendAndSave(
+      userId,
+      phone,
+      () => client.post('/api/sendList', {
+        session,
+        chatId,
+        title: message,
+        buttonText,
+        footer: footer || '',
+        sections: sections.map(section => ({
+          title: section.title,
+          rows: section.rows.map((row, i) => ({
+            rowId: row.id || `row_${i}`,
+            title: row.title,
+            description: row.description || '',
+          })),
         })),
-      })),
-    });
-    
-    const contact = await getOrCreateContact(userId, phone);
-    const savedMessage = await saveMessage(
-      userId, 
-      contact.id, 
-      wahaResponse.data?.id?.id, 
-      'list', 
+      }),
+      'list',
       message,
       { buttonText, sections, footer }
     );
     
-    res.json({
-      success: true,
-      messageId: savedMessage.id,
-      waMessageId: wahaResponse.data?.id?.id,
-      timestamp: savedMessage.sent_at,
-    });
+    res.json(result);
     
   } catch (error) {
     console.error('[API] Send list error:', error);
@@ -507,31 +512,23 @@ async function sendLocationMessage(req, res) {
     const { client, session } = await getWhatsAppClient(userId);
     const chatId = formatPhoneToWaId(phone);
     
-    const wahaResponse = await client.post('/api/sendLocation', {
-      session,
-      chatId,
-      latitude,
-      longitude,
-      name: name || '',
-      address: address || '',
-    });
-    
-    const contact = await getOrCreateContact(userId, phone);
-    const savedMessage = await saveMessage(
-      userId, 
-      contact.id, 
-      wahaResponse.data?.id?.id, 
-      'location', 
+    const result = await sendAndSave(
+      userId,
+      phone,
+      () => client.post('/api/sendLocation', {
+        session,
+        chatId,
+        latitude,
+        longitude,
+        name: name || '',
+        address: address || '',
+      }),
+      'location',
       '[מיקום]',
       { latitude, longitude, name, address }
     );
     
-    res.json({
-      success: true,
-      messageId: savedMessage.id,
-      waMessageId: wahaResponse.data?.id?.id,
-      timestamp: savedMessage.sent_at,
-    });
+    res.json(result);
     
   } catch (error) {
     console.error('[API] Send location error:', error);
@@ -687,6 +684,15 @@ async function getStatus(req, res) {
  * Handle API errors
  */
 function handleApiError(error, res) {
+  // Custom WAHA error from sendAndSave
+  if (error.type === 'WAHA_ERROR') {
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to send via WhatsApp',
+      code: 'WAHA_ERROR'
+    });
+  }
+  
   if (error.message === 'NO_WHATSAPP_CONNECTION') {
     return res.status(400).json({
       success: false,
