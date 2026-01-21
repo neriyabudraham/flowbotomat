@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { 
   MessageCircle, Workflow, Users, Settings, Bot, MessageSquare, 
   TrendingUp, Grid, Shield, ChevronLeft, Zap, Activity, 
-  Plus, ArrowUpRight, Clock, CheckCircle
+  Plus, ArrowUpRight, Clock, CheckCircle, Crown
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useWhatsappStore from '../store/whatsappStore';
@@ -131,7 +131,7 @@ export default function DashboardPage() {
         {/* Quick Actions Grid */}
         <div className="mb-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">פעולות מהירות</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
             <QuickActionCard
               to="/bots"
               icon={Workflow}
@@ -155,10 +155,17 @@ export default function DashboardPage() {
               color="emerald"
             />
             <QuickActionCard
+              to="/pricing"
+              icon={Crown}
+              title="תמחור"
+              description="תכניות ומנויים"
+              color="amber"
+            />
+            <QuickActionCard
               to="/settings"
               icon={Settings}
               title="הגדרות"
-              description="הגדרות החשבון והמנוי"
+              description="הגדרות החשבון"
               color="gray"
             />
           </div>
@@ -286,6 +293,7 @@ function QuickActionCard({ to, icon: Icon, title, description, color, badge }) {
     blue: 'from-blue-500 to-blue-600',
     purple: 'from-purple-500 to-purple-600',
     emerald: 'from-emerald-500 to-emerald-600',
+    amber: 'from-amber-500 to-amber-600',
     gray: 'from-gray-500 to-gray-600',
   };
 

@@ -70,7 +70,8 @@ export default function TemplatesPage() {
       const { data } = await api.post(`/templates/${selectedTemplate.id}/use`, {
         name: newBotName.trim()
       });
-      navigate(`/bots/${data.bot.id}`);
+      // Navigate to bot editor with state indicating it's a new bot from template
+      navigate(`/bots/${data.bot.id}`, { state: { fromTemplate: true, showSave: true } });
     } catch (err) {
       if (err.response?.data?.upgrade_required) {
         alert('תבנית זו זמינה למנויים בלבד. שדרג את החשבון שלך כדי להשתמש בה.');

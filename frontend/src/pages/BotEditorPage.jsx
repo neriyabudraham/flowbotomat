@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { Save, ArrowRight, Edit2, RotateCcw, Play, X, BarChart3 } from 'lucide-react';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { Save, ArrowRight, Edit2, RotateCcw, Play, X, BarChart3, Sparkles } from 'lucide-react';
 import useBotsStore from '../store/botsStore';
 import FlowBuilder from '../components/flow/FlowBuilder';
 import NodePalette from '../components/flow/NodePalette';
@@ -14,8 +14,10 @@ const STORAGE_KEY = 'flowbotomat_draft_';
 export default function BotEditorPage() {
   const { botId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const clientId = searchParams.get('client');
+  const fromTemplate = location.state?.fromTemplate;
   const { currentBot, currentBotAccess, fetchBot, saveFlow, updateBot, clearCurrentBot } = useBotsStore();
   const [flowData, setFlowData] = useState(null);
   const [originalFlowData, setOriginalFlowData] = useState(null);
@@ -432,14 +434,28 @@ export default function BotEditorPage() {
               </div>
             )}
             
-            {hasChanges && canEdit && (
+            {/* Show save button when has changes OR when from template */}
+            {(hasChanges || fromTemplate) && canEdit && (
               <button 
                 onClick={handleSave} 
                 disabled={isSaving}
-                className="flex items-center justify-center gap-2 h-10 px-5 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white rounded-xl font-medium shadow-md hover:shadow-lg transition-all disabled:opacity-50"
+                className={`flex items-center justify-center gap-2 h-10 px-5 text-white rounded-xl font-medium shadow-md hover:shadow-lg transition-all disabled:opacity-50 ${
+                  fromTemplate && !hasChanges
+                    ? 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700'
+                    : 'bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700'
+                }`}
               >
-                <Save className="w-4 h-4" />
-                <span>{isSaving ? 'שומר...' : 'שמור'}</span>
+                {fromTemplate && !hasChanges ? (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    <span>שמור תבנית</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>{isSaving ? 'שומר...' : 'שמור'}</span>
+                  </>
+                )}
               </button>
             )}
             
