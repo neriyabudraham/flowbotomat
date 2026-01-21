@@ -34,7 +34,7 @@ function DemoEdgeWithDelete({ id, sourceX, sourceY, targetX, targetY, sourcePosi
 
   return (
     <>
-      <BaseEdge path={edgePath} style={{ stroke: '#6366f1', strokeWidth: 3 }} className="animated" />
+      <BaseEdge path={edgePath} style={{ stroke: '#94a3b8', strokeWidth: 2 }} className="animated" />
       <EdgeLabelRenderer>
         <div
           style={{

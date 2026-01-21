@@ -225,11 +225,13 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
         snapGrid={[20, 20]}
         defaultEdgeOptions={{
           type: 'default',
-          markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15 },
+          animated: true,
+          style: { strokeWidth: 2, stroke: '#94a3b8' },
+          markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: '#94a3b8' },
         }}
         proOptions={{ hideAttribution: true }}
-        connectionLineStyle={{ strokeWidth: 2, stroke: '#64748b' }}
-        connectionLineType="smoothstep"
+        connectionLineStyle={{ strokeWidth: 2, stroke: '#94a3b8' }}
+        connectionLineType="bezier"
         minZoom={0.3}
         maxZoom={2}
         deleteKeyCode={['Backspace', 'Delete']}

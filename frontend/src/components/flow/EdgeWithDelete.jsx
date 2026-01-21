@@ -29,8 +29,8 @@ export default function EdgeWithDelete({
         markerEnd={markerEnd} 
         style={{
           ...style,
-          strokeWidth: 3,
-          stroke: style?.stroke || '#6366f1',
+          strokeWidth: 2,
+          stroke: style?.stroke || '#94a3b8',
         }}
         className="animated"
       />
