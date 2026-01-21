@@ -7,6 +7,19 @@ const { checkLimit, incrementBotRuns } = require('../controllers/subscriptions/s
 
 class BotEngine {
   
+  // Save outgoing message to database
+  async saveOutgoingMessage(userId, contactId, content, messageType = 'text', mediaUrl = null, waMessageId = null) {
+    try {
+      await db.query(`
+        INSERT INTO messages 
+        (user_id, contact_id, wa_message_id, direction, message_type, content, media_url, status, sent_at)
+        VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, 'sent', NOW())
+      `, [userId, contactId, waMessageId, messageType, content, mediaUrl]);
+    } catch (error) {
+      console.error('[BotEngine] Error saving outgoing message:', error.message);
+    }
+  }
+  
   // Process incoming message
   async processMessage(userId, contactPhone, message, messageType = 'text', selectedRowId = null, quotedListTitle = null) {
     console.log('[BotEngine] ========================================');
@@ -711,8 +724,10 @@ class BotEngine {
             if (action.content) {
               const text = this.replaceVariables(action.content, contact, originalMessage, botName);
               console.log('[BotEngine] Sending text:', text.substring(0, 50) + '...');
-              await wahaService.sendMessage(connection, contact.phone, text);
-              console.log('[BotEngine] ✅ Text sent');
+              const result = await wahaService.sendMessage(connection, contact.phone, text);
+              // Save outgoing message to DB
+              await this.saveOutgoingMessage(userId, contact.id, text, 'text', null, result?.id?.id);
+              console.log('[BotEngine] ✅ Text sent and saved');
             }
             break;
             
@@ -721,8 +736,10 @@ class BotEngine {
               const imageUrl = action.fileData || action.url;
               const caption = this.replaceVariables(action.caption || '', contact, originalMessage, botName);
               console.log('[BotEngine] Sending image:', imageUrl.substring(0, 50) + '...');
-              await wahaService.sendImage(connection, contact.phone, imageUrl, caption);
-              console.log('[BotEngine] ✅ Image sent');
+              const result = await wahaService.sendImage(connection, contact.phone, imageUrl, caption);
+              // Save outgoing message to DB
+              await this.saveOutgoingMessage(userId, contact.id, caption || '', 'image', imageUrl, result?.id?.id);
+              console.log('[BotEngine] ✅ Image sent and saved');
             } else {
               console.log('[BotEngine] ⚠️ Image action has no URL');
             }
@@ -733,7 +750,9 @@ class BotEngine {
               const videoUrl = action.fileData || action.url;
               const caption = this.replaceVariables(action.caption || '', contact, originalMessage, botName);
               console.log('[BotEngine] Sending video:', videoUrl.substring(0, 50) + '...');
-              await wahaService.sendVideo(connection, contact.phone, videoUrl, caption);
+              const result = await wahaService.sendVideo(connection, contact.phone, videoUrl, caption);
+              // Save outgoing message to DB
+              await this.saveOutgoingMessage(userId, contact.id, caption || '', 'video', videoUrl, result?.id?.id);
               console.log('[BotEngine] ✅ Video sent');
             } else {
               console.log('[BotEngine] ⚠️ Video action has no URL');
