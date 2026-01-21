@@ -58,9 +58,10 @@ async function createManaged(req, res) {
       return res.status(500).json({ error: 'WAHA לא מוגדר במערכת' });
     }
     
-    // Generate session name based on email (sanitize special chars)
-    // Format: user.email=example@gmail.com
-    const sessionName = `user.email=${userEmail.replace(/[^a-zA-Z0-9@._-]/g, '_')}`;
+    // Generate session name based on email (sanitize for WAHA - only alphanumeric and underscore)
+    // Format: user_email_example_gmail_com
+    const sanitizedEmail = userEmail.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+    const sessionName = `user_${sanitizedEmail}`;
     console.log(`[WhatsApp] Session name for ${userEmail}: ${sessionName}`);
     
     // Check if session already exists in WAHA
