@@ -6,7 +6,7 @@ import {
   Plus, ArrowUpRight, Clock, CheckCircle, Crown, Bell,
   Sparkles, ArrowRight, BarChart3, Calendar, Phone, Star,
   Target, Rocket, Gift, AlertCircle, X, ExternalLink, Lightbulb,
-  Gauge, HardDrive
+  Gauge, HardDrive, Code
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useWhatsappStore from '../store/whatsappStore';
@@ -529,7 +529,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold text-gray-900">ניווט מהיר</h2>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <QuickActionCard
               to="/bots"
               icon={Workflow}
@@ -558,6 +558,13 @@ export default function DashboardPage() {
               title="תמחור"
               description="תכניות ומנויים"
               gradient="from-amber-500 to-orange-600"
+            />
+            <QuickActionCard
+              to="/api"
+              icon={Code}
+              title="API"
+              description="גישת מפתחים"
+              gradient="from-violet-500 to-purple-600"
             />
             <QuickActionCard
               to="/settings"

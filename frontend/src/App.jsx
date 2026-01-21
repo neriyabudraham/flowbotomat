@@ -17,6 +17,7 @@ import ClientBotsPage from './pages/ClientBotsPage';
 import PricingPage from './pages/PricingPage';
 import CheckoutPage from './pages/CheckoutPage';
 import PrivacyPage from './pages/PrivacyPage';
+import ApiPage from './pages/ApiPage';
 import useThemeStore from './store/themeStore';
 
 function App() {
@@ -46,6 +47,7 @@ function App() {
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
+          <Route path="/api" element={<ApiPage />} />
           <Route path="/clients/:clientId/bots" element={<ClientBotsPage />} />
         </Routes>
       </div>

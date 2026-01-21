@@ -20,6 +20,8 @@ const expertsRoutes = require('./experts.routes');
 const subscriptionsRoutes = require('./subscriptions.routes');
 const paymentRoutes = require('./payment.routes');
 const uploadRoutes = require('./upload.routes');
+const apiKeysRoutes = require('./apiKeys.routes');
+const publicApiRoutes = require('./publicApi.routes');
 
 // Mount routes
 router.use('/auth', authRoutes);
@@ -40,5 +42,9 @@ router.use('/experts', expertsRoutes);
 router.use('/subscriptions', subscriptionsRoutes);
 router.use('/payment', paymentRoutes);
 router.use('/upload', uploadRoutes);
+router.use('/api-keys', apiKeysRoutes);
+
+// Public API (v1)
+router.use('/v1', publicApiRoutes);
 
 module.exports = router;
