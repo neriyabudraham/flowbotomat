@@ -19,12 +19,14 @@ function getWebhookUrl(userId) {
 
 /**
  * Create managed WhatsApp connection (system WAHA)
+ * Session name is based on user email for easy identification
  */
 async function createManaged(req, res) {
   try {
     const userId = req.user.id;
+    const userEmail = req.user.email;
     
-    // Check if user already has a connection
+    // Check if user already has a connection in our DB
     const existing = await pool.query(
       'SELECT id, status FROM whatsapp_connections WHERE user_id = $1',
       [userId]
@@ -46,12 +48,62 @@ async function createManaged(req, res) {
       return res.status(500).json({ error: 'WAHA לא מוגדר במערכת' });
     }
     
-    // Generate unique session name
-    const sessionName = `user_${userId.split('-')[0]}_${Date.now()}`;
+    // Generate session name based on email (sanitize special chars)
+    // Format: user.email=example@gmail.com
+    const sessionName = `user.email=${userEmail.replace(/[^a-zA-Z0-9@._-]/g, '_')}`;
+    console.log(`[WhatsApp] Session name for ${userEmail}: ${sessionName}`);
     
-    // Create session in WAHA
-    await wahaSession.createSession(baseUrl, apiKey, sessionName);
-    await wahaSession.startSession(baseUrl, apiKey, sessionName);
+    // Check if session already exists in WAHA
+    let wahaStatus = null;
+    let sessionExists = false;
+    
+    try {
+      wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+      sessionExists = true;
+      console.log(`[WhatsApp] Found existing session: ${sessionName}, status: ${wahaStatus.status}`);
+    } catch (err) {
+      // Session doesn't exist - that's fine, we'll create it
+      console.log(`[WhatsApp] Session not found, will create: ${sessionName}`);
+    }
+    
+    // If session doesn't exist, create it
+    if (!sessionExists) {
+      await wahaSession.createSession(baseUrl, apiKey, sessionName);
+      await wahaSession.startSession(baseUrl, apiKey, sessionName);
+      console.log(`[WhatsApp] Created new session: ${sessionName}`);
+    } else if (wahaStatus.status === 'STOPPED') {
+      // Session exists but stopped - start it
+      await wahaSession.startSession(baseUrl, apiKey, sessionName);
+      console.log(`[WhatsApp] Started existing stopped session: ${sessionName}`);
+    }
+    
+    // Get updated status
+    try {
+      wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+    } catch (err) {
+      console.error('[WhatsApp] Failed to get session status:', err.message);
+    }
+    
+    // Map WAHA status to our status
+    const statusMap = {
+      'WORKING': 'connected',
+      'SCAN_QR_CODE': 'qr_pending',
+      'STARTING': 'qr_pending',
+      'STOPPED': 'disconnected',
+      'FAILED': 'failed',
+    };
+    const ourStatus = statusMap[wahaStatus?.status] || 'qr_pending';
+    
+    // Extract phone info if connected
+    let phoneNumber = null;
+    let displayName = null;
+    let connectedAt = null;
+    
+    if (ourStatus === 'connected' && wahaStatus?.me) {
+      phoneNumber = wahaStatus.me.id?.split('@')[0] || null;
+      displayName = wahaStatus.me.pushName || null;
+      connectedAt = new Date();
+    }
     
     // Setup webhook for this user (adds to existing webhooks)
     const webhookUrl = getWebhookUrl(userId);
@@ -65,15 +117,16 @@ async function createManaged(req, res) {
     // Save connection to DB
     const result = await pool.query(
       `INSERT INTO whatsapp_connections 
-       (user_id, connection_type, session_name, status)
-       VALUES ($1, 'managed', $2, 'qr_pending')
-       RETURNING id, session_name, status, created_at`,
-      [userId, sessionName]
+       (user_id, connection_type, session_name, status, phone_number, display_name, connected_at)
+       VALUES ($1, 'managed', $2, $3, $4, $5, $6)
+       RETURNING id, session_name, status, phone_number, display_name, created_at`,
+      [userId, sessionName, ourStatus, phoneNumber, displayName, connectedAt]
     );
     
     res.json({ 
       success: true, 
       connection: result.rows[0],
+      sessionExists, // Let frontend know if this was an existing session
     });
   } catch (error) {
     console.error('Create managed connection error:', error);

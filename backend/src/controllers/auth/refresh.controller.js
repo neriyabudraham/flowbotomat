@@ -1,3 +1,4 @@
+const db = require('../../config/database');
 const { verifyRefreshToken, generateAccessToken } = require('../../services/auth/token.service');
 
 /**
@@ -17,7 +18,11 @@ const refresh = async (req, res) => {
       return res.status(401).json({ error: 'Invalid refresh token' });
     }
 
-    const accessToken = generateAccessToken(payload.userId);
+    // Fetch user email for token
+    const result = await db.query('SELECT email FROM users WHERE id = $1', [payload.userId]);
+    const email = result.rows[0]?.email || null;
+
+    const accessToken = generateAccessToken(payload.userId, email);
 
     res.json({ accessToken });
   } catch (error) {

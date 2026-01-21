@@ -44,8 +44,8 @@ const login = async (req, res) => {
     // Update last login
     await db.query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
 
-    // Generate tokens
-    const accessToken = generateAccessToken(user.id);
+    // Generate tokens (include email in access token for session naming)
+    const accessToken = generateAccessToken(user.id, user.email);
     const refreshToken = generateRefreshToken(user.id);
 
     // Return user data (without password)

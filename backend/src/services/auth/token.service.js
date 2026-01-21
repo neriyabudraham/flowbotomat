@@ -6,9 +6,9 @@ const REFRESH_TOKEN_EXPIRY = '7d';
 /**
  * Generate access token (24 hours)
  */
-const generateAccessToken = (userId) => {
+const generateAccessToken = (userId, email = null) => {
   return jwt.sign(
-    { userId },
+    { userId, email },
     process.env.JWT_SECRET,
     { expiresIn: ACCESS_TOKEN_EXPIRY }
   );
