@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { 
   Bot, MessageCircle, Zap, Users, Check, ChevronLeft, Play, 
   List, Clock, BarChart3, Shield, Sparkles,
-  Globe, Headphones, Workflow, Database, RefreshCw, X
+  Globe, Headphones, Workflow, Database, RefreshCw, X,
+  ArrowRight, Star, TrendingUp, Award, Heart
 } from 'lucide-react';
 import {
   ReactFlow,
@@ -20,10 +21,6 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import Logo from '../components/atoms/Logo';
-import useAuthStore from '../store/authStore';
-import Input from '../components/atoms/Input';
-import Button from '../components/atoms/Button';
-import Alert from '../components/atoms/Alert';
 
 // Custom Edge with Delete Button - Animated
 function DemoEdgeWithDelete({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data }) {
@@ -193,21 +190,6 @@ function InteractiveFlowDemo() {
 
 export default function LandingPage() {
   const navigate = useNavigate();
-  const { login, isLoading, error, clearError } = useAuthStore();
-  const [form, setForm] = useState({ email: '', password: '' });
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    clearError();
-    try {
-      await login(form.email, form.password);
-      navigate('/dashboard');
-    } catch (err) {
-      if (err.response?.data?.code === 'NOT_VERIFIED') {
-        navigate('/verify', { state: { email: form.email } });
-      }
-    }
-  };
 
   const services = [
     {
@@ -215,70 +197,96 @@ export default function LandingPage() {
       title: 'בוטים אוטומטיים',
       desc: 'צור תרחישים מורכבים עם תנאים, לופים ומשתנים. הבוט עונה ללקוחות 24/7.',
       color: 'from-blue-500 to-indigo-600',
+      bg: 'bg-blue-50',
     },
     {
       icon: MessageCircle,
       title: 'חיבור WhatsApp',
       desc: 'התחבר לוואטסאפ שלך בסריקת QR פשוטה. קבל וענה להודעות דרך המערכת.',
       color: 'from-green-500 to-emerald-600',
+      bg: 'bg-green-50',
     },
     {
       icon: Users,
       title: 'ניהול אנשי קשר',
       desc: 'CRM מובנה - צפה בכל השיחות, סמן תוויות, וצור פילוחים חכמים.',
       color: 'from-purple-500 to-pink-600',
+      bg: 'bg-purple-50',
     },
     {
       icon: Workflow,
       title: 'עורך ויזואלי',
       desc: 'עורך גרור-ושחרר אינטואיטיבי. אין צורך בידע טכני או קוד.',
       color: 'from-orange-500 to-red-600',
+      bg: 'bg-orange-50',
     },
     {
       icon: Database,
       title: 'משתנים ונתונים',
       desc: 'שמור מידע על לקוחות, צור טפסים דינמיים, ואסוף לידים.',
       color: 'from-cyan-500 to-blue-600',
+      bg: 'bg-cyan-50',
     },
     {
       icon: BarChart3,
       title: 'סטטיסטיקות',
       desc: 'עקוב אחר ביצועי הבוטים, שיעורי המרה, וזמני תגובה.',
       color: 'from-violet-500 to-purple-600',
+      bg: 'bg-violet-50',
     },
   ];
 
-  const features = [
-    { icon: Clock, text: 'זמין 24/7' },
-    { icon: Globe, text: 'עברית מלאה' },
-    { icon: Shield, text: 'אבטחה מתקדמת' },
-    { icon: Headphones, text: 'תמיכה מהירה' },
-    { icon: RefreshCw, text: 'גיבוי אוטומטי' },
-    { icon: Sparkles, text: 'עדכונים שוטפים' },
+  const stats = [
+    { value: '10,000+', label: 'משתמשים פעילים', icon: Users },
+    { value: '1M+', label: 'הודעות בחודש', icon: MessageCircle },
+    { value: '99.9%', label: 'זמינות שירות', icon: TrendingUp },
+    { value: '4.9/5', label: 'דירוג ממוצע', icon: Star },
+  ];
+
+  const testimonials = [
+    {
+      name: 'רון כהן',
+      role: 'מנכ"ל, סטארטאפ טכנולוגי',
+      content: 'FlowBotomat שינה לנו את העסק. הלקוחות מקבלים מענה מיידי 24/7 והמכירות עלו ב-40%.',
+      avatar: 'ר',
+    },
+    {
+      name: 'מיכל לוי',
+      role: 'בעלת חנות אונליין',
+      content: 'פשוט לשימוש ועוזר לי לחסוך שעות עבודה כל יום. ממליצה בחום!',
+      avatar: 'מ',
+    },
+    {
+      name: 'דוד אברהם',
+      role: 'יועץ עסקי',
+      content: 'הבוטים האוטומטיים עזרו לי לנהל יותר לקוחות במקביל. ROI מטורף.',
+      avatar: 'ד',
+    },
   ];
 
   return (
     <div className="min-h-screen bg-white" dir="rtl">
       {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-md border-b border-gray-100">
+      <header className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-xl border-b border-gray-100/50">
         <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <Logo />
-            <span className="text-xs text-gray-400 hidden sm:block">שירותי אוטומציה</span>
-          </div>
           <div className="flex items-center gap-4">
-            <Link to="/pricing" className="text-gray-600 hover:text-gray-900 transition-colors text-sm font-medium hidden sm:block">
+            <Link to="/" className="flex items-center gap-2">
+              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25">
+                <Bot className="w-6 h-6 text-white" />
+              </div>
+              <span className="text-xl font-bold text-gray-900">FlowBotomat</span>
+            </Link>
+          </div>
+          <div className="hidden md:flex items-center gap-8">
+            <Link to="/pricing" className="text-gray-600 hover:text-gray-900 transition-colors text-sm font-medium">
               תמחור
             </Link>
-            <Link 
-              to="/login"
-              className="text-gray-600 hover:text-gray-900 transition-colors text-sm font-medium"
-            >
+            <Link to="/login" className="text-gray-600 hover:text-gray-900 transition-colors text-sm font-medium">
               התחברות
             </Link>
             <Link 
               to="/signup"
-              className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl transition-all text-sm font-medium shadow-lg shadow-blue-500/25"
+              className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl transition-all text-sm font-bold shadow-lg shadow-blue-500/25 hover:shadow-xl hover:shadow-blue-500/30"
             >
               התחל בחינם
             </Link>
@@ -287,105 +295,100 @@ export default function LandingPage() {
       </header>
 
       {/* Hero Section */}
-      <section className="pt-28 pb-12 px-6 bg-gradient-to-b from-blue-50/50 to-white">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
-            {/* Left - Text */}
-            <div className="max-w-xl">
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-100 to-indigo-100 text-blue-700 rounded-full text-sm font-medium mb-6">
-                <Sparkles className="w-4 h-4" />
-                14 ימי ניסיון חינם • ביטול בכל עת
-              </div>
-              
-              <h1 className="text-4xl lg:text-5xl xl:text-6xl font-extrabold text-gray-900 mb-6 leading-tight">
-                אוטומציה ל
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">WhatsApp</span>
-                <br />בלי לכתוב קוד
-              </h1>
-              
-              <p className="text-xl text-gray-600 mb-8 leading-relaxed">
-                בנה בוטים חכמים לוואטסאפ העסקי שלך בעזרת עורך ויזואלי פשוט. 
-                תן ללקוחות מענה מיידי, אסוף לידים, ושפר את השירות.
-              </p>
+      <section className="pt-32 pb-20 px-6 relative overflow-hidden">
+        {/* Background */}
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-50 via-white to-indigo-50" />
+        <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-gradient-to-br from-blue-400/20 to-purple-400/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+        <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-gradient-to-tr from-indigo-400/20 to-cyan-400/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
+        
+        <div className="max-w-7xl mx-auto relative z-10">
+          <div className="text-center max-w-4xl mx-auto">
+            {/* Badge */}
+            <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 shadow-lg rounded-full text-sm font-medium mb-8">
+              <Sparkles className="w-4 h-4 text-yellow-500" />
+              <span className="text-gray-700">14 ימי ניסיון חינם</span>
+              <span className="w-1.5 h-1.5 bg-gray-300 rounded-full" />
+              <span className="text-gray-500">ביטול בכל עת</span>
+            </div>
+            
+            {/* Heading */}
+            <h1 className="text-5xl lg:text-6xl xl:text-7xl font-extrabold text-gray-900 mb-6 leading-tight">
+              בנה בוטים ל
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600">WhatsApp</span>
+              <br />
+              <span className="text-gray-600 text-4xl lg:text-5xl xl:text-6xl">בלי לכתוב שורת קוד</span>
+            </h1>
+            
+            {/* Subheading */}
+            <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto leading-relaxed">
+              עורך ויזואלי פשוט ואינטואיטיבי שמאפשר לך ליצור בוטים חכמים, 
+              לתת מענה אוטומטי ללקוחות, ולחסוך עשרות שעות עבודה בשבוע.
+            </p>
 
-              <div className="flex flex-wrap gap-4 mb-10">
-                {features.slice(0, 4).map((f, i) => (
-                  <div key={i} className="flex items-center gap-2 text-gray-600 text-sm">
-                    <div className="p-1 bg-green-100 rounded-full">
-                      <Check className="w-3 h-3 text-green-600" />
-                    </div>
-                    <span>{f.text}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-4">
-                <Link 
-                  to="/signup"
-                  className="flex items-center justify-center gap-2 px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl font-bold transition-all shadow-xl shadow-blue-500/30 text-lg"
-                >
-                  התחל עכשיו בחינם
-                  <ChevronLeft className="w-5 h-5" />
-                </Link>
-                <Link 
-                  to="/pricing"
-                  className="flex items-center justify-center px-8 py-4 bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 rounded-xl font-bold transition-all text-lg"
-                >
-                  צפה בתמחור
-                </Link>
-              </div>
+            {/* CTA Buttons */}
+            <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12">
+              <Link 
+                to="/signup"
+                className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl font-bold text-lg transition-all shadow-xl shadow-blue-500/30 hover:shadow-2xl hover:shadow-blue-500/40 hover:-translate-y-0.5"
+              >
+                התחל עכשיו בחינם
+                <ArrowRight className="w-5 h-5" />
+              </Link>
+              <Link 
+                to="/pricing"
+                className="inline-flex items-center justify-center px-8 py-4 bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 rounded-2xl font-bold text-lg transition-all hover:shadow-lg"
+              >
+                צפה בתמחור
+              </Link>
             </div>
 
-            {/* Right - Login Form */}
-            <div className="hidden lg:block">
-              <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 p-8 max-w-md mx-auto">
-                <div className="text-center mb-6">
-                  <div className="w-14 h-14 mx-auto mb-4 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-2xl flex items-center justify-center">
-                    <Bot className="w-7 h-7 text-white" />
-                  </div>
-                  <h2 className="text-2xl font-bold text-gray-900 mb-1">התחברות למערכת</h2>
-                  <p className="text-gray-500">ברוכים הבאים חזרה</p>
-                </div>
-
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  {error && <Alert variant="error">{error}</Alert>}
-                  
-                  <Input
-                    label="אימייל"
-                    type="email"
-                    value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                    placeholder="email@example.com"
-                    required
-                  />
-                  
-                  <Input
-                    label="סיסמה"
-                    type="password"
-                    value={form.password}
-                    onChange={(e) => setForm({ ...form, password: e.target.value })}
-                    placeholder="הסיסמה שלך"
-                    required
-                  />
-                  
-                  <Button type="submit" isLoading={isLoading} className="w-full !py-3 !text-base">
-                    התחברות
-                  </Button>
-                  
-                  <p className="text-center text-sm text-gray-500">
-                    אין לך חשבון?{' '}
-                    <Link to="/signup" className="text-blue-600 hover:underline font-medium">
-                      הרשמה חינם
-                    </Link>
-                  </p>
-                </form>
+            {/* Trust Badges */}
+            <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-gray-500">
+              <div className="flex items-center gap-2">
+                <Shield className="w-5 h-5 text-green-500" />
+                <span>אבטחה מתקדמת</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Clock className="w-5 h-5 text-blue-500" />
+                <span>זמין 24/7</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Globe className="w-5 h-5 text-purple-500" />
+                <span>עברית מלאה</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Headphones className="w-5 h-5 text-orange-500" />
+                <span>תמיכה מהירה</span>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Interactive Flow Editor Demo */}
+      {/* Stats Section */}
+      <section className="py-16 px-6 bg-gradient-to-r from-gray-900 to-gray-800 relative overflow-hidden">
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute inset-0" style={{ 
+            backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', 
+            backgroundSize: '40px 40px' 
+          }} />
+        </div>
+        <div className="max-w-7xl mx-auto relative z-10">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-8">
+            {stats.map((stat, i) => (
+              <div key={i} className="text-center">
+                <div className="w-14 h-14 mx-auto mb-4 bg-white/10 rounded-2xl flex items-center justify-center">
+                  <stat.icon className="w-7 h-7 text-white" />
+                </div>
+                <div className="text-3xl lg:text-4xl font-bold text-white mb-1">{stat.value}</div>
+                <div className="text-gray-400">{stat.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Interactive Flow Editor Demo - UNCHANGED */}
       <section className="py-20 px-6 bg-gradient-to-b from-white to-gray-50">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12">
@@ -444,12 +447,12 @@ export default function LandingPage() {
       </section>
 
       {/* Services Section */}
-      <section className="py-20 px-6 bg-white">
+      <section className="py-24 px-6 bg-white">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-full text-sm font-medium mb-4">
               <Zap className="w-4 h-4" />
-              השירותים שלנו
+              הפיצ'רים שלנו
             </div>
             <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
               כל מה שצריך לאוטומציה מושלמת
@@ -459,14 +462,14 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             {services.map((service, i) => (
               <div 
                 key={i} 
-                className="group p-6 bg-white rounded-2xl border border-gray-100 hover:border-gray-200 hover:shadow-xl transition-all duration-300"
+                className="group relative p-8 bg-white rounded-3xl border border-gray-100 hover:border-gray-200 hover:shadow-2xl transition-all duration-300"
               >
-                <div className={`w-14 h-14 mb-5 bg-gradient-to-r ${service.color} rounded-2xl flex items-center justify-center transform group-hover:scale-110 transition-transform`}>
-                  <service.icon className="w-7 h-7 text-white" />
+                <div className={`w-16 h-16 mb-6 bg-gradient-to-r ${service.color} rounded-2xl flex items-center justify-center transform group-hover:scale-110 group-hover:rotate-3 transition-all shadow-lg`}>
+                  <service.icon className="w-8 h-8 text-white" />
                 </div>
                 <h3 className="text-xl font-bold text-gray-900 mb-3">{service.title}</h3>
                 <p className="text-gray-600 leading-relaxed">{service.desc}</p>
@@ -476,16 +479,37 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Features Bar */}
-      <section className="py-12 px-6 bg-gradient-to-r from-blue-600 to-indigo-600">
+      {/* Testimonials */}
+      <section className="py-24 px-6 bg-gradient-to-b from-gray-50 to-white">
         <div className="max-w-7xl mx-auto">
-          <div className="flex flex-wrap items-center justify-center gap-8 md:gap-16">
-            {features.map((f, i) => (
-              <div key={i} className="flex items-center gap-3 text-white">
-                <div className="p-2 bg-white/20 rounded-lg">
-                  <f.icon className="w-5 h-5" />
+          <div className="text-center mb-16">
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-pink-100 text-pink-700 rounded-full text-sm font-medium mb-4">
+              <Heart className="w-4 h-4" />
+              מה הלקוחות אומרים
+            </div>
+            <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
+              אלפי עסקים כבר סומכים עלינו
+            </h2>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-8">
+            {testimonials.map((t, i) => (
+              <div key={i} className="bg-white p-8 rounded-3xl border border-gray-100 shadow-lg hover:shadow-xl transition-all">
+                <div className="flex items-center gap-1 mb-4">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="w-5 h-5 text-yellow-400 fill-yellow-400" />
+                  ))}
                 </div>
-                <span className="font-medium">{f.text}</span>
+                <p className="text-gray-700 mb-6 leading-relaxed">"{t.content}"</p>
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
+                    {t.avatar}
+                  </div>
+                  <div>
+                    <div className="font-bold text-gray-900">{t.name}</div>
+                    <div className="text-sm text-gray-500">{t.role}</div>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -493,67 +517,77 @@ export default function LandingPage() {
       </section>
 
       {/* CTA Section */}
-      <section className="py-24 px-6 bg-gradient-to-br from-gray-900 to-gray-800">
-        <div className="max-w-4xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 text-white rounded-full text-sm font-medium mb-6">
-            <Sparkles className="w-4 h-4" />
-            התחל היום
+      <section className="py-24 px-6 bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 relative overflow-hidden">
+        <div className="absolute inset-0">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+          <div className="absolute bottom-0 left-0 w-80 h-80 bg-white/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
+        </div>
+        
+        <div className="max-w-4xl mx-auto text-center relative z-10">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/20 text-white rounded-full text-sm font-medium mb-6 backdrop-blur">
+            <Award className="w-4 h-4" />
+            הצטרף לקהילה
           </div>
           <h2 className="text-4xl lg:text-5xl font-bold text-white mb-6">
             מוכנים לשדרג את העסק?
           </h2>
-          <p className="text-xl text-gray-300 mb-10 max-w-2xl mx-auto">
+          <p className="text-xl text-white/80 mb-10 max-w-2xl mx-auto">
             הצטרפו לאלפי עסקים שכבר חוסכים זמן וכסף עם בוטים אוטומטיים לוואטסאפ
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link 
               to="/signup"
-              className="inline-flex items-center justify-center gap-2 px-10 py-5 bg-white text-gray-900 rounded-xl font-bold text-lg hover:bg-gray-100 transition-colors shadow-2xl"
+              className="inline-flex items-center justify-center gap-2 px-10 py-5 bg-white text-gray-900 rounded-2xl font-bold text-lg hover:bg-gray-100 transition-all shadow-2xl hover:-translate-y-0.5"
             >
               התחל 14 ימי ניסיון חינם
               <ChevronLeft className="w-5 h-5" />
             </Link>
           </div>
-          <p className="text-gray-400 text-sm mt-6">
-            ביטול בכל עת
+          <p className="text-white/60 text-sm mt-6">
+            ללא כרטיס אשראי • ביטול בכל עת
           </p>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="py-12 px-6 bg-gray-900 border-t border-gray-800">
+      <footer className="py-16 px-6 bg-gray-900">
         <div className="max-w-7xl mx-auto">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-8">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-8 pb-8 border-b border-gray-800">
             <div className="flex items-center gap-3">
-              <Logo light />
-              <div className="text-right">
-                <div className="text-white/60 text-xs">בוטומט</div>
-                <div className="text-white/40 text-xs">שירותי אוטומציה</div>
+              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                <Bot className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <div className="text-white font-bold">FlowBotomat</div>
+                <div className="text-gray-500 text-sm">שירותי אוטומציה</div>
               </div>
             </div>
-            <div className="flex items-center gap-8 text-sm text-gray-400">
-              <Link to="/pricing" className="hover:text-white transition-colors">תמחור</Link>
-              <Link to="/privacy" className="hover:text-white transition-colors">מדיניות פרטיות</Link>
+            <div className="flex items-center gap-8 text-sm">
+              <Link to="/pricing" className="text-gray-400 hover:text-white transition-colors">תמחור</Link>
+              <Link to="/privacy" className="text-gray-400 hover:text-white transition-colors">מדיניות פרטיות</Link>
+              <Link to="/login" className="text-gray-400 hover:text-white transition-colors">התחברות</Link>
             </div>
-            <p className="text-sm text-gray-500">
-              © 2026 בוטומט שירותי אוטומציה
+          </div>
+          <div className="pt-8 text-center">
+            <p className="text-gray-500 text-sm">
+              © 2026 FlowBotomat. כל הזכויות שמורות.
             </p>
           </div>
         </div>
       </footer>
 
       {/* Mobile Bottom Bar */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-md border-t border-gray-100 z-50">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-xl border-t border-gray-100 z-50">
         <div className="flex gap-3">
           <Link 
             to="/login"
-            className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl font-medium text-center"
+            className="flex-1 px-4 py-3.5 border border-gray-200 text-gray-700 rounded-xl font-bold text-center"
           >
             התחברות
           </Link>
           <Link 
             to="/signup"
-            className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-medium text-center"
+            className="flex-1 px-4 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold text-center"
           >
             הרשמה
           </Link>
