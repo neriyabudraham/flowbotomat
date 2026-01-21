@@ -202,7 +202,7 @@ export default function ClientBotsPage() {
               return (
                 <div
                   key={bot.id}
-                  onClick={() => permissions.can_edit_bots && navigate(`/bots/${bot.id}`)}
+                  onClick={() => permissions.can_edit_bots && navigate(`/bots/${bot.id}?client=${clientId}`)}
                   className={`bg-white/80 backdrop-blur rounded-2xl border border-blue-200 p-5 transition-all group ${
                     permissions.can_edit_bots ? 'cursor-pointer hover:shadow-lg hover:border-blue-300' : ''
                   }`}
