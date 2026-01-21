@@ -43,7 +43,7 @@ export default function ContactProfile({ contact, onClose, onUpdate }) {
     messageCount: 0, 
     lastMessageAt: null,
     lastMessageContent: null,
-    flowsCompleted: []
+    botsInteracted: []
   });
   const [loading, setLoading] = useState(true);
   const [expandedSections, setExpandedSections] = useState({
@@ -77,7 +77,7 @@ export default function ContactProfile({ contact, onClose, onUpdate }) {
         messageCount: statsRes.data.messageCount || 0,
         lastMessageAt: statsRes.data.lastMessageAt || null,
         lastMessageContent: statsRes.data.lastMessageContent || null,
-        flowsCompleted: statsRes.data.flowsCompleted || [],
+        botsInteracted: statsRes.data.botsInteracted || [],
       });
     } catch (err) {
       console.error('Load data error:', err);
@@ -278,8 +278,8 @@ export default function ContactProfile({ contact, onClose, onUpdate }) {
           </div>
         )}
         
-        {/* Flows Completed */}
-        {stats.flowsCompleted && stats.flowsCompleted.length > 0 && (
+        {/* Bots Interacted */}
+        {stats.botsInteracted && stats.botsInteracted.length > 0 && (
           <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-2xl p-4 border border-purple-100/50">
             <button 
               onClick={() => toggleSection('flows')}
@@ -287,9 +287,9 @@ export default function ContactProfile({ contact, onClose, onUpdate }) {
             >
               <div className="flex items-center gap-2">
                 <div className="p-1.5 bg-purple-500 rounded-lg">
-                  <GitBranch className="w-4 h-4 text-white" />
+                  <Bot className="w-4 h-4 text-white" />
                 </div>
-                <span className="text-sm font-semibold text-purple-900">פלואים שהושלמו</span>
+                <span className="text-sm font-semibold text-purple-900">בוטים שעבר</span>
               </div>
               {expandedSections.flows ? (
                 <ChevronUp className="w-4 h-4 text-purple-400" />
@@ -299,11 +299,11 @@ export default function ContactProfile({ contact, onClose, onUpdate }) {
             </button>
             {expandedSections.flows && (
               <div className="space-y-2">
-                {stats.flowsCompleted.map((flow, idx) => (
+                {stats.botsInteracted.map((bot, idx) => (
                   <div key={idx} className="flex items-center justify-between p-2 bg-white/60 rounded-xl">
-                    <span className="text-sm font-medium text-purple-700">{flow.name}</span>
+                    <span className="text-sm font-medium text-purple-700">{bot.name}</span>
                     <span className="px-2 py-0.5 bg-purple-100 text-purple-600 text-xs font-bold rounded-full">
-                      {flow.count}x
+                      {bot.count} הודעות
                     </span>
                   </div>
                 ))}

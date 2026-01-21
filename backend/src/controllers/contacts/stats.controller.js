@@ -36,16 +36,17 @@ async function getContactStats(req, res) {
       LIMIT 1
     `, [contactId]);
     
-    // Get completed flows from bot_sessions
+    // Get bots that this contact interacted with (count messages from each bot)
     const flowsResult = await db.query(`
       SELECT 
         b.name as bot_name,
-        COUNT(*) as completion_count
-      FROM bot_sessions bs
-      JOIN bots b ON bs.bot_id = b.id
-      WHERE bs.contact_id = $1 AND bs.status = 'completed'
+        b.id as bot_id,
+        COUNT(DISTINCT m.id) as interaction_count
+      FROM messages m
+      JOIN bots b ON m.bot_id = b.id
+      WHERE m.contact_id = $1 AND m.direction = 'outgoing' AND m.bot_id IS NOT NULL
       GROUP BY b.id, b.name
-      ORDER BY completion_count DESC
+      ORDER BY interaction_count DESC
       LIMIT 5
     `, [contactId]);
     
@@ -56,9 +57,10 @@ async function getContactStats(req, res) {
       lastMessageAt: lastMessage?.created_at || null,
       lastMessageContent: lastMessage?.content || null,
       lastMessageType: lastMessage?.message_type || null,
-      flowsCompleted: flowsResult.rows.map(f => ({
+      botsInteracted: flowsResult.rows.map(f => ({
         name: f.bot_name,
-        count: parseInt(f.completion_count)
+        id: f.bot_id,
+        count: parseInt(f.interaction_count)
       }))
     });
     

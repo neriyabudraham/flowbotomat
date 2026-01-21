@@ -1,4 +1,4 @@
-import { Check, CheckCheck, Image, FileText, Mic, MapPin, Video, Play, Download, ExternalLink, Bot, User } from 'lucide-react';
+import { Check, CheckCheck, Image, FileText, Mic, MapPin, Video, Play, Download, ExternalLink, Bot, User, List, MousePointer, ChevronDown } from 'lucide-react';
 
 export default function MessageBubble({ message }) {
   const isOutgoing = message.direction === 'outgoing';
@@ -7,8 +7,111 @@ export default function MessageBubble({ message }) {
     minute: '2-digit' 
   });
 
+  // Parse metadata if it's a string
+  const metadata = typeof message.metadata === 'string' 
+    ? JSON.parse(message.metadata || '{}') 
+    : (message.metadata || {});
+
   const renderContent = () => {
     switch (message.message_type) {
+      // List message (sent by bot)
+      case 'list':
+        return (
+          <div className="space-y-2">
+            {message.content && (
+              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                {message.content}
+              </p>
+            )}
+            {metadata.buttons && metadata.buttons.length > 0 && (
+              <div className="mt-3 space-y-1.5">
+                {metadata.buttons.map((btn, idx) => (
+                  <div 
+                    key={idx}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${
+                      isOutgoing 
+                        ? 'bg-white/15 text-white/90' 
+                        : 'bg-gray-100 text-gray-700'
+                    }`}
+                  >
+                    <List className="w-4 h-4 opacity-60" />
+                    <span>{btn.title || btn}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {metadata.buttonText && (
+              <div className={`flex items-center justify-center gap-2 mt-2 py-2 rounded-lg text-sm font-medium ${
+                isOutgoing 
+                  ? 'bg-white/20 text-white' 
+                  : 'bg-blue-50 text-blue-600'
+              }`}>
+                <ChevronDown className="w-4 h-4" />
+                {metadata.buttonText}
+              </div>
+            )}
+          </div>
+        );
+      
+      // Buttons message (sent by bot)
+      case 'buttons':
+        return (
+          <div className="space-y-2">
+            {message.content && (
+              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                {message.content}
+              </p>
+            )}
+            {metadata.buttons && metadata.buttons.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {metadata.buttons.map((btn, idx) => (
+                  <div 
+                    key={idx}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium ${
+                      isOutgoing 
+                        ? 'bg-white/20 text-white border border-white/30' 
+                        : 'bg-blue-50 text-blue-600 border border-blue-200'
+                    }`}
+                  >
+                    {btn.title || btn}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      
+      // List response (user clicked a button)
+      case 'list_response':
+        return (
+          <div className="space-y-1">
+            <div className={`flex items-center gap-1.5 text-xs ${
+              isOutgoing ? 'text-blue-200' : 'text-gray-400'
+            }`}>
+              <MousePointer className="w-3 h-3" />
+              <span>לחיצה על כפתור</span>
+            </div>
+            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed font-medium">
+              {message.content}
+            </p>
+          </div>
+        );
+      
+      // Button response (user clicked a button)
+      case 'button_response':
+        return (
+          <div className="space-y-1">
+            <div className={`flex items-center gap-1.5 text-xs ${
+              isOutgoing ? 'text-blue-200' : 'text-gray-400'
+            }`}>
+              <MousePointer className="w-3 h-3" />
+              <span>לחיצה על כפתור</span>
+            </div>
+            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed font-medium">
+              {message.content}
+            </p>
+          </div>
+        );
       case 'image':
         return (
           <div className="space-y-2">
