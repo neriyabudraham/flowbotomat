@@ -478,10 +478,10 @@ async function sendListMessage(req, res) {
         session,
         chatId,
         message: {
-          title: '',
+          title: message.substring(0, 60) || 'בחר אפשרות',
           description: message,
-          footer: footer || '',
-          button: buttonText,
+          footer: (footer || '').substring(0, 60),
+          button: (buttonText || 'בחר').substring(0, 20),
           sections: formattedSections,
         },
       }),
