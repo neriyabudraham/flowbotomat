@@ -26,15 +26,30 @@ const TABS = [
 
 export default function AdminPage() {
   const navigate = useNavigate();
-  const { user } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
   const [activeTab, setActiveTab] = useState('dashboard');
 
-  // Check if user is admin
+  const isAdmin = user && ['admin', 'superadmin'].includes(user.role);
+
+  // Redirect non-admin users immediately
   useEffect(() => {
-    if (user && !['admin', 'superadmin'].includes(user.role)) {
-      navigate('/dashboard');
+    if (!isLoading && !isAdmin) {
+      navigate('/dashboard', { replace: true });
     }
-  }, [user, navigate]);
+  }, [user, isLoading, isAdmin, navigate]);
+
+  // Don't render anything while checking or if not admin
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return null; // Will redirect via useEffect
+  }
 
   const renderContent = () => {
     switch (activeTab) {
