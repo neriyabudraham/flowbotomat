@@ -197,6 +197,10 @@ export default function AdminSubscriptions() {
                       <span className="text-gray-500">WAHA מנוהל</span>
                       {plan.allow_waha_creation ? <Check className="w-4 h-4 text-green-500" /> : <X className="w-4 h-4 text-gray-300" />}
                     </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">גישת API</span>
+                      {plan.allow_api_access ? <Check className="w-4 h-4 text-green-500" /> : <X className="w-4 h-4 text-gray-300" />}
+                    </div>
                   </div>
                 </div>
               );
@@ -343,6 +347,7 @@ function PlanEditModal({ plan, onSave, onClose }) {
     allow_statistics: plan.allow_statistics || false,
     allow_waha_creation: plan.allow_waha_creation || false,
     allow_export: plan.allow_export || false,
+    allow_api_access: plan.allow_api_access || false,
     is_active: plan.is_active ?? true,
     sort_order: plan.sort_order || 0,
   });
@@ -484,6 +489,15 @@ function PlanEditModal({ plan, onSave, onClose }) {
                 className="w-4 h-4 rounded"
               />
               <span className="text-sm text-gray-700 dark:text-gray-300">ייצוא ושכפול בוטים</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.allow_api_access}
+                onChange={e => setForm({...form, allow_api_access: e.target.checked})}
+                className="w-4 h-4 rounded"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">גישת API (יצירת מפתחות)</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input

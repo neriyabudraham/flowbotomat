@@ -41,9 +41,9 @@ export default function SignupPage() {
   ];
 
   const stats = [
-    { value: '✓', label: 'עורך ויזואלי קל לשימוש' },
-    { value: '✓', label: 'תמיכה בעברית מלאה' },
-    { value: '✓', label: 'ללא ידע בתכנות' },
+    { value: '5 דק׳', label: 'ליצירת בוט' },
+    { value: '14', label: 'ימי ניסיון' },
+    { value: '0', label: 'קוד נדרש' },
   ];
 
   // Password strength indicator

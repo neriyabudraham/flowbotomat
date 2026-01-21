@@ -30,9 +30,9 @@ export default function LoginPage() {
   };
 
   const stats = [
-    { value: '✓', label: 'ללא התקנה נדרשת' },
-    { value: '✓', label: 'תמיכה בעברית מלאה' },
-    { value: '✓', label: 'ניסיון חינם' },
+    { value: '24/7', label: 'זמינות לקוחות' },
+    { value: '100%', label: 'בעברית' },
+    { value: '0₪', label: 'להתחלה' },
   ];
 
   const features = [
