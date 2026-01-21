@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Bot, Play, Pause, Trash2, Edit2, X, Users, Zap, Settings, Tag, Variable, Info, Share2, Download, Upload, Copy } from 'lucide-react';
+import { 
+  Plus, Bot, Play, Pause, Trash2, Edit2, X, Users, Zap, Settings, Tag, Variable, Info, 
+  Share2, Download, Upload, Copy, ChevronRight, Sparkles, Clock, BarChart3, 
+  ArrowLeft, Search, Filter, MoreHorizontal, Calendar, TrendingUp
+} from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useBotsStore from '../store/botsStore';
 import Button from '../components/atoms/Button';
@@ -21,7 +25,6 @@ export default function BotsPage() {
   const [settingsTab, setSettingsTab] = useState('tags');
   const [tags, setTags] = useState([]);
   const [newTag, setNewTag] = useState('');
-  // Variables state
   const [systemVariables, setSystemVariables] = useState([]);
   const [userVariables, setUserVariables] = useState([]);
   const [customSystemVars, setCustomSystemVars] = useState([]);
@@ -33,18 +36,18 @@ export default function BotsPage() {
   const [newSysVarValue, setNewSysVarValue] = useState('');
   const [shareBot, setShareBot] = useState(null);
   const [sharedBots, setSharedBots] = useState([]);
-  const [activeTab, setActiveTab] = useState('my'); // 'my' or 'shared'
+  const [activeTab, setActiveTab] = useState('my');
   const [showImport, setShowImport] = useState(false);
   const [importData, setImportData] = useState(null);
   const [importName, setImportName] = useState('');
   const [importing, setImporting] = useState(false);
-  
-  // Duplicate/Delete modals
   const [showDuplicate, setShowDuplicate] = useState(false);
   const [duplicateBot, setDuplicateBot] = useState(null);
   const [duplicateName, setDuplicateName] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteBotTarget, setDeleteBotTarget] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [totalStats, setTotalStats] = useState({ users: 0, triggers: 0, today: 0 });
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -67,12 +70,16 @@ export default function BotsPage() {
     }
   };
 
-  // Fetch stats for each bot
   useEffect(() => {
+    let total = { users: 0, triggers: 0, today: 0 };
     bots.forEach(async (bot) => {
       try {
         const res = await api.get(`/bots/${bot.id}/stats`);
         setBotStats(prev => ({ ...prev, [bot.id]: res.data }));
+        total.users += res.data.uniqueUsers || 0;
+        total.triggers += res.data.totalTriggers || 0;
+        total.today += res.data.triggersToday || 0;
+        setTotalStats({ ...total });
       } catch (e) {}
     });
   }, [bots]);
@@ -266,623 +273,811 @@ export default function BotsPage() {
     } catch (e) {}
   };
 
+  const filteredBots = bots.filter(bot => 
+    bot.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (bot.description || '').toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const activeBots = bots.filter(b => b.is_active).length;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <header className="bg-white/80 backdrop-blur shadow-sm sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
-          <Button variant="ghost" onClick={() => navigate('/dashboard')}>
-            ← חזרה
-          </Button>
-          <Logo />
-          <div className="flex items-center gap-2">
-            <NotificationsDropdown />
-            <Button variant="ghost" onClick={() => setShowSettings(true)}>
-              <Settings className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost" onClick={() => { logout(); navigate('/login'); }}>
-              התנתק
-            </Button>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50" dir="rtl">
+      {/* Header */}
+      <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={() => navigate('/dashboard')}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+              </button>
+              <div className="h-8 w-px bg-gray-200" />
+              <Logo />
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <NotificationsDropdown />
+              <button 
+                onClick={() => setShowSettings(true)}
+                className="p-2.5 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <Settings className="w-5 h-5 text-gray-600" />
+              </button>
+              <div className="h-8 w-px bg-gray-200" />
+              <button 
+                onClick={() => { logout(); navigate('/login'); }}
+                className="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl text-sm font-medium transition-colors"
+              >
+                התנתק
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-8">
-        {/* Tabs */}
-        <div className="flex items-center gap-4 mb-6 border-b border-gray-200">
-          <button
-            onClick={() => setActiveTab('my')}
-            className={`pb-3 px-1 font-medium transition-colors relative ${
-              activeTab === 'my' 
-                ? 'text-primary-600' 
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            הבוטים שלי
-            <span className="mr-2 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-              {bots.length}
-            </span>
-            {activeTab === 'my' && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary-500" />
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('shared')}
-            className={`pb-3 px-1 font-medium transition-colors relative ${
-              activeTab === 'shared' 
-                ? 'text-primary-600' 
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            שותפו איתי
-            {sharedBots.length > 0 && (
-              <span className="mr-2 text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full">
-                {sharedBots.length}
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        {/* Hero Section */}
+        <div className="relative overflow-hidden bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 rounded-3xl p-8 mb-8">
+          <div className="absolute inset-0 bg-black/10" />
+          <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+          <div className="absolute bottom-0 left-0 w-64 h-64 bg-white/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
+          
+          <div className="relative z-10">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-3 bg-white/20 backdrop-blur rounded-2xl">
+                    <Bot className="w-8 h-8 text-white" />
+                  </div>
+                  <div>
+                    <h1 className="text-3xl font-bold text-white">הבוטים שלי</h1>
+                    <p className="text-white/70">צור, נהל והפעל בוטים אוטומטיים</p>
+                  </div>
+                </div>
+                
+                {/* Quick Stats */}
+                <div className="flex items-center gap-6 mt-6">
+                  <div className="flex items-center gap-2 text-white/90">
+                    <div className="p-2 bg-white/20 rounded-lg">
+                      <Bot className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold">{bots.length}</div>
+                      <div className="text-xs text-white/60">בוטים</div>
+                    </div>
+                  </div>
+                  <div className="h-10 w-px bg-white/20" />
+                  <div className="flex items-center gap-2 text-white/90">
+                    <div className="p-2 bg-green-400/30 rounded-lg">
+                      <Play className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold">{activeBots}</div>
+                      <div className="text-xs text-white/60">פעילים</div>
+                    </div>
+                  </div>
+                  <div className="h-10 w-px bg-white/20" />
+                  <div className="flex items-center gap-2 text-white/90">
+                    <div className="p-2 bg-white/20 rounded-lg">
+                      <Users className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold">{totalStats.users}</div>
+                      <div className="text-xs text-white/60">משתמשים</div>
+                    </div>
+                  </div>
+                  <div className="h-10 w-px bg-white/20" />
+                  <div className="flex items-center gap-2 text-white/90">
+                    <div className="p-2 bg-white/20 rounded-lg">
+                      <Zap className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold">{totalStats.triggers}</div>
+                      <div className="text-xs text-white/60">הפעלות</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowImport(true)}
+                  className="flex items-center gap-2 px-5 py-3 bg-white/20 hover:bg-white/30 backdrop-blur text-white rounded-xl font-medium transition-all"
+                >
+                  <Upload className="w-5 h-5" />
+                  ייבוא
+                </button>
+                <button
+                  onClick={() => setShowCreate(true)}
+                  className="flex items-center gap-2 px-6 py-3 bg-white text-indigo-600 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all hover:scale-105"
+                >
+                  <Plus className="w-5 h-5" />
+                  בוט חדש
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Tabs & Search */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2 p-1.5 bg-gray-100 rounded-2xl">
+            <button
+              onClick={() => setActiveTab('my')}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all ${
+                activeTab === 'my' 
+                  ? 'bg-white text-gray-900 shadow-sm' 
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Bot className="w-4 h-4" />
+              הבוטים שלי
+              <span className={`px-2 py-0.5 rounded-full text-xs ${
+                activeTab === 'my' ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-200 text-gray-500'
+              }`}>
+                {bots.length}
               </span>
-            )}
-            {activeTab === 'shared' && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary-500" />
-            )}
-          </button>
+            </button>
+            <button
+              onClick={() => setActiveTab('shared')}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all ${
+                activeTab === 'shared' 
+                  ? 'bg-white text-gray-900 shadow-sm' 
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Share2 className="w-4 h-4" />
+              שותפו איתי
+              {sharedBots.length > 0 && (
+                <span className={`px-2 py-0.5 rounded-full text-xs ${
+                  activeTab === 'shared' ? 'bg-purple-100 text-purple-600' : 'bg-gray-200 text-gray-500'
+                }`}>
+                  {sharedBots.length}
+                </span>
+              )}
+            </button>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="חיפוש בוט..."
+                className="w-64 pr-10 pl-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition-all"
+              />
+            </div>
+          </div>
         </div>
 
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">
-              {activeTab === 'my' ? 'הבוטים שלי' : 'בוטים ששותפו איתי'}
-            </h1>
-            <p className="text-gray-500 text-sm mt-1">
-              {activeTab === 'my' ? 'צור ונהל בוטים אוטומטיים' : 'בוטים שמשתמשים אחרים שיתפו איתך'}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={() => setShowImport(true)} className="!rounded-xl">
-              <Upload className="w-4 h-4 ml-2" />
-              ייבוא
-            </Button>
-            <Button onClick={() => setShowCreate(true)} className="!rounded-xl">
-              <Plus className="w-4 h-4 ml-2" />
-              בוט חדש
-            </Button>
-          </div>
-        </div>
-
-        {/* Create Modal */}
-        {showCreate && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-800">יצירת בוט חדש</h2>
-                <button onClick={() => setShowCreate(false)} className="p-2 hover:bg-gray-100 rounded-lg">
-                  <X className="w-5 h-5 text-gray-500" />
-                </button>
+        {/* Bots Grid */}
+        {activeTab === 'my' ? (
+          filteredBots.length === 0 ? (
+            <div className="text-center py-20">
+              <div className="w-24 h-24 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                <Bot className="w-12 h-12 text-indigo-400" />
               </div>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">שם הבוט</label>
-                  <input
-                    type="text"
-                    value={newBotName}
-                    onChange={(e) => setNewBotName(e.target.value)}
-                    placeholder="לדוגמה: בוט תמיכה"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-200 outline-none"
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">תיאור</label>
-                  <textarea
-                    value={newBotDesc}
-                    onChange={(e) => setNewBotDesc(e.target.value)}
-                    placeholder="מה הבוט עושה?"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl resize-none"
-                    rows={2}
-                  />
-                </div>
-              </div>
-              
-              <div className="flex gap-3 mt-6">
-                <Button variant="ghost" onClick={() => setShowCreate(false)} className="flex-1 !rounded-xl">ביטול</Button>
-                <Button onClick={handleCreate} className="flex-1 !rounded-xl" disabled={!newBotName.trim()}>צור בוט</Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Settings Modal */}
-        {showSettings && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-2xl max-h-[85vh] overflow-y-auto">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-800">הגדרות מתקדמות</h2>
-                <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-gray-100 rounded-lg">
-                  <X className="w-5 h-5 text-gray-500" />
-                </button>
-              </div>
-              
-              {/* Tabs */}
-              <div className="flex gap-2 mb-6 border-b border-gray-200 pb-2">
+              <h3 className="text-xl font-bold text-gray-800 mb-2">
+                {searchQuery ? 'לא נמצאו תוצאות' : 'אין בוטים עדיין'}
+              </h3>
+              <p className="text-gray-500 mb-8 max-w-sm mx-auto">
+                {searchQuery ? 'נסה לחפש במילים אחרות' : 'צור את הבוט הראשון שלך והתחל לאוטומט את התקשורת עם הלקוחות'}
+              </p>
+              {!searchQuery && (
                 <button
-                  onClick={() => setSettingsTab('tags')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                    settingsTab === 'tags' ? 'bg-primary-100 text-primary-700 font-medium' : 'text-gray-500 hover:bg-gray-100'
-                  }`}
+                  onClick={() => setShowCreate(true)}
+                  className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all hover:scale-105"
                 >
-                  <Tag className="w-4 h-4" /> תגיות
+                  <Sparkles className="w-5 h-5" />
+                  צור את הבוט הראשון
                 </button>
-                <button
-                  onClick={() => { setSettingsTab('constants'); fetchVariables(); }}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                    settingsTab === 'constants' ? 'bg-primary-100 text-primary-700 font-medium' : 'text-gray-500 hover:bg-gray-100'
-                  }`}
-                >
-                  <Settings className="w-4 h-4" /> קבועים
-                </button>
-                <button
-                  onClick={() => { setSettingsTab('variables'); fetchVariables(); }}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                    settingsTab === 'variables' ? 'bg-primary-100 text-primary-700 font-medium' : 'text-gray-500 hover:bg-gray-100'
-                  }`}
-                >
-                  <Variable className="w-4 h-4" /> משתנים
-                </button>
-              </div>
-              
-              {/* Tags Tab */}
-              {settingsTab === 'tags' && (
-                <div className="mb-6">
-                  <h3 className="font-semibold text-gray-700 mb-3">ניהול תגיות</h3>
-                  <p className="text-sm text-gray-500 mb-4">תגיות משמשות לסינון וקטלוג אנשי קשר</p>
-                  <div className="flex gap-2 mb-3">
-                    <input
-                      type="text"
-                      value={newTag}
-                      onChange={(e) => setNewTag(e.target.value)}
-                      placeholder="שם תגית חדשה..."
-                      className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                      onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
-                    />
-                    <Button onClick={handleAddTag} className="!rounded-lg !px-4">
-                      <Plus className="w-4 h-4" />
-                    </Button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {tags.map(tag => (
-                      <span key={tag.id} className="flex items-center gap-1 px-3 py-1 bg-gray-100 rounded-full text-sm">
-                        {tag.name}
-                        <button onClick={() => handleDeleteTag(tag.id)} className="hover:text-red-500">
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                    {tags.length === 0 && <p className="text-gray-400 text-sm">אין תגיות</p>}
-                  </div>
-                </div>
-              )}
-              
-              {/* Constants Tab */}
-              {settingsTab === 'constants' && (
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="font-semibold text-gray-700 mb-2">משתנים קבועים</h3>
-                    <p className="text-sm text-gray-500 mb-4">
-                      משתנים עם ערך קבוע שניתן לשנות פעם אחת ויחול על כל הבוטים.
-                      לדוגמה: שם העסק, מספר טלפון לפניות, כתובת וכו'.
-                    </p>
-                    
-                    {/* Add new constant */}
-                    <div className="p-3 bg-purple-50 rounded-lg mb-4">
-                      <div className="grid grid-cols-3 gap-2 mb-2">
-                        <input
-                          type="text"
-                          value={newSysVarName}
-                          onChange={(e) => setNewSysVarName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                          placeholder="שם (באנגלית)"
-                          className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                          dir="ltr"
-                        />
-                        <input
-                          type="text"
-                          value={newSysVarLabel}
-                          onChange={(e) => setNewSysVarLabel(e.target.value)}
-                          placeholder="תווית (עברית)"
-                          className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                        />
-                        <input
-                          type="text"
-                          value={newSysVarValue}
-                          onChange={(e) => setNewSysVarValue(e.target.value)}
-                          placeholder="ערך"
-                          className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                        />
-                      </div>
-                      <Button 
-                        onClick={handleAddSystemVariable} 
-                        className="!rounded-lg w-full" 
-                        disabled={!newSysVarName.trim() || !newSysVarValue.trim()}
-                      >
-                        <Plus className="w-4 h-4 ml-2" /> הוסף קבוע
-                      </Button>
-                    </div>
-                    
-                    {/* Constants list */}
-                    <div className="space-y-2">
-                      {customSystemVars.map(v => (
-                        <div key={v.id} className="flex items-center gap-2 p-3 bg-white border border-purple-200 rounded-lg">
-                          <code className="text-purple-600 font-mono text-xs bg-purple-50 px-2 py-1 rounded">{`{{${v.name}}}`}</code>
-                          <span className="text-gray-600 text-sm">{v.label || v.name}</span>
-                          <span className="text-gray-400 mx-2">=</span>
-                          <input
-                            type="text"
-                            value={v.default_value || ''}
-                            onChange={(e) => handleUpdateSystemVariable(v.id, e.target.value)}
-                            className="flex-1 px-2 py-1 border border-gray-200 rounded text-sm"
-                          />
-                          <button 
-                            onClick={() => handleDeleteVariable(v.id)} 
-                            className="p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-500"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                      {customSystemVars.length === 0 && (
-                        <p className="text-gray-400 text-sm text-center py-4">
-                          אין משתנים קבועים. הוסף משתנים כמו שם העסק, טלפון וכו'.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {/* Variables Tab */}
-              {settingsTab === 'variables' && (
-                <div className="space-y-6">
-                  {/* System Variables */}
-                  <div>
-                    <h3 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                      משתני מערכת
-                      <span className="text-xs text-gray-400 font-normal">(קריאה בלבד)</span>
-                    </h3>
-                    <div className="grid grid-cols-2 gap-2">
-                      {systemVariables.map(v => (
-                        <div key={v.name} className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg text-sm">
-                          <code className="text-purple-600 font-mono text-xs">{`{{${v.name}}}`}</code>
-                          <span className="text-gray-500">-</span>
-                          <span className="text-gray-700">{v.label}</span>
-                          <Info className="w-3 h-3 text-gray-400 mr-auto" title={v.description} />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  {/* User Variables */}
-                  <div>
-                    <h3 className="font-semibold text-gray-700 mb-3">משתני יוזר</h3>
-                    <p className="text-sm text-gray-500 mb-4">משתנים אלו נשמרים על כל איש קשר ומתעדכנים אוטומטית</p>
-                    
-                    {/* Add new variable */}
-                    <div className="flex gap-2 mb-4 p-3 bg-gray-50 rounded-lg">
-                      <input
-                        type="text"
-                        value={newVarName}
-                        onChange={(e) => setNewVarName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                        placeholder="שם (באנגלית)"
-                        className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                        dir="ltr"
-                      />
-                      <input
-                        type="text"
-                        value={newVarLabel}
-                        onChange={(e) => setNewVarLabel(e.target.value)}
-                        placeholder="תווית (אופציונלי)"
-                        className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                      />
-                      <input
-                        type="text"
-                        value={newVarDefault}
-                        onChange={(e) => setNewVarDefault(e.target.value)}
-                        placeholder="ערך ברירת מחדל"
-                        className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                      />
-                      <Button onClick={handleAddVariable} className="!rounded-lg !px-4" disabled={!newVarName.trim()}>
-                        <Plus className="w-4 h-4" />
-                      </Button>
-                    </div>
-                    
-                    {/* Variables list */}
-                    <div className="space-y-2">
-                      {userVariables.map(v => (
-                        <div key={v.id} className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm">
-                          <code className="text-indigo-600 font-mono text-xs">{`{{${v.name}}}`}</code>
-                          <span className="text-gray-500">-</span>
-                          <span className="text-gray-700">{v.label || v.name}</span>
-                          {v.default_value && (
-                            <span className="text-xs text-gray-400">(ברירת מחדל: {v.default_value})</span>
-                          )}
-                          <button 
-                            onClick={() => handleDeleteVariable(v.id)} 
-                            className="mr-auto p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-500"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                      {userVariables.length === 0 && (
-                        <p className="text-gray-400 text-sm text-center py-4">
-                          אין משתני יוזר. משתנים יתווספו אוטומטית כשתשתמש בהם בבוטים.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-6 pt-4 border-t border-gray-200">
-                <Button variant="ghost" onClick={() => setShowSettings(false)} className="w-full !rounded-xl">סגור</Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Import Modal */}
-        {showImport && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={handleCancelImport}>
-            <div className="bg-white rounded-2xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-800">ייבוא בוט</h2>
-                <button onClick={handleCancelImport} className="p-2 hover:bg-gray-100 rounded-lg">
-                  <X className="w-5 h-5 text-gray-500" />
-                </button>
-              </div>
-              
-              {!importData ? (
-                // Step 1: Select file
-                <div 
-                  className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center hover:border-primary-400 transition-colors cursor-pointer"
-                  onClick={() => document.getElementById('import-file').click()}
-                >
-                  <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-600 mb-2">לחץ לבחירת קובץ</p>
-                  <p className="text-xs text-gray-400">קובץ JSON שיוצא ממערכת FlowBotomat</p>
-                  <input
-                    id="import-file"
-                    type="file"
-                    accept=".json"
-                    className="hidden"
-                    onChange={(e) => e.target.files[0] && handleFileSelect(e.target.files[0])}
-                  />
-                </div>
-              ) : (
-                // Step 2: Enter name and confirm
-                <div className="space-y-4">
-                  <div className="p-4 bg-green-50 rounded-xl text-center">
-                    <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-2">
-                      <Bot className="w-6 h-6 text-green-600" />
-                    </div>
-                    <p className="text-green-700 font-medium">קובץ נקרא בהצלחה!</p>
-                    {importData.bot.description && (
-                      <p className="text-xs text-green-600 mt-1">{importData.bot.description}</p>
-                    )}
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">שם הבוט</label>
-                    <input
-                      type="text"
-                      value={importName}
-                      onChange={(e) => setImportName(e.target.value)}
-                      placeholder="הזן שם לבוט..."
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-200 outline-none"
-                      autoFocus
-                    />
-                  </div>
-                  
-                  <div className="flex gap-3 pt-2">
-                    <Button 
-                      variant="ghost" 
-                      onClick={handleCancelImport} 
-                      className="flex-1 !rounded-xl"
-                    >
-                      ביטול
-                    </Button>
-                    <Button 
-                      onClick={handleImportConfirm} 
-                      className="flex-1 !rounded-xl"
-                      disabled={!importName.trim() || importing}
-                    >
-                      {importing ? 'מייבא...' : 'ייבא בוט'}
-                    </Button>
-                  </div>
-                </div>
               )}
             </div>
-          </div>
-        )}
-
-        {/* Bots List */}
-        <div className="space-y-4">
-          {activeTab === 'my' ? (
-            // My Bots Tab
-            bots.length === 0 ? (
-              <div className="text-center py-16">
-                <div className="w-20 h-20 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <Bot className="w-10 h-10 text-gray-400" />
-                </div>
-                <h3 className="text-lg font-semibold text-gray-700 mb-1">אין בוטים עדיין</h3>
-                <p className="text-gray-500 mb-6">צור את הבוט הראשון שלך</p>
-                <Button onClick={() => setShowCreate(true)} className="!rounded-xl">
-                  <Plus className="w-4 h-4 ml-2" />צור בוט ראשון
-                </Button>
-              </div>
-            ) : (
-              bots.map((bot) => {
+          ) : (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {filteredBots.map((bot) => {
                 const stats = botStats[bot.id] || {};
                 return (
                   <div
                     key={bot.id}
                     onClick={() => navigate(`/bots/${bot.id}`)}
-                    className="bg-white/80 backdrop-blur rounded-2xl border border-gray-200 p-5 cursor-pointer hover:shadow-lg hover:border-primary-200 transition-all group"
+                    className="group relative bg-white rounded-2xl border border-gray-100 hover:border-indigo-200 shadow-sm hover:shadow-xl transition-all cursor-pointer overflow-hidden"
                   >
-                    <div className="flex items-center gap-4">
-                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
-                        bot.is_active ? 'bg-gradient-to-br from-green-400 to-green-500' : 'bg-gray-100'
-                      }`}>
-                        <Bot className={`w-7 h-7 ${bot.is_active ? 'text-white' : 'text-gray-400'}`} />
+                    {/* Status indicator */}
+                    <div className={`absolute top-4 left-4 px-3 py-1 rounded-full text-xs font-medium ${
+                      bot.is_active 
+                        ? 'bg-green-100 text-green-700' 
+                        : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {bot.is_active ? '● פעיל' : '○ מושהה'}
+                    </div>
+                    
+                    {/* Header */}
+                    <div className="p-6 pb-4">
+                      <div className="flex items-start gap-4">
+                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
+                          bot.is_active 
+                            ? 'bg-gradient-to-br from-indigo-500 to-purple-600' 
+                            : 'bg-gray-100'
+                        }`}>
+                          <Bot className={`w-7 h-7 ${bot.is_active ? 'text-white' : 'text-gray-400'}`} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-bold text-gray-900 text-lg truncate">{bot.name}</h3>
+                          <p className="text-sm text-gray-500 truncate mt-1">
+                            {bot.description || 'ללא תיאור'}
+                          </p>
+                        </div>
                       </div>
-                      
+                    </div>
+                    
+                    {/* Stats */}
+                    <div className="px-6 py-4 bg-gradient-to-b from-gray-50/50 to-gray-50 border-t border-gray-100">
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="text-center">
+                          <div className="flex items-center justify-center gap-1 text-gray-400 mb-1">
+                            <Users className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="font-bold text-gray-900">{stats.uniqueUsers || 0}</div>
+                          <div className="text-xs text-gray-400">משתמשים</div>
+                        </div>
+                        <div className="text-center border-x border-gray-200">
+                          <div className="flex items-center justify-center gap-1 text-gray-400 mb-1">
+                            <Zap className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="font-bold text-gray-900">{stats.totalTriggers || 0}</div>
+                          <div className="text-xs text-gray-400">הפעלות</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="flex items-center justify-center gap-1 text-gray-400 mb-1">
+                            <TrendingUp className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="font-bold text-green-600">{stats.triggersToday || 0}</div>
+                          <div className="text-xs text-gray-400">היום</div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Actions */}
+                    <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={(e) => handleToggle(e, bot)}
+                        className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          bot.is_active 
+                            ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' 
+                            : 'bg-green-100 text-green-700 hover:bg-green-200'
+                        }`}
+                      >
+                        {bot.is_active ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                        {bot.is_active ? 'השהה' : 'הפעל'}
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); navigate(`/bots/${bot.id}`); }}
+                        className="p-2 bg-indigo-100 text-indigo-600 hover:bg-indigo-200 rounded-lg transition-colors"
+                        title="עריכה"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => handleDuplicateClick(e, bot)}
+                        className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
+                        title="שכפול"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => handleExport(e, bot)}
+                        className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
+                        title="ייצוא"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setShareBot(bot); }}
+                        className="p-2 bg-purple-100 text-purple-600 hover:bg-purple-200 rounded-lg transition-colors"
+                        title="שיתוף"
+                      >
+                        <Share2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => handleDeleteClick(e, bot)}
+                        className="p-2 bg-red-100 text-red-600 hover:bg-red-200 rounded-lg transition-colors"
+                        title="מחיקה"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              
+              {/* Create New Card */}
+              <div
+                onClick={() => setShowCreate(true)}
+                className="group relative bg-gradient-to-br from-gray-50 to-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/30 transition-all cursor-pointer flex items-center justify-center min-h-[280px]"
+              >
+                <div className="text-center">
+                  <div className="w-16 h-16 bg-gray-100 group-hover:bg-indigo-100 rounded-2xl flex items-center justify-center mx-auto mb-4 transition-colors">
+                    <Plus className="w-8 h-8 text-gray-400 group-hover:text-indigo-500 transition-colors" />
+                  </div>
+                  <div className="font-semibold text-gray-600 group-hover:text-indigo-600 transition-colors">צור בוט חדש</div>
+                  <div className="text-sm text-gray-400 mt-1">לחץ להתחלה</div>
+                </div>
+              </div>
+            </div>
+          )
+        ) : (
+          // Shared Bots Tab
+          sharedBots.length === 0 ? (
+            <div className="text-center py-20">
+              <div className="w-24 h-24 bg-gradient-to-br from-purple-100 to-pink-100 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                <Share2 className="w-12 h-12 text-purple-400" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-800 mb-2">אין בוטים משותפים</h3>
+              <p className="text-gray-500 max-w-sm mx-auto">
+                כשמישהו ישתף איתך בוט, הוא יופיע כאן ותוכל לצפות ולערוך אותו
+              </p>
+            </div>
+          ) : (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {sharedBots.map((bot) => (
+                <div
+                  key={bot.id}
+                  onClick={() => navigate(`/bots/${bot.id}`)}
+                  className="group relative bg-white rounded-2xl border border-purple-100 hover:border-purple-300 shadow-sm hover:shadow-xl transition-all cursor-pointer overflow-hidden"
+                >
+                  {/* Permission badge */}
+                  <div className={`absolute top-4 left-4 px-3 py-1 rounded-full text-xs font-medium ${
+                    bot.permission === 'admin' ? 'bg-purple-100 text-purple-700' :
+                    bot.permission === 'edit' ? 'bg-blue-100 text-blue-700' :
+                    'bg-gray-100 text-gray-600'
+                  }`}>
+                    {bot.permission === 'admin' ? '👑 מנהל' : bot.permission === 'edit' ? '✏️ עריכה' : '👁️ צפייה'}
+                  </div>
+                  
+                  <div className="p-6">
+                    <div className="flex items-start gap-4">
+                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                        <Bot className="w-7 h-7 text-white" />
+                      </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-semibold text-gray-800">{bot.name}</h3>
-                          {bot.is_active && (
-                            <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">פעיל</span>
-                          )}
-                        </div>
-                        <p className="text-sm text-gray-500 truncate">{bot.description || 'ללא תיאור'}</p>
-                        
-                        {/* Stats */}
-                        <div className="flex items-center gap-4 mt-2 text-xs text-gray-400">
-                          <span className="flex items-center gap-1">
-                            <Users className="w-3 h-3" />
-                            {stats.uniqueUsers || 0} יוזרים
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Zap className="w-3 h-3" />
-                            {stats.totalTriggers || 0} הפעלות
-                          </span>
-                          <span className="flex items-center gap-1">
-                            היום: {stats.triggersToday || 0}
-                          </span>
-                        </div>
+                        <h3 className="font-bold text-gray-900 text-lg truncate">{bot.name}</h3>
+                        <p className="text-sm text-gray-500 truncate mt-1">
+                          {bot.description || 'ללא תיאור'}
+                        </p>
+                        <p className="text-xs text-purple-500 mt-2 flex items-center gap-1">
+                          <Users className="w-3 h-3" />
+                          שותף ע״י: {bot.owner_name || bot.owner_email}
+                        </p>
                       </div>
-
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={(e) => handleToggle(e, bot)}
-                          className={`p-2 rounded-lg transition-colors ${
-                            bot.is_active ? 'bg-green-100 text-green-600 hover:bg-green-200' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                          }`}
-                          title={bot.is_active ? 'השהה' : 'הפעל'}
-                        >
-                          {bot.is_active ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); navigate(`/bots/${bot.id}`); }}
-                          className="p-2 rounded-lg bg-blue-100 text-blue-600 hover:bg-blue-200"
-                          title="עריכה"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
+                    </div>
+                  </div>
+                  
+                  <div className="px-4 py-3 bg-purple-50/50 border-t border-purple-100 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {(bot.permission === 'edit' || bot.permission === 'admin') && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); navigate(`/bots/${bot.id}`); }}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-100 text-indigo-600 hover:bg-indigo-200 rounded-lg text-sm font-medium transition-colors"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                        עריכה
+                      </button>
+                    )}
+                    {bot.allow_export && (
+                      <>
                         <button
                           onClick={(e) => handleDuplicateClick(e, bot)}
-                          className="p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
                           title="שכפול"
                         >
                           <Copy className="w-4 h-4" />
                         </button>
                         <button
                           onClick={(e) => handleExport(e, bot)}
-                          className="p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
                           title="ייצוא"
                         >
                           <Download className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setShareBot(bot); }}
-                          className="p-2 rounded-lg bg-purple-100 text-purple-600 hover:bg-purple-200"
-                          title="שיתוף"
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        )}
+      </main>
+
+      {/* Create Modal */}
+      {showCreate && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowCreate(false)}>
+          <div className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-2xl">
+                  <Sparkles className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">יצירת בוט חדש</h2>
+                  <p className="text-sm text-gray-500">התחל לבנות אוטומציה</p>
+                </div>
+              </div>
+              <button onClick={() => setShowCreate(false)} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+            
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">שם הבוט</label>
+                <input
+                  type="text"
+                  value={newBotName}
+                  onChange={(e) => setNewBotName(e.target.value)}
+                  placeholder="לדוגמה: בוט תמיכה, בוט מכירות..."
+                  className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none transition-all text-lg"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">תיאור (אופציונלי)</label>
+                <textarea
+                  value={newBotDesc}
+                  onChange={(e) => setNewBotDesc(e.target.value)}
+                  placeholder="מה הבוט עושה? למי הוא מיועד?"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl resize-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none transition-all"
+                  rows={3}
+                />
+              </div>
+            </div>
+            
+            <div className="flex gap-3 mt-8">
+              <button 
+                onClick={() => setShowCreate(false)} 
+                className="flex-1 px-6 py-3.5 border border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors"
+              >
+                ביטול
+              </button>
+              <button 
+                onClick={handleCreate} 
+                disabled={!newBotName.trim()}
+                className="flex-1 px-6 py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-bold shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                צור בוט
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowSettings(false)}>
+          <div className="bg-white rounded-3xl p-6 w-full max-w-2xl shadow-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-gray-100 rounded-2xl">
+                  <Settings className="w-6 h-6 text-gray-600" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">הגדרות מתקדמות</h2>
+                  <p className="text-sm text-gray-500">תגיות, משתנים וקבועים</p>
+                </div>
+              </div>
+              <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-gray-100 rounded-xl">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+            
+            {/* Tabs */}
+            <div className="flex gap-2 mb-6 p-1.5 bg-gray-100 rounded-xl">
+              <button
+                onClick={() => setSettingsTab('tags')}
+                className={`flex items-center gap-2 flex-1 px-4 py-2.5 rounded-lg font-medium transition-all ${
+                  settingsTab === 'tags' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <Tag className="w-4 h-4" /> תגיות
+              </button>
+              <button
+                onClick={() => { setSettingsTab('constants'); fetchVariables(); }}
+                className={`flex items-center gap-2 flex-1 px-4 py-2.5 rounded-lg font-medium transition-all ${
+                  settingsTab === 'constants' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <Settings className="w-4 h-4" /> קבועים
+              </button>
+              <button
+                onClick={() => { setSettingsTab('variables'); fetchVariables(); }}
+                className={`flex items-center gap-2 flex-1 px-4 py-2.5 rounded-lg font-medium transition-all ${
+                  settingsTab === 'variables' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <Variable className="w-4 h-4" /> משתנים
+              </button>
+            </div>
+            
+            {/* Tags Tab */}
+            {settingsTab === 'tags' && (
+              <div>
+                <p className="text-sm text-gray-500 mb-4">תגיות משמשות לסינון וקטלוג אנשי קשר</p>
+                <div className="flex gap-2 mb-4">
+                  <input
+                    type="text"
+                    value={newTag}
+                    onChange={(e) => setNewTag(e.target.value)}
+                    placeholder="שם תגית חדשה..."
+                    className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none"
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
+                  />
+                  <button 
+                    onClick={handleAddTag} 
+                    className="px-5 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors"
+                  >
+                    <Plus className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {tags.map(tag => (
+                    <span key={tag.id} className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-xl text-sm font-medium">
+                      {tag.name}
+                      <button onClick={() => handleDeleteTag(tag.id)} className="hover:text-red-500 transition-colors">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </span>
+                  ))}
+                  {tags.length === 0 && <p className="text-gray-400 text-sm">אין תגיות</p>}
+                </div>
+              </div>
+            )}
+            
+            {/* Constants Tab */}
+            {settingsTab === 'constants' && (
+              <div className="space-y-6">
+                <p className="text-sm text-gray-500">
+                  משתנים עם ערך קבוע שניתן לשנות פעם אחת ויחול על כל הבוטים.
+                </p>
+                
+                <div className="p-4 bg-purple-50 rounded-xl">
+                  <div className="grid grid-cols-3 gap-3 mb-3">
+                    <input
+                      type="text"
+                      value={newSysVarName}
+                      onChange={(e) => setNewSysVarName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                      placeholder="שם (באנגלית)"
+                      className="px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm"
+                      dir="ltr"
+                    />
+                    <input
+                      type="text"
+                      value={newSysVarLabel}
+                      onChange={(e) => setNewSysVarLabel(e.target.value)}
+                      placeholder="תווית (עברית)"
+                      className="px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={newSysVarValue}
+                      onChange={(e) => setNewSysVarValue(e.target.value)}
+                      placeholder="ערך"
+                      className="px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm"
+                    />
+                  </div>
+                  <button 
+                    onClick={handleAddSystemVariable} 
+                    disabled={!newSysVarName.trim() || !newSysVarValue.trim()}
+                    className="w-full px-4 py-3 bg-purple-600 text-white rounded-xl font-medium hover:bg-purple-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-5 h-5" /> הוסף קבוע
+                  </button>
+                </div>
+                
+                <div className="space-y-2">
+                  {customSystemVars.map(v => (
+                    <div key={v.id} className="flex items-center gap-3 p-4 bg-white border border-purple-200 rounded-xl">
+                      <code className="text-purple-600 font-mono text-sm bg-purple-50 px-3 py-1.5 rounded-lg">{`{{${v.name}}}`}</code>
+                      <span className="text-gray-600 text-sm">{v.label || v.name}</span>
+                      <span className="text-gray-400">=</span>
+                      <input
+                        type="text"
+                        value={v.default_value || ''}
+                        onChange={(e) => handleUpdateSystemVariable(v.id, e.target.value)}
+                        className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                      />
+                      <button 
+                        onClick={() => handleDeleteVariable(v.id)} 
+                        className="p-2 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                  ))}
+                  {customSystemVars.length === 0 && (
+                    <p className="text-gray-400 text-sm text-center py-6">
+                      אין משתנים קבועים. הוסף משתנים כמו שם העסק, טלפון וכו'.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            {/* Variables Tab */}
+            {settingsTab === 'variables' && (
+              <div className="space-y-6">
+                {/* System Variables */}
+                <div>
+                  <h3 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    משתני מערכת
+                    <span className="text-xs text-gray-400 font-normal bg-gray-100 px-2 py-0.5 rounded-full">קריאה בלבד</span>
+                  </h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    {systemVariables.map(v => (
+                      <div key={v.name} className="flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-xl text-sm">
+                        <code className="text-purple-600 font-mono text-xs">{`{{${v.name}}}`}</code>
+                        <span className="text-gray-500">-</span>
+                        <span className="text-gray-700">{v.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* User Variables */}
+                <div>
+                  <h3 className="font-semibold text-gray-700 mb-3">משתני יוזר</h3>
+                  <p className="text-sm text-gray-500 mb-4">משתנים אלו נשמרים על כל איש קשר</p>
+                  
+                  <div className="flex gap-2 mb-4 p-4 bg-gray-50 rounded-xl">
+                    <input
+                      type="text"
+                      value={newVarName}
+                      onChange={(e) => setNewVarName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                      placeholder="שם (באנגלית)"
+                      className="flex-1 px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm"
+                      dir="ltr"
+                    />
+                    <input
+                      type="text"
+                      value={newVarLabel}
+                      onChange={(e) => setNewVarLabel(e.target.value)}
+                      placeholder="תווית"
+                      className="flex-1 px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={newVarDefault}
+                      onChange={(e) => setNewVarDefault(e.target.value)}
+                      placeholder="ברירת מחדל"
+                      className="flex-1 px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm"
+                    />
+                    <button 
+                      onClick={handleAddVariable} 
+                      disabled={!newVarName.trim()}
+                      className="px-5 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                    >
+                      <Plus className="w-5 h-5" />
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    {userVariables.map(v => (
+                      <div key={v.id} className="flex items-center gap-3 px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm">
+                        <code className="text-indigo-600 font-mono text-xs">{`{{${v.name}}}`}</code>
+                        <span className="text-gray-500">-</span>
+                        <span className="text-gray-700">{v.label || v.name}</span>
+                        {v.default_value && (
+                          <span className="text-xs text-gray-400">(ברירת מחדל: {v.default_value})</span>
+                        )}
+                        <button 
+                          onClick={() => handleDeleteVariable(v.id)} 
+                          className="mr-auto p-2 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
                         >
-                          <Share2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={(e) => handleDeleteClick(e, bot)}
-                          className="p-2 rounded-lg bg-red-100 text-red-600 hover:bg-red-200"
-                          title="מחיקה"
-                        >
-                          <Trash2 className="w-4 h-4" />
+                          <X className="w-4 h-4" />
                         </button>
                       </div>
-                    </div>
+                    ))}
+                    {userVariables.length === 0 && (
+                      <p className="text-gray-400 text-sm text-center py-6">
+                        אין משתני יוזר. משתנים יתווספו אוטומטית כשתשתמש בהם בבוטים.
+                      </p>
+                    )}
                   </div>
-                );
-              })
-            )
-          ) : (
-            // Shared Bots Tab
-            sharedBots.length === 0 ? (
-              <div className="text-center py-16">
-                <div className="w-20 h-20 bg-purple-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <Share2 className="w-10 h-10 text-purple-300" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-700 mb-1">אין בוטים משותפים</h3>
-                <p className="text-gray-500">כשמישהו ישתף איתך בוט, הוא יופיע כאן</p>
+              </div>
+            )}
+
+            <div className="mt-6 pt-4 border-t border-gray-100">
+              <button 
+                onClick={() => setShowSettings(false)} 
+                className="w-full px-6 py-3 border border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors"
+              >
+                סגור
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Modal */}
+      {showImport && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={handleCancelImport}>
+          <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-100 rounded-2xl">
+                  <Upload className="w-6 h-6 text-blue-600" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900">ייבוא בוט</h2>
+              </div>
+              <button onClick={handleCancelImport} className="p-2 hover:bg-gray-100 rounded-xl">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+            
+            {!importData ? (
+              <div 
+                className="border-2 border-dashed border-gray-200 rounded-2xl p-10 text-center hover:border-indigo-400 hover:bg-indigo-50/30 transition-all cursor-pointer"
+                onClick={() => document.getElementById('import-file').click()}
+              >
+                <Upload className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-600 font-medium mb-2">לחץ לבחירת קובץ</p>
+                <p className="text-xs text-gray-400">קובץ JSON שיוצא ממערכת FlowBotomat</p>
+                <input
+                  id="import-file"
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={(e) => e.target.files[0] && handleFileSelect(e.target.files[0])}
+                />
               </div>
             ) : (
-              sharedBots.map((bot) => (
-                <div
-                  key={bot.id}
-                  onClick={() => navigate(`/bots/${bot.id}`)}
-                  className="bg-white/80 backdrop-blur rounded-2xl border border-purple-200 p-5 cursor-pointer hover:shadow-lg hover:border-purple-300 transition-all group"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-400 to-purple-500 flex items-center justify-center">
-                      <Bot className="w-7 h-7 text-white" />
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-gray-800">{bot.name}</h3>
-                        <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
-                          bot.permission === 'admin' ? 'bg-purple-100 text-purple-700' :
-                          bot.permission === 'edit' ? 'bg-blue-100 text-blue-700' :
-                          'bg-gray-100 text-gray-600'
-                        }`}>
-                          {bot.permission === 'admin' ? 'מנהל' : bot.permission === 'edit' ? 'עריכה' : 'צפייה'}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-500 truncate">{bot.description || 'ללא תיאור'}</p>
-                      <p className="text-xs text-purple-500 mt-1">
-                        שותף על ידי: {bot.owner_name || bot.owner_email}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {(bot.permission === 'edit' || bot.permission === 'admin') && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); navigate(`/bots/${bot.id}`); }}
-                          className="p-2 rounded-lg bg-blue-100 text-blue-600 hover:bg-blue-200"
-                          title="עריכה"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                      )}
-                      {bot.allow_export && (
-                        <>
-                          <button
-                            onClick={(e) => handleDuplicateClick(e, bot)}
-                            className="p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"
-                            title="שכפול"
-                          >
-                            <Copy className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={(e) => handleExport(e, bot)}
-                            className="p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200"
-                            title="ייצוא"
-                          >
-                            <Download className="w-4 h-4" />
-                          </button>
-                        </>
-                      )}
-                    </div>
+              <div className="space-y-5">
+                <div className="p-6 bg-green-50 rounded-2xl text-center">
+                  <div className="w-14 h-14 bg-green-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                    <Bot className="w-7 h-7 text-green-600" />
                   </div>
+                  <p className="text-green-700 font-bold">קובץ נקרא בהצלחה!</p>
+                  {importData.bot.description && (
+                    <p className="text-sm text-green-600 mt-1">{importData.bot.description}</p>
+                  )}
                 </div>
-              ))
-            )
-          )}
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">שם הבוט</label>
+                  <input
+                    type="text"
+                    value={importName}
+                    onChange={(e) => setImportName(e.target.value)}
+                    placeholder="הזן שם לבוט..."
+                    className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-200 outline-none"
+                    autoFocus
+                  />
+                </div>
+                
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    onClick={handleCancelImport} 
+                    className="flex-1 px-6 py-3.5 border border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50"
+                  >
+                    ביטול
+                  </button>
+                  <button 
+                    onClick={handleImportConfirm} 
+                    disabled={!importName.trim() || importing}
+                    className="flex-1 px-6 py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-bold shadow-lg disabled:opacity-50"
+                  >
+                    {importing ? 'מייבא...' : 'ייבא בוט'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      </main>
+      )}
 
       {/* Share Bot Modal */}
       {shareBot && (
@@ -891,35 +1086,44 @@ export default function BotsPage() {
 
       {/* Duplicate Modal */}
       {showDuplicate && duplicateBot && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowDuplicate(false)}>
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowDuplicate(false)}>
+          <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-800">שכפול בוט</h2>
-              <button onClick={() => setShowDuplicate(false)} className="p-2 hover:bg-gray-100 rounded-lg">
-                <X className="w-5 h-5 text-gray-500" />
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-purple-100 rounded-2xl">
+                  <Copy className="w-6 h-6 text-purple-600" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900">שכפול בוט</h2>
+              </div>
+              <button onClick={() => setShowDuplicate(false)} className="p-2 hover:bg-gray-100 rounded-xl">
+                <X className="w-5 h-5 text-gray-400" />
               </button>
             </div>
             
-            <div className="p-4 bg-purple-50 rounded-xl mb-4 text-center">
-              <Copy className="w-8 h-8 text-purple-500 mx-auto mb-2" />
-              <p className="text-purple-700 text-sm">יוצר עותק של "<span className="font-medium">{duplicateBot.name}</span>"</p>
+            <div className="p-6 bg-purple-50 rounded-2xl mb-6 text-center">
+              <p className="text-purple-700">יוצר עותק של</p>
+              <p className="text-purple-900 font-bold text-lg">"{duplicateBot.name}"</p>
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">שם הבוט החדש</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">שם הבוט החדש</label>
               <input
                 type="text"
                 value={duplicateName}
                 onChange={(e) => setDuplicateName(e.target.value)}
                 placeholder="הזן שם..."
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-200 outline-none"
+                className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-200 outline-none"
                 autoFocus
               />
             </div>
             
             <div className="flex gap-3 mt-6">
-              <Button variant="ghost" onClick={() => setShowDuplicate(false)} className="flex-1 !rounded-xl">ביטול</Button>
-              <Button onClick={handleDuplicateConfirm} className="flex-1 !rounded-xl" disabled={!duplicateName.trim()}>שכפל</Button>
+              <button onClick={() => setShowDuplicate(false)} className="flex-1 px-6 py-3.5 border border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50">
+                ביטול
+              </button>
+              <button onClick={handleDuplicateConfirm} disabled={!duplicateName.trim()} className="flex-1 px-6 py-3.5 bg-purple-600 text-white rounded-xl font-bold shadow-lg hover:bg-purple-700 disabled:opacity-50">
+                שכפל
+              </button>
             </div>
           </div>
         </div>
@@ -927,25 +1131,33 @@ export default function BotsPage() {
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && deleteBotTarget && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowDeleteConfirm(false)}>
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-800">מחיקת בוט</h2>
-              <button onClick={() => setShowDeleteConfirm(false)} className="p-2 hover:bg-gray-100 rounded-lg">
-                <X className="w-5 h-5 text-gray-500" />
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-red-100 rounded-2xl">
+                  <Trash2 className="w-6 h-6 text-red-600" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900">מחיקת בוט</h2>
+              </div>
+              <button onClick={() => setShowDeleteConfirm(false)} className="p-2 hover:bg-gray-100 rounded-xl">
+                <X className="w-5 h-5 text-gray-400" />
               </button>
             </div>
             
-            <div className="p-4 bg-red-50 rounded-xl mb-4 text-center">
-              <Trash2 className="w-8 h-8 text-red-500 mx-auto mb-2" />
+            <div className="p-6 bg-red-50 rounded-2xl mb-6 text-center">
               <p className="text-red-700">האם למחוק את הבוט</p>
-              <p className="text-red-800 font-bold text-lg">"{deleteBotTarget.name}"?</p>
-              <p className="text-red-600 text-sm mt-2">פעולה זו לא ניתנת לביטול</p>
+              <p className="text-red-900 font-bold text-xl my-2">"{deleteBotTarget.name}"?</p>
+              <p className="text-red-600 text-sm">פעולה זו לא ניתנת לביטול</p>
             </div>
             
             <div className="flex gap-3">
-              <Button variant="ghost" onClick={() => setShowDeleteConfirm(false)} className="flex-1 !rounded-xl">ביטול</Button>
-              <Button onClick={handleDeleteConfirm} className="flex-1 !rounded-xl !bg-red-500 hover:!bg-red-600">מחק</Button>
+              <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 px-6 py-3.5 border border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50">
+                ביטול
+              </button>
+              <button onClick={handleDeleteConfirm} className="flex-1 px-6 py-3.5 bg-red-600 text-white rounded-xl font-bold shadow-lg hover:bg-red-700">
+                מחק לצמיתות
+              </button>
             </div>
           </div>
         </div>
