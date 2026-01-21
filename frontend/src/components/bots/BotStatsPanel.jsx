@@ -35,8 +35,26 @@ export default function BotStatsPanel({ botId }) {
     fetchData();
   };
 
-  const handleExport = () => {
-    window.open(`${api.defaults.baseURL}/bots/${botId}/stats/export?days=${days}`, '_blank');
+  const handleExport = async () => {
+    try {
+      const response = await api.get(`/bots/${botId}/stats/export`, {
+        params: { days },
+        responseType: 'blob'
+      });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `bot_stats_${botId}_${days}days.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('שגיאה בייצוא הנתונים');
+    }
   };
 
   if (loading) {

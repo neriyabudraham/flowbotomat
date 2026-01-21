@@ -136,9 +136,33 @@ export default function BotEditorPage() {
   const handleNodeUpdate = useCallback((nodeId, newData) => {
     setFlowData(prev => {
       if (!prev) return prev;
+      
+      const node = prev.nodes.find(n => n.id === nodeId);
+      let newEdges = prev.edges;
+      
+      // If updating a list node's buttons, clean up invalid edges
+      if (node?.type === 'list' && newData.buttons) {
+        const validHandles = new Set(
+          newData.buttons.map((_, i) => String(i))
+        );
+        validHandles.add('timeout'); // Always keep timeout handle
+        
+        newEdges = prev.edges.filter(edge => {
+          if (edge.source !== nodeId) return true;
+          if (!edge.sourceHandle) return true;
+          return validHandles.has(edge.sourceHandle);
+        });
+        
+        const removedEdges = prev.edges.length - newEdges.length;
+        if (removedEdges > 0) {
+          console.log(`[FlowEditor] Removed ${removedEdges} invalid edges from list node`);
+        }
+      }
+      
       const updated = {
         ...prev,
         nodes: prev.nodes.map(n => n.id === nodeId ? { ...n, data: { ...n.data, ...newData } } : n),
+        edges: newEdges,
       };
       setHasChanges(checkForChanges(updated));
       return updated;
@@ -365,13 +389,15 @@ export default function BotEditorPage() {
           </div>
           
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowStats(true)}
-              className="flex items-center justify-center gap-2 h-10 px-4 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-xl font-medium transition-all"
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span>סטטיסטיקות</span>
-            </button>
+            {canEdit && (
+              <button
+                onClick={() => setShowStats(true)}
+                className="flex items-center justify-center gap-2 h-10 px-4 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-xl font-medium transition-all"
+              >
+                <BarChart3 className="w-4 h-4" />
+                <span>סטטיסטיקות</span>
+              </button>
+            )}
             
             <button
               onClick={() => setShowPreview(true)}
