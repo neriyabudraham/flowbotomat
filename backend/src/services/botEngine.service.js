@@ -167,24 +167,33 @@ class BotEngine {
       'SELECT * FROM bot_sessions WHERE bot_id = $1 AND contact_id = $2',
       [botId, contactId]
     );
-    return result.rows[0] || null;
+    const session = result.rows[0] || null;
+    if (session) {
+      console.log('[BotEngine] 📋 Found session:', { botId, contactId, waitingFor: session.waiting_for, nodeId: session.current_node_id });
+    }
+    return session;
   }
   
   // Save session state
   async saveSession(botId, contactId, nodeId, waitingFor, waitingData = {}, timeoutSeconds = null) {
-    const expiresAt = timeoutSeconds 
-      ? new Date(Date.now() + timeoutSeconds * 1000) 
-      : null;
-    
-    await db.query(
-      `INSERT INTO bot_sessions (bot_id, contact_id, current_node_id, waiting_for, waiting_data, expires_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW())
-       ON CONFLICT (bot_id, contact_id) 
-       DO UPDATE SET current_node_id = $3, waiting_for = $4, waiting_data = $5, expires_at = $6, updated_at = NOW()`,
-      [botId, contactId, nodeId, waitingFor, JSON.stringify(waitingData), expiresAt]
-    );
-    
-    console.log('[BotEngine] 💾 Session saved:', { nodeId, waitingFor, timeout: timeoutSeconds });
+    try {
+      const expiresAt = timeoutSeconds 
+        ? new Date(Date.now() + timeoutSeconds * 1000) 
+        : null;
+      
+      await db.query(
+        `INSERT INTO bot_sessions (bot_id, contact_id, current_node_id, waiting_for, waiting_data, expires_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())
+         ON CONFLICT (bot_id, contact_id) 
+         DO UPDATE SET current_node_id = $3, waiting_for = $4, waiting_data = $5, expires_at = $6, updated_at = NOW()`,
+        [botId, contactId, nodeId, waitingFor, JSON.stringify(waitingData), expiresAt]
+      );
+      
+      console.log('[BotEngine] 💾 Session saved:', { botId, contactId, nodeId, waitingFor, timeout: timeoutSeconds });
+    } catch (error) {
+      console.error('[BotEngine] ❌ Error saving session:', error.message);
+      throw error;
+    }
   }
   
   // Clear session
@@ -1073,6 +1082,7 @@ class BotEngine {
     
     // Save session to wait for response (including trigger message for variable replacement)
     if (botId) {
+      console.log('[BotEngine] 💾 Saving registration session:', { botId, contactId: contact.id, nodeId: node.id });
       await this.saveSession(
         botId,
         contact.id,
@@ -1087,7 +1097,9 @@ class BotEngine {
         },
         timeoutSeconds
       );
-      console.log('[BotEngine] 💾 Registration session saved, waiting for answer');
+      console.log('[BotEngine] ✅ Registration session saved successfully!');
+    } else {
+      console.log('[BotEngine] ⚠️ No botId provided, session NOT saved!');
     }
   }
   
