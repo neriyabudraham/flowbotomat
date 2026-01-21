@@ -15,7 +15,7 @@ export default function BotEditorPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const clientId = searchParams.get('client');
-  const { currentBot, fetchBot, saveFlow, updateBot, clearCurrentBot } = useBotsStore();
+  const { currentBot, currentBotAccess, fetchBot, saveFlow, updateBot, clearCurrentBot } = useBotsStore();
   const [flowData, setFlowData] = useState(null);
   const [originalFlowData, setOriginalFlowData] = useState(null);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
@@ -30,6 +30,9 @@ export default function BotEditorPage() {
   const [flowKey, setFlowKey] = useState(0);
   const [showPreview, setShowPreview] = useState(false);
   const isInitialLoad = useRef(true);
+  
+  // Check if user can edit
+  const canEdit = currentBotAccess?.canEdit ?? true;
 
   // Load bot and check for draft
   useEffect(() => {
@@ -39,7 +42,7 @@ export default function BotEditorPage() {
       return;
     }
     
-    fetchBot(botId).then((bot) => {
+    fetchBot(botId).then(({ bot }) => {
       setBotName(bot.name);
       setBotDescription(bot.description || '');
       
@@ -73,18 +76,18 @@ export default function BotEditorPage() {
     return () => clearCurrentBot();
   }, [botId]);
 
-  // Save draft to localStorage on changes
+  // Save draft to localStorage on changes (only if can edit)
   useEffect(() => {
-    if (!flowData || isInitialLoad.current) return;
+    if (!flowData || isInitialLoad.current || !canEdit) return;
     
     const draftKey = STORAGE_KEY + botId;
     localStorage.setItem(draftKey, JSON.stringify(flowData));
-  }, [flowData, botId]);
+  }, [flowData, botId, canEdit]);
 
-  // Warn before leaving with unsaved changes
+  // Warn before leaving with unsaved changes (only if can edit)
   useEffect(() => {
     const handleBeforeUnload = (e) => {
-      if (hasChanges) {
+      if (hasChanges && canEdit) {
         e.preventDefault();
         e.returnValue = '';
       }
@@ -92,14 +95,15 @@ export default function BotEditorPage() {
     
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [hasChanges]);
+  }, [hasChanges, canEdit]);
 
   // Get selected node
   const selectedNode = flowData?.nodes?.find(n => n.id === selectedNodeId) || null;
 
   // Check if flow actually changed (compare only nodes and edges, excluding callbacks)
+  // Returns false if user can't edit (view-only mode)
   const checkForChanges = useCallback((newData) => {
-    if (!originalFlowData) return false;
+    if (!originalFlowData || !canEdit) return false;
     
     // Clean data for comparison (remove runtime callbacks)
     const cleanForCompare = (data) => ({
@@ -205,9 +209,9 @@ export default function BotEditorPage() {
     setFlowKey(k => k + 1);
   }, [flowData, checkForChanges]);
 
-  // Save
+  // Save (only if can edit)
   const handleSave = async () => {
-    if (!flowData) return;
+    if (!flowData || !canEdit) return;
     setIsSaving(true);
     try {
       await saveFlow(botId, flowData);
@@ -235,30 +239,33 @@ export default function BotEditorPage() {
     setFlowKey(k => k + 1);
   };
 
-  // Toggle active
+  // Toggle active (only if can edit)
   const handleToggle = async () => {
+    if (!canEdit) return;
     await updateBot(botId, { is_active: !currentBot?.is_active });
   };
 
-  // Save name
+  // Save name (only if can edit)
   const handleNameSave = async () => {
+    if (!canEdit) return;
     if (botName.trim() && botName !== currentBot?.name) {
       await updateBot(botId, { name: botName.trim() });
     }
     setIsEditingName(false);
   };
 
-  // Save description
+  // Save description (only if can edit)
   const handleDescriptionSave = async () => {
+    if (!canEdit) return;
     if (botDescription !== (currentBot?.description || '')) {
       await updateBot(botId, { description: botDescription.trim() });
     }
     setIsEditingDescription(false);
   };
 
-  // Navigate back with warning
+  // Navigate back with warning (only if can edit)
   const handleBack = () => {
-    if (hasChanges && !confirm('יש שינויים שלא נשמרו. לצאת בכל זאת?')) return;
+    if (hasChanges && canEdit && !confirm('יש שינויים שלא נשמרו. לצאת בכל זאת?')) return;
     // Return to client bots page if editing client's bot, otherwise to my bots
     if (clientId) {
       navigate(`/clients/${clientId}/bots`);
@@ -289,7 +296,7 @@ export default function BotEditorPage() {
             </button>
             
             <div className="flex flex-col">
-              {isEditingName ? (
+              {isEditingName && canEdit ? (
                 <input
                   type="text"
                   value={botName}
@@ -299,14 +306,16 @@ export default function BotEditorPage() {
                   className="px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-200 outline-none"
                   autoFocus
                 />
-              ) : (
+              ) : canEdit ? (
                 <button onClick={() => setIsEditingName(true)} className="flex items-center gap-2 hover:bg-gray-100 px-3 py-1 rounded-lg transition-colors">
                   <h1 className="font-semibold text-lg text-gray-800">{currentBot.name}</h1>
                   <Edit2 className="w-4 h-4 text-gray-400" />
                 </button>
+              ) : (
+                <h1 className="font-semibold text-lg text-gray-800 px-3 py-1">{currentBot.name}</h1>
               )}
               
-              {isEditingDescription ? (
+              {isEditingDescription && canEdit ? (
                 <input
                   type="text"
                   value={botDescription}
@@ -317,17 +326,27 @@ export default function BotEditorPage() {
                   className="mr-3 px-2 py-0.5 text-sm border border-gray-200 rounded focus:ring-1 focus:ring-primary-200 outline-none"
                   autoFocus
                 />
-              ) : (
+              ) : canEdit ? (
                 <button 
                   onClick={() => setIsEditingDescription(true)} 
                   className="mr-3 text-xs text-gray-400 hover:text-gray-600 text-right"
                 >
                   {currentBot.description || botDescription || 'לחץ להוספת תיאור...'}
                 </button>
+              ) : (
+                <span className="mr-3 text-xs text-gray-400 text-right">
+                  {currentBot.description || botDescription || ''}
+                </span>
               )}
             </div>
             
-            {hasChanges && (
+            {!canEdit && (
+              <span className="text-xs text-blue-600 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-200">
+                👁️ צפייה בלבד
+              </span>
+            )}
+            
+            {hasChanges && canEdit && (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-orange-500 bg-orange-50 px-2 py-1 rounded-full">
                   ⚠️ שינויים לא נשמרו
@@ -352,19 +371,32 @@ export default function BotEditorPage() {
               <span>תצוגה מקדימה</span>
             </button>
             
-            <button
-              onClick={handleToggle}
-              className={`flex items-center justify-center gap-2 h-10 px-4 rounded-xl font-medium transition-all border ${
-                currentBot.is_active 
-                  ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' 
-                  : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
-              }`}
-            >
-              <div className={`w-2 h-2 rounded-full ${currentBot.is_active ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
-              <span>{currentBot.is_active ? 'פעיל' : 'לא פעיל'}</span>
-            </button>
+            {canEdit && (
+              <button
+                onClick={handleToggle}
+                className={`flex items-center justify-center gap-2 h-10 px-4 rounded-xl font-medium transition-all border ${
+                  currentBot.is_active 
+                    ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' 
+                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                }`}
+              >
+                <div className={`w-2 h-2 rounded-full ${currentBot.is_active ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+                <span>{currentBot.is_active ? 'פעיל' : 'לא פעיל'}</span>
+              </button>
+            )}
             
-            {hasChanges && (
+            {!canEdit && (
+              <div className={`flex items-center justify-center gap-2 h-10 px-4 rounded-xl font-medium border ${
+                currentBot.is_active 
+                  ? 'bg-green-50 text-green-700 border-green-200' 
+                  : 'bg-gray-50 text-gray-600 border-gray-200'
+              }`}>
+                <div className={`w-2 h-2 rounded-full ${currentBot.is_active ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+                <span>{currentBot.is_active ? 'פעיל' : 'לא פעיל'}</span>
+              </div>
+            )}
+            
+            {hasChanges && canEdit && (
               <button 
                 onClick={handleSave} 
                 disabled={isSaving}
@@ -375,7 +407,7 @@ export default function BotEditorPage() {
               </button>
             )}
             
-            {showSaved && !hasChanges && (
+            {showSaved && !hasChanges && canEdit && (
               <span className="text-xs text-green-600 bg-green-50 px-3 py-2 rounded-lg border border-green-200">
                 ✓ נשמר בהצלחה
               </span>

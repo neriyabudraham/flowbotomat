@@ -4,6 +4,7 @@ import api from '../services/api';
 const useBotsStore = create((set, get) => ({
   bots: [],
   currentBot: null,
+  currentBotAccess: null,
   isLoading: false,
   error: null,
 
@@ -21,8 +22,8 @@ const useBotsStore = create((set, get) => ({
     set({ isLoading: true });
     try {
       const { data } = await api.get(`/bots/${botId}`);
-      set({ currentBot: data.bot, isLoading: false });
-      return data.bot;
+      set({ currentBot: data.bot, currentBotAccess: data.access, isLoading: false });
+      return { bot: data.bot, access: data.access };
     } catch (err) {
       set({ error: err.message, isLoading: false });
       throw err;
@@ -71,7 +72,7 @@ const useBotsStore = create((set, get) => ({
     }
   },
 
-  clearCurrentBot: () => set({ currentBot: null }),
+  clearCurrentBot: () => set({ currentBot: null, currentBotAccess: null }),
 }));
 
 export default useBotsStore;
