@@ -62,14 +62,15 @@ async function getQRCode(baseUrl, apiKey, sessionName) {
 }
 
 /**
- * Add webhook to session (keeps existing webhooks)
+ * Add webhook to session (keeps ALL existing config)
  */
 async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
   const client = createClient(baseUrl, apiKey);
   
   // Get current session config
   const sessionInfo = await client.get(`/api/sessions/${sessionName}`);
-  const currentWebhooks = sessionInfo.data?.config?.webhooks || [];
+  const currentConfig = sessionInfo.data?.config || {};
+  const currentWebhooks = currentConfig.webhooks || [];
   
   // Check if webhook already exists
   const exists = currentWebhooks.some(wh => wh.url === webhookUrl);
@@ -92,9 +93,10 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
     },
   ];
   
-  // Update session with all webhooks
+  // Update session - keep ALL existing config, only update webhooks
   const response = await client.put(`/api/sessions/${sessionName}`, {
     config: {
+      ...currentConfig,
       webhooks: updatedWebhooks,
     },
   });
