@@ -4,6 +4,7 @@ const authMiddleware = require('../middlewares/auth.middleware');
 const { listContacts, getContact } = require('../controllers/contacts/list.controller');
 const { getMessages } = require('../controllers/contacts/messages.controller');
 const { toggleBot, toggleBlock, deleteContact } = require('../controllers/contacts/update.controller');
+const { sendMessage } = require('../controllers/contacts/send.controller');
 
 // All routes require authentication
 router.use(authMiddleware);
@@ -16,6 +17,9 @@ router.get('/:contactId', getContact);
 
 // Get messages for contact
 router.get('/:contactId/messages', getMessages);
+
+// Send message to contact
+router.post('/:contactId/messages', sendMessage);
 
 // Toggle bot for contact
 router.patch('/:contactId/bot', toggleBot);

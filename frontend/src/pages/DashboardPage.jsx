@@ -80,12 +80,11 @@ export default function DashboardPage() {
             <span className="text-xs text-gray-400">בקרוב...</span>
           </div>
           
-          <div className="bg-white rounded-xl shadow p-6 opacity-50 cursor-not-allowed">
+          <Link to="/contacts" className="bg-white rounded-xl shadow p-6 hover:shadow-lg transition-shadow">
             <Users className="w-8 h-8 text-primary-500 mb-3" />
             <h3 className="font-semibold text-gray-800">אנשי קשר</h3>
             <p className="text-sm text-gray-500">צפייה בצ'אטים ואנשי קשר</p>
-            <span className="text-xs text-gray-400">בקרוב...</span>
-          </div>
+          </Link>
           
           <div className="bg-white rounded-xl shadow p-6 opacity-50 cursor-not-allowed">
             <Settings className="w-8 h-8 text-primary-500 mb-3" />
