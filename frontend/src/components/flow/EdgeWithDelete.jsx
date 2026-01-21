@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath } from '@xyflow/react';
+import { BaseEdge, EdgeLabelRenderer, getBezierPath } from '@xyflow/react';
 import { X } from 'lucide-react';
 
 export default function EdgeWithDelete({
@@ -13,11 +12,8 @@ export default function EdgeWithDelete({
   style = {},
   markerEnd,
   data,
-  selected,
 }) {
-  const [isHovered, setIsHovered] = useState(false);
-  
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition,
@@ -26,55 +22,39 @@ export default function EdgeWithDelete({
     targetPosition,
   });
 
-  const showDelete = isHovered || selected;
-
   return (
     <>
-      {/* Invisible wider path for easier hover */}
-      <path
-        d={edgePath}
-        fill="none"
-        strokeWidth={30}
-        stroke="transparent"
-        style={{ cursor: 'pointer' }}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-      />
-      
       <BaseEdge 
         path={edgePath} 
         markerEnd={markerEnd} 
         style={{
           ...style,
-          strokeWidth: showDelete ? 3 : 2,
-          stroke: showDelete ? '#f97316' : '#94a3b8',
+          strokeWidth: 3,
+          stroke: style?.stroke || '#6366f1',
         }}
+        className="animated"
       />
       
-      {showDelete && (
-        <EdgeLabelRenderer>
-          <div
-            style={{
-              position: 'absolute',
-              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-              pointerEvents: 'all',
+      <EdgeLabelRenderer>
+        <div
+          style={{
+            position: 'absolute',
+            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+            pointerEvents: 'all',
+          }}
+          className="nodrag nopan"
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              data?.onDelete?.();
             }}
-            className="nodrag nopan"
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
+            className="w-7 h-7 bg-white border-2 border-gray-300 rounded-full flex items-center justify-center hover:bg-red-50 hover:border-red-400 transition-colors shadow-lg group"
           >
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                data?.onDelete?.();
-              }}
-              className="w-7 h-7 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </EdgeLabelRenderer>
-      )}
+            <X className="w-4 h-4 text-gray-400 group-hover:text-red-500" />
+          </button>
+        </div>
+      </EdgeLabelRenderer>
     </>
   );
 }
