@@ -80,6 +80,18 @@ const useWhatsappStore = create((set, get) => ({
     }
   },
 
+  // Delete connection completely (logout from WhatsApp + delete session)
+  deleteConnection: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      await api.delete('/whatsapp/delete');
+      set({ connection: null, qrCode: null, isLoading: false });
+    } catch (err) {
+      set({ isLoading: false, error: err.response?.data?.error || 'שגיאה' });
+      throw err;
+    }
+  },
+
   clearError: () => set({ error: null }),
 }));
 

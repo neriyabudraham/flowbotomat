@@ -17,7 +17,7 @@ export default function WhatsappSetupPage() {
   const [pendingConnectionType, setPendingConnectionType] = useState(null);
   const {
     connection, qrCode, isLoading, error, existingSession,
-    fetchStatus, connectManaged, connectExternal, fetchQR, disconnect, clearError, checkExisting,
+    fetchStatus, connectManaged, connectExternal, fetchQR, disconnect, deleteConnection, clearError, checkExisting,
   } = useWhatsappStore();
 
   useEffect(() => {
@@ -118,6 +118,18 @@ export default function WhatsappSetupPage() {
     } catch {}
   };
 
+  const handleDelete = async () => {
+    clearError();
+    try {
+      await deleteConnection();
+      setStep('select');
+      // Re-check for existing sessions (should find none after delete)
+      setIsCheckingExisting(true);
+      await checkExisting();
+      setIsCheckingExisting(false);
+    } catch {}
+  };
+
   const handleRefreshQR = async () => {
     try {
       const data = await fetchStatus();
@@ -175,6 +187,7 @@ export default function WhatsappSetupPage() {
             <ConnectionStatus
               connection={connection}
               onDisconnect={handleDisconnect}
+              onDelete={handleDelete}
               isLoading={isLoading}
             />
           )}

@@ -47,6 +47,15 @@ async function deleteSession(baseUrl, apiKey, sessionName) {
 }
 
 /**
+ * Logout from WhatsApp (disconnect but keep session)
+ */
+async function logoutSession(baseUrl, apiKey, sessionName) {
+  const client = createClient(baseUrl, apiKey);
+  const response = await client.post(`/api/sessions/${sessionName}/logout`);
+  return response.data;
+}
+
+/**
  * Get session status
  */
 async function getSessionStatus(baseUrl, apiKey, sessionName) {
@@ -262,6 +271,7 @@ module.exports = {
   startSession,
   stopSession,
   deleteSession,
+  logoutSession,
   getSessionStatus,
   getQRCode,
   getAllSessions,

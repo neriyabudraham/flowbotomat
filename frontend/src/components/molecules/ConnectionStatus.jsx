@@ -1,7 +1,11 @@
-import { CheckCircle, Phone, LogOut } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle, Phone, LogOut, Trash2, AlertTriangle } from 'lucide-react';
 import Button from '../atoms/Button';
+import ConfirmModal from '../organisms/ConfirmModal';
 
-export default function ConnectionStatus({ connection, onDisconnect, isLoading }) {
+export default function ConnectionStatus({ connection, onDisconnect, onDelete, isLoading }) {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  
   return (
     <div className="text-center space-y-6">
       <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
@@ -29,14 +33,47 @@ export default function ConnectionStatus({ connection, onDisconnect, isLoading }
         </div>
       )}
       
-      <Button
+      <div className="space-y-3">
+        <Button
+          variant="secondary"
+          onClick={onDisconnect}
+          isLoading={isLoading}
+          className="w-full"
+        >
+          <LogOut className="w-4 h-4 ml-2" />
+          נתק מהמערכת
+        </Button>
+        <p className="text-xs text-gray-400">
+          ה-session יישאר פעיל ותוכל להתחבר מחדש בלי לסרוק QR
+        </p>
+        
+        <div className="pt-4 border-t border-gray-100">
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="text-sm text-red-500 hover:text-red-600 flex items-center gap-1 mx-auto"
+          >
+            <Trash2 className="w-4 h-4" />
+            מחק חיבור לגמרי
+          </button>
+          <p className="text-xs text-gray-400 mt-1">
+            יצטרך לסרוק QR מחדש
+          </p>
+        </div>
+      </div>
+      
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={() => {
+          setShowDeleteConfirm(false);
+          onDelete?.();
+        }}
+        title="מחיקת חיבור לגמרי"
+        message="פעולה זו תנתק את WhatsApp לגמרי ותמחק את ה-session. תצטרך לסרוק QR מחדש להתחברות."
+        confirmText="מחק לגמרי"
         variant="danger"
-        onClick={onDisconnect}
-        isLoading={isLoading}
-      >
-        <LogOut className="w-4 h-4 ml-2" />
-        נתק חיבור
-      </Button>
+        icon={<AlertTriangle className="w-6 h-6 text-red-500" />}
+      />
     </div>
   );
 }
