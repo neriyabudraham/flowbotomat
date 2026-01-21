@@ -297,46 +297,71 @@ export default function FlowPreview({ flowData, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md h-[600px] shadow-2xl flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-l from-purple-500 to-purple-600 text-white">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-3xl w-full max-w-md h-[650px] shadow-2xl flex flex-col overflow-hidden border border-gray-200">
+        {/* WhatsApp-style Header */}
+        <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-l from-emerald-500 to-teal-600">
           <div className="flex items-center gap-3">
-            <Bot className="w-6 h-6" />
-            <span className="font-bold">תצוגה מקדימה</span>
+            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+              <Bot className="w-6 h-6 text-white" />
+            </div>
+            <div className="text-white">
+              <span className="font-bold block">תצוגה מקדימה</span>
+              <span className="text-xs text-white/70">סימולציית בוט</span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={handleReset} className="p-2 hover:bg-white/20 rounded-lg" title="התחל מחדש">
-              <RotateCcw className="w-5 h-5" />
+          <div className="flex items-center gap-1">
+            <button 
+              onClick={handleReset} 
+              className="p-2 hover:bg-white/20 rounded-full transition-colors" 
+              title="התחל מחדש"
+            >
+              <RotateCcw className="w-5 h-5 text-white" />
             </button>
-            <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-lg">
-              <X className="w-5 h-5" />
+            <button 
+              onClick={onClose} 
+              className="p-2 hover:bg-white/20 rounded-full transition-colors"
+            >
+              <X className="w-5 h-5 text-white" />
             </button>
           </div>
         </div>
         
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
+        {/* Messages - WhatsApp style background */}
+        <div 
+          className="flex-1 overflow-y-auto p-4 space-y-3"
+          style={{
+            backgroundColor: '#e5ddd5',
+            backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23d4ccc3\' fill-opacity=\'0.4\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")'
+          }}
+        >
           {messages.length === 0 && (
-            <div className="text-center text-gray-400 py-8">
-              <Bot className="w-12 h-12 mx-auto mb-2 opacity-50" />
-              <p>שלח הודעה כדי לבדוק את הפלואו</p>
+            <div className="text-center py-12">
+              <div className="w-20 h-20 bg-white/80 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+                <Bot className="w-10 h-10 text-teal-600" />
+              </div>
+              <h3 className="font-semibold text-gray-700 mb-2">בדוק את הבוט שלך</h3>
+              <p className="text-sm text-gray-500 max-w-xs mx-auto">
+                שלח הודעה כדי לראות איך הבוט יגיב בפועל
+              </p>
             </div>
           )}
           
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.type === 'user' ? 'justify-start' : msg.type === 'bot' ? 'justify-end' : 'justify-center'}`}>
               {msg.type === 'system' ? (
-                <div className="text-xs text-gray-500 bg-gray-200 px-3 py-1 rounded-full">{msg.content}</div>
+                <div className="text-xs text-gray-600 bg-white/90 px-4 py-1.5 rounded-full shadow-sm backdrop-blur-sm">
+                  {msg.content}
+                </div>
               ) : (
-                <div className={`max-w-[80%] rounded-2xl overflow-hidden ${
+                <div className={`max-w-[85%] rounded-lg overflow-hidden shadow-sm ${
                   msg.type === 'user' 
-                    ? 'bg-white border border-gray-200 rounded-tr-none' 
-                    : 'bg-purple-500 text-white rounded-tl-none'
+                    ? 'bg-white rounded-tr-none' 
+                    : 'bg-emerald-500 text-white rounded-tl-none'
                 }`}>
                   {/* Media content */}
                   {msg.media && (
-                    <div className="border-b border-purple-400/30">
+                    <div className="border-b border-emerald-400/30">
                       {msg.media.type === 'image' && (
                         <img 
                           src={msg.media.url} 
@@ -392,22 +417,29 @@ export default function FlowPreview({ flowData, onClose }) {
                   )}
 {/* List buttons */}
                           {msg.list && msg.list.buttons.length > 0 && (
-                            <div className="border-t border-purple-400/50 mt-2">
-                              <div className="px-4 py-2 text-xs font-medium border-b border-purple-400/50 flex items-center gap-2">
+                            <div className="border-t border-emerald-400/30 mt-1">
+                              <div className="px-3 py-2 text-xs font-medium border-b border-emerald-400/30 flex items-center gap-2 bg-emerald-600/30">
                                 <ListOrdered className="w-4 h-4" />
                                 {msg.list.title}
                               </div>
-                              {msg.list.buttons.map((btn, idx) => (
-                                <button
-                                  key={idx}
-                                  onClick={() => handleListButtonClick(msg.list.nodeId, idx, btn.title || `אפשרות ${idx + 1}`)}
-                                  disabled={isRunning || pendingListNode !== msg.list.nodeId}
-                                  className="w-full px-4 py-3 text-sm text-right hover:bg-purple-400/50 transition-colors border-b border-purple-400/30 last:border-b-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  <span className="font-medium">{btn.title || `אפשרות ${idx + 1}`}</span>
-                                  {btn.description && <span className="block text-xs opacity-75 mt-0.5">{btn.description}</span>}
-                                </button>
-                              ))}
+                              <div className="bg-emerald-600/10">
+                                {msg.list.buttons.map((btn, idx) => (
+                                  <button
+                                    key={idx}
+                                    onClick={() => handleListButtonClick(msg.list.nodeId, idx, btn.title || `אפשרות ${idx + 1}`)}
+                                    disabled={isRunning || pendingListNode !== msg.list.nodeId}
+                                    className="w-full px-3 py-2.5 text-sm text-right hover:bg-emerald-400/30 transition-colors border-b border-emerald-400/20 last:border-b-0 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                  >
+                                    <span className="w-5 h-5 rounded-full bg-emerald-400/30 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                                      {idx + 1}
+                                    </span>
+                                    <div className="flex-1 text-right">
+                                      <span className="font-medium">{btn.title || `אפשרות ${idx + 1}`}</span>
+                                      {btn.description && <span className="block text-xs opacity-75 mt-0.5">{btn.description}</span>}
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
                             </div>
                           )}
                 </div>
@@ -429,26 +461,32 @@ export default function FlowPreview({ flowData, onClose }) {
           <div ref={messagesEndRef} />
         </div>
         
-        {/* Input */}
-        <div className="p-4 bg-white border-t border-gray-200">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="הקלד הודעה..."
-              className="flex-1 px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-200 outline-none"
-              disabled={isRunning}
-            />
+        {/* Input - WhatsApp style */}
+        <div className="p-3 bg-gray-100 border-t border-gray-200">
+          <div className="flex gap-2 items-end">
+            <div className="flex-1 bg-white rounded-full px-4 py-2 shadow-sm">
+              <input
+                type="text"
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+                placeholder="הקלד הודעה..."
+                className="w-full outline-none text-sm"
+                dir="auto"
+                disabled={isRunning}
+              />
+            </div>
             <button
               onClick={handleSend}
               disabled={isRunning || !inputText.trim()}
-              className="p-2 bg-purple-500 text-white rounded-xl hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-10 h-10 bg-emerald-500 text-white rounded-full hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-md transition-all hover:scale-105"
             >
               <Send className="w-5 h-5" />
             </button>
           </div>
+          <p className="text-center text-xs text-gray-400 mt-2">
+            הקלד הודעה לבדיקת הבוט. התנהגות בפועל תלויה בהגדרות הבוט.
+          </p>
         </div>
       </div>
     </div>
