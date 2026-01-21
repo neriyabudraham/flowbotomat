@@ -1,23 +1,13 @@
-import { MessageSquare, GitBranch, Clock, Cog, List, ClipboardList, Plus } from 'lucide-react';
+import { MessageSquare, GitBranch, Clock, Cog, List, ClipboardList } from 'lucide-react';
 
-// Trigger is created automatically with new bot, not in palette
 const nodeTypes = [
-  { type: 'message', label: 'הודעה', icon: MessageSquare, color: 'teal', description: 'טקסט, תמונה, סרטון או קובץ' },
-  { type: 'list', label: 'רשימה', icon: List, color: 'cyan', description: 'בחירה עם כפתורים' },
-  { type: 'registration', label: 'רישום', icon: ClipboardList, color: 'indigo', description: 'שאלות ומיפוי נתונים' },
-  { type: 'condition', label: 'תנאי', icon: GitBranch, color: 'orange', description: 'הסתעפות לפי תנאים' },
-  { type: 'delay', label: 'השהייה', icon: Clock, color: 'blue', description: 'המתנה לפני המשך' },
-  { type: 'action', label: 'פעולה', icon: Cog, color: 'pink', description: 'תגיות ומשתנים' },
+  { type: 'message', label: 'הודעה', icon: MessageSquare, color: 'bg-teal-500', description: 'שליחת טקסט, תמונה, סרטון או קובץ' },
+  { type: 'list', label: 'רשימה', icon: List, color: 'bg-cyan-500', description: 'רשימת בחירה עם כפתורים' },
+  { type: 'registration', label: 'תהליך רישום', icon: ClipboardList, color: 'bg-indigo-500', description: 'איסוף מידע בשאלות' },
+  { type: 'condition', label: 'תנאי', icon: GitBranch, color: 'bg-orange-500', description: 'הסתעפות לפי תנאים' },
+  { type: 'delay', label: 'השהייה', icon: Clock, color: 'bg-blue-500', description: 'המתנה לפני המשך הפלואו' },
+  { type: 'action', label: 'פעולה', icon: Cog, color: 'bg-pink-500', description: 'תגיות, משתנים וקריאות API' },
 ];
-
-const colorConfig = {
-  teal: 'from-teal-500 to-teal-600',
-  cyan: 'from-cyan-500 to-cyan-600',
-  indigo: 'from-indigo-500 to-indigo-600',
-  orange: 'from-orange-500 to-orange-600',
-  blue: 'from-blue-500 to-blue-600',
-  pink: 'from-pink-500 to-pink-600',
-};
 
 export default function NodePalette({ onAddNode }) {
   const handleDragStart = (e, type) => {
@@ -26,47 +16,32 @@ export default function NodePalette({ onAddNode }) {
   };
 
   return (
-    <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl border border-gray-100 overflow-hidden w-[200px]">
+    <div className="w-96 bg-white border-r border-gray-200 flex flex-col h-full shadow-xl">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-100">
-        <h3 className="font-bold text-gray-800 text-sm">רכיבים</h3>
+      <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
+        <h3 className="font-bold text-gray-800">הוסף רכיב</h3>
+        <p className="text-sm text-gray-500 mt-0.5">לחץ או גרור לקנבס</p>
       </div>
       
       {/* Node List */}
-      <div className="p-2 space-y-1.5">
-        {nodeTypes.map(({ type, label, icon: Icon, color, description }) => {
-          const gradient = colorConfig[color];
-          return (
-            <div
-              key={type}
-              draggable
-              onDragStart={(e) => handleDragStart(e, type)}
-              onClick={() => onAddNode(type)}
-              className="group cursor-pointer"
-            >
-              {/* Mini Node Card - resembles actual nodes */}
-              <div className="bg-white rounded-xl border-2 border-gray-100 hover:border-gray-200 transition-all duration-200 hover:shadow-md overflow-hidden">
-                {/* Colored Header - like real nodes */}
-                <div className={`flex items-center gap-2 px-3 py-2 bg-gradient-to-l ${gradient}`}>
-                  <div className="w-6 h-6 rounded-md bg-white/20 flex items-center justify-center">
-                    <Icon className="w-3.5 h-3.5 text-white" />
-                  </div>
-                  <span className="font-semibold text-white text-sm">{label}</span>
-                  <Plus className="w-4 h-4 text-white/60 mr-auto opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-                {/* Description */}
-                <div className="px-3 py-2">
-                  <p className="text-xs text-gray-500 leading-relaxed">{description}</p>
-                </div>
-              </div>
+      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+        {nodeTypes.map(({ type, label, icon: Icon, color, description }) => (
+          <div
+            key={type}
+            draggable
+            onDragStart={(e) => handleDragStart(e, type)}
+            onClick={() => onAddNode(type)}
+            className="flex items-center gap-4 p-4 rounded-xl border border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm cursor-pointer transition-all"
+          >
+            <div className={`w-10 h-10 ${color} rounded-xl flex items-center justify-center flex-shrink-0`}>
+              <Icon className="w-5 h-5 text-white" />
             </div>
-          );
-        })}
-      </div>
-      
-      {/* Footer hint */}
-      <div className="px-3 py-2 bg-gray-50 border-t border-gray-100">
-        <p className="text-[10px] text-gray-400 text-center">גרור או לחץ להוספה</p>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-gray-800">{label}</div>
+              <p className="text-sm text-gray-500 truncate">{description}</p>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
