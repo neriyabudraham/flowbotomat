@@ -437,12 +437,103 @@ async function checkPaymentMethod(req, res) {
   }
 }
 
+/**
+ * Reactivate a cancelled subscription
+ */
+async function reactivateSubscription(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    // Get cancelled subscription
+    const subResult = await db.query(
+      `SELECT us.*, sp.name_he, sp.price
+       FROM user_subscriptions us
+       JOIN subscription_plans sp ON sp.id = us.plan_id
+       WHERE us.user_id = $1 AND us.status = 'cancelled'`,
+      [userId]
+    );
+    
+    if (subResult.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא מנוי לחידוש' });
+    }
+    
+    const subscription = subResult.rows[0];
+    
+    // Check if subscription hasn't expired yet
+    if (subscription.next_charge_date && new Date(subscription.next_charge_date) < new Date()) {
+      return res.status(400).json({ 
+        error: 'תקופת המנוי הסתיימה. יש להירשם מחדש.',
+        needsNewSubscription: true
+      });
+    }
+    
+    // Get payment method
+    const paymentResult = await db.query(
+      'SELECT * FROM user_payment_methods WHERE id = $1 AND user_id = $2 AND is_active = true',
+      [subscription.payment_method_id, userId]
+    );
+    
+    if (paymentResult.rows.length === 0) {
+      return res.status(400).json({ 
+        error: 'אמצעי התשלום לא נמצא. יש להוסיף כרטיס אשראי חדש.',
+        needsPaymentMethod: true
+      });
+    }
+    
+    const paymentMethod = paymentResult.rows[0];
+    
+    // For monthly subscriptions, we need to recreate the standing order
+    let standingOrderId = subscription.sumit_standing_order_id;
+    
+    if (subscription.billing_period === 'monthly' && !standingOrderId) {
+      // Create new recurring charge
+      const chargeResult = await sumitService.chargeRecurring({
+        customerId: paymentMethod.sumit_customer_id,
+        cardToken: paymentMethod.card_token,
+        expiryMonth: paymentMethod.card_expiry_month,
+        expiryYear: paymentMethod.card_expiry_year,
+        citizenId: paymentMethod.citizen_id,
+        amount: parseFloat(subscription.price),
+        description: `חידוש מנוי חודשי - ${subscription.name_he}`,
+        durationMonths: 1,
+      });
+      
+      if (!chargeResult.success) {
+        return res.status(400).json({ error: chargeResult.error || 'שגיאה ביצירת הוראת קבע' });
+      }
+      
+      standingOrderId = chargeResult.standingOrderId;
+    }
+    
+    // Reactivate subscription
+    const result = await db.query(`
+      UPDATE user_subscriptions 
+      SET status = 'active', 
+          cancelled_at = NULL,
+          sumit_standing_order_id = COALESCE($2, sumit_standing_order_id),
+          updated_at = NOW()
+      WHERE user_id = $1 AND status = 'cancelled'
+      RETURNING *
+    `, [userId, standingOrderId]);
+    
+    res.json({ 
+      success: true, 
+      subscription: result.rows[0],
+      message: 'המנוי חודש בהצלחה!'
+    });
+  } catch (error) {
+    console.error('[Payment] Reactivate subscription error:', error);
+    res.status(500).json({ error: 'שגיאה בחידוש מנוי' });
+  }
+}
+
 module.exports = {
   savePaymentMethod,
   getPaymentMethods,
   deletePaymentMethod,
   subscribe,
   cancelSubscription,
+  reactivateSubscription,
   getPaymentHistory,
   checkPaymentMethod,
 };

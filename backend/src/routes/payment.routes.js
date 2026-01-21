@@ -15,6 +15,7 @@ router.get('/methods/check', paymentController.checkPaymentMethod);
 // Subscription
 router.post('/subscribe', paymentController.subscribe);
 router.post('/cancel', paymentController.cancelSubscription);
+router.post('/reactivate', paymentController.reactivateSubscription);
 
 // Payment history
 router.get('/history', paymentController.getPaymentHistory);

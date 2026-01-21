@@ -19,7 +19,11 @@ router.get('/stats', usersController.getStats);
 router.get('/users', usersController.getUsers);
 router.get('/users/:id', usersController.getUser);
 router.put('/users/:id', usersController.updateUser);
+router.put('/users/:id/subscription', usersController.updateUserSubscription);
 router.delete('/users/:id', superadminMiddleware, usersController.deleteUser);
+
+// Plans for admin
+router.get('/plans', usersController.getPlans);
 
 // System settings (superadmin only for updates)
 router.get('/settings', settingsController.getSettings);

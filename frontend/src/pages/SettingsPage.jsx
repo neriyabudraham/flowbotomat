@@ -7,6 +7,7 @@ import Logo from '../components/atoms/Logo';
 import ThemeToggle from '../components/atoms/ThemeToggle';
 import ExpertAccessManager from '../components/settings/ExpertAccessManager';
 import MyClientsManager from '../components/settings/MyClientsManager';
+import SubscriptionManager from '../components/settings/SubscriptionManager';
 import api from '../services/api';
 
 export default function SettingsPage() {
@@ -205,6 +206,11 @@ export default function SettingsPage() {
               שנה סיסמה
             </Button>
           </form>
+        </div>
+
+        {/* Subscription Section */}
+        <div className="mb-6">
+          <SubscriptionManager />
         </div>
 
         {/* Expert Access Section */}

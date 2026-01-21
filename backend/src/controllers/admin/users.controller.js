@@ -13,41 +13,51 @@ async function getUsers(req, res) {
     let paramIndex = 1;
     
     if (search) {
-      whereClause += ` AND (email ILIKE $${paramIndex} OR name ILIKE $${paramIndex})`;
+      whereClause += ` AND (u.email ILIKE $${paramIndex} OR u.name ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
       paramIndex++;
     }
     
     if (role) {
-      whereClause += ` AND role = $${paramIndex}`;
+      whereClause += ` AND u.role = $${paramIndex}`;
       params.push(role);
       paramIndex++;
     }
     
     if (status === 'active') {
-      whereClause += ` AND is_active = true`;
+      whereClause += ` AND u.is_active = true`;
     } else if (status === 'inactive') {
-      whereClause += ` AND is_active = false`;
+      whereClause += ` AND u.is_active = false`;
     } else if (status === 'unverified') {
-      whereClause += ` AND is_verified = false`;
+      whereClause += ` AND u.is_verified = false`;
     }
     
     // Get total count
     const countResult = await db.query(
-      `SELECT COUNT(*) FROM users WHERE ${whereClause}`,
+      `SELECT COUNT(*) FROM users u WHERE ${whereClause}`,
       params
     );
     const total = parseInt(countResult.rows[0].count);
     
-    // Get users
+    // Get users with subscription info
     const result = await db.query(
-      `SELECT id, email, name, role, plan, is_verified, is_active, 
-              language, theme, created_at, last_login_at,
-              (SELECT COUNT(*) FROM bots WHERE user_id = users.id) as bots_count,
-              (SELECT COUNT(*) FROM contacts WHERE user_id = users.id) as contacts_count
-       FROM users 
+      `SELECT u.id, u.email, u.name, u.role, u.plan, u.is_verified, u.is_active, 
+              u.language, u.theme, u.created_at, u.last_login_at,
+              (SELECT COUNT(*) FROM bots WHERE user_id = u.id) as bots_count,
+              (SELECT COUNT(*) FROM contacts WHERE user_id = u.id) as contacts_count,
+              us.status as subscription_status,
+              us.billing_period,
+              us.is_trial,
+              us.trial_ends_at,
+              us.next_charge_date,
+              sp.name as plan_name,
+              sp.name_he as plan_name_he,
+              sp.price as plan_price
+       FROM users u
+       LEFT JOIN user_subscriptions us ON us.user_id = u.id
+       LEFT JOIN subscription_plans sp ON sp.id = us.plan_id
        WHERE ${whereClause}
-       ORDER BY created_at DESC
+       ORDER BY u.created_at DESC
        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
       [...params, limit, offset]
     );
@@ -219,4 +229,99 @@ async function getStats(req, res) {
   }
 }
 
-module.exports = { getUsers, getUser, updateUser, deleteUser, getStats };
+/**
+ * Update user subscription (admin)
+ */
+async function updateUserSubscription(req, res) {
+  try {
+    const { id } = req.params;
+    const { planId, status, expiresAt, isManual, adminNotes } = req.body;
+    
+    // Verify user exists
+    const userCheck = await db.query('SELECT id FROM users WHERE id = $1', [id]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'משתמש לא נמצא' });
+    }
+    
+    // Check if user has subscription
+    const subCheck = await db.query(
+      'SELECT id FROM user_subscriptions WHERE user_id = $1',
+      [id]
+    );
+    
+    if (subCheck.rows.length === 0) {
+      // Create new subscription
+      const result = await db.query(`
+        INSERT INTO user_subscriptions (
+          user_id, plan_id, status, expires_at, is_manual, admin_notes
+        ) VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING *
+      `, [id, planId, status || 'active', expiresAt || null, isManual !== false, adminNotes || null]);
+      
+      return res.json({ subscription: result.rows[0] });
+    }
+    
+    // Update existing subscription
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+    
+    if (planId !== undefined) {
+      updates.push(`plan_id = $${paramIndex++}`);
+      values.push(planId);
+    }
+    if (status !== undefined) {
+      updates.push(`status = $${paramIndex++}`);
+      values.push(status);
+    }
+    if (expiresAt !== undefined) {
+      updates.push(`expires_at = $${paramIndex++}`);
+      values.push(expiresAt);
+      updates.push(`next_charge_date = $${paramIndex++}`);
+      values.push(expiresAt);
+    }
+    if (isManual !== undefined) {
+      updates.push(`is_manual = $${paramIndex++}`);
+      values.push(isManual);
+    }
+    if (adminNotes !== undefined) {
+      updates.push(`admin_notes = $${paramIndex++}`);
+      values.push(adminNotes);
+    }
+    
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'אין שדות לעדכון' });
+    }
+    
+    values.push(id);
+    
+    const result = await db.query(`
+      UPDATE user_subscriptions 
+      SET ${updates.join(', ')}, updated_at = NOW()
+      WHERE user_id = $${paramIndex}
+      RETURNING *
+    `, values);
+    
+    res.json({ subscription: result.rows[0] });
+  } catch (error) {
+    console.error('[Admin] Update user subscription error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון מנוי' });
+  }
+}
+
+/**
+ * Get all subscription plans
+ */
+async function getPlans(req, res) {
+  try {
+    const result = await db.query(
+      'SELECT * FROM subscription_plans WHERE is_active = true ORDER BY price ASC'
+    );
+    res.json({ plans: result.rows });
+  } catch (error) {
+    console.error('[Admin] Get plans error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת תוכניות' });
+  }
+}
+
+module.exports = { getUsers, getUser, updateUser, deleteUser, getStats, updateUserSubscription, getPlans };

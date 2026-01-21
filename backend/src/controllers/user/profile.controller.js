@@ -98,4 +98,34 @@ async function changePassword(req, res) {
   }
 }
 
-module.exports = { getProfile, updateProfile, changePassword };
+/**
+ * Get user subscription
+ */
+async function getSubscription(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    const result = await pool.query(`
+      SELECT 
+        us.*,
+        sp.name as plan_name,
+        sp.name_he as plan_name_he,
+        sp.price as plan_price,
+        sp.features as plan_features
+      FROM user_subscriptions us
+      LEFT JOIN subscription_plans sp ON sp.id = us.plan_id
+      WHERE us.user_id = $1
+    `, [userId]);
+    
+    if (result.rows.length === 0) {
+      return res.json({ subscription: null });
+    }
+    
+    res.json({ subscription: result.rows[0] });
+  } catch (error) {
+    console.error('Get subscription error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת פרטי מנוי' });
+  }
+}
+
+module.exports = { getProfile, updateProfile, changePassword, getSubscription };

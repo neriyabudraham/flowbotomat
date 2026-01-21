@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
   Search, ChevronLeft, ChevronRight, Edit, Trash2,
-  Check, X, RefreshCw, Eye
+  Check, X, RefreshCw, Eye, CreditCard, Calendar
 } from 'lucide-react';
 import api from '../../services/api';
 import useAuthStore from '../../store/authStore';
@@ -20,6 +20,7 @@ export default function AdminUsers() {
   const [roleFilter, setRoleFilter] = useState('');
   const [editingUser, setEditingUser] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
+  const [editSubscriptionUser, setEditSubscriptionUser] = useState(null);
 
   useEffect(() => {
     loadUsers();
@@ -170,7 +171,7 @@ export default function AdminUsers() {
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <PlanBadge plan={u.plan || 'free'} />
+                  <SubscriptionBadge user={u} onClick={() => setEditSubscriptionUser(u)} />
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-600">{u.bots_count || 0}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{u.contacts_count || 0}</td>
@@ -259,6 +260,18 @@ export default function AdminUsers() {
       {selectedUser && (
         <UserDetailsModal user={selectedUser} onClose={() => setSelectedUser(null)} />
       )}
+
+      {/* Edit Subscription Modal */}
+      {editSubscriptionUser && (
+        <EditSubscriptionModal 
+          user={editSubscriptionUser} 
+          onClose={() => setEditSubscriptionUser(null)}
+          onSuccess={() => {
+            loadUsers();
+            setEditSubscriptionUser(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -284,24 +297,41 @@ function RoleBadge({ role }) {
   );
 }
 
-function PlanBadge({ plan }) {
-  const styles = {
-    free: 'bg-gray-100 text-gray-600',
-    basic: 'bg-blue-100 text-blue-700',
-    premium: 'bg-purple-100 text-purple-700',
-    enterprise: 'bg-amber-100 text-amber-700',
-  };
-  const labels = {
-    free: 'חינמי',
-    basic: 'בסיסי',
-    premium: 'פרימיום',
-    enterprise: 'ארגוני',
-  };
-
+function SubscriptionBadge({ user, onClick }) {
+  // Determine display based on real subscription data
+  const hasSubscription = user.subscription_status && user.subscription_status !== 'cancelled' && user.subscription_status !== 'expired';
+  
+  let badgeClass = 'bg-gray-100 text-gray-600';
+  let label = 'חינמי';
+  let subLabel = null;
+  
+  if (hasSubscription) {
+    if (user.is_trial) {
+      badgeClass = 'bg-yellow-100 text-yellow-700';
+      label = user.plan_name_he || 'ניסיון';
+      const trialEnds = user.trial_ends_at ? new Date(user.trial_ends_at) : null;
+      if (trialEnds) {
+        const daysLeft = Math.ceil((trialEnds - new Date()) / (1000 * 60 * 60 * 24));
+        subLabel = `${daysLeft > 0 ? daysLeft : 0} ימים נותרו`;
+      }
+    } else {
+      badgeClass = 'bg-blue-100 text-blue-700';
+      label = user.plan_name_he || user.plan_name || 'בתשלום';
+      if (user.billing_period === 'yearly') {
+        badgeClass = 'bg-purple-100 text-purple-700';
+      }
+    }
+  }
+  
   return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${styles[plan] || styles.free}`}>
-      {labels[plan] || plan}
-    </span>
+    <button 
+      onClick={onClick}
+      className={`px-2 py-0.5 rounded-full text-xs font-medium ${badgeClass} hover:opacity-80 transition-opacity cursor-pointer flex flex-col items-center`}
+      title="לחץ לעריכת מנוי"
+    >
+      <span>{label}</span>
+      {subLabel && <span className="text-[10px] opacity-75">{subLabel}</span>}
+    </button>
   );
 }
 
@@ -332,7 +362,10 @@ function UserDetailsModal({ user, onClose }) {
             </div>
             <div>
               <label className="text-sm text-gray-500">תוכנית</label>
-              <div><PlanBadge plan={user.plan || 'free'} /></div>
+              <div>
+                {user.plan_name_he || user.plan_name || 'חינמי'}
+                {user.is_trial && <span className="text-xs text-yellow-600 mr-1">(ניסיון)</span>}
+              </div>
             </div>
             <div>
               <label className="text-sm text-gray-500">בוטים</label>
@@ -361,8 +394,162 @@ function UserDetailsModal({ user, onClose }) {
                 )}
               </div>
             </div>
+            {user.next_charge_date && (
+              <div className="col-span-2">
+                <label className="text-sm text-gray-500">חיוב הבא</label>
+                <div className="font-medium">{new Date(user.next_charge_date).toLocaleDateString('he-IL')}</div>
+              </div>
+            )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function EditSubscriptionModal({ user, onClose, onSuccess }) {
+  const [plans, setPlans] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState({
+    planId: '',
+    status: user.subscription_status || 'active',
+    expiresAt: user.next_charge_date ? new Date(user.next_charge_date).toISOString().split('T')[0] : '',
+    adminNotes: '',
+  });
+
+  useEffect(() => {
+    loadPlans();
+  }, []);
+
+  const loadPlans = async () => {
+    try {
+      const { data } = await api.get('/admin/plans');
+      setPlans(data.plans);
+      // Set current plan if exists
+      if (data.plans.length > 0) {
+        const currentPlan = data.plans.find(p => p.name === user.plan_name || p.name_he === user.plan_name_he);
+        if (currentPlan) {
+          setFormData(f => ({ ...f, planId: currentPlan.id }));
+        } else {
+          setFormData(f => ({ ...f, planId: data.plans[0].id }));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load plans:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.put(`/admin/users/${user.id}/subscription`, {
+        planId: formData.planId,
+        status: formData.status,
+        expiresAt: formData.expiresAt || null,
+        isManual: true,
+        adminNotes: formData.adminNotes || null,
+      });
+      onSuccess();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בעדכון מנוי');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold flex items-center gap-2">
+            <CreditCard className="w-5 h-5 text-blue-600" />
+            עריכת מנוי - {user.name || user.email}
+          </h3>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="py-8 text-center text-gray-500">טוען תוכניות...</div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">תוכנית</label>
+              <select
+                value={formData.planId}
+                onChange={(e) => setFormData(f => ({ ...f, planId: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
+              >
+                {plans.map(plan => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.name_he} - ₪{plan.price}/חודש
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">סטטוס</label>
+              <select
+                value={formData.status}
+                onChange={(e) => setFormData(f => ({ ...f, status: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="active">פעיל</option>
+                <option value="trial">ניסיון</option>
+                <option value="cancelled">בוטל</option>
+                <option value="expired">פג תוקף</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                <Calendar className="w-4 h-4" />
+                תאריך סיום / חיוב הבא
+              </label>
+              <input
+                type="date"
+                value={formData.expiresAt}
+                onChange={(e) => setFormData(f => ({ ...f, expiresAt: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                בתאריך זה המנוי יחודש (יחויב) או יפוג אם המשתמש ביטל
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">הערות אדמין</label>
+              <textarea
+                value={formData.adminNotes}
+                onChange={(e) => setFormData(f => ({ ...f, adminNotes: e.target.value }))}
+                rows={2}
+                placeholder="הערות פנימיות (לא יוצגו למשתמש)"
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 resize-none"
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={onClose}
+                className="flex-1 px-4 py-2 border border-gray-200 rounded-xl hover:bg-gray-50"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving || !formData.planId}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50"
+              >
+                {saving ? 'שומר...' : 'שמירה'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
