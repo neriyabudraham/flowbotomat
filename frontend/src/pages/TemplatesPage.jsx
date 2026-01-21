@@ -471,7 +471,7 @@ export default function TemplatesPage() {
                         </span>
                         <span className="flex items-center gap-1">
                           <Star className="w-4 h-4 text-yellow-500" />
-                          {template.rating?.toFixed(1) || '0.0'}
+                          {parseFloat(template.rating || 0).toFixed(1)}
                         </span>
                       </div>
                     </div>
@@ -677,7 +677,7 @@ function TemplatePreviewModal({ template, categories, newBotName, setNewBotName,
                 </button>
               ))}
               <span className="text-sm text-gray-500 mr-3">
-                {template.rating?.toFixed(1) || '0.0'} ({template.rating_count || 0} דירוגים)
+                {parseFloat(template.rating || 0).toFixed(1)} ({template.rating_count || 0} דירוגים)
               </span>
             </div>
           </div>
