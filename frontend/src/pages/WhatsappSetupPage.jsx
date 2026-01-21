@@ -52,9 +52,18 @@ export default function WhatsappSetupPage() {
   const handleExternalConnect = async (baseUrl, apiKey, sessionName) => {
     clearError();
     try {
-      await connectExternal(baseUrl, apiKey, sessionName);
-      setStep('qr');
-      fetchQR();
+      const data = await connectExternal(baseUrl, apiKey, sessionName);
+      // Check actual status - might already be connected!
+      if (data.connection?.status === 'connected') {
+        setStep('connected');
+      } else if (data.connection?.status === 'qr_pending') {
+        setStep('qr');
+        fetchQR();
+      } else {
+        // disconnected or other - go to QR
+        setStep('qr');
+        fetchQR();
+      }
     } catch {}
   };
 

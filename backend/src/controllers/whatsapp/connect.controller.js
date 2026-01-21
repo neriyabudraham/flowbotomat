@@ -76,20 +76,45 @@ async function createExternal(req, res) {
       return res.status(400).json({ error: 'כבר יש לך חיבור WhatsApp' });
     }
     
-    // Test connection to external WAHA
+    // Test connection and get actual status from WAHA
+    let wahaStatus;
     try {
-      await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+      wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
     } catch (err) {
-      return res.status(400).json({ error: 'לא ניתן להתחבר ל-WAHA' });
+      console.error('WAHA connection test failed:', err.message);
+      return res.status(400).json({ error: 'לא ניתן להתחבר ל-WAHA. בדוק את הפרטים.' });
+    }
+    
+    // Map WAHA status to our status
+    const statusMap = {
+      'WORKING': 'connected',
+      'SCAN_QR_CODE': 'qr_pending',
+      'STARTING': 'qr_pending',
+      'STOPPED': 'disconnected',
+      'FAILED': 'failed',
+    };
+    const ourStatus = statusMap[wahaStatus.status] || 'disconnected';
+    
+    // Extract phone info if connected
+    let phoneNumber = null;
+    let displayName = null;
+    let connectedAt = null;
+    
+    if (ourStatus === 'connected' && wahaStatus.me) {
+      phoneNumber = wahaStatus.me.id?.split('@')[0] || null;
+      displayName = wahaStatus.me.pushName || null;
+      connectedAt = new Date();
     }
     
     // Save connection to DB (encrypt sensitive data)
     const result = await pool.query(
       `INSERT INTO whatsapp_connections 
-       (user_id, connection_type, external_base_url, external_api_key, session_name, status)
-       VALUES ($1, 'external', $2, $3, $4, 'qr_pending')
-       RETURNING id, session_name, status, created_at`,
-      [userId, encrypt(baseUrl), encrypt(apiKey), sessionName]
+       (user_id, connection_type, external_base_url, external_api_key, session_name, 
+        status, phone_number, display_name, connected_at)
+       VALUES ($1, 'external', $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, session_name, status, phone_number, display_name, created_at`,
+      [userId, encrypt(baseUrl), encrypt(apiKey), sessionName, 
+       ourStatus, phoneNumber, displayName, connectedAt]
     );
     
     res.json({ 
