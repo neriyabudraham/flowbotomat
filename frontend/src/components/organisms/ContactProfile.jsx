@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
   X, Phone, Calendar, MessageSquare, Tag, Variable, Bot, XCircle, Plus, Trash2, 
-  Clock, GitBranch, Send, Mail, User, MapPin, Building, CreditCard, Edit3,
-  Check, Star, Activity, TrendingUp, ChevronDown, ChevronUp, Sparkles, Copy
+  Clock, Mail, User, MapPin, Building, Check, ChevronDown, ChevronUp, Copy
 } from 'lucide-react';
 import api from '../../services/api';
 import DeleteContactModal from '../contacts/DeleteContactModal';

@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { 
-  Bot, Sparkles, Shield, Zap, ChevronLeft, Mail, Lock, Eye, EyeOff,
-  MessageCircle, Users, TrendingUp, ArrowRight, CheckCircle
+  Bot, Shield, Zap, ChevronLeft, Mail, Lock, Eye, EyeOff,
+  MessageCircle, Users, ArrowRight
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
-import Logo from '../../components/atoms/Logo';
 
 export default function LoginPage() {
   const navigate = useNavigate();

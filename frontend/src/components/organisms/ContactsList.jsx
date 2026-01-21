@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, Users, MessageSquare, Filter, Bot, Activity, Sparkles, Trash2, Download, X, CheckSquare, Square, MoreHorizontal } from 'lucide-react';
+import { Search, Users, MessageSquare, Bot, Activity, Trash2, Download, X, CheckSquare, Square, MoreHorizontal } from 'lucide-react';
 import ContactItem from '../molecules/ContactItem';
 import DeleteContactModal from '../contacts/DeleteContactModal';
 import api from '../../services/api';
