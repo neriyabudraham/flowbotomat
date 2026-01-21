@@ -81,27 +81,33 @@ export default function ApiPage() {
     setCreating(false);
   };
 
-  const deleteApiKey = async (keyId) => {
-    if (!confirm('האם אתה בטוח שברצונך למחוק את המפתח?')) return;
+  const deleteApiKey = async () => {
+    if (!deleteModal.keyId) return;
     
+    setDeleting(true);
     try {
-      await api.delete(`/api-keys/${keyId}`);
+      await api.delete(`/api-keys/${deleteModal.keyId}`);
       loadApiKeys();
+      setDeleteModal({ show: false, keyId: null, keyName: '' });
     } catch (e) {
       console.error('Failed to delete API key:', e);
     }
+    setDeleting(false);
   };
 
-  const regenerateApiKey = async (keyId) => {
-    if (!confirm('האם אתה בטוח? המפתח הנוכחי יפסיק לעבוד.')) return;
+  const regenerateApiKey = async () => {
+    if (!regenerateModal.keyId) return;
     
+    setRegenerating(true);
     try {
-      const { data } = await api.post(`/api-keys/${keyId}/regenerate`);
+      const { data } = await api.post(`/api-keys/${regenerateModal.keyId}/regenerate`);
       setShowNewKey(data.key);
       loadApiKeys();
+      setRegenerateModal({ show: false, keyId: null, keyName: '' });
     } catch (e) {
       console.error('Failed to regenerate API key:', e);
     }
+    setRegenerating(false);
   };
 
   const copyToClipboard = (text, keyId) => {
@@ -584,14 +590,14 @@ export default function ApiPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => regenerateApiKey(key.id)}
+                            onClick={() => setRegenerateModal({ show: true, keyId: key.id, keyName: key.name })}
                             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                             title="חדש מפתח"
                           >
                             <RefreshCw className="w-4 h-4 text-gray-600" />
                           </button>
                           <button
-                            onClick={() => deleteApiKey(key.id)}
+                            onClick={() => setDeleteModal({ show: true, keyId: key.id, keyName: key.name })}
                             className="p-2 hover:bg-red-50 rounded-lg transition-colors"
                             title="מחק"
                           >
@@ -733,6 +739,104 @@ export default function ApiPage() {
                     <>
                       <Plus className="w-5 h-5" />
                       צור מפתח
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Modal */}
+      {deleteModal.show && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setDeleteModal({ show: false, keyId: null, keyName: '' })}>
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-red-500 to-rose-600 p-6 text-white">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Trash2 className="w-6 h-6" />
+                מחיקת מפתח API
+              </h2>
+              <p className="text-white/70 text-sm mt-1">פעולה זו אינה ניתנת לביטול</p>
+            </div>
+            
+            <div className="p-6">
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
+                <p className="text-red-800">
+                  האם אתה בטוח שברצונך למחוק את המפתח <strong>"{deleteModal.keyName}"</strong>?
+                </p>
+                <p className="text-red-600 text-sm mt-2">
+                  כל המערכות שמשתמשות במפתח זה יפסיקו לעבוד מיידית.
+                </p>
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDeleteModal({ show: false, keyId: null, keyName: '' })}
+                  className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200 transition-colors"
+                >
+                  ביטול
+                </button>
+                <button
+                  onClick={deleteApiKey}
+                  disabled={deleting}
+                  className="flex-1 py-3 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {deleting ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <Trash2 className="w-5 h-5" />
+                      מחק מפתח
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Regenerate Modal */}
+      {regenerateModal.show && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setRegenerateModal({ show: false, keyId: null, keyName: '' })}>
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-6 text-white">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <RefreshCw className="w-6 h-6" />
+                חידוש מפתח API
+              </h2>
+              <p className="text-white/70 text-sm mt-1">יצירת מפתח חדש</p>
+            </div>
+            
+            <div className="p-6">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
+                <p className="text-amber-800">
+                  האם אתה בטוח שברצונך לחדש את המפתח <strong>"{regenerateModal.keyName}"</strong>?
+                </p>
+                <p className="text-amber-700 text-sm mt-2">
+                  המפתח הנוכחי יפסיק לעבוד מיידית. תקבל מפתח חדש שיוצג פעם אחת בלבד.
+                </p>
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setRegenerateModal({ show: false, keyId: null, keyName: '' })}
+                  className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200 transition-colors"
+                >
+                  ביטול
+                </button>
+                <button
+                  onClick={regenerateApiKey}
+                  disabled={regenerating}
+                  className="flex-1 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl font-semibold hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {regenerating ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <RefreshCw className="w-5 h-5" />
+                      חדש מפתח
                     </>
                   )}
                 </button>
