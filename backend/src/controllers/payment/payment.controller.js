@@ -319,6 +319,13 @@ async function subscribe(req, res) {
       });
     } else {
       // Charge immediately using customer's saved payment method
+      console.log('[Payment] Using Sumit customer ID:', paymentMethod.sumit_customer_id);
+      console.log('[Payment] Payment method details:', JSON.stringify({
+        id: paymentMethod.id,
+        sumit_customer_id: paymentMethod.sumit_customer_id,
+        card_last_digits: paymentMethod.card_last_digits,
+      }));
+      
       if (billingPeriod === 'yearly') {
         // One-time charge for yearly
         chargeResult = await sumitService.chargeOneTime({
