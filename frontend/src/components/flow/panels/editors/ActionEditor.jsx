@@ -4,15 +4,40 @@ import TextInputWithVariables from './TextInputWithVariables';
 import api from '../../../../services/api';
 
 const actionTypes = [
-  { id: 'add_tag', label: 'הוסף תגית', icon: '🏷️', hasValue: 'tag' },
-  { id: 'remove_tag', label: 'הסר תגית', icon: '🏷️', hasValue: 'tag' },
-  { id: 'set_variable', label: 'הגדר משתנה', icon: '📝', hasValue: 'keyvalue' },
-  { id: 'stop_bot', label: 'עצור בוט', icon: '🛑' },
-  { id: 'enable_bot', label: 'הפעל בוט', icon: '▶️' },
-  { id: 'delete_contact', label: 'מחק איש קשר', icon: '🗑️' },
-  { id: 'webhook', label: 'Webhook', icon: '🌐', hasValue: 'url' },
-  { id: 'http_request', label: 'קריאת API', icon: '📡', hasValue: 'api' },
-  { id: 'notify', label: 'התראה', icon: '🔔', hasValue: 'text' },
+  // Basic Actions
+  { id: 'add_tag', label: 'הוסף תגית', icon: '🏷️', hasValue: 'tag', category: 'basic' },
+  { id: 'remove_tag', label: 'הסר תגית', icon: '🏷️', hasValue: 'tag', category: 'basic' },
+  { id: 'set_variable', label: 'הגדר משתנה', icon: '📝', hasValue: 'keyvalue', category: 'basic' },
+  { id: 'stop_bot', label: 'עצור בוט', icon: '🛑', category: 'basic' },
+  { id: 'enable_bot', label: 'הפעל בוט', icon: '▶️', category: 'basic' },
+  { id: 'delete_contact', label: 'מחק איש קשר', icon: '🗑️', category: 'basic' },
+  
+  // WhatsApp Actions
+  { id: 'send_voice', label: 'שלח הודעה קולית', icon: '🎤', hasValue: 'audio', category: 'whatsapp' },
+  { id: 'send_file', label: 'שלח קובץ', icon: '📎', hasValue: 'file', category: 'whatsapp' },
+  { id: 'send_location', label: 'שלח מיקום', icon: '📍', hasValue: 'location', category: 'whatsapp' },
+  { id: 'send_contact', label: 'שלח איש קשר', icon: '👤', hasValue: 'contact', category: 'whatsapp' },
+  { id: 'send_link_preview', label: 'שלח קישור עם תצוגה', icon: '🔗', hasValue: 'linkpreview', category: 'whatsapp' },
+  { id: 'mark_seen', label: 'סמן כנקרא', icon: '✅', category: 'whatsapp' },
+  { id: 'start_typing', label: 'התחל הקלדה', icon: '⌨️', category: 'whatsapp' },
+  { id: 'stop_typing', label: 'הפסק הקלדה', icon: '⏹️', category: 'whatsapp' },
+  { id: 'send_reaction', label: 'שלח ריאקציה', icon: '👍', hasValue: 'reaction', category: 'whatsapp' },
+  
+  // Group Actions
+  { id: 'add_to_group', label: 'הוסף לקבוצה', icon: '➕', hasValue: 'group', category: 'group' },
+  { id: 'remove_from_group', label: 'הסר מקבוצה', icon: '➖', hasValue: 'group', category: 'group' },
+  { id: 'check_group_member', label: 'בדוק חברות בקבוצה', icon: '🔍', hasValue: 'group_check', category: 'group' },
+  { id: 'set_group_admin_only', label: 'הגדר הודעות מנהלים', icon: '👑', hasValue: 'group_settings', category: 'group' },
+  { id: 'update_group_subject', label: 'עדכן שם קבוצה', icon: '✏️', hasValue: 'group_subject', category: 'group' },
+  { id: 'update_group_description', label: 'עדכן תיאור קבוצה', icon: '📄', hasValue: 'group_desc', category: 'group' },
+  
+  // Labels (WhatsApp Business)
+  { id: 'set_label', label: 'הגדר תווית', icon: '🔖', hasValue: 'label', category: 'business' },
+  
+  // Integration Actions
+  { id: 'webhook', label: 'Webhook', icon: '🌐', hasValue: 'url', category: 'integration' },
+  { id: 'http_request', label: 'קריאת API', icon: '📡', hasValue: 'api', category: 'integration' },
+  { id: 'notify', label: 'התראה', icon: '🔔', hasValue: 'text', category: 'integration' },
 ];
 
 export default function ActionEditor({ data, onUpdate }) {
@@ -50,32 +75,98 @@ export default function ActionEditor({ data, onUpdate }) {
         ))}
       </div>
 
-      {/* Add buttons */}
-      <div className="border-t border-gray-100 pt-4">
-        <p className="text-sm text-gray-500 mb-3">הוסף פעולה:</p>
-        <div className="grid grid-cols-2 gap-2">
-          {actionTypes.slice(0, 6).map(({ id, label, icon }) => (
-            <button
-              key={id}
-              onClick={() => addAction(id)}
-              className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-pink-50 hover:text-pink-700 rounded-lg text-sm"
-            >
-              <span>{icon}</span>
-              <span className="truncate">{label}</span>
-            </button>
-          ))}
-        </div>
-        <details className="mt-2">
-          <summary className="text-sm text-gray-500 cursor-pointer hover:text-gray-700">עוד...</summary>
-          <div className="grid grid-cols-2 gap-2 mt-2">
-            {actionTypes.slice(6).map(({ id, label, icon }) => (
+      {/* Add buttons - organized by category */}
+      <div className="border-t border-gray-100 pt-4 space-y-3">
+        <p className="text-sm text-gray-500">הוסף פעולה:</p>
+        
+        {/* Basic Actions */}
+        <div>
+          <p className="text-xs text-gray-400 mb-2 font-medium">בסיסי</p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {actionTypes.filter(a => a.category === 'basic').map(({ id, label, icon }) => (
               <button
                 key={id}
                 onClick={() => addAction(id)}
-                className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-pink-50 hover:text-pink-700 rounded-lg text-sm"
+                className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-pink-50 hover:text-pink-700 rounded-lg text-sm transition-colors"
               >
                 <span>{icon}</span>
-                <span className="truncate">{label}</span>
+                <span className="truncate text-xs">{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        {/* WhatsApp Actions */}
+        <details>
+          <summary className="text-xs text-gray-400 mb-2 font-medium cursor-pointer hover:text-gray-600">
+            📱 WhatsApp
+          </summary>
+          <div className="grid grid-cols-2 gap-1.5 mt-2">
+            {actionTypes.filter(a => a.category === 'whatsapp').map(({ id, label, icon }) => (
+              <button
+                key={id}
+                onClick={() => addAction(id)}
+                className="flex items-center gap-2 p-2 bg-green-50 hover:bg-green-100 hover:text-green-700 rounded-lg text-sm transition-colors"
+              >
+                <span>{icon}</span>
+                <span className="truncate text-xs">{label}</span>
+              </button>
+            ))}
+          </div>
+        </details>
+        
+        {/* Group Actions */}
+        <details>
+          <summary className="text-xs text-gray-400 mb-2 font-medium cursor-pointer hover:text-gray-600">
+            👥 קבוצות
+          </summary>
+          <div className="grid grid-cols-2 gap-1.5 mt-2">
+            {actionTypes.filter(a => a.category === 'group').map(({ id, label, icon }) => (
+              <button
+                key={id}
+                onClick={() => addAction(id)}
+                className="flex items-center gap-2 p-2 bg-blue-50 hover:bg-blue-100 hover:text-blue-700 rounded-lg text-sm transition-colors"
+              >
+                <span>{icon}</span>
+                <span className="truncate text-xs">{label}</span>
+              </button>
+            ))}
+          </div>
+        </details>
+        
+        {/* Business Labels */}
+        <details>
+          <summary className="text-xs text-gray-400 mb-2 font-medium cursor-pointer hover:text-gray-600">
+            🏢 WhatsApp Business
+          </summary>
+          <div className="grid grid-cols-2 gap-1.5 mt-2">
+            {actionTypes.filter(a => a.category === 'business').map(({ id, label, icon }) => (
+              <button
+                key={id}
+                onClick={() => addAction(id)}
+                className="flex items-center gap-2 p-2 bg-purple-50 hover:bg-purple-100 hover:text-purple-700 rounded-lg text-sm transition-colors"
+              >
+                <span>{icon}</span>
+                <span className="truncate text-xs">{label}</span>
+              </button>
+            ))}
+          </div>
+        </details>
+        
+        {/* Integration Actions */}
+        <details>
+          <summary className="text-xs text-gray-400 mb-2 font-medium cursor-pointer hover:text-gray-600">
+            🔌 אינטגרציות
+          </summary>
+          <div className="grid grid-cols-2 gap-1.5 mt-2">
+            {actionTypes.filter(a => a.category === 'integration').map(({ id, label, icon }) => (
+              <button
+                key={id}
+                onClick={() => addAction(id)}
+                className="flex items-center gap-2 p-2 bg-orange-50 hover:bg-orange-100 hover:text-orange-700 rounded-lg text-sm transition-colors"
+              >
+                <span>{icon}</span>
+                <span className="truncate text-xs">{label}</span>
               </button>
             ))}
           </div>
@@ -155,6 +246,292 @@ function ActionItem({ action, canRemove, onUpdate, onRemove }) {
           onChange={(v) => onUpdate({ text: v })}
           placeholder="תוכן ההתראה..."
         />
+      )}
+
+      {/* Audio file for voice message */}
+      {actionInfo.hasValue === 'audio' && (
+        <div className="space-y-2">
+          <input
+            type="url"
+            value={action.audioUrl || ''}
+            onChange={(e) => onUpdate({ audioUrl: e.target.value })}
+            placeholder="URL לקובץ שמע (ogg/opus)..."
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+            dir="ltr"
+          />
+          <p className="text-xs text-gray-400">פורמט מומלץ: audio/ogg; codecs=opus</p>
+        </div>
+      )}
+
+      {/* File upload */}
+      {actionInfo.hasValue === 'file' && (
+        <div className="space-y-2">
+          <input
+            type="url"
+            value={action.fileUrl || ''}
+            onChange={(e) => onUpdate({ fileUrl: e.target.value })}
+            placeholder="URL לקובץ..."
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+            dir="ltr"
+          />
+          <input
+            type="text"
+            value={action.filename || ''}
+            onChange={(e) => onUpdate({ filename: e.target.value })}
+            placeholder="שם הקובץ (לדוגמה: document.pdf)"
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+            dir="ltr"
+          />
+          <select
+            value={action.mimetype || 'application/pdf'}
+            onChange={(e) => onUpdate({ mimetype: e.target.value })}
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+          >
+            <option value="application/pdf">PDF</option>
+            <option value="image/jpeg">תמונה (JPEG)</option>
+            <option value="image/png">תמונה (PNG)</option>
+            <option value="video/mp4">וידאו (MP4)</option>
+            <option value="audio/mpeg">שמע (MP3)</option>
+            <option value="application/msword">Word</option>
+            <option value="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">Excel</option>
+          </select>
+        </div>
+      )}
+
+      {/* Location */}
+      {actionInfo.hasValue === 'location' && (
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              type="number"
+              step="any"
+              value={action.latitude || ''}
+              onChange={(e) => onUpdate({ latitude: parseFloat(e.target.value) })}
+              placeholder="קו רוחב (Lat)"
+              className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+              dir="ltr"
+            />
+            <input
+              type="number"
+              step="any"
+              value={action.longitude || ''}
+              onChange={(e) => onUpdate({ longitude: parseFloat(e.target.value) })}
+              placeholder="קו אורך (Lng)"
+              className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+              dir="ltr"
+            />
+          </div>
+          <TextInputWithVariables
+            value={action.locationTitle || ''}
+            onChange={(v) => onUpdate({ locationTitle: v })}
+            placeholder="שם המיקום (אופציונלי)..."
+          />
+        </div>
+      )}
+
+      {/* Contact vCard */}
+      {actionInfo.hasValue === 'contact' && (
+        <div className="space-y-2">
+          <TextInputWithVariables
+            value={action.contactName || ''}
+            onChange={(v) => onUpdate({ contactName: v })}
+            placeholder="שם איש הקשר..."
+          />
+          <TextInputWithVariables
+            value={action.contactPhone || ''}
+            onChange={(v) => onUpdate({ contactPhone: v })}
+            placeholder="מספר טלפון (עם קידומת מדינה)..."
+          />
+          <input
+            type="text"
+            value={action.contactOrg || ''}
+            onChange={(e) => onUpdate({ contactOrg: e.target.value })}
+            placeholder="ארגון (אופציונלי)"
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+          />
+        </div>
+      )}
+
+      {/* Link Preview */}
+      {actionInfo.hasValue === 'linkpreview' && (
+        <div className="space-y-2">
+          <TextInputWithVariables
+            value={action.linkText || ''}
+            onChange={(v) => onUpdate({ linkText: v })}
+            placeholder="טקסט ההודעה עם הקישור..."
+            multiline
+            rows={2}
+          />
+          <input
+            type="url"
+            value={action.linkUrl || ''}
+            onChange={(e) => onUpdate({ linkUrl: e.target.value })}
+            placeholder="URL לתצוגה מקדימה..."
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+            dir="ltr"
+          />
+          <input
+            type="text"
+            value={action.linkTitle || ''}
+            onChange={(e) => onUpdate({ linkTitle: e.target.value })}
+            placeholder="כותרת התצוגה המקדימה..."
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+          />
+          <input
+            type="text"
+            value={action.linkDescription || ''}
+            onChange={(e) => onUpdate({ linkDescription: e.target.value })}
+            placeholder="תיאור התצוגה המקדימה..."
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+          />
+          <input
+            type="url"
+            value={action.linkImage || ''}
+            onChange={(e) => onUpdate({ linkImage: e.target.value })}
+            placeholder="URL לתמונת התצוגה המקדימה..."
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+            dir="ltr"
+          />
+        </div>
+      )}
+
+      {/* Reaction */}
+      {actionInfo.hasValue === 'reaction' && (
+        <div className="space-y-2">
+          <p className="text-xs text-gray-500">בחר אימוג'י לריאקציה:</p>
+          <div className="flex flex-wrap gap-2">
+            {['👍', '❤️', '😂', '😮', '😢', '🙏', '👏', '🔥', '🎉', '💯'].map(emoji => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => onUpdate({ reaction: emoji })}
+                className={`w-10 h-10 text-xl rounded-lg border-2 transition-colors ${
+                  action.reaction === emoji 
+                    ? 'border-blue-500 bg-blue-50' 
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400">הריאקציה תישלח להודעה האחרונה שהתקבלה</p>
+        </div>
+      )}
+
+      {/* Group ID input */}
+      {actionInfo.hasValue === 'group' && (
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={action.groupId || ''}
+            onChange={(e) => onUpdate({ groupId: e.target.value })}
+            placeholder="מזהה קבוצה (לדוגמה: 123456789@g.us)"
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+            dir="ltr"
+          />
+          <p className="text-xs text-gray-400">איש הקשר הנוכחי יתווסף/יוסר מהקבוצה</p>
+        </div>
+      )}
+
+      {/* Group check */}
+      {actionInfo.hasValue === 'group_check' && (
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={action.groupId || ''}
+            onChange={(e) => onUpdate({ groupId: e.target.value })}
+            placeholder="מזהה קבוצה לבדיקה..."
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+            dir="ltr"
+          />
+          <input
+            type="text"
+            value={action.resultVar || 'is_member'}
+            onChange={(e) => onUpdate({ resultVar: e.target.value })}
+            placeholder="שם משתנה לתוצאה..."
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+          />
+          <p className="text-xs text-gray-400">התוצאה תישמר במשתנה (true/false)</p>
+        </div>
+      )}
+
+      {/* Group settings - admin only */}
+      {actionInfo.hasValue === 'group_settings' && (
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={action.groupId || ''}
+            onChange={(e) => onUpdate({ groupId: e.target.value })}
+            placeholder="מזהה קבוצה..."
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+            dir="ltr"
+          />
+          <select
+            value={action.adminsOnly ? 'true' : 'false'}
+            onChange={(e) => onUpdate({ adminsOnly: e.target.value === 'true' })}
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+          >
+            <option value="true">רק מנהלים יכולים לשלוח הודעות</option>
+            <option value="false">כולם יכולים לשלוח הודעות</option>
+          </select>
+        </div>
+      )}
+
+      {/* Group subject */}
+      {actionInfo.hasValue === 'group_subject' && (
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={action.groupId || ''}
+            onChange={(e) => onUpdate({ groupId: e.target.value })}
+            placeholder="מזהה קבוצה..."
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+            dir="ltr"
+          />
+          <TextInputWithVariables
+            value={action.groupSubject || ''}
+            onChange={(v) => onUpdate({ groupSubject: v })}
+            placeholder="שם הקבוצה החדש..."
+          />
+        </div>
+      )}
+
+      {/* Group description */}
+      {actionInfo.hasValue === 'group_desc' && (
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={action.groupId || ''}
+            onChange={(e) => onUpdate({ groupId: e.target.value })}
+            placeholder="מזהה קבוצה..."
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+            dir="ltr"
+          />
+          <TextInputWithVariables
+            value={action.groupDescription || ''}
+            onChange={(v) => onUpdate({ groupDescription: v })}
+            placeholder="תיאור הקבוצה החדש..."
+            multiline
+            rows={3}
+          />
+        </div>
+      )}
+
+      {/* Label */}
+      {actionInfo.hasValue === 'label' && (
+        <div className="space-y-2">
+          <p className="text-xs text-gray-500">זמין רק ב-WhatsApp Business</p>
+          <input
+            type="text"
+            value={action.labelId || ''}
+            onChange={(e) => onUpdate({ labelId: e.target.value })}
+            placeholder="מזהה תווית (לדוגמה: 1)"
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+            dir="ltr"
+          />
+          <p className="text-xs text-gray-400">ניתן לקבל את מזהי התוויות מ-API: GET /api/labels</p>
+        </div>
       )}
     </div>
   );

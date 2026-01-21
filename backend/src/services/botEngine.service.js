@@ -999,6 +999,202 @@ class BotEngine {
         case 'http_request':
           await this.executeHttpRequest(action, contact);
           break;
+        
+        // ========== NEW WHATSAPP ACTIONS ==========
+        case 'send_voice':
+          if (action.audioUrl) {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              await wahaService.sendVoice(connection, contact.phone, action.audioUrl);
+              console.log('[BotEngine] ✅ Voice message sent');
+            }
+          }
+          break;
+          
+        case 'send_file':
+          if (action.fileUrl) {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              await wahaService.sendFileAdvanced(connection, contact.phone, {
+                url: action.fileUrl,
+                filename: action.filename || 'file',
+                mimetype: action.mimetype || 'application/pdf'
+              });
+              console.log('[BotEngine] ✅ File sent');
+            }
+          }
+          break;
+          
+        case 'send_location':
+          if (action.latitude && action.longitude) {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              await wahaService.sendLocation(connection, contact.phone, action.latitude, action.longitude, action.locationTitle || '');
+              console.log('[BotEngine] ✅ Location sent');
+            }
+          }
+          break;
+          
+        case 'send_contact':
+          if (action.contactPhone) {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              const contacts = [{
+                fullName: action.contactName || '',
+                organization: action.contactOrg || '',
+                phoneNumber: action.contactPhone,
+                whatsappId: action.contactPhone.replace(/[^0-9]/g, '')
+              }];
+              await wahaService.sendContactVcard(connection, contact.phone, contacts);
+              console.log('[BotEngine] ✅ Contact vCard sent');
+            }
+          }
+          break;
+          
+        case 'send_link_preview':
+          if (action.linkText && action.linkUrl) {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              await wahaService.sendLinkPreview(connection, contact.phone, action.linkText, {
+                url: action.linkUrl,
+                title: action.linkTitle || '',
+                description: action.linkDescription || '',
+                image: action.linkImage ? { url: action.linkImage } : undefined
+              });
+              console.log('[BotEngine] ✅ Link preview sent');
+            }
+          }
+          break;
+          
+        case 'mark_seen':
+          {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              await wahaService.sendSeen(connection, contact.phone);
+              console.log('[BotEngine] ✅ Marked as seen');
+            }
+          }
+          break;
+          
+        case 'start_typing':
+          {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              await wahaService.startTyping(connection, contact.phone);
+              console.log('[BotEngine] ✅ Typing started');
+            }
+          }
+          break;
+          
+        case 'stop_typing':
+          {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              await wahaService.stopTyping(connection, contact.phone);
+              console.log('[BotEngine] ✅ Typing stopped');
+            }
+          }
+          break;
+          
+        case 'send_reaction':
+          if (action.reaction) {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              // Get last message ID from contact
+              const lastMsg = await db.query(
+                'SELECT wa_message_id FROM messages WHERE contact_id = $1 AND direction = $2 ORDER BY sent_at DESC LIMIT 1',
+                [contact.id, 'incoming']
+              );
+              if (lastMsg.rows.length > 0 && lastMsg.rows[0].wa_message_id) {
+                await wahaService.sendReaction(connection, lastMsg.rows[0].wa_message_id, action.reaction);
+                console.log('[BotEngine] ✅ Reaction sent:', action.reaction);
+              }
+            }
+          }
+          break;
+          
+        // ========== GROUP ACTIONS ==========
+        case 'add_to_group':
+          if (action.groupId) {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              await wahaService.addGroupParticipants(connection, action.groupId, [contact.phone]);
+              console.log('[BotEngine] ✅ Added to group:', action.groupId);
+            }
+          }
+          break;
+          
+        case 'remove_from_group':
+          if (action.groupId) {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              await wahaService.removeGroupParticipants(connection, action.groupId, [contact.phone]);
+              console.log('[BotEngine] ✅ Removed from group:', action.groupId);
+            }
+          }
+          break;
+          
+        case 'check_group_member':
+          if (action.groupId) {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              try {
+                const participants = await wahaService.getGroupParticipants(connection, action.groupId);
+                const isMember = participants.some(p => p.id?.includes(contact.phone) || p.phone === contact.phone);
+                const varName = action.resultVar || 'is_member';
+                await this.setContactVariable(contact.id, varName, isMember ? 'true' : 'false');
+                console.log('[BotEngine] ✅ Group membership check:', varName, '=', isMember);
+              } catch (err) {
+                console.error('[BotEngine] Group check error:', err.message);
+                await this.setContactVariable(contact.id, action.resultVar || 'is_member', 'false');
+              }
+            }
+          }
+          break;
+          
+        case 'set_group_admin_only':
+          if (action.groupId) {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              await wahaService.setGroupAdminOnly(connection, action.groupId, action.adminsOnly);
+              console.log('[BotEngine] ✅ Group admin-only set:', action.adminsOnly);
+            }
+          }
+          break;
+          
+        case 'update_group_subject':
+          if (action.groupId && action.groupSubject) {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              const subject = this.replaceVariables(action.groupSubject, contact, '', '');
+              await wahaService.updateGroupSubject(connection, action.groupId, subject);
+              console.log('[BotEngine] ✅ Group subject updated');
+            }
+          }
+          break;
+          
+        case 'update_group_description':
+          if (action.groupId && action.groupDescription) {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              const desc = this.replaceVariables(action.groupDescription, contact, '', '');
+              await wahaService.updateGroupDescription(connection, action.groupId, desc);
+              console.log('[BotEngine] ✅ Group description updated');
+            }
+          }
+          break;
+          
+        // ========== BUSINESS LABELS ==========
+        case 'set_label':
+          if (action.labelId) {
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              const chatId = `${contact.phone}@c.us`;
+              await wahaService.setChatLabels(connection, chatId, [action.labelId]);
+              console.log('[BotEngine] ✅ Label set:', action.labelId);
+            }
+          }
+          break;
       }
     }
   }
