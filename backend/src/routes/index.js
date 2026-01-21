@@ -10,6 +10,7 @@ const statsRoutes = require('./stats.routes');
 const userRoutes = require('./user.routes');
 const botsRoutes = require('./bots.routes');
 const utilsRoutes = require('./utils.routes');
+const variablesRoutes = require('./variables.routes');
 
 // Mount routes
 router.use('/auth', authRoutes);
@@ -20,5 +21,6 @@ router.use('/stats', statsRoutes);
 router.use('/user', userRoutes);
 router.use('/bots', botsRoutes);
 router.use('/utils', utilsRoutes);
+router.use('/variables', variablesRoutes);
 
 module.exports = router;

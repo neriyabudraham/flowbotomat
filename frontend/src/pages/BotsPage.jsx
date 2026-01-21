@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Bot, Play, Pause, Trash2, Edit2, X, Users, Zap, Settings, Tag } from 'lucide-react';
+import { Plus, Bot, Play, Pause, Trash2, Edit2, X, Users, Zap, Settings, Tag, Variable, Info } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useBotsStore from '../store/botsStore';
 import Button from '../components/atoms/Button';
@@ -16,8 +16,15 @@ export default function BotsPage() {
   const [newBotDesc, setNewBotDesc] = useState('');
   const [botStats, setBotStats] = useState({});
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState('tags');
   const [tags, setTags] = useState([]);
   const [newTag, setNewTag] = useState('');
+  // Variables state
+  const [systemVariables, setSystemVariables] = useState([]);
+  const [userVariables, setUserVariables] = useState([]);
+  const [newVarName, setNewVarName] = useState('');
+  const [newVarLabel, setNewVarLabel] = useState('');
+  const [newVarDefault, setNewVarDefault] = useState('');
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -44,6 +51,41 @@ export default function BotsPage() {
     try {
       const res = await api.get('/contacts/tags');
       setTags(res.data.tags || []);
+    } catch (e) {}
+  };
+
+  const fetchVariables = async () => {
+    try {
+      const res = await api.get('/variables');
+      setSystemVariables(res.data.systemVariables || []);
+      setUserVariables(res.data.userVariables || []);
+    } catch (e) {
+      console.error('Failed to fetch variables:', e);
+    }
+  };
+
+  const handleAddVariable = async () => {
+    if (!newVarName.trim()) return;
+    try {
+      await api.post('/variables', { 
+        name: newVarName.trim().toLowerCase().replace(/\s+/g, '_'),
+        label: newVarLabel.trim() || newVarName.trim(),
+        default_value: newVarDefault.trim()
+      });
+      setNewVarName('');
+      setNewVarLabel('');
+      setNewVarDefault('');
+      fetchVariables();
+    } catch (e) {
+      alert(e.response?.data?.error || 'שגיאה ביצירת משתנה');
+    }
+  };
+
+  const handleDeleteVariable = async (varId) => {
+    if (!confirm('למחוק משתנה?')) return;
+    try {
+      await api.delete(`/variables/${varId}`);
+      fetchVariables();
     } catch (e) {}
   };
 
@@ -165,7 +207,7 @@ export default function BotsPage() {
         {/* Settings Modal */}
         {showSettings && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl max-h-[80vh] overflow-y-auto">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-2xl max-h-[85vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-gray-800">הגדרות מתקדמות</h2>
                 <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-gray-100 rounded-lg">
@@ -173,38 +215,144 @@ export default function BotsPage() {
                 </button>
               </div>
               
-              {/* Tags Management */}
-              <div className="mb-6">
-                <h3 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                  <Tag className="w-4 h-4" /> ניהול תגיות
-                </h3>
-                <div className="flex gap-2 mb-3">
-                  <input
-                    type="text"
-                    value={newTag}
-                    onChange={(e) => setNewTag(e.target.value)}
-                    placeholder="שם תגית חדשה..."
-                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
-                  />
-                  <Button onClick={handleAddTag} className="!rounded-lg !px-4">
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {tags.map(tag => (
-                    <span key={tag.id} className="flex items-center gap-1 px-3 py-1 bg-gray-100 rounded-full text-sm">
-                      {tag.name}
-                      <button onClick={() => handleDeleteTag(tag.id)} className="hover:text-red-500">
-                        <X className="w-3 h-3" />
-                      </button>
-                    </span>
-                  ))}
-                  {tags.length === 0 && <p className="text-gray-400 text-sm">אין תגיות</p>}
-                </div>
+              {/* Tabs */}
+              <div className="flex gap-2 mb-6 border-b border-gray-200 pb-2">
+                <button
+                  onClick={() => setSettingsTab('tags')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    settingsTab === 'tags' ? 'bg-primary-100 text-primary-700 font-medium' : 'text-gray-500 hover:bg-gray-100'
+                  }`}
+                >
+                  <Tag className="w-4 h-4" /> תגיות
+                </button>
+                <button
+                  onClick={() => { setSettingsTab('variables'); fetchVariables(); }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    settingsTab === 'variables' ? 'bg-primary-100 text-primary-700 font-medium' : 'text-gray-500 hover:bg-gray-100'
+                  }`}
+                >
+                  <Variable className="w-4 h-4" /> משתנים
+                </button>
               </div>
+              
+              {/* Tags Tab */}
+              {settingsTab === 'tags' && (
+                <div className="mb-6">
+                  <h3 className="font-semibold text-gray-700 mb-3">ניהול תגיות</h3>
+                  <p className="text-sm text-gray-500 mb-4">תגיות משמשות לסינון וקטלוג אנשי קשר</p>
+                  <div className="flex gap-2 mb-3">
+                    <input
+                      type="text"
+                      value={newTag}
+                      onChange={(e) => setNewTag(e.target.value)}
+                      placeholder="שם תגית חדשה..."
+                      className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
+                    />
+                    <Button onClick={handleAddTag} className="!rounded-lg !px-4">
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {tags.map(tag => (
+                      <span key={tag.id} className="flex items-center gap-1 px-3 py-1 bg-gray-100 rounded-full text-sm">
+                        {tag.name}
+                        <button onClick={() => handleDeleteTag(tag.id)} className="hover:text-red-500">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                    {tags.length === 0 && <p className="text-gray-400 text-sm">אין תגיות</p>}
+                  </div>
+                </div>
+              )}
+              
+              {/* Variables Tab */}
+              {settingsTab === 'variables' && (
+                <div className="space-y-6">
+                  {/* System Variables */}
+                  <div>
+                    <h3 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                      משתני מערכת
+                      <span className="text-xs text-gray-400 font-normal">(קריאה בלבד)</span>
+                    </h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {systemVariables.map(v => (
+                        <div key={v.name} className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg text-sm">
+                          <code className="text-purple-600 font-mono text-xs">{`{{${v.name}}}`}</code>
+                          <span className="text-gray-500">-</span>
+                          <span className="text-gray-700">{v.label}</span>
+                          <Info className="w-3 h-3 text-gray-400 mr-auto" title={v.description} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* User Variables */}
+                  <div>
+                    <h3 className="font-semibold text-gray-700 mb-3">משתני יוזר</h3>
+                    <p className="text-sm text-gray-500 mb-4">משתנים אלו נשמרים על כל איש קשר ומתעדכנים אוטומטית</p>
+                    
+                    {/* Add new variable */}
+                    <div className="flex gap-2 mb-4 p-3 bg-gray-50 rounded-lg">
+                      <input
+                        type="text"
+                        value={newVarName}
+                        onChange={(e) => setNewVarName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                        placeholder="שם (באנגלית)"
+                        className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                        dir="ltr"
+                      />
+                      <input
+                        type="text"
+                        value={newVarLabel}
+                        onChange={(e) => setNewVarLabel(e.target.value)}
+                        placeholder="תווית (אופציונלי)"
+                        className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                      />
+                      <input
+                        type="text"
+                        value={newVarDefault}
+                        onChange={(e) => setNewVarDefault(e.target.value)}
+                        placeholder="ערך ברירת מחדל"
+                        className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                      />
+                      <Button onClick={handleAddVariable} className="!rounded-lg !px-4" disabled={!newVarName.trim()}>
+                        <Plus className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    
+                    {/* Variables list */}
+                    <div className="space-y-2">
+                      {userVariables.map(v => (
+                        <div key={v.id} className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm">
+                          <code className="text-indigo-600 font-mono text-xs">{`{{${v.name}}}`}</code>
+                          <span className="text-gray-500">-</span>
+                          <span className="text-gray-700">{v.label || v.name}</span>
+                          {v.default_value && (
+                            <span className="text-xs text-gray-400">(ברירת מחדל: {v.default_value})</span>
+                          )}
+                          <button 
+                            onClick={() => handleDeleteVariable(v.id)} 
+                            className="mr-auto p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-500"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      {userVariables.length === 0 && (
+                        <p className="text-gray-400 text-sm text-center py-4">
+                          אין משתני יוזר. משתנים יתווספו אוטומטית כשתשתמש בהם בבוטים.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
-              <Button variant="ghost" onClick={() => setShowSettings(false)} className="w-full !rounded-xl">סגור</Button>
+              <div className="mt-6 pt-4 border-t border-gray-200">
+                <Button variant="ghost" onClick={() => setShowSettings(false)} className="w-full !rounded-xl">סגור</Button>
+              </div>
             </div>
           </div>
         )}

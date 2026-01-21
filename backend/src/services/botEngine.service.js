@@ -97,6 +97,11 @@ class BotEngine {
           console.log('[BotEngine] ⏳ Waiting for reply - continuing session');
           await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId);
           return;
+        } else if (session.waiting_for === 'registration') {
+          // Waiting for registration answer - this BLOCKS new triggers
+          console.log('[BotEngine] 📝 Waiting for registration answer - continuing session');
+          await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId);
+          return;
         }
       }
       
@@ -965,7 +970,8 @@ class BotEngine {
       questions = [], 
       timeout = 2, 
       timeoutUnit = 'hours',
-      cancelKeyword = 'ביטול'
+      cancelKeyword = 'ביטול',
+      welcomeDelay = 2 // Default 2 seconds delay between welcome and first question
     } = node.data;
     
     console.log('[BotEngine] Starting registration with', questions.length, 'questions');
@@ -980,7 +986,8 @@ class BotEngine {
       const welcomeText = this.replaceVariables(welcomeMessage, contact, '', botName);
       await wahaService.sendMessage(connection, contact.phone, welcomeText);
       console.log('[BotEngine] ✅ Welcome message sent');
-      await this.sleep(500);
+      // Wait for configured delay before sending first question
+      await this.sleep((welcomeDelay || 2) * 1000);
     }
     
     // Send first question
@@ -1386,12 +1393,31 @@ class BotEngine {
   
   // Helper: Set contact variable
   async setContactVariable(contactId, key, value) {
+    // Save the value to contact
     await db.query(
       `INSERT INTO contact_variables (contact_id, key, value)
        VALUES ($1, $2, $3)
        ON CONFLICT (contact_id, key) DO UPDATE SET value = $3, updated_at = NOW()`,
       [contactId, key, value]
     );
+    
+    // Auto-add variable to user's variable definitions (if not exists)
+    try {
+      // Get user_id from contact
+      const contactRes = await db.query('SELECT user_id FROM contacts WHERE id = $1', [contactId]);
+      if (contactRes.rows[0]) {
+        const userId = contactRes.rows[0].user_id;
+        await db.query(
+          `INSERT INTO user_variable_definitions (user_id, name, label, var_type)
+           VALUES ($1, $2, $2, 'text')
+           ON CONFLICT (user_id, name) DO NOTHING`,
+          [userId, key]
+        );
+      }
+    } catch (err) {
+      // Ignore errors - table might not exist yet
+      console.log('[BotEngine] Could not auto-add variable definition:', err.message);
+    }
   }
   
   // Helper: Send webhook

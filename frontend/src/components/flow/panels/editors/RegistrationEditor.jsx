@@ -169,6 +169,20 @@ export default function RegistrationEditor({ data, onUpdate }) {
           multiline
           rows={2}
         />
+        {data.welcomeMessage && (
+          <div className="mt-2 flex items-center gap-2">
+            <label className="text-xs text-gray-500">השהייה לפני השאלה הראשונה:</label>
+            <input
+              type="number"
+              value={data.welcomeDelay ?? 2}
+              onChange={(e) => onUpdate({ welcomeDelay: parseInt(e.target.value) || 2 })}
+              min={0}
+              max={30}
+              className="w-16 px-2 py-1 bg-gray-50 border border-gray-200 rounded text-sm text-center"
+            />
+            <span className="text-xs text-gray-500">שניות</span>
+          </div>
+        )}
       </div>
       
       {/* Quick Add Questions */}

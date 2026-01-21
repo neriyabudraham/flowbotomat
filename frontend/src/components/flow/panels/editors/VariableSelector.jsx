@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Search, User, Settings, Hash } from 'lucide-react';
+import api from '../../../../services/api';
 
-const systemVariables = [
+// Default system variables (used as fallback)
+const defaultSystemVariables = [
   { key: 'name', label: 'שם איש קשר', icon: User },
   { key: 'phone', label: 'מספר טלפון', icon: User },
   { key: 'message', label: 'ההודעה האחרונה', icon: Settings },
@@ -11,15 +13,51 @@ const systemVariables = [
   { key: 'bot_name', label: 'שם הבוט', icon: Settings },
 ];
 
-const userVariables = [
-  { key: 'email', label: 'אימייל', icon: Hash },
-  { key: 'city', label: 'עיר', icon: Hash },
-  { key: 'notes', label: 'הערות', icon: Hash },
-];
-
 export default function VariableSelector({ isOpen, onSelect, onClose, position, customVariables = [] }) {
   const [search, setSearch] = useState('');
+  const [systemVariables, setSystemVariables] = useState(defaultSystemVariables);
+  const [userVariables, setUserVariables] = useState([]);
+  const [loading, setLoading] = useState(false);
   const ref = useRef(null);
+  const loadedRef = useRef(false);
+
+  // Load variables from API when opened
+  useEffect(() => {
+    if (isOpen && !loadedRef.current) {
+      loadVariables();
+    }
+  }, [isOpen]);
+
+  const loadVariables = async () => {
+    try {
+      setLoading(true);
+      const res = await api.get('/variables');
+      
+      // Format system variables
+      const sysVars = (res.data.systemVariables || []).map(v => ({
+        key: v.name,
+        label: v.label,
+        icon: v.name === 'name' || v.name === 'phone' ? User : Settings,
+      }));
+      if (sysVars.length > 0) {
+        setSystemVariables(sysVars);
+      }
+      
+      // Format user variables
+      const usrVars = (res.data.userVariables || []).map(v => ({
+        key: v.name,
+        label: v.label || v.name,
+        icon: Hash,
+      }));
+      setUserVariables(usrVars);
+      
+      loadedRef.current = true;
+    } catch (err) {
+      console.error('Failed to load variables:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -38,7 +76,7 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
 
   const filterVars = (vars) => 
     vars.filter(v => 
-      v.key.includes(search.toLowerCase()) || 
+      v.key.toLowerCase().includes(search.toLowerCase()) || 
       v.label.includes(search)
     );
 
@@ -82,60 +120,68 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
 
       {/* Variables List */}
       <div className="overflow-y-auto max-h-52">
-        {/* System Variables */}
-        <div className="p-2">
-          <div className="text-xs font-medium text-gray-400 px-2 mb-1">משתני מערכת</div>
-          {filterVars(systemVariables).map(v => (
-            <button
-              key={v.key}
-              onClick={() => { onSelect(`{{${v.key}}}`); onClose(); }}
-              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-teal-50 rounded-lg text-right transition-colors"
-            >
-              <v.icon className="w-4 h-4 text-teal-600" />
-              <span className="flex-1 text-sm text-gray-700">{v.label}</span>
-              <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                {`{{${v.key}}}`}
-              </code>
-            </button>
-          ))}
-        </div>
+        {loading ? (
+          <div className="p-4 text-center text-gray-400 text-sm">טוען משתנים...</div>
+        ) : (
+          <>
+            {/* System Variables */}
+            <div className="p-2">
+              <div className="text-xs font-medium text-gray-400 px-2 mb-1">משתני מערכת</div>
+              {filterVars(systemVariables).map(v => (
+                <button
+                  key={v.key}
+                  onClick={() => { onSelect(`{{${v.key}}}`); onClose(); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-teal-50 rounded-lg text-right transition-colors"
+                >
+                  <v.icon className="w-4 h-4 text-teal-600" />
+                  <span className="flex-1 text-sm text-gray-700">{v.label}</span>
+                  <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                    {`{{${v.key}}}`}
+                  </code>
+                </button>
+              ))}
+            </div>
 
-        {/* User Variables */}
-        <div className="p-2 border-t border-gray-100">
-          <div className="text-xs font-medium text-gray-400 px-2 mb-1">משתני יוזר</div>
-          {filterVars(userVariables).map(v => (
-            <button
-              key={v.key}
-              onClick={() => { onSelect(`{{${v.key}}}`); onClose(); }}
-              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-blue-50 rounded-lg text-right transition-colors"
-            >
-              <v.icon className="w-4 h-4 text-blue-600" />
-              <span className="flex-1 text-sm text-gray-700">{v.label}</span>
-              <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                {`{{${v.key}}}`}
-              </code>
-            </button>
-          ))}
-        </div>
+            {/* User Variables */}
+            {userVariables.length > 0 && (
+              <div className="p-2 border-t border-gray-100">
+                <div className="text-xs font-medium text-gray-400 px-2 mb-1">משתני יוזר</div>
+                {filterVars(userVariables).map(v => (
+                  <button
+                    key={v.key}
+                    onClick={() => { onSelect(`{{${v.key}}}`); onClose(); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-blue-50 rounded-lg text-right transition-colors"
+                  >
+                    <v.icon className="w-4 h-4 text-blue-600" />
+                    <span className="flex-1 text-sm text-gray-700">{v.label}</span>
+                    <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                      {`{{${v.key}}}`}
+                    </code>
+                  </button>
+                ))}
+              </div>
+            )}
 
-        {/* Custom Variables */}
-        {allCustom.length > 0 && (
-          <div className="p-2 border-t border-gray-100">
-            <div className="text-xs font-medium text-gray-400 px-2 mb-1">משתנים מותאמים</div>
-            {filterVars(allCustom).map(v => (
-              <button
-                key={v.key}
-                onClick={() => { onSelect(`{{${v.key}}}`); onClose(); }}
-                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-purple-50 rounded-lg text-right transition-colors"
-              >
-                <v.icon className="w-4 h-4 text-purple-600" />
-                <span className="flex-1 text-sm text-gray-700">{v.label}</span>
-                <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                  {`{{${v.key}}}`}
-                </code>
-              </button>
-            ))}
-          </div>
+            {/* Custom Variables */}
+            {allCustom.length > 0 && (
+              <div className="p-2 border-t border-gray-100">
+                <div className="text-xs font-medium text-gray-400 px-2 mb-1">משתנים מותאמים</div>
+                {filterVars(allCustom).map(v => (
+                  <button
+                    key={v.key}
+                    onClick={() => { onSelect(`{{${v.key}}}`); onClose(); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-purple-50 rounded-lg text-right transition-colors"
+                  >
+                    <v.icon className="w-4 h-4 text-purple-600" />
+                    <span className="flex-1 text-sm text-gray-700">{v.label}</span>
+                    <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                      {`{{${v.key}}}`}
+                    </code>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

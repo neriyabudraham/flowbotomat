@@ -1,0 +1,131 @@
+const db = require('../../config/database');
+
+// System variables that are always available
+const SYSTEM_VARIABLES = [
+  { name: 'name', label: 'שם איש קשר', description: 'שם איש הקשר כפי שנשמר במערכת', var_type: 'text', is_system: true },
+  { name: 'phone', label: 'מספר טלפון', description: 'מספר הטלפון של איש הקשר', var_type: 'text', is_system: true },
+  { name: 'message', label: 'הודעה נוכחית', description: 'תוכן ההודעה האחרונה שנשלחה', var_type: 'text', is_system: true },
+  { name: 'date', label: 'תאריך', description: 'תאריך נוכחי בפורמט DD.MM.YYYY', var_type: 'text', is_system: true },
+  { name: 'time', label: 'שעה', description: 'שעה נוכחית בפורמט HH:MM', var_type: 'text', is_system: true },
+  { name: 'day', label: 'יום בשבוע', description: 'יום בשבוע (ראשון, שני...)', var_type: 'text', is_system: true },
+  { name: 'bot_name', label: 'שם הבוט', description: 'שם הבוט הפעיל', var_type: 'text', is_system: true },
+];
+
+// Get all variables for user
+async function getVariables(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    // Get user-defined variables
+    const result = await db.query(
+      `SELECT id, name, label, description, default_value, var_type, is_system, created_at 
+       FROM user_variable_definitions 
+       WHERE user_id = $1 
+       ORDER BY is_system DESC, name ASC`,
+      [userId]
+    );
+    
+    // Combine system variables (always available) with user-defined
+    const userVariables = result.rows.filter(v => !v.is_system);
+    
+    res.json({
+      systemVariables: SYSTEM_VARIABLES,
+      userVariables
+    });
+  } catch (error) {
+    console.error('[Variables] Error fetching:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת משתנים' });
+  }
+}
+
+// Create a new variable
+async function createVariable(req, res) {
+  try {
+    const userId = req.user.id;
+    const { name, label, description, default_value, var_type } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ error: 'שם המשתנה הוא שדה חובה' });
+    }
+    
+    // Validate name format (letters, numbers, underscore only)
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+      return res.status(400).json({ error: 'שם משתנה יכול להכיל רק אותיות אנגליות, מספרים וקו תחתון' });
+    }
+    
+    const result = await db.query(
+      `INSERT INTO user_variable_definitions (user_id, name, label, description, default_value, var_type)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [userId, name.toLowerCase(), label || name, description || '', default_value || '', var_type || 'text']
+    );
+    
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    if (error.code === '23505') { // Unique violation
+      return res.status(400).json({ error: 'משתנה בשם זה כבר קיים' });
+    }
+    console.error('[Variables] Error creating:', error);
+    res.status(500).json({ error: 'שגיאה ביצירת משתנה' });
+  }
+}
+
+// Update a variable
+async function updateVariable(req, res) {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+    const { label, description, default_value, var_type } = req.body;
+    
+    const result = await db.query(
+      `UPDATE user_variable_definitions 
+       SET label = COALESCE($1, label),
+           description = COALESCE($2, description),
+           default_value = COALESCE($3, default_value),
+           var_type = COALESCE($4, var_type)
+       WHERE id = $5 AND user_id = $6 AND is_system = false
+       RETURNING *`,
+      [label, description, default_value, var_type, id, userId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'משתנה לא נמצא או שאי אפשר לערוך אותו' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('[Variables] Error updating:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון משתנה' });
+  }
+}
+
+// Delete a variable
+async function deleteVariable(req, res) {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+    
+    const result = await db.query(
+      `DELETE FROM user_variable_definitions 
+       WHERE id = $1 AND user_id = $2 AND is_system = false
+       RETURNING id`,
+      [id, userId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'משתנה לא נמצא או שאי אפשר למחוק אותו' });
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Variables] Error deleting:', error);
+    res.status(500).json({ error: 'שגיאה במחיקת משתנה' });
+  }
+}
+
+module.exports = {
+  getVariables,
+  createVariable,
+  updateVariable,
+  deleteVariable
+};
