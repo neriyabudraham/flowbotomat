@@ -23,12 +23,13 @@ export default function TextInputWithVariables({
   const isNearLimit = maxLength && charCount > maxLength * 0.9;
   const hasEmoji = noEmoji && /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(value || '');
 
-  // Listen for { key globally on this input
+  // Listen for { key - only when Shift is pressed (actual { character)
   useEffect(() => {
     const handleKeyPress = (e) => {
       if (document.activeElement !== inputRef.current) return;
       
-      if (e.key === '{' || e.key === 'ה') { // ה is { in Hebrew keyboard
+      // Only trigger on actual { character (Shift + [ or Shift + ה in Hebrew)
+      if (e.key === '{' && e.shiftKey) {
         e.preventDefault();
         const rect = inputRef.current?.getBoundingClientRect();
         if (rect) {

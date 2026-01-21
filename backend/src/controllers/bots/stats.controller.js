@@ -32,7 +32,7 @@ async function getBotStats(req, res) {
     
     // Get triggers today
     const todayResult = await db.query(
-      "SELECT COUNT(*) as count FROM bot_logs WHERE bot_id = $1 AND created_at >= CURRENT_DATE",
+      "SELECT COUNT(*) as count FROM bot_logs WHERE bot_id = $1 AND started_at >= CURRENT_DATE",
       [botId]
     );
     
@@ -79,7 +79,7 @@ async function getBotUsers(req, res) {
     const result = await db.query(
       `SELECT c.id, c.phone, c.display_name, c.bot_enabled,
               COUNT(bl.id) as trigger_count,
-              MAX(bl.created_at) as last_triggered
+              MAX(bl.started_at) as last_triggered
        FROM contacts c
        JOIN bot_logs bl ON c.id = bl.contact_id
        WHERE bl.bot_id = $1
@@ -133,7 +133,7 @@ async function getBotLogs(req, res) {
        FROM bot_logs bl
        LEFT JOIN contacts c ON bl.contact_id = c.id
        WHERE bl.bot_id = $1
-       ORDER BY bl.created_at DESC
+       ORDER BY bl.started_at DESC
        LIMIT $2 OFFSET $3`,
       [botId, limit, offset]
     );
