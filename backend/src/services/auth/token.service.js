@@ -1,0 +1,55 @@
+const jwt = require('jsonwebtoken');
+
+const ACCESS_TOKEN_EXPIRY = '15m';
+const REFRESH_TOKEN_EXPIRY = '7d';
+
+/**
+ * Generate access token (15 minutes)
+ */
+const generateAccessToken = (userId) => {
+  return jwt.sign(
+    { userId },
+    process.env.JWT_SECRET,
+    { expiresIn: ACCESS_TOKEN_EXPIRY }
+  );
+};
+
+/**
+ * Generate refresh token (7 days)
+ */
+const generateRefreshToken = (userId) => {
+  return jwt.sign(
+    { userId },
+    process.env.JWT_REFRESH_SECRET,
+    { expiresIn: REFRESH_TOKEN_EXPIRY }
+  );
+};
+
+/**
+ * Verify access token
+ */
+const verifyAccessToken = (token) => {
+  try {
+    return jwt.verify(token, process.env.JWT_SECRET);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Verify refresh token
+ */
+const verifyRefreshToken = (token) => {
+  try {
+    return jwt.verify(token, process.env.JWT_REFRESH_SECRET);
+  } catch {
+    return null;
+  }
+};
+
+module.exports = {
+  generateAccessToken,
+  generateRefreshToken,
+  verifyAccessToken,
+  verifyRefreshToken,
+};

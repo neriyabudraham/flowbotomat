@@ -1,33 +1,22 @@
 const express = require('express');
 const router = express.Router();
 
-// Placeholder controllers - will be implemented
-// const signupController = require('../controllers/auth/signup.controller');
-// const loginController = require('../controllers/auth/login.controller');
+const { signup } = require('../controllers/auth/signup.controller');
+const { verify } = require('../controllers/auth/verify.controller');
+const { login } = require('../controllers/auth/login.controller');
+const { refresh } = require('../controllers/auth/refresh.controller');
+const { me } = require('../controllers/auth/me.controller');
+const { resendVerification } = require('../controllers/auth/resend.controller');
+const authMiddleware = require('../middlewares/auth.middleware');
 
-// POST /api/auth/signup
-router.post('/signup', (req, res) => {
-  res.json({ message: 'Signup endpoint - TODO' });
-});
+// Public routes
+router.post('/signup', signup);
+router.post('/verify', verify);
+router.post('/login', login);
+router.post('/refresh', refresh);
+router.post('/resend-verification', resendVerification);
 
-// POST /api/auth/login
-router.post('/login', (req, res) => {
-  res.json({ message: 'Login endpoint - TODO' });
-});
-
-// POST /api/auth/verify
-router.post('/verify', (req, res) => {
-  res.json({ message: 'Verify endpoint - TODO' });
-});
-
-// POST /api/auth/refresh
-router.post('/refresh', (req, res) => {
-  res.json({ message: 'Refresh endpoint - TODO' });
-});
-
-// GET /api/auth/me
-router.get('/me', (req, res) => {
-  res.json({ message: 'Me endpoint - TODO' });
-});
+// Protected routes
+router.get('/me', authMiddleware, me);
 
 module.exports = router;
