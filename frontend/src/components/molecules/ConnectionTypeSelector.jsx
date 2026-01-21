@@ -30,8 +30,7 @@ export default function ConnectionTypeSelector({ onSelect, existingSession, isCh
           <div className="text-right flex-1">
             <div className="font-semibold text-green-800">התחבר לחשבון קיים</div>
             <div className="text-sm text-green-600">
-              נמצא חיבור קיים: {existingSession.sessionName}
-              {existingSession.isConnected && ' (מחובר)'}
+              {existingSession.isConnected ? 'החשבון מחובר ומוכן לשימוש' : 'נמצא חיבור קיים במערכת'}
             </div>
           </div>
         </button>
