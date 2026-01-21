@@ -7,6 +7,7 @@ export default function CreditCardForm({
   onSuccess, 
   onCancel, 
   showCitizenId = true,
+  showCompanyNumber = true,
   submitText = 'שמור כרטיס',
   description = 'פרטי הכרטיס מאובטחים ומוצפנים. לא נחייב אותך ללא הסכמתך.'
 }) {
@@ -17,6 +18,7 @@ export default function CreditCardForm({
     cvv: '',
     cardHolderName: '',
     citizenId: '',
+    companyNumber: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -80,6 +82,7 @@ export default function CreditCardForm({
         cvv: form.cvv,
         cardHolderName: form.cardHolderName.trim(),
         citizenId: form.citizenId,
+        companyNumber: form.companyNumber || null,
       });
       
       if (data.success) {
@@ -212,6 +215,25 @@ export default function CreditCardForm({
             value={form.citizenId}
             onChange={(e) => setForm({ ...form, citizenId: e.target.value.replace(/\D/g, '').slice(0, 9) })}
             placeholder="123456789"
+            className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-left"
+            dir="ltr"
+            inputMode="numeric"
+            maxLength={9}
+          />
+        </div>
+      )}
+
+      {/* Company Number (optional) */}
+      {showCompanyNumber && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            ח.פ. / עוסק מורשה <span className="text-gray-400 font-normal">(אופציונלי)</span>
+          </label>
+          <input
+            type="text"
+            value={form.companyNumber}
+            onChange={(e) => setForm({ ...form, companyNumber: e.target.value.replace(/\D/g, '').slice(0, 9) })}
+            placeholder="514000123"
             className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-left"
             dir="ltr"
             inputMode="numeric"

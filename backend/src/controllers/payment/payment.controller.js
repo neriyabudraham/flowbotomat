@@ -2,7 +2,7 @@ const db = require('../../config/database');
 const sumitService = require('../../services/payment/sumit.service');
 
 /**
- * Save payment method (tokenize and store)
+ * Save payment method (tokenize card + create customer in Sumit)
  */
 async function savePaymentMethod(req, res) {
   try {
@@ -13,14 +13,26 @@ async function savePaymentMethod(req, res) {
       expiryYear, 
       cvv,
       cardHolderName,
-      citizenId 
+      citizenId,
+      companyNumber // מספר עוסק / ח.פ.
     } = req.body;
     
     if (!cardNumber || !expiryMonth || !expiryYear) {
       return res.status(400).json({ error: 'נדרשים פרטי כרטיס אשראי' });
     }
     
-    // Tokenize the card
+    // Get user info
+    const userResult = await db.query(
+      'SELECT id, name, email, phone FROM users WHERE id = $1',
+      [userId]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'משתמש לא נמצא' });
+    }
+    const user = userResult.rows[0];
+    
+    // 1. Tokenize the card
     const tokenResult = await sumitService.tokenizeCard({
       cardNumber,
       expiryMonth,
@@ -33,6 +45,19 @@ async function savePaymentMethod(req, res) {
       return res.status(400).json({ error: tokenResult.error });
     }
     
+    // 2. Create customer in Sumit
+    const customerResult = await sumitService.createCustomer({
+      name: cardHolderName || user.name,
+      phone: user.phone,
+      email: user.email,
+      citizenId: citizenId,
+      companyNumber: companyNumber,
+    });
+    
+    if (!customerResult.success) {
+      return res.status(400).json({ error: customerResult.error || 'שגיאה ביצירת לקוח במערכת התשלומים' });
+    }
+    
     // Get last 4 digits
     const lastDigits = cardNumber.slice(-4);
     
@@ -42,12 +67,13 @@ async function savePaymentMethod(req, res) {
       [userId]
     );
     
-    // Save the new payment method
+    // Save the new payment method with Sumit customer ID
     const result = await db.query(`
       INSERT INTO user_payment_methods (
         user_id, card_token, card_last_digits, 
-        card_expiry_month, card_expiry_year, card_holder_name, citizen_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        card_expiry_month, card_expiry_year, card_holder_name, 
+        citizen_id, sumit_customer_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING id, card_last_digits, card_expiry_month, card_expiry_year, card_holder_name, created_at
     `, [
       userId, 
@@ -56,10 +82,11 @@ async function savePaymentMethod(req, res) {
       expiryMonth, 
       expiryYear, 
       cardHolderName,
-      citizenId
+      citizenId,
+      customerResult.customerId
     ]);
     
-    // Update user's has_payment_method flag if needed
+    // Update user's has_payment_method flag
     await db.query(
       'UPDATE users SET has_payment_method = true WHERE id = $1',
       [userId]
@@ -168,7 +195,7 @@ async function subscribe(req, res) {
     }
     const plan = planResult.rows[0];
     
-    // Get payment method
+    // Get payment method with Sumit customer ID
     const paymentResult = await db.query(
       'SELECT * FROM user_payment_methods WHERE id = $1 AND user_id = $2 AND is_active = true',
       [paymentMethodId, userId]
@@ -193,8 +220,8 @@ async function subscribe(req, res) {
       const subResult = await db.query(`
         INSERT INTO user_subscriptions (
           user_id, plan_id, status, is_trial, trial_ends_at, 
-          payment_method_id, next_charge_date
-        ) VALUES ($1, $2, 'trial', true, $3, $4, $3)
+          payment_method_id, next_charge_date, sumit_customer_id
+        ) VALUES ($1, $2, 'trial', true, $3, $4, $3, $5)
         ON CONFLICT (user_id) 
         DO UPDATE SET 
           plan_id = $2, 
@@ -203,9 +230,10 @@ async function subscribe(req, res) {
           trial_ends_at = $3,
           payment_method_id = $4,
           next_charge_date = $3,
+          sumit_customer_id = $5,
           updated_at = NOW()
         RETURNING *
-      `, [userId, planId, trialEnds, paymentMethodId]);
+      `, [userId, planId, trialEnds, paymentMethodId, paymentMethod.sumit_customer_id]);
       
       subscription = subResult.rows[0];
       
@@ -217,26 +245,16 @@ async function subscribe(req, res) {
         trialEndsAt: trialEnds
       });
     } else {
-      // Charge immediately
+      // Charge immediately using Sumit customer ID and token
       const chargeResult = await sumitService.chargeCustomer({
-        customer: {
-          name: user.name,
-          phone: user.phone,
-          email: user.email,
-          citizenId: paymentMethod.citizen_id,
-        },
-        paymentMethod: {
-          token: paymentMethod.card_token,
-          expiryMonth: paymentMethod.card_expiry_month,
-          expiryYear: paymentMethod.card_expiry_year,
-          citizenId: paymentMethod.citizen_id,
-        },
+        customerId: paymentMethod.sumit_customer_id,
+        singleUseToken: paymentMethod.card_token,
         items: [{
           name: `מנוי ${plan.name_he}`,
           description: plan.description_he,
           price: parseFloat(plan.price),
           durationMonths: plan.billing_period === 'yearly' ? 12 : 1,
-          recurrence: null, // Recurring until cancelled
+          recurrence: null,
         }],
       });
       
@@ -268,7 +286,7 @@ async function subscribe(req, res) {
           next_charge_date = $5,
           updated_at = NOW()
         RETURNING *
-      `, [userId, planId, paymentMethodId, chargeResult.customerId, nextCharge]);
+      `, [userId, planId, paymentMethodId, paymentMethod.sumit_customer_id, nextCharge]);
       
       subscription = subResult.rows[0];
       

@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS user_payment_methods (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     
     -- Card info (tokenized)
-    card_token VARCHAR(255) NOT NULL, -- Sumit token
+    card_token VARCHAR(255) NOT NULL, -- Sumit SingleUseToken
     card_last_digits VARCHAR(4),
     card_expiry_month INTEGER,
     card_expiry_year INTEGER,
@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS user_payment_methods (
     
     -- Customer info for billing
     citizen_id VARCHAR(20), -- תעודת זהות
+    sumit_customer_id INTEGER, -- מזהה לקוח ב-Sumit
     
     -- Metadata
     is_default BOOLEAN DEFAULT true,
