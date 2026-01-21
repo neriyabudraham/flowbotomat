@@ -252,14 +252,10 @@ async function createCustomer({ name, phone, email, citizenId, companyNumber }) 
 /**
  * Charge a customer with a one-time payment (not recurring)
  * Used for yearly subscriptions and manual charges
+ * Uses the customer's saved payment method (Type: 0)
  */
 async function chargeOneTime({
   customerId,
-  cardToken, // Permanent token from tokenizeCard
-  expiryMonth,
-  expiryYear,
-  cvv,
-  citizenId,
   amount,
   description,
 }) {
@@ -280,12 +276,7 @@ async function chargeOneTime({
         SearchMode: 0,
       },
       PaymentMethod: {
-        CreditCard_Token: cardToken,
-        CreditCard_ExpirationMonth: parseInt(expiryMonth),
-        CreditCard_ExpirationYear: parseInt(expiryYear),
-        CreditCard_CVV: cvv || null,
-        CreditCard_CitizenID: citizenId || null,
-        Type: 1, // Credit card
+        Type: 0, // Use customer's default saved payment method
       },
       Items: [{
         Item: {
@@ -343,14 +334,10 @@ async function chargeOneTime({
 
 /**
  * Charge a customer with recurring payment (monthly subscription)
+ * Uses the customer's saved payment method (Type: 0)
  */
 async function chargeRecurring({
   customerId,
-  cardToken,
-  expiryMonth,
-  expiryYear,
-  cvv,
-  citizenId,
   amount,
   description,
   durationMonths = 1,
@@ -372,12 +359,7 @@ async function chargeRecurring({
         SearchMode: 0,
       },
       PaymentMethod: {
-        CreditCard_Token: cardToken,
-        CreditCard_ExpirationMonth: parseInt(expiryMonth),
-        CreditCard_ExpirationYear: parseInt(expiryYear),
-        CreditCard_CVV: cvv || null,
-        CreditCard_CitizenID: citizenId || null,
-        Type: 1,
+        Type: 0, // Use customer's default saved payment method
       },
       Items: [{
         Item: {

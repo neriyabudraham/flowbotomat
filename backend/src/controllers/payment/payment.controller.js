@@ -318,15 +318,11 @@ async function subscribe(req, res) {
         trialEndsAt: trialEnds
       });
     } else {
-      // Charge immediately
+      // Charge immediately using customer's saved payment method
       if (billingPeriod === 'yearly') {
         // One-time charge for yearly
         chargeResult = await sumitService.chargeOneTime({
           customerId: paymentMethod.sumit_customer_id,
-          cardToken: paymentMethod.card_token,
-          expiryMonth: paymentMethod.card_expiry_month,
-          expiryYear: paymentMethod.card_expiry_year,
-          citizenId: paymentMethod.citizen_id,
           amount: chargeAmount,
           description: `מנוי שנתי - ${plan.name_he}`,
         });
@@ -334,10 +330,6 @@ async function subscribe(req, res) {
         // Recurring charge for monthly
         chargeResult = await sumitService.chargeRecurring({
           customerId: paymentMethod.sumit_customer_id,
-          cardToken: paymentMethod.card_token,
-          expiryMonth: paymentMethod.card_expiry_month,
-          expiryYear: paymentMethod.card_expiry_year,
-          citizenId: paymentMethod.citizen_id,
           amount: chargeAmount,
           description: `מנוי חודשי - ${plan.name_he}`,
           durationMonths: 1,
@@ -624,13 +616,9 @@ async function reactivateSubscription(req, res) {
     let standingOrderId = subscription.sumit_standing_order_id;
     
     if (subscription.billing_period === 'monthly' && !standingOrderId) {
-      // Create new recurring charge
+      // Create new recurring charge using customer's saved payment method
       const chargeResult = await sumitService.chargeRecurring({
         customerId: paymentMethod.sumit_customer_id,
-        cardToken: paymentMethod.card_token,
-        expiryMonth: paymentMethod.card_expiry_month,
-        expiryYear: paymentMethod.card_expiry_year,
-        citizenId: paymentMethod.citizen_id,
         amount: parseFloat(subscription.price),
         description: `חידוש מנוי חודשי - ${subscription.name_he}`,
         durationMonths: 1,

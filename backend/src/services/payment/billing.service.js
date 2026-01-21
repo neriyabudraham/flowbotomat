@@ -131,20 +131,12 @@ async function processTrialEndings() {
           chargeAmount = parseFloat(sub.price) * 12 * 0.8;
           chargeResult = await sumitService.chargeOneTime({
             customerId: sub.sumit_customer_id,
-            cardToken: sub.card_token,
-            expiryMonth: sub.card_expiry_month,
-            expiryYear: sub.card_expiry_year,
-            citizenId: sub.citizen_id,
             amount: chargeAmount,
             description: `מנוי שנתי - ${sub.name_he}`,
           });
         } else {
           chargeResult = await sumitService.chargeRecurring({
             customerId: sub.sumit_customer_id,
-            cardToken: sub.card_token,
-            expiryMonth: sub.card_expiry_month,
-            expiryYear: sub.card_expiry_year,
-            citizenId: sub.citizen_id,
             amount: chargeAmount,
             description: `מנוי חודשי - ${sub.name_he}`,
             durationMonths: 1,
