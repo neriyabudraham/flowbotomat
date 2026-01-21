@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { X, Send, Bot, User, RotateCcw } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, Send, Bot, User, RotateCcw, ListOrdered, Image, Video, FileText, Clock, MapPin, Music } from 'lucide-react';
 
 export default function FlowPreview({ flowData, onClose }) {
   const [messages, setMessages] = useState([]);
@@ -7,6 +7,14 @@ export default function FlowPreview({ flowData, onClose }) {
   const [currentNodeId, setCurrentNodeId] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
   const [waitingForInput, setWaitingForInput] = useState(true);
+  const [pendingListNode, setPendingListNode] = useState(null);
+  const [lastUserMessage, setLastUserMessage] = useState('');
+  const messagesEndRef = useRef(null);
+  
+  // Auto scroll to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   // Reset simulation
   const handleReset = () => {
@@ -25,6 +33,7 @@ export default function FlowPreview({ flowData, onClose }) {
     setMessages(prev => [...prev, { type: 'user', content: userMessage }]);
     setInputText('');
     setWaitingForInput(false);
+    setLastUserMessage(userMessage);
     
     // Find trigger node and check if matches
     const triggerNode = flowData.nodes.find(n => n.type === 'trigger');
@@ -49,6 +58,28 @@ export default function FlowPreview({ flowData, onClose }) {
     } else {
       setMessages(prev => [...prev, { type: 'system', content: 'אין המשך לטריגר' }]);
     }
+    setIsRunning(false);
+    setWaitingForInput(true);
+  };
+  
+  // Handle list button click
+  const handleListButtonClick = async (nodeId, buttonIndex, buttonTitle) => {
+    setMessages(prev => [...prev, { type: 'user', content: buttonTitle }]);
+    setPendingListNode(null);
+    setWaitingForInput(false);
+    setIsRunning(true);
+    
+    // Find the edge that matches this button index
+    const edge = flowData.edges.find(e => 
+      e.source === nodeId && e.sourceHandle === `button-${buttonIndex}`
+    );
+    
+    if (edge) {
+      await executeNode(edge.target, lastUserMessage || buttonTitle);
+    } else {
+      setMessages(prev => [...prev, { type: 'system', content: `אין המשך מוגדר לכפתור "${buttonTitle}"` }]);
+    }
+    
     setIsRunning(false);
     setWaitingForInput(true);
   };
@@ -101,17 +132,80 @@ export default function FlowPreview({ flowData, onClose }) {
     const actions = node.data.actions || [];
     
     for (const action of actions) {
-      if (action.type === 'text' && action.content) {
-        const text = replaceVariables(action.content, userMessage);
-        setMessages(prev => [...prev, { type: 'bot', content: text }]);
-        await new Promise(r => setTimeout(r, 500));
-      } else if (action.type === 'image' && action.url) {
-        setMessages(prev => [...prev, { type: 'bot', content: '📷 [תמונה]', image: action.url }]);
-        await new Promise(r => setTimeout(r, 500));
-      } else if (action.type === 'delay') {
-        const ms = (action.delay || 1) * (action.unit === 'minutes' ? 60000 : 1000);
-        setMessages(prev => [...prev, { type: 'system', content: `⏱️ המתנה ${action.delay} ${action.unit === 'minutes' ? 'דקות' : 'שניות'}...` }]);
-        await new Promise(r => setTimeout(r, Math.min(ms, 2000))); // Max 2s in preview
+      switch (action.type) {
+        case 'text':
+          if (action.content) {
+            const text = replaceVariables(action.content, userMessage);
+            setMessages(prev => [...prev, { type: 'bot', content: text }]);
+            await new Promise(r => setTimeout(r, 500));
+          }
+          break;
+          
+        case 'image':
+          if (action.url || action.fileData) {
+            const caption = action.caption ? replaceVariables(action.caption, userMessage) : '';
+            setMessages(prev => [...prev, { 
+              type: 'bot', 
+              content: caption,
+              media: { type: 'image', url: action.fileData || action.url }
+            }]);
+            await new Promise(r => setTimeout(r, 500));
+          }
+          break;
+          
+        case 'video':
+          if (action.url || action.fileData) {
+            const caption = action.caption ? replaceVariables(action.caption, userMessage) : '';
+            setMessages(prev => [...prev, { 
+              type: 'bot', 
+              content: caption,
+              media: { type: 'video', url: action.fileData || action.url }
+            }]);
+            await new Promise(r => setTimeout(r, 500));
+          }
+          break;
+          
+        case 'audio':
+          if (action.url || action.fileData) {
+            setMessages(prev => [...prev, { 
+              type: 'bot', 
+              content: '',
+              media: { type: 'audio', url: action.fileData || action.url }
+            }]);
+            await new Promise(r => setTimeout(r, 500));
+          }
+          break;
+          
+        case 'file':
+          if (action.url || action.fileData) {
+            setMessages(prev => [...prev, { 
+              type: 'bot', 
+              content: action.filename || 'קובץ',
+              media: { type: 'file', url: action.fileData || action.url, filename: action.filename }
+            }]);
+            await new Promise(r => setTimeout(r, 500));
+          }
+          break;
+          
+        case 'location':
+          if (action.latitude && action.longitude) {
+            setMessages(prev => [...prev, { 
+              type: 'bot', 
+              content: action.title || 'מיקום',
+              media: { type: 'location', lat: action.latitude, lng: action.longitude, title: action.title }
+            }]);
+            await new Promise(r => setTimeout(r, 500));
+          }
+          break;
+          
+        case 'delay':
+          const ms = (action.delay || 1) * (action.unit === 'minutes' ? 60000 : 1000);
+          setMessages(prev => [...prev, { type: 'system', content: `⏱️ המתנה ${action.delay} ${action.unit === 'minutes' ? 'דקות' : 'שניות'}...` }]);
+          await new Promise(r => setTimeout(r, Math.min(ms, 2000))); // Max 2s in preview
+          break;
+          
+        default:
+          console.log('[Preview] Unknown action type:', action.type);
       }
     }
   };
@@ -159,15 +253,19 @@ export default function FlowPreview({ flowData, onClose }) {
   // Execute list node
   const executeListNode = async (node) => {
     const { title, body, buttons, buttonText } = node.data;
+    setPendingListNode(node.id);
     setMessages(prev => [...prev, { 
       type: 'bot', 
       content: body || '',
       list: {
         title: title || 'רשימה',
         buttonText: buttonText || 'בחר',
-        buttons: buttons || []
+        buttons: buttons || [],
+        nodeId: node.id
       }
     }]);
+    setIsRunning(false);
+    setWaitingForInput(true);
   };
 
   // Check trigger
@@ -231,35 +329,87 @@ export default function FlowPreview({ flowData, onClose }) {
               {msg.type === 'system' ? (
                 <div className="text-xs text-gray-500 bg-gray-200 px-3 py-1 rounded-full">{msg.content}</div>
               ) : (
-                <div className={`max-w-[80%] rounded-2xl ${
+                <div className={`max-w-[80%] rounded-2xl overflow-hidden ${
                   msg.type === 'user' 
                     ? 'bg-white border border-gray-200 rounded-tr-none' 
                     : 'bg-purple-500 text-white rounded-tl-none'
                 }`}>
-                  {msg.image && (
-                    <img src={msg.image} alt="" className="rounded-t-2xl max-h-40 object-cover w-full" onError={(e) => e.target.style.display = 'none'} />
+                  {/* Media content */}
+                  {msg.media && (
+                    <div className="border-b border-purple-400/30">
+                      {msg.media.type === 'image' && (
+                        <img 
+                          src={msg.media.url} 
+                          alt="" 
+                          className="max-h-48 w-full object-cover" 
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            e.target.nextSibling.style.display = 'flex';
+                          }} 
+                        />
+                      )}
+                      {msg.media.type === 'video' && (
+                        <div className="relative">
+                          <video 
+                            src={msg.media.url} 
+                            controls 
+                            className="max-h-48 w-full" 
+                            onError={(e) => e.target.parentElement.innerHTML = '<div class="p-4 flex items-center gap-2"><span>🎬</span><span>וידאו</span></div>'}
+                          />
+                        </div>
+                      )}
+                      {msg.media.type === 'audio' && (
+                        <div className="p-3 flex items-center gap-3">
+                          <Music className="w-8 h-8 opacity-80" />
+                          <audio src={msg.media.url} controls className="flex-1 h-8" />
+                        </div>
+                      )}
+                      {msg.media.type === 'file' && (
+                        <div className="p-3 flex items-center gap-3">
+                          <FileText className="w-8 h-8 opacity-80" />
+                          <span className="text-sm">{msg.media.filename || 'קובץ'}</span>
+                        </div>
+                      )}
+                      {msg.media.type === 'location' && (
+                        <a 
+                          href={`https://maps.google.com/?q=${msg.media.lat},${msg.media.lng}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-3 flex items-center gap-3 hover:opacity-80"
+                        >
+                          <MapPin className="w-8 h-8 opacity-80" />
+                          <span className="text-sm">{msg.media.title || 'מיקום'}</span>
+                        </a>
+                      )}
+                    </div>
+                  )}
+                  {/* Legacy image support */}
+                  {msg.image && !msg.media && (
+                    <img src={msg.image} alt="" className="max-h-40 object-cover w-full" onError={(e) => e.target.style.display = 'none'} />
                   )}
                   {msg.content && (
                     <div className="whitespace-pre-wrap text-sm px-4 py-2">{msg.content}</div>
                   )}
-                  {/* List buttons */}
-                  {msg.list && (
-                    <div className="border-t border-purple-400">
-                      <div className="px-4 py-2 text-xs font-medium border-b border-purple-400">{msg.list.title}</div>
-                      {msg.list.buttons.map((btn, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => {
-                            setMessages(prev => [...prev, { type: 'user', content: btn.title }]);
-                          }}
-                          className="w-full px-4 py-2 text-sm text-right hover:bg-purple-400 transition-colors border-b border-purple-400 last:border-b-0"
-                        >
-                          {btn.title}
-                          {btn.description && <span className="block text-xs opacity-75">{btn.description}</span>}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+{/* List buttons */}
+                          {msg.list && msg.list.buttons.length > 0 && (
+                            <div className="border-t border-purple-400/50 mt-2">
+                              <div className="px-4 py-2 text-xs font-medium border-b border-purple-400/50 flex items-center gap-2">
+                                <ListOrdered className="w-4 h-4" />
+                                {msg.list.title}
+                              </div>
+                              {msg.list.buttons.map((btn, idx) => (
+                                <button
+                                  key={idx}
+                                  onClick={() => handleListButtonClick(msg.list.nodeId, idx, btn.title || `אפשרות ${idx + 1}`)}
+                                  disabled={isRunning || pendingListNode !== msg.list.nodeId}
+                                  className="w-full px-4 py-3 text-sm text-right hover:bg-purple-400/50 transition-colors border-b border-purple-400/30 last:border-b-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <span className="font-medium">{btn.title || `אפשרות ${idx + 1}`}</span>
+                                  {btn.description && <span className="block text-xs opacity-75 mt-0.5">{btn.description}</span>}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                 </div>
               )}
             </div>
@@ -276,6 +426,7 @@ export default function FlowPreview({ flowData, onClose }) {
               </div>
             </div>
           )}
+          <div ref={messagesEndRef} />
         </div>
         
         {/* Input */}
