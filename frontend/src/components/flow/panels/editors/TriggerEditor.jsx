@@ -1,112 +1,309 @@
-import { Plus, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, X, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 const triggerTypes = [
-  { id: 'any_message', label: 'כל הודעה נכנסת', icon: '💬' },
-  { id: 'contains', label: 'הודעה מכילה', icon: '🔍', hasValue: true },
-  { id: 'starts_with', label: 'הודעה מתחילה ב...', icon: '▶️', hasValue: true },
-  { id: 'exact', label: 'הודעה מדויקת', icon: '✓', hasValue: true },
-  { id: 'regex', label: 'ביטוי רגולרי (Regex)', icon: '🔧', hasValue: true },
-  { id: 'first_message', label: 'הודעה ראשונה מאיש קשר', icon: '👋' },
-  { id: 'contact_added', label: 'איש קשר נוסף', icon: '➕' },
-  { id: 'contact_deleted', label: 'איש קשר נמחק', icon: '🗑️' },
-  { id: 'tag_added', label: 'תגית נוספה', icon: '🏷️', hasValue: true },
-  { id: 'tag_removed', label: 'תגית הוסרה', icon: '🏷️', hasValue: true },
-  { id: 'bot_enabled', label: 'בוט הופעל', icon: '🤖' },
-  { id: 'bot_disabled', label: 'בוט כובה', icon: '🚫' },
+  { id: 'any_message', label: 'כל הודעה נכנסת', icon: '💬', category: 'message' },
+  { id: 'message_content', label: 'תוכן ההודעה', icon: '🔍', hasValue: true, hasOperator: true, category: 'message' },
+  { id: 'first_message', label: 'הודעה ראשונה מאיש קשר', icon: '👋', category: 'message' },
+  { id: 'contact_field', label: 'שדה באיש קשר', icon: '👤', hasValue: true, hasOperator: true, hasField: true, category: 'contact' },
+  { id: 'has_tag', label: 'יש תגית', icon: '🏷️', hasValue: true, category: 'contact' },
+  { id: 'no_tag', label: 'אין תגית', icon: '🏷️', hasValue: true, category: 'contact' },
+  { id: 'contact_added', label: 'איש קשר נוסף', icon: '➕', category: 'event' },
+  { id: 'tag_added', label: 'תגית נוספה', icon: '🏷️', hasValue: true, category: 'event' },
+  { id: 'tag_removed', label: 'תגית הוסרה', icon: '🏷️', hasValue: true, category: 'event' },
+];
+
+const operators = [
+  { id: 'contains', label: 'מכיל' },
+  { id: 'not_contains', label: 'לא מכיל' },
+  { id: 'equals', label: 'שווה ל' },
+  { id: 'not_equals', label: 'לא שווה ל' },
+  { id: 'starts_with', label: 'מתחיל ב' },
+  { id: 'ends_with', label: 'מסתיים ב' },
+  { id: 'regex', label: 'תואם ביטוי (Regex)' },
+  { id: 'is_empty', label: 'ריק' },
+  { id: 'is_not_empty', label: 'לא ריק' },
+];
+
+const contactFields = [
+  { id: 'name', label: 'שם' },
+  { id: 'phone', label: 'טלפון' },
+  { id: 'email', label: 'אימייל' },
+  { id: 'notes', label: 'הערות' },
+  { id: 'custom', label: 'שדה מותאם...' },
 ];
 
 export default function TriggerEditor({ data, onUpdate }) {
-  const triggers = data.triggers || [{ type: 'any_message', value: '' }];
+  // Groups of conditions - each group is OR, conditions within group are AND
+  const groups = data.triggerGroups || [{ 
+    id: Date.now(), 
+    conditions: [{ type: 'any_message', operator: 'contains', value: '', field: '' }] 
+  }];
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState(new Set([groups[0]?.id]));
 
-  const addTrigger = () => {
-    onUpdate({ triggers: [...triggers, { type: 'any_message', value: '' }] });
+  const toggleGroup = (groupId) => {
+    const newExpanded = new Set(expandedGroups);
+    if (newExpanded.has(groupId)) {
+      newExpanded.delete(groupId);
+    } else {
+      newExpanded.add(groupId);
+    }
+    setExpandedGroups(newExpanded);
   };
 
-  const removeTrigger = (index) => {
-    if (triggers.length <= 1) return;
-    onUpdate({ triggers: triggers.filter((_, i) => i !== index) });
+  const addGroup = () => {
+    const newGroup = { 
+      id: Date.now(), 
+      conditions: [{ type: 'any_message', operator: 'contains', value: '', field: '' }] 
+    };
+    const newGroups = [...groups, newGroup];
+    setExpandedGroups(new Set([...expandedGroups, newGroup.id]));
+    onUpdate({ triggerGroups: newGroups });
   };
 
-  const updateTrigger = (index, field, value) => {
-    const newTriggers = triggers.map((t, i) => 
-      i === index ? { ...t, [field]: value } : t
-    );
-    onUpdate({ triggers: newTriggers });
+  const removeGroup = (groupId) => {
+    if (groups.length <= 1) return;
+    onUpdate({ triggerGroups: groups.filter(g => g.id !== groupId) });
   };
+
+  const addCondition = (groupId) => {
+    const newGroups = groups.map(g => {
+      if (g.id === groupId) {
+        return {
+          ...g,
+          conditions: [...g.conditions, { type: 'message_content', operator: 'contains', value: '', field: '' }]
+        };
+      }
+      return g;
+    });
+    onUpdate({ triggerGroups: newGroups });
+  };
+
+  const removeCondition = (groupId, conditionIndex) => {
+    const newGroups = groups.map(g => {
+      if (g.id === groupId) {
+        if (g.conditions.length <= 1) return g;
+        return {
+          ...g,
+          conditions: g.conditions.filter((_, i) => i !== conditionIndex)
+        };
+      }
+      return g;
+    });
+    onUpdate({ triggerGroups: newGroups });
+  };
+
+  const updateCondition = (groupId, conditionIndex, field, value) => {
+    const newGroups = groups.map(g => {
+      if (g.id === groupId) {
+        return {
+          ...g,
+          conditions: g.conditions.map((c, i) => 
+            i === conditionIndex ? { ...c, [field]: value } : c
+          )
+        };
+      }
+      return g;
+    });
+    onUpdate({ triggerGroups: newGroups });
+  };
+
+  const needsValue = (operator) => !['is_empty', 'is_not_empty'].includes(operator);
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-500">
-        הגדר מתי הבוט יופעל. ניתן להוסיף מספר טריגרים (או).
+        הגדר מתי הבוט יופעל. קבוצות מחוברות ב-"או", תנאים בתוך קבוצה מחוברים ב-"וגם".
       </p>
       
-      {/* Triggers */}
-      {triggers.map((trigger, index) => {
-        const triggerInfo = triggerTypes.find(t => t.id === trigger.type) || triggerTypes[0];
-        
-        return (
-          <div key={index} className="bg-gray-50 rounded-xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-lg">{triggerInfo.icon}</span>
-              {triggers.length > 1 && (
-                <button
-                  onClick={() => removeTrigger(index)}
-                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+      {/* Trigger Groups */}
+      <div className="space-y-3">
+        {groups.map((group, groupIndex) => {
+          const isExpanded = expandedGroups.has(group.id);
+          
+          return (
+            <div key={group.id} className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+              {/* Group Header */}
+              <div 
+                className="flex items-center justify-between px-4 py-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
+                onClick={() => toggleGroup(group.id)}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-6 h-6 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center text-xs font-bold">
+                    {groupIndex + 1}
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-800">קבוצת תנאים</span>
+                    <span className="text-sm text-gray-500 mr-2">
+                      ({group.conditions.length} {group.conditions.length === 1 ? 'תנאי' : 'תנאים'})
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {groups.length > 1 && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); removeGroup(group.id); }}
+                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                  {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                </div>
+              </div>
+              
+              {/* Group Content */}
+              {isExpanded && (
+                <div className="p-4 space-y-3">
+                  {group.conditions.map((condition, conditionIndex) => {
+                    const triggerInfo = triggerTypes.find(t => t.id === condition.type) || triggerTypes[0];
+                    
+                    return (
+                      <div key={conditionIndex}>
+                        {/* AND separator */}
+                        {conditionIndex > 0 && (
+                          <div className="flex items-center gap-2 py-2">
+                            <div className="flex-1 h-px bg-gray-200" />
+                            <span className="text-xs font-medium text-purple-600 bg-purple-50 px-2 py-0.5 rounded">וגם</span>
+                            <div className="flex-1 h-px bg-gray-200" />
+                          </div>
+                        )}
+                        
+                        <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+                          {/* Header with icon and remove */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-lg">{triggerInfo.icon}</span>
+                            {group.conditions.length > 1 && (
+                              <button
+                                onClick={() => removeCondition(group.id, conditionIndex)}
+                                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                          
+                          {/* Trigger type */}
+                          <select
+                            value={condition.type}
+                            onChange={(e) => updateCondition(group.id, conditionIndex, 'type', e.target.value)}
+                            className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                          >
+                            <optgroup label="הודעות">
+                              {triggerTypes.filter(t => t.category === 'message').map(t => (
+                                <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="איש קשר">
+                              {triggerTypes.filter(t => t.category === 'contact').map(t => (
+                                <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="אירועים">
+                              {triggerTypes.filter(t => t.category === 'event').map(t => (
+                                <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
+                              ))}
+                            </optgroup>
+                          </select>
+                          
+                          {/* Field selector for contact_field */}
+                          {triggerInfo.hasField && (
+                            <select
+                              value={condition.field || 'name'}
+                              onChange={(e) => updateCondition(group.id, conditionIndex, 'field', e.target.value)}
+                              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                            >
+                              {contactFields.map(f => (
+                                <option key={f.id} value={f.id}>{f.label}</option>
+                              ))}
+                            </select>
+                          )}
+                          
+                          {/* Custom field name */}
+                          {triggerInfo.hasField && condition.field === 'custom' && (
+                            <input
+                              type="text"
+                              value={condition.customField || ''}
+                              onChange={(e) => updateCondition(group.id, conditionIndex, 'customField', e.target.value)}
+                              placeholder="שם השדה המותאם..."
+                              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                            />
+                          )}
+                          
+                          {/* Operator */}
+                          {triggerInfo.hasOperator && (
+                            <select
+                              value={condition.operator || 'contains'}
+                              onChange={(e) => updateCondition(group.id, conditionIndex, 'operator', e.target.value)}
+                              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                            >
+                              {operators.map(op => (
+                                <option key={op.id} value={op.id}>{op.label}</option>
+                              ))}
+                            </select>
+                          )}
+                          
+                          {/* Value input */}
+                          {triggerInfo.hasValue && needsValue(condition.operator) && (
+                            <input
+                              type="text"
+                              value={condition.value || ''}
+                              onChange={(e) => updateCondition(group.id, conditionIndex, 'value', e.target.value)}
+                              placeholder={
+                                condition.type.includes('tag') ? 'שם התגית...' : 
+                                condition.operator === 'regex' ? 'ביטוי רגולרי...' : 
+                                'הזן ערך...'
+                              }
+                              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                              dir={condition.operator === 'regex' ? 'ltr' : 'rtl'}
+                            />
+                          )}
+                          
+                          {/* Case sensitive option */}
+                          {triggerInfo.hasOperator && condition.operator !== 'regex' && (
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={condition.caseSensitive || false}
+                                onChange={(e) => updateCondition(group.id, conditionIndex, 'caseSensitive', e.target.checked)}
+                                className="w-4 h-4 rounded border-gray-300 text-purple-600"
+                              />
+                              <span className="text-sm text-gray-600">רגיש לאותיות גדולות/קטנות</span>
+                            </label>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  
+                  {/* Add condition button */}
+                  <button
+                    onClick={() => addCondition(group.id)}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-xl text-sm font-medium transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    הוסף תנאי (וגם)
+                  </button>
+                </div>
               )}
             </div>
-            
-            <select
-              value={trigger.type}
-              onChange={(e) => updateTrigger(index, 'type', e.target.value)}
-              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
-            >
-              {triggerTypes.map(t => (
-                <option key={t.id} value={t.id}>{t.label}</option>
-              ))}
-            </select>
-            
-            {triggerInfo.hasValue && (
-              <input
-                type="text"
-                value={trigger.value || ''}
-                onChange={(e) => updateTrigger(index, 'value', e.target.value)}
-                placeholder={trigger.type.includes('tag') ? 'שם התגית...' : trigger.type === 'regex' ? 'ביטוי רגולרי...' : 'הזן טקסט...'}
-                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
-                dir={trigger.type === 'regex' ? 'ltr' : 'rtl'}
-              />
-            )}
-
-            {/* Condition modifiers (AND/NOT) */}
-            {triggerInfo.hasValue && (
-              <div className="flex gap-2">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={trigger.not || false}
-                    onChange={(e) => updateTrigger(index, 'not', e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-300 text-purple-600"
-                  />
-                  <span className="text-sm text-gray-600">לא מכיל (NOT)</span>
-                </label>
-              </div>
-            )}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
       
-      {/* Add trigger */}
-      <button
-        onClick={addTrigger}
-        className="w-full flex items-center justify-center gap-2 px-4 py-3 text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-xl font-medium transition-colors"
-      >
-        <Plus className="w-4 h-4" />
-        הוסף טריגר (או)
-      </button>
+      {/* OR separator and add group */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px bg-gray-200" />
+        <button
+          onClick={addGroup}
+          className="flex items-center gap-2 px-4 py-2 text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-xl text-sm font-medium transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          הוסף קבוצה (או)
+        </button>
+        <div className="flex-1 h-px bg-gray-200" />
+      </div>
 
       {/* Advanced Settings */}
       <div className="border-t border-gray-200 pt-4">
