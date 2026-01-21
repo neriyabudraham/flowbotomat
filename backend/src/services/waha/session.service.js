@@ -266,6 +266,297 @@ async function sendList(connection, phone, listData) {
   return response.data;
 }
 
+/**
+ * Send voice message
+ */
+async function sendVoice(connection, phone, audioUrl, convert = true) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  
+  const response = await client.post(`/api/sendVoice`, {
+    session: connection.session_name,
+    chatId: chatId,
+    file: {
+      mimetype: 'audio/ogg; codecs=opus',
+      url: audioUrl,
+    },
+    convert: convert,
+  });
+  
+  console.log(`[WAHA] Sent voice to ${phone}`);
+  return response.data;
+}
+
+/**
+ * Send file with custom mimetype
+ */
+async function sendFileAdvanced(connection, phone, fileData, caption = '') {
+  const client = createClient(connection.base_url, connection.api_key);
+  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  
+  const response = await client.post(`/api/sendFile`, {
+    session: connection.session_name,
+    chatId: chatId,
+    file: {
+      mimetype: fileData.mimetype,
+      filename: fileData.filename,
+      url: fileData.url,
+    },
+    caption: caption,
+  });
+  
+  console.log(`[WAHA] Sent file to ${phone}`);
+  return response.data;
+}
+
+/**
+ * Mark messages as seen
+ */
+async function sendSeen(connection, phone, messageIds = []) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  
+  const response = await client.post(`/api/sendSeen`, {
+    session: connection.session_name,
+    chatId: chatId,
+    messageIds: messageIds,
+  });
+  
+  console.log(`[WAHA] Marked as seen: ${phone}`);
+  return response.data;
+}
+
+/**
+ * Start typing indicator
+ */
+async function startTyping(connection, phone) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  
+  const response = await client.post(`/api/startTyping`, {
+    session: connection.session_name,
+    chatId: chatId,
+  });
+  
+  return response.data;
+}
+
+/**
+ * Stop typing indicator
+ */
+async function stopTyping(connection, phone) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  
+  const response = await client.post(`/api/stopTyping`, {
+    session: connection.session_name,
+    chatId: chatId,
+  });
+  
+  return response.data;
+}
+
+/**
+ * Send reaction to message
+ */
+async function sendReaction(connection, messageId, reaction) {
+  const client = createClient(connection.base_url, connection.api_key);
+  
+  const response = await client.post(`/api/reaction`, {
+    session: connection.session_name,
+    messageId: messageId,
+    reaction: reaction,
+  });
+  
+  console.log(`[WAHA] Sent reaction: ${reaction}`);
+  return response.data;
+}
+
+/**
+ * Send location
+ */
+async function sendLocation(connection, phone, latitude, longitude, title = '') {
+  const client = createClient(connection.base_url, connection.api_key);
+  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  
+  const response = await client.post(`/api/sendLocation`, {
+    session: connection.session_name,
+    chatId: chatId,
+    latitude: latitude,
+    longitude: longitude,
+    title: title,
+  });
+  
+  console.log(`[WAHA] Sent location to ${phone}`);
+  return response.data;
+}
+
+/**
+ * Send contact vCard
+ */
+async function sendContactVcard(connection, phone, contacts) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  
+  const response = await client.post(`/api/sendContactVcard`, {
+    session: connection.session_name,
+    chatId: chatId,
+    contacts: contacts,
+  });
+  
+  console.log(`[WAHA] Sent vCard to ${phone}`);
+  return response.data;
+}
+
+/**
+ * Send link with custom preview
+ */
+async function sendLinkPreview(connection, phone, text, preview) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  
+  const response = await client.post(`/api/send/link-custom-preview`, {
+    session: connection.session_name,
+    chatId: chatId,
+    text: text,
+    linkPreviewHighQuality: true,
+    preview: preview,
+  });
+  
+  console.log(`[WAHA] Sent link preview to ${phone}`);
+  return response.data;
+}
+
+// ====================== GROUP FUNCTIONS ======================
+
+/**
+ * Add participants to group
+ */
+async function addGroupParticipants(connection, groupId, participantIds) {
+  const client = createClient(connection.base_url, connection.api_key);
+  
+  const participants = participantIds.map(id => ({ id: id.includes('@') ? id : `${id}@c.us` }));
+  
+  const response = await client.post(`/api/${connection.session_name}/groups/${groupId}/participants/add`, {
+    participants: participants,
+  });
+  
+  console.log(`[WAHA] Added participants to group: ${groupId}`);
+  return response.data;
+}
+
+/**
+ * Remove participants from group
+ */
+async function removeGroupParticipants(connection, groupId, participantIds) {
+  const client = createClient(connection.base_url, connection.api_key);
+  
+  const participants = participantIds.map(id => ({ id: id.includes('@') ? id : `${id}@c.us` }));
+  
+  const response = await client.post(`/api/${connection.session_name}/groups/${groupId}/participants/remove`, {
+    participants: participants,
+  });
+  
+  console.log(`[WAHA] Removed participants from group: ${groupId}`);
+  return response.data;
+}
+
+/**
+ * Get group participants
+ */
+async function getGroupParticipants(connection, groupId) {
+  const client = createClient(connection.base_url, connection.api_key);
+  
+  try {
+    const response = await client.get(`/api/${connection.session_name}/groups/${groupId}/participants`);
+    return response.data;
+  } catch (error) {
+    // Try v2 endpoint
+    const response = await client.get(`/api/${connection.session_name}/groups/${groupId}/participants/v2`);
+    return response.data;
+  }
+}
+
+/**
+ * Set group admin-only messages
+ */
+async function setGroupAdminOnly(connection, groupId, adminsOnly = true) {
+  const client = createClient(connection.base_url, connection.api_key);
+  
+  const response = await client.put(`/api/${connection.session_name}/groups/${groupId}/settings/security/messages-admin-only`, {
+    adminsOnly: adminsOnly,
+  });
+  
+  console.log(`[WAHA] Set group admin-only: ${groupId} -> ${adminsOnly}`);
+  return response.data;
+}
+
+/**
+ * Update group subject (name)
+ */
+async function updateGroupSubject(connection, groupId, subject) {
+  const client = createClient(connection.base_url, connection.api_key);
+  
+  const response = await client.put(`/api/${connection.session_name}/groups/${groupId}/subject`, {
+    subject: subject,
+  });
+  
+  console.log(`[WAHA] Updated group subject: ${groupId}`);
+  return response.data;
+}
+
+/**
+ * Update group description
+ */
+async function updateGroupDescription(connection, groupId, description) {
+  const client = createClient(connection.base_url, connection.api_key);
+  
+  const response = await client.put(`/api/${connection.session_name}/groups/${groupId}/description`, {
+    description: description,
+  });
+  
+  console.log(`[WAHA] Updated group description: ${groupId}`);
+  return response.data;
+}
+
+// ====================== LABELS (WhatsApp Business) ======================
+
+/**
+ * Get all labels
+ */
+async function getLabels(connection) {
+  const client = createClient(connection.base_url, connection.api_key);
+  
+  const response = await client.get(`/api/${connection.session_name}/labels`);
+  return response.data;
+}
+
+/**
+ * Set labels for chat
+ */
+async function setChatLabels(connection, chatId, labelIds) {
+  const client = createClient(connection.base_url, connection.api_key);
+  
+  const labels = labelIds.map(id => ({ id: String(id) }));
+  
+  const response = await client.put(`/api/${connection.session_name}/labels/chats/${chatId}`, {
+    labels: labels,
+  });
+  
+  console.log(`[WAHA] Set labels for chat: ${chatId}`);
+  return response.data;
+}
+
+/**
+ * Get chats by label
+ */
+async function getChatsByLabel(connection, labelId) {
+  const client = createClient(connection.base_url, connection.api_key);
+  
+  const response = await client.get(`/api/${connection.session_name}/labels/${labelId}/chats`);
+  return response.data;
+}
+
 module.exports = {
   createSession,
   startSession,
@@ -282,4 +573,25 @@ module.exports = {
   sendFile,
   sendVideo,
   sendList,
+  // New APIs
+  sendVoice,
+  sendFileAdvanced,
+  sendSeen,
+  startTyping,
+  stopTyping,
+  sendReaction,
+  sendLocation,
+  sendContactVcard,
+  sendLinkPreview,
+  // Group functions
+  addGroupParticipants,
+  removeGroupParticipants,
+  getGroupParticipants,
+  setGroupAdminOnly,
+  updateGroupSubject,
+  updateGroupDescription,
+  // Labels (WhatsApp Business)
+  getLabels,
+  setChatLabels,
+  getChatsByLabel,
 };
