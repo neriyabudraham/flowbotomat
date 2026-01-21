@@ -158,7 +158,7 @@ async function createManaged(req, res) {
     res.json({ 
       success: true, 
       connection: result.rows[0],
-      sessionExists, // Let frontend know if this was an existing session
+      existingSession: !!existingSession, // Let frontend know if this was an existing session
     });
   } catch (error) {
     console.error('Create managed connection error:', error);
