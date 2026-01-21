@@ -18,9 +18,12 @@ function getWebhookUrl(userId) {
   return `${appUrl}/api/webhook/waha/${userId}`;
 }
 
+const TRIAL_DAYS = 14; // 2 weeks trial period
+
 /**
  * Create managed WhatsApp connection (system WAHA)
  * Sync is based on WAHA only (not DB)
+ * Requires payment method and creates a trial subscription
  */
 async function createManaged(req, res) {
   try {
@@ -34,9 +37,52 @@ async function createManaged(req, res) {
     
     if (paymentCheck.rows.length === 0) {
       return res.status(402).json({ 
-        error: 'נדרש להזין פרטי כרטיס אשראי לפני חיבור WhatsApp',
-        code: 'PAYMENT_REQUIRED'
+        error: 'נדרש להזין פרטי כרטיס אשראי לפני חיבור WhatsApp. לא יבוצע חיוב בתקופת הניסיון.',
+        code: 'PAYMENT_REQUIRED',
+        trialDays: TRIAL_DAYS
       });
+    }
+    
+    // Check if user already has an active subscription
+    const subCheck = await pool.query(
+      `SELECT * FROM user_subscriptions WHERE user_id = $1 AND status IN ('active', 'trial')`,
+      [userId]
+    );
+    
+    // If no subscription, create trial
+    if (subCheck.rows.length === 0) {
+      console.log(`[WhatsApp] Creating trial subscription for user ${userId}`);
+      const trialEndsAt = new Date();
+      trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
+      
+      // Get default plan (the basic paid plan)
+      const planResult = await pool.query(
+        `SELECT id FROM subscription_plans WHERE is_active = true AND price > 0 ORDER BY price ASC LIMIT 1`
+      );
+      
+      if (planResult.rows.length > 0) {
+        const planId = planResult.rows[0].id;
+        const paymentMethodId = paymentCheck.rows[0].id;
+        
+        await pool.query(`
+          INSERT INTO user_subscriptions (
+            user_id, plan_id, status, is_trial, trial_ends_at, 
+            payment_method_id, next_charge_date, started_at
+          ) VALUES ($1, $2, 'trial', true, $3, $4, $3, NOW())
+          ON CONFLICT (user_id) 
+          DO UPDATE SET 
+            plan_id = $2, 
+            status = 'trial',
+            is_trial = true,
+            trial_ends_at = $3,
+            payment_method_id = $4,
+            next_charge_date = $3,
+            started_at = NOW(),
+            updated_at = NOW()
+        `, [userId, planId, trialEndsAt, paymentMethodId]);
+        
+        console.log(`[WhatsApp] ✅ Trial subscription created, ends at: ${trialEndsAt.toISOString()}`);
+      }
     }
     
     // Get user email - from token or from DB
@@ -179,6 +225,7 @@ async function createManaged(req, res) {
 
 /**
  * Create external WhatsApp connection (user's own WAHA)
+ * Requires payment method but allows free plan (no trial)
  */
 async function createExternal(req, res) {
   try {
@@ -187,6 +234,55 @@ async function createExternal(req, res) {
     
     if (!baseUrl || !apiKey || !sessionName) {
       return res.status(400).json({ error: 'נדרשים כל השדות' });
+    }
+    
+    // Check if user has a payment method (required even for external)
+    const paymentCheck = await pool.query(
+      'SELECT id FROM user_payment_methods WHERE user_id = $1 AND is_active = true LIMIT 1',
+      [userId]
+    );
+    
+    if (paymentCheck.rows.length === 0) {
+      return res.status(402).json({ 
+        error: 'נדרש להזין פרטי כרטיס אשראי גם לחיבור WAHA חיצוני. ניתן להשתמש בתוכנית החינמית.',
+        code: 'PAYMENT_REQUIRED'
+      });
+    }
+    
+    // Check if user has a subscription - if not, create free plan subscription
+    const subCheck = await pool.query(
+      `SELECT * FROM user_subscriptions WHERE user_id = $1 AND status IN ('active', 'trial')`,
+      [userId]
+    );
+    
+    if (subCheck.rows.length === 0) {
+      console.log(`[WhatsApp External] Creating free subscription for user ${userId}`);
+      
+      // Get free plan
+      const freePlanResult = await pool.query(
+        `SELECT id FROM subscription_plans WHERE is_active = true AND price = 0 LIMIT 1`
+      );
+      
+      if (freePlanResult.rows.length > 0) {
+        const freePlanId = freePlanResult.rows[0].id;
+        const paymentMethodId = paymentCheck.rows[0].id;
+        
+        await pool.query(`
+          INSERT INTO user_subscriptions (
+            user_id, plan_id, status, is_trial, payment_method_id, started_at
+          ) VALUES ($1, $2, 'active', false, $3, NOW())
+          ON CONFLICT (user_id) 
+          DO UPDATE SET 
+            plan_id = $2, 
+            status = 'active',
+            is_trial = false,
+            payment_method_id = $3,
+            started_at = NOW(),
+            updated_at = NOW()
+        `, [userId, freePlanId, paymentMethodId]);
+        
+        console.log(`[WhatsApp External] ✅ Free subscription activated`);
+      }
     }
     
     // Check if user already has a connection
