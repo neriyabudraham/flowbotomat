@@ -3,6 +3,7 @@ import SignupPage from './pages/auth/SignupPage';
 import LoginPage from './pages/auth/LoginPage';
 import VerifyPage from './pages/auth/VerifyPage';
 import DashboardPage from './pages/DashboardPage';
+import WhatsappSetupPage from './pages/WhatsappSetupPage';
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/verify" element={<VerifyPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/whatsapp" element={<WhatsappSetupPage />} />
         </Routes>
       </div>
     </BrowserRouter>
