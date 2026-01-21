@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, BotOff, Phone, MoreVertical } from 'lucide-react';
+import { Send, Bot, XCircle, Phone, MoreVertical } from 'lucide-react';
 import MessageBubble from '../molecules/MessageBubble';
 import Button from '../atoms/Button';
 
@@ -45,7 +45,7 @@ export default function ChatView({ contact, messages, onSendMessage, onToggleBot
             }`}
             title={contact.is_bot_active ? 'בוט פעיל - לחץ לכיבוי' : 'בוט כבוי - לחץ להפעלה'}
           >
-            {contact.is_bot_active ? <Bot className="w-5 h-5" /> : <BotOff className="w-5 h-5" />}
+            {contact.is_bot_active ? <Bot className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
           </button>
         </div>
         

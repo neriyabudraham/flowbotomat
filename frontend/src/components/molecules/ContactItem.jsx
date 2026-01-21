@@ -1,4 +1,4 @@
-import { User, Bot, BotOff } from 'lucide-react';
+import { User, Bot, XCircle } from 'lucide-react';
 
 export default function ContactItem({ contact, isSelected, onClick }) {
   const initials = contact.display_name?.charAt(0) || contact.phone?.charAt(0) || '?';
@@ -23,7 +23,7 @@ export default function ContactItem({ contact, isSelected, onClick }) {
             {contact.is_bot_active ? (
               <Bot className="w-4 h-4 text-green-500" />
             ) : (
-              <BotOff className="w-4 h-4 text-red-500" />
+              <XCircle className="w-4 h-4 text-red-500" />
             )}
           </span>
           <span className="font-medium text-gray-800 truncate">
