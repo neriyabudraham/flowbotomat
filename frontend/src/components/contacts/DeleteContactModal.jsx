@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Trash2, AlertTriangle, UserX, MessageSquareOff, History } from 'lucide-react';
+import { X, Trash2, AlertTriangle, UserX, MessageSquareX, History } from 'lucide-react';
 
 export default function DeleteContactModal({ 
   isOpen, 
@@ -90,7 +90,7 @@ export default function DeleteContactModal({
               </div>
               <div className="flex items-center gap-3 text-gray-700">
                 <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
-                  <MessageSquareOff className="w-4 h-4 text-red-600" />
+                  <MessageSquareX className="w-4 h-4 text-red-600" />
                 </div>
                 <span className="text-sm">כל היסטוריית ההודעות</span>
               </div>
