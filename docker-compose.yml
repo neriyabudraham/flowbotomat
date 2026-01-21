@@ -1,7 +1,4 @@
-version: '3.8'
-
 services:
-  # PostgreSQL Database
   db:
     image: postgres:15-alpine
     container_name: flowbotomat_db
@@ -11,14 +8,13 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
     ports:
-      - "${DB_PORT}:5432"
+      - "5451:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init:/docker-entrypoint-initdb.d
     networks:
       - flowbotomat_network
 
-  # Backend API
   backend:
     build:
       context: ./backend
@@ -41,7 +37,7 @@ services:
       SMTP_PASS: ${SMTP_PASS}
       APP_URL: ${APP_URL}
     ports:
-      - "4000:4000"
+      - "3749:4000"
     volumes:
       - ./backend:/app
       - /app/node_modules
@@ -51,7 +47,6 @@ services:
     networks:
       - flowbotomat_network
 
-  # Frontend React
   frontend:
     build:
       context: ./frontend
@@ -61,7 +56,7 @@ services:
     environment:
       VITE_API_URL: ${VITE_API_URL}
     ports:
-      - "${APP_PORT}:5173"
+      - "3748:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules

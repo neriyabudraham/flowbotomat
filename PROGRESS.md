@@ -23,15 +23,19 @@
 - [x] יצירת database init script
 - [x] יצירת deploy.sh
 
-### 🔄 בתהליך:
-- [ ] Push לוקאלי ל-GitHub
-- [ ] הגדרת SSH Key בשרת
-- [ ] הגדרת GitHub Secrets
-- [ ] Clone בשרת
+### ✅ הושלם גם:
+- [x] Push ל-GitHub
+- [x] הגדרת SSH Key בשרת
+- [x] הגדרת GitHub Secrets
+- [x] Clone בשרת
+- [x] Docker Compose עובד (DB:5451, Backend:3749, Frontend:3748)
+- [x] Nginx Reverse Proxy מוגדר
+- [x] SSL פעיל
+- [x] האתר חי על https://flow.botomat.co.il
 
 ### 📋 הבא בתור:
 - יצירת טבלאות DB מלאות
-- בניית מערכת Auth
+- בניית מערכת Auth (signup, login, verify)
 
 ---
 
