@@ -37,7 +37,7 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
   const { screenToFlowPosition } = useReactFlow();
   const [quickAddMenu, setQuickAddMenu] = useState(null);
   const [pendingConnection, setPendingConnection] = useState(null);
-  const [miniMapCollapsed, setMiniMapCollapsed] = useState(false);
+  const [miniMapCollapsed, setMiniMapCollapsed] = useState(true);
   
   const [nodes, setNodes, onNodesChange] = useNodesState(initialData?.nodes || []);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialData?.edges || []);
@@ -246,25 +246,25 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
         {/* MiniMap */}
         <div className="absolute bottom-4 right-4 z-10">
           {!miniMapCollapsed && (
-            <div className="relative bg-gradient-to-br from-white to-gray-50 rounded-2xl border border-gray-200/80 shadow-xl overflow-hidden backdrop-blur-sm">
-              {/* Header */}
-              <div className="flex items-center justify-between px-3 py-2 bg-gradient-to-r from-gray-50 to-white border-b border-gray-100">
-                <span className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+            <div className="relative bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden">
+              {/* Header - minimal */}
+              <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-gray-100">
+                <span className="text-[11px] font-medium text-gray-400 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full" />
                   מפת ניווט
                 </span>
                 <button
                   onClick={() => setMiniMapCollapsed(true)}
-                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                  className="text-gray-300 hover:text-gray-500 transition-colors p-0.5"
                 >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
               </div>
               <MiniMap 
-                className="!bg-transparent !rounded-none !border-0 !shadow-none !relative !bottom-0 !right-0 !m-0"
-                style={{ width: 180, height: 120 }}
+                className="!bg-gray-50/50 !rounded-none !border-0 !shadow-none !relative !bottom-0 !right-0 !m-0"
+                style={{ width: 160, height: 100 }}
                 nodeColor={(n) => {
                   const colors = {
                     trigger: '#a855f7',
@@ -273,13 +273,14 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
                     delay: '#3b82f6',
                     action: '#ec4899',
                     list: '#06b6d4',
+                    registration: '#6366f1',
                   };
                   return colors[n.type] || '#6b7280';
                 }}
-                nodeStrokeWidth={3}
-                maskColor="rgba(99, 102, 241, 0.08)"
+                nodeStrokeWidth={0}
+                maskColor="rgba(99, 102, 241, 0.1)"
                 maskStrokeColor="#6366f1"
-                maskStrokeWidth={2}
+                maskStrokeWidth={1.5}
                 pannable
                 zoomable
               />
