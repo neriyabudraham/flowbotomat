@@ -47,6 +47,26 @@ router.use('/api-keys', apiKeysRoutes);
 // Public API (v1)
 router.use('/v1', publicApiRoutes);
 
+// Health check endpoint for deployment monitoring
+router.get('/health', async (req, res) => {
+  try {
+    // Quick DB check
+    const pool = require('../config/database');
+    await pool.query('SELECT 1');
+    
+    res.json({ 
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    });
+  } catch (error) {
+    res.status(503).json({ 
+      status: 'unhealthy',
+      error: error.message 
+    });
+  }
+});
+
 // Redirect /api to /developers (frontend page)
 router.get('/', (req, res) => {
   res.redirect('/developers');
