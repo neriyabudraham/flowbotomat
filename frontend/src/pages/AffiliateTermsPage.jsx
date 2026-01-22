@@ -1,9 +1,98 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, FileText, Loader2 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
 import api from '../services/api';
 import Logo from '../components/atoms/Logo';
+
+// Simple markdown-like renderer for basic formatting
+function SimpleMarkdown({ content }) {
+  const lines = content.split('\n');
+  const elements = [];
+  let inList = false;
+  let listItems = [];
+  
+  const flushList = () => {
+    if (listItems.length > 0) {
+      elements.push(
+        <ul key={`list-${elements.length}`} className="list-disc list-inside space-y-1 my-4 text-gray-600">
+          {listItems.map((item, i) => <li key={i}>{item}</li>)}
+        </ul>
+      );
+      listItems = [];
+      inList = false;
+    }
+  };
+  
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    
+    // Skip empty lines
+    if (!trimmed) {
+      flushList();
+      return;
+    }
+    
+    // Headers
+    if (trimmed.startsWith('# ')) {
+      flushList();
+      elements.push(
+        <h1 key={index} className="text-2xl font-bold text-gray-900 mt-8 mb-4 first:mt-0">
+          {trimmed.slice(2)}
+        </h1>
+      );
+      return;
+    }
+    
+    if (trimmed.startsWith('## ')) {
+      flushList();
+      elements.push(
+        <h2 key={index} className="text-xl font-bold text-gray-800 mt-6 mb-3">
+          {trimmed.slice(3)}
+        </h2>
+      );
+      return;
+    }
+    
+    // Horizontal rule
+    if (trimmed === '---') {
+      flushList();
+      elements.push(<hr key={index} className="my-6 border-gray-200" />);
+      return;
+    }
+    
+    // List items
+    if (trimmed.startsWith('- ') || trimmed.match(/^\d+\.\d+\.?\s/)) {
+      inList = true;
+      const text = trimmed.replace(/^-\s*/, '').replace(/^\d+\.\d+\.?\s*/, '');
+      // Handle bold text
+      const formatted = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      listItems.push(<span dangerouslySetInnerHTML={{ __html: formatted }} />);
+      return;
+    }
+    
+    // Italic text (wrapped in *)
+    if (trimmed.startsWith('*') && trimmed.endsWith('*') && !trimmed.startsWith('**')) {
+      flushList();
+      elements.push(
+        <p key={index} className="text-gray-500 italic my-4">
+          {trimmed.slice(1, -1)}
+        </p>
+      );
+      return;
+    }
+    
+    // Regular paragraph
+    flushList();
+    const formatted = trimmed.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    elements.push(
+      <p key={index} className="text-gray-600 my-3" dangerouslySetInnerHTML={{ __html: formatted }} />
+    );
+  });
+  
+  flushList();
+  
+  return <div>{elements}</div>;
+}
 
 export default function AffiliateTermsPage() {
   const navigate = useNavigate();
@@ -68,8 +157,8 @@ export default function AffiliateTermsPage() {
           </div>
         ) : (
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 md:p-12">
-            <article className="prose prose-lg max-w-none prose-headings:text-gray-900 prose-p:text-gray-600 prose-li:text-gray-600 prose-strong:text-gray-900">
-              <ReactMarkdown>{content}</ReactMarkdown>
+            <article className="max-w-none">
+              <SimpleMarkdown content={content} />
             </article>
           </div>
         )}
