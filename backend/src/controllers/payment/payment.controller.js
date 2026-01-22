@@ -175,6 +175,7 @@ async function getPaymentMethods(req, res) {
 
 /**
  * Delete a payment method
+ * Updated logic: Allow deletion even with active subscription - service continues until period ends
  */
 async function deletePaymentMethod(req, res) {
   try {
@@ -183,18 +184,14 @@ async function deletePaymentMethod(req, res) {
     
     // Check if user has an active subscription using this payment method
     const subCheck = await db.query(
-      `SELECT id FROM user_subscriptions 
-       WHERE user_id = $1 AND payment_method_id = $2 AND status IN ('active', 'trial')`,
+      `SELECT us.id, us.status, us.expires_at, us.trial_ends_at, wc.connection_type
+       FROM user_subscriptions us
+       LEFT JOIN whatsapp_connections wc ON wc.user_id = us.user_id
+       WHERE us.user_id = $1 AND us.payment_method_id = $2 AND us.status IN ('active', 'trial')`,
       [userId, methodId]
     );
     
-    if (subCheck.rows.length > 0) {
-      return res.status(400).json({ 
-        error: 'לא ניתן למחוק אמצעי תשלום המשויך למנוי פעיל. בטל את המנוי תחילה.'
-      });
-    }
-    
-    // Soft delete
+    // Soft delete the payment method
     const result = await db.query(`
       UPDATE user_payment_methods 
       SET is_active = false, updated_at = NOW()
@@ -212,14 +209,55 @@ async function deletePaymentMethod(req, res) {
       [userId]
     );
     
-    if (parseInt(remaining.rows[0].count) === 0) {
+    const hasRemainingMethods = parseInt(remaining.rows[0].count) > 0;
+    
+    if (!hasRemainingMethods) {
       await db.query(
         'UPDATE users SET has_payment_method = false WHERE id = $1',
         [userId]
       );
     }
     
-    res.json({ success: true });
+    let message = 'אמצעי התשלום הוסר בהצלחה';
+    
+    // If there was an active subscription with this payment method
+    if (subCheck.rows.length > 0 && !hasRemainingMethods) {
+      const sub = subCheck.rows[0];
+      
+      // Cancel future renewals in Sumit if exists
+      const subWithSumit = await db.query(
+        `SELECT sumit_standing_order_id FROM user_subscriptions WHERE user_id = $1 AND status IN ('active', 'trial')`,
+        [userId]
+      );
+      
+      if (subWithSumit.rows[0]?.sumit_standing_order_id) {
+        try {
+          await sumitService.cancelRecurring(subWithSumit.rows[0].sumit_standing_order_id);
+        } catch (err) {
+          console.error('[Payment] Failed to cancel Sumit recurring:', err.message);
+        }
+      }
+      
+      // Mark subscription as cancelled but don't disconnect immediately
+      // Service will continue until expires_at or trial_ends_at
+      await db.query(
+        `UPDATE user_subscriptions 
+         SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
+         WHERE user_id = $1 AND status IN ('active', 'trial')`,
+        [userId]
+      );
+      
+      const endDate = sub.status === 'trial' ? sub.trial_ends_at : sub.expires_at;
+      const formattedDate = endDate ? new Date(endDate).toLocaleDateString('he-IL') : null;
+      
+      if (formattedDate) {
+        message = `המנוי בוטל. השירות ימשיך לפעול עד ${formattedDate}`;
+      } else {
+        message = 'המנוי בוטל. השירות ימשיך לפעול עד סוף תקופת החיוב';
+      }
+    }
+    
+    res.json({ success: true, message });
   } catch (error) {
     console.error('[Payment] Delete payment method error:', error);
     res.status(500).json({ error: 'שגיאה במחיקת אמצעי תשלום' });
@@ -528,8 +566,11 @@ async function checkPaymentMethod(req, res) {
 }
 
 /**
- * Remove all payment methods and disconnect WhatsApp
- * This is a "forget my data" action that disables the service
+ * Remove all payment methods
+ * Updated logic:
+ * - Paid users: Service continues until subscription period ends
+ * - Trial users with managed WAHA: Service continues until trial ends (14 days)
+ * - Users with external WAHA and no subscription: Disconnect immediately
  */
 async function removeAllPaymentMethods(req, res) {
   try {
@@ -545,7 +586,15 @@ async function removeAllPaymentMethods(req, res) {
       [userId]
     );
     
-    // 2. Cancel any active subscriptions
+    // 2. Update user flags
+    await db.query(
+      `UPDATE users 
+       SET has_payment_method = false, updated_at = NOW()
+       WHERE id = $1`,
+      [userId]
+    );
+    
+    // 3. Check subscription and connection status
     const subResult = await db.query(
       `SELECT us.*, wc.id as connection_id, wc.connection_type, wc.session_name 
        FROM user_subscriptions us
@@ -554,10 +603,19 @@ async function removeAllPaymentMethods(req, res) {
       [userId]
     );
     
+    // Also check if user has WhatsApp connection but no subscription
+    const connectionResult = await db.query(
+      `SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected'`,
+      [userId]
+    );
+    
+    let message = 'פרטי האשראי הוסרו בהצלחה';
+    let disconnectImmediately = false;
+    
     if (subResult.rows.length > 0) {
       const subscription = subResult.rows[0];
       
-      // Cancel in Sumit if exists
+      // Cancel in Sumit if exists (stop future charges)
       if (subscription.sumit_standing_order_id) {
         try {
           await sumitService.cancelRecurring(subscription.sumit_standing_order_id);
@@ -566,45 +624,67 @@ async function removeAllPaymentMethods(req, res) {
         }
       }
       
-      // Mark subscription as cancelled
+      // Mark subscription as cancelled (but don't disconnect yet)
       await db.query(
         `UPDATE user_subscriptions 
          SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
+         WHERE user_id = $1 AND status IN ('active', 'trial')`,
+        [userId]
+      );
+      
+      // Determine end date based on subscription type
+      let endDate;
+      if (subscription.status === 'trial') {
+        endDate = subscription.trial_ends_at;
+        message = `המנוי בוטל. השירות ימשיך לפעול עד סוף תקופת הניסיון (${new Date(endDate).toLocaleDateString('he-IL')})`;
+      } else {
+        endDate = subscription.expires_at;
+        message = `המנוי בוטל. השירות ימשיך לפעול עד סוף תקופת החיוב (${new Date(endDate).toLocaleDateString('he-IL')})`;
+      }
+      
+      console.log(`[Payment] Subscription cancelled for user ${userId}, service continues until ${endDate}`);
+      
+    } else if (connectionResult.rows.length > 0) {
+      // User has WhatsApp connection but NO subscription - disconnect immediately
+      const connection = connectionResult.rows[0];
+      
+      if (connection.connection_type === 'external') {
+        // External WhatsApp (user's own) - disconnect immediately
+        disconnectImmediately = true;
+        message = 'פרטי האשראי הוסרו והשירות נותק';
+      } else {
+        // Managed WhatsApp but no subscription - this shouldn't happen normally
+        // But if it does, disconnect immediately
+        disconnectImmediately = true;
+        message = 'פרטי האשראי הוסרו והשירות נותק';
+      }
+    } else {
+      // No subscription and no connection - just remove payment methods
+      message = 'פרטי האשראי הוסרו בהצלחה';
+    }
+    
+    // Only disconnect immediately if needed
+    if (disconnectImmediately) {
+      // Disconnect WhatsApp connection
+      await db.query(
+        `UPDATE whatsapp_connections 
+         SET status = 'disconnected', disconnected_at = NOW(), updated_at = NOW()
+         WHERE user_id = $1 AND status = 'connected'`,
+        [userId]
+      );
+      
+      // Deactivate all bots
+      await db.query(
+        `UPDATE bots 
+         SET is_active = false, updated_at = NOW()
          WHERE user_id = $1`,
         [userId]
       );
     }
     
-    // 3. Disconnect WhatsApp connection (mark as disconnected, don't delete from WAHA)
-    await db.query(
-      `UPDATE whatsapp_connections 
-       SET status = 'disconnected', disconnected_at = NOW(), updated_at = NOW()
-       WHERE user_id = $1 AND status = 'connected'`,
-      [userId]
-    );
+    console.log(`[Payment] Successfully removed payment methods for user ${userId}. Immediate disconnect: ${disconnectImmediately}`);
     
-    // 4. Update user flags
-    await db.query(
-      `UPDATE users 
-       SET has_payment_method = false, updated_at = NOW()
-       WHERE id = $1`,
-      [userId]
-    );
-    
-    // 5. Deactivate all bots
-    await db.query(
-      `UPDATE bots 
-       SET is_active = false, updated_at = NOW()
-       WHERE user_id = $1`,
-      [userId]
-    );
-    
-    console.log(`[Payment] Successfully removed all payment data for user ${userId}`);
-    
-    res.json({ 
-      success: true, 
-      message: 'פרטי האשראי הוסרו והשירות נותק'
-    });
+    res.json({ success: true, message });
   } catch (error) {
     console.error('[Payment] Remove all payment methods error:', error);
     res.status(500).json({ error: 'שגיאה בהסרת פרטי התשלום' });

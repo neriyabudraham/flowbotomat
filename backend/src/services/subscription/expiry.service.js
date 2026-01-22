@@ -5,12 +5,16 @@ const wahaSession = require('../waha/session.service');
 /**
  * Check and handle expired subscriptions
  * Called periodically (e.g., every hour via cron)
+ * Handles:
+ * 1. Expired trial subscriptions (trial_ends_at < NOW())
+ * 2. Expired active subscriptions (expires_at < NOW())
+ * 3. Cancelled subscriptions past their end date
  */
 async function handleExpiredSubscriptions() {
   console.log('[Subscription Expiry] Starting check...');
   
   try {
-    // Find expired trial subscriptions
+    // Find all expired subscriptions (trial, active, and cancelled past end date)
     const expiredResult = await db.query(`
       SELECT 
         us.*,
@@ -21,87 +25,100 @@ async function handleExpiredSubscriptions() {
       FROM user_subscriptions us
       JOIN users u ON us.user_id = u.id
       LEFT JOIN whatsapp_connections wc ON wc.user_id = us.user_id AND wc.status = 'connected'
-      WHERE us.status = 'trial' 
-        AND us.trial_ends_at IS NOT NULL 
-        AND us.trial_ends_at < NOW()
+      WHERE (
+        -- Expired trials
+        (us.status = 'trial' AND us.trial_ends_at IS NOT NULL AND us.trial_ends_at < NOW())
+        OR
+        -- Expired active subscriptions
+        (us.status = 'active' AND us.expires_at IS NOT NULL AND us.expires_at < NOW())
+        OR
+        -- Cancelled subscriptions past their end date (trial or paid)
+        (us.status = 'cancelled' AND (
+          (us.trial_ends_at IS NOT NULL AND us.trial_ends_at < NOW())
+          OR (us.expires_at IS NOT NULL AND us.expires_at < NOW())
+        ))
+      )
     `);
     
-    console.log(`[Subscription Expiry] Found ${expiredResult.rows.length} expired trial subscriptions`);
+    console.log(`[Subscription Expiry] Found ${expiredResult.rows.length} expired subscriptions`);
     
     for (const sub of expiredResult.rows) {
-      console.log(`[Subscription Expiry] Processing user ${sub.user_id} (${sub.user_email})`);
+      console.log(`[Subscription Expiry] Processing user ${sub.user_id} (${sub.user_email}) - status: ${sub.status}`);
       
       try {
-        // Check if user has payment method
-        const paymentCheck = await db.query(
-          'SELECT id FROM user_payment_methods WHERE user_id = $1 AND is_active = true LIMIT 1',
-          [sub.user_id]
-        );
+        // For cancelled subscriptions, just expire and disconnect
+        // For active/trial, check if they have payment method for potential renewal
         
-        const hasPayment = paymentCheck.rows.length > 0;
+        let shouldDisconnect = true;
         
-        if (hasPayment) {
-          // User has payment method - attempt to charge and activate subscription
-          console.log(`[Subscription Expiry] User ${sub.user_id} has payment method, attempting charge...`);
+        if (sub.status !== 'cancelled') {
+          // Check if user has payment method
+          const paymentCheck = await db.query(
+            'SELECT id FROM user_payment_methods WHERE user_id = $1 AND is_active = true LIMIT 1',
+            [sub.user_id]
+          );
           
-          // TODO: Implement charging logic here
-          // For now, just extend trial or mark as expired
+          const hasPayment = paymentCheck.rows.length > 0;
           
-          // Mark subscription as expired (needs manual attention or auto-charge)
-          await db.query(`
-            UPDATE user_subscriptions 
-            SET status = 'expired', updated_at = NOW()
-            WHERE user_id = $1
-          `, [sub.user_id]);
-          
-        } else {
-          // No payment method - expire subscription and disconnect WhatsApp
-          console.log(`[Subscription Expiry] User ${sub.user_id} has no payment, expiring...`);
-          
-          // Mark subscription as expired
-          await db.query(`
-            UPDATE user_subscriptions 
-            SET status = 'expired', updated_at = NOW()
-            WHERE user_id = $1
-          `, [sub.user_id]);
-          
-          // Handle WhatsApp disconnection
-          if (sub.connection_id) {
-            if (sub.connection_type === 'managed') {
-              // Managed connection - delete from WAHA
-              console.log(`[Subscription Expiry] Deleting managed WhatsApp session: ${sub.session_name}`);
-              
-              try {
-                const { baseUrl, apiKey } = getWahaCredentials();
-                if (baseUrl && apiKey && sub.session_name) {
-                  await wahaSession.deleteSession(baseUrl, apiKey, sub.session_name);
-                  console.log(`[Subscription Expiry] ✅ Deleted WAHA session: ${sub.session_name}`);
-                }
-              } catch (err) {
-                console.error(`[Subscription Expiry] Failed to delete WAHA session: ${err.message}`);
-              }
-            } else {
-              // External connection - just disconnect from our system
-              console.log(`[Subscription Expiry] Disconnecting external WhatsApp for user ${sub.user_id}`);
-            }
-            
-            // Mark connection as disconnected in DB
-            await db.query(`
-              UPDATE whatsapp_connections 
-              SET status = 'disconnected', disconnected_at = NOW(), updated_at = NOW()
-              WHERE id = $1
-            `, [sub.connection_id]);
+          if (hasPayment && sub.status === 'trial') {
+            // Trial expired but has payment - handled by billing.service for auto-charge
+            console.log(`[Subscription Expiry] User ${sub.user_id} trial expired with payment method - handled by billing`);
+            continue; // Skip this, billing service will handle
           }
           
-          // Deactivate all bots
-          await db.query(`
-            UPDATE bots 
-            SET is_active = false, updated_at = NOW()
-            WHERE user_id = $1
-          `, [sub.user_id]);
+          if (hasPayment && sub.status === 'active') {
+            // Active expired but has payment - also handled by billing.service
+            console.log(`[Subscription Expiry] User ${sub.user_id} subscription expired with payment method - handled by billing`);
+            continue; // Skip this, billing service will handle
+          }
         }
         
-        console.log(`[Subscription Expiry] ✅ Processed user ${sub.user_id}`);
+        // No payment method OR cancelled subscription - expire and disconnect
+        console.log(`[Subscription Expiry] User ${sub.user_id} - expiring and disconnecting...`);
+        
+        // Mark subscription as expired
+        await db.query(`
+          UPDATE user_subscriptions 
+          SET status = 'expired', updated_at = NOW()
+          WHERE user_id = $1 AND id = $2
+        `, [sub.user_id, sub.id]);
+        
+        // Handle WhatsApp disconnection
+        if (sub.connection_id && shouldDisconnect) {
+          if (sub.connection_type === 'managed') {
+            // Managed connection - delete from WAHA
+            console.log(`[Subscription Expiry] Deleting managed WhatsApp session: ${sub.session_name}`);
+            
+            try {
+              const { baseUrl, apiKey } = getWahaCredentials();
+              if (baseUrl && apiKey && sub.session_name) {
+                await wahaSession.deleteSession(baseUrl, apiKey, sub.session_name);
+                console.log(`[Subscription Expiry] ✅ Deleted WAHA session: ${sub.session_name}`);
+              }
+            } catch (err) {
+              console.error(`[Subscription Expiry] Failed to delete WAHA session: ${err.message}`);
+            }
+          } else {
+            // External connection - just disconnect from our system
+            console.log(`[Subscription Expiry] Disconnecting external WhatsApp for user ${sub.user_id}`);
+          }
+          
+          // Mark connection as disconnected in DB
+          await db.query(`
+            UPDATE whatsapp_connections 
+            SET status = 'disconnected', disconnected_at = NOW(), updated_at = NOW()
+            WHERE id = $1
+          `, [sub.connection_id]);
+        }
+        
+        // Deactivate all bots
+        await db.query(`
+          UPDATE bots 
+          SET is_active = false, updated_at = NOW()
+          WHERE user_id = $1
+        `, [sub.user_id]);
+        
+        console.log(`[Subscription Expiry] ✅ Expired and disconnected user ${sub.user_id}`);
         
       } catch (userError) {
         console.error(`[Subscription Expiry] Error processing user ${sub.user_id}:`, userError.message);
