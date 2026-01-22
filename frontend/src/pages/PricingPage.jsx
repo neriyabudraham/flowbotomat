@@ -37,7 +37,7 @@ export default function PricingPage() {
   const [plans, setPlans] = useState([]);
   const [promotions, setPromotions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [billingPeriod, setBillingPeriod] = useState('yearly');
+  const [billingPeriod, setBillingPeriod] = useState('monthly');
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -331,15 +331,12 @@ export default function PricingPage() {
                       </div>
                     )}
                     {hasPromo && (
-                      <div className="absolute top-0 left-0 right-0 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 text-white text-sm py-2.5 text-center font-bold">
-                        <span className="inline-flex items-center gap-1.5">
-                          🎁 {promo.badge_text || 'מבצע מיוחד!'} 
-                          {promo.promo_months && <span className="text-yellow-200">• {promo.promo_months} חודשים</span>}
-                        </span>
+                      <div className="absolute top-0 left-0 right-0 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 text-white text-sm py-2 text-center font-bold">
+                        🎁 {promo.badge_text || 'מבצע מיוחד!'}
                       </div>
                     )}
                     
-                    <div className={`p-6 ${isPopular ? 'pt-12' : ''}`}>
+                    <div className={`p-6 ${(isPopular || hasPromo) ? 'pt-12' : ''}`}>
                       {/* Plan Header */}
                       <div className="flex items-center gap-3 mb-6">
                         <div className={`p-3 bg-gradient-to-br ${gradient} rounded-2xl shadow-lg`}>
@@ -353,40 +350,33 @@ export default function PricingPage() {
 
                       {/* Price */}
                       <div className="mb-6">
-                        {hasPromo && billingPeriod === 'monthly' ? (
-                          <>
-                            <div className="flex items-baseline gap-2">
-                              <span className="text-5xl font-bold text-gray-900">₪{promoPrice}</span>
-                              <span className="text-gray-500 text-lg">/חודש</span>
-                            </div>
-                            <div className="mt-2 flex items-center gap-2 flex-wrap">
-                              <span className="text-gray-400 line-through text-xl">₪{monthlyPrice}</span>
-                              <span className="px-2.5 py-1 bg-gradient-to-r from-amber-100 to-orange-100 text-orange-700 text-sm font-bold rounded-lg border border-orange-200">
-                                {promo.discount_type === 'percentage' ? `חיסכון ${promo.discount_value}%` : `חיסכון ₪${promo.discount_value}`}
-                              </span>
-                            </div>
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-5xl font-bold text-gray-900">₪{displayPrice}</span>
+                          <span className="text-gray-500 text-lg">/חודש</span>
+                        </div>
+                        
+                        {hasPromo && billingPeriod === 'monthly' && (
+                          <div className="mt-2">
+                            <span className="text-gray-400 line-through text-lg ml-2">₪{monthlyPrice}</span>
+                            <span className="text-orange-600 text-sm font-medium">
+                              {promo.discount_type === 'percentage' ? `חיסכון ${promo.discount_value}%` : `חיסכון ₪${promo.discount_value}`}
+                            </span>
                             {promo.promo_months && (
-                              <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 text-orange-700 rounded-lg text-sm font-medium border border-orange-200">
-                                <Timer className="w-4 h-4" />
-                                ל-{promo.promo_months} חודשים ראשונים
-                              </div>
+                              <p className="text-sm text-orange-600 mt-1">
+                                מחיר ל-{promo.promo_months} {promo.promo_months === 1 ? 'חודש ראשון' : 'חודשים ראשונים'} בלבד
+                              </p>
                             )}
-                          </>
-                        ) : (
-                          <>
-                            <div className="flex items-baseline gap-1">
-                              <span className="text-5xl font-bold text-gray-900">₪{displayPrice}</span>
-                              <span className="text-gray-500 text-lg">/חודש</span>
-                            </div>
-                            {billingPeriod === 'yearly' && !isFree && (
-                              <div className="mt-2 flex items-center gap-2">
-                                <span className="text-gray-400 line-through text-sm">₪{monthlyPrice * 12}/שנה</span>
-                                <span className="text-green-600 text-sm font-medium">₪{yearlyTotal}/שנה</span>
-                              </div>
-                            )}
-                          </>
+                          </div>
                         )}
-                        {plan.trial_days > 0 && (
+                        
+                        {billingPeriod === 'yearly' && !isFree && !hasPromo && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <span className="text-gray-400 line-through text-sm">₪{monthlyPrice * 12}/שנה</span>
+                            <span className="text-green-600 text-sm font-medium">₪{yearlyTotal}/שנה</span>
+                          </div>
+                        )}
+                        
+                        {plan.trial_days > 0 && !hasPromo && (
                           <div className="mt-3">
                             <div className="flex items-center gap-2 text-purple-600">
                               <Gift className="w-4 h-4" />
