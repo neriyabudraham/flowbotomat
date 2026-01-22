@@ -42,12 +42,12 @@ export default function SystemAlertOverlay() {
     };
   }, []);
 
-  // Countdown timer for system update
+  // Countdown timer for system update (continues to -30 for "updating now" phase)
   useEffect(() => {
     if (updateCountdown === null) return;
     
-    if (updateCountdown <= 0) {
-      // Time's up - close everything
+    // Stop at -30 (60 seconds total from start)
+    if (updateCountdown <= -30) {
       setUpdateAlert(null);
       setUpdateCountdown(null);
       setAcknowledged(false);
@@ -126,32 +126,52 @@ export default function SystemAlertOverlay() {
       {/* TOP BANNER - Shows countdown after user acknowledges */}
       {updateCountdown !== null && acknowledged && (
         <div className="fixed top-0 left-0 right-0 z-[9999] animate-slide-down" dir="rtl">
-          <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-red-600 text-white py-4 px-4 shadow-lg">
+          <div className={`${updateCountdown <= 0 ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600' : 'bg-gradient-to-r from-amber-600 via-orange-600 to-red-600'} text-white py-4 px-4 shadow-lg`}>
             <div className="max-w-4xl mx-auto flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center animate-pulse">
-                  <AlertTriangle className="w-5 h-5" />
+                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                  {updateCountdown <= 0 ? (
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <AlertTriangle className="w-5 h-5 animate-pulse" />
+                  )}
                 </div>
                 <div>
-                  <p className="font-bold">עדכון מערכת בדקה הקרובה</p>
-                  <p className="text-white/80 text-sm">יש להמתין לסיום העדכון - אין לבצע פעולות</p>
+                  {updateCountdown <= 0 ? (
+                    <>
+                      <p className="font-bold">מתעדכן עכשיו...</p>
+                      <p className="text-white/80 text-sm">העדכון מתבצע כעת, העמוד יתרענן אוטומטית</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-bold">עדכון מערכת בדקה הקרובה</p>
+                      <p className="text-white/80 text-sm">יש להמתין לסיום העדכון - אין לבצע פעולות</p>
+                    </>
+                  )}
                 </div>
               </div>
               
               <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 bg-white/20 px-4 py-2 rounded-xl">
-                  <Clock className="w-5 h-5" />
-                  <span className="text-2xl font-bold tabular-nums">{updateCountdown}</span>
-                  <span className="text-sm">שניות</span>
-                </div>
+                {updateCountdown <= 0 ? (
+                  <div className="flex items-center gap-2 bg-white/20 px-4 py-2 rounded-xl">
+                    <div className="w-3 h-3 bg-white rounded-full animate-pulse" />
+                    <span className="font-bold">מעדכן...</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 bg-white/20 px-4 py-2 rounded-xl">
+                    <Clock className="w-5 h-5" />
+                    <span className="text-2xl font-bold tabular-nums">{updateCountdown}</span>
+                    <span className="text-sm">שניות</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* FULL SCREEN UPDATE ALERT - Before user acknowledges */}
-      {updateAlert && !acknowledged && (
+      {/* FULL SCREEN UPDATE ALERT - Before user acknowledges OR when updating */}
+      {updateAlert && !acknowledged && updateCountdown > 0 && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center" dir="rtl">
           {/* Animated background */}
           <div className="absolute inset-0 bg-gradient-to-br from-slate-900/95 via-indigo-900/90 to-slate-900/95 backdrop-blur-md" />
@@ -229,6 +249,62 @@ export default function SystemAlertOverlay() {
             
             <p className="text-white/40 text-sm mt-4">
               לאחר לחיצה ההודעה תיסגר, אך יש להמתין לסיום העדכון
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* FULL SCREEN "UPDATING NOW" - When countdown reaches 0 and user didn't acknowledge */}
+      {updateAlert && !acknowledged && updateCountdown !== null && updateCountdown <= 0 && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center" dir="rtl">
+          {/* Animated background */}
+          <div className="absolute inset-0 bg-gradient-to-br from-slate-900/95 via-indigo-900/90 to-slate-900/95 backdrop-blur-md" />
+          
+          {/* Floating particles effect */}
+          <div className="absolute inset-0 overflow-hidden">
+            {[...Array(20)].map((_, i) => (
+              <div
+                key={i}
+                className="absolute w-2 h-2 bg-white/20 rounded-full animate-float"
+                style={{
+                  left: `${Math.random() * 100}%`,
+                  top: `${Math.random() * 100}%`,
+                  animationDelay: `${Math.random() * 5}s`,
+                  animationDuration: `${3 + Math.random() * 4}s`
+                }}
+              />
+            ))}
+          </div>
+          
+          <div className="relative bg-white/10 backdrop-blur-xl rounded-3xl p-10 max-w-lg mx-4 text-center border border-white/20 shadow-2xl animate-scale-in">
+            {/* Spinning icon */}
+            <div className="relative mx-auto mb-8">
+              <div className="w-28 h-28 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl flex items-center justify-center shadow-lg shadow-indigo-500/40">
+                <RefreshCw className="w-14 h-14 text-white animate-spin" />
+              </div>
+            </div>
+            
+            <h2 className="text-3xl font-bold text-white mb-4">
+              מתעדכן עכשיו...
+            </h2>
+            <p className="text-white/80 mb-8 text-lg leading-relaxed">
+              המערכת מתעדכנת כעת לגרסה חדשה.
+              <br />
+              <span className="text-indigo-300">העמוד יתרענן אוטומטית בסיום.</span>
+            </p>
+            
+            {/* Loading indicator */}
+            <div className="flex items-center justify-center gap-3 bg-white/10 rounded-2xl p-6">
+              <div className="flex gap-1">
+                <div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+              <span className="text-white/70">אנא המתן...</span>
+            </div>
+            
+            <p className="text-white/40 text-sm mt-6">
+              אל תסגור את הדפדפן
             </p>
           </div>
         </div>
