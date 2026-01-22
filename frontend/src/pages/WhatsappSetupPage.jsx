@@ -221,14 +221,14 @@ export default function WhatsappSetupPage() {
               <h2 className="text-xl font-bold text-gray-900 mb-2 text-center">התחברות ל-WhatsApp</h2>
               <p className="text-gray-500 text-center mb-8">סרוק קוד QR וחבר את WhatsApp שלך בשניות</p>
               
-              {/* Existing Session Alert */}
-              {existingSession && (
+              {/* Existing Session Alert - only show if exists AND connected */}
+              {existingSession?.exists && existingSession?.isConnected && (
                 <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-2xl">
                   <div className="flex items-center gap-3 text-blue-700">
                     <Wifi className="w-5 h-5" />
                     <div>
                       <p className="font-medium">נמצא חיבור קיים!</p>
-                      <p className="text-sm text-blue-600">יש לך סשן פעיל. לחץ על "התחבר עכשיו" להתחבר אוטומטית.</p>
+                      <p className="text-sm text-blue-600">יש לך סשן מחובר ל-WhatsApp. לחץ על "התחבר עכשיו" להתחבר אוטומטית.</p>
                     </div>
                   </div>
                 </div>
@@ -372,25 +372,13 @@ export default function WhatsappSetupPage() {
                   />
                 </div>
 
-                {/* Webhook URL */}
-                <div className="p-4 bg-blue-50 rounded-xl">
-                  <label className="block text-sm font-medium text-blue-900 mb-2">Webhook URL (הגדר ב-WAHA)</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={`${window.location.origin}/api/webhook/waha`}
-                      readOnly
-                      className="flex-1 px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm text-gray-600"
-                      dir="ltr"
-                    />
-                    <button
-                      type="button"
-                      onClick={copyWebhook}
-                      className="p-2 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors"
-                    >
-                      {copiedWebhook ? <Check className="w-5 h-5 text-green-600" /> : <Copy className="w-5 h-5 text-blue-600" />}
-                    </button>
+                {/* Webhook Info */}
+                <div className="p-4 bg-green-50 rounded-xl border border-green-200">
+                  <div className="flex items-center gap-2 text-green-700">
+                    <CheckCircle className="w-5 h-5" />
+                    <p className="text-sm font-medium">Webhook יוגדר אוטומטית</p>
                   </div>
+                  <p className="text-xs text-green-600 mt-1 mr-7">לאחר החיבור, המערכת תגדיר את ה-Webhook בשרת שלך אוטומטית</p>
                 </div>
                 
                 <button
