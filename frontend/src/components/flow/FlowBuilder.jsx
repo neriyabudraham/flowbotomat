@@ -325,17 +325,19 @@ export default function FlowBuilder(props) {
 function getDefaultData(type) {
   switch (type) {
     case 'trigger':
-      return { triggers: [{ type: 'any_message', value: '' }] };
+      return { triggers: [] };
     case 'message':
-      return { actions: [{ type: 'text', content: '' }], waitForReply: false };
+      return { actions: [], waitForReply: false };
     case 'condition':
-      return { variable: 'message', operator: 'contains', value: '' };
+      return { conditions: [], logic: 'and' };
     case 'delay':
       return { delay: 1, unit: 'seconds' };
     case 'action':
       return { actions: [] };
     case 'list':
-      return { title: '', body: '', buttonText: 'בחר', buttons: [], waitForReply: true, timeout: null };
+      return { title: '', body: '', buttonText: 'בחר', sections: [], waitForReply: true, timeout: null };
+    case 'registration':
+      return { questions: [], title: '' };
     default:
       return {};
   }

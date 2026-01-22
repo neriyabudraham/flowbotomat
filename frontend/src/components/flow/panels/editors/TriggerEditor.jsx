@@ -35,12 +35,9 @@ const contactFields = [
 
 export default function TriggerEditor({ data, onUpdate }) {
   // Groups of conditions - each group is OR, conditions within group are AND
-  const groups = data.triggerGroups || [{ 
-    id: Date.now(), 
-    conditions: [{ type: 'any_message', operator: 'contains', value: '', field: '' }] 
-  }];
+  const groups = data.triggerGroups || [];
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [expandedGroups, setExpandedGroups] = useState(new Set([groups[0]?.id]));
+  const [expandedGroups, setExpandedGroups] = useState(new Set(groups[0]?.id ? [groups[0].id] : []));
 
   const toggleGroup = (groupId) => {
     const newExpanded = new Set(expandedGroups);
@@ -63,7 +60,6 @@ export default function TriggerEditor({ data, onUpdate }) {
   };
 
   const removeGroup = (groupId) => {
-    if (groups.length <= 1) return;
     onUpdate({ triggerGroups: groups.filter(g => g.id !== groupId) });
   };
 
@@ -113,9 +109,29 @@ export default function TriggerEditor({ data, onUpdate }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-500">
-        הגדר מתי הבוט יופעל. קבוצות מחוברות ב-"או", תנאים בתוך קבוצה מחוברים ב-"וגם".
-      </p>
+      {/* Empty State */}
+      {groups.length === 0 && (
+        <div className="text-center py-8 px-4 bg-gradient-to-b from-purple-50/50 to-white rounded-2xl border-2 border-dashed border-purple-200">
+          <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <span className="text-2xl">⚡</span>
+          </div>
+          <p className="text-gray-700 font-medium mb-1">אין טריגרים עדיין</p>
+          <p className="text-sm text-gray-500 mb-4">הוסף תנאי להפעלת הבוט</p>
+          <button
+            onClick={addGroup}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-xl text-sm font-medium hover:bg-purple-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            הוסף טריגר
+          </button>
+        </div>
+      )}
+      
+      {groups.length > 0 && (
+        <p className="text-sm text-gray-500">
+          הגדר מתי הבוט יופעל. קבוצות מחוברות ב-"או", תנאים בתוך קבוצה מחוברים ב-"וגם".
+        </p>
+      )}
       
       {/* Trigger Groups */}
       <div className="space-y-3">
@@ -141,14 +157,12 @@ export default function TriggerEditor({ data, onUpdate }) {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {groups.length > 1 && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); removeGroup(group.id); }}
-                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); removeGroup(group.id); }}
+                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                   {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
                 </div>
               </div>
@@ -293,17 +307,19 @@ export default function TriggerEditor({ data, onUpdate }) {
       </div>
       
       {/* OR separator and add group */}
-      <div className="flex items-center gap-3">
-        <div className="flex-1 h-px bg-gray-200" />
-        <button
-          onClick={addGroup}
-          className="flex items-center gap-2 px-4 py-2 text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-xl text-sm font-medium transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          הוסף קבוצה (או)
-        </button>
-        <div className="flex-1 h-px bg-gray-200" />
-      </div>
+      {groups.length > 0 && (
+        <div className="flex items-center gap-3">
+          <div className="flex-1 h-px bg-gray-200" />
+          <button
+            onClick={addGroup}
+            className="flex items-center gap-2 px-4 py-2 text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-xl text-sm font-medium transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            הוסף קבוצה (או)
+          </button>
+          <div className="flex-1 h-px bg-gray-200" />
+        </div>
+      )}
 
       {/* Advanced Settings */}
       <div className="border-t border-gray-200 pt-4">

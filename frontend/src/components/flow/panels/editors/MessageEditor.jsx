@@ -14,7 +14,7 @@ const actionTypes = [
 ];
 
 export default function MessageEditor({ data, onUpdate }) {
-  const actions = data.actions || [{ type: 'text', content: '' }];
+  const actions = data.actions || [];
   const [dragIndex, setDragIndex] = useState(null);
 
   const addAction = (type) => {
@@ -27,7 +27,6 @@ export default function MessageEditor({ data, onUpdate }) {
   };
 
   const removeAction = (index) => {
-    if (actions.length <= 1) return;
     onUpdate({ actions: actions.filter((_, i) => i !== index) });
   };
 
@@ -51,32 +50,40 @@ export default function MessageEditor({ data, onUpdate }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-500">הוסף תוכן לשליחה. גרור לשינוי סדר.</p>
-
       {/* Actions */}
-      <div className="space-y-3">
-        {actions.map((action, index) => (
-          <div
-            key={index}
-            draggable
-            onDragStart={() => handleDragStart(index)}
-            onDragOver={(e) => handleDragOver(e, index)}
-            onDragEnd={() => setDragIndex(null)}
-            className={`transition-opacity ${dragIndex === index ? 'opacity-50' : ''}`}
-          >
-            <ActionItem
-              action={action}
-              index={index}
-              canRemove={actions.length > 1}
-              onUpdate={(updates) => updateAction(index, updates)}
-              onRemove={() => removeAction(index)}
-            />
+      {actions.length > 0 ? (
+        <div className="space-y-3">
+          {actions.map((action, index) => (
+            <div
+              key={index}
+              draggable
+              onDragStart={() => handleDragStart(index)}
+              onDragOver={(e) => handleDragOver(e, index)}
+              onDragEnd={() => setDragIndex(null)}
+              className={`transition-opacity ${dragIndex === index ? 'opacity-50' : ''}`}
+            >
+              <ActionItem
+                action={action}
+                index={index}
+                canRemove={true}
+                onUpdate={(updates) => updateAction(index, updates)}
+                onRemove={() => removeAction(index)}
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-8 px-4 bg-gradient-to-b from-teal-50/50 to-white rounded-2xl border-2 border-dashed border-teal-200">
+          <div className="w-14 h-14 bg-teal-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <MessageSquare className="w-7 h-7 text-teal-600" />
           </div>
-        ))}
-      </div>
+          <p className="text-gray-700 font-medium mb-1">אין תוכן עדיין</p>
+          <p className="text-sm text-gray-500">בחר סוג תוכן לשליחה</p>
+        </div>
+      )}
 
       {/* Add buttons */}
-      <div className="border-t border-gray-100 pt-4">
+      <div className={actions.length > 0 ? "border-t border-gray-100 pt-4" : ""}>
         <p className="text-sm text-gray-500 mb-3">הוסף תוכן:</p>
         <div className="grid grid-cols-3 gap-2">
           {actionTypes.map(({ id, label, icon: Icon }) => (

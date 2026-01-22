@@ -263,39 +263,71 @@ function ConditionGroup({ group, onChange, onRemove, canRemove, isRoot = false }
 
 export default function ConditionEditor({ data, onUpdate }) {
   // Convert old format to new format if needed
-  const conditionGroup = data.conditionGroup || {
-    logic: 'AND',
-    conditions: data.variable ? [{ variable: data.variable, operator: data.operator, value: data.value, varName: data.varName }] : [{ variable: 'message', operator: 'contains', value: '' }]
-  };
+  const conditionGroup = data.conditionGroup || (
+    data.variable 
+      ? { logic: 'AND', conditions: [{ variable: data.variable, operator: data.operator, value: data.value, varName: data.varName }] }
+      : { logic: 'AND', conditions: [] }
+  );
 
   const handleGroupChange = (newGroup) => {
     onUpdate({ conditionGroup: newGroup });
   };
 
+  const addFirstCondition = () => {
+    onUpdate({ 
+      conditionGroup: { 
+        logic: 'AND', 
+        conditions: [{ variable: 'message', operator: 'contains', value: '' }] 
+      } 
+    });
+  };
+
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-500">
-        הגדר תנאים מורכבים עם קבוצות. לחץ על "וגם"/"או" כדי לשנות את הלוגיקה.
-      </p>
-      
-      <ConditionGroup
-        group={conditionGroup}
-        onChange={handleGroupChange}
-        onRemove={() => {}}
-        canRemove={false}
-        isRoot={true}
-      />
-      
-      <div className="bg-orange-50 rounded-xl p-4 space-y-2">
-        <div className="flex items-center gap-2">
-          <span className="w-4 h-4 rounded-full bg-green-500"></span>
-          <span className="text-sm text-gray-700">אם כל התנאים מתקיימים → יציאה ירוקה</span>
+      {/* Empty State */}
+      {conditionGroup.conditions.length === 0 ? (
+        <div className="text-center py-8 px-4 bg-gradient-to-b from-orange-50/50 to-white rounded-2xl border-2 border-dashed border-orange-200">
+          <div className="w-14 h-14 bg-orange-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <span className="text-2xl">🔀</span>
+          </div>
+          <p className="text-gray-700 font-medium mb-1">אין תנאים עדיין</p>
+          <p className="text-sm text-gray-500 mb-4">הוסף תנאי להסתעפות הבוט</p>
+          <button
+            onClick={addFirstCondition}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-xl text-sm font-medium hover:bg-orange-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            הוסף תנאי
+          </button>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="w-4 h-4 rounded-full bg-red-500"></span>
-          <span className="text-sm text-gray-700">אם לא מתקיימים → יציאה אדומה</span>
+      ) : (
+        <>
+          <p className="text-sm text-gray-500">
+            הגדר תנאים מורכבים עם קבוצות. לחץ על "וגם"/"או" כדי לשנות את הלוגיקה.
+          </p>
+          
+          <ConditionGroup
+            group={conditionGroup}
+            onChange={handleGroupChange}
+            onRemove={() => {}}
+            canRemove={false}
+            isRoot={true}
+          />
+        </>
+      )}
+      
+      {conditionGroup.conditions.length > 0 && (
+        <div className="bg-orange-50 rounded-xl p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="w-4 h-4 rounded-full bg-green-500"></span>
+            <span className="text-sm text-gray-700">אם כל התנאים מתקיימים → יציאה ירוקה</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-4 h-4 rounded-full bg-red-500"></span>
+            <span className="text-sm text-gray-700">אם לא מתקיימים → יציאה אדומה</span>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
