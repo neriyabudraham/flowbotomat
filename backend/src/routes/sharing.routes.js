@@ -12,6 +12,9 @@ router.get('/shared-with-me', sharesController.getSharedWithMe);
 // Get shares for a specific bot
 router.get('/bot/:botId', sharesController.getBotShares);
 
+// Check if user can activate a shared bot
+router.get('/can-activate/:botId', sharesController.canActivateSharedBot);
+
 // Share a bot
 router.post('/bot/:botId', sharesController.shareBot);
 

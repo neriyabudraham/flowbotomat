@@ -1,5 +1,6 @@
 const pool = require('../../config/database');
 const { checkBotAccess } = require('./list.controller');
+const { checkLimit } = require('../subscriptions/subscriptions.controller');
 
 /**
  * Create new bot
@@ -11,6 +12,32 @@ async function createBot(req, res) {
     
     if (!name) {
       return res.status(400).json({ error: 'נדרש שם לבוט' });
+    }
+    
+    // Check if user has any disabled bots
+    const disabledBotsResult = await pool.query(
+      'SELECT COUNT(*) as count FROM bots WHERE user_id = $1 AND is_active = false',
+      [userId]
+    );
+    const hasDisabledBots = parseInt(disabledBotsResult.rows[0]?.count || 0) > 0;
+    
+    if (hasDisabledBots) {
+      return res.status(400).json({ 
+        error: 'לא ניתן ליצור בוט חדש כשיש לך בוט כבוי. הפעל או מחק את הבוט הכבוי לפני יצירת בוט חדש.',
+        code: 'HAS_DISABLED_BOT',
+        hasDisabledBots: true
+      });
+    }
+    
+    // Check bot limit (includes own bots + edit shares)
+    const botsLimit = await checkLimit(userId, 'bots');
+    if (!botsLimit.allowed) {
+      return res.status(400).json({ 
+        error: `הגעת למגבלת הבוטים (${botsLimit.limit}). שדרג את החבילה שלך או מחק בוט קיים.`,
+        code: 'BOTS_LIMIT_REACHED',
+        limit: botsLimit.limit,
+        used: botsLimit.used
+      });
     }
     
     const result = await pool.query(

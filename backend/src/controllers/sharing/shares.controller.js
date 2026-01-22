@@ -1,6 +1,7 @@
 const db = require('../../config/database');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
+const { checkLimit } = require('../subscriptions/subscriptions.controller');
 
 /**
  * Get all shares for a bot (as owner)
@@ -139,9 +140,57 @@ async function shareBot(req, res) {
     
     // Check if already shared
     const existingShare = await db.query(
-      'SELECT id FROM bot_shares WHERE bot_id = $1 AND shared_with_id = $2',
+      'SELECT id, permission FROM bot_shares WHERE bot_id = $1 AND shared_with_id = $2',
       [botId, targetUserId]
     );
+    
+    // For edit/admin permission, check target user's bot limits
+    let warning = null;
+    let canActivate = true;
+    
+    if (permission === 'edit' || permission === 'admin') {
+      // Check if this would be a new edit share (not an update from edit to edit)
+      const isNewEditShare = existingShare.rows.length === 0 || 
+                             existingShare.rows[0].permission === 'view';
+      
+      if (isNewEditShare) {
+        const targetUserBotsLimit = await checkLimit(targetUserId, 'bots');
+        
+        // Check if target user has disabled bots
+        const targetDisabledBots = await db.query(
+          'SELECT COUNT(*) as count FROM bots WHERE user_id = $1 AND is_active = false',
+          [targetUserId]
+        );
+        const hasDisabledBots = parseInt(targetDisabledBots.rows[0]?.count || 0) > 0;
+        
+        if (hasDisabledBots) {
+          warning = 'למשתמש זה יש בוט כבוי. הוא יצטרך להפעיל או למחוק אותו כדי לפתוח את הבוט המשותף.';
+          canActivate = false;
+        } else if (!targetUserBotsLimit.allowed) {
+          warning = `למשתמש זה יש כבר ${targetUserBotsLimit.used} בוטים (מקסימום ${targetUserBotsLimit.limit}). הוא יצטרך לכבות בוט קיים כדי לפתוח את הבוט המשותף.`;
+          canActivate = false;
+        }
+        
+        // Also check if target user already has any edit share (limit to 1 shared edit bot)
+        if (hasDisabledBots || !targetUserBotsLimit.allowed) {
+          const existingEditShares = await db.query(
+            `SELECT COUNT(*) as count FROM bot_shares 
+             WHERE shared_with_id = $1 
+             AND permission IN ('edit', 'admin')
+             AND bot_id != $2
+             AND (expires_at IS NULL OR expires_at > NOW())`,
+            [targetUserId, botId]
+          );
+          
+          if (parseInt(existingEditShares.rows[0]?.count || 0) > 0) {
+            return res.status(400).json({ 
+              error: 'למשתמש זה כבר יש בוט משותף לעריכה. ניתן לקבל רק בוט משותף אחד כאשר מגבלת הבוטים מלאה.',
+              code: 'ALREADY_HAS_SHARED_EDIT'
+            });
+          }
+        }
+      }
+    }
     
     if (existingShare.rows.length > 0) {
       // Update permission and allow_export
@@ -154,6 +203,8 @@ async function shareBot(req, res) {
         success: true,
         type: 'updated',
         message: 'הרשאות עודכנו',
+        warning,
+        canActivate
       });
     }
     
@@ -168,6 +219,8 @@ async function shareBot(req, res) {
       success: true,
       type: 'shared',
       message: `הבוט שותף עם ${email}`,
+      warning,
+      canActivate
     });
   } catch (error) {
     console.error('[Sharing] Share bot error:', error);
@@ -334,6 +387,79 @@ async function checkPermission(userId, botId, requiredPermission = 'view') {
   return permissionLevels[share.rows[0].permission] >= permissionLevels[requiredPermission];
 }
 
+/**
+ * Check if user can activate a shared bot
+ * Returns whether they need to disable an existing bot first
+ */
+async function canActivateSharedBot(req, res) {
+  try {
+    const userId = req.user.id;
+    const { botId } = req.params;
+    
+    // Check if this is a shared bot for this user
+    const shareResult = await db.query(
+      `SELECT permission FROM bot_shares 
+       WHERE bot_id = $1 AND shared_with_id = $2
+       AND (expires_at IS NULL OR expires_at > NOW())`,
+      [botId, userId]
+    );
+    
+    if (shareResult.rows.length === 0) {
+      return res.status(404).json({ error: 'שיתוף לא נמצא' });
+    }
+    
+    const permission = shareResult.rows[0].permission;
+    
+    // View-only shares don't have activation restrictions
+    if (permission === 'view') {
+      return res.json({ canActivate: true });
+    }
+    
+    // For edit/admin shares, check limits
+    const botsLimit = await checkLimit(userId, 'bots');
+    
+    // Check if user has disabled bots
+    const disabledBotsResult = await db.query(
+      'SELECT id, name FROM bots WHERE user_id = $1 AND is_active = false',
+      [userId]
+    );
+    
+    const disabledBots = disabledBotsResult.rows;
+    const hasDisabledBots = disabledBots.length > 0;
+    
+    if (hasDisabledBots) {
+      return res.json({
+        canActivate: false,
+        reason: 'disabled_bot',
+        message: 'יש לך בוט כבוי. הפעל או מחק אותו כדי לפתוח את הבוט המשותף.',
+        disabledBots
+      });
+    }
+    
+    if (!botsLimit.allowed) {
+      // Get active bots to show which one to disable
+      const activeBotsResult = await db.query(
+        'SELECT id, name FROM bots WHERE user_id = $1 AND is_active = true',
+        [userId]
+      );
+      
+      return res.json({
+        canActivate: false,
+        reason: 'limit_reached',
+        message: `הגעת למגבלת הבוטים (${botsLimit.limit}). כבה בוט קיים כדי לפתוח את הבוט המשותף.`,
+        activeBots: activeBotsResult.rows,
+        limit: botsLimit.limit,
+        used: botsLimit.used
+      });
+    }
+    
+    return res.json({ canActivate: true });
+  } catch (error) {
+    console.error('[Sharing] Can activate shared bot error:', error);
+    res.status(500).json({ error: 'שגיאה בבדיקת הרשאות' });
+  }
+}
+
 module.exports = {
   getBotShares,
   getSharedWithMe,
@@ -342,4 +468,5 @@ module.exports = {
   removeShare,
   acceptInvitation,
   checkPermission,
+  canActivateSharedBot,
 };

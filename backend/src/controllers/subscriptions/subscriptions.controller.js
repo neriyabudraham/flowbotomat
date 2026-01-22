@@ -94,8 +94,33 @@ async function getMyUsage(req, res) {
     };
     
     // Get actual counts
-    const botCountResult = await db.query(
+    // Own bots
+    const ownBotsResult = await db.query(
       'SELECT COUNT(*) as count FROM bots WHERE user_id = $1',
+      [userId]
+    );
+    
+    // Bots shared with edit permission (count towards limit)
+    const sharedEditBotsResult = await db.query(
+      `SELECT COUNT(*) as count FROM bot_shares 
+       WHERE shared_with_id = $1 
+       AND permission IN ('edit', 'admin')
+       AND (expires_at IS NULL OR expires_at > NOW())`,
+      [userId]
+    );
+    
+    // Bots shared with view permission (don't count towards limit)
+    const sharedViewBotsResult = await db.query(
+      `SELECT COUNT(*) as count FROM bot_shares 
+       WHERE shared_with_id = $1 
+       AND permission = 'view'
+       AND (expires_at IS NULL OR expires_at > NOW())`,
+      [userId]
+    );
+    
+    // Check if user has any disabled bots (affects creation ability)
+    const disabledBotsResult = await db.query(
+      'SELECT COUNT(*) as count FROM bots WHERE user_id = $1 AND is_active = false',
       [userId]
     );
     
@@ -104,11 +129,20 @@ async function getMyUsage(req, res) {
       [userId]
     );
     
+    const ownBots = parseInt(ownBotsResult.rows[0]?.count || 0);
+    const sharedEditBots = parseInt(sharedEditBotsResult.rows[0]?.count || 0);
+    const sharedViewBots = parseInt(sharedViewBotsResult.rows[0]?.count || 0);
+    const disabledBots = parseInt(disabledBotsResult.rows[0]?.count || 0);
+    
     res.json({
       usage: usageResult.rows[0],
       limits,
       counts: {
-        bots: parseInt(botCountResult.rows[0]?.count || 0),
+        bots: ownBots + sharedEditBots, // Total that counts towards limit
+        ownBots,
+        sharedEditBots,
+        sharedViewBots,
+        disabledBots,
         contacts: parseInt(contactCountResult.rows[0]?.count || 0)
       }
     });
@@ -290,16 +324,32 @@ async function checkLimit(userId, limitType) {
   if (limitType === 'bots') {
     if (limits.max_bots === -1) return { allowed: true, limit: -1, used: 0 };
     
-    const countResult = await db.query(
+    // Count user's own bots
+    const ownBotsResult = await db.query(
       'SELECT COUNT(*) as count FROM bots WHERE user_id = $1',
       [userId]
     );
     
-    const used = parseInt(countResult.rows[0]?.count || 0);
+    // Count bots shared with user for EDIT (not view-only)
+    // Edit/Admin shares count towards user's bot limit
+    const sharedEditBotsResult = await db.query(
+      `SELECT COUNT(*) as count FROM bot_shares 
+       WHERE shared_with_id = $1 
+       AND permission IN ('edit', 'admin')
+       AND (expires_at IS NULL OR expires_at > NOW())`,
+      [userId]
+    );
+    
+    const ownBots = parseInt(ownBotsResult.rows[0]?.count || 0);
+    const sharedEditBots = parseInt(sharedEditBotsResult.rows[0]?.count || 0);
+    const used = ownBots + sharedEditBots;
+    
     return {
       allowed: used < limits.max_bots,
       limit: limits.max_bots,
-      used
+      used,
+      ownBots,
+      sharedEditBots
     };
   }
   
