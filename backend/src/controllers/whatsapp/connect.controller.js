@@ -147,8 +147,9 @@ async function createManaged(req, res) {
         });
       }
       
+      // Generate unique session name - only alphanumeric and underscore allowed
       const uniqueId = require('crypto').randomBytes(4).toString('hex');
-      sessionName = `flow.botomat_${uniqueId}`;
+      sessionName = `session_${uniqueId}`;
       
       const sessionMetadata = {
         'user.email': userEmail,
