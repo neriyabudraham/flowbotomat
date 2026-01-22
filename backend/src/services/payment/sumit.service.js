@@ -326,6 +326,7 @@ async function chargeOneTime({ customerId, amount, description, sendEmail = true
  * @param {string} params.description - Subscription description
  * @param {number} params.durationMonths - Duration between charges (1 = monthly, 12 = yearly)
  * @param {number} params.recurrence - Number of times to charge (null = unlimited)
+ * @param {Date|string} params.startDate - First charge date (null = charge now, future date = schedule)
  * @returns {Promise<{success: boolean, standingOrderId?: number, transactionId?: string, error?: string}>}
  */
 async function chargeRecurring({ 
@@ -333,7 +334,8 @@ async function chargeRecurring({
   amount, 
   description, 
   durationMonths = 1,
-  recurrence = null // null = unlimited recurring
+  recurrence = null, // null = unlimited recurring
+  startDate = null   // null = charge now, future date = first charge on that date
 }) {
   const credentials = getCredentials();
   
@@ -350,6 +352,28 @@ async function chargeRecurring({
     
     const periodLabel = durationMonths === 12 ? 'שנתי' : durationMonths === 1 ? 'חודשי' : `${durationMonths} חודשים`;
     
+    // Format start date if provided
+    const formattedStartDate = startDate 
+      ? (startDate instanceof Date ? startDate.toISOString() : startDate)
+      : null;
+    
+    const itemData = {
+      Item: {
+        Name: description || `מנוי ${periodLabel}`,
+        Duration_Months: durationMonths,
+      },
+      Quantity: 1,
+      UnitPrice: amount,
+      Currency: 'ILS',
+      Duration_Months: durationMonths,
+      Recurrence: recurrence, // null = unlimited
+    };
+    
+    // If start date is in the future, add Date_Start to schedule first payment
+    if (formattedStartDate) {
+      itemData.Date_Start = formattedStartDate;
+    }
+    
     const requestBody = {
       Credentials: {
         CompanyID: credentials.CompanyID,
@@ -360,17 +384,7 @@ async function chargeRecurring({
         SearchMode: 0,
       },
       // Don't send PaymentMethod - Sumit uses the customer's default saved payment method
-      Items: [{
-        Item: {
-          Name: description || `מנוי ${periodLabel}`,
-          Duration_Months: durationMonths,
-        },
-        Quantity: 1,
-        UnitPrice: amount,
-        Currency: 'ILS',
-        Duration_Months: durationMonths,
-        Recurrence: recurrence, // null = unlimited
-      }],
+      Items: [itemData],
       VATIncluded: true,
       OnlyDocument: false,
       DocumentLanguage: 0, // 0 = Hebrew, 1 = English
@@ -378,7 +392,8 @@ async function chargeRecurring({
     };
     
     const periodText = durationMonths === 12 ? 'ILS/year' : durationMonths === 1 ? 'ILS/month' : `ILS/${durationMonths}mo`;
-    console.log(`[Sumit] Creating recurring charge - Customer: ${customerId}, Amount: ${amount} ${periodText}, Duration: ${durationMonths} months`);
+    const startDateText = formattedStartDate ? `, Start: ${formattedStartDate}` : '';
+    console.log(`[Sumit] Creating recurring charge - Customer: ${customerId}, Amount: ${amount} ${periodText}, Duration: ${durationMonths} months${startDateText}`);
     
     const response = await axios.post(
       `${SUMIT_BASE_URL}/billing/recurring/charge/`,

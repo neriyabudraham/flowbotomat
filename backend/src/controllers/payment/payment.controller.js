@@ -582,19 +582,30 @@ async function reactivateSubscription(req, res) {
     const subscription = subResult.rows[0];
     
     // Check if subscription hasn't expired yet
-    const endDate = subscription.expires_at || subscription.trial_ends_at;
-    if (endDate && new Date(endDate) < new Date()) {
+    const currentEndDate = subscription.expires_at || subscription.trial_ends_at;
+    const now = new Date();
+    const hasTimeRemaining = currentEndDate && new Date(currentEndDate) > now;
+    
+    if (!hasTimeRemaining) {
       return res.status(400).json({ 
         error: 'תקופת המנוי הסתיימה. יש להירשם מחדש.',
         needsNewSubscription: true
       });
     }
     
-    // Get payment method
-    const paymentResult = await db.query(
+    // Get payment method (try saved one first, then default)
+    let paymentResult = await db.query(
       'SELECT * FROM user_payment_methods WHERE id = $1 AND user_id = $2 AND is_active = true',
       [subscription.payment_method_id, userId]
     );
+    
+    // If not found, get any active payment method
+    if (paymentResult.rows.length === 0) {
+      paymentResult = await db.query(
+        'SELECT * FROM user_payment_methods WHERE user_id = $1 AND is_active = true AND is_default = true LIMIT 1',
+        [userId]
+      );
+    }
     
     if (paymentResult.rows.length === 0) {
       return res.status(400).json({ 
@@ -604,9 +615,6 @@ async function reactivateSubscription(req, res) {
     }
     
     const paymentMethod = paymentResult.rows[0];
-    
-    // Recreate the standing order in Sumit (was cancelled when subscription was cancelled)
-    let standingOrderId = null;
     const durationMonths = subscription.billing_period === 'yearly' ? 12 : 1;
     const periodLabel = subscription.billing_period === 'yearly' ? 'שנתי' : 'חודשי';
     
@@ -616,14 +624,19 @@ async function reactivateSubscription(req, res) {
       amount = amount * 12 * 0.8; // 20% discount for yearly
     }
     
-    console.log(`[Payment] Reactivating subscription for user ${userId}, period: ${subscription.billing_period}, amount: ${amount}`);
+    // User already paid until currentEndDate, so schedule first charge for that date
+    // This creates a standing order WITHOUT charging now
+    const firstChargeDate = new Date(currentEndDate);
+    
+    console.log(`[Payment] Reactivating subscription for user ${userId}, period: ${subscription.billing_period}, amount: ${amount}, first charge: ${firstChargeDate.toISOString()}`);
     
     const chargeResult = await sumitService.chargeRecurring({
       customerId: paymentMethod.sumit_customer_id,
       amount: amount,
-      description: `חידוש מנוי ${periodLabel} - ${subscription.name_he}`,
+      description: `מנוי ${periodLabel} - ${subscription.name_he}`,
       durationMonths: durationMonths,
       recurrence: null, // unlimited
+      startDate: firstChargeDate, // Schedule first charge for when current period ends
     });
     
     if (!chargeResult.success) {
@@ -632,41 +645,26 @@ async function reactivateSubscription(req, res) {
       });
     }
     
-    standingOrderId = chargeResult.standingOrderId;
-    console.log(`[Payment] Created new Sumit standing order: ${standingOrderId}`);
+    const standingOrderId = chargeResult.standingOrderId;
+    console.log(`[Payment] Created new Sumit standing order: ${standingOrderId}, first charge scheduled for: ${firstChargeDate.toISOString()}`);
     
-    // Calculate new expiry date
-    const newExpiresAt = new Date();
-    if (subscription.billing_period === 'yearly') {
-      newExpiresAt.setFullYear(newExpiresAt.getFullYear() + 1);
-    } else {
-      newExpiresAt.setMonth(newExpiresAt.getMonth() + 1);
-    }
-    
-    // Reactivate subscription with new standing order and dates
-    const expiresAtStr = newExpiresAt.toISOString();
+    // Reactivate subscription - keep existing dates (user already paid until then)
+    // Just update status and standing order ID
     const result = await db.query(`
       UPDATE user_subscriptions 
       SET status = 'active', 
           cancelled_at = NULL,
           sumit_standing_order_id = $2,
-          expires_at = $3::timestamptz,
-          next_charge_date = $4::timestamptz,
+          payment_method_id = $3,
           updated_at = NOW()
       WHERE user_id = $1 AND status = 'cancelled'
       RETURNING *
-    `, [userId, standingOrderId, expiresAtStr, expiresAtStr]);
-    
-    // Log the reactivation payment
-    await db.query(`
-      INSERT INTO payment_history (user_id, subscription_id, payment_method_id, amount, status, description)
-      VALUES ($1, $2, $3, $4, 'success', $5)
-    `, [userId, result.rows[0].id, paymentMethod.id, amount, `חידוש מנוי ${periodLabel} - ${subscription.name_he}`]);
+    `, [userId, standingOrderId, paymentMethod.id]);
     
     res.json({ 
       success: true, 
       subscription: result.rows[0],
-      message: 'המנוי חודש בהצלחה!'
+      message: 'המנוי חודש בהצלחה! החיוב הבא יהיה בתאריך סיום התקופה הנוכחית.'
     });
   } catch (error) {
     console.error('[Payment] Reactivate subscription error:', error);
