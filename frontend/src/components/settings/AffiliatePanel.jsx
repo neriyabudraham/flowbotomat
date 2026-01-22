@@ -88,7 +88,7 @@ export default function AffiliatePanel() {
           </Link>
         </div>
         <p className="text-green-100 text-sm">
-          שתף את הלינק שלך וקבל {Math.floor(settings?.commission_amount || 20)} נקודות למימוש על כל מנוי שמגיע דרכך!
+          שתף את הלינק שלך וקבל {Math.floor(settings?.commission_amount || 20)} נקודות למימוש על כל {settings?.conversion_type === 'email_verify' ? 'הרשמה' : 'מנוי'} שמגיע דרכך!
         </p>
       </div>
 
@@ -119,7 +119,7 @@ export default function AffiliatePanel() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-6">
+      <div className={`grid grid-cols-2 ${settings?.conversion_type === 'email_verify' ? 'md:grid-cols-3' : 'md:grid-cols-4'} gap-4 p-6`}>
         <StatCard 
           icon={MousePointer}
           label="קליקים"
@@ -132,12 +132,14 @@ export default function AffiliatePanel() {
           value={affiliate?.total_signups || 0}
           color="purple"
         />
-        <StatCard 
-          icon={TrendingUp}
-          label="המרות (שילמו)"
-          value={affiliate?.total_conversions || 0}
-          color="green"
-        />
+        {settings?.conversion_type !== 'email_verify' && (
+          <StatCard 
+            icon={TrendingUp}
+            label="המרות (שילמו)"
+            value={affiliate?.total_conversions || 0}
+            color="green"
+          />
+        )}
         <StatCard 
           icon={DollarSign}
           label="סה״כ הרווחת"
@@ -177,30 +179,6 @@ export default function AffiliatePanel() {
         </p>
       </div>
 
-      {/* Recent Referrals */}
-      {data.referrals?.length > 0 && (
-        <div className="p-6 border-t border-gray-100">
-          <h3 className="font-bold text-gray-800 mb-4">משתמשים שהצטרפו דרכך</h3>
-          <div className="space-y-3">
-            {data.referrals.slice(0, 5).map(ref => (
-              <div key={ref.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                    <Users className="w-4 h-4 text-green-600" />
-                  </div>
-                  <div>
-                    <div className="font-medium text-gray-800">{ref.name || 'משתמש חדש'}</div>
-                    <div className="text-xs text-gray-500">
-                      הצטרף ב-{new Date(ref.signup_date).toLocaleDateString('he-IL')}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* How it works */}
       <div className="p-6 bg-gray-50 border-t border-gray-100">
         <h3 className="font-bold text-gray-800 mb-3">איך זה עובד?</h3>
@@ -211,7 +189,12 @@ export default function AffiliatePanel() {
           </div>
           <div className="flex items-start gap-2">
             <span className="w-5 h-5 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">2</span>
-            <span>כשמישהו נרשם ומשלם על מנוי דרך הלינק - אתה מקבל {Math.floor(settings?.commission_amount || 20)} נקודות למימוש</span>
+            <span>
+              {settings?.conversion_type === 'email_verify' 
+                ? `כשמישהו נרשם ומאמת את המייל דרך הלינק - אתה מקבל ${Math.floor(settings?.commission_amount || 20)} נקודות למימוש`
+                : `כשמישהו נרשם ומשלם על מנוי דרך הלינק - אתה מקבל ${Math.floor(settings?.commission_amount || 20)} נקודות למימוש`
+              }
+            </span>
           </div>
           <div className="flex items-start gap-2">
             <span className="w-5 h-5 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">3</span>
