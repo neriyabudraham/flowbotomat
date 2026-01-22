@@ -173,7 +173,16 @@ export default function ContactsPage() {
             <div className="flex items-center gap-2 sm:gap-3">
               <NotificationsDropdown />
               <div className="hidden sm:block h-8 w-px bg-gray-200" />
-              <span className="text-gray-500 text-sm hidden md:block">{user?.name || user?.email}</span>
+              <div className="flex items-center gap-2">
+                {user?.avatar_url ? (
+                  <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-lg object-cover" />
+                ) : (
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm">
+                    {(user?.name || user?.email || 'U')[0].toUpperCase()}
+                  </div>
+                )}
+                <span className="text-gray-500 text-sm hidden md:block">{user?.name || user?.email}</span>
+              </div>
               <button 
                 onClick={handleLogout}
                 className="px-3 py-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg text-sm font-medium transition-colors"

@@ -361,6 +361,13 @@ export default function BotsPage() {
                 <Settings className="w-5 h-5 text-gray-600" />
               </button>
               <div className="h-8 w-px bg-gray-200" />
+              {user?.avatar_url ? (
+                <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-lg object-cover" />
+              ) : (
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm">
+                  {(user?.name || user?.email || 'U')[0].toUpperCase()}
+                </div>
+              )}
               <button 
                 onClick={() => { logout(); navigate('/login'); }}
                 className="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl text-sm font-medium transition-colors"

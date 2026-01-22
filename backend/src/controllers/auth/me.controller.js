@@ -9,7 +9,7 @@ const me = async (req, res) => {
 
     // Get user info
     const userResult = await db.query(
-      `SELECT id, email, name, role, language, theme, created_at
+      `SELECT id, email, name, role, language, theme, created_at, avatar_url, google_id
        FROM users WHERE id = $1`,
       [userId]
     );

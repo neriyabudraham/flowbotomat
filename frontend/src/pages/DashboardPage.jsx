@@ -271,9 +271,13 @@ export default function DashboardPage() {
                   <p className="text-sm font-medium text-gray-900">{user?.name || 'משתמש'}</p>
                   <p className="text-xs text-gray-500">{user?.email}</p>
                 </div>
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold">
-                  {(user?.name || user?.email || 'U')[0].toUpperCase()}
-                </div>
+                {user?.avatar_url ? (
+                  <img src={user.avatar_url} alt="" className="w-10 h-10 rounded-xl object-cover" />
+                ) : (
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold">
+                    {(user?.name || user?.email || 'U')[0].toUpperCase()}
+                  </div>
+                )}
               </div>
               
               <button 
