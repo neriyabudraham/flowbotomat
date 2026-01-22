@@ -286,7 +286,20 @@ export default function BotsPage() {
       setImportData(null);
       setImportName('');
     } catch (e) {
-      alert('שגיאה בייבוא');
+      const errorData = e.response?.data;
+      
+      // Close import modal first
+      setShowImport(false);
+      setImportData(null);
+      setImportName('');
+      
+      // Show upgrade modal for limit errors
+      if (errorData?.code === 'BOTS_LIMIT_REACHED') {
+        setUpgradeError(errorData);
+        setShowUpgradeModal(true);
+      } else {
+        alert(errorData?.error || 'שגיאה בייבוא');
+      }
     } finally {
       setImporting(false);
     }

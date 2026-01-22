@@ -156,37 +156,25 @@ async function shareBot(req, res) {
       if (isNewEditShare) {
         const targetUserBotsLimit = await checkLimit(targetUserId, 'bots');
         
-        // Check if target user has disabled bots
-        const targetDisabledBots = await db.query(
-          'SELECT COUNT(*) as count FROM bots WHERE user_id = $1 AND is_active = false',
-          [targetUserId]
-        );
-        const hasDisabledBots = parseInt(targetDisabledBots.rows[0]?.count || 0) > 0;
-        
-        if (hasDisabledBots) {
-          warning = 'למשתמש זה יש בוט כבוי. הוא יצטרך להפעיל או למחוק אותו כדי לפתוח את הבוט המשותף.';
-          canActivate = false;
-        } else if (!targetUserBotsLimit.allowed) {
-          warning = `למשתמש זה יש כבר ${targetUserBotsLimit.used} בוטים (מקסימום ${targetUserBotsLimit.limit}). הוא יצטרך לכבות בוט קיים כדי לפתוח את הבוט המשותף.`;
-          canActivate = false;
-        }
-        
-        // Also check if target user already has any edit share (limit to 1 shared edit bot)
-        if (hasDisabledBots || !targetUserBotsLimit.allowed) {
-          const existingEditShares = await db.query(
-            `SELECT COUNT(*) as count FROM bot_shares 
-             WHERE shared_with_id = $1 
-             AND permission IN ('edit', 'admin')
-             AND bot_id != $2
-             AND (expires_at IS NULL OR expires_at > NOW())`,
-            [targetUserId, botId]
+        if (!targetUserBotsLimit.allowed) {
+          // User is at quota - they need to disable one of their OWN bots to accept edit share
+          // Count only their own bots (not shared ones)
+          const targetOwnBots = await db.query(
+            'SELECT id, name, is_active FROM bots WHERE user_id = $1 ORDER BY is_active DESC, updated_at DESC',
+            [targetUserId]
           );
           
-          if (parseInt(existingEditShares.rows[0]?.count || 0) > 0) {
-            return res.status(400).json({ 
-              error: 'למשתמש זה כבר יש בוט משותף לעריכה. ניתן לקבל רק בוט משותף אחד כאשר מגבלת הבוטים מלאה.',
-              code: 'ALREADY_HAS_SHARED_EDIT'
-            });
+          const ownBotsCount = targetOwnBots.rows.length;
+          const hasDisabledOwnBot = targetOwnBots.rows.some(b => !b.is_active);
+          
+          if (hasDisabledOwnBot) {
+            // User already has a disabled bot - they can accept this share
+            warning = `המשתמש במכסה מלאה אך יש לו בוט מושהה. הוא יכול לערוך את הבוט המשותף.`;
+            canActivate = true;
+          } else if (ownBotsCount >= targetUserBotsLimit.limit) {
+            // User needs to disable one of their own bots first
+            warning = `למשתמש זה ${targetUserBotsLimit.used} בוטים (מקסימום ${targetUserBotsLimit.limit}). כדי לערוך את הבוט המשותף, הוא יצטרך להשהות אחד מהבוטים שלו.`;
+            canActivate = false;
           }
         }
       }

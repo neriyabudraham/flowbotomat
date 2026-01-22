@@ -4,6 +4,9 @@ const { checkLimit } = require('../subscriptions/subscriptions.controller');
 
 /**
  * Create new bot
+ * 
+ * Only checks quota - disabled bots don't block creation
+ * (disabled bot logic is only for receiving shared bots when at quota)
  */
 async function createBot(req, res) {
   try {
@@ -12,21 +15,6 @@ async function createBot(req, res) {
     
     if (!name) {
       return res.status(400).json({ error: 'נדרש שם לבוט' });
-    }
-    
-    // Check if user has any disabled bots
-    const disabledBotsResult = await pool.query(
-      'SELECT COUNT(*) as count FROM bots WHERE user_id = $1 AND is_active = false',
-      [userId]
-    );
-    const hasDisabledBots = parseInt(disabledBotsResult.rows[0]?.count || 0) > 0;
-    
-    if (hasDisabledBots) {
-      return res.status(400).json({ 
-        error: 'לא ניתן ליצור בוט חדש כשיש לך בוט כבוי. הפעל או מחק את הבוט הכבוי לפני יצירת בוט חדש.',
-        code: 'HAS_DISABLED_BOT',
-        hasDisabledBots: true
-      });
     }
     
     // Check bot limit (includes own bots + edit shares)

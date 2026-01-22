@@ -56,11 +56,26 @@ async function exportBot(req, res) {
 
 /**
  * Import bot flow from JSON
+ * Only checks quota - disabled bots don't block import
  */
 async function importBot(req, res) {
   try {
     const userId = req.user.id;
     const { data, name } = req.body;
+    
+    // Import checkLimit function
+    const { checkLimit, alertAdminIfOverLimit } = require('../subscriptions/subscriptions.controller');
+    
+    // Check bot limit FIRST
+    const botsLimit = await checkLimit(userId, 'bots');
+    if (!botsLimit.allowed) {
+      return res.status(400).json({ 
+        error: `הגעת למגבלת הבוטים (${botsLimit.limit}). שדרג את החבילה שלך כדי לייבא בוטים נוספים.`,
+        code: 'BOTS_LIMIT_REACHED',
+        limit: botsLimit.limit,
+        used: botsLimit.used
+      });
+    }
     
     if (!data || !data.bot) {
       return res.status(400).json({ error: 'קובץ לא תקין' });
@@ -84,6 +99,9 @@ async function importBot(req, res) {
     
     console.log(`[Import] Bot imported: ${result.rows[0].id} by user ${userId}`);
     
+    // Check if user now exceeds limit (alert admin if so)
+    await alertAdminIfOverLimit(userId, 'bots');
+    
     res.json({
       success: true,
       bot: result.rows[0],
@@ -98,6 +116,7 @@ async function importBot(req, res) {
 
 /**
  * Duplicate a bot
+ * Only checks quota - disabled bots don't block duplication
  */
 async function duplicateBot(req, res) {
   try {
@@ -116,21 +135,6 @@ async function duplicateBot(req, res) {
         code: 'BOTS_LIMIT_REACHED',
         limit: botsLimit.limit,
         used: botsLimit.used
-      });
-    }
-    
-    // Check if user has any disabled bots
-    const disabledBotsResult = await db.query(
-      'SELECT COUNT(*) as count FROM bots WHERE user_id = $1 AND is_active = false',
-      [userId]
-    );
-    const hasDisabledBots = parseInt(disabledBotsResult.rows[0]?.count || 0) > 0;
-    
-    if (hasDisabledBots) {
-      return res.status(400).json({ 
-        error: 'לא ניתן לשכפל כשיש לך בוט כבוי. הפעל או מחק את הבוט הכבוי לפני השכפול.',
-        code: 'HAS_DISABLED_BOT',
-        hasDisabledBots: true
       });
     }
     
