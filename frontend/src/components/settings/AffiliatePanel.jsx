@@ -132,7 +132,7 @@ export default function AffiliatePanel() {
           value={affiliate?.total_signups || 0}
           color="purple"
         />
-        {settings?.conversion_type !== 'email_verify' && (
+        {settings?.conversion_type !== 'email_verified' && (
           <StatCard 
             icon={TrendingUp}
             label="המרות (שילמו)"
