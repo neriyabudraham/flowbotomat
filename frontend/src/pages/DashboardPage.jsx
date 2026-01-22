@@ -13,6 +13,7 @@ import useWhatsappStore from '../store/whatsappStore';
 import useStatsStore from '../store/statsStore';
 import Logo from '../components/atoms/Logo';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
+import AffiliatePanel from '../components/settings/AffiliatePanel';
 import api from '../services/api';
 
 // Tips content data
@@ -683,6 +684,11 @@ export default function DashboardPage() {
             onClose={() => setSelectedTip(null)} 
           />
         )}
+
+        {/* Affiliate Panel */}
+        <div className="mb-8">
+          <AffiliatePanel />
+        </div>
 
         {/* Subscription Expiring/Cancelled Warning Banner */}
         <SubscriptionWarningBanner subscription={user?.subscription} />

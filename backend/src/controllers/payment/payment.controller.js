@@ -348,6 +348,7 @@ async function subscribe(req, res) {
     
     // Check for promotion/coupon
     let promotion = null;
+    let coupon = null;
     let isNewUser = false;
     
     // Check if user is new (never paid before)
@@ -357,68 +358,114 @@ async function subscribe(req, res) {
     );
     isNewUser = !userCheck.rows[0]?.has_ever_paid;
     
-    if (couponCode || promotionId) {
-      const promoQuery = couponCode 
-        ? `SELECT * FROM promotions WHERE UPPER(coupon_code) = UPPER($1) AND is_active = true`
-        : `SELECT * FROM promotions WHERE id = $1 AND is_active = true`;
+    // Check for coupon code (from coupons table)
+    if (couponCode) {
+      const couponResult = await db.query(`
+        SELECT * FROM coupons 
+        WHERE UPPER(code) = UPPER($1) 
+        AND is_active = true
+        AND (start_date IS NULL OR start_date <= NOW())
+        AND (end_date IS NULL OR end_date > NOW())
+        AND (max_uses IS NULL OR current_uses < max_uses)
+      `, [couponCode]);
       
-      const promoResult = await db.query(promoQuery, [couponCode || promotionId]);
+      if (couponResult.rows.length > 0) {
+        const c = couponResult.rows[0];
+        
+        // Validate coupon
+        const validPlan = !c.plan_id || c.plan_id === planId;
+        const validUser = !c.is_new_users_only || isNewUser;
+        
+        if (!validPlan) {
+          return res.status(400).json({ error: 'הקופון לא תקף לתכנית זו', code: 'COUPON_WRONG_PLAN' });
+        }
+        if (!validUser) {
+          return res.status(400).json({ error: 'הקופון מיועד למשתמשים חדשים בלבד', code: 'COUPON_NEW_USERS_ONLY' });
+        }
+        
+        // Check usage per user
+        const userUsage = await db.query(
+          'SELECT COUNT(*) as count FROM coupon_usage WHERE coupon_id = $1 AND user_id = $2',
+          [c.id, userId]
+        );
+        if (parseInt(userUsage.rows[0].count) >= c.max_uses_per_user) {
+          return res.status(400).json({ error: 'כבר השתמשת בקופון זה', code: 'COUPON_ALREADY_USED' });
+        }
+        
+        coupon = c;
+        console.log(`[Payment] Valid coupon found: ${c.code} - ${c.discount_type} ${c.discount_value}`);
+      } else {
+        return res.status(400).json({ error: 'קוד קופון לא תקף', code: 'INVALID_COUPON' });
+      }
+    }
+    
+    // Check for promotion (auto-applied promotions from promotions table)
+    if (promotionId) {
+      const promoResult = await db.query(
+        'SELECT * FROM promotions WHERE id = $1 AND is_active = true',
+        [promotionId]
+      );
       
       if (promoResult.rows.length > 0) {
         const promo = promoResult.rows[0];
-        
-        // Validate promotion
         const now = new Date();
         const validTime = (!promo.start_date || new Date(promo.start_date) <= now) &&
                          (!promo.end_date || new Date(promo.end_date) > now);
-        const validUses = !promo.max_uses || promo.current_uses < promo.max_uses;
         const validPlan = !promo.plan_id || promo.plan_id === planId;
         const validUser = !promo.is_new_users_only || isNewUser;
         
-        if (!validTime) {
-          return res.status(400).json({ error: 'המבצע פג תוקפו', code: 'PROMO_EXPIRED' });
+        if (validTime && validPlan && validUser) {
+          promotion = promo;
         }
-        if (!validUses) {
-          return res.status(400).json({ error: 'המבצע הגיע למקסימום השימושים', code: 'PROMO_MAX_USES' });
-        }
-        if (!validPlan) {
-          return res.status(400).json({ error: 'המבצע לא תקף לתכנית זו', code: 'PROMO_WRONG_PLAN' });
-        }
-        if (!validUser) {
-          return res.status(400).json({ error: 'המבצע מיועד למשתמשים חדשים בלבד', code: 'PROMO_NEW_USERS_ONLY' });
-        }
-        
-        // Check if user already used this promotion
-        const alreadyUsed = await db.query(
-          'SELECT id FROM user_promotions WHERE user_id = $1 AND promotion_id = $2',
-          [userId, promo.id]
-        );
-        if (alreadyUsed.rows.length > 0) {
-          return res.status(400).json({ error: 'כבר השתמשת במבצע זה', code: 'PROMO_ALREADY_USED' });
-        }
-        
-        promotion = promo;
-      } else if (couponCode) {
-        return res.status(400).json({ error: 'קוד קופון לא תקף', code: 'INVALID_COUPON' });
       }
     }
     
     const now = new Date();
     const hasTrial = plan.trial_days > 0;
+    const originalPrice = parseFloat(plan.price);
     
-    // Calculate price (with promotion if applicable)
-    let chargeAmount = parseFloat(plan.price);
+    // Calculate price (with coupon or promotion)
+    let chargeAmount = originalPrice;
     let regularPriceAfterPromo = null;
     let promoMonthsRemaining = 0;
+    let discountAmount = 0;
     
-    if (promotion) {
-      chargeAmount = parseFloat(promotion.promo_price);
-      regularPriceAfterPromo = promotion.regular_price 
-        ? parseFloat(promotion.regular_price) 
-        : parseFloat(plan.price);
-      promoMonthsRemaining = promotion.promo_months;
+    // Apply coupon discount
+    if (coupon) {
+      if (coupon.discount_type === 'percentage') {
+        discountAmount = (originalPrice * parseFloat(coupon.discount_value)) / 100;
+      } else {
+        discountAmount = parseFloat(coupon.discount_value);
+      }
+      chargeAmount = Math.max(0, originalPrice - discountAmount);
       
-      console.log(`[Payment] Applying promotion ${promotion.id}: ${chargeAmount} ILS for ${promotion.promo_months} months, then ${regularPriceAfterPromo} ILS`);
+      // Set duration
+      if (coupon.duration_type === 'forever') {
+        regularPriceAfterPromo = null; // Forever discount
+        promoMonthsRemaining = -1; // -1 means forever
+      } else if (coupon.duration_type === 'months' && coupon.duration_months) {
+        regularPriceAfterPromo = originalPrice;
+        promoMonthsRemaining = coupon.duration_months;
+      } else {
+        // 'once' - only first payment
+        regularPriceAfterPromo = originalPrice;
+        promoMonthsRemaining = 1;
+      }
+      
+      console.log(`[Payment] Applying coupon ${coupon.code}: ${chargeAmount} ILS (${coupon.duration_type})`);
+    }
+    // Apply promotion discount (only if no coupon)
+    else if (promotion) {
+      if (promotion.discount_type === 'percentage') {
+        discountAmount = (originalPrice * parseFloat(promotion.discount_value)) / 100;
+      } else {
+        discountAmount = parseFloat(promotion.discount_value);
+      }
+      chargeAmount = Math.max(0, originalPrice - discountAmount);
+      regularPriceAfterPromo = originalPrice;
+      promoMonthsRemaining = promotion.promo_months || 1;
+      
+      console.log(`[Payment] Applying promotion ${promotion.id}: ${chargeAmount} ILS for ${promoMonthsRemaining} months`);
     }
     
     let nextChargeDate = new Date(now);
@@ -497,9 +544,16 @@ async function subscribe(req, res) {
         promotion?.id || null, promoMonthsRemaining, promotion ? chargeAmount : null, regularPriceAfterPromo
       ]);
       
-      // Record promotion use if applicable
+      // Record promotion or coupon use if applicable
       if (promotion) {
-        await recordPromotionUse(userId, promotion.id, subResult.rows[0].id, chargeAmount, regularPriceAfterPromo, promotion.promo_months);
+        await recordPromotionUse(userId, promotion.id, subResult.rows[0].id, chargeAmount, regularPriceAfterPromo, promoMonthsRemaining);
+      }
+      if (coupon) {
+        await db.query(`
+          INSERT INTO coupon_usage (coupon_id, user_id, subscription_id, discount_applied)
+          VALUES ($1, $2, $3, $4)
+        `, [coupon.id, userId, subResult.rows[0].id, discountAmount]);
+        await db.query('UPDATE coupons SET current_uses = current_uses + 1 WHERE id = $1', [coupon.id]);
       }
       
       return res.json({ 
@@ -510,8 +564,13 @@ async function subscribe(req, res) {
         trialEndsAt: trialEnds,
         promotion: promotion ? {
           promoPrice: chargeAmount,
-          promoMonths: promotion.promo_months,
+          promoMonths: promoMonthsRemaining,
           regularPrice: regularPriceAfterPromo
+        } : null,
+        coupon: coupon ? {
+          code: coupon.code,
+          discount: discountAmount,
+          duration: coupon.duration_type
         } : null
       });
     }
@@ -591,14 +650,28 @@ async function subscribe(req, res) {
       [userId]
     );
     
-    // Record promotion use if applicable
+    // Record promotion or coupon use
     if (promotion) {
-      await recordPromotionUse(userId, promotion.id, subResult.rows[0].id, chargeAmount, regularPriceAfterPromo, promotion.promo_months);
+      await recordPromotionUse(userId, promotion.id, subResult.rows[0].id, chargeAmount, regularPriceAfterPromo, promoMonthsRemaining);
       
       // Increment promotion usage counter
       await db.query(
         'UPDATE promotions SET current_uses = current_uses + 1 WHERE id = $1',
         [promotion.id]
+      );
+    }
+    
+    if (coupon) {
+      // Record coupon usage
+      await db.query(`
+        INSERT INTO coupon_usage (coupon_id, user_id, subscription_id, discount_applied)
+        VALUES ($1, $2, $3, $4)
+      `, [coupon.id, userId, subResult.rows[0].id, discountAmount]);
+      
+      // Increment coupon usage counter
+      await db.query(
+        'UPDATE coupons SET current_uses = current_uses + 1 WHERE id = $1',
+        [coupon.id]
       );
     }
     

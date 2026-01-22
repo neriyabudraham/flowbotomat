@@ -35,6 +35,7 @@ export default function PricingPage() {
   const navigate = useNavigate();
   const { user, fetchMe } = useAuthStore();
   const [plans, setPlans] = useState([]);
+  const [promotions, setPromotions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [billingPeriod, setBillingPeriod] = useState('monthly');
   const [selectedPlan, setSelectedPlan] = useState(null);
@@ -75,13 +76,22 @@ export default function PricingPage() {
 
   const loadPlans = async () => {
     try {
-      const { data } = await api.get('/subscriptions/plans');
-      setPlans(data.plans || []);
+      const [plansRes, promosRes] = await Promise.all([
+        api.get('/subscriptions/plans'),
+        api.get('/payment/promotions/active').catch(() => ({ data: { promotions: [] } }))
+      ]);
+      setPlans(plansRes.data.plans || []);
+      setPromotions(promosRes.data.promotions || []);
     } catch (err) {
       console.error('Failed to load plans:', err);
     } finally {
       setLoading(false);
     }
+  };
+  
+  // Get active promotion for a plan
+  const getPromoForPlan = (planId) => {
+    return promotions.find(p => p.plan_id === planId || !p.plan_id);
   };
 
   const handleSelectPlan = async (plan) => {
@@ -288,10 +298,25 @@ export default function PricingPage() {
                 const isDowngrade = parseFloat(plan.price) < parseFloat(currentPlanPrice);
                 const isFree = parseFloat(plan.price) === 0;
                 
+                // Check for active promotion on this plan
+                const promo = getPromoForPlan(plan.id);
+                const hasPromo = promo && !isFree;
+                
                 const yearlyMonthly = Math.floor(plan.price * 0.8);
                 const yearlyTotal = Math.floor(plan.price * 12 * 0.8);
                 const monthlyPrice = Math.floor(parseFloat(plan.price));
-                const displayPrice = billingPeriod === 'yearly' ? yearlyMonthly : monthlyPrice;
+                
+                // Calculate promo price
+                let promoPrice = monthlyPrice;
+                if (hasPromo) {
+                  if (promo.discount_type === 'percentage') {
+                    promoPrice = Math.floor(monthlyPrice * (1 - promo.discount_value / 100));
+                  } else {
+                    promoPrice = Math.max(0, monthlyPrice - promo.discount_value);
+                  }
+                }
+                
+                const displayPrice = billingPeriod === 'yearly' ? yearlyMonthly : (hasPromo ? promoPrice : monthlyPrice);
 
                 return (
                   <div
@@ -300,9 +325,14 @@ export default function PricingPage() {
                       isPopular ? 'ring-2 ring-purple-500 shadow-xl scale-[1.02]' : 'shadow-lg'
                     }`}
                   >
-                    {isPopular && (
+                    {isPopular && !hasPromo && (
                       <div className="absolute top-0 left-0 right-0 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm py-2 text-center font-medium">
                         ⭐ הכי פופולרי
+                      </div>
+                    )}
+                    {hasPromo && (
+                      <div className="absolute top-0 left-0 right-0 bg-gradient-to-r from-red-500 to-orange-500 text-white text-sm py-2 text-center font-bold animate-pulse">
+                        🔥 {promo.badge_text || 'מבצע מיוחד!'}
                       </div>
                     )}
                     
@@ -321,11 +351,24 @@ export default function PricingPage() {
                       {/* Price */}
                       <div className="mb-6">
                         <div className="flex items-baseline gap-1">
-                          <span className="text-5xl font-bold text-gray-900">
+                          <span className={`text-5xl font-bold ${hasPromo ? 'text-red-600' : 'text-gray-900'}`}>
                             ₪{displayPrice}
                           </span>
                           <span className="text-gray-500 text-lg">/חודש</span>
                         </div>
+                        {hasPromo && billingPeriod === 'monthly' && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <span className="text-gray-400 line-through text-lg">₪{monthlyPrice}</span>
+                            <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-bold rounded-full">
+                              {promo.discount_type === 'percentage' ? `${promo.discount_value}% הנחה` : `חיסכון ₪${promo.discount_value}`}
+                            </span>
+                          </div>
+                        )}
+                        {hasPromo && promo.promo_months && (
+                          <div className="mt-1 text-sm text-orange-600 font-medium">
+                            ל-{promo.promo_months} חודשים ראשונים
+                          </div>
+                        )}
                         {billingPeriod === 'yearly' && !isFree && (
                           <div className="mt-2 flex items-center gap-2">
                             <span className="text-gray-400 line-through text-sm">₪{monthlyPrice * 12}/שנה</span>
@@ -927,6 +970,12 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
     cvv: '',
     citizenId: '',
   });
+  
+  // Coupon state
+  const [couponCode, setCouponCode] = useState('');
+  const [couponData, setCouponData] = useState(null);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState(null);
 
   useEffect(() => {
     loadPaymentMethod();
@@ -948,13 +997,58 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
     }
   };
 
+  const validateCoupon = async () => {
+    if (!couponCode.trim()) return;
+    
+    setCouponLoading(true);
+    setCouponError(null);
+    
+    try {
+      const { data } = await api.post('/payment/coupon/validate', {
+        code: couponCode,
+        planId: plan.id
+      });
+      
+      if (data.valid) {
+        setCouponData(data);
+      } else {
+        setCouponError(data.error || 'קופון לא תקף');
+        setCouponData(null);
+      }
+    } catch (err) {
+      setCouponError(err.response?.data?.error || 'שגיאה באימות הקופון');
+      setCouponData(null);
+    } finally {
+      setCouponLoading(false);
+    }
+  };
+
+  const removeCoupon = () => {
+    setCouponCode('');
+    setCouponData(null);
+    setCouponError(null);
+  };
+
   const calculatePrice = () => {
+    const basePrice = Math.floor(plan.price);
+    
     if (billingPeriod === 'yearly') {
       const yearlyTotal = Math.floor(plan.price * 12 * 0.8);
       const yearlyMonthly = Math.floor(plan.price * 0.8);
-      return { monthly: yearlyMonthly, total: yearlyTotal };
+      return { monthly: yearlyMonthly, total: yearlyTotal, originalTotal: yearlyTotal };
     }
-    return { monthly: Math.floor(plan.price), total: Math.floor(plan.price) };
+    
+    // Apply coupon if valid
+    if (couponData?.calculation) {
+      return { 
+        monthly: couponData.calculation.final_price, 
+        total: couponData.calculation.final_price,
+        originalTotal: basePrice,
+        discount: couponData.calculation.discount_amount
+      };
+    }
+    
+    return { monthly: basePrice, total: basePrice, originalTotal: basePrice };
   };
 
   const formatCardNumber = (value) => {
@@ -1007,6 +1101,7 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
         planId: plan.id,
         billingPeriod,
         paymentMethodId: paymentMethod?.id,
+        couponCode: couponData ? couponCode : undefined,
       });
       
       onSuccess();
@@ -1186,6 +1281,77 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
                   </button>
                 </div>
               </div>
+
+              {/* Coupon Code Section */}
+              <div className="border border-dashed border-gray-300 rounded-2xl p-4">
+                <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+                  <Gift className="w-4 h-4 text-purple-500" />
+                  יש לך קוד קופון?
+                </h4>
+                
+                {couponData ? (
+                  <div className="bg-green-50 rounded-xl p-3 flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="w-5 h-5 text-green-600" />
+                        <span className="font-bold text-green-700">{couponCode}</span>
+                      </div>
+                      <p className="text-sm text-green-600 mt-1">{couponData.message}</p>
+                    </div>
+                    <button 
+                      onClick={removeCoupon}
+                      className="p-1.5 hover:bg-green-100 rounded-lg transition-colors"
+                    >
+                      <X className="w-4 h-4 text-green-600" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={couponCode}
+                      onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                      placeholder="הזן קוד קופון"
+                      className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all uppercase font-mono"
+                      dir="ltr"
+                    />
+                    <button
+                      onClick={validateCoupon}
+                      disabled={couponLoading || !couponCode.trim()}
+                      className="px-4 py-2.5 bg-purple-100 text-purple-700 rounded-xl font-medium hover:bg-purple-200 disabled:opacity-50 transition-all"
+                    >
+                      {couponLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'החל'}
+                    </button>
+                  </div>
+                )}
+                
+                {couponError && (
+                  <p className="text-sm text-red-600 mt-2 flex items-center gap-1">
+                    <AlertCircle className="w-4 h-4" />
+                    {couponError}
+                  </p>
+                )}
+              </div>
+
+              {/* Price Summary with Coupon */}
+              {couponData && (
+                <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-4 border border-green-200">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-gray-600">מחיר מקורי</span>
+                    <span className="text-gray-400 line-through">₪{prices.originalTotal}</span>
+                  </div>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-green-700 font-medium">הנחה</span>
+                    <span className="text-green-600 font-bold">-₪{prices.discount}</span>
+                  </div>
+                  <div className="border-t border-green-200 pt-2 mt-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-900 font-bold">סה״כ לתשלום</span>
+                      <span className="text-2xl font-bold text-green-600">₪{prices.total}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <button
                 onClick={handleSubscribe}
