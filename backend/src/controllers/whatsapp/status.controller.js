@@ -13,7 +13,8 @@ async function getStatus(req, res) {
     const result = await pool.query(
       `SELECT id, connection_type, session_name, phone_number, 
               display_name, profile_picture_url, status, 
-              connected_at, last_seen_at, created_at
+              connected_at, last_seen_at, created_at,
+              external_base_url, external_api_key
        FROM whatsapp_connections WHERE user_id = $1`,
       [userId]
     );
@@ -41,9 +42,12 @@ async function getStatus(req, res) {
       console.error('WAHA status check failed:', err.message);
     }
     
+    // Don't expose encrypted credentials to client
+    const { external_base_url, external_api_key, ...safeConnection } = connection;
+    
     res.json({ 
-      connected: connection.status === 'connected',
-      connection,
+      connected: safeConnection.status === 'connected',
+      connection: safeConnection,
     });
   } catch (error) {
     console.error('Get status error:', error);
