@@ -4,23 +4,15 @@ import TextInputWithVariables from './TextInputWithVariables';
 import api from '../../../../services/api';
 
 const actionTypes = [
-  // Basic Actions
-  { id: 'add_tag', label: 'הוסף תגית', icon: '🏷️', hasValue: 'tag', category: 'basic' },
-  { id: 'remove_tag', label: 'הסר תגית', icon: '🏷️', hasValue: 'tag', category: 'basic' },
-  { id: 'set_variable', label: 'הגדר משתנה', icon: '📝', hasValue: 'keyvalue', category: 'basic' },
-  { id: 'delete_variable', label: 'מחק משתנה', icon: '🗑️', hasValue: 'varname', category: 'basic' },
-  { id: 'stop_bot', label: 'עצור בוט', icon: '🛑', category: 'basic' },
-  { id: 'delete_contact', label: 'מחק איש קשר', icon: '🗑️', category: 'basic' },
+  // Tags & Variables
+  { id: 'add_tag', label: 'הוסף תגית', icon: '🏷️', hasValue: 'tag', category: 'tags' },
+  { id: 'remove_tag', label: 'הסר תגית', icon: '🏷️', hasValue: 'tag', category: 'tags' },
+  { id: 'set_variable', label: 'הגדר משתנה', icon: '📝', hasValue: 'keyvalue', category: 'variables' },
+  { id: 'delete_variable', label: 'מחק משתנה', icon: '🗑️', hasValue: 'varname', category: 'variables' },
   
-  // Timing Actions
-  { id: 'delay', label: 'השהייה', icon: '⏱️', hasValue: 'delay', category: 'timing' },
-  { id: 'typing', label: 'מקליד/ה', icon: '⌨️', hasValue: 'typing', category: 'timing' },
-  
-  // WhatsApp Actions
-  { id: 'send_location', label: 'שלח מיקום', icon: '📍', hasValue: 'location', category: 'whatsapp' },
-  { id: 'send_link_preview', label: 'שלח קישור עם תצוגה', icon: '🔗', hasValue: 'linkpreview', category: 'whatsapp' },
-  { id: 'mark_seen', label: 'סמן כנקרא', icon: '✅', category: 'whatsapp' },
-  { id: 'send_reaction', label: 'שלח ריאקציה', icon: '👍', hasValue: 'reaction', category: 'whatsapp' },
+  // Bot Control
+  { id: 'stop_bot', label: 'עצור בוט', icon: '🛑', category: 'control' },
+  { id: 'delete_contact', label: 'מחק איש קשר', icon: '🗑️', category: 'control' },
   
   // Group Actions
   { id: 'add_to_group', label: 'הוסף לקבוצה', icon: '➕', hasValue: 'group', category: 'group' },
@@ -39,28 +31,20 @@ const actionTypes = [
   { id: 'notify', label: 'התראה', icon: '🔔', hasValue: 'text', category: 'integration' },
 ];
 
-// All available emojis for reactions
-const ALL_EMOJIS = [
-  '👍', '👎', '❤️', '🔥', '🥰', '👏', '😁', '🤔', '🤯', '😢', 
-  '🎉', '🤩', '🤮', '💩', '🙏', '👌', '🕊️', '🤡', '🥱', '🥴',
-  '😍', '🤣', '😊', '😭', '😘', '🥺', '😩', '💀', '🤷', '🙄',
-  '😤', '😡', '🤦', '🙌', '✨', '💯', '🎯', '💪', '👀', '🤝'
-];
-
 const categories = [
-  { id: 'basic', label: 'בסיסי', icon: '⚡', color: 'pink', defaultOpen: true },
-  { id: 'timing', label: 'תזמון', icon: '⏱️', color: 'amber', defaultOpen: false },
-  { id: 'whatsapp', label: 'WhatsApp', icon: '📱', color: 'green', defaultOpen: false },
-  { id: 'group', label: 'קבוצות', icon: '👥', color: 'blue', defaultOpen: false },
+  { id: 'tags', label: 'תגיות', icon: '🏷️', color: 'pink', defaultOpen: true },
+  { id: 'variables', label: 'משתנים', icon: '📝', color: 'blue', defaultOpen: true },
+  { id: 'control', label: 'שליטה', icon: '⚙️', color: 'red', defaultOpen: false },
+  { id: 'group', label: 'קבוצות', icon: '👥', color: 'green', defaultOpen: false },
   { id: 'business', label: 'WhatsApp Business', icon: '🏢', color: 'purple', defaultOpen: false },
   { id: 'integration', label: 'אינטגרציות', icon: '🔌', color: 'orange', defaultOpen: false },
 ];
 
 const categoryColors = {
-  basic: { bg: 'bg-pink-50', hover: 'hover:bg-pink-100', text: 'text-pink-700', border: 'border-pink-200' },
-  timing: { bg: 'bg-amber-50', hover: 'hover:bg-amber-100', text: 'text-amber-700', border: 'border-amber-200' },
-  whatsapp: { bg: 'bg-green-50', hover: 'hover:bg-green-100', text: 'text-green-700', border: 'border-green-200' },
-  group: { bg: 'bg-blue-50', hover: 'hover:bg-blue-100', text: 'text-blue-700', border: 'border-blue-200' },
+  tags: { bg: 'bg-pink-50', hover: 'hover:bg-pink-100', text: 'text-pink-700', border: 'border-pink-200' },
+  variables: { bg: 'bg-blue-50', hover: 'hover:bg-blue-100', text: 'text-blue-700', border: 'border-blue-200' },
+  control: { bg: 'bg-red-50', hover: 'hover:bg-red-100', text: 'text-red-700', border: 'border-red-200' },
+  group: { bg: 'bg-green-50', hover: 'hover:bg-green-100', text: 'text-green-700', border: 'border-green-200' },
   business: { bg: 'bg-purple-50', hover: 'hover:bg-purple-100', text: 'text-purple-700', border: 'border-purple-200' },
   integration: { bg: 'bg-orange-50', hover: 'hover:bg-orange-100', text: 'text-orange-700', border: 'border-orange-200' },
 };
@@ -276,157 +260,6 @@ function ActionItem({ action, onUpdate, onRemove }) {
           onChange={(v) => onUpdate({ text: v })}
           placeholder="תוכן ההתראה..."
         />
-      )}
-
-
-      {/* Location */}
-      {actionInfo.hasValue === 'location' && (
-        <div className="space-y-2">
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              type="number"
-              step="any"
-              value={action.latitude || ''}
-              onChange={(e) => onUpdate({ latitude: parseFloat(e.target.value) })}
-              placeholder="קו רוחב (Lat)"
-              className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-              dir="ltr"
-            />
-            <input
-              type="number"
-              step="any"
-              value={action.longitude || ''}
-              onChange={(e) => onUpdate({ longitude: parseFloat(e.target.value) })}
-              placeholder="קו אורך (Lng)"
-              className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-              dir="ltr"
-            />
-          </div>
-          <TextInputWithVariables
-            value={action.locationTitle || ''}
-            onChange={(v) => onUpdate({ locationTitle: v })}
-            placeholder="שם המיקום (אופציונלי)..."
-          />
-        </div>
-      )}
-
-
-      {/* Link Preview */}
-      {actionInfo.hasValue === 'linkpreview' && (
-        <div className="space-y-2">
-          <TextInputWithVariables
-            value={action.linkText || ''}
-            onChange={(v) => onUpdate({ linkText: v })}
-            placeholder="טקסט ההודעה עם הקישור..."
-            multiline
-            rows={2}
-          />
-          <input
-            type="url"
-            value={action.linkUrl || ''}
-            onChange={(e) => onUpdate({ linkUrl: e.target.value })}
-            placeholder="URL לתצוגה מקדימה..."
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-            dir="ltr"
-          />
-          <input
-            type="text"
-            value={action.linkTitle || ''}
-            onChange={(e) => onUpdate({ linkTitle: e.target.value })}
-            placeholder="כותרת התצוגה המקדימה..."
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-          />
-          <input
-            type="text"
-            value={action.linkDescription || ''}
-            onChange={(e) => onUpdate({ linkDescription: e.target.value })}
-            placeholder="תיאור התצוגה המקדימה..."
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-          />
-          <input
-            type="url"
-            value={action.linkImage || ''}
-            onChange={(e) => onUpdate({ linkImage: e.target.value })}
-            placeholder="URL לתמונת התצוגה המקדימה..."
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-            dir="ltr"
-          />
-        </div>
-      )}
-
-      {/* Reaction - All emojis */}
-      {actionInfo.hasValue === 'reaction' && (
-        <div className="space-y-2">
-          <p className="text-xs text-gray-500">בחר אימוג'י לריאקציה:</p>
-          <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto p-2 bg-white rounded-lg border border-gray-200">
-            {ALL_EMOJIS.map(emoji => (
-              <button
-                key={emoji}
-                type="button"
-                onClick={() => onUpdate({ reaction: emoji })}
-                className={`w-9 h-9 text-lg rounded-lg border-2 transition-all hover:scale-110 ${
-                  action.reaction === emoji 
-                    ? 'border-blue-500 bg-blue-50 scale-110' 
-                    : 'border-transparent hover:border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-          {action.reaction && (
-            <div className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg">
-              <span className="text-2xl">{action.reaction}</span>
-              <span className="text-sm text-blue-700">אימוג'י נבחר</span>
-            </div>
-          )}
-          <p className="text-xs text-gray-400">הריאקציה תישלח להודעה האחרונה שהתקבלה</p>
-        </div>
-      )}
-      
-      {/* Typing with duration */}
-      {actionInfo.hasValue === 'typing' && (
-        <div className="space-y-2">
-          <p className="text-xs text-gray-500">הבוט יציג "מקליד/ה..." למשך:</p>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min="1"
-              max="30"
-              value={action.typingDuration || 3}
-              onChange={(e) => onUpdate({ typingDuration: Math.min(30, Math.max(1, parseInt(e.target.value) || 3)) })}
-              className="w-20 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-center"
-            />
-            <span className="text-sm text-gray-500">שניות</span>
-          </div>
-          <p className="text-xs text-gray-400">מקסימום 30 שניות. הבוט יתחיל להקליד, יחכה, ואז יסיים.</p>
-        </div>
-      )}
-      
-      {/* Delay */}
-      {actionInfo.hasValue === 'delay' && (
-        <div className="space-y-2">
-          <p className="text-xs text-gray-500">המתן לפני הפעולה הבאה:</p>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min="1"
-              max="300"
-              value={action.delay || 1}
-              onChange={(e) => onUpdate({ delay: Math.min(300, Math.max(1, parseInt(e.target.value) || 1)) })}
-              className="w-20 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-center"
-            />
-            <select
-              value={action.unit || 'seconds'}
-              onChange={(e) => onUpdate({ unit: e.target.value })}
-              className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-            >
-              <option value="seconds">שניות</option>
-              <option value="minutes">דקות</option>
-            </select>
-          </div>
-          <p className="text-xs text-gray-400">מקסימום 300 שניות / 5 דקות</p>
-        </div>
       )}
       
       {/* Delete Variable */}

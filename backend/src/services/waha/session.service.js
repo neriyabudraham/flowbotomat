@@ -415,19 +415,35 @@ async function sendLocation(connection, phone, latitude, longitude, title = '') 
 }
 
 /**
- * Send contact vCard
+ * Send contact vCard - generates proper vCard 3.0 format
  */
-async function sendContactVcard(connection, phone, contacts) {
+async function sendContactVcard(connection, phone, contactName, contactPhone, contactOrg = '') {
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  
+  // Format phone number with + prefix if not present
+  const formattedPhone = contactPhone.startsWith('+') ? contactPhone : `+${contactPhone}`;
+  
+  // Generate vCard 3.0 format exactly as specified
+  const vcard = [
+    'BEGIN:VCARD',
+    'VERSION:3.0',
+    `N:;${contactName};;;`,
+    `FN:${contactName}`,
+    `TEL;TYPE=CELL:${formattedPhone}`,
+    contactOrg ? `ORG:${contactOrg}` : null,
+    'END:VCARD'
+  ].filter(Boolean).join('\n');
   
   const response = await client.post(`/api/sendContactVcard`, {
     session: connection.session_name,
     chatId: chatId,
-    contacts: contacts,
+    contacts: [{
+      vcard: vcard
+    }],
   });
   
-  console.log(`[WAHA] Sent vCard to ${phone}`);
+  console.log(`[WAHA] Sent vCard to ${phone}: ${contactName}`);
   return response.data;
 }
 

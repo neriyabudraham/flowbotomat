@@ -794,16 +794,49 @@ class BotEngine {
             if (action.contactPhone) {
               const contactName = this.replaceVariables(action.contactName || '', contact, originalMessage, botName);
               const contactPhone = this.replaceVariables(action.contactPhone || '', contact, originalMessage, botName);
-              const contacts = [{
-                fullName: contactName,
-                organization: action.contactOrg || '',
-                phoneNumber: contactPhone,
-                whatsappId: contactPhone.replace(/[^0-9]/g, '')
-              }];
-              await wahaService.sendContactVcard(connection, contact.phone, contacts);
+              const contactOrg = action.contactOrg || '';
+              await wahaService.sendContactVcard(connection, contact.phone, contactName, contactPhone, contactOrg);
               console.log('[BotEngine] ✅ Contact vCard sent');
             } else {
               console.log('[BotEngine] ⚠️ Contact action has no phone number');
+            }
+            break;
+          
+          case 'location':
+            if (action.latitude && action.longitude) {
+              const title = this.replaceVariables(action.locationTitle || '', contact, originalMessage, botName);
+              await wahaService.sendLocation(connection, contact.phone, action.latitude, action.longitude, title);
+              console.log('[BotEngine] ✅ Location sent');
+            } else {
+              console.log('[BotEngine] ⚠️ Location action missing coordinates');
+            }
+            break;
+          
+          case 'typing':
+            {
+              const duration = Math.min(30, Math.max(1, action.typingDuration || 3));
+              await wahaService.startTyping(connection, contact.phone);
+              await this.sleep(duration * 1000);
+              await wahaService.stopTyping(connection, contact.phone);
+              console.log('[BotEngine] ✅ Typing indicator completed');
+            }
+            break;
+          
+          case 'mark_seen':
+            await wahaService.sendSeen(connection, contact.phone);
+            console.log('[BotEngine] ✅ Marked as seen');
+            break;
+          
+          case 'reaction':
+            if (action.reaction && originalMessage) {
+              // React to the last received message - get the message ID from the original message
+              const messageId = typeof originalMessage === 'object' ? originalMessage.id : null;
+              if (messageId) {
+                await wahaService.sendReaction(connection, messageId, action.reaction);
+                console.log('[BotEngine] ✅ Reaction sent:', action.reaction);
+              } else {
+                console.log('[BotEngine] ⚠️ Cannot send reaction - no message ID');
+              }
             }
             break;
             
@@ -1085,13 +1118,10 @@ class BotEngine {
           if (action.contactPhone) {
             const connection = await this.getConnection(userId);
             if (connection) {
-              const contacts = [{
-                fullName: action.contactName || '',
-                organization: action.contactOrg || '',
-                phoneNumber: action.contactPhone,
-                whatsappId: action.contactPhone.replace(/[^0-9]/g, '')
-              }];
-              await wahaService.sendContactVcard(connection, contact.phone, contacts);
+              const contactName = this.replaceVariables(action.contactName || '', contact, originalMessage, botName);
+              const contactPhone = this.replaceVariables(action.contactPhone || '', contact, originalMessage, botName);
+              const contactOrg = action.contactOrg || '';
+              await wahaService.sendContactVcard(connection, contact.phone, contactName, contactPhone, contactOrg);
               console.log('[BotEngine] ✅ Contact vCard sent');
             }
           }

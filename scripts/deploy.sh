@@ -70,7 +70,7 @@ send_update_alert() {
     return 0
 }
 
-# Wait until 40 seconds have passed since alert was sent
+# Wait until 30 seconds have passed since alert was sent
 wait_for_users() {
     if [ "$ALERT_START_TIME" -eq 0 ]; then
         log "לא נשלחה התראה - ממשיך מיד"
@@ -79,10 +79,10 @@ wait_for_users() {
     
     local current_time=$(date +%s)
     local elapsed=$((current_time - ALERT_START_TIME))
-    local remaining=$((40 - elapsed))
+    local remaining=$((30 - elapsed))
     
     if [ $remaining -le 0 ]; then
-        success "עברו כבר 40 שניות - ממשיך בעדכון"
+        success "עברו כבר 30 שניות - ממשיך בעדכון"
         return 0
     fi
     

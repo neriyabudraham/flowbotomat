@@ -1,16 +1,27 @@
 import { useState, useRef } from 'react';
-import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Upload, CheckCircle, Play, Mic, User } from 'lucide-react';
+import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Upload, CheckCircle, Play, Mic, User, MapPin, Clock, Keyboard, CheckCheck, SmilePlus } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
+import { COMMON_REACTIONS, EMOJI_CATEGORIES } from './emojis';
 
 const LIMITS = { text: 4096, caption: 1024 };
 
-const actionTypes = [
-  { id: 'text', label: 'טקסט', icon: MessageSquare },
-  { id: 'image', label: 'תמונה', icon: Image },
-  { id: 'video', label: 'סרטון', icon: Video },
-  { id: 'audio', label: 'הודעה קולית', icon: Mic },
-  { id: 'file', label: 'קובץ', icon: FileText },
-  { id: 'contact', label: 'איש קשר', icon: User },
+// Content types - main message content
+const contentTypes = [
+  { id: 'text', label: 'טקסט', icon: MessageSquare, color: 'teal' },
+  { id: 'image', label: 'תמונה', icon: Image, color: 'blue' },
+  { id: 'video', label: 'סרטון', icon: Video, color: 'purple' },
+  { id: 'audio', label: 'הודעה קולית', icon: Mic, color: 'pink' },
+  { id: 'file', label: 'קובץ', icon: FileText, color: 'gray' },
+  { id: 'contact', label: 'איש קשר', icon: User, color: 'indigo' },
+  { id: 'location', label: 'מיקום', icon: MapPin, color: 'red' },
+];
+
+// Utility types - timing and status
+const utilityTypes = [
+  { id: 'delay', label: 'השהייה', icon: Clock, color: 'amber' },
+  { id: 'typing', label: 'מקליד/ה', icon: Keyboard, color: 'gray' },
+  { id: 'mark_seen', label: 'סמן כנקרא', icon: CheckCheck, color: 'blue' },
+  { id: 'reaction', label: 'ריאקציה', icon: SmilePlus, color: 'yellow' },
 ];
 
 export default function MessageEditor({ data, onUpdate }) {
@@ -18,11 +29,42 @@ export default function MessageEditor({ data, onUpdate }) {
   const [dragIndex, setDragIndex] = useState(null);
 
   const addAction = (type) => {
-    const newAction = type === 'text' ? { type, content: '' } 
-      : type === 'image' || type === 'video' ? { type, url: '', caption: '' }
-      : type === 'audio' ? { type, url: '' }
-      : type === 'contact' ? { type, contactName: '', contactPhone: '', contactOrg: '' }
-      : { type, url: '', filename: '' }; // file
+    let newAction;
+    switch (type) {
+      case 'text':
+        newAction = { type, content: '', enableLinkPreview: false };
+        break;
+      case 'image':
+      case 'video':
+        newAction = { type, url: '', caption: '' };
+        break;
+      case 'audio':
+        newAction = { type, url: '' };
+        break;
+      case 'file':
+        newAction = { type, url: '', filename: '' };
+        break;
+      case 'contact':
+        newAction = { type, contactName: '', contactPhone: '', contactOrg: '' };
+        break;
+      case 'location':
+        newAction = { type, latitude: '', longitude: '', locationTitle: '' };
+        break;
+      case 'delay':
+        newAction = { type, delay: 1, unit: 'seconds' };
+        break;
+      case 'typing':
+        newAction = { type, typingDuration: 3 };
+        break;
+      case 'mark_seen':
+        newAction = { type };
+        break;
+      case 'reaction':
+        newAction = { type, reaction: '👍' };
+        break;
+      default:
+        newAction = { type };
+    }
     onUpdate({ actions: [...actions, newAction] });
   };
 
@@ -84,16 +126,32 @@ export default function MessageEditor({ data, onUpdate }) {
 
       {/* Add buttons */}
       <div className={actions.length > 0 ? "border-t border-gray-100 pt-4" : ""}>
-        <p className="text-sm text-gray-500 mb-3">הוסף תוכן:</p>
-        <div className="grid grid-cols-3 gap-2">
-          {actionTypes.map(({ id, label, icon: Icon }) => (
+        {/* Content Types */}
+        <p className="text-sm font-medium text-gray-700 mb-2">תוכן לשליחה</p>
+        <div className="grid grid-cols-4 gap-2 mb-4">
+          {contentTypes.map(({ id, label, icon: Icon, color }) => (
             <button
               key={id}
               onClick={() => addAction(id)}
-              className="flex flex-col items-center gap-1 p-3 bg-gray-50 hover:bg-teal-50 hover:text-teal-700 rounded-xl transition-colors text-sm border border-transparent hover:border-teal-200"
+              className={`flex flex-col items-center gap-1 p-2.5 bg-${color}-50 hover:bg-${color}-100 text-${color}-700 rounded-xl transition-all text-sm border border-${color}-100 hover:border-${color}-200 hover:shadow-sm`}
             >
-              <Icon className="w-5 h-5" />
-              <span className="text-xs">{label}</span>
+              <Icon className="w-4 h-4" />
+              <span className="text-[11px] font-medium">{label}</span>
+            </button>
+          ))}
+        </div>
+        
+        {/* Utility Types */}
+        <p className="text-sm font-medium text-gray-700 mb-2">פעולות נוספות</p>
+        <div className="grid grid-cols-4 gap-2">
+          {utilityTypes.map(({ id, label, icon: Icon, color }) => (
+            <button
+              key={id}
+              onClick={() => addAction(id)}
+              className={`flex flex-col items-center gap-1 p-2.5 bg-${color}-50 hover:bg-${color}-100 text-${color}-700 rounded-xl transition-all text-sm border border-${color}-100 hover:border-${color}-200 hover:shadow-sm`}
+            >
+              <Icon className="w-4 h-4" />
+              <span className="text-[11px] font-medium">{label}</span>
             </button>
           ))}
         </div>
@@ -146,12 +204,15 @@ export default function MessageEditor({ data, onUpdate }) {
 }
 
 function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
-  const Icon = actionTypes.find(a => a.id === action.type)?.icon || MessageSquare;
+  const allTypes = [...contentTypes, ...utilityTypes];
+  const typeInfo = allTypes.find(a => a.id === action.type) || { icon: MessageSquare, label: action.type, color: 'gray' };
+  const Icon = typeInfo.icon;
   const fileInputRef = useRef(null);
   const [previewError, setPreviewError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -278,14 +339,14 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
   const previewUrl = action.previewUrl || action.url;
 
   return (
-    <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+    <div className={`bg-${typeInfo.color}-50 rounded-xl p-3 border border-${typeInfo.color}-100`}>
       <div className="flex items-center gap-2 mb-2">
         <div className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500">
           <GripVertical className="w-4 h-4" />
         </div>
-        <Icon className="w-4 h-4 text-teal-600" />
-        <span className="text-sm font-medium text-gray-700 flex-1">
-          {actionTypes.find(a => a.id === action.type)?.label}
+        <Icon className={`w-4 h-4 text-${typeInfo.color}-600`} />
+        <span className={`text-sm font-medium text-${typeInfo.color}-700 flex-1`}>
+          {typeInfo.label}
         </span>
         {canRemove && (
           <button onClick={onRemove} className="text-gray-400 hover:text-red-500 p-1">
@@ -295,15 +356,53 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
       </div>
 
       {action.type === 'text' && (
-        <TextInputWithVariables
-          value={action.content || ''}
-          onChange={(v) => onUpdate({ content: v })}
-          placeholder="כתוב את ההודעה...&#10;ניתן להוסיף ירידות שורה"
-          maxLength={LIMITS.text}
-          multiline
-          rows={4}
-          label="תוכן ההודעה"
-        />
+        <div className="space-y-3">
+          <TextInputWithVariables
+            value={action.content || ''}
+            onChange={(v) => onUpdate({ content: v })}
+            placeholder="כתוב את ההודעה...&#10;ניתן להוסיף ירידות שורה"
+            maxLength={LIMITS.text}
+            multiline
+            rows={4}
+            label="תוכן ההודעה"
+          />
+          
+          {/* Link Preview Toggle */}
+          <div className="bg-white rounded-lg border border-gray-200 p-3">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={action.enableLinkPreview || false}
+                onChange={(e) => onUpdate({ enableLinkPreview: e.target.checked })}
+                className="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+              />
+              <div>
+                <div className="text-sm font-medium text-gray-700">תצוגה מקדימה של קישור</div>
+                <div className="text-xs text-gray-500">אם ההודעה מכילה קישור, תוצג תצוגה מקדימה</div>
+              </div>
+            </label>
+            
+            {action.enableLinkPreview && (
+              <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+                <input
+                  type="url"
+                  value={action.linkPreviewUrl || ''}
+                  onChange={(e) => onUpdate({ linkPreviewUrl: e.target.value })}
+                  placeholder="URL לתצוגה מקדימה (אופציונלי - ברירת מחדל: הקישור הראשון בהודעה)"
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                  dir="ltr"
+                />
+                <input
+                  type="text"
+                  value={action.linkPreviewTitle || ''}
+                  onChange={(e) => onUpdate({ linkPreviewTitle: e.target.value })}
+                  placeholder="כותרת מותאמת (אופציונלי)"
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                />
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {(action.type === 'image' || action.type === 'video') && (
@@ -525,9 +624,9 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
       {/* Contact vCard */}
       {action.type === 'contact' && (
         <div className="space-y-3">
-          <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
-            <p className="text-xs text-blue-600 mb-1 font-medium">שליחת כרטיס איש קשר (vCard)</p>
-            <p className="text-xs text-blue-500">הנמען יוכל לשמור את איש הקשר ישירות לטלפון</p>
+          <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-100">
+            <p className="text-xs text-indigo-600 mb-1 font-medium">שליחת כרטיס איש קשר (vCard)</p>
+            <p className="text-xs text-indigo-500">הנמען יוכל לשמור את איש הקשר ישירות לטלפון</p>
           </div>
           
           <TextInputWithVariables
@@ -549,8 +648,180 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
             value={action.contactOrg || ''}
             onChange={(e) => onUpdate({ contactOrg: e.target.value })}
             placeholder="שם החברה/ארגון (אופציונלי)"
-            className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-200 focus:border-teal-400 outline-none"
+            className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none"
           />
+        </div>
+      )}
+
+      {/* Location */}
+      {action.type === 'location' && (
+        <div className="space-y-3">
+          <div className="p-3 bg-red-50 rounded-lg border border-red-100">
+            <p className="text-xs text-red-600 mb-1 font-medium">שליחת מיקום</p>
+            <p className="text-xs text-red-500">הנמען יוכל לפתוח את המיקום בוויז או גוגל מפות</p>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">קו רוחב (Latitude)</label>
+              <input
+                type="number"
+                step="any"
+                value={action.latitude || ''}
+                onChange={(e) => onUpdate({ latitude: parseFloat(e.target.value) || '' })}
+                placeholder="32.0853"
+                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+                dir="ltr"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">קו אורך (Longitude)</label>
+              <input
+                type="number"
+                step="any"
+                value={action.longitude || ''}
+                onChange={(e) => onUpdate({ longitude: parseFloat(e.target.value) || '' })}
+                placeholder="34.7818"
+                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+                dir="ltr"
+              />
+            </div>
+          </div>
+          
+          <TextInputWithVariables
+            value={action.locationTitle || ''}
+            onChange={(v) => onUpdate({ locationTitle: v })}
+            placeholder="שם המיקום (אופציונלי)..."
+            label="שם המיקום"
+          />
+        </div>
+      )}
+
+      {/* Delay */}
+      {action.type === 'delay' && (
+        <div className="space-y-3">
+          <div className="p-3 bg-amber-50 rounded-lg border border-amber-100">
+            <p className="text-xs text-amber-600 font-medium">השהייה לפני הפעולה הבאה</p>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min="1"
+              max="300"
+              value={action.delay || 1}
+              onChange={(e) => onUpdate({ delay: Math.min(300, Math.max(1, parseInt(e.target.value) || 1)) })}
+              className="w-24 px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-center font-medium"
+            />
+            <select
+              value={action.unit || 'seconds'}
+              onChange={(e) => onUpdate({ unit: e.target.value })}
+              className="px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm"
+            >
+              <option value="seconds">שניות</option>
+              <option value="minutes">דקות</option>
+            </select>
+          </div>
+          <p className="text-xs text-gray-400">מקסימום 300 שניות / 5 דקות</p>
+        </div>
+      )}
+
+      {/* Typing indicator */}
+      {action.type === 'typing' && (
+        <div className="space-y-3">
+          <div className="p-3 bg-gray-100 rounded-lg border border-gray-200">
+            <p className="text-xs text-gray-600 font-medium">הבוט יציג "מקליד/ה..." למשך:</p>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min="1"
+              max="30"
+              value={action.typingDuration || 3}
+              onChange={(e) => onUpdate({ typingDuration: Math.min(30, Math.max(1, parseInt(e.target.value) || 3)) })}
+              className="w-24 px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-center font-medium"
+            />
+            <span className="text-sm text-gray-500">שניות</span>
+          </div>
+          <p className="text-xs text-gray-400">מקסימום 30 שניות</p>
+        </div>
+      )}
+
+      {/* Mark as seen */}
+      {action.type === 'mark_seen' && (
+        <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+          <p className="text-xs text-blue-600 font-medium">סימון ההודעה כנקראה</p>
+          <p className="text-xs text-blue-500 mt-1">הבוט יסמן את ההודעה האחרונה שהתקבלה כנקראה (וי וי כחול)</p>
+        </div>
+      )}
+
+      {/* Reaction */}
+      {action.type === 'reaction' && (
+        <div className="space-y-3">
+          <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-100">
+            <p className="text-xs text-yellow-700 font-medium">שלח ריאקציה להודעה האחרונה</p>
+          </div>
+          
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500">בחר אימוג'י:</p>
+            <div className="flex flex-wrap gap-1.5 p-2 bg-white rounded-lg border border-gray-200">
+              {COMMON_REACTIONS.map(emoji => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => onUpdate({ reaction: emoji })}
+                  className={`w-9 h-9 text-lg rounded-lg border-2 transition-all hover:scale-110 ${
+                    action.reaction === emoji 
+                      ? 'border-yellow-500 bg-yellow-50 scale-110' 
+                      : 'border-transparent hover:border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+            
+            {/* Show more emojis */}
+            <button
+              type="button"
+              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+              className="text-xs text-yellow-600 hover:text-yellow-700"
+            >
+              {showEmojiPicker ? 'הסתר עוד' : 'הצג עוד אימוג\'ים...'}
+            </button>
+            
+            {showEmojiPicker && (
+              <div className="max-h-48 overflow-y-auto p-2 bg-white rounded-lg border border-gray-200">
+                {Object.entries(EMOJI_CATEGORIES).map(([category, emojis]) => (
+                  <div key={category} className="mb-3">
+                    <p className="text-xs text-gray-400 mb-1 font-medium">{category}</p>
+                    <div className="flex flex-wrap gap-1">
+                      {emojis.slice(0, 30).map(emoji => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => { onUpdate({ reaction: emoji }); setShowEmojiPicker(false); }}
+                          className={`w-7 h-7 text-sm rounded hover:bg-gray-100 ${
+                            action.reaction === emoji ? 'bg-yellow-100' : ''
+                          }`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          
+          {action.reaction && (
+            <div className="flex items-center gap-2 p-2 bg-yellow-100 rounded-lg">
+              <span className="text-2xl">{action.reaction}</span>
+              <span className="text-sm text-yellow-700">אימוג'י נבחר</span>
+            </div>
+          )}
         </div>
       )}
 
