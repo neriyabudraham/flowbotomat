@@ -644,17 +644,18 @@ async function reactivateSubscription(req, res) {
     }
     
     // Reactivate subscription with new standing order and dates
+    const expiresAtStr = newExpiresAt.toISOString();
     const result = await db.query(`
       UPDATE user_subscriptions 
       SET status = 'active', 
           cancelled_at = NULL,
           sumit_standing_order_id = $2,
-          expires_at = $3,
-          next_charge_date = $3,
+          expires_at = $3::timestamptz,
+          next_charge_date = $4::timestamptz,
           updated_at = NOW()
       WHERE user_id = $1 AND status = 'cancelled'
       RETURNING *
-    `, [userId, standingOrderId, newExpiresAt.toISOString()]);
+    `, [userId, standingOrderId, expiresAtStr, expiresAtStr]);
     
     // Log the reactivation payment
     await db.query(`
