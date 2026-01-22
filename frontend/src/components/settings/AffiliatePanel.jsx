@@ -88,7 +88,7 @@ export default function AffiliatePanel() {
           </Link>
         </div>
         <p className="text-green-100 text-sm">
-          שתף את הלינק שלך וקבל {settings?.commission_amount || 20} נקודות למימוש על כל מנוי שמגיע דרכך!
+          שתף את הלינק שלך וקבל {Math.floor(settings?.commission_amount || 20)} נקודות למימוש על כל מנוי שמגיע דרכך!
         </p>
       </div>
 
@@ -141,7 +141,7 @@ export default function AffiliatePanel() {
         <StatCard 
           icon={DollarSign}
           label="סה״כ הרווחת"
-          value={`₪${affiliate?.total_earned || 0}`}
+          value={`₪${Math.floor(affiliate?.total_earned || 0)}`}
           color="amber"
         />
       </div>
@@ -154,9 +154,9 @@ export default function AffiliatePanel() {
               <Coins className="w-4 h-4" />
               נקודות למימוש
             </div>
-            <div className="text-3xl font-bold text-amber-800">{affiliate?.available_balance || 0}</div>
+            <div className="text-3xl font-bold text-amber-800">{Math.floor(affiliate?.available_balance || 0)}</div>
             <div className="text-xs text-amber-600 mt-1">
-              מינימום למימוש: {settings?.min_payout_amount || 100} נקודות (= ₪{settings?.min_payout_amount || 100})
+              מינימום למימוש: {Math.floor(settings?.min_payout_amount || 100)} נקודות (= ₪{Math.floor(settings?.min_payout_amount || 100)})
             </div>
           </div>
           <button
@@ -211,11 +211,11 @@ export default function AffiliatePanel() {
           </div>
           <div className="flex items-start gap-2">
             <span className="w-5 h-5 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">2</span>
-            <span>כשמישהו נרשם ומשלם על מנוי דרך הלינק - אתה מקבל {settings?.commission_amount || 20} נקודות למימוש</span>
+            <span>כשמישהו נרשם ומשלם על מנוי דרך הלינק - אתה מקבל {Math.floor(settings?.commission_amount || 20)} נקודות למימוש</span>
           </div>
           <div className="flex items-start gap-2">
             <span className="w-5 h-5 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">3</span>
-            <span>כשתגיע ל-{settings?.min_payout_amount || 100} נקודות - תוכל לממש במערכת כהנחה!</span>
+            <span>כשתגיע ל-{Math.floor(settings?.min_payout_amount || 100)} נקודות - תוכל לממש במערכת כהנחה!</span>
           </div>
         </div>
         <Link 
