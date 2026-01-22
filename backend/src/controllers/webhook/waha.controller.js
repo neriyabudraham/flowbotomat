@@ -97,8 +97,8 @@ async function handleWebhook(req, res) {
 async function handleIncomingMessage(userId, event) {
   const { payload } = event;
   
-  // Log incoming payload for debugging
-  console.log('[Webhook] Incoming message payload:', JSON.stringify(payload, null, 2));
+  // Debug log disabled to reduce noise
+  // console.log('[Webhook] Incoming message payload:', JSON.stringify(payload, null, 2));
   
   // Skip status updates
   if (payload.from === 'status@broadcast') {

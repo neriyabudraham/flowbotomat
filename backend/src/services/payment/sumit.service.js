@@ -245,11 +245,7 @@ async function chargeOneTime({ customerId, amount, description, sendEmail = true
         ID: customerId,
         SearchMode: 0, // Search by ID
       },
-      // Use customer's saved credit card - CustomerID tells Sumit to use saved card
-      PaymentMethod: {
-        CustomerID: customerId,
-        Type: 1, // 1 = CreditCard
-      },
+      // Don't send PaymentMethod - Sumit uses the customer's default saved payment method
       Items: [{
         Item: {
           Name: description || 'תשלום',
@@ -361,11 +357,7 @@ async function chargeRecurring({
         ID: customerId,
         SearchMode: 0,
       },
-      // Use customer's saved credit card - Type 1 = CreditCard with CustomerID means use saved card
-      PaymentMethod: {
-        CustomerID: customerId,
-        Type: 1, // 1 = CreditCard
-      },
+      // Don't send PaymentMethod - Sumit uses the customer's default saved payment method
       Items: [{
         Item: {
           Name: description || 'מנוי חודשי',
@@ -384,7 +376,6 @@ async function chargeRecurring({
     };
     
     console.log('[Sumit] Creating recurring charge - Customer:', customerId, 'Amount:', amount, 'ILS/month');
-    console.log('[Sumit] Request body:', JSON.stringify(requestBody, null, 2));
     
     const response = await axios.post(
       `${SUMIT_BASE_URL}/billing/recurring/charge/`,
