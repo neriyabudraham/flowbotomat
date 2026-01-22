@@ -245,9 +245,10 @@ async function chargeOneTime({ customerId, amount, description, sendEmail = true
         ID: customerId,
         SearchMode: 0, // Search by ID
       },
-      // Use customer's saved payment method (Type: 0)
+      // Use customer's saved credit card - CustomerID tells Sumit to use saved card
       PaymentMethod: {
-        Type: 0, // Use customer's default saved payment method
+        CustomerID: customerId,
+        Type: 1, // 1 = CreditCard
       },
       Items: [{
         Item: {
@@ -360,9 +361,10 @@ async function chargeRecurring({
         ID: customerId,
         SearchMode: 0,
       },
-      // Use customer's saved payment method
+      // Use customer's saved credit card - Type 1 = CreditCard with CustomerID means use saved card
       PaymentMethod: {
-        Type: 0, // Use customer's default saved payment method
+        CustomerID: customerId,
+        Type: 1, // 1 = CreditCard
       },
       Items: [{
         Item: {
