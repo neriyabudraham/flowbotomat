@@ -387,10 +387,15 @@ function RemoveCardModal({ subscription, onClose, onConfirm, loading }) {
   const [confirmed, setConfirmed] = useState(false);
   const [typedConfirm, setTypedConfirm] = useState('');
   
-  const isTrial = subscription?.is_trial;
-  const endDate = subscription?.next_charge_date || subscription?.trial_ends_at
-    ? new Date(subscription.next_charge_date || subscription.trial_ends_at).toLocaleDateString('he-IL')
-    : null;
+  const isTrial = subscription?.is_trial || subscription?.status === 'trial';
+  const isActive = subscription?.status === 'active';
+  const hasSubscription = isTrial || isActive;
+  
+  // Determine end date
+  const rawEndDate = isTrial 
+    ? subscription?.trial_ends_at 
+    : (subscription?.expires_at || subscription?.next_charge_date);
+  const endDate = rawEndDate ? new Date(rawEndDate).toLocaleDateString('he-IL') : null;
 
   const canConfirm = confirmed && typedConfirm === 'הסר';
 
@@ -400,64 +405,114 @@ function RemoveCardModal({ subscription, onClose, onConfirm, loading }) {
         className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
-        {/* Header - Warning Style */}
-        <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 text-white text-center">
+        {/* Header */}
+        <div className={`p-6 text-white text-center ${hasSubscription ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 'bg-gradient-to-r from-red-500 to-red-600'}`}>
           <div className="w-16 h-16 mx-auto mb-4 bg-white/20 rounded-full flex items-center justify-center">
             <ShieldAlert className="w-8 h-8" />
           </div>
           <h2 className="text-xl font-bold mb-2">הסרת פרטי אשראי</h2>
           <p className="text-white/80">
-            פעולה זו תגרום לניתוק השירות
+            {hasSubscription 
+              ? 'השירות ימשיך לפעול עד סוף תקופת המנוי'
+              : 'פעולה זו תגרום לניתוק השירות'
+            }
           </p>
         </div>
 
         {/* Content */}
         <div className="p-6 space-y-4">
-          <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4">
-            <h3 className="font-semibold text-red-800 dark:text-red-200 mb-2">
-              ⚠️ שים לב - מה יקרה:
-            </h3>
-            <ul className="space-y-2 text-sm text-red-700 dark:text-red-300">
-              <li className="flex items-start gap-2">
-                <XCircle className="w-4 h-4 mt-0.5 text-red-500 flex-shrink-0" />
-                <span>פרטי האשראי שלך יוסרו לצמיתות</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <XCircle className="w-4 h-4 mt-0.5 text-red-500 flex-shrink-0" />
-                <span>חיבור ה-WhatsApp שלך ינותק מהמערכת <strong>מיידית</strong></span>
-              </li>
-              <li className="flex items-start gap-2">
-                <XCircle className="w-4 h-4 mt-0.5 text-red-500 flex-shrink-0" />
-                <span>הבוטים שלך יפסיקו לפעול</span>
-              </li>
-              {isTrial && endDate && (
-                <li className="flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 mt-0.5 text-yellow-500 flex-shrink-0" />
-                  <span>תקופת הניסיון שלך תסתיים ב-{endDate}</span>
-                </li>
-              )}
-            </ul>
-          </div>
+          {hasSubscription ? (
+            <>
+              {/* For paid/trial users - service continues */}
+              <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4">
+                <h3 className="font-semibold text-amber-800 dark:text-amber-200 mb-2">
+                  ⏱️ מה יקרה:
+                </h3>
+                <ul className="space-y-2 text-sm text-amber-700 dark:text-amber-300">
+                  <li className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 mt-0.5 text-amber-500 flex-shrink-0" />
+                    <span>פרטי האשראי שלך יוסרו</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 mt-0.5 text-amber-500 flex-shrink-0" />
+                    <span>המנוי לא יתחדש אוטומטית</span>
+                  </li>
+                  {endDate && (
+                    <li className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 mt-0.5 text-amber-500 flex-shrink-0" />
+                      <span>
+                        השירות יפסיק ב-<strong>{endDate}</strong>
+                        {isTrial ? ' (סוף תקופת הניסיון)' : ' (סוף תקופת החיוב)'}
+                      </span>
+                    </li>
+                  )}
+                </ul>
+              </div>
 
-          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4">
-            <h3 className="font-semibold text-blue-800 dark:text-blue-200 mb-2">
-              💡 מה לא יימחק:
-            </h3>
-            <ul className="space-y-2 text-sm text-blue-700 dark:text-blue-300">
-              <li className="flex items-start gap-2">
-                <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
-                <span>החשבון שלך יישאר פעיל</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
-                <span>הבוטים שיצרת יישמרו</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
-                <span>תוכל לחבר מחדש בכל עת</span>
-              </li>
-            </ul>
-          </div>
+              <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
+                <h3 className="font-semibold text-green-800 dark:text-green-200 mb-2">
+                  ✅ עד אז תוכל להמשיך:
+                </h3>
+                <ul className="space-y-2 text-sm text-green-700 dark:text-green-300">
+                  <li className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
+                    <span>להשתמש בכל הבוטים שלך</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
+                    <span>לקבל ולשלוח הודעות ב-WhatsApp</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
+                    <span>להוסיף כרטיס חדש ולחדש את המנוי</span>
+                  </li>
+                </ul>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* For users without subscription - immediate disconnect */}
+              <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4">
+                <h3 className="font-semibold text-red-800 dark:text-red-200 mb-2">
+                  ⚠️ שים לב - מה יקרה:
+                </h3>
+                <ul className="space-y-2 text-sm text-red-700 dark:text-red-300">
+                  <li className="flex items-start gap-2">
+                    <XCircle className="w-4 h-4 mt-0.5 text-red-500 flex-shrink-0" />
+                    <span>פרטי האשראי שלך יוסרו לצמיתות</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <XCircle className="w-4 h-4 mt-0.5 text-red-500 flex-shrink-0" />
+                    <span>חיבור ה-WhatsApp שלך ינותק <strong>מיידית</strong></span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <XCircle className="w-4 h-4 mt-0.5 text-red-500 flex-shrink-0" />
+                    <span>הבוטים שלך יפסיקו לפעול</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4">
+                <h3 className="font-semibold text-blue-800 dark:text-blue-200 mb-2">
+                  💡 מה לא יימחק:
+                </h3>
+                <ul className="space-y-2 text-sm text-blue-700 dark:text-blue-300">
+                  <li className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
+                    <span>החשבון שלך יישאר פעיל</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
+                    <span>הבוטים שיצרת יישמרו</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
+                    <span>תוכל לחבר מחדש בכל עת</span>
+                  </li>
+                </ul>
+              </div>
+            </>
+          )}
 
           {/* Confirmation checkbox */}
           <label className="flex items-center gap-2 cursor-pointer">
@@ -468,7 +523,10 @@ function RemoveCardModal({ subscription, onClose, onConfirm, loading }) {
               className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
             />
             <span className="text-sm text-gray-600 dark:text-gray-300">
-              אני מבין/ה שהשירות יפסיק לפעול מיידית
+              {hasSubscription 
+                ? 'אני מבין/ה שהמנוי יבוטל ולא יתחדש'
+                : 'אני מבין/ה שהשירות יפסיק לפעול מיידית'
+              }
             </span>
           </label>
 
