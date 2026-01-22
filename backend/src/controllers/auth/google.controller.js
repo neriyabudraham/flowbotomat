@@ -113,7 +113,7 @@ async function processGoogleUser(email, name, picture, googleId, referralCode) {
 
     // Check if user exists
     let user = await db.query(
-      'SELECT id, email, name, is_verified, is_active, role, google_id FROM users WHERE email = $1',
+      'SELECT id, email, name, is_verified, is_active, role, google_id, avatar_url FROM users WHERE email = $1',
       [email.toLowerCase()]
     );
 
@@ -175,11 +175,16 @@ async function processGoogleUser(email, name, picture, googleId, referralCode) {
       // Existing user
       userId = user.rows[0].id;
 
-      // Update Google ID if not set
-      if (!user.rows[0].google_id) {
+      // Update Google ID and avatar if not set
+      if (!user.rows[0].google_id || !user.rows[0].avatar_url) {
         await db.query(
-          'UPDATE users SET google_id = $1, is_verified = true, verified_at = COALESCE(verified_at, NOW()) WHERE id = $2',
-          [googleId, userId]
+          `UPDATE users SET 
+            google_id = COALESCE(google_id, $1), 
+            avatar_url = COALESCE(avatar_url, $2),
+            is_verified = true, 
+            verified_at = COALESCE(verified_at, NOW()) 
+          WHERE id = $3`,
+          [googleId, picture, userId]
         );
       }
 
