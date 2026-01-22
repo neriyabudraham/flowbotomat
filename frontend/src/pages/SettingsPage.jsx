@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   User, Lock, Globe, Save, ArrowLeft, Settings, Bell, Shield, 
   CreditCard, Crown, Check, Eye, EyeOff, Sparkles, ChevronRight,
-  Mail, Phone, Building, Palette, Moon, Sun, Languages, Key, Share2
+  Mail, Phone, Building, Palette, Moon, Sun, Languages, Key, Share2,
+  Loader2
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
@@ -14,8 +15,49 @@ import AffiliatePanel from '../components/settings/AffiliatePanel';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
 import api from '../services/api';
 
+// Notification preferences categories
+const NOTIFICATION_CATEGORIES = [
+  { 
+    id: 'subscription', 
+    label: 'רכישה ומנוי', 
+    description: 'התראות על תשלומים, חידושי מנוי ושינויים בחבילה',
+    emailKey: 'email_subscription',
+    appKey: 'app_subscription'
+  },
+  { 
+    id: 'updates', 
+    label: 'שדרוגים ועדכונים', 
+    description: 'עדכוני מערכת, פיצ\'רים חדשים ושיפורים',
+    emailKey: 'email_updates',
+    appKey: 'app_updates'
+  },
+  { 
+    id: 'critical', 
+    label: 'עדכונים קריטיים', 
+    description: 'התראות חשובות שלא ניתן לבטל',
+    emailKey: 'email_critical',
+    appKey: 'app_critical',
+    locked: true
+  },
+  { 
+    id: 'promos', 
+    label: 'הצעות והטבות', 
+    description: 'מבצעים, הנחות והזדמנויות מיוחדות',
+    emailKey: 'email_promos',
+    appKey: 'app_promos'
+  },
+  { 
+    id: 'newsletter', 
+    label: 'ניוזלטר', 
+    description: 'טיפים, מדריכים ותוכן מקצועי',
+    emailKey: 'email_newsletter',
+    appKey: null // No in-app for newsletter
+  },
+];
+
 export default function SettingsPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user, logout, fetchMe } = useAuthStore();
   const [profile, setProfile] = useState({ name: '', language: 'he' });
   const [passwords, setPasswords] = useState({ current: '', new: '', confirm: '' });
@@ -23,7 +65,12 @@ export default function SettingsPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
-  const [activeTab, setActiveTab] = useState('profile');
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'profile');
+  
+  // Notification preferences
+  const [notifPrefs, setNotifPrefs] = useState(null);
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [notifSaving, setNotifSaving] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -32,7 +79,19 @@ export default function SettingsPage() {
       return;
     }
     loadProfile();
-  }, []);
+    
+    // Check URL param for tab
+    const tabParam = searchParams.get('tab');
+    if (tabParam) {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams]);
+  
+  useEffect(() => {
+    if (activeTab === 'notifications') {
+      loadNotificationPreferences();
+    }
+  }, [activeTab]);
 
   const loadProfile = async () => {
     try {
@@ -40,6 +99,31 @@ export default function SettingsPage() {
       setProfile({ name: data.profile.name || '', language: data.profile.language || 'he' });
     } catch (err) {
       console.error(err);
+    }
+  };
+  
+  const loadNotificationPreferences = async () => {
+    setNotifLoading(true);
+    try {
+      const { data } = await api.get('/notifications/preferences');
+      setNotifPrefs(data);
+    } catch (err) {
+      console.error('Failed to load notification preferences:', err);
+    } finally {
+      setNotifLoading(false);
+    }
+  };
+  
+  const updateNotificationPref = async (key, value) => {
+    // Optimistic update
+    setNotifPrefs(prev => ({ ...prev, [key]: value }));
+    
+    try {
+      await api.put('/notifications/preferences', { [key]: value });
+    } catch (err) {
+      // Revert on error
+      setNotifPrefs(prev => ({ ...prev, [key]: !value }));
+      console.error('Failed to update preference:', err);
     }
   };
 
@@ -90,6 +174,7 @@ export default function SettingsPage() {
   const tabs = [
     { id: 'profile', label: 'פרופיל', icon: User },
     { id: 'subscription', label: 'מנוי', icon: Crown },
+    { id: 'notifications', label: 'התראות', icon: Bell },
     { id: 'affiliate', label: 'תוכנית שותפים', icon: Share2 },
     { id: 'security', label: 'אבטחה', icon: Shield },
     { id: 'experts', label: 'גישת מומחים', icon: Settings },
@@ -308,6 +393,124 @@ export default function SettingsPage() {
             {/* Subscription Tab */}
             {activeTab === 'subscription' && (
               <SubscriptionManager />
+            )}
+
+            {/* Notifications Tab */}
+            {activeTab === 'notifications' && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="bg-gradient-to-r from-blue-500 to-indigo-500 px-6 py-4">
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Bell className="w-5 h-5" />
+                    הגדרות התראות
+                  </h2>
+                  <p className="text-white/70 text-sm mt-1">בחר אילו התראות תרצה לקבל</p>
+                </div>
+                
+                {notifLoading ? (
+                  <div className="p-12 text-center">
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-500 mb-3" />
+                    <p className="text-gray-500">טוען הגדרות...</p>
+                  </div>
+                ) : notifPrefs ? (
+                  <div className="p-6">
+                    {/* Header */}
+                    <div className="flex items-center justify-between pb-4 border-b border-gray-100 mb-6">
+                      <div></div>
+                      <div className="flex items-center gap-8 text-sm font-medium text-gray-500">
+                        <div className="flex items-center gap-2 w-20 justify-center">
+                          <Mail className="w-4 h-4" />
+                          <span>מייל</span>
+                        </div>
+                        <div className="flex items-center gap-2 w-20 justify-center">
+                          <Bell className="w-4 h-4" />
+                          <span>מערכת</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Categories */}
+                    <div className="space-y-4">
+                      {NOTIFICATION_CATEGORIES.map((category) => (
+                        <div 
+                          key={category.id}
+                          className={`flex items-center justify-between p-4 rounded-xl border ${
+                            category.locked ? 'bg-gray-50 border-gray-200' : 'bg-white border-gray-100 hover:border-gray-200'
+                          } transition-colors`}
+                        >
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-medium text-gray-800">{category.label}</h4>
+                              {category.locked && (
+                                <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full">
+                                  חובה
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-500 mt-0.5">{category.description}</p>
+                          </div>
+                          
+                          <div className="flex items-center gap-8">
+                            {/* Email Toggle */}
+                            <div className="w-20 flex justify-center">
+                              {category.emailKey && (
+                                <button
+                                  onClick={() => !category.locked && updateNotificationPref(category.emailKey, !notifPrefs[category.emailKey])}
+                                  disabled={category.locked}
+                                  className={`relative w-12 h-6 rounded-full transition-colors ${
+                                    notifPrefs[category.emailKey] 
+                                      ? 'bg-blue-500' 
+                                      : 'bg-gray-300'
+                                  } ${category.locked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                >
+                                  <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                                    notifPrefs[category.emailKey] ? 'right-1' : 'left-1'
+                                  }`} />
+                                </button>
+                              )}
+                            </div>
+                            
+                            {/* App Toggle */}
+                            <div className="w-20 flex justify-center">
+                              {category.appKey ? (
+                                <button
+                                  onClick={() => !category.locked && updateNotificationPref(category.appKey, !notifPrefs[category.appKey])}
+                                  disabled={category.locked}
+                                  className={`relative w-12 h-6 rounded-full transition-colors ${
+                                    notifPrefs[category.appKey] 
+                                      ? 'bg-blue-500' 
+                                      : 'bg-gray-300'
+                                  } ${category.locked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                >
+                                  <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                                    notifPrefs[category.appKey] ? 'right-1' : 'left-1'
+                                  }`} />
+                                </button>
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {/* Info */}
+                    <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-100">
+                      <p className="text-sm text-blue-700 flex items-start gap-2">
+                        <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                        <span>
+                          עדכונים קריטיים כוללים התראות אבטחה, שינויים בתנאי השימוש, והודעות חשובות על המנוי שלך.
+                          התראות אלו נשלחות תמיד כדי להבטיח שתישאר מעודכן.
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-12 text-center text-gray-500">
+                    שגיאה בטעינת ההגדרות
+                  </div>
+                )}
+              </div>
             )}
 
             {/* Affiliate Tab */}

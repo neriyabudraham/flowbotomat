@@ -8,7 +8,9 @@ const {
   markSelectedRead,
   deleteNotification,
   getUnread,
-  checkUsage
+  checkUsage,
+  getPreferences,
+  updatePreferences
 } = require('../controllers/notifications/notifications.controller');
 
 // All routes require authentication
@@ -19,6 +21,10 @@ router.get('/', getNotifications);
 
 // Get unread count only
 router.get('/unread', getUnread);
+
+// Preferences
+router.get('/preferences', getPreferences);
+router.put('/preferences', updatePreferences);
 
 // Check usage and trigger alerts
 router.post('/check-usage', checkUsage);

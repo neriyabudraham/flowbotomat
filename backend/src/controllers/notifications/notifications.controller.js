@@ -5,7 +5,9 @@ const {
   markSelectedNotificationsRead,
   deleteUserNotification,
   getUnreadCount,
-  checkUserUsage
+  checkUserUsage,
+  getNotificationPreferences,
+  updateNotificationPreferences
 } = require('../../services/usageAlerts.service');
 
 /**
@@ -132,6 +134,37 @@ async function checkUsage(req, res) {
   }
 }
 
+/**
+ * Get notification preferences
+ */
+async function getPreferences(req, res) {
+  try {
+    const userId = req.user.id;
+    const preferences = await getNotificationPreferences(userId);
+    res.json(preferences);
+  } catch (error) {
+    console.error('[Notifications] Get preferences error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת העדפות' });
+  }
+}
+
+/**
+ * Update notification preferences
+ */
+async function updatePreferences(req, res) {
+  try {
+    const userId = req.user.id;
+    const preferences = req.body;
+    
+    await updateNotificationPreferences(userId, preferences);
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Notifications] Update preferences error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון העדפות' });
+  }
+}
+
 module.exports = {
   getNotifications,
   markRead,
@@ -139,5 +172,7 @@ module.exports = {
   markSelectedRead,
   deleteNotification,
   getUnread,
-  checkUsage
+  checkUsage,
+  getPreferences,
+  updatePreferences
 };

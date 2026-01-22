@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { 
-  Bell, CheckCheck, Trash2, Share2, AlertTriangle, Info, Settings, ChevronRight,
-  Check, X, Megaphone, Gift, Sparkles, ArrowRight
+  Bell, CheckCheck, Trash2, Share2, AlertTriangle, Info, Settings,
+  Check, X, Megaphone, Gift, Sparkles, ArrowRight, CreditCard
 } from 'lucide-react';
 import useNotificationsStore from '../store/notificationsStore';
 import Logo from '../components/atoms/Logo';
@@ -16,6 +16,8 @@ const NOTIFICATION_ICONS = {
   broadcast: { icon: Megaphone, color: 'text-indigo-500', bg: 'bg-indigo-100' },
   promo: { icon: Gift, color: 'text-pink-500', bg: 'bg-pink-100' },
   update: { icon: Sparkles, color: 'text-cyan-500', bg: 'bg-cyan-100' },
+  subscription: { icon: CreditCard, color: 'text-green-500', bg: 'bg-green-100' },
+  critical: { icon: AlertTriangle, color: 'text-red-500', bg: 'bg-red-100' },
 };
 
 function formatTime(date) {
@@ -32,7 +34,6 @@ function formatTime(date) {
 
 export default function NotificationsPage() {
   const navigate = useNavigate();
-  const [showSettings, setShowSettings] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
   const [selectionMode, setSelectionMode] = useState(false);
   
@@ -40,19 +41,15 @@ export default function NotificationsPage() {
     notifications, 
     unreadCount, 
     loading,
-    preferences,
     fetchNotifications, 
     markAsRead, 
     markAllAsRead,
     markSelectedAsRead,
     deleteNotification,
-    fetchPreferences,
-    updatePreferences,
   } = useNotificationsStore();
 
   useEffect(() => {
     fetchNotifications();
-    fetchPreferences();
   }, []);
 
   const handleNotificationClick = (notification) => {
@@ -66,10 +63,6 @@ export default function NotificationsPage() {
     if (notification.action_url) {
       navigate(notification.action_url);
     }
-  };
-
-  const handlePreferenceChange = (key, value) => {
-    updatePreferences({ [key]: value });
   };
   
   const toggleSelection = (id) => {
@@ -155,14 +148,13 @@ export default function NotificationsPage() {
                     </button>
                   </>
                 )}
-                <button
-                  onClick={() => setShowSettings(!showSettings)}
-                  className={`p-2 rounded-lg transition-colors ${
-                    showSettings ? 'bg-gray-100' : 'hover:bg-gray-100'
-                  }`}
+                <Link
+                  to="/settings?tab=notifications"
+                  className="p-2 rounded-lg transition-colors hover:bg-gray-100"
+                  title="הגדרות התראות"
                 >
                   <Settings className="w-5 h-5 text-gray-600" />
-                </button>
+                </Link>
               </>
             )}
           </div>
@@ -170,92 +162,6 @@ export default function NotificationsPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-8">
-        {/* Settings Panel */}
-        {showSettings && preferences && (
-          <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
-            <h2 className="font-semibold text-gray-800 mb-4">הגדרות התראות</h2>
-            
-            <div className="grid md:grid-cols-2 gap-6">
-              {/* Email Notifications */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-600 mb-3">התראות במייל</h3>
-                <div className="space-y-3">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={preferences.email_share_received}
-                      onChange={(e) => handlePreferenceChange('email_share_received', e.target.checked)}
-                      className="w-4 h-4 rounded text-primary-600"
-                    />
-                    <span className="text-sm text-gray-700">שיתוף בוט</span>
-                  </label>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={preferences.email_bot_errors}
-                      onChange={(e) => handlePreferenceChange('email_bot_errors', e.target.checked)}
-                      className="w-4 h-4 rounded text-primary-600"
-                    />
-                    <span className="text-sm text-gray-700">שגיאות בבוט</span>
-                  </label>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={preferences.email_quota_warnings}
-                      onChange={(e) => handlePreferenceChange('email_quota_warnings', e.target.checked)}
-                      className="w-4 h-4 rounded text-primary-600"
-                    />
-                    <span className="text-sm text-gray-700">אזהרות מכסה</span>
-                  </label>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={preferences.email_weekly_digest}
-                      onChange={(e) => handlePreferenceChange('email_weekly_digest', e.target.checked)}
-                      className="w-4 h-4 rounded text-primary-600"
-                    />
-                    <span className="text-sm text-gray-700">סיכום שבועי</span>
-                  </label>
-                </div>
-              </div>
-
-              {/* App Notifications */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-600 mb-3">התראות באפליקציה</h3>
-                <div className="space-y-3">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={preferences.app_share_received}
-                      onChange={(e) => handlePreferenceChange('app_share_received', e.target.checked)}
-                      className="w-4 h-4 rounded text-primary-600"
-                    />
-                    <span className="text-sm text-gray-700">שיתוף בוט</span>
-                  </label>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={preferences.app_bot_activity}
-                      onChange={(e) => handlePreferenceChange('app_bot_activity', e.target.checked)}
-                      className="w-4 h-4 rounded text-primary-600"
-                    />
-                    <span className="text-sm text-gray-700">פעילות בוט</span>
-                  </label>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={preferences.app_system_updates}
-                      onChange={(e) => handlePreferenceChange('app_system_updates', e.target.checked)}
-                      className="w-4 h-4 rounded text-primary-600"
-                    />
-                    <span className="text-sm text-gray-700">עדכוני מערכת</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Notifications List */}
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           {loading ? (

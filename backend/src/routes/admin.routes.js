@@ -64,15 +64,25 @@ router.put('/affiliate/terms', superadminMiddleware, promotionsController.update
 const { sendBroadcastNotification } = require('../services/usageAlerts.service');
 router.post('/notifications/broadcast', superadminMiddleware, async (req, res) => {
   try {
-    const { title, message, type } = req.body;
+    const { title, message, type, sendEmail, emailSubject } = req.body;
     
     if (!title || !message) {
       return res.status(400).json({ error: 'נדרש כותרת והודעה' });
     }
     
-    const count = await sendBroadcastNotification(title, message, type || 'system');
+    const result = await sendBroadcastNotification(
+      title, 
+      message, 
+      type || 'broadcast',
+      sendEmail || false,
+      emailSubject
+    );
     
-    res.json({ success: true, sentTo: count });
+    res.json({ 
+      success: true, 
+      sentTo: result.sentTo,
+      emailsSent: result.emailsSent || 0
+    });
   } catch (error) {
     console.error('[Admin] Broadcast notification error:', error);
     res.status(500).json({ error: 'שגיאה בשליחת התראה' });
