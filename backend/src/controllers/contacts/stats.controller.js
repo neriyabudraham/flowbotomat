@@ -38,15 +38,16 @@ async function getContactStats(req, res) {
     
     console.log(`[Stats] Contact ${contactId} - Message count: ${messagesResult.rows[0]?.message_count}`);
     
-    // Get bots that this contact interacted with (count messages from each bot)
+    // Get bots that this contact interacted with (through flows)
     const flowsResult = await db.query(`
       SELECT 
         b.name as bot_name,
         b.id as bot_id,
         COUNT(DISTINCT m.id) as interaction_count
       FROM messages m
-      JOIN bots b ON m.bot_id = b.id
-      WHERE m.contact_id = $1 AND m.direction = 'outgoing' AND m.bot_id IS NOT NULL
+      JOIN flows f ON m.flow_id = f.id
+      JOIN bots b ON f.bot_id = b.id
+      WHERE m.contact_id = $1 AND m.direction = 'outgoing' AND m.flow_id IS NOT NULL
       GROUP BY b.id, b.name
       ORDER BY interaction_count DESC
       LIMIT 5
