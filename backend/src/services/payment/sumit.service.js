@@ -394,11 +394,12 @@ async function chargeRecurring({
     if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
       return {
         success: true,
-        standingOrderId: response.data.Data?.StandingOrderID,
-        transactionId: response.data.Data?.TransactionID,
-        documentNumber: response.data.Data?.DocumentNumber,
-        documentURL: response.data.Data?.DocumentURL,
+        standingOrderId: response.data.Data?.RecurringCustomerItemIDs?.[0] || response.data.Data?.StandingOrderID,
+        transactionId: response.data.Data?.Payment?.ID || response.data.Data?.TransactionID,
+        documentNumber: response.data.Data?.DocumentID || response.data.Data?.DocumentNumber,
+        documentURL: response.data.Data?.DocumentDownloadURL || response.data.Data?.DocumentURL,
         nextChargeDate: response.data.Data?.NextChargeDate,
+        paymentId: response.data.Data?.Payment?.ID,
         data: response.data.Data,
       };
     } else {
