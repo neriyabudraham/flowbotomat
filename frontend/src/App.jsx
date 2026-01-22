@@ -30,7 +30,10 @@ function ReferralTracker() {
   useEffect(() => {
     const refCode = searchParams.get('ref');
     
+    console.log('[Referral] Checking for ref code:', refCode, 'on path:', location.pathname);
+    
     if (refCode) {
+      console.log('[Referral] Saving ref code to localStorage:', refCode);
       // Save to localStorage for persistence across pages
       localStorage.setItem('referral_code', refCode);
       localStorage.setItem('referral_landing', location.pathname);
@@ -41,7 +44,15 @@ function ReferralTracker() {
         ref_code: refCode,
         landing_page: location.pathname,
         referrer_url: document.referrer
-      }).catch(err => console.log('Referral tracking failed:', err));
+      }).then(() => {
+        console.log('[Referral] Click tracked successfully');
+      }).catch(err => console.log('[Referral] Tracking failed:', err));
+    } else {
+      // Check if we have a saved referral
+      const savedRef = localStorage.getItem('referral_code');
+      if (savedRef) {
+        console.log('[Referral] Found saved ref code:', savedRef);
+      }
     }
   }, [searchParams, location.pathname]);
   
