@@ -1,6 +1,7 @@
 import { io } from 'socket.io-client';
 
 let socket = null;
+let alertCallbacks = [];
 
 export function connectSocket(userId) {
   if (socket?.connected) return socket;
@@ -35,9 +36,16 @@ export function connectSocket(userId) {
     console.log('🔌 Received new_message event:', data);
   });
   
-  // Debug: listen for ALL events
-  socket.onAny((eventName, ...args) => {
-    console.log('🔌 Socket event received:', eventName, args);
+  // Handle system alerts - call all registered callbacks
+  socket.on('system_alert', (data) => {
+    console.log('📢 System alert received, notifying', alertCallbacks.length, 'listeners');
+    alertCallbacks.forEach(cb => cb(data));
+  });
+  
+  // Handle system update
+  socket.on('system_update', (data) => {
+    console.log('🔄 System update received, notifying', alertCallbacks.length, 'listeners');
+    alertCallbacks.forEach(cb => cb({ ...data, isUpdate: true }));
   });
   
   return socket;
@@ -51,9 +59,22 @@ export function isSocketConnected() {
   return socket?.connected || false;
 }
 
+// Register callback for alerts
+export function onSystemAlert(callback) {
+  alertCallbacks.push(callback);
+  console.log('📢 Alert listener registered, total:', alertCallbacks.length);
+  
+  // Return unsubscribe function
+  return () => {
+    alertCallbacks = alertCallbacks.filter(cb => cb !== callback);
+    console.log('📢 Alert listener removed, total:', alertCallbacks.length);
+  };
+}
+
 export function disconnectSocket() {
   if (socket) {
     socket.disconnect();
     socket = null;
   }
+  alertCallbacks = [];
 }

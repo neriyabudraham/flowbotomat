@@ -1,69 +1,44 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { AlertTriangle, Info, RefreshCw, X, Bell, CheckCircle, XCircle } from 'lucide-react';
-import { getSocket } from '../../services/socket';
+import { onSystemAlert } from '../../services/socket';
 
 export default function SystemAlertOverlay() {
   const [centerAlert, setCenterAlert] = useState(null); // Full-screen center alert
   const [updateCountdown, setUpdateCountdown] = useState(null);
-  const [socketConnected, setSocketConnected] = useState(false);
-
-  // Listen for system alerts - show in CENTER of screen
-  const handleSystemAlert = useCallback((data) => {
-    console.log('📢 System alert received:', data);
-    setCenterAlert({
-      ...data,
-      id: Date.now()
-    });
-    
-    // Auto dismiss after 15 seconds if enabled
-    if (data.autoDismiss) {
-      setTimeout(() => {
-        setCenterAlert(null);
-      }, 15000);
-    }
-  }, []);
-
-  // Listen for system update notification
-  const handleSystemUpdate = useCallback((data) => {
-    console.log('🔄 System update notification:', data);
-    setUpdateCountdown(data.countdown || 10);
-  }, []);
 
   useEffect(() => {
-    // Check for socket periodically until connected
-    const checkSocket = () => {
-      const socket = getSocket();
-      if (socket?.connected && !socketConnected) {
-        console.log('🔌 SystemAlertOverlay: Socket connected, attaching listeners');
-        setSocketConnected(true);
-        
-        socket.on('system_alert', handleSystemAlert);
-        socket.on('system_update', handleSystemUpdate);
-        
-        return true;
-      }
-      return false;
-    };
+    console.log('📢 SystemAlertOverlay: Registering alert listener');
     
-    // Initial check
-    if (checkSocket()) return;
-    
-    // Keep checking until connected
-    const interval = setInterval(() => {
-      if (checkSocket()) {
-        clearInterval(interval);
+    // Register callback for all alerts
+    const unsubscribe = onSystemAlert((data) => {
+      console.log('📢 SystemAlertOverlay: Received alert!', data);
+      
+      if (data.isUpdate) {
+        // System update notification
+        console.log('🔄 Setting update countdown:', data.countdown);
+        setUpdateCountdown(data.countdown || 10);
+      } else {
+        // Regular alert - show in center
+        console.log('📢 Setting center alert:', data.title);
+        setCenterAlert({
+          ...data,
+          id: Date.now()
+        });
+        
+        // Auto dismiss after 15 seconds if enabled
+        if (data.autoDismiss) {
+          setTimeout(() => {
+            setCenterAlert(null);
+          }, 15000);
+        }
       }
-    }, 1000);
+    });
     
     return () => {
-      clearInterval(interval);
-      const socket = getSocket();
-      if (socket) {
-        socket.off('system_alert', handleSystemAlert);
-        socket.off('system_update', handleSystemUpdate);
-      }
+      console.log('📢 SystemAlertOverlay: Unregistering alert listener');
+      unsubscribe();
     };
-  }, [handleSystemAlert, handleSystemUpdate, socketConnected]);
+  }, []);
 
   // Countdown timer for system update
   useEffect(() => {
