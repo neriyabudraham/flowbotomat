@@ -2,33 +2,38 @@ const db = require('../../config/database');
 const sumitService = require('../../services/payment/sumit.service');
 
 /**
- * Save payment method using SingleUseToken from frontend
+ * Save payment method
+ * 
+ * Supports two flows:
+ * 1. Frontend tokenization: singleUseToken provided from Sumit JS API
+ * 2. Backend tokenization: cardNumber + cvv provided for server-side tokenization
  * 
  * Flow:
- * 1. Frontend gets SingleUseToken via Sumit JS API (short-term token)
- * 2. Frontend IMMEDIATELY sends it to this endpoint
- * 3. Backend calls setPaymentMethodForCustomer to convert to permanent storage
- * 4. Sumit stores the card and returns CustomerID + PaymentMethodID
- * 5. We save these IDs in our database for future charges
+ * 1. Get token (from frontend or create via backend)
+ * 2. Call setPaymentMethodForCustomer to convert to permanent storage
+ * 3. Sumit stores the card and returns CustomerID + PaymentMethodID
+ * 4. Save these IDs in our database for future charges
  */
 async function savePaymentMethod(req, res) {
   try {
     const userId = req.user.id;
     const { 
-      singleUseToken,      // REQUIRED: Short-term token from Sumit JS API
+      singleUseToken,      // Short-term token from Sumit JS API (optional if cardNumber provided)
+      cardNumber,          // Card number for backend tokenization (optional if token provided)
+      cvv,                 // CVV for backend tokenization
       cardHolderName,      // Card holder name
       citizenId,           // Israeli ID
       companyNumber,       // Company number (optional)
       lastDigits,          // Last 4 digits for display
-      expiryMonth,         // For display only
-      expiryYear,          // For display only
+      expiryMonth,         // Expiry month
+      expiryYear,          // Expiry year
     } = req.body;
     
-    // Validate required fields
-    if (!singleUseToken) {
+    // Need either token or card details
+    if (!singleUseToken && !cardNumber) {
       return res.status(400).json({ 
-        error: 'נדרש טוקן אשראי. אנא רענן את הדף ונסה שנית.',
-        code: 'MISSING_TOKEN'
+        error: 'נדרשים פרטי כרטיס אשראי',
+        code: 'MISSING_CARD_DATA'
       });
     }
     
@@ -61,20 +66,61 @@ async function savePaymentMethod(req, res) {
       existingSumitCustomerId = existingMethod.rows[0].sumit_customer_id;
     }
     
-    console.log(`[Payment] Saving payment method for user ${userId}, existing Sumit customer: ${existingSumitCustomerId || 'none'}`);
-    
-    // Call Sumit to save the payment method
-    // This MUST happen immediately - the token expires quickly!
-    const sumitResult = await sumitService.setPaymentMethodForCustomer({
-      customerId: existingSumitCustomerId,
-      singleUseToken: singleUseToken,
-      customerInfo: {
+    // If no existing customer, create one first
+    if (!existingSumitCustomerId) {
+      console.log(`[Payment] Creating new Sumit customer for user ${userId}`);
+      const customerResult = await sumitService.createCustomer({
         name: cardHolderName || user.name || user.email,
         email: user.email,
+        citizenId: citizenId,
         companyNumber: companyNumber,
         externalId: `user_${userId}`,
+      });
+      
+      if (customerResult.success) {
+        existingSumitCustomerId = customerResult.customerId;
+        console.log(`[Payment] Created Sumit customer: ${existingSumitCustomerId}`);
+      } else {
+        console.error('[Payment] Failed to create Sumit customer:', customerResult.error);
+        // Continue anyway - setPaymentMethodForCustomer can create customer
       }
-    });
+    }
+    
+    console.log(`[Payment] Saving payment method for user ${userId}, Sumit customer: ${existingSumitCustomerId || 'will create'}`);
+    
+    let sumitResult;
+    
+    if (singleUseToken) {
+      // Use frontend token
+      console.log('[Payment] Using frontend SingleUseToken');
+      sumitResult = await sumitService.setPaymentMethodForCustomer({
+        customerId: existingSumitCustomerId,
+        singleUseToken: singleUseToken,
+        customerInfo: {
+          name: cardHolderName || user.name || user.email,
+          email: user.email,
+          companyNumber: companyNumber,
+          externalId: `user_${userId}`,
+        }
+      });
+    } else {
+      // Backend tokenization with card details
+      console.log('[Payment] Using backend tokenization with card details');
+      sumitResult = await sumitService.setPaymentMethodWithCard({
+        customerId: existingSumitCustomerId,
+        cardNumber: cardNumber,
+        expiryMonth: expiryMonth,
+        expiryYear: expiryYear,
+        cvv: cvv,
+        citizenId: citizenId,
+        customerInfo: {
+          name: cardHolderName || user.name || user.email,
+          email: user.email,
+          companyNumber: companyNumber,
+          externalId: `user_${userId}`,
+        }
+      });
+    }
     
     if (!sumitResult.success) {
       console.error('[Payment] Sumit setPaymentMethod failed:', sumitResult.error);

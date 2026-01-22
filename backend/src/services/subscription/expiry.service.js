@@ -74,12 +74,17 @@ async function handleExpiredSubscriptions() {
         }
         
         // No payment method OR cancelled subscription - expire and disconnect
-        console.log(`[Subscription Expiry] User ${sub.user_id} - expiring and disconnecting...`);
+        console.log(`[Subscription Expiry] User ${sub.user_id} - expiring and downgrading to free...`);
         
-        // Mark subscription as expired
+        // Mark subscription as expired AND clear all end dates
+        // This moves user to "free" tier with no subscription
         await db.query(`
           UPDATE user_subscriptions 
-          SET status = 'expired', updated_at = NOW()
+          SET status = 'expired', 
+              expires_at = NULL,
+              trial_ends_at = NULL,
+              next_charge_date = NULL,
+              updated_at = NOW()
           WHERE user_id = $1 AND id = $2
         `, [sub.user_id, sub.id]);
         
@@ -111,14 +116,25 @@ async function handleExpiredSubscriptions() {
           `, [sub.connection_id]);
         }
         
-        // Deactivate all bots
+        // IMPORTANT: Deactivate ALL bots - user will need to choose ONE to keep
+        // Mark them with a special flag so frontend knows to show selection UI
         await db.query(`
           UPDATE bots 
-          SET is_active = false, updated_at = NOW()
+          SET is_active = false, 
+              pending_deletion = true,
+              updated_at = NOW()
           WHERE user_id = $1
         `, [sub.user_id]);
         
-        console.log(`[Subscription Expiry] ✅ Expired and disconnected user ${sub.user_id}`);
+        // Create notification about downgrade
+        await db.query(`
+          INSERT INTO notifications (user_id, notification_type, title, message, metadata)
+          VALUES ($1, 'subscription_expired', 'המנוי שלך הסתיים', 
+                  'הבוטים שלך הושבתו. יש לך בוט אחד חינמי - בחר איזה בוט תרצה להשאיר.',
+                  $2)
+        `, [sub.user_id, JSON.stringify({ action: 'select_bot_to_keep' })]);
+        
+        console.log(`[Subscription Expiry] ✅ Expired and downgraded user ${sub.user_id} - all bots disabled, pending selection`);
         
       } catch (userError) {
         console.error(`[Subscription Expiry] Error processing user ${sub.user_id}:`, userError.message);

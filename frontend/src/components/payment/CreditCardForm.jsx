@@ -26,16 +26,15 @@ export default function CreditCardForm({
   });
   const [loading, setLoading] = useState(false);
   const [sdkLoaded, setSdkLoaded] = useState(false);
-  const [sdkError, setSdkError] = useState(false);
   const [error, setError] = useState('');
 
-  // Load Sumit SDK on component mount
+  // Try to load Sumit SDK on component mount
   useEffect(() => {
     loadSumitSDK();
   }, []);
 
   /**
-   * Load the Sumit tokenization SDK
+   * Load the Sumit tokenization SDK (optional - we have backend fallback)
    */
   const loadSumitSDK = useCallback(() => {
     // Check if already loaded
@@ -45,18 +44,16 @@ export default function CreditCardForm({
       return;
     }
 
+    // Check if public key is configured
+    if (!SUMIT_PUBLIC_KEY) {
+      console.log('[Sumit] No public key configured, will use backend tokenization');
+      return;
+    }
+
     // Check if script is already in DOM
     const existingScript = document.querySelector(`script[src="${SUMIT_SDK_URL}"]`);
     if (existingScript) {
-      // Wait for it to load
-      existingScript.onload = () => {
-        console.log('[Sumit] SDK loaded (existing script)');
-        setSdkLoaded(true);
-      };
-      existingScript.onerror = () => {
-        console.error('[Sumit] SDK failed to load (existing script)');
-        setSdkError(true);
-      };
+      existingScript.onload = () => setSdkLoaded(true);
       return;
     }
 
@@ -71,8 +68,8 @@ export default function CreditCardForm({
     };
     
     script.onerror = () => {
-      console.error('[Sumit] Failed to load SDK');
-      setSdkError(true);
+      console.log('[Sumit] SDK failed to load, will use backend tokenization');
+      // Don't set error - we have fallback
     };
     
     document.head.appendChild(script);
@@ -100,22 +97,16 @@ export default function CreditCardForm({
   };
 
   /**
-   * Get SingleUseToken from Sumit SDK
-   * This token is only valid for a few minutes!
+   * Get SingleUseToken from Sumit SDK (if available)
    */
   const getSumitToken = async (cardData) => {
     return new Promise((resolve, reject) => {
-      if (typeof window.SumitTokenize === 'undefined') {
-        reject(new Error('Sumit SDK not loaded'));
+      if (typeof window.SumitTokenize === 'undefined' || !SUMIT_PUBLIC_KEY) {
+        resolve(null); // Will use backend fallback
         return;
       }
 
-      if (!SUMIT_PUBLIC_KEY) {
-        reject(new Error('Sumit public key not configured'));
-        return;
-      }
-
-      console.log('[Sumit] Requesting tokenization...');
+      console.log('[Sumit] Requesting frontend tokenization...');
 
       window.SumitTokenize({
         PublicKey: SUMIT_PUBLIC_KEY,
@@ -136,19 +127,9 @@ export default function CreditCardForm({
               last4: cardData.cardNumber.slice(-4),
             });
           } else {
-            // Parse error message
-            let errorMsg = response.UserErrorMessage || 'שגיאה באימות הכרטיס';
-            
-            // Common error translations
-            if (errorMsg.includes('declined')) {
-              errorMsg = 'הכרטיס נדחה. אנא בדוק את הפרטים.';
-            } else if (errorMsg.includes('invalid')) {
-              errorMsg = 'פרטי כרטיס לא תקינים.';
-            } else if (errorMsg.includes('expired')) {
-              errorMsg = 'פג תוקף הכרטיס.';
-            }
-            
-            reject(new Error(errorMsg));
+            // Log error but don't reject - try backend fallback
+            console.log('[Sumit] Frontend tokenization failed:', response.UserErrorMessage);
+            resolve(null);
           }
         }
       });
@@ -201,25 +182,15 @@ export default function CreditCardForm({
       setError('תעודת זהות לא תקינה');
       return;
     }
-
-    // Check SDK is loaded
-    if (!sdkLoaded) {
-      if (sdkError) {
-        setError('שגיאה בטעינת מערכת התשלומים. אנא רענן את הדף.');
-      } else {
-        setError('מערכת התשלומים נטענת. אנא המתן מספר שניות ונסה שנית.');
-      }
-      return;
-    }
     
     setLoading(true);
     
     try {
-      // Step 1: Get short-term token from Sumit SDK
-      console.log('[Payment] Step 1: Getting Sumit token...');
+      // Try frontend tokenization first (if SDK available)
+      let tokenData = null;
       
-      let tokenData;
-      try {
+      if (sdkLoaded && SUMIT_PUBLIC_KEY) {
+        console.log('[Payment] Trying frontend tokenization...');
         tokenData = await getSumitToken({
           cardNumber: cardNum,
           expiryMonth: parseInt(form.expiryMonth),
@@ -227,31 +198,28 @@ export default function CreditCardForm({
           cvv: form.cvv,
           citizenId: form.citizenId,
         });
-      } catch (tokenError) {
-        console.error('[Payment] Tokenization failed:', tokenError.message);
-        setError(tokenError.message || 'שגיאה באימות הכרטיס. אנא בדוק את הפרטים.');
-        setLoading(false);
-        return;
       }
 
-      if (!tokenData?.token) {
-        setError('לא התקבל טוקן אשראי. אנא נסה שנית.');
-        setLoading(false);
-        return;
-      }
-
-      console.log('[Payment] Step 2: Sending token to backend...');
-      
-      // Step 2: Send token IMMEDIATELY to backend (token expires quickly!)
+      // Build request - include card details for backend tokenization if no frontend token
       const requestData = {
-        singleUseToken: tokenData.token,
         cardHolderName: form.cardHolderName.trim(),
         citizenId: form.citizenId || null,
         companyNumber: form.companyNumber || null,
-        lastDigits: tokenData.last4 || cardNum.slice(-4),
         expiryMonth: parseInt(form.expiryMonth),
         expiryYear: parseInt(form.expiryYear),
+        lastDigits: cardNum.slice(-4),
       };
+
+      if (tokenData?.token) {
+        // Frontend token available
+        console.log('[Payment] Using frontend token');
+        requestData.singleUseToken = tokenData.token;
+      } else {
+        // No frontend token - send card details for backend tokenization
+        console.log('[Payment] Using backend tokenization');
+        requestData.cardNumber = cardNum;
+        requestData.cvv = form.cvv;
+      }
       
       const { data } = await api.post('/payment/methods', requestData);
       
@@ -266,14 +234,6 @@ export default function CreditCardForm({
       
       // Parse error message
       let errorMsg = err.response?.data?.error || err.message || 'שגיאה בשמירת פרטי התשלום';
-      
-      // Handle specific error codes
-      if (err.response?.data?.code === 'MISSING_TOKEN') {
-        errorMsg = 'נדרש לרענן את הדף ולנסות שנית.';
-      } else if (err.response?.data?.code === 'SUMIT_ERROR') {
-        // Already translated by backend
-      }
-      
       setError(errorMsg);
     } finally {
       setLoading(false);
@@ -294,25 +254,6 @@ export default function CreditCardForm({
           <p className="text-xs text-green-600 mt-1">{description}</p>
         </div>
       </div>
-
-      {/* SDK Loading Warning */}
-      {!sdkLoaded && !sdkError && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-3">
-          <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
-          <p className="text-sm text-blue-700">טוען מערכת תשלומים מאובטחת...</p>
-        </div>
-      )}
-
-      {/* SDK Error Warning */}
-      {sdkError && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
-          <div>
-            <p className="text-sm text-amber-800 font-medium">שגיאה בטעינת מערכת התשלומים</p>
-            <p className="text-xs text-amber-600 mt-1">אנא רענן את הדף ונסה שנית.</p>
-          </div>
-        </div>
-      )}
 
       {/* Card Number */}
       <div>
@@ -468,7 +409,7 @@ export default function CreditCardForm({
         )}
         <Button 
           type="submit" 
-          disabled={loading || !sdkLoaded || sdkError} 
+          disabled={loading} 
           className="flex-1"
         >
           {loading ? (

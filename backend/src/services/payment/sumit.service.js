@@ -539,9 +539,132 @@ async function getCustomerPaymentMethods(customerId) {
   }
 }
 
+/**
+ * Set payment method for customer using card details directly
+ * This is a backend-only tokenization flow when frontend SDK is not available
+ * 
+ * @param {object} params - Parameters
+ * @param {number} params.customerId - Sumit customer ID (optional - will create new if not provided)
+ * @param {string} params.cardNumber - Full card number
+ * @param {number} params.expiryMonth - Expiry month
+ * @param {number} params.expiryYear - Expiry year
+ * @param {string} params.cvv - CVV
+ * @param {string} params.citizenId - Israeli citizen ID
+ * @param {object} params.customerInfo - Customer details
+ * @returns {Promise<{success: boolean, customerId?: number, paymentMethodId?: number, last4Digits?: string, error?: string}>}
+ */
+async function setPaymentMethodWithCard({ 
+  customerId, 
+  cardNumber, 
+  expiryMonth, 
+  expiryYear, 
+  cvv, 
+  citizenId,
+  customerInfo 
+}) {
+  const credentials = getCredentials();
+  
+  try {
+    validateCredentials(credentials);
+    
+    if (!cardNumber) {
+      return {
+        success: false,
+        error: 'נדרש מספר כרטיס אשראי',
+      };
+    }
+    
+    // Build request body with card details directly
+    const requestBody = {
+      Credentials: {
+        CompanyID: credentials.CompanyID,
+        APIKey: credentials.APIKey,
+      },
+      Customer: customerId ? {
+        ID: customerId,
+        SearchMode: 0,
+      } : {
+        Name: customerInfo?.name || 'לקוח',
+        Phone: customerInfo?.phone || null,
+        EmailAddress: customerInfo?.email || null,
+        CompanyNumber: customerInfo?.companyNumber || null,
+        ExternalIdentifier: customerInfo?.externalId || null,
+        SearchMode: 0,
+      },
+      PaymentMethod: {
+        CreditCard_Number: cardNumber.replace(/\s/g, ''),
+        CreditCard_ExpirationMonth: parseInt(expiryMonth),
+        CreditCard_ExpirationYear: parseInt(expiryYear),
+        CreditCard_CVV: cvv,
+        CreditCard_CitizenID: citizenId || null,
+        Type: 1, // Credit card
+      },
+      SingleUseToken: null,
+    };
+    
+    console.log('[Sumit] Setting payment method with card for customer:', customerId || 'new customer');
+    
+    const response = await axios.post(
+      `${SUMIT_BASE_URL}/billing/paymentmethods/setforcustomer/`,
+      requestBody,
+      {
+        headers: {
+          'Content-Type': 'application/json-patch+json',
+          'accept': 'text/plain',
+        },
+        timeout: 30000,
+      }
+    );
+    
+    console.log('[Sumit] Set payment method (card) response:', JSON.stringify(response.data, null, 2));
+    
+    if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
+      return {
+        success: true,
+        customerId: response.data.Data?.CustomerID || customerId,
+        paymentMethodId: response.data.Data?.PaymentMethodID,
+        last4Digits: cardNumber?.slice(-4) || response.data.Data?.Last4Digits,
+        expiryMonth: expiryMonth,
+        expiryYear: expiryYear,
+        data: response.data.Data,
+      };
+    } else {
+      let userError = response.data.UserErrorMessage || 'שמירת כרטיס אשראי נכשלה';
+      
+      // Parse common errors
+      const techError = response.data.TechnicalErrorDetails || '';
+      if (techError.includes('declined')) {
+        userError = 'הכרטיס נדחה. אנא בדוק את הפרטים.';
+      } else if (techError.includes('invalid')) {
+        userError = 'פרטי כרטיס לא תקינים.';
+      } else if (techError.includes('expired')) {
+        userError = 'פג תוקף הכרטיס.';
+      }
+      
+      return {
+        success: false,
+        error: userError,
+        technicalError: response.data.TechnicalErrorDetails,
+        status: response.data.Status,
+      };
+    }
+  } catch (error) {
+    console.error('[Sumit] Set payment method (card) error:', error.message);
+    if (error.response) {
+      console.error('[Sumit] Response status:', error.response.status);
+      console.error('[Sumit] Response data:', error.response.data);
+    }
+    return {
+      success: false,
+      error: 'שגיאה בשמירת כרטיס האשראי. אנא נסה שנית.',
+    };
+  }
+}
+
 module.exports = {
   createCustomer,
   setPaymentMethodForCustomer,
+  setPaymentMethodWithCard,
   chargeOneTime,
   chargeRecurring,
   cancelRecurring,

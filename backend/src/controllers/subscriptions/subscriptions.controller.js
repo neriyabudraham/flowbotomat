@@ -7,6 +7,7 @@ async function getMySubscription(req, res) {
   try {
     const userId = req.user.id;
     
+    // Get subscription including cancelled with future end date
     const result = await db.query(`
       SELECT 
         us.*,
@@ -23,7 +24,14 @@ async function getMySubscription(req, res) {
         sp.priority_support
       FROM user_subscriptions us
       JOIN subscription_plans sp ON us.plan_id = sp.id
-      WHERE us.user_id = $1 AND us.status IN ('active', 'trial')
+      WHERE us.user_id = $1 
+      AND (
+        us.status IN ('active', 'trial')
+        OR (us.status = 'cancelled' AND (
+          (us.expires_at IS NOT NULL AND us.expires_at > NOW())
+          OR (us.trial_ends_at IS NOT NULL AND us.trial_ends_at > NOW())
+        ))
+      )
     `, [userId]);
     
     // If no subscription, return free plan limits
@@ -78,12 +86,19 @@ async function getMyUsage(req, res) {
       `, [userId, year, month]);
     }
     
-    // Get subscription limits
+    // Get subscription limits (including cancelled with future end date)
     const subResult = await db.query(`
       SELECT sp.max_bot_runs_per_month, sp.max_contacts, sp.max_bots
       FROM user_subscriptions us
       JOIN subscription_plans sp ON us.plan_id = sp.id
-      WHERE us.user_id = $1 AND us.status = 'active'
+      WHERE us.user_id = $1 
+      AND (
+        us.status IN ('active', 'trial')
+        OR (us.status = 'cancelled' AND (
+          (us.expires_at IS NOT NULL AND us.expires_at > NOW())
+          OR (us.trial_ends_at IS NOT NULL AND us.trial_ends_at > NOW())
+        ))
+      )
     `, [userId]);
     
     // Default to free plan limits if no subscription
@@ -286,12 +301,20 @@ async function checkLimit(userId, limitType) {
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
   
-  // Get subscription limits (active or trial)
+  // Get subscription limits
+  // Include: active, trial, AND cancelled with future end date
   const subResult = await db.query(`
-    SELECT sp.*
+    SELECT sp.*, us.status as sub_status, us.expires_at, us.trial_ends_at
     FROM user_subscriptions us
     JOIN subscription_plans sp ON us.plan_id = sp.id
-    WHERE us.user_id = $1 AND us.status IN ('active', 'trial')
+    WHERE us.user_id = $1 
+    AND (
+      us.status IN ('active', 'trial')
+      OR (us.status = 'cancelled' AND (
+        (us.expires_at IS NOT NULL AND us.expires_at > NOW())
+        OR (us.trial_ends_at IS NOT NULL AND us.trial_ends_at > NOW())
+      ))
+    )
   `, [userId]);
   
   // Default to free plan
