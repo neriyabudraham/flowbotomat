@@ -59,7 +59,7 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, logout, fetchMe } = useAuthStore();
-  const [profile, setProfile] = useState({ name: '', language: 'he' });
+  const [profile, setProfile] = useState({ name: '', language: 'he', avatar_url: null, google_id: null, has_password: true });
   const [passwords, setPasswords] = useState({ current: '', new: '', confirm: '' });
   const [message, setMessage] = useState({ type: '', text: '' });
   const [isLoading, setIsLoading] = useState(false);
@@ -96,7 +96,13 @@ export default function SettingsPage() {
   const loadProfile = async () => {
     try {
       const { data } = await api.get('/user/profile');
-      setProfile({ name: data.profile.name || '', language: data.profile.language || 'he' });
+      setProfile({ 
+            name: data.profile.name || '', 
+            language: data.profile.language || 'he',
+            avatar_url: data.profile.avatar_url || null,
+            google_id: data.profile.google_id || null,
+            has_password: data.profile.has_password !== false
+          });
     } catch (err) {
       console.error(err);
     }
