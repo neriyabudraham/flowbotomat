@@ -7,6 +7,7 @@ const promotionsController = require('../controllers/admin/promotions.controller
 // Public routes (no auth required)
 router.get('/promotions/active', promotionsController.getActivePromotions);
 router.post('/affiliate/track-click', promotionsController.trackClick);
+router.get('/affiliate/terms', promotionsController.getAffiliateTerms);
 
 // Routes that require authentication
 router.use(authMiddleware);
@@ -36,5 +37,6 @@ router.post('/coupon/validate', promotionsController.validateCoupon);
 // Affiliate system (user)
 router.get('/affiliate/my', promotionsController.getMyAffiliate);
 router.post('/affiliate/payout', promotionsController.requestPayout);
+router.post('/affiliate/redeem', promotionsController.redeemCredits);
 
 module.exports = router;

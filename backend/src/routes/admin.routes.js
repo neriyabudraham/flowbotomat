@@ -57,5 +57,7 @@ router.get('/affiliate/settings', promotionsController.getAffiliateSettings);
 router.put('/affiliate/settings', superadminMiddleware, promotionsController.updateAffiliateSettings);
 router.get('/affiliate/stats', promotionsController.getAffiliateStats);
 router.post('/affiliate/payouts/:payoutId/process', superadminMiddleware, promotionsController.processPayoutRequest);
+router.get('/affiliate/terms', promotionsController.getAffiliateTerms);
+router.put('/affiliate/terms', superadminMiddleware, promotionsController.updateAffiliateTerms);
 
 module.exports = router;

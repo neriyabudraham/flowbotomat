@@ -383,6 +383,42 @@ async function getAffiliateSettings(req, res) {
   }
 }
 
+async function getAffiliateTerms(req, res) {
+  try {
+    const result = await db.query('SELECT content FROM affiliate_terms ORDER BY updated_at DESC LIMIT 1');
+    res.json({ content: result.rows[0]?.content || '' });
+  } catch (error) {
+    console.error('[Affiliate] Get terms error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת תנאים' });
+  }
+}
+
+async function updateAffiliateTerms(req, res) {
+  try {
+    const { content } = req.body;
+    const userId = req.user.id;
+    
+    // Check if terms exist
+    const existing = await db.query('SELECT id FROM affiliate_terms LIMIT 1');
+    
+    if (existing.rows.length > 0) {
+      await db.query(`
+        UPDATE affiliate_terms SET content = $1, updated_at = NOW(), updated_by = $2
+        WHERE id = $3
+      `, [content, userId, existing.rows[0].id]);
+    } else {
+      await db.query(`
+        INSERT INTO affiliate_terms (content, updated_by) VALUES ($1, $2)
+      `, [content, userId]);
+    }
+    
+    res.json({ success: true, message: 'תנאי התוכנית עודכנו' });
+  } catch (error) {
+    console.error('[Affiliate] Update terms error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון תנאים' });
+  }
+}
+
 async function updateAffiliateSettings(req, res) {
   try {
     const {
@@ -554,7 +590,7 @@ async function getMyAffiliate(req, res) {
       settings: settings.rows[0],
       referrals: referrals.rows,
       payouts: payouts.rows,
-      shareLink: `${process.env.FRONTEND_URL || 'https://app.flowbotomat.com'}?ref=${affiliate.rows[0].ref_code}`
+      shareLink: `${process.env.FRONTEND_URL || 'https://flow.botomat.co.il'}?ref=${affiliate.rows[0].ref_code}`
     });
   } catch (error) {
     console.error('[Affiliate] Get my affiliate error:', error);
@@ -611,6 +647,63 @@ async function requestPayout(req, res) {
   } catch (error) {
     console.error('[Affiliate] Request payout error:', error);
     res.status(500).json({ error: 'שגיאה בשליחת בקשה' });
+  }
+}
+
+// Redeem affiliate credits as discount on next payment
+async function redeemCredits(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    const affiliate = await db.query('SELECT * FROM affiliates WHERE user_id = $1', [userId]);
+    if (affiliate.rows.length === 0) {
+      return res.status(400).json({ error: 'לא נמצא חשבון שותפים' });
+    }
+    
+    const aff = affiliate.rows[0];
+    const settings = await db.query('SELECT * FROM affiliate_settings LIMIT 1');
+    const minRedeem = parseFloat(settings.rows[0]?.min_payout_amount || 100);
+    const balance = parseFloat(aff.available_balance);
+    
+    if (balance < minRedeem) {
+      return res.status(400).json({ 
+        error: `נדרש מינימום ${minRedeem} נקודות למימוש. יש לך ${balance} נקודות`,
+        current: balance,
+        required: minRedeem
+      });
+    }
+    
+    // Add credit to user account
+    await db.query(`
+      UPDATE users SET
+        affiliate_credit = COALESCE(affiliate_credit, 0) + $1,
+        updated_at = NOW()
+      WHERE id = $2
+    `, [balance, userId]);
+    
+    // Record redemption
+    await db.query(`
+      INSERT INTO affiliate_payouts (affiliate_id, amount, payout_method, status, processed_at)
+      VALUES ($1, $2, 'credit', 'paid', NOW())
+    `, [aff.id, balance]);
+    
+    // Update affiliate balance
+    await db.query(`
+      UPDATE affiliates SET
+        available_balance = 0,
+        total_paid_out = total_paid_out + $1,
+        updated_at = NOW()
+      WHERE id = $2
+    `, [balance, aff.id]);
+    
+    res.json({ 
+      success: true, 
+      message: `מעולה! ${balance} נקודות (₪${balance}) נוספו לחשבונך כזיכוי. הסכום יקוזז מהתשלום הבא שלך.`,
+      credited: balance
+    });
+  } catch (error) {
+    console.error('[Affiliate] Redeem credits error:', error);
+    res.status(500).json({ error: 'שגיאה במימוש נקודות' });
   }
 }
 
@@ -779,9 +872,12 @@ module.exports = {
   updateAffiliateSettings,
   getAffiliateStats,
   processPayoutRequest,
+  getAffiliateTerms,
+  updateAffiliateTerms,
   // Affiliate User
   getMyAffiliate,
   requestPayout,
+  redeemCredits,
   trackClick,
   registerReferral,
   completeConversion

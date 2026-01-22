@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { 
   Share2, Copy, Check, Users, DollarSign, TrendingUp, 
-  Clock, Gift, ExternalLink, CreditCard, Eye, MousePointer
+  Clock, Gift, ExternalLink, CreditCard, Eye, MousePointer,
+  FileText, Coins
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -9,7 +11,7 @@ export default function AffiliatePanel() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
-  const [requesting, setRequesting] = useState(false);
+  const [redeeming, setRedeeming] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -32,20 +34,18 @@ export default function AffiliatePanel() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleRequestPayout = async () => {
-    if (!confirm('לבקש משיכת הכסף הזמין?')) return;
+  const handleRedeem = async () => {
+    if (!confirm('לממש את הנקודות שצברת? הסכום יופחת מהתשלום הבא שלך.')) return;
     
-    setRequesting(true);
+    setRedeeming(true);
     try {
-      const res = await api.post('/payment/affiliate/payout', {
-        payout_method: 'credit' // Could add UI for bank details
-      });
+      const res = await api.post('/payment/affiliate/redeem');
       alert(res.data.message);
       loadData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בבקשה');
+      alert(err.response?.data?.error || 'שגיאה במימוש');
     } finally {
-      setRequesting(false);
+      setRedeeming(false);
     }
   };
 
@@ -66,20 +66,29 @@ export default function AffiliatePanel() {
 
   const affiliate = data.affiliate;
   const settings = data.settings;
-  const canPayout = parseFloat(affiliate?.available_balance || 0) >= parseFloat(settings?.min_payout_amount || 100);
+  const canRedeem = parseFloat(affiliate?.available_balance || 0) >= parseFloat(settings?.min_payout_amount || 100);
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
       {/* Header */}
       <div className="bg-gradient-to-r from-green-500 to-emerald-600 p-6 text-white">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="p-2 bg-white/20 rounded-xl">
-            <Share2 className="w-6 h-6" />
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-white/20 rounded-xl">
+              <Share2 className="w-6 h-6" />
+            </div>
+            <h2 className="text-xl font-bold">תוכנית שותפים</h2>
           </div>
-          <h2 className="text-xl font-bold">תוכנית שותפים</h2>
+          <Link 
+            to="/affiliate-terms" 
+            className="flex items-center gap-1 text-white/80 hover:text-white text-sm transition-colors"
+          >
+            <FileText className="w-4 h-4" />
+            תנאי התוכנית
+          </Link>
         </div>
         <p className="text-green-100 text-sm">
-          שתף את הלינק שלך וקבל ₪{settings?.commission_amount || 20} על כל מנוי שמגיע דרכך!
+          שתף את הלינק שלך וקבל {settings?.commission_amount || 20} נקודות למימוש על כל מנוי שמגיע דרכך!
         </p>
       </div>
 
@@ -137,29 +146,35 @@ export default function AffiliatePanel() {
         />
       </div>
 
-      {/* Balance & Payout */}
+      {/* Balance & Redeem */}
       <div className="p-6 bg-gradient-to-r from-amber-50 to-orange-50 border-t border-amber-100">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-sm text-amber-700 mb-1">זמין למשיכה</div>
-            <div className="text-3xl font-bold text-amber-800">₪{affiliate?.available_balance || 0}</div>
+            <div className="text-sm text-amber-700 mb-1 flex items-center gap-1">
+              <Coins className="w-4 h-4" />
+              נקודות למימוש
+            </div>
+            <div className="text-3xl font-bold text-amber-800">{affiliate?.available_balance || 0}</div>
             <div className="text-xs text-amber-600 mt-1">
-              מינימום למשיכה: ₪{settings?.min_payout_amount || 100}
+              מינימום למימוש: {settings?.min_payout_amount || 100} נקודות (= ₪{settings?.min_payout_amount || 100})
             </div>
           </div>
           <button
-            onClick={handleRequestPayout}
-            disabled={!canPayout || requesting}
+            onClick={handleRedeem}
+            disabled={!canRedeem || redeeming}
             className={`px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all ${
-              canPayout 
+              canRedeem 
                 ? 'bg-amber-600 text-white hover:bg-amber-700 shadow-lg' 
                 : 'bg-gray-200 text-gray-400 cursor-not-allowed'
             }`}
           >
-            <CreditCard className="w-5 h-5" />
-            {requesting ? 'שולח...' : 'בקש משיכה'}
+            <Gift className="w-5 h-5" />
+            {redeeming ? 'מממש...' : 'ממש נקודות'}
           </button>
         </div>
+        <p className="text-xs text-amber-700 mt-3">
+          * המימוש יקוזז מהתשלום הבא שלך במערכת
+        </p>
       </div>
 
       {/* Recent Referrals */}
@@ -204,13 +219,20 @@ export default function AffiliatePanel() {
           </div>
           <div className="flex items-start gap-2">
             <span className="w-5 h-5 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">2</span>
-            <span>כשמישהו נרשם ומשלם על מנוי דרך הלינק - אתה מקבל ₪{settings?.commission_amount || 20}</span>
+            <span>כשמישהו נרשם ומשלם על מנוי דרך הלינק - אתה מקבל {settings?.commission_amount || 20} נקודות למימוש</span>
           </div>
           <div className="flex items-start gap-2">
             <span className="w-5 h-5 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">3</span>
-            <span>כשתגיע ל-₪{settings?.min_payout_amount || 100} - תוכל לבקש משיכה!</span>
+            <span>כשתגיע ל-{settings?.min_payout_amount || 100} נקודות - תוכל לממש במערכת כהנחה!</span>
           </div>
         </div>
+        <Link 
+          to="/affiliate-terms"
+          className="inline-flex items-center gap-1 text-green-600 hover:text-green-700 text-sm mt-4 font-medium"
+        >
+          <FileText className="w-4 h-4" />
+          קרא את תנאי התוכנית המלאים
+        </Link>
       </div>
     </div>
   );

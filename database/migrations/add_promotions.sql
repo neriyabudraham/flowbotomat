@@ -218,7 +218,9 @@ CREATE TABLE IF NOT EXISTS affiliate_payouts (
 ALTER TABLE users 
 ADD COLUMN IF NOT EXISTS has_ever_paid BOOLEAN DEFAULT false,
 ADD COLUMN IF NOT EXISTS referred_by_affiliate_id UUID REFERENCES affiliates(id),
-ADD COLUMN IF NOT EXISTS referral_click_id UUID;
+ADD COLUMN IF NOT EXISTS referral_click_id UUID,
+ADD COLUMN IF NOT EXISTS affiliate_credit DECIMAL(10,2) DEFAULT 0,
+ADD COLUMN IF NOT EXISTS referred_bonus_used BOOLEAN DEFAULT false;
 
 -- Add to subscriptions
 ALTER TABLE user_subscriptions
@@ -245,6 +247,83 @@ CREATE INDEX IF NOT EXISTS idx_affiliates_user ON affiliates(user_id);
 CREATE INDEX IF NOT EXISTS idx_affiliate_clicks_code ON affiliate_clicks(ref_code);
 CREATE INDEX IF NOT EXISTS idx_affiliate_referrals_affiliate ON affiliate_referrals(affiliate_id);
 CREATE INDEX IF NOT EXISTS idx_affiliate_referrals_status ON affiliate_referrals(status);
+
+-- =====================================================
+-- AFFILIATE PROGRAM TERMS (editable from admin)
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS affiliate_terms (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  content TEXT NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_by UUID REFERENCES users(id)
+);
+
+-- Insert default terms
+INSERT INTO affiliate_terms (content) VALUES ('
+# תנאי תוכנית השותפים של FlowBotomat
+
+עודכן לאחרונה: ינואר 2026
+
+## 1. הגדרות
+
+- **"התוכנית"** - תוכנית השותפים של FlowBotomat המאפשרת למשתמשים לצבור נקודות על ידי הפניית משתמשים חדשים.
+- **"שותף"** - משתמש רשום במערכת שמשתתף בתוכנית השותפים.
+- **"נקודות"** - יחידות מימוש שנצברות לזכות השותף עבור הפניות מוצלחות.
+- **"הפניה מוצלחת"** - משתמש חדש שנרשם דרך לינק ההפניה של השותף וביצע תשלום על מנוי.
+
+## 2. תנאי הצטרפות
+
+2.1. כל משתמש רשום במערכת רשאי להשתתף בתוכנית.
+2.2. ההשתתפות בתוכנית היא בחינם ואינה מחייבת רכישת מנוי.
+2.3. FlowBotomat שומרת לעצמה את הזכות לסרב או לבטל השתתפות בתוכנית לפי שיקול דעתה.
+
+## 3. צבירת נקודות
+
+3.1. שותף יקבל נקודות עבור כל הפניה מוצלחת בהתאם לתעריף שנקבע במערכת.
+3.2. נקודות יזוכו לחשבון השותף רק לאחר שהמשתמש המופנה ישלים תשלום ראשון.
+3.3. אין צבירת נקודות על הפניה עצמית או על חשבונות הקשורים לשותף.
+
+## 4. מימוש נקודות
+
+4.1. ניתן לממש נקודות רק לאחר צבירת מינימום נקודות כפי שנקבע במערכת.
+4.2. הנקודות ניתנות למימוש כזיכוי בלבד כנגד תשלומים עתידיים במערכת.
+4.3. **לא ניתן לקבל החזר כספי או העברה בנקאית עבור נקודות שנצברו.**
+4.4. נקודות שמומשו לא ניתנות להחזרה.
+4.5. הזיכוי יקוזז אוטומטית מהתשלום הבא של השותף במערכת.
+
+## 5. תוקף נקודות
+
+5.1. נקודות תקפות למשך 12 חודשים ממועד הצבירה.
+5.2. נקודות שלא מומשו בתוך תקופת התוקף יפוגו ללא אפשרות שחזור.
+5.3. FlowBotomat רשאית להודיע על שינוי בתוקף הנקודות בהודעה מראש של 30 יום.
+
+## 6. הגבלות ואיסורים
+
+6.1. אסור לשותף לשלוח ספאם או להשתמש בשיטות שיווק פוגעניות.
+6.2. אסור ליצור חשבונות מזויפים או לבצע פעולות הונאה.
+6.3. אסור להבטיח תגמולים או הנחות שאינם חלק רשמי מהתוכנית.
+6.4. הפרת תנאים אלה עלולה לגרום לביטול ההשתתפות ואובדן כל הנקודות.
+
+## 7. שינויים בתוכנית
+
+7.1. FlowBotomat רשאית לשנות את תנאי התוכנית, תעריפי הנקודות או לבטל את התוכנית בכל עת.
+7.2. הודעה על שינויים מהותיים תישלח למשתמשים 14 יום מראש.
+7.3. המשך השתתפות בתוכנית לאחר שינוי מהווה הסכמה לתנאים החדשים.
+
+## 8. אחריות
+
+8.1. FlowBotomat אינה אחראית לכל נזק ישיר או עקיף הנובע מהשתתפות בתוכנית.
+8.2. השותף אחראי לציות לכל החוקים והתקנות הרלוונטיים בפעילות השיווקית שלו.
+
+## 9. יצירת קשר
+
+לשאלות בנוגע לתוכנית השותפים, ניתן לפנות אלינו בכתובת: support@botomat.co.il
+
+---
+
+*תנאים אלה כפופים לתנאי השימוש הכלליים של FlowBotomat.*
+') ON CONFLICT DO NOTHING;
 
 -- =====================================================
 -- COMMENTS

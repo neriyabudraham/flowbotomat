@@ -14,6 +14,7 @@ import useStatsStore from '../store/statsStore';
 import Logo from '../components/atoms/Logo';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
 import AffiliatePanel from '../components/settings/AffiliatePanel';
+import ReferralBonusBanner from '../components/ReferralBonusBanner';
 import api from '../services/api';
 
 // Tips content data
@@ -223,6 +224,9 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50" dir="rtl">
+      {/* Referral Bonus Banner */}
+      <ReferralBonusBanner />
+      
       {/* Success/Error Message Toast */}
       {showMessage && (
         <div className={`fixed top-4 right-4 left-4 md:left-auto md:w-96 z-50 animate-slide-down`}>

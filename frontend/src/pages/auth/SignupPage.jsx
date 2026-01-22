@@ -26,7 +26,15 @@ export default function SignupPage() {
     }
     
     try {
-      await signup(form.email, form.password, form.name);
+      // Get referral code from localStorage if exists
+      const referralCode = localStorage.getItem('referral_code');
+      const referralTimestamp = localStorage.getItem('referral_timestamp');
+      
+      // Only use referral if it's less than 30 days old
+      const isValidReferral = referralTimestamp && 
+        (Date.now() - parseInt(referralTimestamp)) < (30 * 24 * 60 * 60 * 1000);
+      
+      await signup(form.email, form.password, form.name, isValidReferral ? referralCode : null);
       navigate('/verify', { state: { email: form.email } });
     } catch {}
   };

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
 import SignupPage from './pages/auth/SignupPage';
 import LoginPage from './pages/auth/LoginPage';
@@ -18,7 +18,35 @@ import PricingPage from './pages/PricingPage';
 import CheckoutPage from './pages/CheckoutPage';
 import PrivacyPage from './pages/PrivacyPage';
 import ApiPage from './pages/ApiPage';
+import AffiliateTermsPage from './pages/AffiliateTermsPage';
 import useThemeStore from './store/themeStore';
+import api from './services/api';
+
+// Track referral code and persist in session
+function ReferralTracker() {
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+  
+  useEffect(() => {
+    const refCode = searchParams.get('ref');
+    
+    if (refCode) {
+      // Save to localStorage for persistence across pages
+      localStorage.setItem('referral_code', refCode);
+      localStorage.setItem('referral_landing', location.pathname);
+      localStorage.setItem('referral_timestamp', Date.now().toString());
+      
+      // Track click on server
+      api.post('/payment/affiliate/track-click', {
+        ref_code: refCode,
+        landing_page: location.pathname,
+        referrer_url: document.referrer
+      }).catch(err => console.log('Referral tracking failed:', err));
+    }
+  }, [searchParams, location.pathname]);
+  
+  return null;
+}
 
 function App() {
   const { initTheme } = useThemeStore();
@@ -29,12 +57,14 @@ function App() {
 
   return (
     <BrowserRouter>
+      <ReferralTracker />
       <div className="min-h-screen bg-gray-50 transition-colors">
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/affiliate-terms" element={<AffiliateTermsPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/verify" element={<VerifyPage />} />

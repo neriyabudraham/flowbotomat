@@ -3,13 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { 
   User, Lock, Globe, Save, ArrowLeft, Settings, Bell, Shield, 
   CreditCard, Crown, Check, Eye, EyeOff, Sparkles, ChevronRight,
-  Mail, Phone, Building, Palette, Moon, Sun, Languages, Key
+  Mail, Phone, Building, Palette, Moon, Sun, Languages, Key, Share2
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
 import ExpertAccessManager from '../components/settings/ExpertAccessManager';
 import MyClientsManager from '../components/settings/MyClientsManager';
 import SubscriptionManager from '../components/settings/SubscriptionManager';
+import AffiliatePanel from '../components/settings/AffiliatePanel';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
 import api from '../services/api';
 
@@ -89,6 +90,7 @@ export default function SettingsPage() {
   const tabs = [
     { id: 'profile', label: 'פרופיל', icon: User },
     { id: 'subscription', label: 'מנוי', icon: Crown },
+    { id: 'affiliate', label: 'תוכנית שותפים', icon: Share2 },
     { id: 'security', label: 'אבטחה', icon: Shield },
     { id: 'experts', label: 'גישת מומחים', icon: Settings },
   ];
@@ -306,6 +308,11 @@ export default function SettingsPage() {
             {/* Subscription Tab */}
             {activeTab === 'subscription' && (
               <SubscriptionManager />
+            )}
+
+            {/* Affiliate Tab */}
+            {activeTab === 'affiliate' && (
+              <AffiliatePanel />
             )}
 
             {/* Security Tab */}

@@ -9,7 +9,7 @@ const { getVerificationEmail } = require('../../services/mail/templates.service'
  */
 const signup = async (req, res) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, referralCode } = req.body;
 
     // Validation
     if (!email || !password) {
@@ -34,6 +34,22 @@ const signup = async (req, res) => {
     );
 
     const userId = result.rows[0].id;
+
+    // Process referral if provided
+    let referredByAffiliateId = null;
+    if (referralCode) {
+      try {
+        const { registerReferral } = require('../admin/promotions.controller');
+        const referralResult = await registerReferral(userId, referralCode);
+        if (referralResult) {
+          referredByAffiliateId = referralResult.affiliateId;
+          console.log(`[Signup] User ${userId} referred by affiliate ${referredByAffiliateId}`);
+        }
+      } catch (refError) {
+        console.error('[Signup] Referral registration failed:', refError);
+        // Continue with signup even if referral fails
+      }
+    }
 
     // Create trial subscription with Basic plan (14 days trial)
     try {
