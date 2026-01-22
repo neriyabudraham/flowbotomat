@@ -8,9 +8,13 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD,
 });
 
-// Test connection
+// Connection events - only log once at startup, not per connection
+let dbConnected = false;
 pool.on('connect', () => {
-  console.log('📦 Database connected');
+  if (!dbConnected) {
+    console.log('📦 Database connected');
+    dbConnected = true;
+  }
 });
 
 pool.on('error', (err) => {

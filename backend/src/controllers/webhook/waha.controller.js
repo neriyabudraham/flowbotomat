@@ -46,7 +46,8 @@ function extractRealPhone(payload) {
     return a.length - b.length;
   });
   
-  console.log(`[Webhook] Phone candidates: ${numericCandidates.join(', ')} -> selected: ${numericCandidates[0]}`);
+  // Debug log only in development
+  // console.log(`[Webhook] Phone candidates: ${numericCandidates.join(', ')} -> selected: ${numericCandidates[0]}`);
   
   return numericCandidates[0];
 }
@@ -59,7 +60,10 @@ async function handleWebhook(req, res) {
     const { userId } = req.params;
     const event = req.body;
     
-    console.log(`[Webhook] User: ${userId}, Event: ${event.event}`);
+    // Only log important events (not acks which are very frequent)
+    if (event.event !== 'message.ack') {
+      console.log(`[Webhook] User: ${userId}, Event: ${event.event}`);
+    }
     
     // Handle different event types
     switch (event.event) {
@@ -67,13 +71,17 @@ async function handleWebhook(req, res) {
         await handleIncomingMessage(userId, event);
         break;
       case 'message.ack':
+        // Silent - these are very frequent
         await handleMessageAck(userId, event);
         break;
       case 'session.status':
         await handleSessionStatus(userId, event);
         break;
       default:
-        console.log(`[Webhook] Unhandled event: ${event.event}`);
+        // Only log truly unhandled events (not common ones we ignore)
+        if (!['message.any', 'poll.vote', 'poll.vote.failed'].includes(event.event)) {
+          console.log(`[Webhook] Unhandled event: ${event.event}`);
+        }
     }
     
     res.json({ success: true });

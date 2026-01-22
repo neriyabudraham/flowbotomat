@@ -259,8 +259,8 @@ async function chargeOneTime({ customerId, amount, description, sendEmail = true
       }],
       VATIncluded: true,
       SendDocumentByEmail: sendEmail,
-      SendDocumentByEmail_Language: 'he',
-      DocumentLanguage: 'he',
+      SendDocumentByEmail_Language: 0, // 0 = Hebrew
+      DocumentLanguage: 0, // 0 = Hebrew, 1 = English
       ResponseLanguage: 'he',
     };
     
@@ -377,11 +377,12 @@ async function chargeRecurring({
       }],
       VATIncluded: true,
       OnlyDocument: false,
-      DocumentLanguage: 'he',
+      DocumentLanguage: 0, // 0 = Hebrew, 1 = English
       ResponseLanguage: 'he',
     };
     
     console.log('[Sumit] Creating recurring charge - Customer:', customerId, 'Amount:', amount, 'ILS/month');
+    console.log('[Sumit] Request body:', JSON.stringify(requestBody, null, 2));
     
     const response = await axios.post(
       `${SUMIT_BASE_URL}/billing/recurring/charge/`,
