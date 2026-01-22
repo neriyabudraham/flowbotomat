@@ -407,6 +407,73 @@ async function checkLimit(userId, limitType) {
   return { allowed: true };
 }
 
+/**
+ * Alert admin if user has more bots than their plan allows
+ * This should not happen normally, but catches edge cases
+ */
+async function alertAdminIfOverLimit(userId, limitType) {
+  try {
+    const limitCheck = await checkLimit(userId, limitType);
+    
+    // If user is at or under limit, no problem
+    if (limitCheck.allowed || limitCheck.limit === -1) {
+      return;
+    }
+    
+    // User is over limit! This shouldn't happen
+    const userResult = await db.query(
+      'SELECT id, name, email FROM users WHERE id = $1',
+      [userId]
+    );
+    
+    if (userResult.rows.length === 0) return;
+    
+    const user = userResult.rows[0];
+    const overBy = limitCheck.used - limitCheck.limit;
+    
+    console.warn(`[ALERT] User ${user.email} (${userId}) is OVER ${limitType} limit by ${overBy}! Used: ${limitCheck.used}, Limit: ${limitCheck.limit}`);
+    
+    // Create admin notification
+    await db.query(`
+      INSERT INTO notifications (
+        user_id, 
+        notification_type, 
+        title, 
+        message, 
+        metadata,
+        is_admin_notification
+      ) VALUES (
+        $1,
+        'admin_alert',
+        'משתמש חורג ממכסה',
+        $2,
+        $3,
+        true
+      )
+    `, [
+      userId,
+      `המשתמש ${user.name || user.email} חורג ממכסת ${limitType === 'bots' ? 'הבוטים' : limitType} ב-${overBy}. משתמש: ${limitCheck.used}, מכסה: ${limitCheck.limit}`,
+      JSON.stringify({
+        type: 'over_limit',
+        limitType,
+        userId,
+        userEmail: user.email,
+        userName: user.name,
+        used: limitCheck.used,
+        limit: limitCheck.limit,
+        overBy
+      })
+    ]);
+    
+    // TODO: Send email to admin
+    // await sendAdminEmail({ subject: 'התראה: משתמש חורג ממכסה', ... });
+    
+  } catch (error) {
+    console.error('[Subscriptions] Alert admin error:', error);
+    // Don't throw - this is a non-critical operation
+  }
+}
+
 module.exports = {
   getMySubscription,
   getMyUsage,
@@ -414,5 +481,6 @@ module.exports = {
   assignSubscription,
   cancelSubscription,
   incrementBotRuns,
-  checkLimit
+  checkLimit,
+  alertAdminIfOverLimit
 };

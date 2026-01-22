@@ -247,7 +247,20 @@ export default function BotsPage() {
       setDuplicateBot(null);
       setDuplicateName('');
     } catch (e) {
-      alert('שגיאה בשכפול');
+      const errorData = e.response?.data;
+      
+      // Close duplicate modal first
+      setShowDuplicate(false);
+      setDuplicateBot(null);
+      setDuplicateName('');
+      
+      // Show upgrade modal for limit errors
+      if (errorData?.code === 'BOTS_LIMIT_REACHED' || errorData?.code === 'HAS_DISABLED_BOT') {
+        setUpgradeError(errorData);
+        setShowUpgradeModal(true);
+      } else {
+        alert(errorData?.error || 'שגיאה בשכפול');
+      }
     }
   };
 

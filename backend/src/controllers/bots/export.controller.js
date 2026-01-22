@@ -105,6 +105,35 @@ async function duplicateBot(req, res) {
     const userId = req.user.id;
     const { name } = req.body;
     
+    // Import checkLimit function
+    const { checkLimit, alertAdminIfOverLimit } = require('../subscriptions/subscriptions.controller');
+    
+    // Check bot limit FIRST - before anything else
+    const botsLimit = await checkLimit(userId, 'bots');
+    if (!botsLimit.allowed) {
+      return res.status(400).json({ 
+        error: `הגעת למגבלת הבוטים (${botsLimit.limit}). שדרג את החבילה שלך כדי לשכפל בוטים נוספים.`,
+        code: 'BOTS_LIMIT_REACHED',
+        limit: botsLimit.limit,
+        used: botsLimit.used
+      });
+    }
+    
+    // Check if user has any disabled bots
+    const disabledBotsResult = await db.query(
+      'SELECT COUNT(*) as count FROM bots WHERE user_id = $1 AND is_active = false',
+      [userId]
+    );
+    const hasDisabledBots = parseInt(disabledBotsResult.rows[0]?.count || 0) > 0;
+    
+    if (hasDisabledBots) {
+      return res.status(400).json({ 
+        error: 'לא ניתן לשכפל כשיש לך בוט כבוי. הפעל או מחק את הבוט הכבוי לפני השכפול.',
+        code: 'HAS_DISABLED_BOT',
+        hasDisabledBots: true
+      });
+    }
+    
     // Get original bot with share info
     const original = await db.query(
       `SELECT b.*, 
@@ -138,6 +167,9 @@ async function duplicateBot(req, res) {
     );
     
     console.log(`[Duplicate] Bot duplicated: ${bot.id} -> ${result.rows[0].id}`);
+    
+    // Check if user now exceeds limit (shouldn't happen but alert admin if it does)
+    await alertAdminIfOverLimit(userId, 'bots');
     
     res.json({
       success: true,
