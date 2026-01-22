@@ -126,15 +126,15 @@ export default function SystemAlertOverlay() {
       {/* TOP BANNER - Shows countdown after user acknowledges */}
       {updateCountdown !== null && acknowledged && (
         <div className="fixed top-0 left-0 right-0 z-[9999] animate-slide-down" dir="rtl">
-          <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white py-3 px-4 shadow-lg">
+          <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-red-600 text-white py-4 px-4 shadow-lg">
             <div className="max-w-4xl mx-auto flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
-                  <RefreshCw className="w-5 h-5 animate-spin" />
+                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center animate-pulse">
+                  <AlertTriangle className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="font-bold">עדכון מערכת בדרך</p>
-                  <p className="text-white/80 text-sm">שמור את העבודה שלך</p>
+                  <p className="font-bold">עדכון מערכת בדקה הקרובה</p>
+                  <p className="text-white/80 text-sm">יש להמתין לסיום העדכון - אין לבצע פעולות</p>
                 </div>
               </div>
               
@@ -184,17 +184,25 @@ export default function SystemAlertOverlay() {
             </div>
             
             <h2 className="text-3xl font-bold text-white mb-4">
-              עדכון מערכת בדרך!
+              עדכון מערכת בדקה הקרובה
             </h2>
             <p className="text-white/80 mb-6 text-lg leading-relaxed">
-              המערכת תתעדכן בקרוב לגרסה חדשה.
+              האתר יתעדכן לגרסה חדשה בדקה הקרובה.
               <br />
-              <span className="text-amber-300 font-semibold">אנא שמור את כל העבודה שלך עכשיו!</span>
+              <span className="text-amber-300 font-semibold">יש לשמור את העבודה ולהמתין לסיום העדכון.</span>
             </p>
+            
+            {/* Warning box */}
+            <div className="bg-red-500/20 border border-red-500/40 rounded-2xl p-4 mb-6">
+              <p className="text-red-200 text-sm flex items-center justify-center gap-2">
+                <AlertTriangle className="w-4 h-4" />
+                אין להמשיך לעבוד עד לסיום העדכון
+              </p>
+            </div>
             
             {/* Countdown display */}
             <div className="bg-white/10 rounded-2xl p-6 mb-8">
-              <p className="text-white/60 text-sm mb-2">זמן שנותר לשמירה</p>
+              <p className="text-white/60 text-sm mb-2">העדכון יתחיל בעוד</p>
               <div className="flex items-center justify-center gap-2">
                 <Clock className="w-8 h-8 text-amber-400" />
                 <span className="text-5xl font-bold text-white tabular-nums">{updateCountdown}</span>
@@ -220,7 +228,7 @@ export default function SystemAlertOverlay() {
             </button>
             
             <p className="text-white/40 text-sm mt-4">
-              לאחר לחיצה, תוכל להמשיך לעבוד עד לסיום הספירה
+              לאחר לחיצה ההודעה תיסגר, אך יש להמתין לסיום העדכון
             </p>
           </div>
         </div>
