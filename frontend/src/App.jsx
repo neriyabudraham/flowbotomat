@@ -19,6 +19,7 @@ import CheckoutPage from './pages/CheckoutPage';
 import PrivacyPage from './pages/PrivacyPage';
 import ApiPage from './pages/ApiPage';
 import AffiliateTermsPage from './pages/AffiliateTermsPage';
+import SystemAlertOverlay from './components/notifications/SystemAlertOverlay';
 import useThemeStore from './store/themeStore';
 import api from './services/api';
 
@@ -74,6 +75,7 @@ function App() {
   return (
     <BrowserRouter>
       <ReferralTracker />
+      <SystemAlertOverlay />
       <div className="min-h-screen bg-gray-50 transition-colors">
         <Routes>
           <Route path="/" element={<LandingPage />} />

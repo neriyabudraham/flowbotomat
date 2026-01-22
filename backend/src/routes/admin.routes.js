@@ -62,6 +62,8 @@ router.put('/affiliate/terms', superadminMiddleware, promotionsController.update
 
 // Broadcast notifications (שליחת התראות לכל המשתמשים)
 const { sendBroadcastNotification } = require('../services/usageAlerts.service');
+const { broadcastToAll, getConnectedUsersCount } = require('../services/socket/manager.service');
+
 router.post('/notifications/broadcast', superadminMiddleware, async (req, res) => {
   try {
     const { title, message, type, sendEmail, emailSubject } = req.body;
@@ -86,6 +88,75 @@ router.post('/notifications/broadcast', superadminMiddleware, async (req, res) =
   } catch (error) {
     console.error('[Admin] Broadcast notification error:', error);
     res.status(500).json({ error: 'שגיאה בשליחת התראה' });
+  }
+});
+
+// Real-time notification to online users only (via Socket.io)
+router.post('/notifications/realtime', superadminMiddleware, async (req, res) => {
+  try {
+    const { title, message, type, autoDismiss } = req.body;
+    
+    if (!title || !message) {
+      return res.status(400).json({ error: 'נדרש כותרת והודעה' });
+    }
+    
+    const sentTo = broadcastToAll('system_alert', {
+      title,
+      message,
+      type: type || 'info',
+      autoDismiss: autoDismiss || false,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json({ 
+      success: true, 
+      sentTo,
+      message: `ההתראה נשלחה ל-${sentTo} משתמשים מחוברים`
+    });
+  } catch (error) {
+    console.error('[Admin] Realtime notification error:', error);
+    res.status(500).json({ error: 'שגיאה בשליחת התראה' });
+  }
+});
+
+// Get online users count
+router.get('/notifications/online-count', adminMiddleware, async (req, res) => {
+  try {
+    const count = getConnectedUsersCount();
+    res.json({ count });
+  } catch (error) {
+    res.status(500).json({ error: 'שגיאה' });
+  }
+});
+
+// System update notification - can be called without auth (for deploy script)
+// Uses a secret key for authentication
+router.post('/system/update-alert', async (req, res) => {
+  try {
+    const { secret, countdown } = req.body;
+    
+    // Verify secret key (use JWT_SECRET as the key)
+    if (secret !== process.env.JWT_SECRET) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    
+    const sentTo = broadcastToAll('system_update', {
+      title: '🔄 עדכון מערכת',
+      message: `המערכת תתעדכן בעוד ${countdown || 10} שניות. אנא שמור את העבודה שלך.`,
+      countdown: countdown || 10,
+      timestamp: new Date().toISOString()
+    });
+    
+    console.log(`[System] Update alert sent to ${sentTo} users`);
+    
+    res.json({ 
+      success: true, 
+      sentTo,
+      message: `Update alert sent to ${sentTo} online users`
+    });
+  } catch (error) {
+    console.error('[System] Update alert error:', error);
+    res.status(500).json({ error: 'Error sending update alert' });
   }
 });
 
