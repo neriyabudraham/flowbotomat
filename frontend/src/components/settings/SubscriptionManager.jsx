@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CreditCard, Calendar, AlertCircle, Crown, CheckCircle, XCircle, RotateCcw, Trash2, ShieldAlert } from 'lucide-react';
+import { CreditCard, Calendar, AlertCircle, Crown, CheckCircle, XCircle, RotateCcw, Trash2, ShieldAlert, Clock, Info, HelpCircle, ArrowRight } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
 
@@ -11,6 +11,7 @@ export default function SubscriptionManager() {
   const [loading, setLoading] = useState(true);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showRemoveCardModal, setShowRemoveCardModal] = useState(false);
+  const [showWhatHappensModal, setShowWhatHappensModal] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [reactivating, setReactivating] = useState(false);
   const [removingCard, setRemovingCard] = useState(false);
@@ -22,7 +23,7 @@ export default function SubscriptionManager() {
 
   const loadSubscription = async () => {
     try {
-      const { data } = await api.get('/user/subscription');
+      const { data } = await api.get('/subscriptions/my');
       setSubscription(data.subscription);
     } catch (err) {
       console.error('Failed to load subscription:', err);
@@ -73,9 +74,7 @@ export default function SubscriptionManager() {
       const { data } = await api.delete('/payment/methods/remove-all');
       setPaymentMethod(null);
       setShowRemoveCardModal(false);
-      // Reload subscription as it may have changed
       await loadSubscription();
-      // Redirect to dashboard with message from server
       navigate('/dashboard', { 
         state: { 
           message: data.message || 'פרטי האשראי הוסרו בהצלחה',
@@ -100,10 +99,34 @@ export default function SubscriptionManager() {
     );
   }
 
-  const isActive = subscription?.status === 'active';
-  const isTrial = subscription?.is_trial;
-  const isCancelled = subscription?.status === 'cancelled';
-  const hasSubscription = subscription && subscription.status !== 'expired';
+  // Calculate subscription status
+  const status = subscription?.status;
+  const isTrial = subscription?.is_trial || status === 'trial';
+  const isActive = status === 'active';
+  const isCancelled = status === 'cancelled';
+  
+  // Get end date
+  const endDateRaw = isTrial 
+    ? subscription?.trial_ends_at 
+    : (subscription?.expires_at || subscription?.next_charge_date);
+  
+  const endDate = endDateRaw ? new Date(endDateRaw) : null;
+  const now = new Date();
+  const daysLeft = endDate ? Math.ceil((endDate - now) / (1000 * 60 * 60 * 24)) : null;
+  
+  // Determine if subscription is effectively active (has time remaining)
+  const hasTimeRemaining = endDate && daysLeft > 0;
+  const hasValidSubscription = (isActive || isTrial || (isCancelled && hasTimeRemaining)) && subscription?.plan_name_he;
+  
+  // Should show expiry warning? (show for cancelled, or within 30 days for others)
+  const shouldShowExpiry = hasTimeRemaining && (isCancelled || daysLeft <= 30);
+
+  const formattedEndDate = endDate?.toLocaleDateString('he-IL', { 
+    weekday: 'long', 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric' 
+  });
 
   return (
     <>
@@ -113,8 +136,8 @@ export default function SubscriptionManager() {
           המנוי שלי
         </h2>
 
-        {!hasSubscription ? (
-          // No subscription
+        {!hasValidSubscription ? (
+          // No subscription or expired
           <div className="text-center py-6">
             <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center">
               <CreditCard className="w-8 h-8 text-gray-400" />
@@ -130,12 +153,12 @@ export default function SubscriptionManager() {
             </Button>
           </div>
         ) : (
-          // Has subscription
+          // Has valid subscription
           <div className="space-y-4">
             {/* Subscription Status Card */}
             <div className={`p-4 rounded-xl border-2 ${
               isCancelled 
-                ? 'border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20' 
+                ? 'border-amber-300 bg-amber-50 dark:bg-amber-900/20' 
                 : isTrial 
                   ? 'border-blue-300 bg-blue-50 dark:bg-blue-900/20'
                   : 'border-green-300 bg-green-50 dark:bg-green-900/20'
@@ -144,7 +167,7 @@ export default function SubscriptionManager() {
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     {isCancelled ? (
-                      <XCircle className="w-5 h-5 text-yellow-600" />
+                      <Clock className="w-5 h-5 text-amber-600" />
                     ) : (
                       <CheckCircle className="w-5 h-5 text-green-600" />
                     )}
@@ -157,38 +180,72 @@ export default function SubscriptionManager() {
                       </span>
                     )}
                     {isCancelled && (
-                      <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded-full">
-                        בוטל
+                      <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full">
+                        מבוטל
                       </span>
                     )}
                   </div>
                   <p className="text-sm text-gray-600 dark:text-gray-300">
                     {subscription.billing_period === 'yearly' ? 'חיוב שנתי' : 'חיוב חודשי'}
-                    {subscription.plan_price && ` • ₪${subscription.plan_price}`}
+                    {subscription.price && ` • ₪${subscription.price}`}
                   </p>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm text-gray-500 dark:text-gray-400">
-                    {isCancelled ? 'פעיל עד' : isTrial ? 'ניסיון מסתיים' : 'חיוב הבא'}
-                  </div>
-                  <div className="font-medium text-gray-900 dark:text-white">
-                    {subscription.next_charge_date || subscription.trial_ends_at
-                      ? new Date(subscription.next_charge_date || subscription.trial_ends_at).toLocaleDateString('he-IL')
-                      : '-'
-                    }
-                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Cancelled Notice */}
-            {isCancelled && (
+            {/* Expiry Warning - Show for cancelled OR within 30 days of expiry */}
+            {shouldShowExpiry && (
+              <div className={`p-4 rounded-xl ${
+                isCancelled 
+                  ? 'bg-gradient-to-r from-amber-500 to-orange-500' 
+                  : daysLeft <= 7 
+                    ? 'bg-gradient-to-r from-red-500 to-rose-500'
+                    : 'bg-gradient-to-r from-blue-500 to-indigo-500'
+              }`}>
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Clock className="w-6 h-6 text-white" />
+                  </div>
+                  <div className="flex-1 text-white">
+                    <h3 className="font-bold text-lg">
+                      {isCancelled ? 'המנוי מבוטל' : 'המנוי עומד להסתיים'}
+                    </h3>
+                    <p className="text-white/90 mt-1">
+                      {daysLeft === 0 
+                        ? 'המנוי מסתיים היום!'
+                        : daysLeft === 1 
+                          ? 'המנוי מסתיים מחר!'
+                          : `עוד ${daysLeft} ימים (${formattedEndDate})`
+                      }
+                    </p>
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      <button
+                        onClick={() => setShowWhatHappensModal(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors"
+                      >
+                        <HelpCircle className="w-4 h-4" />
+                        מה יקרה אחרי?
+                      </button>
+                      <button
+                        onClick={() => navigate('/pricing')}
+                        className="flex items-center gap-1.5 px-4 py-1.5 bg-white text-amber-600 hover:bg-white/90 rounded-lg text-sm font-bold transition-colors"
+                      >
+                        חדש מנוי
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Cancelled Notice - Only if not showing expiry warning */}
+            {isCancelled && !shouldShowExpiry && (
               <div className="flex items-start gap-3 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl">
                 <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                    המנוי שלך בוטל אך עדיין פעיל עד לתאריך הסיום. 
-                    לאחר מכן לא תוכל להשתמש ביכולות המתקדמות.
+                    המנוי שלך בוטל אך עדיין פעיל עד לתאריך הסיום.
                   </p>
                   <button
                     onClick={handleReactivate}
@@ -198,6 +255,21 @@ export default function SubscriptionManager() {
                     <RotateCcw className="w-4 h-4" />
                     {reactivating ? 'מחדש...' : 'חדש את המנוי'}
                   </button>
+                </div>
+              </div>
+            )}
+
+            {/* Next charge info - Only for active (not cancelled) */}
+            {!isCancelled && !shouldShowExpiry && endDate && (
+              <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                <Calendar className="w-5 h-5 text-gray-400" />
+                <div className="text-sm">
+                  <span className="text-gray-500 dark:text-gray-400">
+                    {isTrial ? 'הניסיון מסתיים: ' : 'חיוב הבא: '}
+                  </span>
+                  <span className="font-medium text-gray-900 dark:text-white">
+                    {formattedEndDate}
+                  </span>
                 </div>
               </div>
             )}
@@ -258,7 +330,7 @@ export default function SubscriptionManager() {
               <Button variant="secondary" onClick={() => navigate('/pricing')}>
                 שנה תוכנית
               </Button>
-              {isActive && !isCancelled && (
+              {(isActive || isTrial) && !isCancelled && (
                 <Button 
                   variant="ghost" 
                   onClick={() => setShowCancelModal(true)}
@@ -291,7 +363,94 @@ export default function SubscriptionManager() {
           loading={removingCard}
         />
       )}
+
+      {/* What Happens Modal */}
+      {showWhatHappensModal && (
+        <WhatHappensModal
+          onClose={() => setShowWhatHappensModal(false)}
+          onRenew={() => {
+            setShowWhatHappensModal(false);
+            navigate('/pricing');
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function WhatHappensModal({ onClose, onRenew }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div 
+        className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-6 text-white text-center">
+          <div className="w-16 h-16 mx-auto mb-4 bg-white/20 rounded-full flex items-center justify-center">
+            <Info className="w-8 h-8" />
+          </div>
+          <h2 className="text-xl font-bold">מה יקרה כשהמנוי יסתיים?</h2>
+        </div>
+
+        {/* Content */}
+        <div className="p-6 space-y-4">
+          <div className="space-y-3">
+            <div className="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-xl">
+              <XCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <div className="font-medium text-red-800 dark:text-red-200">הבוטים יושבתו</div>
+                <div className="text-sm text-red-600 dark:text-red-300">כל הבוטים שלך יכבו אוטומטית</div>
+              </div>
+            </div>
+            
+            <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl">
+              <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <div className="font-medium text-amber-800 dark:text-amber-200">בחירת בוט אחד</div>
+                <div className="text-sm text-amber-600 dark:text-amber-300">תצטרך לבחור בוט אחד לשמור. השאר יימחקו.</div>
+              </div>
+            </div>
+            
+            <div className="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
+              <Clock className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <div className="font-medium text-blue-800 dark:text-blue-200">WhatsApp ינותק</div>
+                <div className="text-sm text-blue-600 dark:text-blue-300">חיבור ה-WhatsApp שלך יפסיק לפעול</div>
+              </div>
+            </div>
+            
+            <div className="flex items-start gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-xl">
+              <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <div className="font-medium text-green-800 dark:text-green-200">הנתונים נשמרים</div>
+                <div className="text-sm text-green-600 dark:text-green-300">אנשי הקשר וההיסטוריה שלך יישארו</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-2 text-center text-sm text-gray-500 dark:text-gray-400">
+            💡 חדש את המנוי כדי להמשיך ליהנות מכל היכולות
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-3 p-6 pt-0">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700"
+          >
+            סגור
+          </button>
+          <button
+            onClick={onRenew}
+            className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl hover:from-amber-600 hover:to-orange-600 font-bold"
+          >
+            חדש מנוי
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -389,13 +548,15 @@ function RemoveCardModal({ subscription, onClose, onConfirm, loading }) {
   
   const isTrial = subscription?.is_trial || subscription?.status === 'trial';
   const isActive = subscription?.status === 'active';
-  const hasSubscription = isTrial || isActive;
+  const isCancelled = subscription?.status === 'cancelled';
+  const hasSubscription = isTrial || isActive || isCancelled;
   
   // Determine end date
   const rawEndDate = isTrial 
     ? subscription?.trial_ends_at 
     : (subscription?.expires_at || subscription?.next_charge_date);
   const endDate = rawEndDate ? new Date(rawEndDate).toLocaleDateString('he-IL') : null;
+  const hasTimeRemaining = rawEndDate && new Date(rawEndDate) > new Date();
 
   const canConfirm = confirmed && typedConfirm === 'הסר';
 
@@ -406,13 +567,13 @@ function RemoveCardModal({ subscription, onClose, onConfirm, loading }) {
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className={`p-6 text-white text-center ${hasSubscription ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 'bg-gradient-to-r from-red-500 to-red-600'}`}>
+        <div className={`p-6 text-white text-center ${hasSubscription && hasTimeRemaining ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 'bg-gradient-to-r from-red-500 to-red-600'}`}>
           <div className="w-16 h-16 mx-auto mb-4 bg-white/20 rounded-full flex items-center justify-center">
             <ShieldAlert className="w-8 h-8" />
           </div>
           <h2 className="text-xl font-bold mb-2">הסרת פרטי אשראי</h2>
           <p className="text-white/80">
-            {hasSubscription 
+            {hasSubscription && hasTimeRemaining
               ? 'השירות ימשיך לפעול עד סוף תקופת המנוי'
               : 'פעולה זו תגרום לניתוק השירות'
             }
@@ -421,9 +582,8 @@ function RemoveCardModal({ subscription, onClose, onConfirm, loading }) {
 
         {/* Content */}
         <div className="p-6 space-y-4">
-          {hasSubscription ? (
+          {hasSubscription && hasTimeRemaining ? (
             <>
-              {/* For paid/trial users - service continues */}
               <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4">
                 <h3 className="font-semibold text-amber-800 dark:text-amber-200 mb-2">
                   ⏱️ מה יקרה:
@@ -442,7 +602,6 @@ function RemoveCardModal({ subscription, onClose, onConfirm, loading }) {
                       <AlertCircle className="w-4 h-4 mt-0.5 text-amber-500 flex-shrink-0" />
                       <span>
                         השירות יפסיק ב-<strong>{endDate}</strong>
-                        {isTrial ? ' (סוף תקופת הניסיון)' : ' (סוף תקופת החיוב)'}
                       </span>
                     </li>
                   )}
@@ -462,16 +621,11 @@ function RemoveCardModal({ subscription, onClose, onConfirm, loading }) {
                     <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
                     <span>לקבל ולשלוח הודעות ב-WhatsApp</span>
                   </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
-                    <span>להוסיף כרטיס חדש ולחדש את המנוי</span>
-                  </li>
                 </ul>
               </div>
             </>
           ) : (
             <>
-              {/* For users without subscription - immediate disconnect */}
               <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4">
                 <h3 className="font-semibold text-red-800 dark:text-red-200 mb-2">
                   ⚠️ שים לב - מה יקרה:
@@ -491,30 +645,10 @@ function RemoveCardModal({ subscription, onClose, onConfirm, loading }) {
                   </li>
                 </ul>
               </div>
-
-              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4">
-                <h3 className="font-semibold text-blue-800 dark:text-blue-200 mb-2">
-                  💡 מה לא יימחק:
-                </h3>
-                <ul className="space-y-2 text-sm text-blue-700 dark:text-blue-300">
-                  <li className="flex items-start gap-2">
-                    <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
-                    <span>החשבון שלך יישאר פעיל</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
-                    <span>הבוטים שיצרת יישמרו</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
-                    <span>תוכל לחבר מחדש בכל עת</span>
-                  </li>
-                </ul>
-              </div>
             </>
           )}
 
-          {/* Confirmation checkbox */}
+          {/* Confirmation */}
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
@@ -523,14 +657,10 @@ function RemoveCardModal({ subscription, onClose, onConfirm, loading }) {
               className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
             />
             <span className="text-sm text-gray-600 dark:text-gray-300">
-              {hasSubscription 
-                ? 'אני מבין/ה שהמנוי יבוטל ולא יתחדש'
-                : 'אני מבין/ה שהשירות יפסיק לפעול מיידית'
-              }
+              אני מבין/ה
             </span>
           </label>
 
-          {/* Type to confirm */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               הקלד "הסר" לאישור:
