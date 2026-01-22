@@ -798,6 +798,306 @@ async function checkPaymentMethod(req, res) {
   }
 }
 
+/**
+ * Calculate pro-rata pricing for plan change (upgrade or downgrade)
+ * Returns the amount to charge/credit and the new subscription details
+ */
+async function calculatePlanChange(req, res) {
+  try {
+    const userId = req.user.id;
+    const { targetPlanId, billingPeriod = 'monthly' } = req.body;
+    
+    if (!targetPlanId) {
+      return res.status(400).json({ error: 'נדרש מזהה תכנית יעד' });
+    }
+    
+    // Get current subscription
+    const currentSubResult = await db.query(`
+      SELECT us.*, sp.price as current_price, sp.name_he as current_plan_name,
+             sp.billing_period as current_billing_period
+      FROM user_subscriptions us
+      JOIN subscription_plans sp ON us.plan_id = sp.id
+      WHERE us.user_id = $1 AND us.status IN ('active', 'cancelled')
+      AND (
+        us.expires_at IS NOT NULL AND us.expires_at > NOW()
+        OR us.trial_ends_at IS NOT NULL AND us.trial_ends_at > NOW()
+      )
+    `, [userId]);
+    
+    // Get target plan
+    const targetPlanResult = await db.query(
+      'SELECT * FROM subscription_plans WHERE id = $1',
+      [targetPlanId]
+    );
+    
+    if (targetPlanResult.rows.length === 0) {
+      return res.status(404).json({ error: 'תכנית יעד לא נמצאה' });
+    }
+    
+    const targetPlan = targetPlanResult.rows[0];
+    const targetPrice = billingPeriod === 'yearly' 
+      ? (targetPlan.yearly_price || targetPlan.price * 10) 
+      : targetPlan.price;
+    
+    // If no active subscription, just return the full price
+    if (currentSubResult.rows.length === 0) {
+      return res.json({
+        type: 'new',
+        currentPlan: null,
+        targetPlan: {
+          id: targetPlan.id,
+          name: targetPlan.name_he,
+          price: targetPrice,
+          billingPeriod
+        },
+        calculation: {
+          daysRemaining: 0,
+          creditAmount: 0,
+          chargeAmount: targetPrice,
+          totalToPay: targetPrice
+        },
+        message: `עלות התכנית: ${targetPrice}₪`
+      });
+    }
+    
+    const currentSub = currentSubResult.rows[0];
+    const currentPrice = currentSub.current_price;
+    const isUpgrade = targetPrice > currentPrice;
+    
+    // Calculate remaining days and value
+    const now = new Date();
+    const endDate = currentSub.expires_at ? new Date(currentSub.expires_at) : null;
+    
+    if (!endDate || endDate <= now) {
+      // Subscription already expired
+      return res.json({
+        type: 'new',
+        currentPlan: {
+          id: currentSub.plan_id,
+          name: currentSub.current_plan_name,
+          price: currentPrice
+        },
+        targetPlan: {
+          id: targetPlan.id,
+          name: targetPlan.name_he,
+          price: targetPrice,
+          billingPeriod
+        },
+        calculation: {
+          daysRemaining: 0,
+          creditAmount: 0,
+          chargeAmount: targetPrice,
+          totalToPay: targetPrice
+        },
+        message: `עלות התכנית: ${targetPrice}₪`
+      });
+    }
+    
+    // Calculate days remaining in current subscription
+    const daysRemaining = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
+    const totalDays = currentSub.current_billing_period === 'yearly' ? 365 : 30;
+    const dailyRate = currentPrice / totalDays;
+    const creditAmount = Math.round(dailyRate * daysRemaining);
+    
+    // Calculate target plan cost
+    const targetDailyRate = targetPrice / (billingPeriod === 'yearly' ? 365 : 30);
+    
+    let chargeAmount, totalToPay, message, freeDays;
+    
+    if (isUpgrade) {
+      // Upgrade: charge the difference for remaining days + new period
+      const upgradeCostForRemaining = Math.round(targetDailyRate * daysRemaining) - creditAmount;
+      chargeAmount = Math.max(0, upgradeCostForRemaining);
+      totalToPay = chargeAmount;
+      message = chargeAmount > 0 
+        ? `הפרש שדרוג: ${chargeAmount}₪ (${creditAmount}₪ זיכוי מהתכנית הנוכחית)`
+        : `שדרוג ללא עלות נוספת! (${creditAmount}₪ זיכוי מכסה את ההפרש)`;
+    } else {
+      // Downgrade: convert credit to free days on new plan
+      freeDays = Math.floor(creditAmount / targetDailyRate);
+      chargeAmount = 0;
+      totalToPay = 0;
+      message = `יתרת הזיכוי שלך (${creditAmount}₪) תעניק לך ${freeDays} ימים חינם בתכנית החדשה`;
+    }
+    
+    res.json({
+      type: isUpgrade ? 'upgrade' : 'downgrade',
+      currentPlan: {
+        id: currentSub.plan_id,
+        name: currentSub.current_plan_name,
+        price: currentPrice,
+        expiresAt: endDate
+      },
+      targetPlan: {
+        id: targetPlan.id,
+        name: targetPlan.name_he,
+        price: targetPrice,
+        billingPeriod
+      },
+      calculation: {
+        daysRemaining,
+        dailyRate: Math.round(dailyRate * 100) / 100,
+        creditAmount,
+        chargeAmount,
+        totalToPay,
+        freeDays: freeDays || 0
+      },
+      message
+    });
+    
+  } catch (error) {
+    console.error('[Payment] Calculate plan change error:', error);
+    res.status(500).json({ error: 'שגיאה בחישוב שינוי תכנית' });
+  }
+}
+
+/**
+ * Execute plan change (upgrade or downgrade)
+ */
+async function changePlan(req, res) {
+  try {
+    const userId = req.user.id;
+    const { targetPlanId, billingPeriod = 'monthly' } = req.body;
+    
+    if (!targetPlanId) {
+      return res.status(400).json({ error: 'נדרש מזהה תכנית יעד' });
+    }
+    
+    // Get calculation first
+    const calcResult = await db.query(`
+      SELECT us.*, sp.price as current_price, sp.name_he as current_plan_name
+      FROM user_subscriptions us
+      JOIN subscription_plans sp ON us.plan_id = sp.id
+      WHERE us.user_id = $1 AND us.status IN ('active', 'cancelled')
+      AND (us.expires_at IS NOT NULL AND us.expires_at > NOW())
+    `, [userId]);
+    
+    const targetPlanResult = await db.query(
+      'SELECT * FROM subscription_plans WHERE id = $1',
+      [targetPlanId]
+    );
+    
+    if (targetPlanResult.rows.length === 0) {
+      return res.status(404).json({ error: 'תכנית יעד לא נמצאה' });
+    }
+    
+    const targetPlan = targetPlanResult.rows[0];
+    const targetPrice = billingPeriod === 'yearly' 
+      ? (targetPlan.yearly_price || targetPlan.price * 10) 
+      : targetPlan.price;
+    
+    // Check payment method
+    const paymentResult = await db.query(
+      `SELECT upm.*, us.sumit_customer_id
+       FROM user_payment_methods upm
+       LEFT JOIN user_subscriptions us ON us.user_id = upm.user_id
+       WHERE upm.user_id = $1 AND upm.is_active = true AND upm.is_default = true
+       LIMIT 1`,
+      [userId]
+    );
+    
+    if (paymentResult.rows.length === 0 && targetPrice > 0) {
+      return res.status(400).json({ error: 'נדרש אמצעי תשלום' });
+    }
+    
+    const payment = paymentResult.rows[0];
+    const sumitCustomerId = payment?.sumit_customer_id;
+    
+    let amountToCharge = targetPrice;
+    let freeDays = 0;
+    let newExpiresAt = new Date();
+    
+    // If has current subscription, calculate pro-rata
+    if (calcResult.rows.length > 0) {
+      const currentSub = calcResult.rows[0];
+      const currentPrice = currentSub.current_price;
+      const isUpgrade = targetPrice > currentPrice;
+      
+      const now = new Date();
+      const endDate = new Date(currentSub.expires_at);
+      const daysRemaining = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
+      const totalDays = 30; // Assume monthly for now
+      const dailyRate = currentPrice / totalDays;
+      const creditAmount = Math.round(dailyRate * daysRemaining);
+      
+      if (isUpgrade) {
+        const targetDailyRate = targetPrice / (billingPeriod === 'yearly' ? 365 : 30);
+        const upgradeCost = Math.round(targetDailyRate * daysRemaining);
+        amountToCharge = Math.max(0, upgradeCost - creditAmount);
+      } else {
+        // Downgrade - give free days
+        const targetDailyRate = targetPrice / (billingPeriod === 'yearly' ? 365 : 30);
+        freeDays = Math.floor(creditAmount / targetDailyRate);
+        amountToCharge = 0;
+      }
+    }
+    
+    // Calculate new expiry date
+    if (billingPeriod === 'yearly') {
+      newExpiresAt.setFullYear(newExpiresAt.getFullYear() + 1);
+    } else {
+      newExpiresAt.setMonth(newExpiresAt.getMonth() + 1);
+    }
+    
+    // Add free days for downgrade
+    if (freeDays > 0) {
+      newExpiresAt.setDate(newExpiresAt.getDate() + freeDays);
+    }
+    
+    // Charge if needed
+    if (amountToCharge > 0 && sumitCustomerId) {
+      const chargeResult = await sumitService.chargeOneTime({
+        customerId: sumitCustomerId,
+        amount: amountToCharge,
+        description: `שינוי תכנית ל-${targetPlan.name_he}`,
+        itemName: `שדרוג ל-${targetPlan.name_he}`,
+      });
+      
+      if (!chargeResult.success) {
+        return res.status(400).json({ 
+          error: chargeResult.error || 'שגיאה בחיוב',
+          code: 'CHARGE_FAILED'
+        });
+      }
+    }
+    
+    // Update subscription
+    await db.query(`
+      UPDATE user_subscriptions 
+      SET plan_id = $1, 
+          billing_period = $2,
+          status = 'active',
+          expires_at = $3,
+          updated_at = NOW()
+      WHERE user_id = $4 AND status IN ('active', 'cancelled')
+    `, [targetPlanId, billingPeriod, newExpiresAt, userId]);
+    
+    // Log the transaction
+    await db.query(`
+      INSERT INTO payment_history (user_id, subscription_id, amount, status, description, payment_type)
+      SELECT $1, us.id, $2, 'success', $3, 'plan_change'
+      FROM user_subscriptions us WHERE us.user_id = $1
+    `, [userId, amountToCharge, `שינוי תכנית ל-${targetPlan.name_he}`]);
+    
+    res.json({ 
+      success: true, 
+      message: amountToCharge > 0 
+        ? `שודרגת בהצלחה ל-${targetPlan.name_he}! חויבת ב-${amountToCharge}₪`
+        : freeDays > 0
+          ? `עברת ל-${targetPlan.name_he}! קיבלת ${freeDays} ימים חינם`
+          : `עברת בהצלחה ל-${targetPlan.name_he}!`,
+      newPlan: targetPlan.name_he,
+      amountCharged: amountToCharge,
+      freeDays,
+      expiresAt: newExpiresAt
+    });
+    
+  } catch (error) {
+    console.error('[Payment] Change plan error:', error);
+    res.status(500).json({ error: 'שגיאה בשינוי תכנית' });
+  }
+}
+
 module.exports = {
   savePaymentMethod,
   getPaymentMethods,
@@ -808,4 +1108,6 @@ module.exports = {
   reactivateSubscription,
   getPaymentHistory,
   checkPaymentMethod,
+  calculatePlanChange,
+  changePlan,
 };

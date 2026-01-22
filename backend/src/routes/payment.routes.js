@@ -18,6 +18,10 @@ router.post('/subscribe', paymentController.subscribe);
 router.post('/cancel', paymentController.cancelSubscription);
 router.post('/reactivate', paymentController.reactivateSubscription);
 
+// Plan change (upgrade/downgrade)
+router.post('/plan/calculate', paymentController.calculatePlanChange);
+router.post('/plan/change', paymentController.changePlan);
+
 // Payment history
 router.get('/history', paymentController.getPaymentHistory);
 

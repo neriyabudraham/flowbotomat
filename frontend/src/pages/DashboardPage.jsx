@@ -1046,14 +1046,14 @@ function SubscriptionWarningBanner({ subscription }) {
   let bgGradient, iconBg, title, message;
   
   if (isCancelled) {
-    bgGradient = 'from-amber-500 to-orange-500';
+    bgGradient = 'from-red-500 to-rose-600';
     iconBg = 'bg-white/20';
-    title = 'המנוי שלך בוטל';
+    title = `⚠️ המנוי שלך בוטל - עוד ${daysLeft} ימים`;
     message = daysLeft === 0 
-      ? `השירות יפסיק לפעול היום (${formattedDate})`
+      ? `המנוי מסתיים היום (${formattedDate}) - הבוטים יושבתו ותצטרך לבחור אחד לשמור`
       : daysLeft === 1
-        ? `השירות יפסיק לפעול מחר (${formattedDate})`
-        : `השירות יפסיק לפעול בעוד ${daysLeft} ימים (${formattedDate})`;
+        ? `המנוי מסתיים מחר (${formattedDate}) - הבוטים יושבתו ותצטרך לבחור אחד לשמור`
+        : `המנוי מסתיים בעוד ${daysLeft} ימים (${formattedDate}) - לאחר מכן הבוטים יושבתו`;
   } else if (isTrial) {
     if (daysLeft <= 3) {
       bgGradient = 'from-red-500 to-rose-500';
@@ -1093,8 +1093,8 @@ function SubscriptionWarningBanner({ subscription }) {
             <h3 className="text-lg font-bold text-white">{title}</h3>
             <p className="text-white/90">{message}</p>
             {isCancelled && (
-              <p className="text-white/70 text-sm mt-1">
-                לאחר תאריך זה, חיבור ה-WhatsApp והבוטים יפסיקו לפעול
+              <p className="text-white/80 text-sm mt-1 font-medium">
+                💡 הוסף כרטיס אשראי וחדש את המנוי כדי להמשיך להשתמש בכל הבוטים
               </p>
             )}
           </div>

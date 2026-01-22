@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Plus, Bot, Play, Pause, Trash2, Edit2, X, Users, Zap, Settings, Tag, Variable, Info, 
   Share2, Download, Upload, Copy, ChevronRight, Sparkles, Clock, BarChart3, 
-  ArrowLeft, Search, Filter, MoreHorizontal, Calendar, TrendingUp
+  ArrowLeft, Search, Filter, MoreHorizontal, Calendar, TrendingUp, Crown, CheckCircle
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useBotsStore from '../store/botsStore';
@@ -48,6 +48,9 @@ export default function BotsPage() {
   const [deleteBotTarget, setDeleteBotTarget] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [totalStats, setTotalStats] = useState({ users: 0, triggers: 0, today: 0 });
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradeError, setUpgradeError] = useState(null);
+  const [usage, setUsage] = useState(null);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -59,7 +62,17 @@ export default function BotsPage() {
     fetchBots();
     fetchTags();
     fetchSharedBots();
+    fetchUsage();
   }, []);
+
+  const fetchUsage = async () => {
+    try {
+      const { data } = await api.get('/subscriptions/my/usage');
+      setUsage(data);
+    } catch (e) {
+      console.error('Failed to fetch usage:', e);
+    }
+  };
 
   const fetchSharedBots = async () => {
     try {
@@ -165,6 +178,22 @@ export default function BotsPage() {
       navigate(`/bots/${bot.id}`);
     } catch (err) {
       console.error(err);
+      const errorCode = err.response?.data?.code;
+      const errorData = err.response?.data;
+      
+      if (errorCode === 'BOTS_LIMIT_REACHED' || errorCode === 'HAS_DISABLED_BOT') {
+        setShowCreate(false);
+        setUpgradeError({
+          code: errorCode,
+          message: errorData?.error,
+          limit: errorData?.limit,
+          used: errorData?.used,
+          hasDisabledBots: errorData?.hasDisabledBots
+        });
+        setShowUpgradeModal(true);
+      } else {
+        alert(err.response?.data?.error || 'שגיאה ביצירת בוט');
+      }
     }
   };
 
@@ -1158,6 +1187,111 @@ export default function BotsPage() {
               <button onClick={handleDeleteConfirm} className="flex-1 px-6 py-3.5 bg-red-600 text-white rounded-xl font-bold shadow-lg hover:bg-red-700">
                 מחק לצמיתות
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upgrade Required Modal */}
+      {showUpgradeModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowUpgradeModal(false)}>
+          <div className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-gradient-to-br from-amber-400 to-orange-500 rounded-2xl">
+                  <Crown className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">
+                    {upgradeError?.code === 'HAS_DISABLED_BOT' ? 'יש לך בוט כבוי' : 'הגעת למגבלת הבוטים'}
+                  </h2>
+                  <p className="text-sm text-gray-500">
+                    {upgradeError?.code === 'HAS_DISABLED_BOT' 
+                      ? 'הפעל או מחק את הבוט הכבוי' 
+                      : `${upgradeError?.used || 0} מתוך ${upgradeError?.limit || 1} בוטים`}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setShowUpgradeModal(false)} className="p-2 hover:bg-gray-100 rounded-xl">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+            
+            <div className="p-6 bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl mb-6">
+              {upgradeError?.code === 'HAS_DISABLED_BOT' ? (
+                <div className="text-center">
+                  <Pause className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+                  <p className="text-amber-800 font-medium mb-2">
+                    יש לך בוט במצב מושהה
+                  </p>
+                  <p className="text-amber-600 text-sm">
+                    לפני שתוכל ליצור בוט חדש, עליך להפעיל או למחוק את הבוט הכבוי
+                  </p>
+                </div>
+              ) : (
+                <div className="text-center">
+                  <Bot className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+                  <p className="text-amber-800 font-medium mb-2">
+                    החבילה הנוכחית שלך מאפשרת עד {upgradeError?.limit || 1} בוטים
+                  </p>
+                  <p className="text-amber-600 text-sm">
+                    שדרג את החבילה שלך כדי ליצור בוטים נוספים ולפתוח יכולות מתקדמות
+                  </p>
+                </div>
+              )}
+            </div>
+            
+            {/* Benefits */}
+            {upgradeError?.code !== 'HAS_DISABLED_BOT' && (
+              <div className="space-y-3 mb-6">
+                <div className="flex items-center gap-3 p-3 bg-green-50 rounded-xl">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  <span className="text-green-800 text-sm">יותר בוטים פעילים</span>
+                </div>
+                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl">
+                  <Zap className="w-5 h-5 text-blue-600" />
+                  <span className="text-blue-800 text-sm">יותר הרצות פלואו בחודש</span>
+                </div>
+                <div className="flex items-center gap-3 p-3 bg-purple-50 rounded-xl">
+                  <Users className="w-5 h-5 text-purple-600" />
+                  <span className="text-purple-800 text-sm">יותר אנשי קשר</span>
+                </div>
+              </div>
+            )}
+            
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setShowUpgradeModal(false)} 
+                className="flex-1 px-6 py-3.5 border border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50"
+              >
+                אחר כך
+              </button>
+              {upgradeError?.code === 'HAS_DISABLED_BOT' ? (
+                <button 
+                  onClick={() => {
+                    setShowUpgradeModal(false);
+                    // Filter to find disabled bots
+                    const disabledBot = bots.find(b => !b.is_active);
+                    if (disabledBot) {
+                      navigate(`/bots/${disabledBot.id}`);
+                    }
+                  }}
+                  className="flex-1 px-6 py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all"
+                >
+                  עבור לבוט הכבוי
+                </button>
+              ) : (
+                <button 
+                  onClick={() => {
+                    setShowUpgradeModal(false);
+                    navigate('/pricing');
+                  }}
+                  className="flex-1 px-6 py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
+                >
+                  <Crown className="w-5 h-5" />
+                  שדרג עכשיו
+                </button>
+              )}
             </div>
           </div>
         </div>
