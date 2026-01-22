@@ -59,10 +59,38 @@ export default function SubscriptionManager() {
   const handleReactivate = async () => {
     setReactivating(true);
     try {
-      await api.post('/payment/reactivate');
+      const { data } = await api.post('/payment/reactivate');
       await loadSubscription();
+      // Show success message
+      if (data.message) {
+        navigate('/dashboard', { 
+          state: { 
+            message: data.message,
+            type: 'success'
+          }
+        });
+      }
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בהפעלת המנוי מחדש');
+      const errorData = err.response?.data;
+      if (errorData?.needsNewSubscription) {
+        // Subscription expired, need to resubscribe
+        navigate('/pricing', { 
+          state: { 
+            message: 'תקופת המנוי הסתיימה. בחר תכנית להמשיך.',
+            type: 'warning'
+          }
+        });
+      } else if (errorData?.needsPaymentMethod) {
+        // No payment method, redirect to add one
+        navigate('/pricing', { 
+          state: { 
+            message: 'יש להוסיף כרטיס אשראי לחידוש המנוי.',
+            type: 'warning'
+          }
+        });
+      } else {
+        alert(errorData?.error || 'שגיאה בהפעלת המנוי מחדש');
+      }
     } finally {
       setReactivating(false);
     }
@@ -226,13 +254,33 @@ export default function SubscriptionManager() {
                         <HelpCircle className="w-4 h-4" />
                         מה יקרה אחרי?
                       </button>
-                      <button
-                        onClick={() => navigate('/pricing')}
-                        className="flex items-center gap-1.5 px-4 py-1.5 bg-white text-amber-600 hover:bg-white/90 rounded-lg text-sm font-bold transition-colors"
-                      >
-                        חדש מנוי
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
+                      {paymentMethod ? (
+                        <button
+                          onClick={handleReactivate}
+                          disabled={reactivating}
+                          className="flex items-center gap-1.5 px-4 py-1.5 bg-white text-amber-600 hover:bg-white/90 rounded-lg text-sm font-bold transition-colors disabled:opacity-70"
+                        >
+                          {reactivating ? (
+                            <>
+                              <RotateCcw className="w-4 h-4 animate-spin" />
+                              מחדש...
+                            </>
+                          ) : (
+                            <>
+                              חדש מנוי
+                              <ArrowRight className="w-4 h-4" />
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => navigate('/pricing')}
+                          className="flex items-center gap-1.5 px-4 py-1.5 bg-white text-amber-600 hover:bg-white/90 rounded-lg text-sm font-bold transition-colors"
+                        >
+                          הוסף אשראי וחדש
+                          <CreditCard className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
