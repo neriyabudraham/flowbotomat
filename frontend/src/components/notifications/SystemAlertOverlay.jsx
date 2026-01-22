@@ -1,23 +1,25 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AlertTriangle, Info, RefreshCw, X, Bell } from 'lucide-react';
+import { AlertTriangle, Info, RefreshCw, X, Bell, CheckCircle, XCircle } from 'lucide-react';
 import { getSocket } from '../../services/socket';
 
 export default function SystemAlertOverlay() {
-  const [alerts, setAlerts] = useState([]);
+  const [centerAlert, setCenterAlert] = useState(null); // Full-screen center alert
   const [updateCountdown, setUpdateCountdown] = useState(null);
   const [socketConnected, setSocketConnected] = useState(false);
 
-  // Listen for system alerts
+  // Listen for system alerts - show in CENTER of screen
   const handleSystemAlert = useCallback((data) => {
     console.log('📢 System alert received:', data);
-    const id = Date.now();
-    setAlerts(prev => [...prev, { ...data, id }]);
+    setCenterAlert({
+      ...data,
+      id: Date.now()
+    });
     
-    // Auto dismiss after 10 seconds if enabled
+    // Auto dismiss after 15 seconds if enabled
     if (data.autoDismiss) {
       setTimeout(() => {
-        setAlerts(prev => prev.filter(a => a.id !== id));
-      }, 10000);
+        setCenterAlert(null);
+      }, 15000);
     }
   }, []);
 
@@ -84,26 +86,38 @@ export default function SystemAlertOverlay() {
     setAlerts(prev => prev.filter(a => a.id !== id));
   };
 
-  const getAlertStyles = (type) => {
+  const getAlertConfig = (type) => {
     switch (type) {
       case 'warning':
         return {
-          bg: 'bg-amber-500',
+          gradient: 'from-amber-500 to-orange-600',
+          bg: 'bg-amber-50',
+          border: 'border-amber-200',
+          text: 'text-amber-800',
           icon: AlertTriangle,
         };
       case 'error':
         return {
-          bg: 'bg-red-500',
-          icon: AlertTriangle,
+          gradient: 'from-red-500 to-rose-600',
+          bg: 'bg-red-50',
+          border: 'border-red-200',
+          text: 'text-red-800',
+          icon: XCircle,
         };
       case 'success':
         return {
-          bg: 'bg-green-500',
-          icon: Info,
+          gradient: 'from-green-500 to-emerald-600',
+          bg: 'bg-green-50',
+          border: 'border-green-200',
+          text: 'text-green-800',
+          icon: CheckCircle,
         };
       default:
         return {
-          bg: 'bg-blue-500',
+          gradient: 'from-blue-500 to-indigo-600',
+          bg: 'bg-blue-50',
+          border: 'border-blue-200',
+          text: 'text-blue-800',
           icon: Info,
         };
     }
@@ -113,7 +127,7 @@ export default function SystemAlertOverlay() {
     <>
       {/* System Update Overlay */}
       {updateCountdown !== null && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm" dir="rtl">
           <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-md mx-4 text-center animate-fade-in">
             <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
               <RefreshCw className="w-10 h-10 text-white animate-spin" />
@@ -141,36 +155,47 @@ export default function SystemAlertOverlay() {
         </div>
       )}
 
-      {/* Regular Alerts (top right corner) */}
-      {alerts.length > 0 && (
-        <div className="fixed top-4 left-4 z-[9998] space-y-3 max-w-sm" dir="rtl">
-          {alerts.map((alert) => {
-            const styles = getAlertStyles(alert.type);
-            const Icon = styles.icon;
-            
-            return (
-              <div
-                key={alert.id}
-                className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden animate-slide-in"
-              >
-                <div className={`${styles.bg} px-4 py-2 flex items-center justify-between`}>
-                  <div className="flex items-center gap-2 text-white">
-                    <Icon className="w-4 h-4" />
-                    <span className="font-medium text-sm">{alert.title}</span>
+      {/* CENTER SCREEN ALERT - For realtime notifications */}
+      {centerAlert && (
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm" dir="rtl">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg mx-4 overflow-hidden animate-fade-in">
+            {/* Header with gradient */}
+            {(() => {
+              const config = getAlertConfig(centerAlert.type);
+              const Icon = config.icon;
+              return (
+                <>
+                  <div className={`bg-gradient-to-r ${config.gradient} p-6 text-white text-center`}>
+                    <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <Icon className="w-8 h-8" />
+                    </div>
+                    <h2 className="text-2xl font-bold">{centerAlert.title}</h2>
                   </div>
-                  <button
-                    onClick={() => dismissAlert(alert.id)}
-                    className="text-white/80 hover:text-white"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-                <div className="p-4">
-                  <p className="text-gray-700 text-sm">{alert.message}</p>
-                </div>
-              </div>
-            );
-          })}
+                  
+                  <div className="p-6">
+                    <p className="text-gray-700 text-center text-lg leading-relaxed">
+                      {centerAlert.message}
+                    </p>
+                    
+                    <div className="mt-6 flex justify-center">
+                      <button
+                        onClick={() => setCenterAlert(null)}
+                        className={`px-8 py-3 bg-gradient-to-r ${config.gradient} text-white rounded-xl font-medium hover:shadow-lg transition-all`}
+                      >
+                        הבנתי
+                      </button>
+                    </div>
+                    
+                    {centerAlert.autoDismiss && (
+                      <p className="text-center text-sm text-gray-400 mt-4">
+                        ההודעה תיסגר אוטומטית
+                      </p>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
         </div>
       )}
 
@@ -179,15 +204,8 @@ export default function SystemAlertOverlay() {
           from { opacity: 0; transform: scale(0.95); }
           to { opacity: 1; transform: scale(1); }
         }
-        @keyframes slide-in {
-          from { opacity: 0; transform: translateX(-20px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
         .animate-fade-in {
           animation: fade-in 0.3s ease-out;
-        }
-        .animate-slide-in {
-          animation: slide-in 0.3s ease-out;
         }
       `}</style>
     </>
