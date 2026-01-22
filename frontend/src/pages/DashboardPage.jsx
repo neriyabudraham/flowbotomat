@@ -684,6 +684,9 @@ export default function DashboardPage() {
           />
         )}
 
+        {/* Subscription Expiring/Cancelled Warning Banner */}
+        <SubscriptionWarningBanner subscription={user?.subscription} />
+
         {/* Upgrade Banner - Only for users without paid subscription */}
         {user && (!user.subscription || user.subscription.plan?.price === 0 || user.subscription.plan?.price === '0') && (
           <div className="bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 rounded-2xl p-6 mb-8">
@@ -1000,6 +1003,118 @@ function TipModal({ tip, onClose }) {
           >
             הבנתי, תודה!
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SubscriptionWarningBanner({ subscription }) {
+  const navigate = useNavigate();
+  
+  if (!subscription) return null;
+  
+  const status = subscription.status;
+  const isTrial = subscription.is_trial || status === 'trial';
+  const isCancelled = status === 'cancelled';
+  
+  // Get end date
+  const endDateRaw = isTrial 
+    ? subscription.trial_ends_at 
+    : (subscription.expires_at || subscription.next_charge_date);
+  
+  if (!endDateRaw) return null;
+  
+  const endDate = new Date(endDateRaw);
+  const now = new Date();
+  const daysLeft = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
+  
+  // Don't show if more than 7 days left and not cancelled
+  if (daysLeft > 7 && !isCancelled) return null;
+  
+  // Don't show if already expired
+  if (daysLeft < 0) return null;
+  
+  const formattedDate = endDate.toLocaleDateString('he-IL', { 
+    weekday: 'long', 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric' 
+  });
+  
+  // Determine banner color and message based on status
+  let bgGradient, iconBg, title, message;
+  
+  if (isCancelled) {
+    bgGradient = 'from-amber-500 to-orange-500';
+    iconBg = 'bg-white/20';
+    title = 'המנוי שלך בוטל';
+    message = daysLeft === 0 
+      ? `השירות יפסיק לפעול היום (${formattedDate})`
+      : daysLeft === 1
+        ? `השירות יפסיק לפעול מחר (${formattedDate})`
+        : `השירות יפסיק לפעול בעוד ${daysLeft} ימים (${formattedDate})`;
+  } else if (isTrial) {
+    if (daysLeft <= 3) {
+      bgGradient = 'from-red-500 to-rose-500';
+      iconBg = 'bg-white/20';
+      title = 'תקופת הניסיון עומדת להסתיים!';
+      message = daysLeft === 0 
+        ? `תקופת הניסיון מסתיימת היום (${formattedDate})`
+        : daysLeft === 1
+          ? `תקופת הניסיון מסתיימת מחר (${formattedDate})`
+          : `תקופת הניסיון מסתיימת בעוד ${daysLeft} ימים (${formattedDate})`;
+    } else {
+      bgGradient = 'from-blue-500 to-indigo-500';
+      iconBg = 'bg-white/20';
+      title = 'אתה בתקופת ניסיון';
+      message = `תקופת הניסיון מסתיימת בעוד ${daysLeft} ימים (${formattedDate})`;
+    }
+  } else {
+    // Active subscription expiring soon
+    bgGradient = 'from-amber-500 to-orange-500';
+    iconBg = 'bg-white/20';
+    title = 'המנוי שלך עומד להסתיים';
+    message = daysLeft === 0 
+      ? `המנוי מסתיים היום (${formattedDate})`
+      : daysLeft === 1
+        ? `המנוי מסתיים מחר (${formattedDate})`
+        : `המנוי מסתיים בעוד ${daysLeft} ימים (${formattedDate})`;
+  }
+
+  return (
+    <div className={`bg-gradient-to-r ${bgGradient} rounded-2xl p-5 mb-6`}>
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className={`w-12 h-12 ${iconBg} backdrop-blur rounded-xl flex items-center justify-center`}>
+            <AlertCircle className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-white">{title}</h3>
+            <p className="text-white/90">{message}</p>
+            {isCancelled && (
+              <p className="text-white/70 text-sm mt-1">
+                לאחר תאריך זה, חיבור ה-WhatsApp והבוטים יפסיקו לפעול
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex gap-2">
+          {isCancelled ? (
+            <button
+              onClick={() => navigate('/settings')}
+              className="px-5 py-2.5 bg-white text-amber-600 rounded-xl font-bold hover:shadow-lg transition-all hover:scale-105"
+            >
+              הוסף כרטיס וחדש מנוי
+            </button>
+          ) : (
+            <button
+              onClick={() => navigate('/pricing')}
+              className="px-5 py-2.5 bg-white text-orange-600 rounded-xl font-bold hover:shadow-lg transition-all hover:scale-105"
+            >
+              {isTrial ? 'שדרג עכשיו' : 'חדש מנוי'}
+            </button>
+          )}
         </div>
       </div>
     </div>
