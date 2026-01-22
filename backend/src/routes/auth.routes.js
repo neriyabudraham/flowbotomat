@@ -7,7 +7,7 @@ const { login } = require('../controllers/auth/login.controller');
 const { refresh } = require('../controllers/auth/refresh.controller');
 const { me } = require('../controllers/auth/me.controller');
 const { resendVerification } = require('../controllers/auth/resend.controller');
-const { googleAuth } = require('../controllers/auth/google.controller');
+const { googleAuth, googleCallback } = require('../controllers/auth/google.controller');
 const authMiddleware = require('../middlewares/auth.middleware');
 
 // Public routes
@@ -17,6 +17,7 @@ router.post('/login', login);
 router.post('/refresh', refresh);
 router.post('/resend-verification', resendVerification);
 router.post('/google', googleAuth);
+router.get('/google/callback', googleCallback);
 
 // Protected routes
 router.get('/me', authMiddleware, me);

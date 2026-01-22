@@ -1,13 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
   Bot, Sparkles, Shield, Zap, ChevronLeft, Mail, Lock, Eye, EyeOff, User,
   MessageCircle, Users, TrendingUp, ArrowRight, CheckCircle, Check, Gift, Clock
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
-import api from '../../services/api';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+// Google Icon SVG
+const GoogleIcon = () => (
+  <svg className="w-5 h-5" viewBox="0 0 24 24">
+    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+  </svg>
+);
 
 export default function SignupPage() {
   const navigate = useNavigate();
@@ -19,64 +28,69 @@ export default function SignupPage() {
   const [focusedField, setFocusedField] = useState(null);
   const [googleLoading, setGoogleLoading] = useState(false);
 
-  // Initialize Google Sign-In
-  useEffect(() => {
-    if (!GOOGLE_CLIENT_ID) return;
-    
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.defer = true;
-    document.body.appendChild(script);
-
-    script.onload = () => {
-      window.google?.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: handleGoogleResponse,
-      });
-      window.google?.accounts.id.renderButton(
-        document.getElementById('google-signup-btn'),
-        { 
-          theme: 'outline', 
-          size: 'large', 
-          width: '100%',
-          text: 'signup_with',
-          locale: 'he'
-        }
-      );
-    };
-
-    return () => {
-      document.body.removeChild(script);
-    };
-  }, []);
-
-  const handleGoogleResponse = async (response) => {
-    if (!response.credential) return;
+  const handleGoogleSignup = () => {
+    if (!GOOGLE_CLIENT_ID) {
+      useAuthStore.setState({ error: 'הרשמה עם Google לא זמינה כרגע' });
+      return;
+    }
     
     setGoogleLoading(true);
     clearError();
     
-    try {
-      // Get referral code from localStorage if exists
-      const referralCode = localStorage.getItem('referral_code');
-      const referralTimestamp = localStorage.getItem('referral_timestamp');
-      const isValidReferral = referralTimestamp && 
-        (Date.now() - parseInt(referralTimestamp)) < (30 * 24 * 60 * 60 * 1000);
-      
-      const res = await api.post('/auth/google', {
-        credential: response.credential,
-        referralCode: isValidReferral ? referralCode : null,
-      });
-      
-      setTokens(res.data.accessToken, res.data.refreshToken);
-      navigate('/dashboard');
-    } catch (err) {
-      console.error('Google signup error:', err);
-      useAuthStore.setState({ error: err.response?.data?.error || 'שגיאה בהרשמה עם Google' });
-    } finally {
-      setGoogleLoading(false);
+    // Save referral code to pass after callback
+    const referralCode = localStorage.getItem('referral_code');
+    const referralTimestamp = localStorage.getItem('referral_timestamp');
+    const isValidReferral = referralTimestamp && 
+      (Date.now() - parseInt(referralTimestamp)) < (30 * 24 * 60 * 60 * 1000);
+    
+    if (isValidReferral && referralCode) {
+      sessionStorage.setItem('pending_referral', referralCode);
     }
+    
+    // Build Google OAuth URL
+    const redirectUri = `${window.location.origin}/api/auth/google/callback`;
+    const scope = 'email profile';
+    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent`;
+    
+    // Open popup
+    const width = 500;
+    const height = 600;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+    
+    const popup = window.open(
+      googleAuthUrl,
+      'google-signup',
+      `width=${width},height=${height},left=${left},top=${top}`
+    );
+    
+    // Listen for message from popup
+    const handleMessage = async (event) => {
+      if (event.origin !== window.location.origin) return;
+      
+      if (event.data.type === 'google-auth-success') {
+        window.removeEventListener('message', handleMessage);
+        sessionStorage.removeItem('pending_referral');
+        setTokens(event.data.accessToken, event.data.refreshToken);
+        setGoogleLoading(false);
+        navigate('/dashboard');
+      } else if (event.data.type === 'google-auth-error') {
+        window.removeEventListener('message', handleMessage);
+        setGoogleLoading(false);
+        useAuthStore.setState({ error: event.data.error || 'שגיאה בהרשמה עם Google' });
+      }
+    };
+    
+    window.addEventListener('message', handleMessage);
+    
+    // Check if popup was closed
+    const checkPopup = setInterval(() => {
+      if (popup?.closed) {
+        clearInterval(checkPopup);
+        window.removeEventListener('message', handleMessage);
+        setGoogleLoading(false);
+      }
+    }, 1000);
   };
 
   const handleSubmit = async (e) => {
@@ -189,6 +203,32 @@ export default function SignupPage() {
               </p>
             </div>
           )}
+
+          {/* Google Sign Up - Primary */}
+          {GOOGLE_CLIENT_ID && (
+            <button
+              type="button"
+              onClick={handleGoogleSignup}
+              disabled={googleLoading}
+              className="w-full py-4 bg-white border-2 border-gray-200 hover:border-gray-300 hover:bg-gray-50 rounded-xl font-medium text-gray-700 shadow-sm hover:shadow transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+            >
+              {googleLoading ? (
+                <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+              ) : (
+                <>
+                  <GoogleIcon />
+                  הרשמה עם Google
+                </>
+              )}
+            </button>
+          )}
+
+          {/* Divider */}
+          <div className="flex items-center gap-4">
+            <div className="flex-1 h-px bg-gray-200" />
+            <span className="text-sm text-gray-400">או עם אימייל</span>
+            <div className="flex-1 h-px bg-gray-200" />
+          </div>
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -362,25 +402,8 @@ export default function SignupPage() {
             </button>
           </form>
 
-          {/* Divider */}
-          <div className="my-6 flex items-center gap-4">
-            <div className="flex-1 h-px bg-gray-200" />
-            <span className="text-sm text-gray-400">או הירשם עם</span>
-            <div className="flex-1 h-px bg-gray-200" />
-          </div>
-
-          {/* Google Sign Up */}
-          <div className="relative">
-            {googleLoading && (
-              <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-xl z-10">
-                <div className="w-6 h-6 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
-              </div>
-            )}
-            <div id="google-signup-btn" className="flex justify-center [&>div]:w-full [&>div>div]:w-full [&_iframe]:!w-full" />
-          </div>
-
           {/* Login Link */}
-          <div className="text-center mt-6">
+          <div className="text-center mt-8">
             <p className="text-gray-600">
               כבר יש לך חשבון?{' '}
               <Link 

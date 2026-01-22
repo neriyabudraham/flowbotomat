@@ -1,12 +1,88 @@
 const db = require('../../config/database');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
+const axios = require('axios');
 
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const client = new OAuth2Client(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  `${process.env.FRONTEND_URL || 'https://flow.botomat.co.il'}/api/auth/google/callback`
+);
+
+/**
+ * GET /api/auth/google/callback
+ * OAuth2 callback from Google
+ */
+const googleCallback = async (req, res) => {
+  try {
+    const { code } = req.query;
+    
+    if (!code) {
+      return res.send(`
+        <script>
+          window.opener.postMessage({ type: 'google-auth-error', error: 'לא התקבל קוד מGoogle' }, '*');
+          window.close();
+        </script>
+      `);
+    }
+    
+    // Exchange code for tokens
+    const { tokens } = await client.getToken(code);
+    
+    // Get user info from Google
+    const userInfoRes = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+    
+    const { email, name, picture, id: googleId } = userInfoRes.data;
+    
+    if (!email) {
+      return res.send(`
+        <script>
+          window.opener.postMessage({ type: 'google-auth-error', error: 'לא התקבל אימייל מGoogle' }, '*');
+          window.close();
+        </script>
+      `);
+    }
+    
+    // Process user (same logic as googleAuth)
+    const result = await processGoogleUser(email, name, picture, googleId, null);
+    
+    if (result.error) {
+      return res.send(`
+        <script>
+          window.opener.postMessage({ type: 'google-auth-error', error: '${result.error}' }, '*');
+          window.close();
+        </script>
+      `);
+    }
+    
+    // Send success message to opener
+    res.send(`
+      <script>
+        window.opener.postMessage({
+          type: 'google-auth-success',
+          accessToken: '${result.accessToken}',
+          refreshToken: '${result.refreshToken}',
+          isNewUser: ${result.isNewUser}
+        }, '*');
+        window.close();
+      </script>
+    `);
+  } catch (error) {
+    console.error('Google callback error:', error);
+    res.send(`
+      <script>
+        window.opener.postMessage({ type: 'google-auth-error', error: 'שגיאה בהתחברות עם Google' }, '*');
+        window.close();
+      </script>
+    `);
+  }
+};
 
 /**
  * POST /api/auth/google
- * Login/Signup with Google
+ * Login/Signup with Google (ID Token method)
  */
 const googleAuth = async (req, res) => {
   try {
@@ -24,9 +100,32 @@ const googleAuth = async (req, res) => {
 
     const payload = ticket.getPayload();
     const { email, name, picture, sub: googleId } = payload;
+    
+    const result = await processGoogleUser(email, name, picture, googleId, referralCode);
+    
+    if (result.error) {
+      return res.status(result.status || 400).json({ error: result.error });
+    }
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Google auth error:', error);
+    
+    if (error.message?.includes('Invalid token')) {
+      return res.status(401).json({ error: 'Invalid Google token' });
+    }
+    
+    res.status(500).json({ error: 'Server error' });
+  }
+};
 
+/**
+ * Process Google user - shared logic
+ */
+async function processGoogleUser(email, name, picture, googleId, referralCode) {
+  try {
     if (!email) {
-      return res.status(400).json({ error: 'Email not provided by Google' });
+      return { error: 'Email not provided by Google', status: 400 };
     }
 
     // Check if user exists
@@ -103,7 +202,7 @@ const googleAuth = async (req, res) => {
 
       // Check if user is active
       if (!user.rows[0].is_active) {
-        return res.status(403).json({ error: 'Account is deactivated' });
+        return { error: 'Account is deactivated', status: 403 };
       }
 
       console.log(`[Google Auth] Existing user logged in: ${email}`);
@@ -128,21 +227,16 @@ const googleAuth = async (req, res) => {
       [userId, refreshToken]
     );
 
-    res.json({
+    return {
       success: true,
       isNewUser,
       accessToken,
       refreshToken,
-    });
+    };
   } catch (error) {
-    console.error('Google auth error:', error);
-    
-    if (error.message?.includes('Invalid token')) {
-      return res.status(401).json({ error: 'Invalid Google token' });
-    }
-    
-    res.status(500).json({ error: 'Server error' });
+    console.error('Google process user error:', error);
+    return { error: 'Server error', status: 500 };
   }
-};
+}
 
-module.exports = { googleAuth };
+module.exports = { googleAuth, googleCallback };

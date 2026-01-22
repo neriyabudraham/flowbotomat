@@ -52,14 +52,15 @@ async function updateProfile(req, res) {
 
 /**
  * Change password
+ * If user has no password (Google signup), they can create one without currentPassword
  */
 async function changePassword(req, res) {
   try {
     const userId = req.user.id;
     const { currentPassword, newPassword } = req.body;
     
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ error: 'נדרשת סיסמה נוכחית וחדשה' });
+    if (!newPassword) {
+      return res.status(400).json({ error: 'נדרשת סיסמה חדשה' });
     }
     
     if (newPassword.length < 8) {
@@ -68,7 +69,7 @@ async function changePassword(req, res) {
     
     // Get current password hash
     const userRes = await pool.query(
-      'SELECT password_hash FROM users WHERE id = $1',
+      'SELECT password_hash, google_id FROM users WHERE id = $1',
       [userId]
     );
     
@@ -76,10 +77,19 @@ async function changePassword(req, res) {
       return res.status(404).json({ error: 'משתמש לא נמצא' });
     }
     
-    // Verify current password
-    const isValid = await comparePassword(currentPassword, userRes.rows[0].password_hash);
-    if (!isValid) {
-      return res.status(400).json({ error: 'סיסמה נוכחית שגויה' });
+    const hasPassword = !!userRes.rows[0].password_hash;
+    const isGoogleUser = !!userRes.rows[0].google_id;
+    
+    // If user has a password, they must provide the current one
+    if (hasPassword) {
+      if (!currentPassword) {
+        return res.status(400).json({ error: 'נדרשת סיסמה נוכחית' });
+      }
+      
+      const isValid = await comparePassword(currentPassword, userRes.rows[0].password_hash);
+      if (!isValid) {
+        return res.status(400).json({ error: 'סיסמה נוכחית שגויה' });
+      }
     }
     
     // Hash new password
@@ -91,7 +101,8 @@ async function changePassword(req, res) {
       [newHash, userId]
     );
     
-    res.json({ success: true, message: 'הסיסמה עודכנה בהצלחה' });
+    const message = hasPassword ? 'הסיסמה עודכנה בהצלחה' : 'סיסמה נוצרה בהצלחה! כעת תוכל להתחבר גם עם אימייל וסיסמה';
+    res.json({ success: true, message, hadPassword: hasPassword });
   } catch (error) {
     console.error('Change password error:', error);
     res.status(500).json({ error: 'שגיאה בשינוי סיסמה' });
