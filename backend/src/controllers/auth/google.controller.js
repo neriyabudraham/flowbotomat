@@ -11,19 +11,16 @@ const client = new OAuth2Client(
 
 /**
  * GET /api/auth/google/callback
- * OAuth2 callback from Google
+ * OAuth2 callback from Google - redirects back to frontend with tokens
  */
 const googleCallback = async (req, res) => {
+  const frontendUrl = process.env.FRONTEND_URL || 'https://flow.botomat.co.il';
+  
   try {
     const { code } = req.query;
     
     if (!code) {
-      return res.send(`
-        <script>
-          window.opener.postMessage({ type: 'google-auth-error', error: 'לא התקבל קוד מGoogle' }, '*');
-          window.close();
-        </script>
-      `);
+      return res.redirect(`${frontendUrl}/login?error=no_code`);
     }
     
     // Exchange code for tokens
@@ -37,46 +34,21 @@ const googleCallback = async (req, res) => {
     const { email, name, picture, id: googleId } = userInfoRes.data;
     
     if (!email) {
-      return res.send(`
-        <script>
-          window.opener.postMessage({ type: 'google-auth-error', error: 'לא התקבל אימייל מGoogle' }, '*');
-          window.close();
-        </script>
-      `);
+      return res.redirect(`${frontendUrl}/login?error=no_email`);
     }
     
     // Process user (same logic as googleAuth)
     const result = await processGoogleUser(email, name, picture, googleId, null);
     
     if (result.error) {
-      return res.send(`
-        <script>
-          window.opener.postMessage({ type: 'google-auth-error', error: '${result.error}' }, '*');
-          window.close();
-        </script>
-      `);
+      return res.redirect(`${frontendUrl}/login?error=${encodeURIComponent(result.error)}`);
     }
     
-    // Send success message to opener
-    res.send(`
-      <script>
-        window.opener.postMessage({
-          type: 'google-auth-success',
-          accessToken: '${result.accessToken}',
-          refreshToken: '${result.refreshToken}',
-          isNewUser: ${result.isNewUser}
-        }, '*');
-        window.close();
-      </script>
-    `);
+    // Redirect to frontend with tokens in URL (will be stored and cleared)
+    res.redirect(`${frontendUrl}/auth/callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}&isNewUser=${result.isNewUser}`);
   } catch (error) {
     console.error('Google callback error:', error);
-    res.send(`
-      <script>
-        window.opener.postMessage({ type: 'google-auth-error', error: 'שגיאה בהתחברות עם Google' }, '*');
-        window.close();
-      </script>
-    `);
+    res.redirect(`${frontendUrl}/login?error=google_error`);
   }
 };
 

@@ -39,49 +39,13 @@ export default function LoginPage() {
     setGoogleLoading(true);
     clearError();
     
-    // Build Google OAuth URL
+    // Build Google OAuth URL - redirect directly (no popup)
     const redirectUri = `${window.location.origin}/api/auth/google/callback`;
     const scope = 'email profile';
-    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent`;
+    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=select_account`;
     
-    // Open popup
-    const width = 500;
-    const height = 600;
-    const left = window.screenX + (window.outerWidth - width) / 2;
-    const top = window.screenY + (window.outerHeight - height) / 2;
-    
-    const popup = window.open(
-      googleAuthUrl,
-      'google-login',
-      `width=${width},height=${height},left=${left},top=${top}`
-    );
-    
-    // Listen for message from popup
-    const handleMessage = async (event) => {
-      if (event.origin !== window.location.origin) return;
-      
-      if (event.data.type === 'google-auth-success') {
-        window.removeEventListener('message', handleMessage);
-        setTokens(event.data.accessToken, event.data.refreshToken);
-        setGoogleLoading(false);
-        navigate(returnTo);
-      } else if (event.data.type === 'google-auth-error') {
-        window.removeEventListener('message', handleMessage);
-        setGoogleLoading(false);
-        useAuthStore.setState({ error: event.data.error || 'שגיאה בהתחברות עם Google' });
-      }
-    };
-    
-    window.addEventListener('message', handleMessage);
-    
-    // Check if popup was closed
-    const checkPopup = setInterval(() => {
-      if (popup?.closed) {
-        clearInterval(checkPopup);
-        window.removeEventListener('message', handleMessage);
-        setGoogleLoading(false);
-      }
-    }, 1000);
+    // Redirect to Google
+    window.location.href = googleAuthUrl;
   };
 
   const handleSubmit = async (e) => {

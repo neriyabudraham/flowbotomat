@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation, useSearchParams } 
 import LandingPage from './pages/LandingPage';
 import SignupPage from './pages/auth/SignupPage';
 import LoginPage from './pages/auth/LoginPage';
+import AuthCallbackPage from './pages/auth/AuthCallbackPage';
 import VerifyPage from './pages/auth/VerifyPage';
 import DashboardPage from './pages/DashboardPage';
 import WhatsappSetupPage from './pages/WhatsappSetupPage';
@@ -87,6 +88,7 @@ function App() {
           <Route path="/affiliate-terms" element={<AffiliateTermsPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route path="/verify" element={<VerifyPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/whatsapp" element={<WhatsappSetupPage />} />
