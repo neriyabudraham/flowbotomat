@@ -60,8 +60,9 @@ async function handleWebhook(req, res) {
     const { userId } = req.params;
     const event = req.body;
     
-    // Only log important events (not acks which are very frequent)
-    if (event.event !== 'message.ack') {
+    // Only log truly important events (not frequent ones like messages and acks)
+    const silentEvents = ['message', 'message.ack', 'message.any', 'poll.vote', 'poll.vote.failed'];
+    if (!silentEvents.includes(event.event)) {
       console.log(`[Webhook] User: ${userId}, Event: ${event.event}`);
     }
     
@@ -78,10 +79,8 @@ async function handleWebhook(req, res) {
         await handleSessionStatus(userId, event);
         break;
       default:
-        // Only log truly unhandled events (not common ones we ignore)
-        if (!['message.any', 'poll.vote', 'poll.vote.failed'].includes(event.event)) {
-          console.log(`[Webhook] Unhandled event: ${event.event}`);
-        }
+        // Unhandled events are already filtered at the top
+        break;
     }
     
     res.json({ success: true });

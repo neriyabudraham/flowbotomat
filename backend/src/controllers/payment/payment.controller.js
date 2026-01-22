@@ -654,7 +654,7 @@ async function reactivateSubscription(req, res) {
           updated_at = NOW()
       WHERE user_id = $1 AND status = 'cancelled'
       RETURNING *
-    `, [userId, standingOrderId, newExpiresAt]);
+    `, [userId, standingOrderId, newExpiresAt.toISOString()]);
     
     // Log the reactivation payment
     await db.query(`
