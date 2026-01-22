@@ -37,20 +37,23 @@ export default function SignupPage() {
     setGoogleLoading(true);
     clearError();
     
-    // Save referral code to pass after callback
+    // Get referral code if valid
     const referralCode = localStorage.getItem('referral_code');
     const referralTimestamp = localStorage.getItem('referral_timestamp');
     const isValidReferral = referralTimestamp && 
       (Date.now() - parseInt(referralTimestamp)) < (30 * 24 * 60 * 60 * 1000);
     
-    if (isValidReferral && referralCode) {
-      sessionStorage.setItem('pending_referral', referralCode);
-    }
+    // Build state with referral code
+    const state = isValidReferral && referralCode ? JSON.stringify({ referral: referralCode }) : '';
     
     // Build Google OAuth URL - redirect directly (no popup)
     const redirectUri = `${window.location.origin}/api/auth/google/callback`;
     const scope = 'email profile';
-    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=select_account`;
+    let googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=select_account`;
+    
+    if (state) {
+      googleAuthUrl += `&state=${encodeURIComponent(state)}`;
+    }
     
     // Redirect to Google
     window.location.href = googleAuthUrl;

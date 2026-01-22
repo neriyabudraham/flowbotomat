@@ -17,10 +17,21 @@ const googleCallback = async (req, res) => {
   const frontendUrl = process.env.FRONTEND_URL || 'https://flow.botomat.co.il';
   
   try {
-    const { code } = req.query;
+    const { code, state } = req.query;
     
     if (!code) {
       return res.redirect(`${frontendUrl}/login?error=no_code`);
+    }
+    
+    // Parse state to get referral code
+    let referralCode = null;
+    if (state) {
+      try {
+        const stateData = JSON.parse(decodeURIComponent(state));
+        referralCode = stateData.referral;
+      } catch (e) {
+        // Ignore invalid state
+      }
     }
     
     // Exchange code for tokens
@@ -37,8 +48,8 @@ const googleCallback = async (req, res) => {
       return res.redirect(`${frontendUrl}/login?error=no_email`);
     }
     
-    // Process user (same logic as googleAuth)
-    const result = await processGoogleUser(email, name, picture, googleId, null);
+    // Process user with referral code
+    const result = await processGoogleUser(email, name, picture, googleId, referralCode);
     
     if (result.error) {
       return res.redirect(`${frontendUrl}/login?error=${encodeURIComponent(result.error)}`);

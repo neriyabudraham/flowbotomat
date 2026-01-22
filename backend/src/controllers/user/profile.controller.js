@@ -9,7 +9,8 @@ async function getProfile(req, res) {
     const userId = req.user.id;
     
     const result = await pool.query(
-      `SELECT id, email, name, language, created_at 
+      `SELECT id, email, name, language, created_at, avatar_url, google_id,
+              CASE WHEN password_hash IS NOT NULL THEN true ELSE false END as has_password
        FROM users WHERE id = $1`,
       [userId]
     );
