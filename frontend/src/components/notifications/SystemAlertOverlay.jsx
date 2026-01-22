@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
-import { AlertTriangle, Info, RefreshCw, CheckCircle, XCircle, Sparkles, Bell, X } from 'lucide-react';
+import { AlertTriangle, Info, RefreshCw, CheckCircle, XCircle, Sparkles, Bell, X, Clock } from 'lucide-react';
 import { onSystemAlert } from '../../services/socket';
 
 export default function SystemAlertOverlay() {
   const [centerAlert, setCenterAlert] = useState(null);
-  const [updateCountdown, setUpdateCountdown] = useState(null);
   const [dismissTimer, setDismissTimer] = useState(null);
+  
+  // System update states
+  const [updateAlert, setUpdateAlert] = useState(null); // Full screen alert
+  const [updateCountdown, setUpdateCountdown] = useState(null); // Top banner countdown
+  const [acknowledged, setAcknowledged] = useState(false); // User clicked "הבנתי"
 
   useEffect(() => {
     console.log('📢 SystemAlertOverlay: Registering alert listener');
@@ -14,8 +18,11 @@ export default function SystemAlertOverlay() {
       console.log('📢 SystemAlertOverlay: Received alert!', data);
       
       if (data.isUpdate) {
-        console.log('🔄 Setting update countdown:', data.countdown);
-        setUpdateCountdown(data.countdown || 10);
+        console.log('🔄 System update alert received');
+        // Show full screen alert with 30 second countdown
+        setUpdateAlert(data);
+        setUpdateCountdown(30);
+        setAcknowledged(false);
       } else {
         console.log('📢 Setting center alert:', data.title);
         setCenterAlert({
@@ -40,7 +47,10 @@ export default function SystemAlertOverlay() {
     if (updateCountdown === null) return;
     
     if (updateCountdown <= 0) {
+      // Time's up - close everything
+      setUpdateAlert(null);
       setUpdateCountdown(null);
+      setAcknowledged(false);
       return;
     }
 
@@ -51,7 +61,7 @@ export default function SystemAlertOverlay() {
     return () => clearTimeout(timer);
   }, [updateCountdown]);
 
-  // Auto-dismiss timer for alerts
+  // Auto-dismiss timer for regular alerts
   useEffect(() => {
     if (dismissTimer === null) return;
     
@@ -67,6 +77,12 @@ export default function SystemAlertOverlay() {
 
     return () => clearTimeout(timer);
   }, [dismissTimer]);
+
+  // Handle acknowledge button
+  const handleAcknowledge = () => {
+    setAcknowledged(true);
+    setUpdateAlert(null); // Close full screen, keep banner
+  };
 
   const getAlertConfig = (type) => {
     switch (type) {
@@ -107,8 +123,35 @@ export default function SystemAlertOverlay() {
 
   return (
     <>
-      {/* System Update Overlay */}
-      {updateCountdown !== null && (
+      {/* TOP BANNER - Shows countdown after user acknowledges */}
+      {updateCountdown !== null && acknowledged && (
+        <div className="fixed top-0 left-0 right-0 z-[9999] animate-slide-down" dir="rtl">
+          <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white py-3 px-4 shadow-lg">
+            <div className="max-w-4xl mx-auto flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                  <RefreshCw className="w-5 h-5 animate-spin" />
+                </div>
+                <div>
+                  <p className="font-bold">עדכון מערכת בדרך</p>
+                  <p className="text-white/80 text-sm">שמור את העבודה שלך</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 bg-white/20 px-4 py-2 rounded-xl">
+                  <Clock className="w-5 h-5" />
+                  <span className="text-2xl font-bold tabular-nums">{updateCountdown}</span>
+                  <span className="text-sm">שניות</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FULL SCREEN UPDATE ALERT - Before user acknowledges */}
+      {updateAlert && !acknowledged && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center" dir="rtl">
           {/* Animated background */}
           <div className="absolute inset-0 bg-gradient-to-br from-slate-900/95 via-indigo-900/90 to-slate-900/95 backdrop-blur-md" />
@@ -129,67 +172,56 @@ export default function SystemAlertOverlay() {
             ))}
           </div>
           
-          <div className="relative bg-white/10 backdrop-blur-xl rounded-3xl p-10 max-w-md mx-4 text-center border border-white/20 shadow-2xl animate-scale-in">
-            {/* Spinning icon */}
+          <div className="relative bg-white/10 backdrop-blur-xl rounded-3xl p-10 max-w-lg mx-4 text-center border border-white/20 shadow-2xl animate-scale-in">
+            {/* Icon */}
             <div className="relative mx-auto mb-8">
-              <div className="w-28 h-28 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl flex items-center justify-center shadow-lg shadow-indigo-500/40 animate-pulse-slow">
-                <RefreshCw className="w-14 h-14 text-white animate-spin" />
+              <div className="w-28 h-28 bg-gradient-to-br from-amber-500 to-orange-600 rounded-3xl flex items-center justify-center shadow-lg shadow-orange-500/40">
+                <AlertTriangle className="w-14 h-14 text-white" />
               </div>
-              <div className="absolute -top-2 -right-2 w-8 h-8 bg-amber-400 rounded-full flex items-center justify-center animate-bounce">
-                <Sparkles className="w-4 h-4 text-amber-800" />
+              <div className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
+                <span className="text-white text-xs font-bold">!</span>
               </div>
             </div>
             
             <h2 className="text-3xl font-bold text-white mb-4">
-              עדכון מערכת
+              עדכון מערכת בדרך!
             </h2>
-            <p className="text-white/70 mb-8 text-lg">
-              אנחנו משפרים את המערכת עבורך
+            <p className="text-white/80 mb-6 text-lg leading-relaxed">
+              המערכת תתעדכן בקרוב לגרסה חדשה.
               <br />
-              <span className="text-white/50 text-sm">העמוד יתרענן אוטומטית</span>
+              <span className="text-amber-300 font-semibold">אנא שמור את כל העבודה שלך עכשיו!</span>
             </p>
             
-            {/* Countdown circle */}
-            <div className="relative w-32 h-32 mx-auto mb-8">
-              <svg className="w-32 h-32 transform -rotate-90">
-                <circle
-                  cx="64"
-                  cy="64"
-                  r="56"
-                  stroke="rgba(255,255,255,0.1)"
-                  strokeWidth="8"
-                  fill="none"
+            {/* Countdown display */}
+            <div className="bg-white/10 rounded-2xl p-6 mb-8">
+              <p className="text-white/60 text-sm mb-2">זמן שנותר לשמירה</p>
+              <div className="flex items-center justify-center gap-2">
+                <Clock className="w-8 h-8 text-amber-400" />
+                <span className="text-5xl font-bold text-white tabular-nums">{updateCountdown}</span>
+                <span className="text-white/60 text-lg">שניות</span>
+              </div>
+              
+              {/* Progress bar */}
+              <div className="mt-4 h-2 bg-white/10 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-amber-400 to-orange-500 transition-all duration-1000"
+                  style={{ width: `${(updateCountdown / 30) * 100}%` }}
                 />
-                <circle
-                  cx="64"
-                  cy="64"
-                  r="56"
-                  stroke="url(#gradient)"
-                  strokeWidth="8"
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeDasharray={`${(updateCountdown / 10) * 352} 352`}
-                  className="transition-all duration-1000"
-                />
-                <defs>
-                  <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#818cf8" />
-                    <stop offset="100%" stopColor="#c084fc" />
-                  </linearGradient>
-                </defs>
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-5xl font-bold text-white">{updateCountdown}</span>
-                <span className="text-white/50 text-sm">שניות</span>
               </div>
             </div>
             
-            <div className="p-4 bg-amber-500/20 rounded-2xl border border-amber-500/30">
-              <p className="text-amber-200 flex items-center justify-center gap-2 text-sm">
-                <AlertTriangle className="w-4 h-4" />
-                אנא שמור את העבודה שלך ואל תסגור את הדפדפן
-              </p>
-            </div>
+            {/* Acknowledge button */}
+            <button
+              onClick={handleAcknowledge}
+              className="w-full py-4 bg-gradient-to-r from-emerald-500 to-green-600 text-white rounded-2xl font-bold text-lg hover:shadow-lg hover:shadow-green-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
+            >
+              <CheckCircle className="w-5 h-5 inline-block ml-2" />
+              הבנתי, שמרתי את העבודה
+            </button>
+            
+            <p className="text-white/40 text-sm mt-4">
+              לאחר לחיצה, תוכל להמשיך לעבוד עד לסיום הספירה
+            </p>
           </div>
         </div>
       )}
@@ -278,6 +310,10 @@ export default function SystemAlertOverlay() {
           from { opacity: 0; transform: scale(0.9) translateY(20px); }
           to { opacity: 1; transform: scale(1) translateY(0); }
         }
+        @keyframes slide-down {
+          from { opacity: 0; transform: translateY(-100%); }
+          to { opacity: 1; transform: translateY(0); }
+        }
         @keyframes float {
           0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.5; }
           50% { transform: translateY(-20px) rotate(180deg); opacity: 1; }
@@ -291,6 +327,9 @@ export default function SystemAlertOverlay() {
         }
         .animate-scale-in {
           animation: scale-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .animate-slide-down {
+          animation: slide-down 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .animate-float {
           animation: float 5s ease-in-out infinite;

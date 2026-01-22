@@ -42,34 +42,35 @@ error() {
 
 # Send update alert to all connected users
 send_update_alert() {
-    local countdown=${1:-10}
-    
     if [ -z "$JWT_SECRET" ]; then
         warn "JWT_SECRET לא נמצא - מדלג על התראה למשתמשים"
         return 0
     fi
     
     log "שולח התראה למשתמשים מחוברים..."
-    log "JWT_SECRET length: ${#JWT_SECRET}"
     
-    # Send alert to backend API (note: /api/system not /api/admin/system)
+    # Send alert to backend API - users get 30 second countdown
     local response=$(curl -s -X POST http://localhost:3749/api/system/update-alert \
         -H "Content-Type: application/json" \
-        -d "{\"secret\": \"$JWT_SECRET\", \"countdown\": $countdown}" 2>&1)
+        -d "{\"secret\": \"$JWT_SECRET\"}" 2>&1)
     
     local curl_exit=$?
-    log "Response: $response"
     
     if [ $curl_exit -eq 0 ] && echo "$response" | grep -q '"success":true'; then
         local sent_to=$(echo "$response" | grep -o '"sentTo":[0-9]*' | cut -d':' -f2)
         success "התראה נשלחה ל-${sent_to:-0} משתמשים מחוברים"
+        
+        # Wait 40 seconds total (30 sec user countdown + 10 sec buffer)
+        log "ממתין 40 שניות לאפשר למשתמשים לשמור..."
+        for i in {40..1}; do
+            echo -ne "\r⏳ נותרו $i שניות...  "
+            sleep 1
+        done
+        echo -e "\r✓ המתנה הסתיימה, ממשיך בעדכון...     "
     else
         warn "לא הצלחתי לשלוח התראה: $response"
+        log "ממשיך בעדכון ללא התראה..."
     fi
-    
-    # Wait for countdown
-    log "ממתין $countdown שניות לפני העדכון..."
-    sleep $countdown
 }
 
 # Health check function
@@ -122,8 +123,8 @@ deploy() {
     docker compose build --no-cache backend frontend
     success "Images נבנו בהצלחה"
     
-    # Step 3: Alert connected users (10 seconds warning)
-    send_update_alert 10
+    # Step 3: Alert connected users (30 seconds countdown + 10 sec buffer)
+    send_update_alert
     
     # Step 4: Rolling update - one service at a time
     
