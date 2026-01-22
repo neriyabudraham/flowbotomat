@@ -790,6 +790,23 @@ class BotEngine {
             console.log('[BotEngine] ✅ Delay completed');
             break;
             
+          case 'contact':
+            if (action.contactPhone) {
+              const contactName = this.replaceVariables(action.contactName || '', contact, originalMessage, botName);
+              const contactPhone = this.replaceVariables(action.contactPhone || '', contact, originalMessage, botName);
+              const contacts = [{
+                fullName: contactName,
+                organization: action.contactOrg || '',
+                phoneNumber: contactPhone,
+                whatsappId: contactPhone.replace(/[^0-9]/g, '')
+              }];
+              await wahaService.sendContactVcard(connection, contact.phone, contacts);
+              console.log('[BotEngine] ✅ Contact vCard sent');
+            } else {
+              console.log('[BotEngine] ⚠️ Contact action has no phone number');
+            }
+            break;
+            
           default:
             console.log('[BotEngine] Unknown action type:', action.type);
         }

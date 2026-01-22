@@ -18,7 +18,6 @@ const actionTypes = [
   
   // WhatsApp Actions
   { id: 'send_location', label: 'שלח מיקום', icon: '📍', hasValue: 'location', category: 'whatsapp' },
-  { id: 'send_contact', label: 'שלח איש קשר', icon: '👤', hasValue: 'contact', category: 'whatsapp' },
   { id: 'send_link_preview', label: 'שלח קישור עם תצוגה', icon: '🔗', hasValue: 'linkpreview', category: 'whatsapp' },
   { id: 'mark_seen', label: 'סמן כנקרא', icon: '✅', category: 'whatsapp' },
   { id: 'send_reaction', label: 'שלח ריאקציה', icon: '👍', hasValue: 'reaction', category: 'whatsapp' },
@@ -48,15 +47,41 @@ const ALL_EMOJIS = [
   '😤', '😡', '🤦', '🙌', '✨', '💯', '🎯', '💪', '👀', '🤝'
 ];
 
+const categories = [
+  { id: 'basic', label: 'בסיסי', icon: '⚡', color: 'pink', defaultOpen: true },
+  { id: 'timing', label: 'תזמון', icon: '⏱️', color: 'amber', defaultOpen: false },
+  { id: 'whatsapp', label: 'WhatsApp', icon: '📱', color: 'green', defaultOpen: false },
+  { id: 'group', label: 'קבוצות', icon: '👥', color: 'blue', defaultOpen: false },
+  { id: 'business', label: 'WhatsApp Business', icon: '🏢', color: 'purple', defaultOpen: false },
+  { id: 'integration', label: 'אינטגרציות', icon: '🔌', color: 'orange', defaultOpen: false },
+];
+
+const categoryColors = {
+  basic: { bg: 'bg-pink-50', hover: 'hover:bg-pink-100', text: 'text-pink-700', border: 'border-pink-200' },
+  timing: { bg: 'bg-amber-50', hover: 'hover:bg-amber-100', text: 'text-amber-700', border: 'border-amber-200' },
+  whatsapp: { bg: 'bg-green-50', hover: 'hover:bg-green-100', text: 'text-green-700', border: 'border-green-200' },
+  group: { bg: 'bg-blue-50', hover: 'hover:bg-blue-100', text: 'text-blue-700', border: 'border-blue-200' },
+  business: { bg: 'bg-purple-50', hover: 'hover:bg-purple-100', text: 'text-purple-700', border: 'border-purple-200' },
+  integration: { bg: 'bg-orange-50', hover: 'hover:bg-orange-100', text: 'text-orange-700', border: 'border-orange-200' },
+};
+
 export default function ActionEditor({ data, onUpdate }) {
-  const actions = data.actions || [{ type: 'add_tag' }];
+  const actions = data.actions || [];
+  const [openCategories, setOpenCategories] = useState(['basic']);
+
+  const toggleCategory = (categoryId) => {
+    setOpenCategories(prev => 
+      prev.includes(categoryId) 
+        ? prev.filter(id => id !== categoryId)
+        : [...prev, categoryId]
+    );
+  };
 
   const addAction = (type) => {
     onUpdate({ actions: [...actions, { type }] });
   };
 
   const removeAction = (index) => {
-    if (actions.length <= 1) return;
     onUpdate({ actions: actions.filter((_, i) => i !== index) });
   };
 
@@ -67,147 +92,91 @@ export default function ActionEditor({ data, onUpdate }) {
   };
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-gray-500">הוסף פעולות לביצוע.</p>
-
-      {/* Actions */}
-      <div className="space-y-3">
-        {actions.map((action, index) => (
-          <ActionItem
-            key={index}
-            action={action}
-            canRemove={actions.length > 1}
-            onUpdate={(updates) => updateAction(index, updates)}
-            onRemove={() => removeAction(index)}
-          />
-        ))}
-      </div>
-
-      {/* Add buttons - organized by category */}
-      <div className="border-t border-gray-100 pt-4 space-y-3">
-        <p className="text-sm text-gray-500">הוסף פעולה:</p>
-        
-        {/* Basic Actions */}
-        <div>
-          <p className="text-xs text-gray-400 mb-2 font-medium">בסיסי</p>
-          <div className="grid grid-cols-2 gap-1.5">
-            {actionTypes.filter(a => a.category === 'basic').map(({ id, label, icon }) => (
-              <button
-                key={id}
-                onClick={() => addAction(id)}
-                className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-pink-50 hover:text-pink-700 rounded-lg text-sm transition-colors"
-              >
-                <span>{icon}</span>
-                <span className="truncate text-xs">{label}</span>
-              </button>
+    <div className="space-y-5">
+      {/* Current Actions */}
+      {actions.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-gray-700">פעולות פעילות</p>
+            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{actions.length}</span>
+          </div>
+          <div className="space-y-2">
+            {actions.map((action, index) => (
+              <ActionItem
+                key={index}
+                action={action}
+                onUpdate={(updates) => updateAction(index, updates)}
+                onRemove={() => removeAction(index)}
+              />
             ))}
           </div>
         </div>
-        
-        {/* Timing Actions */}
-        <details open>
-          <summary className="text-xs text-gray-400 mb-2 font-medium cursor-pointer hover:text-gray-600">
-            ⏱️ תזמון
-          </summary>
-          <div className="grid grid-cols-2 gap-1.5 mt-2">
-            {actionTypes.filter(a => a.category === 'timing').map(({ id, label, icon }) => (
-              <button
-                key={id}
-                onClick={() => addAction(id)}
-                className="flex items-center gap-2 p-2 bg-amber-50 hover:bg-amber-100 hover:text-amber-700 rounded-lg text-sm transition-colors"
-              >
-                <span>{icon}</span>
-                <span className="truncate text-xs">{label}</span>
-              </button>
-            ))}
+      )}
+
+      {/* Empty State */}
+      {actions.length === 0 && (
+        <div className="text-center py-8 px-4 bg-gradient-to-b from-pink-50/50 to-white rounded-2xl border-2 border-dashed border-pink-200">
+          <div className="w-14 h-14 bg-pink-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <span className="text-2xl">⚡</span>
           </div>
-        </details>
+          <p className="text-gray-700 font-medium mb-1">אין פעולות עדיין</p>
+          <p className="text-sm text-gray-500">בחר פעולה מהקטגוריות למטה</p>
+        </div>
+      )}
+
+      {/* Add Actions by Category */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-gray-700 mb-3">הוסף פעולה</p>
         
-        {/* WhatsApp Actions */}
-        <details>
-          <summary className="text-xs text-gray-400 mb-2 font-medium cursor-pointer hover:text-gray-600">
-            📱 WhatsApp
-          </summary>
-          <div className="grid grid-cols-2 gap-1.5 mt-2">
-            {actionTypes.filter(a => a.category === 'whatsapp').map(({ id, label, icon }) => (
+        {categories.map((category) => {
+          const categoryActions = actionTypes.filter(a => a.category === category.id);
+          const colors = categoryColors[category.id];
+          const isOpen = openCategories.includes(category.id);
+          
+          return (
+            <div key={category.id} className={`rounded-xl border ${colors.border} overflow-hidden`}>
               <button
-                key={id}
-                onClick={() => addAction(id)}
-                className="flex items-center gap-2 p-2 bg-green-50 hover:bg-green-100 hover:text-green-700 rounded-lg text-sm transition-colors"
+                onClick={() => toggleCategory(category.id)}
+                className={`w-full flex items-center justify-between px-4 py-3 ${colors.bg} ${colors.hover} transition-colors`}
               >
-                <span>{icon}</span>
-                <span className="truncate text-xs">{label}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-base">{category.icon}</span>
+                  <span className={`text-sm font-medium ${colors.text}`}>{category.label}</span>
+                  <span className="text-xs text-gray-400 bg-white/60 px-1.5 py-0.5 rounded">{categoryActions.length}</span>
+                </div>
+                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
               </button>
-            ))}
-          </div>
-        </details>
-        
-        {/* Group Actions */}
-        <details>
-          <summary className="text-xs text-gray-400 mb-2 font-medium cursor-pointer hover:text-gray-600">
-            👥 קבוצות
-          </summary>
-          <div className="grid grid-cols-2 gap-1.5 mt-2">
-            {actionTypes.filter(a => a.category === 'group').map(({ id, label, icon }) => (
-              <button
-                key={id}
-                onClick={() => addAction(id)}
-                className="flex items-center gap-2 p-2 bg-blue-50 hover:bg-blue-100 hover:text-blue-700 rounded-lg text-sm transition-colors"
-              >
-                <span>{icon}</span>
-                <span className="truncate text-xs">{label}</span>
-              </button>
-            ))}
-          </div>
-        </details>
-        
-        {/* Business Labels */}
-        <details>
-          <summary className="text-xs text-gray-400 mb-2 font-medium cursor-pointer hover:text-gray-600">
-            🏢 WhatsApp Business
-          </summary>
-          <div className="grid grid-cols-2 gap-1.5 mt-2">
-            {actionTypes.filter(a => a.category === 'business').map(({ id, label, icon }) => (
-              <button
-                key={id}
-                onClick={() => addAction(id)}
-                className="flex items-center gap-2 p-2 bg-purple-50 hover:bg-purple-100 hover:text-purple-700 rounded-lg text-sm transition-colors"
-              >
-                <span>{icon}</span>
-                <span className="truncate text-xs">{label}</span>
-              </button>
-            ))}
-          </div>
-        </details>
-        
-        {/* Integration Actions */}
-        <details>
-          <summary className="text-xs text-gray-400 mb-2 font-medium cursor-pointer hover:text-gray-600">
-            🔌 אינטגרציות
-          </summary>
-          <div className="grid grid-cols-2 gap-1.5 mt-2">
-            {actionTypes.filter(a => a.category === 'integration').map(({ id, label, icon }) => (
-              <button
-                key={id}
-                onClick={() => addAction(id)}
-                className="flex items-center gap-2 p-2 bg-orange-50 hover:bg-orange-100 hover:text-orange-700 rounded-lg text-sm transition-colors"
-              >
-                <span>{icon}</span>
-                <span className="truncate text-xs">{label}</span>
-              </button>
-            ))}
-          </div>
-        </details>
+              
+              {isOpen && (
+                <div className="p-3 bg-white grid grid-cols-2 gap-2">
+                  {categoryActions.map(({ id, label, icon }) => (
+                    <button
+                      key={id}
+                      onClick={() => addAction(id)}
+                      className={`flex items-center gap-2.5 p-3 ${colors.bg} ${colors.hover} rounded-xl text-sm transition-all hover:shadow-sm group`}
+                    >
+                      <span className="text-lg group-hover:scale-110 transition-transform">{icon}</span>
+                      <span className={`font-medium ${colors.text} text-xs`}>{label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function ActionItem({ action, canRemove, onUpdate, onRemove }) {
+function ActionItem({ action, onUpdate, onRemove }) {
   const actionInfo = actionTypes.find(a => a.id === action.type) || actionTypes[0];
   const [groups, setGroups] = useState([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
+  
+  const colors = categoryColors[actionInfo.category] || categoryColors.basic;
   
   // Fetch groups when needed
   const needsGroups = ['group', 'group_check', 'group_settings', 'group_subject', 'group_desc'].includes(actionInfo.hasValue);
@@ -230,27 +199,38 @@ function ActionItem({ action, canRemove, onUpdate, onRemove }) {
   };
 
   return (
-    <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-      <div className="flex items-center gap-2 mb-2">
-        <GripVertical className="w-4 h-4 text-gray-300" />
-        <span className="text-lg">{actionInfo.icon}</span>
-        <select
-          value={action.type}
-          onChange={(e) => onUpdate({ type: e.target.value })}
-          className="flex-1 px-2 py-1 bg-white border border-gray-200 rounded-lg text-sm"
+    <div className={`rounded-xl border ${colors.border} overflow-hidden transition-all`}>
+      {/* Header */}
+      <div className={`flex items-center gap-3 px-4 py-3 ${colors.bg}`}>
+        <div className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500">
+          <GripVertical className="w-4 h-4" />
+        </div>
+        <span className="text-xl">{actionInfo.icon}</span>
+        <div className="flex-1 min-w-0">
+          <span className={`font-medium text-sm ${colors.text}`}>{actionInfo.label}</span>
+        </div>
+        <button 
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="p-1.5 hover:bg-white/50 rounded-lg transition-colors"
         >
-          {actionTypes.map(a => (
-            <option key={a.id} value={a.id}>{a.label}</option>
-          ))}
-        </select>
-        {canRemove && (
-          <button onClick={onRemove} className="text-gray-400 hover:text-red-500">
-            <X className="w-4 h-4" />
-          </button>
-        )}
+          {isExpanded ? (
+            <ChevronUp className="w-4 h-4 text-gray-400" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-gray-400" />
+          )}
+        </button>
+        <button 
+          onClick={onRemove} 
+          className="p-1.5 hover:bg-red-100 rounded-lg transition-colors group"
+        >
+          <X className="w-4 h-4 text-gray-400 group-hover:text-red-500" />
+        </button>
       </div>
-
-      {actionInfo.hasValue === 'tag' && (
+      
+      {/* Content */}
+      {isExpanded && actionInfo.hasValue && (
+        <div className="px-4 py-3 bg-white space-y-3">
+          {actionInfo.hasValue === 'tag' && (
         <TextInputWithVariables
           value={action.tagName || ''}
           onChange={(v) => onUpdate({ tagName: v })}
@@ -330,28 +310,6 @@ function ActionItem({ action, canRemove, onUpdate, onRemove }) {
         </div>
       )}
 
-      {/* Contact vCard */}
-      {actionInfo.hasValue === 'contact' && (
-        <div className="space-y-2">
-          <TextInputWithVariables
-            value={action.contactName || ''}
-            onChange={(v) => onUpdate({ contactName: v })}
-            placeholder="שם איש הקשר..."
-          />
-          <TextInputWithVariables
-            value={action.contactPhone || ''}
-            onChange={(v) => onUpdate({ contactPhone: v })}
-            placeholder="מספר טלפון (עם קידומת מדינה)..."
-          />
-          <input
-            type="text"
-            value={action.contactOrg || ''}
-            onChange={(e) => onUpdate({ contactOrg: e.target.value })}
-            placeholder="ארגון (אופציונלי)"
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-          />
-        </div>
-      )}
 
       {/* Link Preview */}
       {actionInfo.hasValue === 'linkpreview' && (
@@ -675,9 +633,11 @@ function ActionItem({ action, canRemove, onUpdate, onRemove }) {
         </div>
       )}
 
-      {/* Label with API fetch */}
-      {actionInfo.hasValue === 'label' && (
-        <LabelSelector action={action} onUpdate={onUpdate} />
+          {/* Label with API fetch */}
+          {actionInfo.hasValue === 'label' && (
+            <LabelSelector action={action} onUpdate={onUpdate} />
+          )}
+        </div>
       )}
     </div>
   );

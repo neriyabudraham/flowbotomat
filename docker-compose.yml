@@ -48,9 +48,6 @@ services:
       SUMIT_APIKey: ${SUMIT_APIKey}
       SUMIT_APIPublicKey: ${SUMIT_APIPublicKey}
       API_URL: ${VITE_API_URL}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-      FRONTEND_URL: ${APP_URL}
     ports:
       - "3749:4000"
     volumes:

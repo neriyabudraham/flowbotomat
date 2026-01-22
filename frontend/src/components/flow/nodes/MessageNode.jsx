@@ -1,18 +1,24 @@
 import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { MessageSquare, Image, FileText, Clock, MessageCircle, Edit2, Copy, Trash2 } from 'lucide-react';
+import { MessageSquare, Image, FileText, Clock, MessageCircle, Edit2, Copy, Trash2, Video, Mic, User } from 'lucide-react';
 
 const actionIcons = {
   text: MessageSquare,
   image: Image,
+  video: Video,
+  audio: Mic,
   file: FileText,
+  contact: User,
   delay: Clock,
 };
 
 const actionLabels = {
   text: 'טקסט',
   image: 'תמונה',
+  video: 'סרטון',
+  audio: 'הודעה קולית',
   file: 'קובץ',
+  contact: 'איש קשר',
   delay: 'השהייה',
 };
 
@@ -87,7 +93,10 @@ function MessageNode({ data, selected }) {
               <div className="text-sm text-gray-600 line-clamp-2">
                 {action.type === 'text' && (action.content || '(ריק)')}
                 {action.type === 'image' && (action.fileName || action.url ? '📷 תמונה' : '(בחר תמונה)')}
+                {action.type === 'video' && (action.fileName || action.url ? '🎬 סרטון' : '(בחר סרטון)')}
+                {action.type === 'audio' && (action.fileName || action.url ? '🎙️ הודעה קולית' : '(בחר הקלטה)')}
                 {action.type === 'file' && (action.fileName || action.url ? '📎 קובץ' : '(בחר קובץ)')}
+                {action.type === 'contact' && (action.contactName ? `👤 ${action.contactName}` : '(הגדר איש קשר)')}
                 {action.type === 'delay' && `${action.delay || 1} ${action.unit === 'minutes' ? 'דקות' : 'שניות'}`}
               </div>
             </div>

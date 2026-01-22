@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Upload, CheckCircle, Play, Mic } from 'lucide-react';
+import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Upload, CheckCircle, Play, Mic, User } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 
 const LIMITS = { text: 4096, caption: 1024 };
@@ -10,6 +10,7 @@ const actionTypes = [
   { id: 'video', label: 'סרטון', icon: Video },
   { id: 'audio', label: 'הודעה קולית', icon: Mic },
   { id: 'file', label: 'קובץ', icon: FileText },
+  { id: 'contact', label: 'איש קשר', icon: User },
 ];
 
 export default function MessageEditor({ data, onUpdate }) {
@@ -20,6 +21,7 @@ export default function MessageEditor({ data, onUpdate }) {
     const newAction = type === 'text' ? { type, content: '' } 
       : type === 'image' || type === 'video' ? { type, url: '', caption: '' }
       : type === 'audio' ? { type, url: '' }
+      : type === 'contact' ? { type, contactName: '', contactPhone: '', contactOrg: '' }
       : { type, url: '', filename: '' }; // file
     onUpdate({ actions: [...actions, newAction] });
   };
@@ -510,6 +512,38 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
           />
           
           <p className="text-xs text-gray-400">סוג הקובץ יזוהה אוטומטית. נתמכים: PDF, Word, Excel, תמונות, וידאו, שמע</p>
+        </div>
+      )}
+
+      {/* Contact vCard */}
+      {action.type === 'contact' && (
+        <div className="space-y-3">
+          <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+            <p className="text-xs text-blue-600 mb-1 font-medium">שליחת כרטיס איש קשר (vCard)</p>
+            <p className="text-xs text-blue-500">הנמען יוכל לשמור את איש הקשר ישירות לטלפון</p>
+          </div>
+          
+          <TextInputWithVariables
+            value={action.contactName || ''}
+            onChange={(v) => onUpdate({ contactName: v })}
+            placeholder="שם איש הקשר..."
+            label="שם איש הקשר"
+          />
+          
+          <TextInputWithVariables
+            value={action.contactPhone || ''}
+            onChange={(v) => onUpdate({ contactPhone: v })}
+            placeholder="972501234567"
+            label="מספר טלפון (עם קידומת מדינה)"
+          />
+          
+          <input
+            type="text"
+            value={action.contactOrg || ''}
+            onChange={(e) => onUpdate({ contactOrg: e.target.value })}
+            placeholder="שם החברה/ארגון (אופציונלי)"
+            className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-200 focus:border-teal-400 outline-none"
+          />
         </div>
       )}
 

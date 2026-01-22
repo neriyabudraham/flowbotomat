@@ -333,7 +333,7 @@ function getDefaultData(type) {
     case 'delay':
       return { delay: 1, unit: 'seconds' };
     case 'action':
-      return { actions: [{ type: 'add_tag', tagName: '' }] };
+      return { actions: [] };
     case 'list':
       return { title: '', body: '', buttonText: 'בחר', buttons: [], waitForReply: true, timeout: null };
     default:
