@@ -180,28 +180,20 @@ export default function AffiliatePanel() {
       {/* Recent Referrals */}
       {data.referrals?.length > 0 && (
         <div className="p-6 border-t border-gray-100">
-          <h3 className="font-bold text-gray-800 mb-4">הפניות אחרונות</h3>
+          <h3 className="font-bold text-gray-800 mb-4">משתמשים שהצטרפו דרכך</h3>
           <div className="space-y-3">
             {data.referrals.slice(0, 5).map(ref => (
               <div key={ref.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                <div>
-                  <div className="font-medium text-gray-800">{ref.name || 'ללא שם'}</div>
-                  <div className="text-xs text-gray-500">
-                    {new Date(ref.signup_date).toLocaleDateString('he-IL')}
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                    <Users className="w-4 h-4 text-green-600" />
                   </div>
-                </div>
-                <div className="text-left">
-                  {ref.status === 'converted' ? (
-                    <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full flex items-center gap-1">
-                      <Check className="w-3 h-3" />
-                      ₪{ref.commission_amount}
-                    </span>
-                  ) : (
-                    <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      ממתין לתשלום
-                    </span>
-                  )}
+                  <div>
+                    <div className="font-medium text-gray-800">{ref.name || 'משתמש חדש'}</div>
+                    <div className="text-xs text-gray-500">
+                      הצטרף ב-{new Date(ref.signup_date).toLocaleDateString('he-IL')}
+                    </div>
+                  </div>
                 </div>
               </div>
             ))}

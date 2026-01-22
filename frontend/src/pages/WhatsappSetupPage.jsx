@@ -4,7 +4,8 @@ import {
   MessageCircle, ArrowLeft, Smartphone, Server, QrCode, 
   CheckCircle, XCircle, RefreshCw, Trash2, Wifi, WifiOff,
   Shield, Zap, Clock, AlertCircle, Phone, Settings,
-  ChevronLeft, Loader2, ExternalLink, Copy, Check
+  ChevronLeft, Loader2, ExternalLink, Copy, Check, ChevronDown, 
+  Mail, HelpCircle
 } from 'lucide-react';
 import useWhatsappStore from '../store/whatsappStore';
 import Logo from '../components/atoms/Logo';
@@ -17,6 +18,7 @@ export default function WhatsappSetupPage() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [pendingConnectionType, setPendingConnectionType] = useState(null);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const {
     connection, qrCode, isLoading, error, existingSession,
     fetchStatus, connectManaged, connectExternal, fetchQR, disconnect, deleteConnection, clearError, checkExisting,
@@ -211,8 +213,8 @@ export default function WhatsappSetupPage() {
           {/* Select Connection Type */}
           {step === 'select' && (
             <div className="p-8">
-              <h2 className="text-xl font-bold text-gray-900 mb-2 text-center">בחר סוג חיבור</h2>
-              <p className="text-gray-500 text-center mb-8">איך תרצה לחבר את WhatsApp שלך?</p>
+              <h2 className="text-xl font-bold text-gray-900 mb-2 text-center">התחברות ל-WhatsApp</h2>
+              <p className="text-gray-500 text-center mb-8">סרוק קוד QR וחבר את WhatsApp שלך בשניות</p>
               
               {/* Existing Session Alert */}
               {existingSession && (
@@ -221,14 +223,14 @@ export default function WhatsappSetupPage() {
                     <Wifi className="w-5 h-5" />
                     <div>
                       <p className="font-medium">נמצא חיבור קיים!</p>
-                      <p className="text-sm text-blue-600">יש לך סשן קיים ב-WAHA. לחץ על "חיבור מהיר" להתחבר אוטומטית.</p>
+                      <p className="text-sm text-blue-600">יש לך סשן פעיל. לחץ על "התחבר עכשיו" להתחבר אוטומטית.</p>
                     </div>
                   </div>
                 </div>
               )}
 
               <div className="space-y-4">
-                {/* Managed Option */}
+                {/* Main Connect Button */}
                 <button
                   onClick={() => handleSelectType('managed')}
                   disabled={isLoading}
@@ -240,7 +242,7 @@ export default function WhatsappSetupPage() {
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <h3 className="text-lg font-bold text-gray-900">חיבור מהיר</h3>
+                        <h3 className="text-lg font-bold text-gray-900">התחבר עכשיו</h3>
                         <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-bold rounded-full">מומלץ</span>
                       </div>
                       <p className="text-gray-500 text-sm mb-3">סרוק קוד QR והתחבר תוך שניות. אנחנו מנהלים הכל.</p>
@@ -254,30 +256,46 @@ export default function WhatsappSetupPage() {
                   </div>
                 </button>
 
-                {/* External Option */}
-                <button
-                  onClick={() => handleSelectType('external')}
-                  disabled={isLoading}
-                  className="w-full p-6 bg-gray-50 hover:bg-gray-100 border-2 border-gray-200 hover:border-gray-300 rounded-2xl text-right transition-all group disabled:opacity-50"
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="w-14 h-14 bg-gradient-to-br from-gray-500 to-slate-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-lg">
-                      <Server className="w-7 h-7 text-white" />
+                {/* Advanced Options Toggle */}
+                <div className="pt-4">
+                  <button
+                    onClick={() => setShowAdvanced(!showAdvanced)}
+                    className="flex items-center justify-center gap-2 w-full text-gray-400 hover:text-gray-600 text-sm py-2"
+                  >
+                    <Settings className="w-4 h-4" />
+                    אפשרויות מתקדמות
+                    <ChevronDown className={`w-4 h-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  {showAdvanced && (
+                    <div className="mt-4">
+                      {/* External Option */}
+                      <button
+                        onClick={() => handleSelectType('external')}
+                        disabled={isLoading}
+                        className="w-full p-6 bg-gray-50 hover:bg-gray-100 border-2 border-gray-200 hover:border-gray-300 rounded-2xl text-right transition-all group disabled:opacity-50"
+                      >
+                        <div className="flex items-start gap-4">
+                          <div className="w-14 h-14 bg-gradient-to-br from-gray-500 to-slate-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-lg">
+                            <Server className="w-7 h-7 text-white" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3 className="text-lg font-bold text-gray-900">שרת WAHA חיצוני</h3>
+                              <span className="px-2 py-0.5 bg-gray-200 text-gray-600 text-xs font-bold rounded-full">מתקדם</span>
+                            </div>
+                            <p className="text-gray-500 text-sm mb-3">חבר את שרת ה-WAHA שלך. שליטה מלאה על התשתית.</p>
+                            <div className="flex items-center gap-4 text-xs text-gray-400">
+                              <span className="flex items-center gap-1"><Settings className="w-3 h-3" /> הגדרות מתקדמות</span>
+                              <span className="flex items-center gap-1"><Server className="w-3 h-3" /> שרת משלך</span>
+                            </div>
+                          </div>
+                          <ChevronLeft className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors" />
+                        </div>
+                      </button>
                     </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="text-lg font-bold text-gray-900">שרת חיצוני</h3>
-                        <span className="px-2 py-0.5 bg-gray-200 text-gray-600 text-xs font-bold rounded-full">מתקדם</span>
-                      </div>
-                      <p className="text-gray-500 text-sm mb-3">חבר את ה-WAHA שלך. שליטה מלאה על התשתית.</p>
-                      <div className="flex items-center gap-4 text-xs text-gray-400">
-                        <span className="flex items-center gap-1"><Settings className="w-3 h-3" /> הגדרות מתקדמות</span>
-                        <span className="flex items-center gap-1"><Server className="w-3 h-3" /> שרת משלך</span>
-                      </div>
-                    </div>
-                    <ChevronLeft className="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors" />
-                  </div>
-                </button>
+                  )}
+                </div>
               </div>
               
               {isCheckingExisting && (
@@ -519,11 +537,34 @@ export default function WhatsappSetupPage() {
         </div>
 
         {/* Help Section */}
-        <div className="mt-8 text-center">
-          <p className="text-gray-400 text-sm">
-            נתקלת בבעיה? 
-            <a href="#" className="text-green-600 hover:text-green-700 mr-1">צור קשר עם התמיכה</a>
-          </p>
+        <div className="mt-8 p-6 bg-white rounded-2xl border border-gray-100">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+              <HelpCircle className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <p className="font-medium text-gray-900">צריכים עזרה?</p>
+              <p className="text-sm text-gray-500">אנחנו כאן בשבילכם</p>
+            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <a 
+              href="https://wa.me/972584254229"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-500 text-white rounded-xl font-medium hover:bg-green-600 transition-colors"
+            >
+              <MessageCircle className="w-5 h-5" />
+              וואטסאפ
+            </a>
+            <a 
+              href="mailto:office@neriyabudraham.co.il"
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+            >
+              <Mail className="w-5 h-5" />
+              אימייל
+            </a>
+          </div>
         </div>
       </main>
 
@@ -535,8 +576,13 @@ export default function WhatsappSetupPage() {
           setPendingConnectionType(null);
         }}
         onSuccess={handlePaymentSuccess}
-        title="נדרש אמצעי תשלום"
-        description="על מנת לחבר WhatsApp, נדרש להזין פרטי כרטיס אשראי. לא תחויב כעת - רק בעת שדרוג לתכנית בתשלום."
+        title="14 ימי ניסיון חינם"
+        description="הזן פרטי כרטיס אשראי כדי להתחיל 14 ימי ניסיון בחינם. לא תחויב עכשיו - לאחר תקופת הניסיון המנוי יתחיל ב-₪79/חודש (תוכנית בסיסית)."
+        features={[
+          '14 ימי ניסיון חינם',
+          'לא תחויב עכשיו',
+          'ביטול בכל עת',
+        ]}
       />
     </div>
   );

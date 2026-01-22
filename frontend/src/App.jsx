@@ -30,28 +30,33 @@ function ReferralTracker() {
   useEffect(() => {
     const refCode = searchParams.get('ref');
     
-    console.log('[Referral] Checking for ref code:', refCode, 'on path:', location.pathname);
-    
     if (refCode) {
-      console.log('[Referral] Saving ref code to localStorage:', refCode);
+      // Check if we already tracked this ref code recently (prevent double tracking)
+      const lastTrackedRef = sessionStorage.getItem('last_tracked_ref');
+      const lastTrackedTime = sessionStorage.getItem('last_tracked_time');
+      const now = Date.now();
+      
+      // Only track if different ref or more than 5 minutes passed
+      const shouldTrack = lastTrackedRef !== refCode || 
+        !lastTrackedTime || 
+        (now - parseInt(lastTrackedTime)) > 5 * 60 * 1000;
+      
       // Save to localStorage for persistence across pages
       localStorage.setItem('referral_code', refCode);
       localStorage.setItem('referral_landing', location.pathname);
-      localStorage.setItem('referral_timestamp', Date.now().toString());
+      localStorage.setItem('referral_timestamp', now.toString());
       
-      // Track click on server
-      api.post('/payment/affiliate/track-click', {
-        ref_code: refCode,
-        landing_page: location.pathname,
-        referrer_url: document.referrer
-      }).then(() => {
-        console.log('[Referral] Click tracked successfully');
-      }).catch(err => console.log('[Referral] Tracking failed:', err));
-    } else {
-      // Check if we have a saved referral
-      const savedRef = localStorage.getItem('referral_code');
-      if (savedRef) {
-        console.log('[Referral] Found saved ref code:', savedRef);
+      if (shouldTrack) {
+        // Mark as tracked
+        sessionStorage.setItem('last_tracked_ref', refCode);
+        sessionStorage.setItem('last_tracked_time', now.toString());
+        
+        // Track click on server
+        api.post('/payment/affiliate/track-click', {
+          ref_code: refCode,
+          landing_page: location.pathname,
+          referrer_url: document.referrer
+        }).catch(err => console.log('Referral tracking failed:', err));
       }
     }
   }, [searchParams, location.pathname]);

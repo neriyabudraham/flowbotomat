@@ -376,9 +376,14 @@ export default function PricingPage() {
                           </div>
                         )}
                         {plan.trial_days > 0 && (
-                          <div className="mt-3 flex items-center gap-2 text-purple-600">
-                            <Gift className="w-4 h-4" />
-                            <span className="text-sm font-medium">{plan.trial_days} ימי ניסיון חינם</span>
+                          <div className="mt-3">
+                            <div className="flex items-center gap-2 text-purple-600">
+                              <Gift className="w-4 h-4" />
+                              <span className="text-sm font-medium">{plan.trial_days} ימי ניסיון חינם</span>
+                            </div>
+                            <p className="text-xs text-gray-400 mt-1 mr-6">
+                              לאחר {plan.trial_days} ימים יתחיל חיוב של ₪{monthlyPrice}/חודש
+                            </p>
                           </div>
                         )}
                       </div>
@@ -1142,9 +1147,14 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
             </div>
           </div>
           {isTrial && (
-            <div className="mt-4 p-3 bg-white/20 backdrop-blur rounded-xl text-center flex items-center justify-center gap-2">
-              <Gift className="w-5 h-5" />
-              <span>{plan.trial_days} ימי ניסיון חינם - לא תחויב היום</span>
+            <div className="mt-4 p-3 bg-white/20 backdrop-blur rounded-xl text-center">
+              <div className="flex items-center justify-center gap-2">
+                <Gift className="w-5 h-5" />
+                <span>{plan.trial_days} ימי ניסיון חינם - לא תחויב היום</span>
+              </div>
+              <p className="text-white/70 text-xs mt-1">
+                לאחר {plan.trial_days} ימים יתחיל חיוב של ₪{prices.monthly}/חודש
+              </p>
             </div>
           )}
         </div>
