@@ -67,6 +67,39 @@ router.get('/health', async (req, res) => {
   }
 });
 
+// System update alert - NO AUTH required (uses secret key)
+// This endpoint is called by deploy script before server restart
+router.post('/system/update-alert', async (req, res) => {
+  try {
+    const { secret, countdown } = req.body;
+    
+    // Verify secret key
+    if (secret !== process.env.JWT_SECRET) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    
+    const { broadcastToAll } = require('../services/socket/manager.service');
+    
+    const sentTo = broadcastToAll('system_update', {
+      title: 'עדכון מערכת',
+      message: `המערכת תתעדכן בעוד ${countdown || 10} שניות. אנא שמור את העבודה שלך.`,
+      countdown: countdown || 10,
+      timestamp: new Date().toISOString()
+    });
+    
+    console.log(`[System] Update alert sent to ${sentTo} users`);
+    
+    res.json({ 
+      success: true, 
+      sentTo,
+      message: `Update alert sent to ${sentTo} online users`
+    });
+  } catch (error) {
+    console.error('[System] Update alert error:', error);
+    res.status(500).json({ error: 'Error sending update alert' });
+  }
+});
+
 // Redirect /api to /developers (frontend page)
 router.get('/', (req, res) => {
   res.redirect('/developers');

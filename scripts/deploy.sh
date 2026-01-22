@@ -52,8 +52,8 @@ send_update_alert() {
     log "שולח התראה למשתמשים מחוברים..."
     log "JWT_SECRET length: ${#JWT_SECRET}"
     
-    # Send alert to backend API
-    local response=$(curl -s -X POST http://localhost:3749/api/admin/system/update-alert \
+    # Send alert to backend API (note: /api/system not /api/admin/system)
+    local response=$(curl -s -X POST http://localhost:3749/api/system/update-alert \
         -H "Content-Type: application/json" \
         -d "{\"secret\": \"$JWT_SECRET\", \"countdown\": $countdown}" 2>&1)
     
