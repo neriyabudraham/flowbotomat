@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
   Share2, Users, DollarSign, TrendingUp, Settings, Check, X,
-  Clock, CreditCard, RefreshCw, Eye, ChevronDown
+  Clock, CreditCard, RefreshCw, Eye, ChevronDown, FileText, Save, Loader2
 } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
@@ -15,6 +15,8 @@ export default function AdminAffiliate() {
   const [loading, setLoading] = useState(true);
   const [editingSettings, setEditingSettings] = useState(false);
   const [settingsForm, setSettingsForm] = useState({});
+  const [termsContent, setTermsContent] = useState('');
+  const [termsSaving, setTermsSaving] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -22,19 +24,33 @@ export default function AdminAffiliate() {
 
   const loadData = async () => {
     try {
-      const [settingsRes, statsRes] = await Promise.all([
+      const [settingsRes, statsRes, termsRes] = await Promise.all([
         api.get('/admin/affiliate/settings'),
-        api.get('/admin/affiliate/stats')
+        api.get('/admin/affiliate/stats'),
+        api.get('/admin/affiliate/terms').catch(() => ({ data: { content: '' } }))
       ]);
       setSettings(settingsRes.data.settings);
       setSettingsForm(settingsRes.data.settings || {});
       setStats(statsRes.data.stats);
       setTopAffiliates(statsRes.data.topAffiliates || []);
       setPendingPayouts(statsRes.data.pendingPayouts || []);
+      setTermsContent(termsRes.data.content || '');
     } catch (err) {
       console.error('Failed to load affiliate data:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveTerms = async () => {
+    setTermsSaving(true);
+    try {
+      await api.put('/admin/affiliate/terms', { content: termsContent });
+      alert('תנאי התוכנית נשמרו בהצלחה');
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בשמירה');
+    } finally {
+      setTermsSaving(false);
     }
   };
 
@@ -107,6 +123,15 @@ export default function AdminAffiliate() {
         >
           <Settings className="w-4 h-4 inline ml-2" />
           הגדרות
+        </button>
+        <button
+          onClick={() => setActiveTab('terms')}
+          className={`px-4 py-2 font-medium transition-colors ${
+            activeTab === 'terms' ? 'text-green-600 border-b-2 border-green-600' : 'text-gray-500'
+          }`}
+        >
+          <FileText className="w-4 h-4 inline ml-2" />
+          תנאי תוכנית
         </button>
       </div>
 
@@ -314,6 +339,55 @@ export default function AdminAffiliate() {
 
             <Button onClick={handleSaveSettings} className="w-full">
               שמור הגדרות
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Terms Tab */}
+      {activeTab === 'terms' && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="font-bold text-gray-800">תנאי תוכנית השותפים</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                ערוך את תנאי השימוש בתוכנית השותפים (בפורמט Markdown)
+              </p>
+            </div>
+            <a 
+              href="/affiliate-terms" 
+              target="_blank" 
+              className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
+            >
+              <Eye className="w-4 h-4" />
+              תצוגה מקדימה
+            </a>
+          </div>
+
+          <textarea
+            value={termsContent}
+            onChange={(e) => setTermsContent(e.target.value)}
+            className="w-full h-96 px-4 py-3 border border-gray-200 rounded-xl font-mono text-sm resize-y"
+            placeholder="# תנאי תוכנית השותפים&#10;&#10;כתוב כאן את תנאי התוכנית בפורמט Markdown..."
+            dir="rtl"
+          />
+
+          <div className="mt-4 flex items-center justify-between">
+            <p className="text-xs text-gray-400">
+              תומך בפורמט Markdown: כותרות (#), רשימות (*), הדגשה (**טקסט**)
+            </p>
+            <Button onClick={handleSaveTerms} disabled={termsSaving}>
+              {termsSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin inline ml-2" />
+                  שומר...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 inline ml-2" />
+                  שמור תנאים
+                </>
+              )}
             </Button>
           </div>
         </div>

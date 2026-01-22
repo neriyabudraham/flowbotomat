@@ -8,7 +8,7 @@ async function getDashboardStats(req, res) {
     const userId = req.user.id;
     
     // Get counts in parallel
-    const [contactsRes, messagesRes, todayMsgsRes, whatsappRes] = await Promise.all([
+    const [contactsRes, messagesRes, todayMsgsRes, whatsappRes, activeBotsRes] = await Promise.all([
       pool.query('SELECT COUNT(*) FROM contacts WHERE user_id = $1', [userId]),
       pool.query('SELECT COUNT(*) FROM messages WHERE user_id = $1', [userId]),
       pool.query(
@@ -20,21 +20,26 @@ async function getDashboardStats(req, res) {
         'SELECT status FROM whatsapp_connections WHERE user_id = $1 LIMIT 1',
         [userId]
       ),
+      pool.query(
+        'SELECT COUNT(*) FROM contacts WHERE user_id = $1 AND is_bot_active = true',
+        [userId]
+      ),
     ]);
 
-    // Get recent activity (last 7 days)
-    const activityRes = await pool.query(
-      `SELECT DATE(created_at) as date, COUNT(*) as count
-       FROM messages
-       WHERE user_id = $1 AND created_at >= CURRENT_DATE - INTERVAL '7 days'
-       GROUP BY DATE(created_at)
-       ORDER BY date`,
-      [userId]
-    );
-
-    // Get active bots count (contacts with bot active)
-    const activeBotsRes = await pool.query(
-      'SELECT COUNT(*) FROM contacts WHERE user_id = $1 AND is_bot_active = true',
+    // Get recent conversations (contacts with recent messages)
+    const recentConversationsRes = await pool.query(
+      `SELECT 
+         c.id,
+         c.phone_number,
+         c.display_name,
+         c.profile_picture_url,
+         c.last_message_at,
+         (SELECT COUNT(*) FROM messages WHERE contact_id = c.id) as message_count,
+         (SELECT content FROM messages WHERE contact_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message
+       FROM contacts c
+       WHERE c.user_id = $1 AND c.last_message_at IS NOT NULL
+       ORDER BY c.last_message_at DESC
+       LIMIT 5`,
       [userId]
     );
 
@@ -46,7 +51,7 @@ async function getDashboardStats(req, res) {
         activeBots: parseInt(activeBotsRes.rows[0].count),
         whatsappStatus: whatsappRes.rows[0]?.status || 'disconnected',
       },
-      activity: activityRes.rows,
+      activity: recentConversationsRes.rows,
     });
   } catch (error) {
     console.error('Dashboard stats error:', error);

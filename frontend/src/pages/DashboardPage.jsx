@@ -13,7 +13,7 @@ import useWhatsappStore from '../store/whatsappStore';
 import useStatsStore from '../store/statsStore';
 import Logo from '../components/atoms/Logo';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
-import AffiliatePanel from '../components/settings/AffiliatePanel';
+import { Copy, Share2 } from 'lucide-react';
 import ReferralBonusBanner from '../components/ReferralBonusBanner';
 import api from '../services/api';
 
@@ -583,12 +583,12 @@ export default function DashboardPage() {
 
         {/* Activity & Tips Grid */}
         <div className="grid md:grid-cols-2 gap-6 mb-8">
-          {/* Recent Activity */}
+          {/* Recent Activity - Recent Chats */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="font-bold text-gray-900 flex items-center gap-2">
                 <Activity className="w-5 h-5 text-blue-600" />
-                פעילות אחרונה
+                שיחות אחרונות
               </h3>
               <Link to="/contacts" className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1">
                 צפה בהכל
@@ -598,17 +598,41 @@ export default function DashboardPage() {
             <div className="p-4">
               {activity && activity.length > 0 ? (
                 <div className="space-y-3">
-                  {activity.slice(0, 5).map((item, i) => (
-                    <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors">
-                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white">
-                        <MessageSquare className="w-5 h-5" />
-                      </div>
+                  {activity.slice(0, 5).map((contact, i) => (
+                    <Link 
+                      key={contact.id || i} 
+                      to={`/contacts?chat=${contact.id}`}
+                      className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors"
+                    >
+                      {contact.profile_picture_url ? (
+                        <img 
+                          src={contact.profile_picture_url} 
+                          alt="" 
+                          className="w-10 h-10 rounded-xl object-cover"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold">
+                          {(contact.display_name || contact.phone_number || '?')[0].toUpperCase()}
+                        </div>
+                      )}
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 truncate">{item.label || item.name}</p>
-                        <p className="text-sm text-gray-500">{item.count || item.value} הודעות</p>
+                        <p className="font-medium text-gray-900 truncate">
+                          {contact.display_name || contact.phone_number}
+                        </p>
+                        <div className="flex items-center gap-2 text-sm text-gray-500">
+                          <Phone className="w-3 h-3" />
+                          <span dir="ltr">{contact.phone_number}</span>
+                          <span className="text-gray-300">•</span>
+                          <span>{contact.message_count} הודעות</span>
+                        </div>
+                      </div>
+                      <div className="text-left">
+                        <p className="text-xs text-gray-400">
+                          {contact.last_message_at && new Date(contact.last_message_at).toLocaleDateString('he-IL')}
+                        </p>
                       </div>
                       <ChevronLeft className="w-4 h-4 text-gray-400" />
-                    </div>
+                    </Link>
                   ))}
                 </div>
               ) : (
@@ -616,8 +640,8 @@ export default function DashboardPage() {
                   <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                     <Clock className="w-8 h-8 text-gray-400" />
                   </div>
-                  <p className="text-gray-500 font-medium">אין פעילות אחרונה</p>
-                  <p className="text-sm text-gray-400">הודעות חדשות יופיעו כאן</p>
+                  <p className="text-gray-500 font-medium">אין שיחות אחרונות</p>
+                  <p className="text-sm text-gray-400">שיחות חדשות יופיעו כאן</p>
                 </div>
               )}
             </div>
@@ -689,10 +713,8 @@ export default function DashboardPage() {
           />
         )}
 
-        {/* Affiliate Panel */}
-        <div className="mb-8">
-          <AffiliatePanel />
-        </div>
+        {/* Affiliate Quick Link */}
+        <AffiliateQuickLink />
 
         {/* Subscription Expiring/Cancelled Warning Banner */}
         <SubscriptionWarningBanner subscription={user?.subscription} />
@@ -1125,6 +1147,79 @@ function SubscriptionWarningBanner({ subscription }) {
               {isTrial ? 'שדרג עכשיו' : 'חדש מנוי'}
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AffiliateQuickLink() {
+  const [affiliate, setAffiliate] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    loadAffiliate();
+  }, []);
+
+  const loadAffiliate = async () => {
+    try {
+      const { data } = await api.get('/payment/affiliate/my');
+      setAffiliate(data);
+    } catch (err) {
+      // User doesn't have affiliate yet
+    }
+  };
+
+  if (!affiliate?.affiliate?.ref_code) return null;
+
+  const shareLink = `https://flow.botomat.co.il/?ref=${affiliate.affiliate.ref_code}`;
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(shareLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl border border-green-200 p-5 mb-8">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
+            <Share2 className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h3 className="font-bold text-gray-900">תוכנית שותפים</h3>
+            <p className="text-sm text-gray-600">הרווח נקודות על כל חבר שמצטרף דרכך</p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <div className="flex-1 md:flex-none flex items-center gap-2 bg-white rounded-xl border border-gray-200 px-4 py-2.5">
+            <input 
+              type="text" 
+              value={shareLink} 
+              readOnly 
+              className="bg-transparent text-sm text-gray-700 w-48 md:w-64 outline-none"
+              dir="ltr"
+            />
+            <button
+              onClick={copyLink}
+              className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              {copied ? (
+                <CheckCircle className="w-4 h-4 text-green-600" />
+              ) : (
+                <Copy className="w-4 h-4 text-gray-500" />
+              )}
+            </button>
+          </div>
+          
+          <Link 
+            to="/settings?tab=affiliate"
+            className="px-4 py-2.5 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 transition-colors text-sm whitespace-nowrap"
+          >
+            ניהול מלא
+          </Link>
         </div>
       </div>
     </div>
