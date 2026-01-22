@@ -32,4 +32,8 @@ router.get('/history', paymentController.getPaymentHistory);
 // Coupon validation (requires auth to check user status)
 router.post('/coupon/validate', promotionsController.validateCoupon);
 
+// Referral system (user)
+router.get('/referral/my', promotionsController.getUserReferral);
+router.post('/referral/redeem', promotionsController.redeemCredits);
+
 module.exports = router;

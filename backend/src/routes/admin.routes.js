@@ -46,4 +46,9 @@ router.put('/promotions/:promotionId', superadminMiddleware, promotionsControlle
 router.delete('/promotions/:promotionId', superadminMiddleware, promotionsController.deletePromotion);
 router.get('/promotions/:promotionId/stats', promotionsController.getPromotionStats);
 
+// Referral program management
+router.get('/referral/settings', promotionsController.getReferralSettings);
+router.put('/referral/settings', superadminMiddleware, promotionsController.updateReferralSettings);
+router.get('/referral/stats', promotionsController.getAllReferralStats);
+
 module.exports = router;

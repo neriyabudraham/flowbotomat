@@ -223,14 +223,18 @@ export default function AdminSubscriptions() {
 
                   <div className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-lg p-3 mb-3">
                     <div className="flex items-baseline gap-1">
-                      <span className="text-2xl font-bold text-purple-600">₪{promo.promo_price}</span>
-                      <span className="text-sm text-gray-500">/חודש</span>
+                      <span className="text-2xl font-bold text-purple-600">
+                        {promo.discount_type === 'percentage' 
+                          ? `${promo.discount_value}%` 
+                          : `₪${promo.discount_value}`}
+                      </span>
+                      <span className="text-sm text-gray-500">הנחה</span>
                       <span className="text-sm text-gray-400 mx-2">ל-</span>
                       <span className="text-lg font-semibold text-purple-600">{promo.promo_months} חודשים</span>
                     </div>
-                    {promo.regular_price && (
-                      <p className="text-sm text-gray-500 mt-1">
-                        אחרי המבצע: ₪{promo.regular_price}/חודש
+                    {promo.coupon_owner_name && (
+                      <p className="text-xs text-blue-600 mt-1">
+                        בעל קופון: {promo.coupon_owner_name}
                       </p>
                     )}
                   </div>
@@ -834,32 +838,48 @@ function AssignSubscriptionModal({ plans, onAssign, onClose }) {
 function PromoEditModal({ promo, plans, onSave, onClose }) {
   const [form, setForm] = useState({
     name: promo.name || '',
-    name_he: promo.name_he || '',
     description: promo.description || '',
-    description_he: promo.description_he || '',
     plan_id: promo.plan_id || '',
-    promo_price: promo.promo_price || 0,
+    discount_type: promo.discount_type || 'fixed',
+    discount_value: promo.discount_value || 0,
     promo_months: promo.promo_months || 3,
-    regular_price: promo.regular_price || '',
-    billing_period: promo.billing_period || 'monthly',
+    price_after_promo: promo.price_after_promo || '',
+    price_after_discount_type: promo.price_after_discount_type || '',
+    price_after_discount_value: promo.price_after_discount_value || '',
     is_new_users_only: promo.is_new_users_only ?? true,
     is_active: promo.is_active ?? true,
     start_date: promo.start_date ? promo.start_date.split('T')[0] : '',
     end_date: promo.end_date ? promo.end_date.split('T')[0] : '',
     coupon_code: promo.coupon_code || '',
     max_uses: promo.max_uses || '',
+    coupon_owner_id: promo.coupon_owner_id || '',
   });
+  
+  const [users, setUsers] = useState([]);
+  const [searchUser, setSearchUser] = useState('');
+
+  // Search users for coupon owner
+  const handleSearchUser = async () => {
+    if (!searchUser) return;
+    try {
+      const { data } = await api.get(`/admin/users?search=${searchUser}`);
+      setUsers(data.users || []);
+    } catch (e) {}
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     onSave({ 
       ...promo, 
       ...form,
-      regular_price: form.regular_price || null,
+      price_after_promo: form.price_after_promo || null,
+      price_after_discount_type: form.price_after_discount_type || null,
+      price_after_discount_value: form.price_after_discount_value || null,
       plan_id: form.plan_id || null,
       start_date: form.start_date || null,
       end_date: form.end_date || null,
       max_uses: form.max_uses || null,
+      coupon_owner_id: form.coupon_owner_id || null,
     });
   };
 
@@ -878,92 +898,119 @@ function PromoEditModal({ promo, plans, onSave, onClose }) {
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {/* Basic Info */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">שם (אנגלית)</label>
-              <input
-                type="text"
-                value={form.name}
-                onChange={e => setForm({...form, name: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
-                placeholder="Welcome Offer"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">שם (עברית)</label>
-              <input
-                type="text"
-                value={form.name_he}
-                onChange={e => setForm({...form, name_he: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
-                placeholder="מבצע הצטרפות"
-                required
-              />
-            </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">שם המבצע</label>
+            <input
+              type="text"
+              value={form.name}
+              onChange={e => setForm({...form, name: e.target.value})}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+              placeholder="מבצע הצטרפות - 3 חודשים ראשונים"
+              required
+            />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תיאור (עברית)</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תיאור</label>
             <textarea
-              value={form.description_he}
-              onChange={e => setForm({...form, description_he: e.target.value})}
+              value={form.description}
+              onChange={e => setForm({...form, description: e.target.value})}
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
               rows={2}
               placeholder="3 חודשים ראשונים במחיר מיוחד!"
             />
           </div>
 
-          {/* Pricing */}
+          {/* Discount Settings */}
           <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-4 space-y-3">
             <h4 className="font-medium text-purple-800 dark:text-purple-300 flex items-center gap-2">
               <Percent className="w-4 h-4" />
-              תמחור מבצע
+              הגדרות הנחה
             </h4>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מחיר מבצע (₪)</label>
+            
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">סוג הנחה</label>
+                <select
+                  value={form.discount_type}
+                  onChange={e => setForm({...form, discount_type: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                >
+                  <option value="fixed">₪ קבוע</option>
+                  <option value="percentage">% אחוזים</option>
+                </select>
+              </div>
+              <div className="col-span-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  ערך ({form.discount_type === 'percentage' ? '%' : '₪'})
+                </label>
                 <input
                   type="number"
-                  value={form.promo_price}
-                  onChange={e => setForm({...form, promo_price: parseFloat(e.target.value)})}
+                  value={form.discount_value}
+                  onChange={e => setForm({...form, discount_value: parseFloat(e.target.value) || 0})}
                   className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
                   min="0"
+                  max={form.discount_type === 'percentage' ? 100 : undefined}
                   required
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מספר חודשים</label>
+              <div className="col-span-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">חודשים</label>
                 <input
                   type="number"
                   value={form.promo_months}
-                  onChange={e => setForm({...form, promo_months: parseInt(e.target.value)})}
+                  onChange={e => setForm({...form, promo_months: parseInt(e.target.value) || 1})}
                   className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
                   min="1"
                   required
                 />
               </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                מחיר אחרי המבצע (₪)
-                <span className="text-gray-400 font-normal mr-1">(ריק = מחיר התכנית)</span>
-              </label>
-              <input
-                type="number"
-                value={form.regular_price}
-                onChange={e => setForm({...form, regular_price: e.target.value ? parseFloat(e.target.value) : ''})}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
-                min="0"
-                placeholder="99"
-              />
+
+            {/* Price after promo */}
+            <div className="border-t border-purple-200 dark:border-purple-700 pt-3 mt-3">
+              <p className="text-sm text-purple-600 dark:text-purple-400 mb-2">
+                מחיר אחרי תקופת המבצע (ריק = מחיר רגיל של התכנית)
+              </p>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <select
+                    value={form.price_after_discount_type}
+                    onChange={e => setForm({...form, price_after_discount_type: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
+                  >
+                    <option value="">ללא הנחה</option>
+                    <option value="fixed">₪ קבוע</option>
+                    <option value="percentage">% אחוזים</option>
+                  </select>
+                </div>
+                <div>
+                  <input
+                    type="number"
+                    value={form.price_after_discount_value}
+                    onChange={e => setForm({...form, price_after_discount_value: e.target.value ? parseFloat(e.target.value) : ''})}
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                    placeholder="ערך"
+                    disabled={!form.price_after_discount_type}
+                  />
+                </div>
+                <div>
+                  <input
+                    type="number"
+                    value={form.price_after_promo}
+                    onChange={e => setForm({...form, price_after_promo: e.target.value ? parseFloat(e.target.value) : ''})}
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                    placeholder="או מחיר קבוע"
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Targeting */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תכנית (אופציונלי)</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תכנית ספציפית</label>
               <select
                 value={form.plan_id}
                 onChange={e => setForm({...form, plan_id: e.target.value})}
@@ -971,7 +1018,7 @@ function PromoEditModal({ promo, plans, onSave, onClose }) {
               >
                 <option value="">כל התכניות</option>
                 {plans.filter(p => p.is_active && p.price > 0).map(p => (
-                  <option key={p.id} value={p.id}>{p.name_he}</option>
+                  <option key={p.id} value={p.id}>{p.name_he} - ₪{p.price}</option>
                 ))}
               </select>
             </div>
@@ -987,6 +1034,44 @@ function PromoEditModal({ promo, plans, onSave, onClose }) {
               />
             </div>
           </div>
+
+          {/* Coupon Owner (for attribution) */}
+          {form.coupon_code && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3">
+              <label className="block text-sm font-medium text-blue-800 dark:text-blue-300 mb-2">
+                <User className="w-4 h-4 inline ml-1" />
+                בעל הקופון (לזיכוי עמלות)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={searchUser}
+                  onChange={e => setSearchUser(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
+                  placeholder="חפש לפי מייל..."
+                  dir="ltr"
+                />
+                <button type="button" onClick={handleSearchUser} className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm">
+                  חפש
+                </button>
+              </div>
+              {users.length > 0 && (
+                <select
+                  value={form.coupon_owner_id}
+                  onChange={e => setForm({...form, coupon_owner_id: e.target.value})}
+                  className="w-full mt-2 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
+                >
+                  <option value="">ללא בעלים</option>
+                  {users.map(u => (
+                    <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                  ))}
+                </select>
+              )}
+              {form.coupon_owner_id && (
+                <p className="text-xs text-blue-600 mt-1">משתמשים שישתמשו בקופון יזוכו לבעל הקופון</p>
+              )}
+            </div>
+          )}
 
           {/* Limits */}
           <div className="grid grid-cols-2 gap-4">
