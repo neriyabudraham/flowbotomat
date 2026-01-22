@@ -73,8 +73,11 @@ async function handleExpiredSubscriptions() {
           }
         }
         
-        // No payment method OR cancelled subscription - expire and disconnect
+        // No payment method OR cancelled subscription - expire and downgrade
         console.log(`[Subscription Expiry] User ${sub.user_id} - expiring and downgrading to free...`);
+        
+        // Check if user has external connection - they get unlimited free tier
+        const isExternalConnection = sub.connection_type === 'external';
         
         // Mark subscription as expired AND clear all end dates
         // This moves user to "free" tier with no subscription
@@ -88,7 +91,7 @@ async function handleExpiredSubscriptions() {
           WHERE user_id = $1 AND id = $2
         `, [sub.user_id, sub.id]);
         
-        // Handle WhatsApp disconnection
+        // Handle WhatsApp disconnection - ONLY for managed connections
         if (sub.connection_id && shouldDisconnect) {
           if (sub.connection_type === 'managed') {
             // Managed connection - delete from WAHA
@@ -103,21 +106,21 @@ async function handleExpiredSubscriptions() {
             } catch (err) {
               console.error(`[Subscription Expiry] Failed to delete WAHA session: ${err.message}`);
             }
+            
+            // Mark connection as disconnected in DB (only for managed)
+            await db.query(`
+              UPDATE whatsapp_connections 
+              SET status = 'disconnected', disconnected_at = NOW(), updated_at = NOW()
+              WHERE id = $1
+            `, [sub.connection_id]);
           } else {
-            // External connection - just disconnect from our system
-            console.log(`[Subscription Expiry] Disconnecting external WhatsApp for user ${sub.user_id}`);
+            // External connection - keep it connected, just log
+            console.log(`[Subscription Expiry] External WhatsApp for user ${sub.user_id} - keeping connection, downgrading to free tier`);
           }
-          
-          // Mark connection as disconnected in DB
-          await db.query(`
-            UPDATE whatsapp_connections 
-            SET status = 'disconnected', disconnected_at = NOW(), updated_at = NOW()
-            WHERE id = $1
-          `, [sub.connection_id]);
         }
         
-        // IMPORTANT: Deactivate ALL bots - user will need to choose ONE to keep
-        // Mark them with a special flag so frontend knows to show selection UI
+        // IMPORTANT: Deactivate ALL bots except ONE - user can keep one bot on free tier
+        // External users can keep using with restrictions (1 bot, limited runs, limited contacts)
         await db.query(`
           UPDATE bots 
           SET is_active = false, 
@@ -126,15 +129,17 @@ async function handleExpiredSubscriptions() {
           WHERE user_id = $1
         `, [sub.user_id]);
         
-        // Create notification about downgrade
+        // Create notification about downgrade - different message for external users
+        const notificationMessage = isExternalConnection 
+          ? 'הורדת לתוכנית חינמית עם בוט אחד. החיבור לשרת שלך נשמר ללא הגבלת זמן. בחר איזה בוט תרצה להשאיר.'
+          : 'הבוטים שלך הושבתו. יש לך בוט אחד חינמי - בחר איזה בוט תרצה להשאיר.';
+        
         await db.query(`
           INSERT INTO notifications (user_id, notification_type, title, message, metadata)
-          VALUES ($1, 'subscription_expired', 'המנוי שלך הסתיים', 
-                  'הבוטים שלך הושבתו. יש לך בוט אחד חינמי - בחר איזה בוט תרצה להשאיר.',
-                  $2)
-        `, [sub.user_id, JSON.stringify({ action: 'select_bot_to_keep' })]);
+          VALUES ($1, 'subscription_expired', 'המנוי שלך הסתיים', $2, $3)
+        `, [sub.user_id, notificationMessage, JSON.stringify({ action: 'select_bot_to_keep', is_external: isExternalConnection })]);
         
-        console.log(`[Subscription Expiry] ✅ Expired and downgraded user ${sub.user_id} - all bots disabled, pending selection`);
+        console.log(`[Subscription Expiry] ✅ Expired and downgraded user ${sub.user_id} - all bots disabled, pending selection${isExternalConnection ? ' (external connection kept)' : ''}`);
         
       } catch (userError) {
         console.error(`[Subscription Expiry] Error processing user ${sub.user_id}:`, userError.message);
