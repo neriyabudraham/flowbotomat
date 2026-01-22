@@ -6,6 +6,7 @@ const promotionsController = require('../controllers/admin/promotions.controller
 
 // Public routes (no auth required)
 router.get('/promotions/active', promotionsController.getActivePromotions);
+router.post('/affiliate/track-click', promotionsController.trackClick);
 
 // Routes that require authentication
 router.use(authMiddleware);
@@ -29,11 +30,11 @@ router.post('/plan/change', paymentController.changePlan);
 // Payment history
 router.get('/history', paymentController.getPaymentHistory);
 
-// Coupon validation (requires auth to check user status)
+// Coupon validation
 router.post('/coupon/validate', promotionsController.validateCoupon);
 
-// Referral system (user)
-router.get('/referral/my', promotionsController.getUserReferral);
-router.post('/referral/redeem', promotionsController.redeemCredits);
+// Affiliate system (user)
+router.get('/affiliate/my', promotionsController.getMyAffiliate);
+router.post('/affiliate/payout', promotionsController.requestPayout);
 
 module.exports = router;

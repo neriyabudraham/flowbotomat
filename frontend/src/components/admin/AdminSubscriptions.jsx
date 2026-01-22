@@ -20,12 +20,15 @@ export default function AdminSubscriptions() {
   const [plans, setPlans] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
   const [promotions, setPromotions] = useState([]);
+  const [coupons, setCoupons] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingPlan, setEditingPlan] = useState(null);
   const [editingPromo, setEditingPromo] = useState(null);
+  const [editingCoupon, setEditingCoupon] = useState(null);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmDeletePromo, setConfirmDeletePromo] = useState(null);
+  const [confirmDeleteCoupon, setConfirmDeleteCoupon] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
@@ -34,14 +37,16 @@ export default function AdminSubscriptions() {
 
   const loadData = async () => {
     try {
-      const [plansRes, subsRes, promosRes] = await Promise.all([
+      const [plansRes, subsRes, promosRes, couponsRes] = await Promise.all([
         api.get('/subscriptions/plans'),
         api.get('/subscriptions/all'),
         api.get('/admin/promotions').catch(() => ({ data: { promotions: [] } })),
+        api.get('/admin/coupons').catch(() => ({ data: { coupons: [] } })),
       ]);
       setPlans(plansRes.data.plans || []);
       setSubscriptions(subsRes.data.subscriptions || []);
       setPromotions(promosRes.data.promotions || []);
+      setCoupons(couponsRes.data.coupons || []);
     } catch (err) {
       console.error('Failed to load data:', err);
     } finally {
@@ -99,6 +104,31 @@ export default function AdminSubscriptions() {
     }
   };
 
+  const handleSaveCoupon = async (coupon) => {
+    try {
+      if (coupon.id) {
+        await api.put(`/admin/coupons/${coupon.id}`, coupon);
+      } else {
+        await api.post('/admin/coupons', coupon);
+      }
+      setEditingCoupon(null);
+      loadData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בשמירה');
+    }
+  };
+
+  const handleDeleteCoupon = async () => {
+    if (!confirmDeleteCoupon) return;
+    try {
+      await api.delete(`/admin/coupons/${confirmDeleteCoupon}`);
+      setConfirmDeleteCoupon(null);
+      loadData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה במחיקה');
+    }
+  };
+
   const handleCancelSubscription = async (subId) => {
     if (!confirm('לבטל את המנוי?')) return;
     try {
@@ -129,10 +159,10 @@ export default function AdminSubscriptions() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
         <button
           onClick={() => setActiveTab('plans')}
-          className={`px-4 py-2 font-medium transition-colors ${
+          className={`px-4 py-2 font-medium transition-colors whitespace-nowrap ${
             activeTab === 'plans'
               ? 'text-purple-600 border-b-2 border-purple-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -143,7 +173,7 @@ export default function AdminSubscriptions() {
         </button>
         <button
           onClick={() => setActiveTab('promotions')}
-          className={`px-4 py-2 font-medium transition-colors ${
+          className={`px-4 py-2 font-medium transition-colors whitespace-nowrap ${
             activeTab === 'promotions'
               ? 'text-purple-600 border-b-2 border-purple-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -153,8 +183,19 @@ export default function AdminSubscriptions() {
           מבצעים
         </button>
         <button
+          onClick={() => setActiveTab('coupons')}
+          className={`px-4 py-2 font-medium transition-colors whitespace-nowrap ${
+            activeTab === 'coupons'
+              ? 'text-purple-600 border-b-2 border-purple-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Tag className="w-4 h-4 inline ml-2" />
+          קופונים
+        </button>
+        <button
           onClick={() => setActiveTab('subscriptions')}
-          className={`px-4 py-2 font-medium transition-colors ${
+          className={`px-4 py-2 font-medium transition-colors whitespace-nowrap ${
             activeTab === 'subscriptions'
               ? 'text-purple-600 border-b-2 border-purple-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -287,6 +328,82 @@ export default function AdminSubscriptions() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      ) : activeTab === 'coupons' ? (
+        /* Coupons Tab */
+        <div className="space-y-4">
+          <Button onClick={() => setEditingCoupon({})}>
+            <Plus className="w-4 h-4 ml-2" />
+            קופון חדש
+          </Button>
+
+          {coupons.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <Tag className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <p>אין קופונים</p>
+              <p className="text-sm mt-2">צור קוד קופון להנחות מיוחדות</p>
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-gray-50 dark:bg-gray-700/50 text-sm">
+                  <tr>
+                    <th className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">קוד</th>
+                    <th className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">הנחה</th>
+                    <th className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">משך</th>
+                    <th className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">שימושים</th>
+                    <th className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">סטטוס</th>
+                    <th className="px-4 py-3 text-right text-gray-600 dark:text-gray-300">פעולות</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {coupons.map(coupon => (
+                    <tr key={coupon.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                      <td className="px-4 py-3">
+                        <code className="bg-purple-100 text-purple-700 px-2 py-1 rounded font-mono text-sm">{coupon.code}</code>
+                        {coupon.name && <p className="text-xs text-gray-500 mt-1">{coupon.name}</p>}
+                      </td>
+                      <td className="px-4 py-3 font-medium">
+                        {coupon.discount_type === 'percentage' ? `${coupon.discount_value}%` : `₪${coupon.discount_value}`}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {coupon.duration_type === 'forever' ? 'לכל החיים' : 
+                         coupon.duration_type === 'months' ? `${coupon.duration_months} חודשים` : 
+                         'חד פעמי'}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {coupon.times_used || 0}
+                        {coupon.max_uses ? ` / ${coupon.max_uses}` : ''}
+                      </td>
+                      <td className="px-4 py-3">
+                        {coupon.is_active ? (
+                          <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">פעיל</span>
+                        ) : (
+                          <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">לא פעיל</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => setEditingCoupon(coupon)}
+                            className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                          >
+                            <Edit2 className="w-4 h-4 text-gray-500" />
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteCoupon(coupon.id)}
+                            className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+                          >
+                            <Trash2 className="w-4 h-4 text-red-500" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -513,6 +630,27 @@ export default function AdminSubscriptions() {
         onConfirm={handleDeletePromo}
         title="מחיקת מבצע"
         message="האם למחוק את המבצע? לא ניתן לשחזר פעולה זו."
+        confirmText="מחק"
+        variant="danger"
+      />
+
+      {/* Edit Coupon Modal */}
+      {editingCoupon && (
+        <CouponEditModal
+          coupon={editingCoupon}
+          plans={plans}
+          onSave={handleSaveCoupon}
+          onClose={() => setEditingCoupon(null)}
+        />
+      )}
+
+      {/* Confirm Delete Coupon Modal */}
+      <ConfirmModal
+        isOpen={!!confirmDeleteCoupon}
+        onClose={() => setConfirmDeleteCoupon(null)}
+        onConfirm={handleDeleteCoupon}
+        title="מחיקת קופון"
+        message="האם למחוק את הקופון? לא ניתן לשחזר פעולה זו."
         confirmText="מחק"
         variant="danger"
       />
@@ -1138,6 +1276,232 @@ function PromoEditModal({ promo, plans, onSave, onClose }) {
             </Button>
             <Button type="submit" className="flex-1">
               שמור מבצע
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function CouponEditModal({ coupon, plans, onSave, onClose }) {
+  const [form, setForm] = useState({
+    code: coupon.code || '',
+    name: coupon.name || '',
+    discount_type: coupon.discount_type || 'fixed',
+    discount_value: coupon.discount_value || 0,
+    duration_type: coupon.duration_type || 'once',
+    duration_months: coupon.duration_months || '',
+    plan_id: coupon.plan_id || '',
+    max_uses: coupon.max_uses || '',
+    max_uses_per_user: coupon.max_uses_per_user || 1,
+    is_new_users_only: coupon.is_new_users_only || false,
+    is_active: coupon.is_active ?? true,
+    start_date: coupon.start_date ? coupon.start_date.split('T')[0] : '',
+    end_date: coupon.end_date ? coupon.end_date.split('T')[0] : '',
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSave({ 
+      ...coupon, 
+      ...form,
+      duration_months: form.duration_type === 'months' ? form.duration_months : null,
+      plan_id: form.plan_id || null,
+      max_uses: form.max_uses || null,
+      start_date: form.start_date || null,
+      end_date: form.end_date || null,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div 
+        className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2">
+            <Tag className="w-5 h-5 text-purple-600" />
+            {coupon.id ? 'עריכת קופון' : 'קופון חדש'}
+          </h3>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {/* Code */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">קוד קופון</label>
+              <input
+                type="text"
+                value={form.code}
+                onChange={e => setForm({...form, code: e.target.value.toUpperCase()})}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 uppercase font-mono"
+                placeholder="SAVE20"
+                dir="ltr"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">שם פנימי</label>
+              <input
+                type="text"
+                value={form.name}
+                onChange={e => setForm({...form, name: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                placeholder="קמפיין פייסבוק ינואר"
+              />
+            </div>
+          </div>
+
+          {/* Discount */}
+          <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-4 space-y-3">
+            <h4 className="font-medium text-purple-800 dark:text-purple-300">הגדרות הנחה</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">סוג הנחה</label>
+                <select
+                  value={form.discount_type}
+                  onChange={e => setForm({...form, discount_type: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                >
+                  <option value="fixed">₪ סכום קבוע</option>
+                  <option value="percentage">% אחוזים</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  ערך ({form.discount_type === 'percentage' ? '%' : '₪'})
+                </label>
+                <input
+                  type="number"
+                  value={form.discount_value}
+                  onChange={e => setForm({...form, discount_value: parseFloat(e.target.value) || 0})}
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                  min="0"
+                  max={form.discount_type === 'percentage' ? 100 : undefined}
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Duration */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">משך ההנחה</label>
+              <div className="flex gap-2">
+                <select
+                  value={form.duration_type}
+                  onChange={e => setForm({...form, duration_type: e.target.value})}
+                  className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                >
+                  <option value="once">תשלום ראשון בלבד</option>
+                  <option value="months">X חודשים</option>
+                  <option value="forever">לכל החיים</option>
+                </select>
+                {form.duration_type === 'months' && (
+                  <input
+                    type="number"
+                    value={form.duration_months}
+                    onChange={e => setForm({...form, duration_months: parseInt(e.target.value) || ''})}
+                    className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                    placeholder="3"
+                    min="1"
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Targeting */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תכנית ספציפית</label>
+            <select
+              value={form.plan_id}
+              onChange={e => setForm({...form, plan_id: e.target.value})}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+            >
+              <option value="">כל התכניות</option>
+              {plans.filter(p => p.is_active && p.price > 0).map(p => (
+                <option key={p.id} value={p.id}>{p.name_he} - ₪{p.price}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Limits */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מקסימום שימושים</label>
+              <input
+                type="number"
+                value={form.max_uses}
+                onChange={e => setForm({...form, max_uses: e.target.value ? parseInt(e.target.value) : ''})}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                placeholder="ללא הגבלה"
+                min="1"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מקסימום לכל משתמש</label>
+              <input
+                type="number"
+                value={form.max_uses_per_user}
+                onChange={e => setForm({...form, max_uses_per_user: parseInt(e.target.value) || 1})}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                min="1"
+              />
+            </div>
+          </div>
+
+          {/* Dates */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תאריך התחלה</label>
+              <input
+                type="date"
+                value={form.start_date}
+                onChange={e => setForm({...form, start_date: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תאריך סיום</label>
+              <input
+                type="date"
+                value={form.end_date}
+                onChange={e => setForm({...form, end_date: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+              />
+            </div>
+          </div>
+
+          {/* Options */}
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.is_new_users_only}
+                onChange={e => setForm({...form, is_new_users_only: e.target.checked})}
+                className="w-4 h-4 rounded text-purple-600"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">רק למשתמשים חדשים</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.is_active}
+                onChange={e => setForm({...form, is_active: e.target.checked})}
+                className="w-4 h-4 rounded text-purple-600"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">קופון פעיל</span>
+            </label>
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <Button type="button" variant="ghost" onClick={onClose} className="flex-1">
+              ביטול
+            </Button>
+            <Button type="submit" className="flex-1">
+              שמור קופון
             </Button>
           </div>
         </form>

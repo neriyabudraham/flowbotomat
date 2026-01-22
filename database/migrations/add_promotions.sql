@@ -1,180 +1,212 @@
 -- =====================================================
--- PROMOTIONS & REFERRAL SYSTEM
+-- 1. PROMOTIONS (מבצעים אוטומטיים - בלי קופון)
 -- =====================================================
+-- מבצעים שמופיעים לכולם/למשתמשים חדשים בדף התמחור
+-- לדוגמה: חודש ראשון ב-50₪, אח"כ 99₪
 
--- Promotions table for special offers
--- Example: 3 months at 50% off, then regular price
 CREATE TABLE IF NOT EXISTS promotions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   
-  -- Display name (Hebrew only, no English required)
-  name VARCHAR(255) NOT NULL,               -- Hebrew display name
+  -- Display
+  name VARCHAR(255) NOT NULL,
   description TEXT,
+  badge_text VARCHAR(50),              -- טקסט לתג (לדוגמה: "מבצע!")
   
-  -- Which plan this promotion applies to (NULL = all plans)
+  -- Which plan (NULL = all plans)
   plan_id UUID REFERENCES subscription_plans(id) ON DELETE CASCADE,
   
-  -- Discount type: 'fixed' (ש"ח) or 'percentage' (%)
-  discount_type VARCHAR(20) NOT NULL DEFAULT 'fixed',  -- 'fixed' or 'percentage'
-  discount_value DECIMAL(10,2) NOT NULL,               -- Amount in ILS or percentage (0-100)
-  
-  -- How many months the discount applies
-  promo_months INTEGER NOT NULL DEFAULT 3,
-  
-  -- Price after promo (NULL = use plan's regular price)
-  price_after_promo DECIMAL(10,2),
-  price_after_discount_type VARCHAR(20),    -- 'fixed' or 'percentage' for price after promo
-  price_after_discount_value DECIMAL(10,2), -- Discount for price after promo period
+  -- Discount for promo period
+  discount_type VARCHAR(20) NOT NULL DEFAULT 'fixed',  -- 'fixed' (₪) or 'percentage' (%)
+  discount_value DECIMAL(10,2) NOT NULL,
+  promo_months INTEGER NOT NULL DEFAULT 1,             -- How many months at promo price
   
   -- Targeting
-  is_new_users_only BOOLEAN DEFAULT true,   -- Only for first-time paying users
+  is_new_users_only BOOLEAN DEFAULT true,
   is_active BOOLEAN DEFAULT true,
   
-  -- Validity period
-  start_date TIMESTAMPTZ,                   -- NULL = immediately
-  end_date TIMESTAMPTZ,                     -- NULL = no end date
+  -- Validity
+  start_date TIMESTAMPTZ,
+  end_date TIMESTAMPTZ,
   
-  -- Coupon code (optional)
-  coupon_code VARCHAR(50) UNIQUE,           -- e.g., 'WELCOME50'
-  max_uses INTEGER,                         -- NULL = unlimited
+  -- Display priority
+  priority INTEGER DEFAULT 0,
+  
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- =====================================================
+-- 2. COUPONS (קודי קופון להזנה)
+-- =====================================================
+-- קודים שמזינים ומקבלים הנחה
+
+CREATE TABLE IF NOT EXISTS coupons (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  
+  -- Code
+  code VARCHAR(50) UNIQUE NOT NULL,
+  name VARCHAR(255),                   -- שם פנימי לזיהוי
+  
+  -- Discount
+  discount_type VARCHAR(20) NOT NULL DEFAULT 'fixed',  -- 'fixed' (₪) or 'percentage' (%)
+  discount_value DECIMAL(10,2) NOT NULL,
+  
+  -- Duration
+  duration_type VARCHAR(20) DEFAULT 'once',  -- 'once' (חד פעמי), 'months' (X חודשים), 'forever' (לכל החיים)
+  duration_months INTEGER,                   -- Only if duration_type = 'months'
+  
+  -- Which plan (NULL = all plans)
+  plan_id UUID REFERENCES subscription_plans(id) ON DELETE CASCADE,
+  
+  -- Limits
+  max_uses INTEGER,                    -- NULL = unlimited
   current_uses INTEGER DEFAULT 0,
+  max_uses_per_user INTEGER DEFAULT 1,
   
-  -- Coupon owner (for tracking who referred)
-  coupon_owner_id UUID REFERENCES users(id), -- User who owns this coupon code
+  -- Targeting
+  is_new_users_only BOOLEAN DEFAULT false,
+  is_active BOOLEAN DEFAULT true,
   
-  -- Metadata
+  -- Validity
+  start_date TIMESTAMPTZ,
+  end_date TIMESTAMPTZ,
+  
+  -- Who created
   created_by UUID REFERENCES users(id),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Track which users used which promotions (and who referred them)
-CREATE TABLE IF NOT EXISTS user_promotions (
+-- Track coupon usage
+CREATE TABLE IF NOT EXISTS coupon_usage (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  coupon_id UUID REFERENCES coupons(id) ON DELETE CASCADE,
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-  promotion_id UUID REFERENCES promotions(id) ON DELETE CASCADE,
   subscription_id UUID REFERENCES user_subscriptions(id),
   
-  -- Who referred this user (coupon owner)
-  referred_by_user_id UUID REFERENCES users(id),
-  coupon_code_used VARCHAR(50),
-  
-  -- Status
-  status VARCHAR(20) DEFAULT 'active',      -- 'active', 'completed', 'cancelled'
-  
-  -- Tracking
-  promo_start_date TIMESTAMPTZ DEFAULT NOW(),
-  promo_end_date TIMESTAMPTZ,
-  months_remaining INTEGER,
-  
-  -- Price info (snapshot at time of use)
-  original_price DECIMAL(10,2),
   discount_applied DECIMAL(10,2),
-  final_price DECIMAL(10,2),
   
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
   
-  UNIQUE(user_id, promotion_id)
+  UNIQUE(coupon_id, user_id)
 );
 
 -- =====================================================
--- REFERRAL / AFFILIATE SYSTEM
+-- 3. AFFILIATE PROGRAM (תוכנית שותפים)
 -- =====================================================
 
--- Referral settings (system-wide configuration)
-CREATE TABLE IF NOT EXISTS referral_settings (
+-- Program settings
+CREATE TABLE IF NOT EXISTS affiliate_settings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   
-  -- Credit per referral
-  credit_per_referral DECIMAL(10,2) DEFAULT 20.00,  -- ILS per successful referral
+  -- Commission per paid subscription
+  commission_amount DECIMAL(10,2) DEFAULT 20.00,   -- ₪ per subscription
+  commission_type VARCHAR(20) DEFAULT 'fixed',      -- 'fixed' or 'percentage'
   
-  -- What counts as a successful referral
-  referral_trigger VARCHAR(50) DEFAULT 'subscription',  -- 'email_verified' or 'subscription'
+  -- Requirements for payout
+  min_payout_amount DECIMAL(10,2) DEFAULT 100.00,  -- Minimum to request payout
   
-  -- Minimum credit to redeem
-  min_credit_to_redeem DECIMAL(10,2) DEFAULT 100.00,
+  -- What counts as conversion
+  conversion_type VARCHAR(50) DEFAULT 'paid_subscription',  -- 'signup', 'email_verified', 'paid_subscription'
   
-  -- What can be redeemed
-  redeem_type VARCHAR(50) DEFAULT 'month_free',  -- 'month_free' or 'discount'
-  redeem_value DECIMAL(10,2) DEFAULT 1,          -- 1 month free, or discount amount
+  -- Cookie duration (days)
+  cookie_days INTEGER DEFAULT 30,
   
-  -- Is referral program active
+  -- Program status
   is_active BOOLEAN DEFAULT true,
   
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Insert default settings
-INSERT INTO referral_settings (id, credit_per_referral, referral_trigger, min_credit_to_redeem, redeem_type, redeem_value, is_active)
-VALUES (gen_random_uuid(), 20.00, 'subscription', 100.00, 'month_free', 1, true)
+INSERT INTO affiliate_settings (
+  commission_amount, commission_type, min_payout_amount, 
+  conversion_type, cookie_days, is_active
+) VALUES (20.00, 'fixed', 100.00, 'paid_subscription', 30, true)
 ON CONFLICT DO NOTHING;
 
--- User referral data
-CREATE TABLE IF NOT EXISTS user_referrals (
+-- Each user's affiliate account
+CREATE TABLE IF NOT EXISTS affiliates (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id) ON DELETE CASCADE UNIQUE,
   
-  -- Unique referral code for this user
-  referral_code VARCHAR(20) UNIQUE NOT NULL,
-  
-  -- Credit balance
-  credit_balance DECIMAL(10,2) DEFAULT 0.00,
-  total_earned DECIMAL(10,2) DEFAULT 0.00,
-  total_redeemed DECIMAL(10,2) DEFAULT 0.00,
+  -- Unique referral code
+  ref_code VARCHAR(20) UNIQUE NOT NULL,
   
   -- Stats
-  total_referrals INTEGER DEFAULT 0,
-  successful_referrals INTEGER DEFAULT 0,  -- Based on referral_trigger
+  total_clicks INTEGER DEFAULT 0,
+  total_signups INTEGER DEFAULT 0,
+  total_conversions INTEGER DEFAULT 0,
+  
+  -- Earnings
+  total_earned DECIMAL(10,2) DEFAULT 0.00,
+  pending_balance DECIMAL(10,2) DEFAULT 0.00,   -- Not yet available for payout
+  available_balance DECIMAL(10,2) DEFAULT 0.00, -- Can request payout
+  total_paid_out DECIMAL(10,2) DEFAULT 0.00,
+  
+  -- Status
+  is_active BOOLEAN DEFAULT true,
   
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Track individual referrals
-CREATE TABLE IF NOT EXISTS referral_history (
+-- Track clicks
+CREATE TABLE IF NOT EXISTS affiliate_clicks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  affiliate_id UUID REFERENCES affiliates(id) ON DELETE CASCADE,
+  ref_code VARCHAR(20) NOT NULL,
   
-  -- Who referred
-  referrer_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  -- Visitor info
+  ip_address VARCHAR(45),
+  user_agent TEXT,
+  referrer_url TEXT,
+  landing_page TEXT,
   
-  -- Who was referred
-  referred_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  -- Conversion tracking
+  converted_user_id UUID REFERENCES users(id),
+  converted_at TIMESTAMPTZ,
   
-  -- Referral code used
-  referral_code VARCHAR(20) NOT NULL,
-  
-  -- Status
-  status VARCHAR(20) DEFAULT 'pending',  -- 'pending', 'completed', 'credited'
-  
-  -- Credit info
-  credit_amount DECIMAL(10,2),
-  credited_at TIMESTAMPTZ,
-  
-  -- What triggered completion
-  trigger_type VARCHAR(50),  -- 'email_verified' or 'subscription'
-  trigger_date TIMESTAMPTZ,
-  
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  
-  UNIQUE(referrer_id, referred_user_id)
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Track redemptions
-CREATE TABLE IF NOT EXISTS referral_redemptions (
+-- Track referrals (signups through affiliate link)
+CREATE TABLE IF NOT EXISTS affiliate_referrals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  affiliate_id UUID REFERENCES affiliates(id) ON DELETE CASCADE,
+  referred_user_id UUID REFERENCES users(id) ON DELETE CASCADE UNIQUE,
   
-  -- What was redeemed
-  redeem_type VARCHAR(50) NOT NULL,  -- 'month_free', 'discount'
-  credit_used DECIMAL(10,2) NOT NULL,
+  -- Status
+  status VARCHAR(20) DEFAULT 'pending',  -- 'pending', 'converted', 'paid'
   
-  -- Applied to subscription
-  subscription_id UUID REFERENCES user_subscriptions(id),
+  -- Commission
+  commission_amount DECIMAL(10,2),
+  commission_paid_at TIMESTAMPTZ,
   
-  -- Details
-  description TEXT,
+  -- Tracking
+  click_id UUID REFERENCES affiliate_clicks(id),
+  converted_at TIMESTAMPTZ,              -- When they became paying customer
+  
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Payout requests
+CREATE TABLE IF NOT EXISTS affiliate_payouts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  affiliate_id UUID REFERENCES affiliates(id) ON DELETE CASCADE,
+  
+  amount DECIMAL(10,2) NOT NULL,
+  status VARCHAR(20) DEFAULT 'pending',  -- 'pending', 'approved', 'paid', 'rejected'
+  
+  -- Payout method
+  payout_method VARCHAR(50),             -- 'bank_transfer', 'paypal', 'credit'
+  payout_details JSONB,                  -- Bank account / PayPal email etc
+  
+  -- Admin notes
+  admin_notes TEXT,
+  processed_by UUID REFERENCES users(id),
+  processed_at TIMESTAMPTZ,
   
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -183,45 +215,42 @@ CREATE TABLE IF NOT EXISTS referral_redemptions (
 -- USER TABLE UPDATES
 -- =====================================================
 
--- Add referral and payment tracking to users
 ALTER TABLE users 
 ADD COLUMN IF NOT EXISTS has_ever_paid BOOLEAN DEFAULT false,
-ADD COLUMN IF NOT EXISTS referred_by_user_id UUID REFERENCES users(id),
-ADD COLUMN IF NOT EXISTS referred_by_code VARCHAR(20);
+ADD COLUMN IF NOT EXISTS referred_by_affiliate_id UUID REFERENCES affiliates(id),
+ADD COLUMN IF NOT EXISTS referral_click_id UUID;
 
--- Add promotion tracking to user_subscriptions
+-- Add to subscriptions
 ALTER TABLE user_subscriptions
 ADD COLUMN IF NOT EXISTS active_promotion_id UUID REFERENCES promotions(id),
 ADD COLUMN IF NOT EXISTS promo_months_remaining INTEGER DEFAULT 0,
-ADD COLUMN IF NOT EXISTS promo_price DECIMAL(10,2),
-ADD COLUMN IF NOT EXISTS regular_price_after_promo DECIMAL(10,2),
-ADD COLUMN IF NOT EXISTS referral_month_free_until TIMESTAMPTZ;  -- If they got free month from referral
+ADD COLUMN IF NOT EXISTS active_coupon_id UUID REFERENCES coupons(id),
+ADD COLUMN IF NOT EXISTS coupon_months_remaining INTEGER,      -- NULL if forever, 0 if expired
+ADD COLUMN IF NOT EXISTS original_price DECIMAL(10,2),
+ADD COLUMN IF NOT EXISTS discounted_price DECIMAL(10,2);
 
 -- =====================================================
 -- INDEXES
 -- =====================================================
 
 CREATE INDEX IF NOT EXISTS idx_promotions_active ON promotions(is_active, start_date, end_date);
-CREATE INDEX IF NOT EXISTS idx_promotions_coupon ON promotions(coupon_code) WHERE coupon_code IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_promotions_owner ON promotions(coupon_owner_id) WHERE coupon_owner_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_promotions_plan ON promotions(plan_id);
 
-CREATE INDEX IF NOT EXISTS idx_user_promotions_user ON user_promotions(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_promotions_referred ON user_promotions(referred_by_user_id);
-CREATE INDEX IF NOT EXISTS idx_user_promotions_status ON user_promotions(status);
+CREATE INDEX IF NOT EXISTS idx_coupons_code ON coupons(code);
+CREATE INDEX IF NOT EXISTS idx_coupons_active ON coupons(is_active);
+CREATE INDEX IF NOT EXISTS idx_coupon_usage_user ON coupon_usage(user_id);
 
-CREATE INDEX IF NOT EXISTS idx_user_referrals_code ON user_referrals(referral_code);
-CREATE INDEX IF NOT EXISTS idx_referral_history_referrer ON referral_history(referrer_id);
-CREATE INDEX IF NOT EXISTS idx_referral_history_referred ON referral_history(referred_user_id);
-CREATE INDEX IF NOT EXISTS idx_referral_history_status ON referral_history(status);
+CREATE INDEX IF NOT EXISTS idx_affiliates_code ON affiliates(ref_code);
+CREATE INDEX IF NOT EXISTS idx_affiliates_user ON affiliates(user_id);
+CREATE INDEX IF NOT EXISTS idx_affiliate_clicks_code ON affiliate_clicks(ref_code);
+CREATE INDEX IF NOT EXISTS idx_affiliate_referrals_affiliate ON affiliate_referrals(affiliate_id);
+CREATE INDEX IF NOT EXISTS idx_affiliate_referrals_status ON affiliate_referrals(status);
 
 -- =====================================================
 -- COMMENTS
 -- =====================================================
 
-COMMENT ON TABLE promotions IS 'Special promotional offers with discounts (fixed or percentage)';
-COMMENT ON COLUMN promotions.discount_type IS 'Type of discount: fixed (ILS) or percentage (%)';
-COMMENT ON COLUMN promotions.coupon_owner_id IS 'User who owns this coupon - gets credit when someone uses it';
-
-COMMENT ON TABLE user_referrals IS 'Stores each user''s referral code and credit balance';
-COMMENT ON TABLE referral_history IS 'Tracks who referred whom and credit status';
-COMMENT ON TABLE referral_settings IS 'System-wide referral program settings';
+COMMENT ON TABLE promotions IS 'Auto-applied discounts shown on pricing page (no code needed)';
+COMMENT ON TABLE coupons IS 'Discount codes users can enter at checkout';
+COMMENT ON TABLE affiliates IS 'User affiliate accounts with referral tracking';
+COMMENT ON COLUMN coupons.duration_type IS 'once=first payment only, months=X months, forever=permanent discount';
