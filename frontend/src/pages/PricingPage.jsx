@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Check, X, Star, Zap, Crown, Building, ArrowLeft, CreditCard, Lock, Loader2, 
   Shield, AlertCircle, Sparkles, Users, Bot, MessageSquare, BarChart3,
-  Rocket, Gift, Timer, ChevronDown, ArrowRight, CheckCircle, Phone, Code
+  Rocket, Gift, Timer, ChevronDown, ArrowRight, CheckCircle, Phone, Code,
+  RotateCcw, Clock, Info
 } from 'lucide-react';
 import api from '../services/api';
 import useAuthStore from '../store/authStore';
@@ -39,7 +40,9 @@ export default function PricingPage() {
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showReactivateModal, setShowReactivateModal] = useState(false);
   const [currentSubscription, setCurrentSubscription] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState(null);
   
   const isAuthenticated = !!user;
 
@@ -57,8 +60,14 @@ export default function PricingPage() {
 
   const loadCurrentSubscription = async () => {
     try {
-      const { data } = await api.get('/user/subscription');
+      const { data } = await api.get('/subscriptions/my');
       setCurrentSubscription(data.subscription);
+      
+      // Also load payment method
+      const paymentData = await api.get('/payment/methods');
+      if (paymentData.data.paymentMethods?.length > 0) {
+        setPaymentMethod(paymentData.data.paymentMethods[0]);
+      }
     } catch (err) {
       console.error('Failed to load subscription:', err);
     }
@@ -87,9 +96,27 @@ export default function PricingPage() {
       return;
     }
     
+    // Check if this is the same plan as cancelled subscription (reactivate)
+    if (currentSubscription?.status === 'cancelled' && 
+        currentSubscription?.plan_id === plan.id &&
+        hasTimeRemaining) {
+      setShowReactivateModal(true);
+      return;
+    }
+    
     setSelectedPlan(plan);
     setShowCheckoutModal(true);
   };
+  
+  // Check if cancelled subscription has time remaining
+  const endDateRaw = currentSubscription?.is_trial 
+    ? currentSubscription?.trial_ends_at 
+    : (currentSubscription?.expires_at || currentSubscription?.next_charge_date);
+  const endDate = endDateRaw ? new Date(endDateRaw) : null;
+  const now = new Date();
+  const daysLeft = endDate ? Math.ceil((endDate - now) / (1000 * 60 * 60 * 24)) : 0;
+  const hasTimeRemaining = endDate && daysLeft > 0;
+  const isCancelledWithTime = currentSubscription?.status === 'cancelled' && hasTimeRemaining;
 
   const handleCancelSubscription = async () => {
     try {
@@ -320,8 +347,23 @@ export default function PricingPage() {
 
                       {/* CTA Button */}
                       {(() => {
-                        // Current plan - not clickable
-                        if (isCurrentPlan) {
+                        const isCurrentPlanCancelled = isCurrentPlan && currentSubscription?.status === 'cancelled' && hasTimeRemaining;
+                        
+                        // Current plan that is CANCELLED but still has time - show reactivate option
+                        if (isCurrentPlanCancelled) {
+                          return (
+                            <button
+                              onClick={() => handleSelectPlan(plan)}
+                              className="w-full py-3.5 rounded-xl font-medium transition-all bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:shadow-lg hover:scale-[1.02] flex items-center justify-center gap-2"
+                            >
+                              <RotateCcw className="w-5 h-5" />
+                              חדש מנוי
+                            </button>
+                          );
+                        }
+                        
+                        // Current plan (active) - not clickable
+                        if (isCurrentPlan && currentSubscription?.status !== 'cancelled') {
                           return (
                             <div className="w-full py-3.5 rounded-xl font-medium text-center bg-green-100 text-green-700 flex items-center justify-center gap-2 cursor-default">
                               <CheckCircle className="w-5 h-5" />
@@ -538,6 +580,34 @@ export default function PricingPage() {
           onConfirm={handleCancelSubscription}
         />
       )}
+
+      {/* Reactivate Subscription Modal */}
+      {showReactivateModal && (
+        <ReactivateSubscriptionModal
+          subscription={currentSubscription}
+          paymentMethod={paymentMethod}
+          daysLeft={daysLeft}
+          onClose={() => setShowReactivateModal(false)}
+          onSuccess={() => {
+            setShowReactivateModal(false);
+            navigate('/dashboard', { 
+              state: { 
+                message: 'המנוי חודש בהצלחה!',
+                type: 'success'
+              }
+            });
+          }}
+          onNeedPayment={() => {
+            setShowReactivateModal(false);
+            // Find current plan and open checkout
+            const plan = plans.find(p => p.id === currentSubscription?.plan_id);
+            if (plan) {
+              setSelectedPlan(plan);
+              setShowCheckoutModal(true);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -670,6 +740,175 @@ function FAQ({ question, answer }) {
           {answer}
         </div>
       )}
+    </div>
+  );
+}
+
+function ReactivateSubscriptionModal({ subscription, paymentMethod, daysLeft, onClose, onSuccess, onNeedPayment }) {
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleReactivate = async () => {
+    // Check if we have a payment method
+    if (!paymentMethod) {
+      onNeedPayment();
+      return;
+    }
+
+    setProcessing(true);
+    setError(null);
+    
+    try {
+      await api.post('/payment/reactivate');
+      onSuccess();
+    } catch (err) {
+      const errorData = err.response?.data;
+      if (errorData?.needsPaymentMethod) {
+        onNeedPayment();
+      } else if (errorData?.needsNewSubscription) {
+        setError('תקופת המנוי הסתיימה. יש להירשם מחדש.');
+      } else {
+        setError(errorData?.error || 'שגיאה בחידוש המנוי');
+      }
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const planName = subscription?.plan_name_he || subscription?.plan_name || 'המנוי';
+  const endDate = subscription?.expires_at || subscription?.trial_ends_at || subscription?.next_charge_date;
+  const formattedEndDate = endDate 
+    ? new Date(endDate).toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+    : null;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div 
+        className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl"
+        onClick={e => e.stopPropagation()}
+        dir="rtl"
+      >
+        {/* Header */}
+        <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-8 text-center text-white">
+          <div className="w-20 h-20 bg-white/20 backdrop-blur rounded-full flex items-center justify-center mx-auto mb-4">
+            <RotateCcw className="w-10 h-10" />
+          </div>
+          <h2 className="text-2xl font-bold mb-2">חידוש מנוי</h2>
+          <p className="text-white/90">{planName}</p>
+        </div>
+
+        {/* Content */}
+        <div className="p-6 space-y-5">
+          {error && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 text-red-700">
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              <span className="text-sm">{error}</span>
+            </div>
+          )}
+
+          {/* Current status */}
+          <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200">
+            <div className="flex items-center gap-3 mb-3">
+              <Clock className="w-5 h-5 text-amber-600" />
+              <span className="font-semibold text-amber-800">מצב נוכחי: מבוטל</span>
+            </div>
+            <p className="text-amber-700 text-sm">
+              {daysLeft === 0 
+                ? 'המנוי מסתיים היום!'
+                : daysLeft === 1 
+                  ? 'המנוי מסתיים מחר!'
+                  : `נותרו ${daysLeft} ימים עד סיום השירות`
+              }
+              {formattedEndDate && <span className="block mt-1 text-amber-600">({formattedEndDate})</span>}
+            </p>
+          </div>
+
+          {/* What happens when you reactivate */}
+          <div className="bg-green-50 rounded-2xl p-5 border border-green-200">
+            <h3 className="font-bold text-green-800 mb-3 flex items-center gap-2">
+              <CheckCircle className="w-5 h-5" />
+              מה קורה כשמחדשים?
+            </h3>
+            <div className="space-y-2 text-sm text-green-700">
+              <div className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-green-600" />
+                <span>החיוב האוטומטי יופעל מחדש</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-green-600" />
+                <span>המנוי ימשיך ללא הפסקה</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-green-600" />
+                <span>כל הבוטים שלך ימשיכו לפעול</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-green-600" />
+                <span>תחויב בתאריך החיוב הבא</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Payment method info */}
+          {paymentMethod ? (
+            <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-14 h-10 bg-gradient-to-r from-blue-600 to-blue-800 rounded-lg flex items-center justify-center text-white text-xs font-bold">
+                  CARD
+                </div>
+                <div>
+                  <div className="font-medium text-gray-900">
+                    **** **** **** {paymentMethod.card_last_digits}
+                  </div>
+                  <div className="text-sm text-gray-500">{paymentMethod.card_holder_name}</div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 bg-yellow-50 rounded-2xl border border-yellow-200">
+              <div className="flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 text-yellow-600" />
+                <div>
+                  <div className="font-medium text-yellow-800">לא נמצא אמצעי תשלום</div>
+                  <div className="text-sm text-yellow-600">יש להוסיף כרטיס אשראי לחידוש המנוי</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Buttons */}
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="flex-1 py-3.5 border-2 border-gray-200 rounded-xl font-medium text-gray-600 hover:bg-gray-50 transition-all"
+            >
+              ביטול
+            </button>
+            <button
+              onClick={handleReactivate}
+              disabled={processing}
+              className="flex-1 py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl font-bold hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {processing ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  מחדש...
+                </>
+              ) : paymentMethod ? (
+                <>
+                  <RotateCcw className="w-5 h-5" />
+                  חדש מנוי
+                </>
+              ) : (
+                <>
+                  <CreditCard className="w-5 h-5" />
+                  הוסף אשראי
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
