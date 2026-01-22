@@ -70,15 +70,15 @@ export default function SubscriptionManager() {
   const handleRemoveCard = async () => {
     setRemovingCard(true);
     try {
-      await api.delete('/payment/methods/remove-all');
+      const { data } = await api.delete('/payment/methods/remove-all');
       setPaymentMethod(null);
       setShowRemoveCardModal(false);
       // Reload subscription as it may have changed
       await loadSubscription();
-      // Redirect to dashboard with message
+      // Redirect to dashboard with message from server
       navigate('/dashboard', { 
         state: { 
-          message: 'פרטי האשראי הוסרו. חיבור ה-WhatsApp שלך נותק מהמערכת.',
+          message: data.message || 'פרטי האשראי הוסרו בהצלחה',
           type: 'warning'
         }
       });
