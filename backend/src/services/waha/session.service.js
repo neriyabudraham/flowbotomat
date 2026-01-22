@@ -76,17 +76,18 @@ async function getQRCode(baseUrl, apiKey, sessionName) {
 }
 
 /**
- * Get all sessions from WAHA
+ * Get all sessions from WAHA (including all statuses)
  */
 async function getAllSessions(baseUrl, apiKey) {
   const client = createClient(baseUrl, apiKey);
-  const response = await client.get('/api/sessions');
+  // Use all=true to get all sessions including inactive ones
+  const response = await client.get('/api/sessions', { params: { all: true } });
   return response.data;
 }
 
 /**
  * Find session by user.email in metadata
- * @returns session object or null
+ * @returns session object with status or null
  */
 async function findSessionByEmail(baseUrl, apiKey, email) {
   console.log(`[WAHA] Searching for session with email: ${email}`);
@@ -96,11 +97,11 @@ async function findSessionByEmail(baseUrl, apiKey, email) {
   
   for (const session of sessions) {
     const metadata = session.config?.metadata || {};
-    console.log(`[WAHA] Session "${session.name}" metadata:`, JSON.stringify(metadata));
+    console.log(`[WAHA] Session "${session.name}" status: ${session.status}, metadata:`, JSON.stringify(metadata));
     
     if (metadata['user.email'] === email) {
-      console.log(`[WAHA] ✅ Match found: ${session.name}`);
-      return session;
+      console.log(`[WAHA] ✅ Match found: ${session.name}, status: ${session.status}`);
+      return session; // Returns full session object including status
     }
   }
   

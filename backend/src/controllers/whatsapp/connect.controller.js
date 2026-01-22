@@ -364,10 +364,22 @@ async function createExternal(req, res) {
 
 /**
  * Check if user has existing session in WAHA (by email)
+ * Only checks if user has a payment method (to avoid showing session info to non-paying users)
  */
 async function checkExisting(req, res) {
   try {
     const userId = req.user.id;
+    
+    // First check if user has payment method - don't show session info without it
+    const paymentCheck = await pool.query(
+      'SELECT id FROM user_payment_methods WHERE user_id = $1 AND is_active = true LIMIT 1',
+      [userId]
+    );
+    
+    if (paymentCheck.rows.length === 0) {
+      // No payment method - don't check for existing sessions
+      return res.json({ exists: false, requiresPayment: true });
+    }
     
     // Get user email
     let userEmail = req.user.email;
@@ -387,24 +399,23 @@ async function checkExisting(req, res) {
       return res.json({ exists: false });
     }
     
-    // Search in WAHA by email
+    // Search in WAHA by email - only for WORKING sessions
     console.log(`[WhatsApp] Checking existing session for: ${userEmail}`);
     
     const existingSession = await wahaSession.findSessionByEmail(baseUrl, apiKey, userEmail);
     
-    if (existingSession) {
-      const status = await wahaSession.getSessionStatus(baseUrl, apiKey, existingSession.name);
-      console.log(`[WhatsApp] ✅ Found existing session: ${existingSession.name}, status: ${status.status}`);
+    if (existingSession && existingSession.status === 'WORKING') {
+      console.log(`[WhatsApp] ✅ Found existing WORKING session: ${existingSession.name}`);
       
       return res.json({
         exists: true,
         sessionName: existingSession.name,
-        status: status.status,
-        isConnected: status.status === 'WORKING',
+        status: existingSession.status,
+        isConnected: true,
       });
     }
     
-    console.log(`[WhatsApp] No existing session found for: ${userEmail}`);
+    console.log(`[WhatsApp] No active session found for: ${userEmail}`);
     return res.json({ exists: false });
     
   } catch (error) {

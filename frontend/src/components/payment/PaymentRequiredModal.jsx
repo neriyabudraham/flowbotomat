@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { X, CreditCard, Shield, Check, Lock, Sparkles, AlertCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, CreditCard, Shield, Check, Lock, Sparkles, AlertCircle, Gift, Tag } from 'lucide-react';
 import CreditCardForm from './CreditCardForm';
+import api from '../../services/api';
 
 export default function PaymentRequiredModal({ 
   isOpen, 
@@ -12,9 +13,63 @@ export default function PaymentRequiredModal({
     'ללא חיוב מיידי',
     'ביטול בכל עת',
     'מאובטח ומוגן',
-  ]
+  ],
+  showPriceInfo = true
 }) {
   const [success, setSuccess] = useState(false);
+  const [priceInfo, setPriceInfo] = useState(null);
+
+  // Fetch price info when modal opens
+  useEffect(() => {
+    if (isOpen && showPriceInfo) {
+      fetchPriceInfo();
+    }
+  }, [isOpen, showPriceInfo]);
+
+  const fetchPriceInfo = async () => {
+    try {
+      // Get basic plan price
+      const { data: plansData } = await api.get('/subscriptions/plans');
+      const basicPlan = plansData.find(p => p.name === 'Basic') || plansData[0];
+      
+      // Get active promotions
+      const { data: promos } = await api.get('/payment/promotions/active');
+      const promo = promos.find(p => p.plan_id === basicPlan?.id);
+      
+      // Check if user came via referral
+      const referralCode = localStorage.getItem('referral_code');
+      
+      let firstMonthPrice = parseFloat(basicPlan?.price || 79);
+      let regularPrice = firstMonthPrice;
+      let hasDiscount = false;
+      let discountNote = null;
+      
+      if (promo) {
+        firstMonthPrice = parseFloat(promo.promo_price);
+        hasDiscount = true;
+        discountNote = `מבצע: ${promo.duration_months} חודשים ב-₪${promo.promo_price}/חודש`;
+      }
+      
+      if (referralCode) {
+        // Show referral discount note
+        discountNote = discountNote 
+          ? `${discountNote} + בונוס הפניה`
+          : 'בונוס הפניה פעיל';
+        hasDiscount = true;
+      }
+      
+      setPriceInfo({
+        firstMonthPrice,
+        regularPrice,
+        hasDiscount,
+        discountNote,
+        planName: basicPlan?.name_he || 'תוכנית בסיסית',
+        trialDays: basicPlan?.trial_days || 14
+      });
+    } catch (err) {
+      console.error('Failed to fetch price info:', err);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -32,7 +87,7 @@ export default function PaymentRequiredModal({
       dir="rtl"
     >
       <div 
-        className="bg-white rounded-3xl w-full max-w-md max-h-[90vh] overflow-auto shadow-2xl"
+        className="bg-white rounded-3xl w-full max-w-lg max-h-[90vh] overflow-auto shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -98,6 +153,37 @@ export default function PaymentRequiredModal({
                   ))}
                 </div>
               </div>
+
+              {/* Price Info */}
+              {showPriceInfo && priceInfo && (
+                <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-2xl p-5 mb-6 border border-purple-200">
+                  <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                    <Tag className="w-5 h-5 text-purple-600" />
+                    מה יקרה אחרי תקופת הניסיון?
+                  </h3>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">תקופת ניסיון:</span>
+                      <span className="font-bold text-purple-700">{priceInfo.trialDays} ימים בחינם</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">לאחר תקופת הניסיון:</span>
+                      <span className="font-bold text-gray-900">₪{priceInfo.firstMonthPrice}/חודש</span>
+                    </div>
+                    {priceInfo.hasDiscount && priceInfo.discountNote && (
+                      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-purple-200">
+                        <Gift className="w-4 h-4 text-green-600" />
+                        <span className="text-green-700 text-xs">{priceInfo.discountNote}</span>
+                      </div>
+                    )}
+                    {priceInfo.firstMonthPrice !== priceInfo.regularPrice && (
+                      <p className="text-xs text-gray-500 mt-2">
+                        * לאחר תקופת המבצע: ₪{priceInfo.regularPrice}/חודש
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Form */}
               <CreditCardForm 

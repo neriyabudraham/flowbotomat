@@ -422,19 +422,6 @@ export default function CreditCardForm({
           )}
         </Button>
       </div>
-
-      {/* Trust badges */}
-      <div className="flex items-center justify-center gap-4 pt-2">
-        <div className="flex items-center gap-1.5 text-xs text-gray-400">
-          <Lock className="w-3.5 h-3.5" />
-          <span>הצפנת SSL</span>
-        </div>
-        <div className="w-px h-3 bg-gray-200" />
-        <div className="flex items-center gap-1.5 text-xs text-gray-400">
-          <Shield className="w-3.5 h-3.5" />
-          <span>PCI DSS</span>
-        </div>
-      </div>
     </form>
   );
 }
