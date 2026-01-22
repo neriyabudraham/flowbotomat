@@ -18,7 +18,8 @@ export function connectSocket(userId) {
   });
   
   socket.on('connect', () => {
-    console.log('🔌 Socket connected, joining room for user:', userId);
+    console.log('🔌 Socket connected! ID:', socket.id);
+    console.log('🔌 Joining room for user:', userId);
     socket.emit('join_room', userId);
   });
   
@@ -34,11 +35,20 @@ export function connectSocket(userId) {
     console.log('🔌 Received new_message event:', data);
   });
   
+  // Debug: listen for ALL events
+  socket.onAny((eventName, ...args) => {
+    console.log('🔌 Socket event received:', eventName, args);
+  });
+  
   return socket;
 }
 
 export function getSocket() {
   return socket;
+}
+
+export function isSocketConnected() {
+  return socket?.connected || false;
 }
 
 export function disconnectSocket() {

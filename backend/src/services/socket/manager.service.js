@@ -56,9 +56,12 @@ const emitToUser = (userId, event, data) => {
  */
 const broadcastToAll = (event, data) => {
   if (io) {
+    const count = getConnectedUsersCount();
+    console.log(`📢 Broadcasting '${event}' to ${count} connected users:`, JSON.stringify(data).substring(0, 100));
     io.emit(event, data);
-    return getConnectedUsersCount();
+    return count;
   }
+  console.log(`📢 Broadcast failed - no io instance`);
   return 0;
 };
 
