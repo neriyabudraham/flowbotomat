@@ -20,6 +20,7 @@ import PrivacyPage from './pages/PrivacyPage';
 import ApiPage from './pages/ApiPage';
 import AffiliateTermsPage from './pages/AffiliateTermsPage';
 import SystemAlertOverlay from './components/notifications/SystemAlertOverlay';
+import SocketProvider from './components/providers/SocketProvider';
 import useThemeStore from './store/themeStore';
 import api from './services/api';
 
@@ -74,10 +75,11 @@ function App() {
 
   return (
     <BrowserRouter>
-      <ReferralTracker />
-      <SystemAlertOverlay />
-      <div className="min-h-screen bg-gray-50 transition-colors">
-        <Routes>
+      <SocketProvider>
+        <ReferralTracker />
+        <SystemAlertOverlay />
+        <div className="min-h-screen bg-gray-50 transition-colors">
+          <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/checkout" element={<CheckoutPage />} />
@@ -97,8 +99,9 @@ function App() {
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/developers" element={<ApiPage />} />
           <Route path="/clients/:clientId/bots" element={<ClientBotsPage />} />
-        </Routes>
-      </div>
+          </Routes>
+        </div>
+      </SocketProvider>
     </BrowserRouter>
   );
 }
