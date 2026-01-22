@@ -15,109 +15,222 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #0f172a 0%, #312e81 50%, #0f172a 100%);
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            overflow: hidden;
         }
+        
+        /* Floating particles */
+        .particles {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+        }
+        .particle {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            animation: float 5s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.5; }
+            50% { transform: translateY(-20px) rotate(180deg); opacity: 1; }
+        }
+        
         .container {
+            position: relative;
             text-align: center;
-            padding: 40px;
-            background: rgba(255, 255, 255, 0.95);
+            padding: 48px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
             border-radius: 24px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
             max-width: 480px;
             margin: 20px;
+            animation: scale-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
-        .logo {
-            width: 80px;
-            height: 80px;
-            margin: 0 auto 24px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 20px;
+        
+        @keyframes scale-in {
+            from { opacity: 0; transform: scale(0.9) translateY(20px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        
+        .icon-wrapper {
+            width: 112px;
+            height: 112px;
+            margin: 0 auto 32px;
+            background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+            border-radius: 24px;
             display: flex;
             align-items: center;
             justify-content: center;
+            box-shadow: 0 20px 40px rgba(99, 102, 241, 0.4);
         }
-        .logo svg {
-            width: 48px;
-            height: 48px;
+        
+        .icon-wrapper svg {
+            width: 56px;
+            height: 56px;
             fill: white;
+            animation: spin 2s linear infinite;
         }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
         h1 {
-            font-size: 28px;
-            color: #1f2937;
-            margin-bottom: 12px;
+            font-size: 32px;
+            color: white;
+            margin-bottom: 16px;
+            font-weight: 700;
         }
+        
         p {
-            color: #6b7280;
-            font-size: 16px;
-            line-height: 1.6;
-            margin-bottom: 24px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 18px;
+            line-height: 1.7;
+            margin-bottom: 32px;
         }
-        .loader {
+        
+        .highlight {
+            color: #a5b4fc;
+        }
+        
+        /* Loading indicator */
+        .loading-box {
             display: flex;
+            align-items: center;
             justify-content: center;
-            gap: 8px;
+            gap: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 20px 32px;
             margin-bottom: 24px;
         }
-        .loader span {
+        
+        .dots {
+            display: flex;
+            gap: 6px;
+        }
+        
+        .dots span {
             width: 12px;
             height: 12px;
-            background: #667eea;
+            background: #818cf8;
             border-radius: 50%;
-            animation: bounce 1.4s infinite ease-in-out both;
+            animation: bounce 1.4s infinite ease-in-out;
         }
-        .loader span:nth-child(1) { animation-delay: -0.32s; }
-        .loader span:nth-child(2) { animation-delay: -0.16s; }
+        .dots span:nth-child(1) { animation-delay: 0ms; }
+        .dots span:nth-child(2) { animation-delay: 150ms; }
+        .dots span:nth-child(3) { animation-delay: 300ms; }
+        
         @keyframes bounce {
-            0%, 80%, 100% { transform: scale(0); }
-            40% { transform: scale(1); }
+            0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+            40% { transform: scale(1); opacity: 1; }
         }
+        
+        .loading-text {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 16px;
+        }
+        
         .retry-btn {
             display: inline-block;
-            padding: 14px 32px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 16px 40px;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
             color: white;
             text-decoration: none;
-            border-radius: 12px;
+            border-radius: 16px;
             font-weight: 600;
+            font-size: 18px;
             transition: transform 0.2s, box-shadow 0.2s;
+            border: none;
+            cursor: pointer;
         }
+        
         .retry-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: 0 15px 30px rgba(16, 185, 129, 0.4);
         }
+        
+        .retry-btn:active {
+            transform: scale(0.98);
+        }
+        
         .auto-refresh {
-            color: #9ca3af;
+            color: rgba(255, 255, 255, 0.4);
             font-size: 14px;
-            margin-top: 16px;
+            margin-top: 20px;
         }
+        
         #countdown {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 4px 12px;
+            border-radius: 8px;
             font-weight: 600;
-            color: #667eea;
+            color: #a5b4fc;
+            min-width: 36px;
+        }
+        
+        .warning-box {
+            margin-top: 24px;
+            padding: 12px 20px;
+            background: rgba(251, 191, 36, 0.1);
+            border: 1px solid rgba(251, 191, 36, 0.3);
+            border-radius: 12px;
+            color: #fcd34d;
+            font-size: 14px;
         }
     </style>
 </head>
 <body>
+    <!-- Floating particles -->
+    <div class="particles" id="particles"></div>
+    
     <div class="container">
-        <div class="logo">
+        <div class="icon-wrapper">
+            <!-- Refresh icon -->
             <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
             </svg>
         </div>
-        <h1>🔄 המערכת מתעדכנת</h1>
-        <div class="loader">
-            <span></span>
-            <span></span>
-            <span></span>
-        </div>
+        
+        <h1>מתעדכן עכשיו...</h1>
+        
         <p>
-            אנחנו מעדכנים את FlowBotomat עם שיפורים חדשים!<br>
-            העמוד יתרענן אוטומטית בעוד כמה שניות.
+            המערכת מתעדכנת כעת לגרסה חדשה.
+            <br>
+            <span class="highlight">העמוד יתרענן אוטומטית בסיום.</span>
         </p>
-        <a href="javascript:location.reload()" class="retry-btn">נסה שוב עכשיו</a>
+        
+        <div class="loading-box">
+            <div class="dots">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+            <span class="loading-text">אנא המתן...</span>
+        </div>
+        
+        <button onclick="location.reload()" class="retry-btn">נסה שוב עכשיו</button>
+        
         <p class="auto-refresh">רענון אוטומטי בעוד <span id="countdown">10</span> שניות</p>
+        
+        <div class="warning-box">
+            ⚠️ אל תסגור את הדפדפן
+        </div>
     </div>
+    
     <script>
+        // Countdown
         let seconds = 10;
         const countdown = document.getElementById('countdown');
         
@@ -129,6 +242,18 @@
                 location.reload();
             }
         }, 1000);
+        
+        // Generate floating particles
+        const particlesContainer = document.getElementById('particles');
+        for (let i = 0; i < 20; i++) {
+            const particle = document.createElement('div');
+            particle.className = 'particle';
+            particle.style.left = Math.random() * 100 + '%';
+            particle.style.top = Math.random() * 100 + '%';
+            particle.style.animationDelay = Math.random() * 5 + 's';
+            particle.style.animationDuration = (3 + Math.random() * 4) + 's';
+            particlesContainer.appendChild(particle);
+        }
     </script>
 </body>
 </html>
