@@ -4,17 +4,22 @@ const sumitService = require('./sumit.service');
 /**
  * Process subscriptions that need to be charged
  * This should run daily (via cron)
+ * 
+ * Handles:
+ * - Yearly subscriptions due for renewal
+ * - Monthly subscriptions are handled automatically by Sumit standing orders
  */
 async function processSubscriptionCharges() {
-  console.log('[Billing] Starting subscription charge processing...');
+  console.log('[Billing] ====== Starting subscription charge processing ======');
   
   try {
-    // Get subscriptions due for charge (yearly only - monthly is handled by Sumit)
+    // Get yearly subscriptions due for charge
+    // Monthly subscriptions are handled by Sumit automatically via standing orders
     const dueSubscriptions = await db.query(`
       SELECT 
         us.*,
         sp.price, sp.name_he,
-        pm.card_token, pm.card_expiry_month, pm.card_expiry_year, pm.citizen_id,
+        pm.sumit_customer_id,
         u.name as user_name, u.email as user_email
       FROM user_subscriptions us
       JOIN subscription_plans sp ON us.plan_id = sp.id
@@ -24,6 +29,7 @@ async function processSubscriptionCharges() {
         AND us.billing_period = 'yearly'
         AND us.next_charge_date <= NOW()
         AND pm.is_active = true
+        AND pm.sumit_customer_id IS NOT NULL
     `);
     
     console.log(`[Billing] Found ${dueSubscriptions.rows.length} yearly subscriptions due for charge`);
@@ -33,26 +39,22 @@ async function processSubscriptionCharges() {
         // Calculate yearly price with 20% discount
         const yearlyPrice = parseFloat(sub.price) * 12 * 0.8;
         
-        console.log(`[Billing] Charging user ${sub.user_email} - ${yearlyPrice} ILS`);
+        console.log(`[Billing] Charging user ${sub.user_email} - ${yearlyPrice} ILS for ${sub.name_he}`);
         
         const chargeResult = await sumitService.chargeOneTime({
           customerId: sub.sumit_customer_id,
-          cardToken: sub.card_token,
-          expiryMonth: sub.card_expiry_month,
-          expiryYear: sub.card_expiry_year,
-          citizenId: sub.citizen_id,
           amount: yearlyPrice,
           description: `חידוש מנוי שנתי - ${sub.name_he}`,
         });
         
         if (chargeResult.success) {
-          // Update next charge date
+          // Update next charge date and expires_at
           const nextCharge = new Date();
           nextCharge.setFullYear(nextCharge.getFullYear() + 1);
           
           await db.query(`
             UPDATE user_subscriptions 
-            SET next_charge_date = $1, updated_at = NOW()
+            SET next_charge_date = $1, expires_at = $1, updated_at = NOW()
             WHERE id = $2
           `, [nextCharge, sub.id]);
           
@@ -69,6 +71,9 @@ async function processSubscriptionCharges() {
           ]);
           
           console.log(`[Billing] Successfully charged user ${sub.user_email}`);
+          
+          // TODO: Send success email notification
+          
         } else {
           // Log failed payment
           await db.query(`
@@ -84,7 +89,8 @@ async function processSubscriptionCharges() {
           
           console.error(`[Billing] Failed to charge user ${sub.user_email}:`, chargeResult.error);
           
-          // TODO: Send email notification about failed payment
+          // TODO: Send failure email notification
+          // TODO: Retry logic (try again in 1 day, then 3 days)
         }
       } catch (err) {
         console.error(`[Billing] Error processing subscription ${sub.id}:`, err);
@@ -99,17 +105,18 @@ async function processSubscriptionCharges() {
 
 /**
  * Process trial subscriptions that have ended
+ * Converts trials to paid subscriptions by charging the first payment
  */
 async function processTrialEndings() {
-  console.log('[Billing] Processing ended trials...');
+  console.log('[Billing] ====== Processing ended trials ======');
   
   try {
-    // Get trials that ended
+    // Get trials that ended with a valid payment method
     const endedTrials = await db.query(`
       SELECT 
         us.*,
         sp.price, sp.name_he, sp.trial_days,
-        pm.card_token, pm.card_expiry_month, pm.card_expiry_year, pm.citizen_id,
+        pm.sumit_customer_id,
         u.name as user_name, u.email as user_email
       FROM user_subscriptions us
       JOIN subscription_plans sp ON us.plan_id = sp.id
@@ -118,23 +125,36 @@ async function processTrialEndings() {
       WHERE us.status = 'trial'
         AND us.trial_ends_at <= NOW()
         AND pm.is_active = true
+        AND pm.sumit_customer_id IS NOT NULL
     `);
     
-    console.log(`[Billing] Found ${endedTrials.rows.length} ended trials`);
+    console.log(`[Billing] Found ${endedTrials.rows.length} ended trials to convert`);
     
     for (const sub of endedTrials.rows) {
       try {
         let chargeAmount = parseFloat(sub.price);
         let chargeResult;
+        let nextChargeDate = new Date();
+        let expiresAt;
+        
+        console.log(`[Billing] Converting trial for user ${sub.user_email} - Plan: ${sub.name_he}, Period: ${sub.billing_period}`);
         
         if (sub.billing_period === 'yearly') {
+          // Yearly: charge full year with discount, one-time payment
           chargeAmount = parseFloat(sub.price) * 12 * 0.8;
+          nextChargeDate.setFullYear(nextChargeDate.getFullYear() + 1);
+          expiresAt = new Date(nextChargeDate);
+          
           chargeResult = await sumitService.chargeOneTime({
             customerId: sub.sumit_customer_id,
             amount: chargeAmount,
             description: `מנוי שנתי - ${sub.name_he}`,
           });
         } else {
+          // Monthly: set up recurring charge
+          nextChargeDate.setMonth(nextChargeDate.getMonth() + 1);
+          expiresAt = new Date(nextChargeDate);
+          
           chargeResult = await sumitService.chargeRecurring({
             customerId: sub.sumit_customer_id,
             amount: chargeAmount,
@@ -145,22 +165,16 @@ async function processTrialEndings() {
         
         if (chargeResult.success) {
           // Update subscription to active
-          const nextCharge = new Date();
-          if (sub.billing_period === 'yearly') {
-            nextCharge.setFullYear(nextCharge.getFullYear() + 1);
-          } else {
-            nextCharge.setMonth(nextCharge.getMonth() + 1);
-          }
-          
           await db.query(`
             UPDATE user_subscriptions 
             SET status = 'active', 
                 is_trial = false, 
                 next_charge_date = $1,
-                sumit_standing_order_id = $2,
+                expires_at = $2,
+                sumit_standing_order_id = $3,
                 updated_at = NOW()
-            WHERE id = $3
-          `, [nextCharge, chargeResult.standingOrderId || null, sub.id]);
+            WHERE id = $4
+          `, [nextChargeDate, expiresAt, chargeResult.standingOrderId || null, sub.id]);
           
           // Log payment
           await db.query(`
@@ -175,8 +189,11 @@ async function processTrialEndings() {
           ]);
           
           console.log(`[Billing] Trial converted to paid for user ${sub.user_email}`);
+          
+          // TODO: Send "trial converted" email
+          
         } else {
-          // Mark as expired
+          // Mark as expired (no valid payment)
           await db.query(`
             UPDATE user_subscriptions 
             SET status = 'expired', updated_at = NOW()
@@ -197,7 +214,7 @@ async function processTrialEndings() {
           
           console.error(`[Billing] Failed to convert trial for user ${sub.user_email}:`, chargeResult.error);
           
-          // TODO: Send email notification
+          // TODO: Send "trial ended, payment failed" email
         }
       } catch (err) {
         console.error(`[Billing] Error processing trial ${sub.id}:`, err);
@@ -211,14 +228,67 @@ async function processTrialEndings() {
 }
 
 /**
- * Send payment reminders
- * Send 3 days and 1 day before charge
+ * Process trials that ended without payment method (or cancelled)
+ * These need to have WhatsApp disconnected
  */
-async function sendPaymentReminders() {
-  console.log('[Billing] Sending payment reminders...');
+async function processExpiredTrialsWithoutPayment() {
+  console.log('[Billing] ====== Processing expired trials without payment ======');
   
   try {
-    // Get subscriptions that will be charged in 3 days or 1 day
+    // Get trials that ended without a valid payment method
+    const expiredTrials = await db.query(`
+      SELECT 
+        us.*,
+        u.email as user_email
+      FROM user_subscriptions us
+      JOIN users u ON us.user_id = u.id
+      WHERE us.status = 'trial'
+        AND us.trial_ends_at <= NOW()
+        AND (
+          us.payment_method_id IS NULL 
+          OR NOT EXISTS (
+            SELECT 1 FROM user_payment_methods pm 
+            WHERE pm.id = us.payment_method_id 
+            AND pm.is_active = true 
+            AND pm.sumit_customer_id IS NOT NULL
+          )
+        )
+    `);
+    
+    console.log(`[Billing] Found ${expiredTrials.rows.length} expired trials without valid payment`);
+    
+    for (const sub of expiredTrials.rows) {
+      try {
+        // Mark subscription as expired
+        await db.query(`
+          UPDATE user_subscriptions 
+          SET status = 'expired', updated_at = NOW()
+          WHERE id = $1
+        `, [sub.id]);
+        
+        // Note: The expiry.service.js will handle WhatsApp disconnection
+        
+        console.log(`[Billing] Marked trial as expired for user ${sub.user_email}`);
+      } catch (err) {
+        console.error(`[Billing] Error expiring trial ${sub.id}:`, err);
+      }
+    }
+    
+    console.log('[Billing] Expired trials processing completed');
+  } catch (error) {
+    console.error('[Billing] Error in processExpiredTrialsWithoutPayment:', error);
+  }
+}
+
+/**
+ * Send payment reminders
+ * 3 days and 1 day before charge
+ */
+async function sendPaymentReminders() {
+  console.log('[Billing] ====== Sending payment reminders ======');
+  
+  try {
+    // Get subscriptions that will be charged soon
     const upcomingCharges = await db.query(`
       SELECT 
         us.*,
@@ -231,6 +301,7 @@ async function sendPaymentReminders() {
         AND (
           DATE(us.next_charge_date) = CURRENT_DATE + INTERVAL '3 days'
           OR DATE(us.next_charge_date) = CURRENT_DATE + INTERVAL '1 day'
+          OR (us.is_trial = true AND DATE(us.trial_ends_at) = CURRENT_DATE + INTERVAL '3 days')
           OR (us.is_trial = true AND DATE(us.trial_ends_at) = CURRENT_DATE + INTERVAL '1 day')
         )
     `);
@@ -238,8 +309,9 @@ async function sendPaymentReminders() {
     console.log(`[Billing] Found ${upcomingCharges.rows.length} upcoming charges to notify`);
     
     for (const sub of upcomingCharges.rows) {
+      const chargeDate = sub.is_trial ? sub.trial_ends_at : sub.next_charge_date;
       const daysUntilCharge = Math.ceil(
-        (new Date(sub.next_charge_date || sub.trial_ends_at) - new Date()) / (1000 * 60 * 60 * 24)
+        (new Date(chargeDate) - new Date()) / (1000 * 60 * 60 * 24)
       );
       
       let amount = parseFloat(sub.price);
@@ -247,10 +319,10 @@ async function sendPaymentReminders() {
         amount = amount * 12 * 0.8;
       }
       
-      console.log(`[Billing] Would notify ${sub.user_email}: ${daysUntilCharge} days until charge of ${amount} ILS`);
+      console.log(`[Billing] Reminder: ${sub.user_email} - ${daysUntilCharge} days until charge of ${amount} ILS`);
       
       // TODO: Send email notification
-      // await sendEmail({
+      // await emailService.send({
       //   to: sub.user_email,
       //   subject: sub.is_trial ? 'תקופת הניסיון שלך עומדת להסתיים' : 'תזכורת לחיוב קרוב',
       //   template: 'payment_reminder',
@@ -264,7 +336,7 @@ async function sendPaymentReminders() {
       // });
     }
     
-    console.log('[Billing] Payment reminders sent');
+    console.log('[Billing] Payment reminders processing completed');
   } catch (error) {
     console.error('[Billing] Error in sendPaymentReminders:', error);
   }
@@ -272,20 +344,42 @@ async function sendPaymentReminders() {
 
 /**
  * Run all billing tasks
+ * This should be called by cron job daily
  */
 async function runBillingTasks() {
-  console.log('[Billing] ====== Starting daily billing tasks ======');
+  console.log('\n[Billing] ========================================');
+  console.log('[Billing] Starting daily billing tasks');
+  console.log('[Billing] ========================================\n');
   
-  await sendPaymentReminders();
-  await processTrialEndings();
-  await processSubscriptionCharges();
+  const startTime = Date.now();
   
-  console.log('[Billing] ====== Daily billing tasks completed ======');
+  try {
+    // 1. Send reminders first (non-destructive)
+    await sendPaymentReminders();
+    
+    // 2. Process ended trials with payment methods (convert to paid)
+    await processTrialEndings();
+    
+    // 3. Process ended trials without payment (mark as expired)
+    await processExpiredTrialsWithoutPayment();
+    
+    // 4. Process yearly subscription renewals
+    await processSubscriptionCharges();
+    
+  } catch (error) {
+    console.error('[Billing] Error running billing tasks:', error);
+  }
+  
+  const duration = Date.now() - startTime;
+  console.log(`\n[Billing] ========================================`);
+  console.log(`[Billing] Daily billing tasks completed in ${duration}ms`);
+  console.log(`[Billing] ========================================\n`);
 }
 
 module.exports = {
   processSubscriptionCharges,
   processTrialEndings,
+  processExpiredTrialsWithoutPayment,
   sendPaymentReminders,
   runBillingTasks,
 };
