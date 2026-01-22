@@ -30,7 +30,7 @@ async function getDashboardStats(req, res) {
     const recentConversationsRes = await pool.query(
       `SELECT 
          c.id,
-         c.phone_number,
+         c.phone as phone_number,
          c.display_name,
          c.profile_picture_url,
          c.last_message_at,

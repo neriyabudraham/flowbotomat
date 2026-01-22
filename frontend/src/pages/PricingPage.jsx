@@ -37,7 +37,7 @@ export default function PricingPage() {
   const [plans, setPlans] = useState([]);
   const [promotions, setPromotions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [billingPeriod, setBillingPeriod] = useState('monthly');
+  const [billingPeriod, setBillingPeriod] = useState('yearly');
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -331,8 +331,11 @@ export default function PricingPage() {
                       </div>
                     )}
                     {hasPromo && (
-                      <div className="absolute top-0 left-0 right-0 bg-gradient-to-r from-red-500 to-orange-500 text-white text-sm py-2 text-center font-bold animate-pulse">
-                        🔥 {promo.badge_text || 'מבצע מיוחד!'}
+                      <div className="absolute top-0 left-0 right-0 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 text-white text-sm py-2.5 text-center font-bold">
+                        <span className="inline-flex items-center gap-1.5">
+                          🎁 {promo.badge_text || 'מבצע מיוחד!'} 
+                          {promo.promo_months && <span className="text-yellow-200">• {promo.promo_months} חודשים</span>}
+                        </span>
                       </div>
                     )}
                     
@@ -350,30 +353,38 @@ export default function PricingPage() {
 
                       {/* Price */}
                       <div className="mb-6">
-                        <div className="flex items-baseline gap-1">
-                          <span className={`text-5xl font-bold ${hasPromo ? 'text-red-600' : 'text-gray-900'}`}>
-                            ₪{displayPrice}
-                          </span>
-                          <span className="text-gray-500 text-lg">/חודש</span>
-                        </div>
-                        {hasPromo && billingPeriod === 'monthly' && (
-                          <div className="mt-2 flex items-center gap-2">
-                            <span className="text-gray-400 line-through text-lg">₪{monthlyPrice}</span>
-                            <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-bold rounded-full">
-                              {promo.discount_type === 'percentage' ? `${promo.discount_value}% הנחה` : `חיסכון ₪${promo.discount_value}`}
-                            </span>
-                          </div>
-                        )}
-                        {hasPromo && promo.promo_months && (
-                          <div className="mt-1 text-sm text-orange-600 font-medium">
-                            ל-{promo.promo_months} חודשים ראשונים
-                          </div>
-                        )}
-                        {billingPeriod === 'yearly' && !isFree && (
-                          <div className="mt-2 flex items-center gap-2">
-                            <span className="text-gray-400 line-through text-sm">₪{monthlyPrice * 12}/שנה</span>
-                            <span className="text-green-600 text-sm font-medium">₪{yearlyTotal}/שנה</span>
-                          </div>
+                        {hasPromo && billingPeriod === 'monthly' ? (
+                          <>
+                            <div className="flex items-baseline gap-2">
+                              <span className="text-5xl font-bold text-gray-900">₪{promoPrice}</span>
+                              <span className="text-gray-500 text-lg">/חודש</span>
+                            </div>
+                            <div className="mt-2 flex items-center gap-2 flex-wrap">
+                              <span className="text-gray-400 line-through text-xl">₪{monthlyPrice}</span>
+                              <span className="px-2.5 py-1 bg-gradient-to-r from-amber-100 to-orange-100 text-orange-700 text-sm font-bold rounded-lg border border-orange-200">
+                                {promo.discount_type === 'percentage' ? `חיסכון ${promo.discount_value}%` : `חיסכון ₪${promo.discount_value}`}
+                              </span>
+                            </div>
+                            {promo.promo_months && (
+                              <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 text-orange-700 rounded-lg text-sm font-medium border border-orange-200">
+                                <Timer className="w-4 h-4" />
+                                ל-{promo.promo_months} חודשים ראשונים
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-5xl font-bold text-gray-900">₪{displayPrice}</span>
+                              <span className="text-gray-500 text-lg">/חודש</span>
+                            </div>
+                            {billingPeriod === 'yearly' && !isFree && (
+                              <div className="mt-2 flex items-center gap-2">
+                                <span className="text-gray-400 line-through text-sm">₪{monthlyPrice * 12}/שנה</span>
+                                <span className="text-green-600 text-sm font-medium">₪{yearlyTotal}/שנה</span>
+                              </div>
+                            )}
+                          </>
                         )}
                         {plan.trial_days > 0 && (
                           <div className="mt-3">
@@ -389,9 +400,19 @@ export default function PricingPage() {
                       </div>
 
                       {/* Description */}
-                      <p className="text-gray-600 text-sm mb-6 min-h-[40px]">
+                      <p className="text-gray-600 text-sm mb-4 min-h-[40px]">
                         {plan.description_he}
                       </p>
+                      
+                      {/* Free plan notice */}
+                      {isFree && (
+                        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                          <p className="text-xs text-amber-800 flex items-start gap-2">
+                            <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                            <span>תוכנית זו מיועדת למשתמשים עם שרת WhatsApp חיצוני משלהם בלבד. לכל שאר המשתמשים מומלצת תוכנית בסיסית או מעלה.</span>
+                          </p>
+                        </div>
+                      )}
 
                       {/* CTA Button */}
                       {(() => {
