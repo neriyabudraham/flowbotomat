@@ -50,13 +50,17 @@ send_update_alert() {
     fi
     
     log "שולח התראה למשתמשים מחוברים..."
+    log "JWT_SECRET length: ${#JWT_SECRET}"
     
     # Send alert to backend API
-    local response=$(curl -sf -X POST http://localhost:3749/api/admin/system/update-alert \
+    local response=$(curl -s -X POST http://localhost:3749/api/admin/system/update-alert \
         -H "Content-Type: application/json" \
         -d "{\"secret\": \"$JWT_SECRET\", \"countdown\": $countdown}" 2>&1)
     
-    if [ $? -eq 0 ]; then
+    local curl_exit=$?
+    log "Response: $response"
+    
+    if [ $curl_exit -eq 0 ] && echo "$response" | grep -q '"success":true'; then
         local sent_to=$(echo "$response" | grep -o '"sentTo":[0-9]*' | cut -d':' -f2)
         success "התראה נשלחה ל-${sent_to:-0} משתמשים מחוברים"
     else
