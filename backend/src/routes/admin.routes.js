@@ -62,7 +62,8 @@ router.put('/affiliate/terms', superadminMiddleware, promotionsController.update
 
 // Broadcast notifications (שליחת התראות לכל המשתמשים)
 const { sendBroadcastNotification } = require('../services/usageAlerts.service');
-const { broadcastToAll, getConnectedUsersCount } = require('../services/socket/manager.service');
+const { broadcastToAll, getConnectedUsersCount, getConnectedUsersInfo } = require('../services/socket/manager.service');
+const db = require('../config/database');
 
 router.post('/notifications/broadcast', superadminMiddleware, async (req, res) => {
   try {
@@ -125,6 +126,46 @@ router.get('/notifications/online-count', adminMiddleware, async (req, res) => {
     const count = getConnectedUsersCount();
     res.json({ count });
   } catch (error) {
+    res.status(500).json({ error: 'שגיאה' });
+  }
+});
+
+// Get online users with details
+router.get('/notifications/online-users', adminMiddleware, async (req, res) => {
+  try {
+    const connectedInfo = getConnectedUsersInfo();
+    
+    if (connectedInfo.length === 0) {
+      return res.json({ users: [], count: 0 });
+    }
+    
+    // Get user details from database
+    const userIds = connectedInfo.map(u => u.userId);
+    const usersResult = await db.query(`
+      SELECT id, email, name 
+      FROM users 
+      WHERE id = ANY($1)
+    `, [userIds]);
+    
+    const usersMap = new Map();
+    usersResult.rows.forEach(user => {
+      usersMap.set(user.id, user);
+    });
+    
+    const users = connectedInfo.map(info => {
+      const user = usersMap.get(info.userId);
+      return {
+        id: info.userId,
+        email: user?.email || 'לא ידוע',
+        name: user?.name || 'משתמש',
+        connectedAt: info.connectedAt,
+        socketCount: info.socketCount
+      };
+    });
+    
+    res.json({ users, count: users.length });
+  } catch (error) {
+    console.error('[Admin] Get online users error:', error);
     res.status(500).json({ error: 'שגיאה' });
   }
 });

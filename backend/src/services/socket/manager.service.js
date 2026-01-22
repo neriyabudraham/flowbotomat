@@ -1,7 +1,7 @@
 const { Server } = require('socket.io');
 
 let io = null;
-let connectedUsers = new Map(); // Track connected users: socketId -> userId
+let connectedUsers = new Map(); // Track connected users: socketId -> { userId, connectedAt }
 
 /**
  * Initialize Socket.io server
@@ -19,14 +19,17 @@ const initSocket = (server) => {
 
     socket.on('join_room', (userId) => {
       socket.join(`user_${userId}`);
-      connectedUsers.set(socket.id, userId);
+      connectedUsers.set(socket.id, {
+        userId,
+        connectedAt: new Date()
+      });
       console.log(`👤 User ${userId} joined room (${getConnectedUsersCount()} users online)`);
     });
 
     socket.on('disconnect', () => {
-      const userId = connectedUsers.get(socket.id);
+      const userData = connectedUsers.get(socket.id);
       connectedUsers.delete(socket.id);
-      console.log(`🔌 Socket disconnected: ${socket.id} (user: ${userId}, ${getConnectedUsersCount()} users online)`);
+      console.log(`🔌 Socket disconnected: ${socket.id} (user: ${userData?.userId}, ${getConnectedUsersCount()} users online)`);
     });
   });
 
@@ -60,17 +63,45 @@ const broadcastToAll = (event, data) => {
 };
 
 /**
- * Get count of connected users
+ * Get count of connected users (unique)
  */
 const getConnectedUsersCount = () => {
-  return connectedUsers.size;
+  const uniqueUsers = new Set();
+  connectedUsers.forEach(data => uniqueUsers.add(data.userId));
+  return uniqueUsers.size;
 };
 
 /**
- * Get list of connected user IDs
+ * Get list of connected user IDs (unique)
  */
 const getConnectedUserIds = () => {
-  return [...new Set(connectedUsers.values())];
+  const uniqueUsers = new Set();
+  connectedUsers.forEach(data => uniqueUsers.add(data.userId));
+  return [...uniqueUsers];
+};
+
+/**
+ * Get detailed info about connected users
+ */
+const getConnectedUsersInfo = () => {
+  const usersMap = new Map();
+  connectedUsers.forEach((data, socketId) => {
+    if (!usersMap.has(data.userId)) {
+      usersMap.set(data.userId, {
+        userId: data.userId,
+        connectedAt: data.connectedAt,
+        socketCount: 1
+      });
+    } else {
+      const existing = usersMap.get(data.userId);
+      existing.socketCount++;
+      // Keep earliest connection time
+      if (data.connectedAt < existing.connectedAt) {
+        existing.connectedAt = data.connectedAt;
+      }
+    }
+  });
+  return [...usersMap.values()];
 };
 
 /**
@@ -82,6 +113,7 @@ const getSocketManager = () => ({
   getIO,
   getConnectedUsersCount,
   getConnectedUserIds,
+  getConnectedUsersInfo,
 });
 
 module.exports = {
@@ -91,5 +123,6 @@ module.exports = {
   broadcastToAll,
   getConnectedUsersCount,
   getConnectedUserIds,
+  getConnectedUsersInfo,
   getSocketManager,
 };

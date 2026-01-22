@@ -1,43 +1,67 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, Info, RefreshCw, X, Bell } from 'lucide-react';
 import { getSocket } from '../../services/socket';
 
 export default function SystemAlertOverlay() {
   const [alerts, setAlerts] = useState([]);
   const [updateCountdown, setUpdateCountdown] = useState(null);
+  const [socketConnected, setSocketConnected] = useState(false);
+
+  // Listen for system alerts
+  const handleSystemAlert = useCallback((data) => {
+    console.log('📢 System alert received:', data);
+    const id = Date.now();
+    setAlerts(prev => [...prev, { ...data, id }]);
+    
+    // Auto dismiss after 10 seconds if enabled
+    if (data.autoDismiss) {
+      setTimeout(() => {
+        setAlerts(prev => prev.filter(a => a.id !== id));
+      }, 10000);
+    }
+  }, []);
+
+  // Listen for system update notification
+  const handleSystemUpdate = useCallback((data) => {
+    console.log('🔄 System update notification:', data);
+    setUpdateCountdown(data.countdown || 10);
+  }, []);
 
   useEffect(() => {
-    const socket = getSocket();
-    if (!socket) return;
-
-    // Listen for system alerts
-    const handleSystemAlert = (data) => {
-      console.log('📢 System alert received:', data);
-      const id = Date.now();
-      setAlerts(prev => [...prev, { ...data, id }]);
-      
-      // Auto dismiss after 10 seconds if enabled
-      if (data.autoDismiss) {
-        setTimeout(() => {
-          setAlerts(prev => prev.filter(a => a.id !== id));
-        }, 10000);
+    // Check for socket periodically until connected
+    const checkSocket = () => {
+      const socket = getSocket();
+      if (socket?.connected && !socketConnected) {
+        console.log('🔌 SystemAlertOverlay: Socket connected, attaching listeners');
+        setSocketConnected(true);
+        
+        socket.on('system_alert', handleSystemAlert);
+        socket.on('system_update', handleSystemUpdate);
+        
+        return true;
+      }
+      return false;
+    };
+    
+    // Initial check
+    if (checkSocket()) return;
+    
+    // Keep checking until connected
+    const interval = setInterval(() => {
+      if (checkSocket()) {
+        clearInterval(interval);
+      }
+    }, 1000);
+    
+    return () => {
+      clearInterval(interval);
+      const socket = getSocket();
+      if (socket) {
+        socket.off('system_alert', handleSystemAlert);
+        socket.off('system_update', handleSystemUpdate);
       }
     };
-
-    // Listen for system update notification
-    const handleSystemUpdate = (data) => {
-      console.log('🔄 System update notification:', data);
-      setUpdateCountdown(data.countdown || 10);
-    };
-
-    socket.on('system_alert', handleSystemAlert);
-    socket.on('system_update', handleSystemUpdate);
-
-    return () => {
-      socket.off('system_alert', handleSystemAlert);
-      socket.off('system_update', handleSystemUpdate);
-    };
-  }, []);
+  }, [handleSystemAlert, handleSystemUpdate, socketConnected]);
 
   // Countdown timer for system update
   useEffect(() => {

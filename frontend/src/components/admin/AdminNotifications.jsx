@@ -21,6 +21,8 @@ const REALTIME_TYPES = [
 export default function AdminNotifications() {
   const [activeTab, setActiveTab] = useState('persistent'); // 'persistent' or 'realtime'
   const [onlineCount, setOnlineCount] = useState(0);
+  const [onlineUsers, setOnlineUsers] = useState([]);
+  const [showOnlineUsers, setShowOnlineUsers] = useState(false);
   
   // Persistent notification form
   const [form, setForm] = useState({
@@ -42,19 +44,21 @@ export default function AdminNotifications() {
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState(null);
   
+  // Fetch online users
+  const fetchOnlineUsers = async () => {
+    try {
+      const { data } = await api.get('/admin/notifications/online-users');
+      setOnlineUsers(data.users || []);
+      setOnlineCount(data.count || 0);
+    } catch (err) {
+      console.error('Failed to fetch online users:', err);
+    }
+  };
+  
   // Fetch online users count
   useEffect(() => {
-    const fetchOnlineCount = async () => {
-      try {
-        const { data } = await api.get('/admin/notifications/online-count');
-        setOnlineCount(data.count);
-      } catch (err) {
-        console.error('Failed to fetch online count:', err);
-      }
-    };
-    
-    fetchOnlineCount();
-    const interval = setInterval(fetchOnlineCount, 30000); // Update every 30 seconds
+    fetchOnlineUsers();
+    const interval = setInterval(fetchOnlineUsers, 15000); // Update every 15 seconds
     
     return () => clearInterval(interval);
   }, []);
@@ -128,12 +132,56 @@ export default function AdminNotifications() {
           <Bell className="w-6 h-6 text-blue-600" />
           <h2 className="text-xl font-bold text-gray-800">שליחת התראות</h2>
         </div>
-        <div className="flex items-center gap-2 px-4 py-2 bg-green-50 border border-green-200 rounded-xl">
+        <button
+          onClick={() => setShowOnlineUsers(!showOnlineUsers)}
+          className="flex items-center gap-2 px-4 py-2 bg-green-50 border border-green-200 rounded-xl hover:bg-green-100 transition-colors"
+        >
           <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
           <Users className="w-4 h-4 text-green-600" />
           <span className="text-sm font-medium text-green-700">{onlineCount} מחוברים כרגע</span>
-        </div>
+        </button>
       </div>
+
+      {/* Online Users List */}
+      {showOnlineUsers && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4 max-w-2xl">
+          <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+            <Users className="w-5 h-5 text-green-600" />
+            משתמשים מחוברים כרגע
+          </h3>
+          {onlineUsers.length === 0 ? (
+            <p className="text-gray-500 text-sm">אין משתמשים מחוברים כרגע</p>
+          ) : (
+            <div className="space-y-2">
+              {onlineUsers.map((user) => (
+                <div
+                  key={user.id}
+                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center text-white text-sm font-bold">
+                      {(user.name || user.email || '?')[0].toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-800">{user.name || 'ללא שם'}</p>
+                      <p className="text-xs text-gray-500">{user.email}</p>
+                    </div>
+                  </div>
+                  <div className="text-left">
+                    <div className="flex items-center gap-1 text-green-600">
+                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+                      <span className="text-xs">מחובר</span>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      {user.connectedAt && new Date(user.connectedAt).toLocaleTimeString('he-IL')}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-2">
