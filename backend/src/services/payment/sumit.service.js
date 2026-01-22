@@ -317,14 +317,14 @@ async function chargeOneTime({ customerId, amount, description, sendEmail = true
 }
 
 /**
- * Create a recurring charge (monthly subscription)
- * This sets up automatic monthly billing
+ * Create a recurring charge (monthly or yearly subscription)
+ * This sets up automatic recurring billing
  * 
  * @param {object} params
  * @param {number} params.customerId - Sumit customer ID
- * @param {number} params.amount - Monthly amount (including VAT)
+ * @param {number} params.amount - Amount per period (including VAT)
  * @param {string} params.description - Subscription description
- * @param {number} params.durationMonths - Duration between charges (1 = monthly)
+ * @param {number} params.durationMonths - Duration between charges (1 = monthly, 12 = yearly)
  * @param {number} params.recurrence - Number of times to charge (null = unlimited)
  * @returns {Promise<{success: boolean, standingOrderId?: number, transactionId?: string, error?: string}>}
  */
@@ -348,6 +348,8 @@ async function chargeRecurring({
       return { success: false, error: 'סכום לא תקין' };
     }
     
+    const periodLabel = durationMonths === 12 ? 'שנתי' : durationMonths === 1 ? 'חודשי' : `${durationMonths} חודשים`;
+    
     const requestBody = {
       Credentials: {
         CompanyID: credentials.CompanyID,
@@ -360,7 +362,7 @@ async function chargeRecurring({
       // Don't send PaymentMethod - Sumit uses the customer's default saved payment method
       Items: [{
         Item: {
-          Name: description || 'מנוי חודשי',
+          Name: description || `מנוי ${periodLabel}`,
           Duration_Months: durationMonths,
         },
         Quantity: 1,
@@ -375,7 +377,8 @@ async function chargeRecurring({
       ResponseLanguage: 'he',
     };
     
-    console.log('[Sumit] Creating recurring charge - Customer:', customerId, 'Amount:', amount, 'ILS/month');
+    const periodText = durationMonths === 12 ? 'ILS/year' : durationMonths === 1 ? 'ILS/month' : `ILS/${durationMonths}mo`;
+    console.log(`[Sumit] Creating recurring charge - Customer: ${customerId}, Amount: ${amount} ${periodText}, Duration: ${durationMonths} months`);
     
     const response = await axios.post(
       `${SUMIT_BASE_URL}/billing/recurring/charge/`,
@@ -431,30 +434,41 @@ async function chargeRecurring({
 /**
  * Cancel a recurring payment / subscription
  * 
- * @param {number} standingOrderId - The Sumit standing order ID
+ * @param {number} recurringCustomerItemId - The Sumit RecurringCustomerItemID (standing order ID)
+ * @param {number} customerId - The Sumit Customer ID (optional, for additional verification)
  * @returns {Promise<{success: boolean, error?: string}>}
  */
-async function cancelRecurring(standingOrderId) {
+async function cancelRecurring(recurringCustomerItemId, customerId = null) {
   const credentials = getCredentials();
   
   try {
     validateCredentials(credentials);
     
-    if (!standingOrderId) {
+    if (!recurringCustomerItemId) {
       return { success: false, error: 'נדרש מזהה הוראת קבע' };
     }
     
-    console.log('[Sumit] Cancelling recurring payment:', standingOrderId);
+    console.log('[Sumit] Cancelling recurring payment:', recurringCustomerItemId);
+    
+    const requestBody = {
+      Credentials: {
+        CompanyID: credentials.CompanyID,
+        APIKey: credentials.APIKey,
+      },
+      RecurringCustomerItemID: parseInt(recurringCustomerItemId),
+    };
+    
+    // Add customer if provided
+    if (customerId) {
+      requestBody.Customer = {
+        ID: parseInt(customerId),
+        SearchMode: 0,
+      };
+    }
     
     const response = await axios.post(
       `${SUMIT_BASE_URL}/billing/recurring/cancel/`,
-      {
-        Credentials: {
-          CompanyID: credentials.CompanyID,
-          APIKey: credentials.APIKey,
-        },
-        StandingOrderID: standingOrderId,
-      },
+      requestBody,
       {
         headers: {
           'Content-Type': 'application/json-patch+json',
@@ -477,6 +491,9 @@ async function cancelRecurring(standingOrderId) {
     }
   } catch (error) {
     console.error('[Sumit] Cancel recurring error:', error.message);
+    if (error.response) {
+      console.error('[Sumit] Response data:', error.response.data);
+    }
     return {
       success: false,
       error: 'שגיאה בביטול הוראת קבע',

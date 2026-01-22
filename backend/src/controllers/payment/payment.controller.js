@@ -267,7 +267,7 @@ async function deletePaymentMethod(req, res) {
       // Cancel future renewals in Sumit
       if (sub.sumit_standing_order_id) {
         try {
-          await sumitService.cancelRecurring(sub.sumit_standing_order_id);
+          await sumitService.cancelRecurring(sub.sumit_standing_order_id, sub.sumit_customer_id);
           console.log(`[Payment] Cancelled Sumit standing order ${sub.sumit_standing_order_id}`);
         } catch (err) {
           console.error('[Payment] Failed to cancel Sumit recurring:', err.message);
@@ -425,27 +425,21 @@ async function subscribe(req, res) {
       });
     }
     
-    // Charge immediately
+    // Charge immediately with recurring billing
     let chargeResult;
+    const durationMonths = billingPeriod === 'yearly' ? 12 : 1;
+    const periodLabel = billingPeriod === 'yearly' ? 'שנתי' : 'חודשי';
     
     console.log(`[Payment] Charging user ${userId} - Amount: ${chargeAmount} ILS, Period: ${billingPeriod}`);
     
-    if (billingPeriod === 'yearly') {
-      // One-time charge for yearly
-      chargeResult = await sumitService.chargeOneTime({
-        customerId: paymentMethod.sumit_customer_id,
-        amount: chargeAmount,
-        description: `מנוי שנתי - ${plan.name_he}`,
-      });
-    } else {
-      // Recurring charge for monthly
-      chargeResult = await sumitService.chargeRecurring({
-        customerId: paymentMethod.sumit_customer_id,
-        amount: chargeAmount,
-        description: `מנוי חודשי - ${plan.name_he}`,
-        durationMonths: 1,
-      });
-    }
+    // Both monthly and yearly use recurring charge - just with different duration
+    chargeResult = await sumitService.chargeRecurring({
+      customerId: paymentMethod.sumit_customer_id,
+      amount: chargeAmount,
+      description: `מנוי ${periodLabel} - ${plan.name_he}`,
+      durationMonths: durationMonths,
+      recurrence: null, // unlimited - auto-renew
+    });
     
     if (!chargeResult.success) {
       console.error('[Payment] Charge failed:', chargeResult.error);
@@ -530,9 +524,14 @@ async function cancelSubscription(req, res) {
     
     // Cancel recurring in Sumit
     if (subscription.sumit_standing_order_id) {
-      const cancelResult = await sumitService.cancelRecurring(subscription.sumit_standing_order_id);
+      const cancelResult = await sumitService.cancelRecurring(
+        subscription.sumit_standing_order_id, 
+        subscription.sumit_customer_id
+      );
       if (!cancelResult.success) {
         console.error('[Payment] Failed to cancel Sumit recurring:', cancelResult.error);
+      } else {
+        console.log(`[Payment] Successfully cancelled Sumit recurring ${subscription.sumit_standing_order_id}`);
       }
     }
     
@@ -606,36 +605,62 @@ async function reactivateSubscription(req, res) {
     
     const paymentMethod = paymentResult.rows[0];
     
-    // For monthly subscriptions, recreate the standing order
-    let standingOrderId = subscription.sumit_standing_order_id;
+    // Recreate the standing order in Sumit (was cancelled when subscription was cancelled)
+    let standingOrderId = null;
+    const durationMonths = subscription.billing_period === 'yearly' ? 12 : 1;
+    const periodLabel = subscription.billing_period === 'yearly' ? 'שנתי' : 'חודשי';
     
-    if (subscription.billing_period === 'monthly' && !standingOrderId) {
-      const chargeResult = await sumitService.chargeRecurring({
-        customerId: paymentMethod.sumit_customer_id,
-        amount: parseFloat(subscription.price),
-        description: `חידוש מנוי חודשי - ${subscription.name_he}`,
-        durationMonths: 1,
-      });
-      
-      if (!chargeResult.success) {
-        return res.status(400).json({ 
-          error: chargeResult.error || 'שגיאה בחידוש המנוי'
-        });
-      }
-      
-      standingOrderId = chargeResult.standingOrderId;
+    // Calculate proper amount for yearly (with discount)
+    let amount = parseFloat(subscription.price);
+    if (subscription.billing_period === 'yearly') {
+      amount = amount * 12 * 0.8; // 20% discount for yearly
     }
     
-    // Reactivate subscription
+    console.log(`[Payment] Reactivating subscription for user ${userId}, period: ${subscription.billing_period}, amount: ${amount}`);
+    
+    const chargeResult = await sumitService.chargeRecurring({
+      customerId: paymentMethod.sumit_customer_id,
+      amount: amount,
+      description: `חידוש מנוי ${periodLabel} - ${subscription.name_he}`,
+      durationMonths: durationMonths,
+      recurrence: null, // unlimited
+    });
+    
+    if (!chargeResult.success) {
+      return res.status(400).json({ 
+        error: chargeResult.error || 'שגיאה בחידוש המנוי'
+      });
+    }
+    
+    standingOrderId = chargeResult.standingOrderId;
+    console.log(`[Payment] Created new Sumit standing order: ${standingOrderId}`);
+    
+    // Calculate new expiry date
+    const newExpiresAt = new Date();
+    if (subscription.billing_period === 'yearly') {
+      newExpiresAt.setFullYear(newExpiresAt.getFullYear() + 1);
+    } else {
+      newExpiresAt.setMonth(newExpiresAt.getMonth() + 1);
+    }
+    
+    // Reactivate subscription with new standing order and dates
     const result = await db.query(`
       UPDATE user_subscriptions 
       SET status = 'active', 
           cancelled_at = NULL,
-          sumit_standing_order_id = COALESCE($2, sumit_standing_order_id),
+          sumit_standing_order_id = $2,
+          expires_at = $3,
+          next_charge_date = $3,
           updated_at = NOW()
       WHERE user_id = $1 AND status = 'cancelled'
       RETURNING *
-    `, [userId, standingOrderId]);
+    `, [userId, standingOrderId, newExpiresAt]);
+    
+    // Log the reactivation payment
+    await db.query(`
+      INSERT INTO payment_history (user_id, subscription_id, payment_method_id, amount, status, description)
+      VALUES ($1, $2, $3, $4, 'success', $5)
+    `, [userId, result.rows[0].id, paymentMethod.id, amount, `חידוש מנוי ${periodLabel} - ${subscription.name_he}`]);
     
     res.json({ 
       success: true, 
@@ -697,7 +722,8 @@ async function removeAllPaymentMethods(req, res) {
       // Cancel in Sumit
       if (subscription.sumit_standing_order_id) {
         try {
-          await sumitService.cancelRecurring(subscription.sumit_standing_order_id);
+          await sumitService.cancelRecurring(subscription.sumit_standing_order_id, subscription.sumit_customer_id);
+          console.log(`[Payment] Cancelled Sumit recurring ${subscription.sumit_standing_order_id}`);
         } catch (err) {
           console.error('[Payment] Failed to cancel Sumit recurring:', err.message);
         }
