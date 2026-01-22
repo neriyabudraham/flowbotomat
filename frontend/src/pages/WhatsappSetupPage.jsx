@@ -5,7 +5,7 @@ import {
   CheckCircle, XCircle, RefreshCw, Trash2, Wifi, WifiOff,
   Shield, Zap, Clock, AlertCircle, Phone, Settings,
   ChevronLeft, Loader2, ExternalLink, Copy, Check, ChevronDown, 
-  Mail, HelpCircle
+  Mail, HelpCircle, Hash
 } from 'lucide-react';
 import useWhatsappStore from '../store/whatsappStore';
 import Logo from '../components/atoms/Logo';
@@ -19,9 +19,14 @@ export default function WhatsappSetupPage() {
   const [pendingConnectionType, setPendingConnectionType] = useState(null);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [authMethod, setAuthMethod] = useState('qr'); // 'qr' or 'code'
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [pairingCode, setPairingCode] = useState(null);
+  const [codeRequesting, setCodeRequesting] = useState(false);
   const {
     connection, qrCode, isLoading, error, existingSession,
     fetchStatus, connectManaged, connectExternal, fetchQR, disconnect, deleteConnection, clearError, checkExisting,
+    requestPairingCode,
   } = useWhatsappStore();
 
   // External form state
@@ -409,66 +414,193 @@ export default function WhatsappSetupPage() {
             </div>
           )}
 
-          {/* QR Code Display */}
+          {/* QR Code / Pairing Code Display */}
           {step === 'qr' && (
             <div className="p-8">
-              <div className="text-center mb-6">
-                <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center mx-auto mb-4">
-                  <QrCode className="w-6 h-6 text-white" />
-                </div>
-                <h2 className="text-xl font-bold text-gray-900 mb-2">סרוק את קוד ה-QR</h2>
-                <p className="text-gray-500 text-sm">פתח את WhatsApp בטלפון &gt; הגדרות &gt; מכשירים מקושרים &gt; קשר מכשיר</p>
+              {/* Auth Method Toggle */}
+              <div className="flex gap-2 mb-6 p-1 bg-gray-100 rounded-xl">
+                <button
+                  onClick={() => { setAuthMethod('qr'); setPairingCode(null); }}
+                  className={`flex-1 py-2.5 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-all ${
+                    authMethod === 'qr' 
+                      ? 'bg-white text-green-700 shadow-sm' 
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <QrCode className="w-4 h-4" />
+                  סריקת QR
+                </button>
+                <button
+                  onClick={() => setAuthMethod('code')}
+                  className={`flex-1 py-2.5 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-all ${
+                    authMethod === 'code' 
+                      ? 'bg-white text-green-700 shadow-sm' 
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <Hash className="w-4 h-4" />
+                  קוד התאמה
+                </button>
               </div>
-              
-              {/* QR Code */}
-              <div className="bg-white rounded-2xl border-2 border-gray-100 p-6 flex items-center justify-center mb-6">
-                {qrCode ? (
-                  <div className="relative">
-                    <img 
-                      src={qrCode} 
-                      alt="QR Code" 
-                      className="w-64 h-64"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/80 opacity-0 hover:opacity-100 transition-opacity rounded-lg">
+
+              {authMethod === 'qr' ? (
+                <>
+                  <div className="text-center mb-6">
+                    <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center mx-auto mb-4">
+                      <QrCode className="w-6 h-6 text-white" />
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900 mb-2">סרוק את קוד ה-QR</h2>
+                    <p className="text-gray-500 text-sm">פתח את WhatsApp בטלפון &gt; הגדרות &gt; מכשירים מקושרים &gt; קשר מכשיר</p>
+                  </div>
+                  
+                  {/* QR Code */}
+                  <div className="bg-white rounded-2xl border-2 border-gray-100 p-6 flex items-center justify-center mb-6">
+                    {qrCode ? (
+                      <div className="relative">
+                        <img 
+                          src={qrCode} 
+                          alt="QR Code" 
+                          className="w-64 h-64"
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center bg-white/80 opacity-0 hover:opacity-100 transition-opacity rounded-lg">
+                          <button
+                            onClick={handleRefreshQR}
+                            className="p-3 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors"
+                          >
+                            <RefreshCw className="w-6 h-6" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="w-64 h-64 flex items-center justify-center flex-col gap-4">
+                        <Loader2 className="w-12 h-12 text-green-500 animate-spin" />
+                        <p className="text-gray-500 text-sm">טוען קוד QR...</p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Tips */}
+                  <div className="bg-gray-50 rounded-xl p-4 mb-6">
+                    <p className="text-sm text-gray-600 flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-500" />
+                      אם הקוד פג תוקף, לחץ על כפתור הריענון. הקוד בתוקף למשך כ-60 שניות.
+                    </p>
+                  </div>
+                  
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleRefreshQR}
+                      disabled={isLoading}
+                      className="flex-1 py-3 border-2 border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
+                      רענן קוד
+                    </button>
+                    <button
+                      onClick={handleDisconnect}
+                      className="flex-1 py-3 border-2 border-red-200 text-red-600 rounded-xl font-medium hover:bg-red-50 transition-colors"
+                    >
+                      ביטול
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-center mb-6">
+                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center mx-auto mb-4">
+                      <Phone className="w-6 h-6 text-white" />
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900 mb-2">התחברות עם קוד</h2>
+                    <p className="text-gray-500 text-sm">הזן את מספר הטלפון שלך וקבל קוד התאמה</p>
+                  </div>
+                  
+                  {!pairingCode ? (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">מספר טלפון</label>
+                        <input
+                          type="tel"
+                          value={phoneNumber}
+                          onChange={(e) => setPhoneNumber(e.target.value)}
+                          placeholder="050-1234567"
+                          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/30 focus:border-green-400 transition-all text-lg"
+                          dir="ltr"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">הזן את המספר בכל פורמט (עם או בלי קידומת)</p>
+                      </div>
+                      
                       <button
-                        onClick={handleRefreshQR}
-                        className="p-3 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors"
+                        onClick={async () => {
+                          if (!phoneNumber.trim()) return;
+                          setCodeRequesting(true);
+                          try {
+                            const data = await requestPairingCode(phoneNumber);
+                            if (data.code) {
+                              setPairingCode(data.code);
+                            }
+                          } catch (err) {
+                            console.error(err);
+                          }
+                          setCodeRequesting(false);
+                        }}
+                        disabled={codeRequesting || !phoneNumber.trim()}
+                        className="w-full py-4 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-bold hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                       >
-                        <RefreshCw className="w-6 h-6" />
+                        {codeRequesting ? (
+                          <>
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            שולח קוד...
+                          </>
+                        ) : (
+                          <>
+                            <Phone className="w-5 h-5" />
+                            שלח לי קוד
+                          </>
+                        )}
                       </button>
                     </div>
+                  ) : (
+                    <div className="text-center space-y-6">
+                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-6 border border-blue-200">
+                        <p className="text-sm text-blue-700 mb-3">הקוד שלך:</p>
+                        <div className="text-4xl font-mono font-bold text-blue-900 tracking-widest">
+                          {pairingCode}
+                        </div>
+                        <p className="text-xs text-blue-600 mt-3">
+                          הזן את הקוד הזה ב-WhatsApp בטלפון שלך
+                        </p>
+                      </div>
+                      
+                      <div className="bg-gray-50 rounded-xl p-4">
+                        <h3 className="font-medium text-gray-900 mb-2">איך להזין את הקוד?</h3>
+                        <ol className="text-sm text-gray-600 text-right space-y-1">
+                          <li>1. פתח את WhatsApp בטלפון</li>
+                          <li>2. לך להגדרות &gt; מכשירים מקושרים</li>
+                          <li>3. לחץ על "קשר מכשיר"</li>
+                          <li>4. לחץ על "קשר עם מספר טלפון במקום"</li>
+                          <li>5. הזן את הקוד שמופיע למעלה</li>
+                        </ol>
+                      </div>
+                      
+                      <button
+                        onClick={() => setPairingCode(null)}
+                        className="text-blue-600 hover:text-blue-700 font-medium text-sm"
+                      >
+                        קבל קוד חדש
+                      </button>
+                    </div>
+                  )}
+                  
+                  <div className="mt-6 pt-6 border-t border-gray-100">
+                    <button
+                      onClick={handleDisconnect}
+                      className="w-full py-3 border-2 border-red-200 text-red-600 rounded-xl font-medium hover:bg-red-50 transition-colors"
+                    >
+                      ביטול
+                    </button>
                   </div>
-                ) : (
-                  <div className="w-64 h-64 flex items-center justify-center">
-                    <Loader2 className="w-12 h-12 text-green-500 animate-spin" />
-                  </div>
-                )}
-              </div>
-              
-              {/* Tips */}
-              <div className="bg-gray-50 rounded-xl p-4 mb-6">
-                <p className="text-sm text-gray-600 flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-500" />
-                  אם הקוד פג תוקף, לחץ על כפתור הריענון. הקוד בתוקף למשך כ-60 שניות.
-                </p>
-              </div>
-              
-              <div className="flex gap-3">
-                <button
-                  onClick={handleRefreshQR}
-                  disabled={isLoading}
-                  className="flex-1 py-3 border-2 border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
-                  רענן קוד
-                </button>
-                <button
-                  onClick={handleDisconnect}
-                  className="flex-1 py-3 border-2 border-red-200 text-red-600 rounded-xl font-medium hover:bg-red-50 transition-colors"
-                >
-                  ביטול
-                </button>
-              </div>
+                </>
+              )}
             </div>
           )}
 

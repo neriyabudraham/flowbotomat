@@ -69,6 +69,18 @@ const useWhatsappStore = create((set, get) => ({
     }
   },
 
+  requestPairingCode: async (phoneNumber) => {
+    set({ error: null, isLoading: true });
+    try {
+      const { data } = await api.post('/whatsapp/request-code', { phoneNumber });
+      set({ isLoading: false });
+      return data;
+    } catch (err) {
+      set({ isLoading: false, error: err.response?.data?.error || 'שגיאה בשליחת קוד' });
+      throw err;
+    }
+  },
+
   disconnect: async () => {
     set({ isLoading: true, error: null });
     try {

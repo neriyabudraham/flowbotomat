@@ -65,13 +65,35 @@ async function getSessionStatus(baseUrl, apiKey, sessionName) {
 }
 
 /**
- * Get QR code for session
+ * Get QR code for session as image (base64)
  */
 async function getQRCode(baseUrl, apiKey, sessionName) {
   const client = createClient(baseUrl, apiKey);
+  
+  // Get QR as image (PNG)
   const response = await client.get(`/api/${sessionName}/auth/qr`, {
-    params: { format: 'raw' },
+    params: { format: 'image' },
+    responseType: 'arraybuffer',
   });
+  
+  // Convert to base64 data URL
+  const base64 = Buffer.from(response.data).toString('base64');
+  return {
+    value: `data:image/png;base64,${base64}`,
+  };
+}
+
+/**
+ * Request pairing code (for phone number auth instead of QR)
+ */
+async function requestPairingCode(baseUrl, apiKey, sessionName, phoneNumber) {
+  const client = createClient(baseUrl, apiKey);
+  
+  const response = await client.post(`/api/${sessionName}/auth/request-code`, {
+    phoneNumber: phoneNumber,
+    method: null, // Will send SMS or call
+  });
+  
   return response.data;
 }
 
@@ -566,6 +588,7 @@ module.exports = {
   logoutSession,
   getSessionStatus,
   getQRCode,
+  requestPairingCode,
   getAllSessions,
   findSessionByEmail,
   addWebhook,
