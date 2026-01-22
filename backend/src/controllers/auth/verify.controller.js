@@ -28,6 +28,21 @@ const verify = async (req, res) => {
     // Mark token as used
     await markAsUsed(verification.id);
 
+    // Check if affiliate conversion should happen on email verification
+    try {
+      const settings = await db.query('SELECT * FROM affiliate_settings LIMIT 1');
+      if (settings.rows[0]?.is_active && settings.rows[0]?.conversion_type === 'email_verify') {
+        const { completeConversion } = require('../admin/promotions.controller');
+        const result = await completeConversion(verification.user_id);
+        if (result) {
+          console.log(`[Verify] Affiliate conversion completed for user ${verification.user_id}: ₪${result.commission}`);
+        }
+      }
+    } catch (affError) {
+      console.error('[Verify] Affiliate conversion error:', affError);
+      // Continue - don't fail verification because of affiliate error
+    }
+
     res.json({ success: true, message: 'Email verified successfully' });
   } catch (error) {
     console.error('Verify error:', error);
