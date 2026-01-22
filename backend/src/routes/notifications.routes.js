@@ -5,6 +5,8 @@ const {
   getNotifications, 
   markRead, 
   markAllRead, 
+  markSelectedRead,
+  deleteNotification,
   getUnread,
   checkUsage
 } = require('../controllers/notifications/notifications.controller');
@@ -24,7 +26,13 @@ router.post('/check-usage', checkUsage);
 // Mark single notification as read
 router.patch('/:notificationId/read', markRead);
 
+// Mark selected notifications as read
+router.patch('/read-selected', markSelectedRead);
+
 // Mark all notifications as read
 router.patch('/read-all', markAllRead);
+
+// Delete notification
+router.delete('/:notificationId', deleteNotification);
 
 module.exports = router;

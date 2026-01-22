@@ -28,7 +28,7 @@ const useNotificationsStore = create((set, get) => ({
 
   markAsRead: async (id) => {
     try {
-      await api.put(`/notifications/${id}/read`);
+      await api.patch(`/notifications/${id}/read`);
       set(state => ({
         notifications: state.notifications.map(n => 
           n.id === id ? { ...n, is_read: true } : n
@@ -42,13 +42,29 @@ const useNotificationsStore = create((set, get) => ({
 
   markAllAsRead: async () => {
     try {
-      await api.put('/notifications/read-all');
+      await api.patch('/notifications/read-all');
       set(state => ({
         notifications: state.notifications.map(n => ({ ...n, is_read: true })),
         unreadCount: 0
       }));
     } catch (err) {
       console.error('Failed to mark all as read:', err);
+    }
+  },
+  
+  markSelectedAsRead: async (ids) => {
+    try {
+      await api.patch('/notifications/read-selected', { ids });
+      set(state => ({
+        notifications: state.notifications.map(n => 
+          ids.includes(n.id) ? { ...n, is_read: true } : n
+        ),
+        unreadCount: Math.max(0, state.unreadCount - ids.filter(id => 
+          state.notifications.find(n => n.id === id && !n.is_read)
+        ).length)
+      }));
+    } catch (err) {
+      console.error('Failed to mark selected as read:', err);
     }
   },
 

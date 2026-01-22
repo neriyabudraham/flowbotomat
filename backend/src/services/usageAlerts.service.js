@@ -291,10 +291,63 @@ async function getUnreadCount(userId) {
   }
 }
 
+/**
+ * Mark selected notifications as read
+ */
+async function markSelectedNotificationsRead(userId, ids) {
+  try {
+    await db.query(`
+      UPDATE system_notifications 
+      SET is_read = true, read_at = NOW() 
+      WHERE user_id = $1 AND id = ANY($2) AND is_read = false
+    `, [userId, ids]);
+  } catch (error) {
+    console.error('[UsageAlerts] Mark selected read error:', error);
+  }
+}
+
+/**
+ * Delete user notification
+ */
+async function deleteUserNotification(userId, notificationId) {
+  try {
+    await db.query(`
+      DELETE FROM system_notifications 
+      WHERE user_id = $1 AND id = $2
+    `, [userId, notificationId]);
+  } catch (error) {
+    console.error('[UsageAlerts] Delete notification error:', error);
+  }
+}
+
+/**
+ * Send notification to all users (for admin broadcasts)
+ */
+async function sendBroadcastNotification(title, message, type = 'system') {
+  try {
+    const usersResult = await db.query('SELECT id FROM users WHERE is_active = true');
+    
+    for (const user of usersResult.rows) {
+      await db.query(`
+        INSERT INTO system_notifications (user_id, type, title, message)
+        VALUES ($1, $2, $3, $4)
+      `, [user.id, type, title, message]);
+    }
+    
+    return usersResult.rows.length;
+  } catch (error) {
+    console.error('[UsageAlerts] Broadcast notification error:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   checkUserUsage,
   getUserNotifications,
   markNotificationRead,
   markAllNotificationsRead,
+  markSelectedNotificationsRead,
+  deleteUserNotification,
+  sendBroadcastNotification,
   getUnreadCount
 };

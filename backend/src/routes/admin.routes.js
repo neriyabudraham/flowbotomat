@@ -60,4 +60,23 @@ router.post('/affiliate/payouts/:payoutId/process', superadminMiddleware, promot
 router.get('/affiliate/terms', promotionsController.getAffiliateTerms);
 router.put('/affiliate/terms', superadminMiddleware, promotionsController.updateAffiliateTerms);
 
+// Broadcast notifications (שליחת התראות לכל המשתמשים)
+const { sendBroadcastNotification } = require('../services/usageAlerts.service');
+router.post('/notifications/broadcast', superadminMiddleware, async (req, res) => {
+  try {
+    const { title, message, type } = req.body;
+    
+    if (!title || !message) {
+      return res.status(400).json({ error: 'נדרש כותרת והודעה' });
+    }
+    
+    const count = await sendBroadcastNotification(title, message, type || 'system');
+    
+    res.json({ success: true, sentTo: count });
+  } catch (error) {
+    console.error('[Admin] Broadcast notification error:', error);
+    res.status(500).json({ error: 'שגיאה בשליחת התראה' });
+  }
+});
+
 module.exports = router;

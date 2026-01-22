@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2
+  Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2, Bell
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 
@@ -14,12 +14,14 @@ import AdminBackups from '../components/admin/AdminBackups';
 import AdminSubscriptions from '../components/admin/AdminSubscriptions';
 import AdminTemplates from '../components/admin/AdminTemplates';
 import AdminAffiliate from '../components/admin/AdminAffiliate';
+import AdminNotifications from '../components/admin/AdminNotifications';
 
 const TABS = [
   { id: 'dashboard', label: 'דשבורד', icon: BarChart3 },
   { id: 'users', label: 'משתמשים', icon: Users },
   { id: 'subscriptions', label: 'מנויים ותמחור', icon: CreditCard },
   { id: 'affiliate', label: 'תוכנית שותפים', icon: Share2 },
+  { id: 'notifications', label: 'התראות', icon: Bell },
   { id: 'templates', label: 'תבניות', icon: Grid },
   { id: 'settings', label: 'הגדרות', icon: Settings },
   { id: 'backups', label: 'גיבויים', icon: Database },
@@ -63,6 +65,8 @@ export default function AdminPage() {
         return <AdminSubscriptions />;
       case 'affiliate':
         return <AdminAffiliate />;
+      case 'notifications':
+        return <AdminNotifications />;
       case 'templates':
         return <AdminTemplates />;
       case 'settings':

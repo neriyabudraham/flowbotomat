@@ -2,6 +2,8 @@ const {
   getUserNotifications, 
   markNotificationRead, 
   markAllNotificationsRead, 
+  markSelectedNotificationsRead,
+  deleteUserNotification,
   getUnreadCount,
   checkUserUsage
 } = require('../../services/usageAlerts.service');
@@ -77,6 +79,44 @@ async function getUnread(req, res) {
 }
 
 /**
+ * Mark selected notifications as read
+ */
+async function markSelectedRead(req, res) {
+  try {
+    const userId = req.user.id;
+    const { ids } = req.body;
+    
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'נדרש רשימת IDs' });
+    }
+    
+    await markSelectedNotificationsRead(userId, ids);
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Notifications] Mark selected read error:', error);
+    res.status(500).json({ error: 'שגיאה בסימון התראות' });
+  }
+}
+
+/**
+ * Delete notification
+ */
+async function deleteNotification(req, res) {
+  try {
+    const userId = req.user.id;
+    const { notificationId } = req.params;
+    
+    await deleteUserNotification(userId, notificationId);
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Notifications] Delete error:', error);
+    res.status(500).json({ error: 'שגיאה במחיקת התראה' });
+  }
+}
+
+/**
  * Check usage and trigger alerts if needed
  */
 async function checkUsage(req, res) {
@@ -96,6 +136,8 @@ module.exports = {
   getNotifications,
   markRead,
   markAllRead,
+  markSelectedRead,
+  deleteNotification,
   getUnread,
   checkUsage
 };
