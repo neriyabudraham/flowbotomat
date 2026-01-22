@@ -141,7 +141,7 @@ async function processGoogleUser(email, name, picture, googleId, referralCode) {
             
             // Check if conversion should happen on email verification (which is automatic with Google)
             const settings = await db.query('SELECT * FROM affiliate_settings LIMIT 1');
-            if (settings.rows[0]?.is_active && settings.rows[0]?.conversion_type === 'email_verify') {
+            if (settings.rows[0]?.is_active && settings.rows[0]?.conversion_type === 'email_verified') {
               await completeConversion(userId);
             }
           }

@@ -31,7 +31,7 @@ const verify = async (req, res) => {
     // Check if affiliate conversion should happen on email verification
     try {
       const settings = await db.query('SELECT * FROM affiliate_settings LIMIT 1');
-      if (settings.rows[0]?.is_active && settings.rows[0]?.conversion_type === 'email_verify') {
+      if (settings.rows[0]?.is_active && settings.rows[0]?.conversion_type === 'email_verified') {
         const { completeConversion } = require('../admin/promotions.controller');
         const result = await completeConversion(verification.user_id);
         if (result) {

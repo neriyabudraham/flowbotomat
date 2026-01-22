@@ -88,7 +88,7 @@ export default function AffiliatePanel() {
           </Link>
         </div>
         <p className="text-green-100 text-sm">
-          שתף את הלינק שלך וקבל {Math.floor(settings?.commission_amount || 20)} נקודות למימוש על כל {settings?.conversion_type === 'email_verify' ? 'הרשמה' : 'מנוי'} שמגיע דרכך!
+          שתף את הלינק שלך וקבל {Math.floor(settings?.commission_amount || 20)} נקודות למימוש על כל {settings?.conversion_type === 'email_verified' ? 'הרשמה' : 'מנוי'} שמגיע דרכך!
         </p>
       </div>
 
@@ -119,7 +119,7 @@ export default function AffiliatePanel() {
       </div>
 
       {/* Stats */}
-      <div className={`grid grid-cols-2 ${settings?.conversion_type === 'email_verify' ? 'md:grid-cols-3' : 'md:grid-cols-4'} gap-4 p-6`}>
+      <div className={`grid grid-cols-2 ${settings?.conversion_type === 'email_verified' ? 'md:grid-cols-3' : 'md:grid-cols-4'} gap-4 p-6`}>
         <StatCard 
           icon={MousePointer}
           label="קליקים"
@@ -190,7 +190,7 @@ export default function AffiliatePanel() {
           <div className="flex items-start gap-2">
             <span className="w-5 h-5 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">2</span>
             <span>
-              {settings?.conversion_type === 'email_verify' 
+              {settings?.conversion_type === 'email_verified' 
                 ? `כשמישהו נרשם ומאמת את המייל דרך הלינק - אתה מקבל ${Math.floor(settings?.commission_amount || 20)} נקודות למימוש`
                 : `כשמישהו נרשם ומשלם על מנוי דרך הלינק - אתה מקבל ${Math.floor(settings?.commission_amount || 20)} נקודות למימוש`
               }
