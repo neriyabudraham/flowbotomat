@@ -63,11 +63,11 @@ send_update_alert() {
         local sent_to=$(echo "$response" | grep -o '"sentTo":[0-9]*' | cut -d':' -f2)
         success "התראה נשלחה ל-${sent_to:-0} משתמשים מחוברים"
         ALERT_START_TIME=$(date +%s)
-        return 0
     else
         warn "לא הצלחתי לשלוח התראה: $response"
-        return 1
+        warn "ממשיך בעדכון ללא התראה..."
     fi
+    return 0
 }
 
 # Wait until 40 seconds have passed since alert was sent
