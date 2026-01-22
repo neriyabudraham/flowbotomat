@@ -40,7 +40,10 @@ error() {
     echo -e "${RED}✗${NC} $1" | tee -a "$LOG_FILE"
 }
 
-# Send update alert to all connected users
+# Global variable to track alert start time
+ALERT_START_TIME=0
+
+# Send update alert to all connected users (non-blocking)
 send_update_alert() {
     if [ -z "$JWT_SECRET" ]; then
         warn "JWT_SECRET לא נמצא - מדלג על התראה למשתמשים"
@@ -59,18 +62,36 @@ send_update_alert() {
     if [ $curl_exit -eq 0 ] && echo "$response" | grep -q '"success":true'; then
         local sent_to=$(echo "$response" | grep -o '"sentTo":[0-9]*' | cut -d':' -f2)
         success "התראה נשלחה ל-${sent_to:-0} משתמשים מחוברים"
-        
-        # Wait 40 seconds total (30 sec user countdown + 10 sec buffer)
-        log "ממתין 40 שניות לאפשר למשתמשים לשמור..."
-        for i in {40..1}; do
-            echo -ne "\r⏳ נותרו $i שניות...  "
-            sleep 1
-        done
-        echo -e "\r✓ המתנה הסתיימה, ממשיך בעדכון...     "
+        ALERT_START_TIME=$(date +%s)
+        return 0
     else
         warn "לא הצלחתי לשלוח התראה: $response"
-        log "ממשיך בעדכון ללא התראה..."
+        return 1
     fi
+}
+
+# Wait until 40 seconds have passed since alert was sent
+wait_for_users() {
+    if [ "$ALERT_START_TIME" -eq 0 ]; then
+        log "לא נשלחה התראה - ממשיך מיד"
+        return 0
+    fi
+    
+    local current_time=$(date +%s)
+    local elapsed=$((current_time - ALERT_START_TIME))
+    local remaining=$((40 - elapsed))
+    
+    if [ $remaining -le 0 ]; then
+        success "עברו כבר 40 שניות - ממשיך בעדכון"
+        return 0
+    fi
+    
+    log "ממתין עוד $remaining שניות למשתמשים..."
+    for i in $(seq $remaining -1 1); do
+        echo -ne "\r⏳ נותרו $i שניות...  "
+        sleep 1
+    done
+    echo -e "\r✓ המתנה הסתיימה, ממשיך בעדכון...     "
 }
 
 # Health check function
@@ -113,20 +134,23 @@ deploy() {
     log "  מתחיל תהליך עדכון FlowBotomat"
     log "======================================"
     
-    # Step 1: Pull latest code
+    # Step 1: Send alert to users FIRST (starts 40 second countdown)
+    send_update_alert
+    
+    # Step 2: Pull latest code (while users are saving)
     log "שולף קוד חדש..."
     git pull origin main
     success "קוד עודכן"
     
-    # Step 2: Build new images WITHOUT stopping existing containers
-    log "בונה images חדשים (ברקע)..."
+    # Step 3: Build new images (while users are saving)
+    log "בונה images חדשים..."
     docker compose build --no-cache backend frontend
     success "Images נבנו בהצלחה"
     
-    # Step 3: Alert connected users (30 seconds countdown + 10 sec buffer)
-    send_update_alert
+    # Step 4: Wait for remaining time (if any) before updating
+    wait_for_users
     
-    # Step 4: Rolling update - one service at a time
+    # Step 5: Rolling update - one service at a time
     
     # Update backend first (frontend can work without it for a moment)
     log "מעדכן Backend..."
@@ -151,7 +175,7 @@ deploy() {
         exit 1
     fi
     
-    # Step 4: Cleanup old images
+    # Step 6: Cleanup old images
     log "מנקה images ישנים..."
     docker image prune -f > /dev/null 2>&1
     
