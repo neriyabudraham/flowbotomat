@@ -36,16 +36,33 @@ export function connectSocket(userId) {
     console.log('🔌 Received new_message event:', data);
   });
   
-  // Handle system alerts - call all registered callbacks
-  socket.on('system_alert', (data) => {
-    console.log('📢 System alert received, notifying', alertCallbacks.length, 'listeners');
-    alertCallbacks.forEach(cb => cb(data));
-  });
-  
-  // Handle system update
-  socket.on('system_update', (data) => {
-    console.log('🔄 System update received, notifying', alertCallbacks.length, 'listeners');
-    alertCallbacks.forEach(cb => cb({ ...data, isUpdate: true }));
+  // USE onAny to catch ALL events - guaranteed to work!
+  socket.onAny((eventName, ...args) => {
+    console.log('🔌 Socket event:', eventName);
+    
+    // Handle system_alert
+    if (eventName === 'system_alert' && args[0]) {
+      console.log('📢 ALERT! Notifying', alertCallbacks.length, 'listeners');
+      alertCallbacks.forEach(cb => {
+        try {
+          cb(args[0]);
+        } catch (e) {
+          console.error('Alert callback error:', e);
+        }
+      });
+    }
+    
+    // Handle system_update
+    if (eventName === 'system_update' && args[0]) {
+      console.log('🔄 UPDATE! Notifying', alertCallbacks.length, 'listeners');
+      alertCallbacks.forEach(cb => {
+        try {
+          cb({ ...args[0], isUpdate: true });
+        } catch (e) {
+          console.error('Alert callback error:', e);
+        }
+      });
+    }
   });
   
   return socket;
