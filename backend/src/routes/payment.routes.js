@@ -2,8 +2,12 @@ const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middlewares/auth.middleware');
 const paymentController = require('../controllers/payment/payment.controller');
+const promotionsController = require('../controllers/admin/promotions.controller');
 
-// All routes require authentication
+// Public routes (no auth required)
+router.get('/promotions/active', promotionsController.getActivePromotions);
+
+// Routes that require authentication
 router.use(authMiddleware);
 
 // Payment methods
@@ -24,5 +28,8 @@ router.post('/plan/change', paymentController.changePlan);
 
 // Payment history
 router.get('/history', paymentController.getPaymentHistory);
+
+// Coupon validation (requires auth to check user status)
+router.post('/coupon/validate', promotionsController.validateCoupon);
 
 module.exports = router;

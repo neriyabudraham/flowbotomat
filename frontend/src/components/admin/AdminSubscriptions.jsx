@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { 
   CreditCard, Users, Settings, Plus, Edit2, Trash2, Check, X, 
-  Crown, Zap, Star, Building, RefreshCw, Search, Calendar, User
+  Crown, Zap, Star, Building, RefreshCw, Search, Calendar, User,
+  Gift, Tag, Percent, Clock, BarChart
 } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
@@ -18,10 +19,13 @@ export default function AdminSubscriptions() {
   const [activeTab, setActiveTab] = useState('plans');
   const [plans, setPlans] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
+  const [promotions, setPromotions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingPlan, setEditingPlan] = useState(null);
+  const [editingPromo, setEditingPromo] = useState(null);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [confirmDeletePromo, setConfirmDeletePromo] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
@@ -30,12 +34,14 @@ export default function AdminSubscriptions() {
 
   const loadData = async () => {
     try {
-      const [plansRes, subsRes] = await Promise.all([
+      const [plansRes, subsRes, promosRes] = await Promise.all([
         api.get('/subscriptions/plans'),
         api.get('/subscriptions/all'),
+        api.get('/admin/promotions').catch(() => ({ data: { promotions: [] } })),
       ]);
       setPlans(plansRes.data.plans || []);
       setSubscriptions(subsRes.data.subscriptions || []);
+      setPromotions(promosRes.data.promotions || []);
     } catch (err) {
       console.error('Failed to load data:', err);
     } finally {
@@ -62,6 +68,31 @@ export default function AdminSubscriptions() {
     try {
       await api.delete(`/subscriptions/plans/${confirmDelete}`);
       setConfirmDelete(null);
+      loadData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה במחיקה');
+    }
+  };
+
+  const handleSavePromo = async (promo) => {
+    try {
+      if (promo.id) {
+        await api.put(`/admin/promotions/${promo.id}`, promo);
+      } else {
+        await api.post('/admin/promotions', promo);
+      }
+      setEditingPromo(null);
+      loadData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בשמירה');
+    }
+  };
+
+  const handleDeletePromo = async () => {
+    if (!confirmDeletePromo) return;
+    try {
+      await api.delete(`/admin/promotions/${confirmDeletePromo}`);
+      setConfirmDeletePromo(null);
       loadData();
     } catch (err) {
       alert(err.response?.data?.error || 'שגיאה במחיקה');
@@ -111,6 +142,17 @@ export default function AdminSubscriptions() {
           תכניות
         </button>
         <button
+          onClick={() => setActiveTab('promotions')}
+          className={`px-4 py-2 font-medium transition-colors ${
+            activeTab === 'promotions'
+              ? 'text-purple-600 border-b-2 border-purple-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Gift className="w-4 h-4 inline ml-2" />
+          מבצעים
+        </button>
+        <button
           onClick={() => setActiveTab('subscriptions')}
           className={`px-4 py-2 font-medium transition-colors ${
             activeTab === 'subscriptions'
@@ -125,6 +167,125 @@ export default function AdminSubscriptions() {
 
       {loading ? (
         <div className="text-center py-8 text-gray-500">טוען...</div>
+      ) : activeTab === 'promotions' ? (
+        /* Promotions Tab */
+        <div className="space-y-4">
+          <Button onClick={() => setEditingPromo({})}>
+            <Plus className="w-4 h-4 ml-2" />
+            מבצע חדש
+          </Button>
+
+          {promotions.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <Gift className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <p>אין מבצעים פעילים</p>
+              <p className="text-sm mt-2">צור מבצע ראשון להצעת מחירים מיוחדים ללקוחות חדשים</p>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {promotions.map(promo => (
+                <div 
+                  key={promo.id}
+                  className={`bg-white dark:bg-gray-800 rounded-xl border p-4 ${
+                    !promo.is_active ? 'opacity-50 border-gray-300' : 'border-gray-200 dark:border-gray-700'
+                  }`}
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 bg-gradient-to-br from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 rounded-lg">
+                        <Gift className="w-5 h-5 text-purple-600" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-gray-800 dark:text-white">{promo.name_he || promo.name}</h3>
+                        {promo.coupon_code && (
+                          <div className="flex items-center gap-1 mt-1">
+                            <Tag className="w-3 h-3 text-purple-500" />
+                            <code className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">{promo.coupon_code}</code>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => setEditingPromo(promo)}
+                        className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                      >
+                        <Edit2 className="w-4 h-4 text-gray-500" />
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeletePromo(promo.id)}
+                        className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+                      >
+                        <Trash2 className="w-4 h-4 text-red-500" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-lg p-3 mb-3">
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-2xl font-bold text-purple-600">₪{promo.promo_price}</span>
+                      <span className="text-sm text-gray-500">/חודש</span>
+                      <span className="text-sm text-gray-400 mx-2">ל-</span>
+                      <span className="text-lg font-semibold text-purple-600">{promo.promo_months} חודשים</span>
+                    </div>
+                    {promo.regular_price && (
+                      <p className="text-sm text-gray-500 mt-1">
+                        אחרי המבצע: ₪{promo.regular_price}/חודש
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">תכנית</span>
+                      <span className="font-medium">{promo.plan_name_he || 'כל התכניות'}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">קהל יעד</span>
+                      <span className={`px-2 py-0.5 text-xs rounded-full ${
+                        promo.is_new_users_only 
+                          ? 'bg-green-100 text-green-700' 
+                          : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {promo.is_new_users_only ? 'משתמשים חדשים' : 'כולם'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">שימושים</span>
+                      <span className="font-medium">
+                        {promo.current_uses || 0}
+                        {promo.max_uses ? ` / ${promo.max_uses}` : ''}
+                      </span>
+                    </div>
+                    {(promo.start_date || promo.end_date) && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-500">תוקף</span>
+                        <span className="text-xs text-gray-600 flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {promo.start_date && new Date(promo.start_date).toLocaleDateString('he-IL')}
+                          {promo.start_date && promo.end_date && ' - '}
+                          {promo.end_date && new Date(promo.end_date).toLocaleDateString('he-IL')}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">סטטוס</span>
+                      {promo.is_active ? (
+                        <span className="flex items-center gap-1 text-green-600">
+                          <Check className="w-3 h-3" /> פעיל
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-gray-400">
+                          <X className="w-3 h-3" /> לא פעיל
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       ) : activeTab === 'plans' ? (
         /* Plans Tab */
         <div className="space-y-4">
@@ -320,13 +481,34 @@ export default function AdminSubscriptions() {
         />
       )}
 
-      {/* Confirm Delete Modal */}
+      {/* Confirm Delete Plan Modal */}
       <ConfirmModal
         isOpen={!!confirmDelete}
         onClose={() => setConfirmDelete(null)}
         onConfirm={handleDeletePlan}
         title="מחיקת תכנית"
         message="האם למחוק את התכנית? לא ניתן לשחזר פעולה זו."
+        confirmText="מחק"
+        variant="danger"
+      />
+
+      {/* Edit Promotion Modal */}
+      {editingPromo && (
+        <PromoEditModal
+          promo={editingPromo}
+          plans={plans}
+          onSave={handleSavePromo}
+          onClose={() => setEditingPromo(null)}
+        />
+      )}
+
+      {/* Confirm Delete Promotion Modal */}
+      <ConfirmModal
+        isOpen={!!confirmDeletePromo}
+        onClose={() => setConfirmDeletePromo(null)}
+        onConfirm={handleDeletePromo}
+        title="מחיקת מבצע"
+        message="האם למחוק את המבצע? לא ניתן לשחזר פעולה זו."
         confirmText="מחק"
         variant="danger"
       />
@@ -641,6 +823,236 @@ function AssignSubscriptionModal({ plans, onAssign, onClose }) {
             </Button>
             <Button type="submit" disabled={loading || !userId || !planId} className="flex-1">
               {loading ? 'שומר...' : 'הקצה מנוי'}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function PromoEditModal({ promo, plans, onSave, onClose }) {
+  const [form, setForm] = useState({
+    name: promo.name || '',
+    name_he: promo.name_he || '',
+    description: promo.description || '',
+    description_he: promo.description_he || '',
+    plan_id: promo.plan_id || '',
+    promo_price: promo.promo_price || 0,
+    promo_months: promo.promo_months || 3,
+    regular_price: promo.regular_price || '',
+    billing_period: promo.billing_period || 'monthly',
+    is_new_users_only: promo.is_new_users_only ?? true,
+    is_active: promo.is_active ?? true,
+    start_date: promo.start_date ? promo.start_date.split('T')[0] : '',
+    end_date: promo.end_date ? promo.end_date.split('T')[0] : '',
+    coupon_code: promo.coupon_code || '',
+    max_uses: promo.max_uses || '',
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSave({ 
+      ...promo, 
+      ...form,
+      regular_price: form.regular_price || null,
+      plan_id: form.plan_id || null,
+      start_date: form.start_date || null,
+      end_date: form.end_date || null,
+      max_uses: form.max_uses || null,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div 
+        className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2">
+            <Gift className="w-5 h-5 text-purple-600" />
+            {promo.id ? 'עריכת מבצע' : 'מבצע חדש'}
+          </h3>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {/* Basic Info */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">שם (אנגלית)</label>
+              <input
+                type="text"
+                value={form.name}
+                onChange={e => setForm({...form, name: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                placeholder="Welcome Offer"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">שם (עברית)</label>
+              <input
+                type="text"
+                value={form.name_he}
+                onChange={e => setForm({...form, name_he: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                placeholder="מבצע הצטרפות"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תיאור (עברית)</label>
+            <textarea
+              value={form.description_he}
+              onChange={e => setForm({...form, description_he: e.target.value})}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+              rows={2}
+              placeholder="3 חודשים ראשונים במחיר מיוחד!"
+            />
+          </div>
+
+          {/* Pricing */}
+          <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-4 space-y-3">
+            <h4 className="font-medium text-purple-800 dark:text-purple-300 flex items-center gap-2">
+              <Percent className="w-4 h-4" />
+              תמחור מבצע
+            </h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מחיר מבצע (₪)</label>
+                <input
+                  type="number"
+                  value={form.promo_price}
+                  onChange={e => setForm({...form, promo_price: parseFloat(e.target.value)})}
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                  min="0"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מספר חודשים</label>
+                <input
+                  type="number"
+                  value={form.promo_months}
+                  onChange={e => setForm({...form, promo_months: parseInt(e.target.value)})}
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                  min="1"
+                  required
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                מחיר אחרי המבצע (₪)
+                <span className="text-gray-400 font-normal mr-1">(ריק = מחיר התכנית)</span>
+              </label>
+              <input
+                type="number"
+                value={form.regular_price}
+                onChange={e => setForm({...form, regular_price: e.target.value ? parseFloat(e.target.value) : ''})}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                min="0"
+                placeholder="99"
+              />
+            </div>
+          </div>
+
+          {/* Targeting */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תכנית (אופציונלי)</label>
+              <select
+                value={form.plan_id}
+                onChange={e => setForm({...form, plan_id: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+              >
+                <option value="">כל התכניות</option>
+                {plans.filter(p => p.is_active && p.price > 0).map(p => (
+                  <option key={p.id} value={p.id}>{p.name_he}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">קוד קופון</label>
+              <input
+                type="text"
+                value={form.coupon_code}
+                onChange={e => setForm({...form, coupon_code: e.target.value.toUpperCase()})}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 uppercase"
+                placeholder="WELCOME50"
+                dir="ltr"
+              />
+            </div>
+          </div>
+
+          {/* Limits */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תאריך התחלה</label>
+              <input
+                type="date"
+                value={form.start_date}
+                onChange={e => setForm({...form, start_date: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">תאריך סיום</label>
+              <input
+                type="date"
+                value={form.end_date}
+                onChange={e => setForm({...form, end_date: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              מקסימום שימושים
+              <span className="text-gray-400 font-normal mr-1">(ריק = ללא הגבלה)</span>
+            </label>
+            <input
+              type="number"
+              value={form.max_uses}
+              onChange={e => setForm({...form, max_uses: e.target.value ? parseInt(e.target.value) : ''})}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+              min="1"
+              placeholder="100"
+            />
+          </div>
+
+          {/* Options */}
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.is_new_users_only}
+                onChange={e => setForm({...form, is_new_users_only: e.target.checked})}
+                className="w-4 h-4 rounded text-purple-600"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">רק למשתמשים חדשים (שטרם שילמו)</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.is_active}
+                onChange={e => setForm({...form, is_active: e.target.checked})}
+                className="w-4 h-4 rounded text-purple-600"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">מבצע פעיל</span>
+            </label>
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <Button type="button" variant="ghost" onClick={onClose} className="flex-1">
+              ביטול
+            </Button>
+            <Button type="submit" className="flex-1">
+              שמור מבצע
             </Button>
           </div>
         </form>

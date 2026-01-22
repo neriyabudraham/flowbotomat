@@ -7,6 +7,7 @@ const { adminMiddleware, superadminMiddleware } = require('../middlewares/admin.
 const usersController = require('../controllers/admin/users.controller');
 const settingsController = require('../controllers/admin/settings.controller');
 const backupsController = require('../controllers/admin/backups.controller');
+const promotionsController = require('../controllers/admin/promotions.controller');
 
 // All admin routes require auth + admin role
 router.use(authMiddleware);
@@ -37,5 +38,12 @@ router.get('/backups', superadminMiddleware, backupsController.listBackups);
 router.post('/backups', superadminMiddleware, backupsController.createBackup);
 router.get('/backups/:filename', superadminMiddleware, backupsController.downloadBackup);
 router.delete('/backups/:filename', superadminMiddleware, backupsController.deleteBackup);
+
+// Promotions management
+router.get('/promotions', promotionsController.getAllPromotions);
+router.post('/promotions', superadminMiddleware, promotionsController.createPromotion);
+router.put('/promotions/:promotionId', superadminMiddleware, promotionsController.updatePromotion);
+router.delete('/promotions/:promotionId', superadminMiddleware, promotionsController.deletePromotion);
+router.get('/promotions/:promotionId/stats', promotionsController.getPromotionStats);
 
 module.exports = router;

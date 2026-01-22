@@ -300,11 +300,12 @@ async function deletePaymentMethod(req, res) {
 
 /**
  * Subscribe to a plan
+ * Supports promotions/coupons with introductory pricing
  */
 async function subscribe(req, res) {
   try {
     const userId = req.user.id;
-    const { planId, paymentMethodId, billingPeriod = 'monthly' } = req.body;
+    const { planId, paymentMethodId, billingPeriod = 'monthly', couponCode, promotionId } = req.body;
     
     // Get plan info
     const planResult = await db.query(
@@ -345,15 +346,85 @@ async function subscribe(req, res) {
       }
     }
     
+    // Check for promotion/coupon
+    let promotion = null;
+    let isNewUser = false;
+    
+    // Check if user is new (never paid before)
+    const userCheck = await db.query(
+      'SELECT has_ever_paid FROM users WHERE id = $1',
+      [userId]
+    );
+    isNewUser = !userCheck.rows[0]?.has_ever_paid;
+    
+    if (couponCode || promotionId) {
+      const promoQuery = couponCode 
+        ? `SELECT * FROM promotions WHERE UPPER(coupon_code) = UPPER($1) AND is_active = true`
+        : `SELECT * FROM promotions WHERE id = $1 AND is_active = true`;
+      
+      const promoResult = await db.query(promoQuery, [couponCode || promotionId]);
+      
+      if (promoResult.rows.length > 0) {
+        const promo = promoResult.rows[0];
+        
+        // Validate promotion
+        const now = new Date();
+        const validTime = (!promo.start_date || new Date(promo.start_date) <= now) &&
+                         (!promo.end_date || new Date(promo.end_date) > now);
+        const validUses = !promo.max_uses || promo.current_uses < promo.max_uses;
+        const validPlan = !promo.plan_id || promo.plan_id === planId;
+        const validUser = !promo.is_new_users_only || isNewUser;
+        
+        if (!validTime) {
+          return res.status(400).json({ error: 'המבצע פג תוקפו', code: 'PROMO_EXPIRED' });
+        }
+        if (!validUses) {
+          return res.status(400).json({ error: 'המבצע הגיע למקסימום השימושים', code: 'PROMO_MAX_USES' });
+        }
+        if (!validPlan) {
+          return res.status(400).json({ error: 'המבצע לא תקף לתכנית זו', code: 'PROMO_WRONG_PLAN' });
+        }
+        if (!validUser) {
+          return res.status(400).json({ error: 'המבצע מיועד למשתמשים חדשים בלבד', code: 'PROMO_NEW_USERS_ONLY' });
+        }
+        
+        // Check if user already used this promotion
+        const alreadyUsed = await db.query(
+          'SELECT id FROM user_promotions WHERE user_id = $1 AND promotion_id = $2',
+          [userId, promo.id]
+        );
+        if (alreadyUsed.rows.length > 0) {
+          return res.status(400).json({ error: 'כבר השתמשת במבצע זה', code: 'PROMO_ALREADY_USED' });
+        }
+        
+        promotion = promo;
+      } else if (couponCode) {
+        return res.status(400).json({ error: 'קוד קופון לא תקף', code: 'INVALID_COUPON' });
+      }
+    }
+    
     const now = new Date();
     const hasTrial = plan.trial_days > 0;
     
-    // Calculate price
+    // Calculate price (with promotion if applicable)
     let chargeAmount = parseFloat(plan.price);
+    let regularPriceAfterPromo = null;
+    let promoMonthsRemaining = 0;
+    
+    if (promotion) {
+      chargeAmount = parseFloat(promotion.promo_price);
+      regularPriceAfterPromo = promotion.regular_price 
+        ? parseFloat(promotion.regular_price) 
+        : parseFloat(plan.price);
+      promoMonthsRemaining = promotion.promo_months;
+      
+      console.log(`[Payment] Applying promotion ${promotion.id}: ${chargeAmount} ILS for ${promotion.promo_months} months, then ${regularPriceAfterPromo} ILS`);
+    }
+    
     let nextChargeDate = new Date(now);
     let expiresAt = null;
     
-    if (billingPeriod === 'yearly') {
+    if (billingPeriod === 'yearly' && !promotion) {
       chargeAmount = parseFloat(plan.price) * 12 * 0.8; // 20% discount
       nextChargeDate.setFullYear(nextChargeDate.getFullYear() + 1);
       expiresAt = new Date(nextChargeDate);
@@ -379,6 +450,8 @@ async function subscribe(req, res) {
           next_charge_date = NULL,
           expires_at = NULL,
           billing_period = 'monthly',
+          active_promotion_id = NULL,
+          promo_months_remaining = 0,
           updated_at = NOW()
         RETURNING *
       `, [userId, planId]);
@@ -399,8 +472,9 @@ async function subscribe(req, res) {
       const subResult = await db.query(`
         INSERT INTO user_subscriptions (
           user_id, plan_id, status, is_trial, trial_ends_at, 
-          payment_method_id, next_charge_date, sumit_customer_id, billing_period, expires_at
-        ) VALUES ($1, $2, 'trial', true, $3, $4, $3, $5, $6, $3)
+          payment_method_id, next_charge_date, sumit_customer_id, billing_period, expires_at,
+          active_promotion_id, promo_months_remaining, promo_price, regular_price_after_promo
+        ) VALUES ($1, $2, 'trial', true, $3, $4, $3, $5, $6, $3, $7, $8, $9, $10)
         ON CONFLICT (user_id) 
         DO UPDATE SET 
           plan_id = $2, 
@@ -412,31 +486,54 @@ async function subscribe(req, res) {
           sumit_customer_id = $5,
           billing_period = $6,
           expires_at = $3,
+          active_promotion_id = $7,
+          promo_months_remaining = $8,
+          promo_price = $9,
+          regular_price_after_promo = $10,
           updated_at = NOW()
         RETURNING *
-      `, [userId, planId, trialEnds, paymentMethodId, paymentMethod.sumit_customer_id, billingPeriod]);
+      `, [
+        userId, planId, trialEnds, paymentMethodId, paymentMethod.sumit_customer_id, billingPeriod,
+        promotion?.id || null, promoMonthsRemaining, promotion ? chargeAmount : null, regularPriceAfterPromo
+      ]);
+      
+      // Record promotion use if applicable
+      if (promotion) {
+        await recordPromotionUse(userId, promotion.id, subResult.rows[0].id, chargeAmount, regularPriceAfterPromo, promotion.promo_months);
+      }
       
       return res.json({ 
         success: true, 
         subscription: subResult.rows[0],
         message: `תקופת ניסיון של ${plan.trial_days} ימים התחילה`,
         trial: true,
-        trialEndsAt: trialEnds
+        trialEndsAt: trialEnds,
+        promotion: promotion ? {
+          promoPrice: chargeAmount,
+          promoMonths: promotion.promo_months,
+          regularPrice: regularPriceAfterPromo
+        } : null
       });
     }
     
     // Charge immediately with recurring billing
     let chargeResult;
-    const durationMonths = billingPeriod === 'yearly' ? 12 : 1;
-    const periodLabel = billingPeriod === 'yearly' ? 'שנתי' : 'חודשי';
+    const durationMonths = billingPeriod === 'yearly' && !promotion ? 12 : 1;
+    const periodLabel = billingPeriod === 'yearly' && !promotion ? 'שנתי' : 'חודשי';
     
-    console.log(`[Payment] Charging user ${userId} - Amount: ${chargeAmount} ILS, Period: ${billingPeriod}`);
+    let description = `מנוי ${periodLabel} - ${plan.name_he}`;
+    if (promotion) {
+      description = `${plan.name_he} - מבצע ${promotion.promo_months} חודשים`;
+    }
     
-    // Both monthly and yearly use recurring charge - just with different duration
+    console.log(`[Payment] Charging user ${userId} - Amount: ${chargeAmount} ILS, Period: ${billingPeriod}, Promo: ${promotion?.id || 'none'}`);
+    
+    // For promotions, we create a recurring charge for the promo price
+    // The expiry service will update the price after promo ends
     chargeResult = await sumitService.chargeRecurring({
       customerId: paymentMethod.sumit_customer_id,
       amount: chargeAmount,
-      description: `מנוי ${periodLabel} - ${plan.name_he}`,
+      description: description,
       durationMonths: durationMonths,
       recurrence: null, // unlimited - auto-renew
     });
@@ -451,12 +548,13 @@ async function subscribe(req, res) {
     
     console.log(`[Payment] Charge successful - Transaction: ${chargeResult.transactionId}`);
     
-    // Save subscription
+    // Save subscription with promotion info
     const subResult = await db.query(`
       INSERT INTO user_subscriptions (
         user_id, plan_id, status, payment_method_id, 
-        sumit_customer_id, sumit_standing_order_id, next_charge_date, billing_period, expires_at
-      ) VALUES ($1, $2, 'active', $3, $4, $5, $6, $7, $8)
+        sumit_customer_id, sumit_standing_order_id, next_charge_date, billing_period, expires_at,
+        active_promotion_id, promo_months_remaining, promo_price, regular_price_after_promo
+      ) VALUES ($1, $2, 'active', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       ON CONFLICT (user_id) 
       DO UPDATE SET 
         plan_id = $2, 
@@ -468,6 +566,10 @@ async function subscribe(req, res) {
         next_charge_date = $6,
         billing_period = $7,
         expires_at = $8,
+        active_promotion_id = $9,
+        promo_months_remaining = $10,
+        promo_price = $11,
+        regular_price_after_promo = $12,
         updated_at = NOW()
       RETURNING *
     `, [
@@ -476,8 +578,29 @@ async function subscribe(req, res) {
       chargeResult.standingOrderId || null,
       nextChargeDate,
       billingPeriod,
-      expiresAt
+      expiresAt,
+      promotion?.id || null,
+      promoMonthsRemaining > 0 ? promoMonthsRemaining - 1 : 0, // -1 because first month is charged now
+      promotion ? chargeAmount : null,
+      regularPriceAfterPromo
     ]);
+    
+    // Mark user as having paid
+    await db.query(
+      'UPDATE users SET has_ever_paid = true, updated_at = NOW() WHERE id = $1',
+      [userId]
+    );
+    
+    // Record promotion use if applicable
+    if (promotion) {
+      await recordPromotionUse(userId, promotion.id, subResult.rows[0].id, chargeAmount, regularPriceAfterPromo, promotion.promo_months);
+      
+      // Increment promotion usage counter
+      await db.query(
+        'UPDATE promotions SET current_uses = current_uses + 1 WHERE id = $1',
+        [promotion.id]
+      );
+    }
     
     // Log payment history
     await db.query(`
@@ -488,19 +611,47 @@ async function subscribe(req, res) {
     `, [
       userId, subResult.rows[0].id, paymentMethodId, 
       chargeAmount, chargeResult.transactionId, chargeResult.documentNumber,
-      `מנוי ${plan.name_he} (${billingPeriod === 'yearly' ? 'שנתי' : 'חודשי'})`
+      description
     ]);
+    
+    let message = 'המנוי הופעל בהצלחה';
+    if (promotion) {
+      message = `המנוי הופעל! ${promotion.promo_months} חודשים ראשונים ב-₪${chargeAmount}/חודש`;
+    }
     
     res.json({ 
       success: true, 
       subscription: subResult.rows[0],
-      message: 'המנוי הופעל בהצלחה',
-      trial: false
+      message,
+      trial: false,
+      promotion: promotion ? {
+        promoPrice: chargeAmount,
+        promoMonths: promotion.promo_months,
+        monthsRemaining: promoMonthsRemaining - 1,
+        regularPrice: regularPriceAfterPromo
+      } : null
     });
   } catch (error) {
     console.error('[Payment] Subscribe error:', error);
     res.status(500).json({ error: 'שגיאה בהרשמה למנוי' });
   }
+}
+
+/**
+ * Helper to record promotion usage
+ */
+async function recordPromotionUse(userId, promotionId, subscriptionId, promoPrice, regularPrice, promoMonths) {
+  const promoEndDate = new Date();
+  promoEndDate.setMonth(promoEndDate.getMonth() + promoMonths);
+  
+  await db.query(`
+    INSERT INTO user_promotions (
+      user_id, promotion_id, subscription_id, 
+      promo_start_date, promo_end_date, months_remaining,
+      promo_price_used, regular_price_after, status
+    ) VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, 'active')
+    ON CONFLICT (user_id, promotion_id) DO NOTHING
+  `, [userId, promotionId, subscriptionId, promoEndDate, promoMonths, promoPrice, regularPrice]);
 }
 
 /**
@@ -1123,6 +1274,148 @@ async function changePlan(req, res) {
   }
 }
 
+/**
+ * Process promotions ending today
+ * Called by scheduled job to update prices when promo period ends
+ * 
+ * Logic:
+ * 1. Find subscriptions with promo_months_remaining = 0 and active promotion
+ * 2. Cancel old standing order in Sumit
+ * 3. Create new standing order with regular price
+ * 4. Update subscription with new price and clear promo fields
+ */
+async function processEndingPromotions() {
+  try {
+    console.log('[Promotions] Checking for ending promotions...');
+    
+    // Find subscriptions that need to transition to regular price
+    const endingPromos = await db.query(`
+      SELECT us.*, sp.name_he as plan_name, sp.price as plan_price,
+             upm.sumit_customer_id as payment_sumit_customer_id
+      FROM user_subscriptions us
+      JOIN subscription_plans sp ON us.plan_id = sp.id
+      LEFT JOIN user_payment_methods upm ON us.payment_method_id = upm.id
+      WHERE us.active_promotion_id IS NOT NULL
+        AND us.promo_months_remaining = 0
+        AND us.status = 'active'
+    `);
+    
+    console.log(`[Promotions] Found ${endingPromos.rows.length} subscriptions ending promo period`);
+    
+    for (const sub of endingPromos.rows) {
+      try {
+        const regularPrice = sub.regular_price_after_promo || parseFloat(sub.plan_price);
+        const customerId = sub.payment_sumit_customer_id || sub.sumit_customer_id;
+        
+        if (!customerId) {
+          console.error(`[Promotions] No customer ID for user ${sub.user_id}, skipping`);
+          continue;
+        }
+        
+        console.log(`[Promotions] Transitioning user ${sub.user_id} from promo to regular price: ${regularPrice} ILS`);
+        
+        // Cancel old standing order if exists
+        if (sub.sumit_standing_order_id) {
+          try {
+            await sumitService.cancelRecurring(sub.sumit_standing_order_id, customerId);
+            console.log(`[Promotions] Cancelled old standing order ${sub.sumit_standing_order_id}`);
+          } catch (cancelErr) {
+            console.error(`[Promotions] Failed to cancel old standing order:`, cancelErr.message);
+          }
+        }
+        
+        // Create new standing order with regular price
+        const chargeResult = await sumitService.chargeRecurring({
+          customerId: customerId,
+          amount: regularPrice,
+          description: `מנוי חודשי - ${sub.plan_name}`,
+          durationMonths: 1,
+          recurrence: null, // unlimited
+        });
+        
+        if (!chargeResult.success) {
+          console.error(`[Promotions] Failed to create new standing order for user ${sub.user_id}:`, chargeResult.error);
+          
+          // Notify admin about failed transition
+          await db.query(`
+            INSERT INTO notifications (user_id, notification_type, title, message, metadata, is_admin_notification)
+            VALUES ($1, 'payment_failure', 'שגיאה במעבר ממבצע למחיר רגיל', $2, $3, true)
+          `, [
+            sub.user_id,
+            `המשתמש ${sub.user_id} לא עבר בהצלחה למחיר רגיל לאחר סיום מבצע`,
+            JSON.stringify({ error: chargeResult.error, userId: sub.user_id, planId: sub.plan_id })
+          ]);
+          continue;
+        }
+        
+        // Update subscription with new standing order and clear promo fields
+        await db.query(`
+          UPDATE user_subscriptions 
+          SET sumit_standing_order_id = $1,
+              active_promotion_id = NULL,
+              promo_months_remaining = 0,
+              promo_price = NULL,
+              regular_price_after_promo = NULL,
+              updated_at = NOW()
+          WHERE user_id = $2
+        `, [chargeResult.standingOrderId, sub.user_id]);
+        
+        // Update user_promotions record
+        await db.query(`
+          UPDATE user_promotions 
+          SET status = 'completed', updated_at = NOW()
+          WHERE user_id = $1 AND promotion_id = $2 AND status = 'active'
+        `, [sub.user_id, sub.active_promotion_id]);
+        
+        // Notify user about the transition
+        await db.query(`
+          INSERT INTO notifications (user_id, notification_type, title, message)
+          VALUES ($1, 'subscription', 'תקופת המבצע הסתיימה', $2)
+        `, [
+          sub.user_id,
+          `תקופת המבצע שלך הסתיימה. המחיר החדש הוא ₪${regularPrice}/חודש.`
+        ]);
+        
+        console.log(`[Promotions] Successfully transitioned user ${sub.user_id} to regular price`);
+        
+      } catch (subError) {
+        console.error(`[Promotions] Error processing subscription ${sub.id}:`, subError);
+      }
+    }
+    
+    console.log('[Promotions] Finished processing ending promotions');
+    return { processed: endingPromos.rows.length };
+    
+  } catch (error) {
+    console.error('[Promotions] Error processing ending promotions:', error);
+    throw error;
+  }
+}
+
+/**
+ * Decrement promo months remaining for all active promotions
+ * Called monthly by scheduled job after billing cycle
+ */
+async function decrementPromoMonths() {
+  try {
+    const result = await db.query(`
+      UPDATE user_subscriptions 
+      SET promo_months_remaining = GREATEST(0, promo_months_remaining - 1),
+          updated_at = NOW()
+      WHERE active_promotion_id IS NOT NULL 
+        AND promo_months_remaining > 0
+        AND status = 'active'
+      RETURNING user_id, promo_months_remaining
+    `);
+    
+    console.log(`[Promotions] Decremented promo months for ${result.rows.length} subscriptions`);
+    return result.rows;
+  } catch (error) {
+    console.error('[Promotions] Error decrementing promo months:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   savePaymentMethod,
   getPaymentMethods,
@@ -1135,4 +1428,6 @@ module.exports = {
   checkPaymentMethod,
   calculatePlanChange,
   changePlan,
+  processEndingPromotions,
+  decrementPromoMonths,
 };
