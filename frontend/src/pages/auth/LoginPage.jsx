@@ -1,20 +1,77 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { 
   Bot, Shield, Zap, ChevronLeft, Mail, Lock, Eye, EyeOff,
   MessageCircle, Users, ArrowRight
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
+import api from '../../services/api';
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login, isLoading, error, clearError } = useAuthStore();
+  const { login, isLoading, error, clearError, setTokens } = useAuthStore();
   const [form, setForm] = useState({ email: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [focusedField, setFocusedField] = useState(null);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const returnTo = location.state?.returnTo || '/dashboard';
+
+  // Initialize Google Sign-In
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return;
+    
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    document.body.appendChild(script);
+
+    script.onload = () => {
+      window.google?.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleResponse,
+      });
+      window.google?.accounts.id.renderButton(
+        document.getElementById('google-signin-btn'),
+        { 
+          theme: 'outline', 
+          size: 'large', 
+          width: '100%',
+          text: 'signin_with',
+          locale: 'he'
+        }
+      );
+    };
+
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, []);
+
+  const handleGoogleResponse = async (response) => {
+    if (!response.credential) return;
+    
+    setGoogleLoading(true);
+    clearError();
+    
+    try {
+      const res = await api.post('/auth/google', {
+        credential: response.credential,
+      });
+      
+      setTokens(res.data.accessToken, res.data.refreshToken);
+      navigate(returnTo);
+    } catch (err) {
+      console.error('Google login error:', err);
+      useAuthStore.setState({ error: err.response?.data?.error || 'שגיאה בהתחברות עם Google' });
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -166,14 +223,24 @@ export default function LoginPage() {
           </form>
 
           {/* Divider */}
-          <div className="my-8 flex items-center gap-4">
+          <div className="my-6 flex items-center gap-4">
             <div className="flex-1 h-px bg-gray-200" />
-            <span className="text-sm text-gray-400">או</span>
+            <span className="text-sm text-gray-400">או התחבר עם</span>
             <div className="flex-1 h-px bg-gray-200" />
           </div>
 
+          {/* Google Sign In */}
+          <div className="relative">
+            {googleLoading && (
+              <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-xl z-10">
+                <div className="w-6 h-6 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+              </div>
+            )}
+            <div id="google-signin-btn" className="flex justify-center [&>div]:w-full [&>div>div]:w-full [&_iframe]:!w-full" />
+          </div>
+
           {/* Signup Link */}
-          <div className="text-center">
+          <div className="text-center mt-6">
             <p className="text-gray-600">
               אין לך חשבון עדיין?{' '}
               <Link 

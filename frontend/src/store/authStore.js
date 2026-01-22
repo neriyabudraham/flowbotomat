@@ -62,6 +62,11 @@ const useAuthStore = create((set) => ({
     set({ user: null });
   },
 
+  setTokens: (accessToken, refreshToken) => {
+    localStorage.setItem('accessToken', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
+  },
+
   fetchMe: async () => {
     try {
       const { data } = await api.get('/auth/me');

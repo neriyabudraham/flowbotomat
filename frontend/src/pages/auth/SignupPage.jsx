@@ -1,19 +1,83 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
   Bot, Sparkles, Shield, Zap, ChevronLeft, Mail, Lock, Eye, EyeOff, User,
   MessageCircle, Users, TrendingUp, ArrowRight, CheckCircle, Check, Gift, Clock
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
+import api from '../../services/api';
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 export default function SignupPage() {
   const navigate = useNavigate();
-  const { signup, isLoading, error, clearError } = useAuthStore();
+  const { signup, isLoading, error, clearError, setTokens } = useAuthStore();
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [acceptPrivacy, setAcceptPrivacy] = useState(false);
   const [privacyError, setPrivacyError] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [focusedField, setFocusedField] = useState(null);
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  // Initialize Google Sign-In
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return;
+    
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    document.body.appendChild(script);
+
+    script.onload = () => {
+      window.google?.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleResponse,
+      });
+      window.google?.accounts.id.renderButton(
+        document.getElementById('google-signup-btn'),
+        { 
+          theme: 'outline', 
+          size: 'large', 
+          width: '100%',
+          text: 'signup_with',
+          locale: 'he'
+        }
+      );
+    };
+
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, []);
+
+  const handleGoogleResponse = async (response) => {
+    if (!response.credential) return;
+    
+    setGoogleLoading(true);
+    clearError();
+    
+    try {
+      // Get referral code from localStorage if exists
+      const referralCode = localStorage.getItem('referral_code');
+      const referralTimestamp = localStorage.getItem('referral_timestamp');
+      const isValidReferral = referralTimestamp && 
+        (Date.now() - parseInt(referralTimestamp)) < (30 * 24 * 60 * 60 * 1000);
+      
+      const res = await api.post('/auth/google', {
+        credential: response.credential,
+        referralCode: isValidReferral ? referralCode : null,
+      });
+      
+      setTokens(res.data.accessToken, res.data.refreshToken);
+      navigate('/dashboard');
+    } catch (err) {
+      console.error('Google signup error:', err);
+      useAuthStore.setState({ error: err.response?.data?.error || 'שגיאה בהרשמה עם Google' });
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -299,14 +363,24 @@ export default function SignupPage() {
           </form>
 
           {/* Divider */}
-          <div className="my-8 flex items-center gap-4">
+          <div className="my-6 flex items-center gap-4">
             <div className="flex-1 h-px bg-gray-200" />
-            <span className="text-sm text-gray-400">או</span>
+            <span className="text-sm text-gray-400">או הירשם עם</span>
             <div className="flex-1 h-px bg-gray-200" />
           </div>
 
+          {/* Google Sign Up */}
+          <div className="relative">
+            {googleLoading && (
+              <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-xl z-10">
+                <div className="w-6 h-6 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+              </div>
+            )}
+            <div id="google-signup-btn" className="flex justify-center [&>div]:w-full [&>div>div]:w-full [&_iframe]:!w-full" />
+          </div>
+
           {/* Login Link */}
-          <div className="text-center">
+          <div className="text-center mt-6">
             <p className="text-gray-600">
               כבר יש לך חשבון?{' '}
               <Link 
