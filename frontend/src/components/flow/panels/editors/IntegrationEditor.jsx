@@ -304,9 +304,10 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                   <TextInputWithVariables
                     value={action.apiUrl || ''}
                     onChange={(v) => onUpdate({ apiUrl: v })}
-                    placeholder="https://api.example.com/{{contact_id}}"
+                    placeholder="https://api.example.com/endpoint - הקלד { למשתנים"
                     className="flex-1"
                     dir="ltr"
+                    compact
                   />
                 </div>
               </div>
@@ -339,14 +340,16 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                           className="w-[120px] px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm flex-shrink-0"
                           dir="ltr"
                         />
-                        <input
-                          type="text"
-                          value={header.value}
-                          onChange={(e) => updateHeader(i, 'value', e.target.value)}
-                          placeholder="Value {{variable}}"
-                          className="flex-1 min-w-0 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-                          dir="ltr"
-                        />
+                        <div className="flex-1 min-w-0">
+                          <TextInputWithVariables
+                            value={header.value}
+                            onChange={(v) => updateHeader(i, 'value', v)}
+                            placeholder="Value - הקלד { למשתנים"
+                            dir="ltr"
+                            compact
+                            className="bg-gray-50"
+                          />
+                        </div>
                         <button 
                           type="button"
                           onClick={() => removeHeader(i)} 
@@ -363,7 +366,6 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                     >
                       + הוסף Header
                     </button>
-                    <p className="text-xs text-gray-400">הקלד משתנים בפורמט: {'{{api_key}}'}</p>
                   </div>
                 )}
               </div>
@@ -429,7 +431,7 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                     ) : (
                       <div className="space-y-2">
                         {bodyParams.map((param, i) => (
-                          <div key={i} className="flex items-start gap-2">
+                          <div key={i} className="flex items-center gap-2">
                             <input
                               type="text"
                               value={param.key}
@@ -439,13 +441,13 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                               dir="ltr"
                             />
                             <div className="flex-1 min-w-0">
-                              <input
-                                type="text"
+                              <TextInputWithVariables
                                 value={param.value}
-                                onChange={(e) => updateBodyParam(i, 'value', e.target.value)}
-                                placeholder="Value {{phone}} {{name}}"
-                                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                                onChange={(v) => updateBodyParam(i, 'value', v)}
+                                placeholder="Value - הקלד { למשתנים"
                                 dir="ltr"
+                                compact
+                                className="bg-gray-50"
                               />
                             </div>
                             <button 
@@ -457,16 +459,13 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                             </button>
                           </div>
                         ))}
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={addBodyParam}
-                            className="flex-1 py-2 text-sm text-orange-600 hover:bg-orange-50 rounded-lg border border-dashed border-orange-200"
-                          >
-                            + הוסף פרמטר
-                          </button>
-                        </div>
-                        <p className="text-xs text-gray-400">הקלד משתנים בפורמט: {'{{phone}}'} או {'{{contact_name}}'}</p>
+                        <button
+                          type="button"
+                          onClick={addBodyParam}
+                          className="w-full py-2 text-sm text-orange-600 hover:bg-orange-50 rounded-lg border border-dashed border-orange-200"
+                        >
+                          + הוסף פרמטר
+                        </button>
                       </div>
                     )}
                   </div>

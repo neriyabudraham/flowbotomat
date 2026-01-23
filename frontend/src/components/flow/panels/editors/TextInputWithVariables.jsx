@@ -12,6 +12,7 @@ export default function TextInputWithVariables({
   dir = 'rtl',
   noEmoji = false,
   label,
+  compact = false, // Hide the "add variable" button - just use { to trigger
 }) {
   const [showVariables, setShowVariables] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
@@ -93,26 +94,28 @@ export default function TextInputWithVariables({
         } ${multiline ? 'resize-none' : ''} ${className}`}
       />
       
-      {/* Status bar */}
-      <div className="flex items-center justify-between mt-1">
-        <button
-          type="button"
-          onClick={() => {
-            const rect = inputRef.current?.getBoundingClientRect();
-            if (rect) {
-              setSelectorPosition({ top: rect.bottom + 5, left: rect.left });
-            }
-            setCursorPosition(inputRef.current?.selectionStart || (value?.length || 0));
-            setShowVariables(true);
-          }}
-          className="text-xs text-teal-600 hover:text-teal-700 flex items-center gap-1"
-        >
-          <span className="bg-teal-100 px-1.5 py-0.5 rounded">{'{ }'}</span>
-          הוסף משתנה
-        </button>
-        
-        {hasEmoji && <span className="text-xs text-red-500">⚠️ ללא אימוג'י</span>}
-      </div>
+      {/* Status bar - hidden in compact mode */}
+      {!compact && (
+        <div className="flex items-center justify-between mt-1">
+          <button
+            type="button"
+            onClick={() => {
+              const rect = inputRef.current?.getBoundingClientRect();
+              if (rect) {
+                setSelectorPosition({ top: rect.bottom + 5, left: rect.left });
+              }
+              setCursorPosition(inputRef.current?.selectionStart || (value?.length || 0));
+              setShowVariables(true);
+            }}
+            className="text-xs text-teal-600 hover:text-teal-700 flex items-center gap-1"
+          >
+            <span className="bg-teal-100 px-1.5 py-0.5 rounded">{'{ }'}</span>
+            הוסף משתנה
+          </button>
+          
+          {hasEmoji && <span className="text-xs text-red-500">⚠️ ללא אימוג'י</span>}
+        </div>
+      )}
 
       {/* Variable Selector */}
       <VariableSelector
