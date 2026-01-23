@@ -31,17 +31,26 @@ const operatorLabels = {
 };
 
 function ConditionNode({ data, selected }) {
-  // Support both old format (variable, operator, value) and new format (conditions array)
-  const conditions = data.conditions || [];
-  const logic = data.logic || 'and';
+  // Support: conditionGroup (new), conditions array, or old format (variable, operator, value)
+  const conditionGroup = data.conditionGroup || null;
+  const conditions = conditionGroup?.conditions || data.conditions || [];
+  const logic = conditionGroup?.logic || data.logic || 'AND';
   
   // Build condition summary
   const getConditionSummary = (condition) => {
+    if (condition.isGroup) {
+      return `קבוצה (${condition.conditions?.length || 0} תנאים)`;
+    }
+    
     const varLabel = variableLabels[condition.variable] || condition.variable || '?';
     const opLabel = operatorLabels[condition.operator] || condition.operator || '=';
     
     if (['is_true', 'is_false', 'is_empty', 'is_not_empty'].includes(condition.operator)) {
       return `${varLabel} ${opLabel}`;
+    }
+    
+    if (condition.varName) {
+      return `${varLabel} "${condition.varName}" ${opLabel}${condition.value ? ` "${condition.value}"` : ''}`;
     }
     
     if (condition.value) {
@@ -52,7 +61,7 @@ function ConditionNode({ data, selected }) {
   };
   
   // Fallback for old format
-  const hasOldFormat = data.variable && !conditions.length;
+  const hasOldFormat = data.variable && !conditions.length && !conditionGroup;
   
   return (
     <div 
@@ -120,14 +129,14 @@ function ConditionNode({ data, selected }) {
         )}
         
         {/* New format conditions */}
-        {conditions.map((condition, index) => (
+        {conditions.filter(c => !c.isGroup).slice(0, 3).map((condition, index) => (
           <div key={index}>
             {index > 0 && (
               <div className="flex items-center justify-center py-1">
                 <span className={`text-xs font-medium px-2 py-0.5 rounded ${
-                  logic === 'and' ? 'text-purple-500 bg-purple-50' : 'text-orange-500 bg-orange-50'
+                  logic.toUpperCase() === 'AND' ? 'text-blue-500 bg-blue-50' : 'text-orange-500 bg-orange-50'
                 }`}>
-                  {logic === 'and' ? 'וגם' : 'או'}
+                  {logic.toUpperCase() === 'AND' ? 'וגם' : 'או'}
                 </span>
               </div>
             )}
@@ -138,6 +147,11 @@ function ConditionNode({ data, selected }) {
             </div>
           </div>
         ))}
+        {conditions.length > 3 && (
+          <div className="text-xs text-gray-400 text-center">
+            +{conditions.length - 3} תנאים נוספים
+          </div>
+        )}
       </div>
       
       {/* Source Handles with labels */}

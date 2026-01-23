@@ -1,63 +1,44 @@
 import { memo } from 'react';
-import { StickyNote, Edit2, Copy, Trash2 } from 'lucide-react';
+import { StickyNote } from 'lucide-react';
+import BaseNode from './BaseNode';
 
 const noteColors = {
-  yellow: { bg: 'bg-yellow-100', border: 'border-yellow-300', header: 'bg-yellow-200', text: 'text-yellow-800' },
-  blue: { bg: 'bg-blue-100', border: 'border-blue-300', header: 'bg-blue-200', text: 'text-blue-800' },
-  green: { bg: 'bg-green-100', border: 'border-green-300', header: 'bg-green-200', text: 'text-green-800' },
-  pink: { bg: 'bg-pink-100', border: 'border-pink-300', header: 'bg-pink-200', text: 'text-pink-800' },
-  purple: { bg: 'bg-purple-100', border: 'border-purple-300', header: 'bg-purple-200', text: 'text-purple-800' },
+  yellow: { gradient: 'from-yellow-400 to-yellow-500', bg: 'bg-yellow-50', text: 'text-yellow-700' },
+  blue: { gradient: 'from-blue-400 to-blue-500', bg: 'bg-blue-50', text: 'text-blue-700' },
+  green: { gradient: 'from-green-400 to-green-500', bg: 'bg-green-50', text: 'text-green-700' },
+  pink: { gradient: 'from-pink-400 to-pink-500', bg: 'bg-pink-50', text: 'text-pink-700' },
+  purple: { gradient: 'from-purple-400 to-purple-500', bg: 'bg-purple-50', text: 'text-purple-700' },
 };
 
 function NoteNode({ data, selected }) {
-  const color = noteColors[data.color] || noteColors.yellow;
+  const colorKey = data.color || 'yellow';
+  const color = noteColors[colorKey] || noteColors.yellow;
   const note = data.note || '';
   
   return (
-    <div 
-      className={`group ${color.bg} rounded-2xl border-2 ${color.border} transition-all duration-200 min-w-[180px] max-w-[280px] shadow-md ${
-        selected ? 'shadow-lg' : 'hover:shadow-lg'
-      }`}
+    <BaseNode
+      data={data}
+      selected={selected}
+      type="note"
+      color={colorKey}
+      icon={StickyNote}
+      title="הערה"
+      hasTarget={false}
+      hasSource={false}
+      customGradient={`bg-gradient-to-l ${color.gradient}`}
     >
-      {/* Hover Actions */}
-      <div className="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity z-50">
-        <div className="flex items-center gap-1 bg-white rounded-xl shadow-lg border border-gray-200 p-1">
-          <button 
-            onClick={(e) => { e.stopPropagation(); data.onEdit?.(); }}
-            className="p-2 hover:bg-blue-50 rounded-lg transition-colors"
-          >
-            <Edit2 className="w-4 h-4 text-blue-600" />
-          </button>
-          <button 
-            onClick={(e) => { e.stopPropagation(); data.onDuplicate?.(); }}
-            className="p-2 hover:bg-green-50 rounded-lg transition-colors"
-          >
-            <Copy className="w-4 h-4 text-green-600" />
-          </button>
-          <button 
-            onClick={(e) => { e.stopPropagation(); data.onDelete?.(); }}
-            className="p-2 hover:bg-red-50 rounded-lg transition-colors"
-          >
-            <Trash2 className="w-4 h-4 text-red-600" />
-          </button>
-        </div>
-      </div>
-      
-      {/* Header */}
-      <div className={`flex items-center gap-2 px-3 py-2 ${color.header} rounded-t-xl`}>
-        <StickyNote className={`w-4 h-4 ${color.text}`} />
-        <span className={`font-medium text-sm ${color.text}`}>הערה</span>
-      </div>
-      
-      {/* Content */}
-      <div className="p-3">
+      <div className="space-y-2">
         {note ? (
-          <p className={`text-sm ${color.text} whitespace-pre-wrap`}>{note}</p>
+          <div className={`${color.bg} rounded-lg p-3`}>
+            <p className={`text-sm ${color.text} whitespace-pre-wrap line-clamp-4`}>{note}</p>
+          </div>
         ) : (
-          <p className="text-sm text-gray-400 italic">לחץ לכתיבת הערה...</p>
+          <div className="text-center py-3 text-gray-400 text-sm">
+            לחץ לכתיבת הערה...
+          </div>
         )}
       </div>
-    </div>
+    </BaseNode>
   );
 }
 

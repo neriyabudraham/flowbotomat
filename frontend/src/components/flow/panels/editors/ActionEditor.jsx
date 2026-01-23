@@ -18,14 +18,32 @@ const actionTypes = [
   { id: 'disable_bot', label: 'כבה בוט', icon: '⏹️', hasValue: 'bot_select', category: 'control' },
   { id: 'pause_all_bots', label: 'השהה את כל הבוטים', icon: '⏸️', category: 'control' },
   { id: 'enable_all_bots', label: 'הפעל את כל הבוטים', icon: '⏯️', category: 'control' },
-  { id: 'random_choice', label: 'בחירה אקראית', icon: '🎲', hasValue: 'random', category: 'control' },
   { id: 'delete_contact', label: 'מחק איש קשר', icon: '🗑️', category: 'control' },
+  
+  // Group Actions
+  { id: 'add_to_group', label: 'הוסף לקבוצה', icon: '➕', hasValue: 'group', category: 'group' },
+  { id: 'remove_from_group', label: 'הסר מקבוצה', icon: '➖', hasValue: 'group', category: 'group' },
+  { id: 'check_group_member', label: 'בדוק חברות בקבוצה', icon: '🔍', hasValue: 'group_check', category: 'group' },
+  { id: 'set_group_admin_only', label: 'הגדר הודעות מנהלים', icon: '👑', hasValue: 'group_settings', category: 'group' },
+  { id: 'update_group_subject', label: 'עדכן שם קבוצה', icon: '✏️', hasValue: 'group_subject', category: 'group' },
+  { id: 'update_group_description', label: 'עדכן תיאור קבוצה', icon: '📄', hasValue: 'group_desc', category: 'group' },
+  
+  // Labels (WhatsApp Business)
+  { id: 'set_label', label: 'הגדר תווית', icon: '🔖', hasValue: 'label', category: 'business' },
+  
+  // Integration Actions
+  { id: 'webhook', label: 'Webhook', icon: '🌐', hasValue: 'url', category: 'integration' },
+  { id: 'http_request', label: 'קריאת API', icon: '📡', hasValue: 'api', category: 'integration' },
+  { id: 'notify', label: 'התראה', icon: '🔔', hasValue: 'text', category: 'integration' },
 ];
 
 const categories = [
   { id: 'tags', label: 'תגיות', icon: '🏷️', color: 'pink', defaultOpen: true },
   { id: 'variables', label: 'משתנים', icon: '📝', color: 'blue', defaultOpen: false },
   { id: 'control', label: 'בקרת בוטים', icon: '🎮', color: 'red', defaultOpen: false },
+  { id: 'group', label: 'קבוצות WhatsApp', icon: '👥', color: 'green', defaultOpen: false },
+  { id: 'business', label: 'WhatsApp Business', icon: '🏢', color: 'purple', defaultOpen: false },
+  { id: 'integration', label: 'אינטגרציות', icon: '🔌', color: 'orange', defaultOpen: false },
 ];
 
 const categoryColors = {
@@ -291,39 +309,6 @@ function ActionItem({ action, onUpdate, onRemove }) {
         <BotSelector action={action} onUpdate={onUpdate} actionType={action.type} />
       )}
 
-      {/* Random Choice */}
-      {actionInfo.hasValue === 'random' && (
-        <div className="space-y-4">
-          <p className="text-xs text-gray-500">הגדר אחוזים לבחירה אקראית:</p>
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-green-600 w-16">אפשרות א׳</span>
-              <input
-                type="range"
-                min={1}
-                max={99}
-                value={action.percentA || 50}
-                onChange={(e) => onUpdate({ percentA: parseInt(e.target.value), percentB: 100 - parseInt(e.target.value) })}
-                className="flex-1 accent-green-500"
-              />
-              <span className="text-sm font-bold text-green-600 w-12 text-center">{action.percentA || 50}%</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-red-600 w-16">אפשרות ב׳</span>
-              <input
-                type="range"
-                min={1}
-                max={99}
-                value={action.percentB || 50}
-                onChange={(e) => onUpdate({ percentB: parseInt(e.target.value), percentA: 100 - parseInt(e.target.value) })}
-                className="flex-1 accent-red-500"
-              />
-              <span className="text-sm font-bold text-red-600 w-12 text-center">{action.percentB || 50}%</span>
-            </div>
-          </div>
-          <p className="text-xs text-gray-400">הפלואו יתפצל אקראית לפי האחוזים שהגדרת</p>
-        </div>
-      )}
 
       {/* Group selector */}
       {actionInfo.hasValue === 'group' && (

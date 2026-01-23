@@ -334,11 +334,61 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
             <input
               type="checkbox"
               checked={action.enableLinkPreview || false}
-              onChange={(e) => onUpdate({ enableLinkPreview: e.target.checked })}
+              onChange={(e) => onUpdate({ enableLinkPreview: e.target.checked, customLinkPreview: false })}
               className="w-3.5 h-3.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
             />
             <span>תצוגה מקדימה של קישור</span>
           </label>
+          
+          {/* Custom Link Preview Fields */}
+          {action.enableLinkPreview && (
+            <div className="mt-3 space-y-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={action.customLinkPreview || false}
+                  onChange={(e) => onUpdate({ customLinkPreview: e.target.checked })}
+                  className="w-3.5 h-3.5 rounded border-gray-300 text-teal-600"
+                />
+                <span>תצוגה מקדימה מותאמת אישית</span>
+              </label>
+              
+              {action.customLinkPreview && (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={action.linkPreviewTitle || ''}
+                    onChange={(e) => onUpdate({ linkPreviewTitle: e.target.value })}
+                    placeholder="כותרת התצוגה המקדימה"
+                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+                  />
+                  <input
+                    type="text"
+                    value={action.linkPreviewDescription || ''}
+                    onChange={(e) => onUpdate({ linkPreviewDescription: e.target.value })}
+                    placeholder="תיאור"
+                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+                  />
+                  <input
+                    type="url"
+                    value={action.linkPreviewUrl || ''}
+                    onChange={(e) => onUpdate({ linkPreviewUrl: e.target.value })}
+                    placeholder="קישור (URL)"
+                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+                    dir="ltr"
+                  />
+                  <input
+                    type="url"
+                    value={action.linkPreviewImage || ''}
+                    onChange={(e) => onUpdate({ linkPreviewImage: e.target.value })}
+                    placeholder="תמונה (URL)"
+                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+                    dir="ltr"
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

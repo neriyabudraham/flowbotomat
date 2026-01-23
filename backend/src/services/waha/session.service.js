@@ -456,26 +456,45 @@ function formatPhoneNumber(phone) {
 }
 
 /**
- * Build contact object for WAHA API
- * Using WAHA's structured format instead of raw vCard
+ * Build vCard string for WAHA API
+ * Using raw vCard 3.0 format with proper encoding
  */
-function buildContactObject(contactName, contactPhone, contactOrg = '') {
-  // Format phone number to international format
-  const formattedPhone = formatPhoneNumber(contactPhone);
-  const phoneWithPlus = formattedPhone.startsWith('+') ? formattedPhone : `+${formattedPhone}`;
+function buildVcardString(contactName, contactPhone, contactOrg = '') {
+  // Format phone number - remove all non-digits, ensure starts with country code
+  let cleanPhone = contactPhone.replace(/[^0-9]/g, '');
   
-  // Split name to first/last for better WhatsApp display
+  // Handle Israeli numbers
+  if (cleanPhone.startsWith('0')) {
+    cleanPhone = '972' + cleanPhone.substring(1);
+  } else if (!cleanPhone.startsWith('972') && cleanPhone.length === 9) {
+    cleanPhone = '972' + cleanPhone;
+  }
+  
+  const phoneWithPlus = '+' + cleanPhone;
+  
+  // Split name for N field
   const nameParts = contactName.trim().split(' ');
-  const firstName = nameParts[0] || contactName;
+  const firstName = nameParts[0] || '';
   const lastName = nameParts.slice(1).join(' ') || '';
   
-  return {
-    fullName: contactName,
-    firstName: firstName,
-    lastName: lastName || undefined,
-    phoneNumber: phoneWithPlus,
-    organization: contactOrg || undefined,
-  };
+  // Build vCard 3.0 - the key is the waid parameter in TEL
+  const vcardLines = [
+    'BEGIN:VCARD',
+    'VERSION:3.0',
+    `N:${lastName};${firstName};;;`,
+    `FN:${contactName}`,
+  ];
+  
+  // Add organization if provided
+  if (contactOrg) {
+    vcardLines.push(`ORG:${contactOrg};`);
+  }
+  
+  // Phone with waid for WhatsApp clickability
+  vcardLines.push(`TEL;type=CELL;type=VOICE;waid=${cleanPhone}:${phoneWithPlus}`);
+  vcardLines.push('END:VCARD');
+  
+  return vcardLines.join('\n');
 }
 
 /**
@@ -485,22 +504,25 @@ async function sendContactVcard(connection, phone, contactName, contactPhone, co
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
-  // Build contacts array using WAHA's structured format
+  // Build contacts array using raw vCard strings
   const contacts = [];
   
   // Add main contact
-  contacts.push(buildContactObject(contactName, contactPhone, contactOrg));
+  const mainVcard = buildVcardString(contactName, contactPhone, contactOrg);
+  contacts.push({ vcard: mainVcard });
   
   // Add additional contacts if provided
   if (additionalContacts && additionalContacts.length > 0) {
     for (const c of additionalContacts) {
       if (c.contactName && c.contactPhone) {
-        contacts.push(buildContactObject(c.contactName, c.contactPhone, c.contactOrg || ''));
+        const vcard = buildVcardString(c.contactName, c.contactPhone, c.contactOrg || '');
+        contacts.push({ vcard: vcard });
       }
     }
   }
   
-  console.log(`[WAHA] Sending ${contacts.length} contact(s):`, JSON.stringify(contacts, null, 2));
+  console.log(`[WAHA] Sending ${contacts.length} vCard(s):`);
+  contacts.forEach((c, i) => console.log(`Contact ${i + 1}:\n${c.vcard}`));
   
   const response = await client.post(`/api/sendContactVcard`, {
     session: connection.session_name,
