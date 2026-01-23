@@ -560,20 +560,37 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
           )}
           
           {action.fileName && (
-            <div className="flex items-center justify-between gap-2 p-3 bg-gray-100 rounded-lg text-sm text-gray-700">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2 p-3 bg-gray-100 rounded-lg text-sm text-gray-700">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500" />
+                  <span className="truncate max-w-[180px]">{action.fileName}</span>
+                  {action.fileSize && (
+                    <span className="text-xs text-gray-500">({formatFileSize(action.fileSize)})</span>
+                  )}
+                </div>
+                <button 
+                  onClick={() => onUpdate({ url: '', fileName: '', localFile: false, fileSize: null, inputMode: 'upload', customFilename: '' })}
+                  className="text-red-500 hover:text-red-700"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              
+              {/* Custom filename option */}
               <div className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-500" />
-                <span className="truncate max-w-[180px]">{action.fileName}</span>
-                {action.fileSize && (
-                  <span className="text-xs text-gray-500">({formatFileSize(action.fileSize)})</span>
+                <input
+                  type="text"
+                  value={action.customFilename || ''}
+                  onChange={(e) => onUpdate({ customFilename: e.target.value })}
+                  placeholder="שם מותאם (אופציונלי)"
+                  className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+                />
+                {action.fileName && (
+                  <span className="text-xs text-gray-400">.{action.fileName.split('.').pop()}</span>
                 )}
               </div>
-              <button 
-                onClick={() => onUpdate({ url: '', fileName: '', localFile: false, fileSize: null, inputMode: 'upload' })}
-                className="text-red-500 hover:text-red-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <p className="text-xs text-gray-400">הזן שם חדש לקובץ (ללא סיומת)</p>
             </div>
           )}
         </div>

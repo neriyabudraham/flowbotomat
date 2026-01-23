@@ -775,8 +775,17 @@ class BotEngine {
           case 'file':
             if (action.url || action.fileData) {
               const fileUrl = action.fileData || action.url;
-              // Ensure we have a filename - extract from URL or use a default
-              let filename = action.fileName || action.filename || 'file';
+              // Ensure we have a filename - use custom if provided, or extract from URL
+              let filename = action.customFilename || action.fileName || action.filename || 'file';
+              
+              // If custom filename provided, preserve original extension
+              if (action.customFilename && action.fileName) {
+                const originalExt = action.fileName.split('.').pop();
+                if (!action.customFilename.includes('.')) {
+                  filename = `${action.customFilename}.${originalExt}`;
+                }
+              }
+              
               if (!filename || filename === 'file') {
                 // Try to extract from URL
                 try {

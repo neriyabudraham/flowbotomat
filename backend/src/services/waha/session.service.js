@@ -456,9 +456,10 @@ function formatPhoneNumber(phone) {
 }
 
 /**
- * Build vCard string for a contact
+ * Build contact object for WAHA API
+ * Using WAHA's structured format instead of raw vCard
  */
-function buildVcard(contactName, contactPhone, contactOrg = '') {
+function buildContactObject(contactName, contactPhone, contactOrg = '') {
   // Format phone number to international format
   const formattedPhone = formatPhoneNumber(contactPhone);
   const phoneWithPlus = formattedPhone.startsWith('+') ? formattedPhone : `+${formattedPhone}`;
@@ -468,16 +469,13 @@ function buildVcard(contactName, contactPhone, contactOrg = '') {
   const firstName = nameParts[0] || contactName;
   const lastName = nameParts.slice(1).join(' ') || '';
   
-  // Build raw vCard 3.0 format with proper name encoding
-  return [
-    'BEGIN:VCARD',
-    'VERSION:3.0',
-    `FN:${contactName}`,
-    `N:${lastName};${firstName};;;`,
-    `TEL;type=CELL;waid=${formattedPhone}:${phoneWithPlus}`,
-    contactOrg ? `ORG:${contactOrg}` : null,
-    'END:VCARD'
-  ].filter(Boolean).join('\r\n');
+  return {
+    fullName: contactName,
+    firstName: firstName,
+    lastName: lastName || undefined,
+    phoneNumber: phoneWithPlus,
+    organization: contactOrg || undefined,
+  };
 }
 
 /**
@@ -487,24 +485,22 @@ async function sendContactVcard(connection, phone, contactName, contactPhone, co
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
-  // Build contacts array
+  // Build contacts array using WAHA's structured format
   const contacts = [];
   
   // Add main contact
-  const mainVcard = buildVcard(contactName, contactPhone, contactOrg);
-  contacts.push({ vcard: mainVcard });
+  contacts.push(buildContactObject(contactName, contactPhone, contactOrg));
   
   // Add additional contacts if provided
   if (additionalContacts && additionalContacts.length > 0) {
     for (const c of additionalContacts) {
       if (c.contactName && c.contactPhone) {
-        const vcard = buildVcard(c.contactName, c.contactPhone, c.contactOrg || '');
-        contacts.push({ vcard: vcard });
+        contacts.push(buildContactObject(c.contactName, c.contactPhone, c.contactOrg || ''));
       }
     }
   }
   
-  console.log(`[WAHA] Sending ${contacts.length} vCard(s):`, contacts.map(c => c.vcard).join('\n---\n'));
+  console.log(`[WAHA] Sending ${contacts.length} contact(s):`, JSON.stringify(contacts, null, 2));
   
   const response = await client.post(`/api/sendContactVcard`, {
     session: connection.session_name,
@@ -512,7 +508,7 @@ async function sendContactVcard(connection, phone, contactName, contactPhone, co
     contacts: contacts,
   });
   
-  console.log(`[WAHA] Sent ${contacts.length} vCard(s) to ${phone}`);
+  console.log(`[WAHA] Sent ${contacts.length} contact(s) to ${phone}`);
   return response.data;
 }
 
