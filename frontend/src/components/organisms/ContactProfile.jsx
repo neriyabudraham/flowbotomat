@@ -67,6 +67,7 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
   const loadData = async () => {
     setLoading(true);
     try {
+      console.log('[ContactProfile] Loading data for contact:', contact.id);
       const [varsRes, tagsRes, allTagsRes, statsRes, defsRes] = await Promise.all([
         api.get(`/contacts/${contact.id}/variables`),
         api.get(`/contacts/${contact.id}/tags`),
@@ -74,6 +75,10 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
         api.get(`/contacts/${contact.id}/stats`),
         api.get('/variables').catch(() => ({ data: { variables: [] } })),
       ]);
+      
+      console.log('[ContactProfile] Variables:', varsRes.data);
+      console.log('[ContactProfile] Stats:', statsRes.data);
+      
       setVariables(varsRes.data.variables || []);
       setTags(tagsRes.data.tags || []);
       setAllTags(allTagsRes.data.tags || []);

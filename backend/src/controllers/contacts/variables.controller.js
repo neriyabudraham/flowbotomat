@@ -19,9 +19,11 @@ async function getVariables(req, res) {
     }
     
     const result = await pool.query(
-      'SELECT * FROM contact_variables WHERE contact_id = $1 ORDER BY key',
+      'SELECT key, value, created_at, updated_at FROM contact_variables WHERE contact_id = $1 ORDER BY key',
       [contactId]
     );
+    
+    console.log(`[Variables] Contact ${contactId} has ${result.rows.length} variables:`, result.rows.map(v => v.key));
     
     res.json({ variables: result.rows });
   } catch (error) {

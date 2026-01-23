@@ -57,7 +57,7 @@ async function getContactStats(req, res) {
     const lastMessage = lastMessageResult.rows[0];
     const stats = messagesResult.rows[0] || {};
     
-    res.json({
+    const response = {
       messageCount: parseInt(stats.total_count || 0),
       incomingCount: parseInt(stats.incoming_count || 0),
       outgoingCount: parseInt(stats.outgoing_count || 0),
@@ -70,7 +70,11 @@ async function getContactStats(req, res) {
         id: b.bot_id,
         count: parseInt(b.run_count)
       }))
-    });
+    };
+    
+    console.log(`[Stats] Contact ${contactId} response:`, JSON.stringify(response));
+    
+    res.json(response);
     
   } catch (error) {
     console.error('[Contacts] Get stats error:', error);
