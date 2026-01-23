@@ -72,8 +72,20 @@ const useContactsStore = create((set, get) => ({
   addMessage: (message) => {
     const { selectedContact, contacts, messages } = get();
     
+    console.log('[Store] addMessage called:', {
+      messageId: message?.id,
+      contactId: message?.contact_id,
+      selectedContactId: selectedContact?.id,
+      messageType: message?.message_type
+    });
+    
+    if (!message || !message.id) {
+      console.log('[Store] Invalid message, skipping');
+      return;
+    }
+    
     // Check for duplicate message (same id)
-    const existingMsg = messages.find(m => m.id === message.id || m.wa_message_id === message.wa_message_id);
+    const existingMsg = messages.find(m => m.id === message.id || (m.wa_message_id && m.wa_message_id === message.wa_message_id));
     if (existingMsg) {
       console.log('[Store] Duplicate message, skipping:', message.id);
       return;
@@ -81,13 +93,16 @@ const useContactsStore = create((set, get) => ({
     
     // Add to messages if viewing this contact
     if (selectedContact && message.contact_id === selectedContact.id) {
+      console.log('[Store] ✅ Adding message to chat view');
       set({ messages: [...messages, message] });
+    } else {
+      console.log('[Store] ⚠️ Message not for selected contact, not adding to view');
     }
     
     // Update contact in list - move to top and update last message
     const updatedContacts = contacts.map(c => 
       c.id === message.contact_id 
-        ? { ...c, last_message: message.content?.substring(0, 100) || '', last_message_at: message.sent_at }
+        ? { ...c, last_message: message.content?.substring(0, 100) || message.media_filename || '', last_message_at: message.sent_at || new Date().toISOString() }
         : c
     ).sort((a, b) => {
       // Sort by last_message_at descending (most recent first)

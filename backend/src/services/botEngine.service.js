@@ -52,6 +52,7 @@ class BotEngine {
       
       // Emit to frontend via socket
       console.log('[BotEngine] 📡 Emitting outgoing_message via socket for user:', userId);
+      console.log('[BotEngine] 📡 Message data:', { id: savedMessage.id, contact_id: savedMessage.contact_id, type: savedMessage.message_type });
       const socketManager = getSocketManager();
       socketManager.emitToUser(userId, 'outgoing_message', {
         message: { ...savedMessage, from_bot: true },
