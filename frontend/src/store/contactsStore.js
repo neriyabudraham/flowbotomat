@@ -106,6 +106,18 @@ const useContactsStore = create((set, get) => ({
     }
   },
 
+  // Update a message's reaction
+  updateMessageReaction: (messageId, reaction) => {
+    const { messages } = get();
+    set({
+      messages: messages.map(m => 
+        m.id === messageId 
+          ? { ...m, metadata: { ...(m.metadata || {}), reaction } }
+          : m
+      )
+    });
+  },
+
   toggleBot: async (contactId, isActive) => {
     try {
       const { data } = await api.patch(`/contacts/${contactId}/bot`, { is_bot_active: isActive });

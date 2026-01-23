@@ -932,14 +932,11 @@ class BotEngine {
               );
               if (lastSeenMsg.rows.length > 0 && lastSeenMsg.rows[0].wa_message_id) {
                 await wahaService.sendSeen(connection, contact.phone, [lastSeenMsg.rows[0].wa_message_id]);
-                // Save mark_seen as a message for display
-                await this.saveOutgoingMessage(userId, contact.id, 'סומן כנקרא', 'mark_seen', null, null);
-                console.log('[BotEngine] ✅ Marked as seen and saved:', lastSeenMsg.rows[0].wa_message_id);
+                console.log('[BotEngine] ✅ Marked as seen:', lastSeenMsg.rows[0].wa_message_id);
               } else {
                 // Fallback to just chat seen
                 await wahaService.sendSeen(connection, contact.phone, []);
-                await this.saveOutgoingMessage(userId, contact.id, 'סומן כנקרא', 'mark_seen', null, null);
-                console.log('[BotEngine] ✅ Marked chat as seen and saved');
+                console.log('[BotEngine] ✅ Marked chat as seen');
               }
             }
             break;
@@ -948,18 +945,31 @@ class BotEngine {
             if (action.reaction) {
               // Get the last incoming message ID from database
               const lastReactMsg = await db.query(
-                `SELECT wa_message_id FROM messages 
+                `SELECT id, wa_message_id FROM messages 
                  WHERE contact_id = $1 AND direction = $2 AND wa_message_id IS NOT NULL
                  ORDER BY created_at DESC LIMIT 1`,
                 [contact.id, 'incoming']
               );
               if (lastReactMsg.rows.length > 0 && lastReactMsg.rows[0].wa_message_id) {
                 const msgId = lastReactMsg.rows[0].wa_message_id;
+                const dbMsgId = lastReactMsg.rows[0].id;
                 console.log('[BotEngine] Sending reaction to message:', msgId);
                 await wahaService.sendReaction(connection, msgId, action.reaction);
-                // Save reaction as a message for display
-                await this.saveOutgoingMessage(userId, contact.id, action.reaction, 'reaction', null, null);
-                console.log('[BotEngine] ✅ Reaction sent and saved:', action.reaction);
+                
+                // Update the original message with the reaction (don't create new message)
+                await db.query(
+                  `UPDATE messages SET metadata = COALESCE(metadata, '{}'::jsonb) || $1 WHERE id = $2`,
+                  [JSON.stringify({ reaction: action.reaction }), dbMsgId]
+                );
+                
+                // Emit reaction update via socket
+                const socketManager = getSocketManager();
+                socketManager.emitToUser(userId, 'message_reaction', {
+                  messageId: dbMsgId,
+                  reaction: action.reaction
+                });
+                
+                console.log('[BotEngine] ✅ Reaction sent:', action.reaction);
               } else {
                 console.log('[BotEngine] ⚠️ Cannot send reaction - no message ID found');
               }

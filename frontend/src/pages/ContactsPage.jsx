@@ -24,7 +24,7 @@ export default function ContactsPage() {
   const {
     contacts, selectedContact, messages, isLoading, hasMore, loadingMore,
     fetchContacts, selectContact, clearSelection, addMessage, addNewContact, toggleBot,
-    takeoverConversation, loadMoreMessages,
+    takeoverConversation, loadMoreMessages, updateMessageReaction,
   } = useContactsStore();
 
   useEffect(() => {
@@ -41,6 +41,7 @@ export default function ContactsPage() {
         // Remove old listeners first to prevent duplicates
         socket.off('new_message');
         socket.off('outgoing_message');
+        socket.off('message_reaction');
         
         // Listen for incoming messages
         socket.on('new_message', ({ message, contact }) => {
@@ -60,6 +61,12 @@ export default function ContactsPage() {
             addNewContact(contact, message);
           }
           addMessage(message);
+        });
+        
+        // Listen for message reactions
+        socket.on('message_reaction', ({ messageId, reaction }) => {
+          console.log('[Socket] 👍 Received message_reaction:', messageId, reaction);
+          updateMessageReaction(messageId, reaction);
         });
         
         console.log('[Socket] ✅ Listeners registered for user:', userData.user.id);

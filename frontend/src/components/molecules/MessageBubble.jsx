@@ -200,9 +200,25 @@ export default function MessageBubble({ message }) {
         return (
           <a 
             href={message.media_url} 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            className={`flex items-center gap-3 p-3 rounded-xl transition-colors ${
+            download={message.media_filename || 'file'}
+            onClick={(e) => {
+              // Force download instead of opening
+              e.preventDefault();
+              fetch(message.media_url)
+                .then(res => res.blob())
+                .then(blob => {
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = message.media_filename || 'file';
+                  document.body.appendChild(a);
+                  a.click();
+                  window.URL.revokeObjectURL(url);
+                  a.remove();
+                })
+                .catch(() => window.open(message.media_url, '_blank'));
+            }}
+            className={`flex items-center gap-3 p-3 rounded-xl transition-colors cursor-pointer ${
               isOutgoing 
                 ? 'bg-white/10 hover:bg-white/20' 
                 : 'bg-gray-100 hover:bg-gray-200'
@@ -347,6 +363,14 @@ export default function MessageBubble({ message }) {
 
   // Check if message was sent by bot
   const isFromBot = message.from_bot || message.metadata?.from_bot;
+  
+  // Get reaction if present
+  const reaction = metadata?.reaction;
+  
+  // Skip rendering reaction and mark_seen as standalone messages
+  if (message.message_type === 'reaction' || message.message_type === 'mark_seen') {
+    return null;
+  }
 
   return (
     <div className={`flex ${isOutgoing ? 'justify-start' : 'justify-end'} mb-3 group`}>
@@ -378,7 +402,13 @@ export default function MessageBubble({ message }) {
           </div>
         </div>
         
-        {/* Tail/Arrow effect is handled by rounded corners */}
+        {/* Reaction badge - appears on the message */}
+        {reaction && (
+          <div className={`absolute -bottom-2 ${isOutgoing ? 'left-2' : 'right-2'} 
+            bg-white rounded-full px-1.5 py-0.5 shadow-md border border-gray-100 text-lg`}>
+            {reaction}
+          </div>
+        )}
       </div>
     </div>
   );
