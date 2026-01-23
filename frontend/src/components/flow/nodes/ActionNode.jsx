@@ -27,23 +27,29 @@ function ActionNode({ data, selected }) {
       title="פעולות"
     >
       <div className="space-y-2">
-        {actions.map((action, i) => {
-          const info = actionLabels[action.type || data.actionType] || { label: 'פעולה', icon: '⚙️' };
-          return (
-            <div key={i} className="flex items-center gap-2 bg-pink-50 rounded-lg px-3 py-2">
-              <span className="text-lg">{info.icon}</span>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-pink-700">{info.label}</div>
-                {(action.tagName || data.tagName) && (
-                  <div className="text-xs text-pink-500 truncate">{action.tagName || data.tagName}</div>
-                )}
-                {(action.varKey || data.varKey) && (
-                  <div className="text-xs text-pink-500 truncate">{action.varKey || data.varKey}</div>
-                )}
+        {actions.length === 0 ? (
+          <div className="text-center py-2 text-gray-400 text-xs">
+            לחץ להוספת פעולות
+          </div>
+        ) : (
+          actions.map((action, i) => {
+            const info = actionLabels[action.type || data.actionType] || { label: 'פעולה', icon: '⚙️' };
+            return (
+              <div key={i} className="flex items-center gap-2 bg-pink-50 rounded-lg px-3 py-2">
+                <span className="text-lg">{info.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-pink-700">{info.label}</div>
+                  {(action.tagName || data.tagName) && (
+                    <div className="text-xs text-pink-500 truncate">{action.tagName || data.tagName}</div>
+                  )}
+                  {(action.varKey || data.varKey) && (
+                    <div className="text-xs text-pink-500 truncate">{action.varKey || data.varKey}</div>
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
     </BaseNode>
   );

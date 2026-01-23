@@ -7,7 +7,7 @@ const actionTypes = [
 ];
 
 export default function DelayEditor({ data, onUpdate }) {
-  const actions = data.actions || [{ type: 'delay', delay: 1, unit: 'seconds' }];
+  const actions = data.actions || [];
   const [dragIndex, setDragIndex] = useState(null);
 
   const addAction = (type) => {
@@ -21,7 +21,6 @@ export default function DelayEditor({ data, onUpdate }) {
   };
 
   const removeAction = (index) => {
-    if (actions.length <= 1) return;
     onUpdate({ actions: actions.filter((_, i) => i !== index) });
   };
 
@@ -45,6 +44,17 @@ export default function DelayEditor({ data, onUpdate }) {
 
   return (
     <div className="space-y-4">
+      {/* Empty State */}
+      {actions.length === 0 && (
+        <div className="text-center py-6 px-4 bg-gradient-to-b from-amber-50/50 to-white rounded-xl border-2 border-dashed border-amber-200">
+          <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+            <Clock className="w-6 h-6 text-amber-600" />
+          </div>
+          <p className="text-gray-700 font-medium mb-1">אין פעולות עדיין</p>
+          <p className="text-sm text-gray-500">הוסף השהייה או הקלדה</p>
+        </div>
+      )}
+
       {/* Actions List */}
       <div className="space-y-2">
         {actions.map((action, index) => {
@@ -66,14 +76,12 @@ export default function DelayEditor({ data, onUpdate }) {
                   <Icon className="w-4 h-4 text-gray-500" />
                   <span className="text-sm font-medium text-gray-700">{typeInfo?.label}</span>
                 </div>
-                {actions.length > 1 && (
-                  <button
-                    onClick={() => removeAction(index)}
-                    className="p-1 text-gray-400 hover:text-red-500"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
+                <button
+                onClick={() => removeAction(index)}
+                className="p-1 text-gray-400 hover:text-red-500"
+              >
+                <X className="w-4 h-4" />
+              </button>
               </div>
               
               {action.type === 'delay' && (

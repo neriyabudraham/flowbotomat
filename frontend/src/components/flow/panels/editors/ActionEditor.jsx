@@ -4,15 +4,18 @@ import TextInputWithVariables from './TextInputWithVariables';
 import api from '../../../../services/api';
 
 const actionTypes = [
-  // Tags & Variables
+  // Tags
   { id: 'add_tag', label: 'הוסף תגית', icon: '🏷️', hasValue: 'tag', category: 'tags' },
   { id: 'remove_tag', label: 'הסר תגית', icon: '🏷️', hasValue: 'tag', category: 'tags' },
-  { id: 'set_variable', label: 'הגדר משתנה', icon: '📝', hasValue: 'keyvalue', category: 'variables' },
-  { id: 'delete_variable', label: 'מחק משתנה', icon: '🗑️', hasValue: 'varname', category: 'variables' },
   
-  // Bot Control
-  { id: 'stop_bot', label: 'עצור בוט', icon: '🛑', category: 'control' },
-  { id: 'delete_contact', label: 'מחק איש קשר', icon: '🗑️', category: 'control' },
+  // Integration Actions
+  { id: 'webhook', label: 'Webhook', icon: '🌐', hasValue: 'url', category: 'integration' },
+  { id: 'http_request', label: 'קריאת API', icon: '📡', hasValue: 'api', category: 'integration' },
+  { id: 'notify', label: 'התראה', icon: '🔔', hasValue: 'text', category: 'integration' },
+  
+  // Variables
+  { id: 'set_variable', label: 'הגדר משתנה', icon: '📝', hasValue: 'keyvalue', category: 'variables' },
+  { id: 'delete_variable', label: 'נקה משתנה', icon: '🧹', hasValue: 'varname', category: 'variables' },
   
   // Group Actions
   { id: 'add_to_group', label: 'הוסף לקבוצה', icon: '➕', hasValue: 'group', category: 'group' },
@@ -25,19 +28,18 @@ const actionTypes = [
   // Labels (WhatsApp Business)
   { id: 'set_label', label: 'הגדר תווית', icon: '🔖', hasValue: 'label', category: 'business' },
   
-  // Integration Actions
-  { id: 'webhook', label: 'Webhook', icon: '🌐', hasValue: 'url', category: 'integration' },
-  { id: 'http_request', label: 'קריאת API', icon: '📡', hasValue: 'api', category: 'integration' },
-  { id: 'notify', label: 'התראה', icon: '🔔', hasValue: 'text', category: 'integration' },
+  // Bot Control
+  { id: 'stop_bot', label: 'עצור בוט', icon: '🛑', category: 'control' },
+  { id: 'delete_contact', label: 'מחק איש קשר', icon: '🗑️', category: 'control' },
 ];
 
 const categories = [
   { id: 'tags', label: 'תגיות', icon: '🏷️', color: 'pink', defaultOpen: true },
-  { id: 'variables', label: 'משתנים', icon: '📝', color: 'blue', defaultOpen: true },
-  { id: 'control', label: 'שליטה', icon: '⚙️', color: 'red', defaultOpen: false },
+  { id: 'integration', label: 'אינטגרציות', icon: '🔌', color: 'orange', defaultOpen: false },
+  { id: 'variables', label: 'משתנים', icon: '📝', color: 'blue', defaultOpen: false },
   { id: 'group', label: 'קבוצות', icon: '👥', color: 'green', defaultOpen: false },
   { id: 'business', label: 'WhatsApp Business', icon: '🏢', color: 'purple', defaultOpen: false },
-  { id: 'integration', label: 'אינטגרציות', icon: '🔌', color: 'orange', defaultOpen: false },
+  { id: 'control', label: 'שליטה', icon: '⚙️', color: 'red', defaultOpen: false },
 ];
 
 const categoryColors = {
@@ -283,10 +285,10 @@ function ActionItem({ action, onUpdate, onRemove }) {
         />
       )}
       
-      {/* Delete Variable */}
+      {/* Clear Variable */}
       {actionInfo.hasValue === 'varname' && (
         <div className="space-y-2">
-          <p className="text-xs text-gray-500">שם המשתנה למחיקה:</p>
+          <p className="text-xs text-gray-500">שם המשתנה לניקוי:</p>
           <input
             type="text"
             value={action.varName || ''}
@@ -294,7 +296,7 @@ function ActionItem({ action, onUpdate, onRemove }) {
             placeholder="שם המשתנה (לדוגמה: email)"
             className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
           />
-          <p className="text-xs text-gray-400">המשתנה יימחק מפרופיל איש הקשר</p>
+          <p className="text-xs text-gray-400">ערך המשתנה יתאפס מפרופיל איש הקשר</p>
         </div>
       )}
 

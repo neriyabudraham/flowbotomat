@@ -385,8 +385,9 @@ async function stopTyping(connection, phone) {
 async function sendReaction(connection, messageId, reaction) {
   const client = createClient(connection.base_url, connection.api_key);
   
-  // WAHA expects PUT to /api/{session}/reaction endpoint
-  const response = await client.put(`/api/${connection.session_name}/reaction`, {
+  // WAHA expects PUT to /api/reaction with session in body
+  const response = await client.put(`/api/reaction`, {
+    session: connection.session_name,
     messageId: messageId,
     reaction: reaction,
   });
@@ -441,33 +442,19 @@ async function sendContactVcard(connection, phone, contactName, contactPhone, co
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
   
-  // Format phone number to international format with +
+  // Format phone number to international format
   const formattedPhone = formatPhoneNumber(contactPhone);
   const phoneWithPlus = formattedPhone.startsWith('+') ? formattedPhone : `+${formattedPhone}`;
   
-  // Build raw vCard 3.0 format
-  const vcardLines = [
-    'BEGIN:VCARD',
-    'VERSION:3.0',
-    `N:;${contactName};;;`,
-    `FN:${contactName}`,
-    `TEL;TYPE=CELL:${phoneWithPlus}`,
-  ];
-  
-  if (contactOrg) {
-    vcardLines.push(`ORG:${contactOrg}`);
-  }
-  
-  vcardLines.push('END:VCARD');
-  const vcard = vcardLines.join('\n');
-  
-  console.log(`[WAHA] Sending vCard:`, vcard);
-  
+  // Use WAHA's structured contact format with whatsappId for clickable contacts
   const response = await client.post(`/api/sendContactVcard`, {
     session: connection.session_name,
     chatId: chatId,
     contacts: [{
-      vcard: vcard
+      fullName: contactName,
+      phoneNumber: phoneWithPlus,
+      organization: contactOrg || '',
+      whatsappId: formattedPhone, // This makes it clickable in WhatsApp
     }],
   });
   

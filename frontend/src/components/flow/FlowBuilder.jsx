@@ -331,7 +331,7 @@ function getDefaultData(type) {
     case 'condition':
       return { conditions: [], logic: 'and' };
     case 'delay':
-      return { actions: [{ type: 'delay', delay: 1, unit: 'seconds' }] };
+      return { actions: [] };
     case 'action':
       return { actions: [] };
     case 'list':

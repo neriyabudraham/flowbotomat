@@ -1050,6 +1050,12 @@ class BotEngine {
   async executeDelayNode(node, contact, userId) {
     // Support both old format (delay, unit) and new format (actions array)
     if (node.data.actions && Array.isArray(node.data.actions)) {
+      // Skip if no actions
+      if (node.data.actions.length === 0) {
+        console.log('[BotEngine] Delay node has no actions, skipping');
+        return;
+      }
+      
       const connection = await this.getConnection(userId);
       
       for (const action of node.data.actions) {
@@ -1067,12 +1073,14 @@ class BotEngine {
           }
         }
       }
-    } else {
-      // Old format fallback
+    } else if (node.data.delay || node.data.unit) {
+      // Old format fallback - only if delay or unit exists
       const { delay, unit } = node.data;
       const ms = (delay || 1) * (unit === 'minutes' ? 60000 : unit === 'hours' ? 3600000 : 1000);
       console.log('[BotEngine] Delay:', ms, 'ms');
       await this.sleep(ms);
+    } else {
+      console.log('[BotEngine] Delay node has no configuration, skipping');
     }
   }
   
