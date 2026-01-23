@@ -82,6 +82,42 @@ async function sendMessage(req, res) {
       [contactId]
     );
     
+    // Apply live chat settings - pause bot if configured
+    try {
+      const settingsResult = await pool.query(
+        'SELECT livechat_settings FROM users WHERE id = $1',
+        [userId]
+      );
+      
+      const settings = settingsResult.rows[0]?.livechat_settings || {};
+      const onManualMessage = settings.on_manual_message || 'pause_temp';
+      
+      if (onManualMessage === 'pause_temp') {
+        // Pause bot temporarily
+        const duration = settings.pause_duration || 30;
+        const unit = settings.pause_unit || 'minutes';
+        const durationMs = duration * (unit === 'hours' ? 60 * 60 * 1000 : 60 * 1000);
+        const takeoverUntil = new Date(Date.now() + durationMs);
+        
+        await pool.query(
+          'UPDATE contacts SET is_bot_active = false, takeover_until = $1 WHERE id = $2',
+          [takeoverUntil, contactId]
+        );
+        console.log(`[LiveChat] Bot paused for ${duration} ${unit} for contact ${contactId}`);
+      } else if (onManualMessage === 'pause_permanent') {
+        // Pause bot permanently (until manual reactivation)
+        await pool.query(
+          'UPDATE contacts SET is_bot_active = false, takeover_until = NULL WHERE id = $1',
+          [contactId]
+        );
+        console.log(`[LiveChat] Bot paused permanently for contact ${contactId}`);
+      }
+      // If 'none' - don't do anything to the bot
+    } catch (settingsError) {
+      console.error('Error applying live chat settings:', settingsError);
+      // Continue anyway - message was sent
+    }
+    
     res.json({ 
       success: true, 
       message: messageResult.rows[0],

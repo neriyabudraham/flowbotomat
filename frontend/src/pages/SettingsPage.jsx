@@ -4,7 +4,7 @@ import {
   User, Lock, Globe, Save, ArrowLeft, Settings, Bell, Shield, 
   CreditCard, Crown, Check, Eye, EyeOff, Sparkles, ChevronRight,
   Mail, Phone, Building, Palette, Moon, Sun, Languages, Key, Share2,
-  Loader2
+  Loader2, MessageSquare, Clock, Bot, Hand
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
@@ -71,6 +71,15 @@ export default function SettingsPage() {
   const [notifPrefs, setNotifPrefs] = useState(null);
   const [notifLoading, setNotifLoading] = useState(false);
   const [notifSaving, setNotifSaving] = useState(false);
+  
+  // Live chat settings
+  const [liveChatSettings, setLiveChatSettings] = useState({
+    onManualMessage: 'pause_temp', // 'pause_temp' | 'pause_permanent' | 'none'
+    pauseDuration: 30, // minutes
+    pauseUnit: 'minutes', // 'minutes' | 'hours'
+  });
+  const [liveChatLoading, setLiveChatLoading] = useState(false);
+  const [liveChatSaving, setLiveChatSaving] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -90,6 +99,9 @@ export default function SettingsPage() {
   useEffect(() => {
     if (activeTab === 'notifications') {
       loadNotificationPreferences();
+    }
+    if (activeTab === 'livechat') {
+      loadLiveChatSettings();
     }
   }, [activeTab]);
 
@@ -130,6 +142,42 @@ export default function SettingsPage() {
       // Revert on error
       setNotifPrefs(prev => ({ ...prev, [key]: !value }));
       console.error('Failed to update preference:', err);
+    }
+  };
+  
+  const loadLiveChatSettings = async () => {
+    setLiveChatLoading(true);
+    try {
+      const { data } = await api.get('/user/settings/livechat');
+      if (data) {
+        setLiveChatSettings({
+          onManualMessage: data.on_manual_message || 'pause_temp',
+          pauseDuration: data.pause_duration || 30,
+          pauseUnit: data.pause_unit || 'minutes',
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load live chat settings:', err);
+    } finally {
+      setLiveChatLoading(false);
+    }
+  };
+  
+  const saveLiveChatSettings = async () => {
+    setLiveChatSaving(true);
+    try {
+      await api.put('/user/settings/livechat', {
+        on_manual_message: liveChatSettings.onManualMessage,
+        pause_duration: liveChatSettings.pauseDuration,
+        pause_unit: liveChatSettings.pauseUnit,
+      });
+      setMessage({ type: 'success', text: 'הגדרות הלייב צ\'אט נשמרו בהצלחה' });
+      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+    } catch (err) {
+      setMessage({ type: 'error', text: 'שגיאה בשמירת ההגדרות' });
+      console.error('Failed to save live chat settings:', err);
+    } finally {
+      setLiveChatSaving(false);
     }
   };
 
@@ -179,6 +227,7 @@ export default function SettingsPage() {
 
   const tabs = [
     { id: 'profile', label: 'פרופיל', icon: User },
+    { id: 'livechat', label: 'לייב צ\'אט', icon: MessageSquare },
     { id: 'subscription', label: 'מנוי', icon: Crown },
     { id: 'notifications', label: 'התראות', icon: Bell },
     { id: 'affiliate', label: 'תוכנית שותפים', icon: Share2 },
@@ -421,6 +470,160 @@ export default function SettingsPage() {
                     </div>
                   </form>
                 </div>
+              </div>
+            )}
+
+            {/* Live Chat Tab */}
+            {activeTab === 'livechat' && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="bg-gradient-to-r from-green-500 to-emerald-500 px-6 py-4">
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    <MessageSquare className="w-5 h-5" />
+                    הגדרות לייב צ'אט
+                  </h2>
+                  <p className="text-white/70 text-sm mt-1">התנהגות המערכת בעת שליחת הודעה ידנית</p>
+                </div>
+                
+                {liveChatLoading ? (
+                  <div className="p-12 text-center">
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-green-500 mb-3" />
+                    <p className="text-gray-500">טוען הגדרות...</p>
+                  </div>
+                ) : (
+                  <div className="p-6 space-y-6">
+                    {/* Info box */}
+                    <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+                      <p className="text-sm text-blue-700 flex items-start gap-2">
+                        <Hand className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                        <span>
+                          כאשר אתה שולח הודעה ידנית מהלייב צ'אט, המערכת יכולה לעצור את הבוט אוטומטית כדי לאפשר לך לנהל שיחה ללא הפרעות.
+                        </span>
+                      </p>
+                    </div>
+                    
+                    {/* Action on manual message */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-3">
+                        מה לעשות כששולחים הודעה ידנית?
+                      </label>
+                      <div className="space-y-3">
+                        {/* Option 1: Pause temporarily */}
+                        <label className={`flex items-start gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                          liveChatSettings.onManualMessage === 'pause_temp' 
+                            ? 'border-green-500 bg-green-50' 
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}>
+                          <input
+                            type="radio"
+                            name="onManualMessage"
+                            value="pause_temp"
+                            checked={liveChatSettings.onManualMessage === 'pause_temp'}
+                            onChange={(e) => setLiveChatSettings({ ...liveChatSettings, onManualMessage: e.target.value })}
+                            className="mt-1"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <Clock className="w-5 h-5 text-green-600" />
+                              <span className="font-medium text-gray-800">עצור זמנית (מומלץ)</span>
+                            </div>
+                            <p className="text-sm text-gray-500 mt-1">
+                              הבוט יעצור לזמן מוגדר ויחזור לפעולה אוטומטית
+                            </p>
+                            
+                            {/* Duration settings */}
+                            {liveChatSettings.onManualMessage === 'pause_temp' && (
+                              <div className="mt-4 flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                                <span className="text-sm text-gray-600">עצור ל:</span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="1440"
+                                  value={liveChatSettings.pauseDuration}
+                                  onChange={(e) => setLiveChatSettings({ ...liveChatSettings, pauseDuration: parseInt(e.target.value) || 30 })}
+                                  className="w-20 px-3 py-2 border border-gray-200 rounded-lg text-center"
+                                />
+                                <select
+                                  value={liveChatSettings.pauseUnit}
+                                  onChange={(e) => setLiveChatSettings({ ...liveChatSettings, pauseUnit: e.target.value })}
+                                  className="px-3 py-2 border border-gray-200 rounded-lg"
+                                >
+                                  <option value="minutes">דקות</option>
+                                  <option value="hours">שעות</option>
+                                </select>
+                              </div>
+                            )}
+                          </div>
+                        </label>
+                        
+                        {/* Option 2: Pause permanently */}
+                        <label className={`flex items-start gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                          liveChatSettings.onManualMessage === 'pause_permanent' 
+                            ? 'border-orange-500 bg-orange-50' 
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}>
+                          <input
+                            type="radio"
+                            name="onManualMessage"
+                            value="pause_permanent"
+                            checked={liveChatSettings.onManualMessage === 'pause_permanent'}
+                            onChange={(e) => setLiveChatSettings({ ...liveChatSettings, onManualMessage: e.target.value })}
+                            className="mt-1"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <Hand className="w-5 h-5 text-orange-600" />
+                              <span className="font-medium text-gray-800">עצור לגמרי</span>
+                            </div>
+                            <p className="text-sm text-gray-500 mt-1">
+                              הבוט יעצור עד שתחזיר אותו ידנית
+                            </p>
+                          </div>
+                        </label>
+                        
+                        {/* Option 3: Don't stop */}
+                        <label className={`flex items-start gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                          liveChatSettings.onManualMessage === 'none' 
+                            ? 'border-blue-500 bg-blue-50' 
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}>
+                          <input
+                            type="radio"
+                            name="onManualMessage"
+                            value="none"
+                            checked={liveChatSettings.onManualMessage === 'none'}
+                            onChange={(e) => setLiveChatSettings({ ...liveChatSettings, onManualMessage: e.target.value })}
+                            className="mt-1"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <Bot className="w-5 h-5 text-blue-600" />
+                              <span className="font-medium text-gray-800">אל תעצור את הבוט</span>
+                            </div>
+                            <p className="text-sm text-gray-500 mt-1">
+                              הבוט ימשיך לפעול גם אחרי שליחת הודעה ידנית
+                            </p>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+                    
+                    {/* Save button */}
+                    <div className="pt-4 border-t border-gray-100">
+                      <button
+                        onClick={saveLiveChatSettings}
+                        disabled={liveChatSaving}
+                        className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50"
+                      >
+                        {liveChatSaving ? (
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                          <Save className="w-5 h-5" />
+                        )}
+                        {liveChatSaving ? 'שומר...' : 'שמור הגדרות'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

@@ -145,4 +145,72 @@ async function getSubscription(req, res) {
   }
 }
 
-module.exports = { getProfile, updateProfile, changePassword, getSubscription };
+/**
+ * Get live chat settings
+ */
+async function getLiveChatSettings(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    // First ensure the settings column exists
+    try {
+      await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS livechat_settings JSONB DEFAULT '{}'::jsonb`);
+    } catch (e) {
+      // Column might already exist
+    }
+    
+    const result = await pool.query(
+      `SELECT livechat_settings FROM users WHERE id = $1`,
+      [userId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'משתמש לא נמצא' });
+    }
+    
+    const settings = result.rows[0].livechat_settings || {};
+    res.json({
+      on_manual_message: settings.on_manual_message || 'pause_temp',
+      pause_duration: settings.pause_duration || 30,
+      pause_unit: settings.pause_unit || 'minutes',
+    });
+  } catch (error) {
+    console.error('Get live chat settings error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת הגדרות' });
+  }
+}
+
+/**
+ * Update live chat settings
+ */
+async function updateLiveChatSettings(req, res) {
+  try {
+    const userId = req.user.id;
+    const { on_manual_message, pause_duration, pause_unit } = req.body;
+    
+    // First ensure the settings column exists
+    try {
+      await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS livechat_settings JSONB DEFAULT '{}'::jsonb`);
+    } catch (e) {
+      // Column might already exist
+    }
+    
+    const settings = {
+      on_manual_message: on_manual_message || 'pause_temp',
+      pause_duration: pause_duration || 30,
+      pause_unit: pause_unit || 'minutes',
+    };
+    
+    await pool.query(
+      `UPDATE users SET livechat_settings = $1, updated_at = NOW() WHERE id = $2`,
+      [JSON.stringify(settings), userId]
+    );
+    
+    res.json({ success: true, settings });
+  } catch (error) {
+    console.error('Update live chat settings error:', error);
+    res.status(500).json({ error: 'שגיאה בשמירת הגדרות' });
+  }
+}
+
+module.exports = { getProfile, updateProfile, changePassword, getSubscription, getLiveChatSettings, updateLiveChatSettings };
