@@ -34,37 +34,41 @@ export default function ContactsPage() {
       return;
     }
     
-    let unsubscribeMessages = null;
+    // Register message handler FIRST - before connecting socket
+    const unsubscribeMessages = onMessage((eventType, data) => {
+      console.log('[ContactsPage] 📨 Received message event:', eventType);
+      
+      if (eventType === 'new_message') {
+        const { message, contact } = data;
+        console.log('[ContactsPage] Adding incoming message:', message?.id);
+        const exists = useContactsStore.getState().contacts.find(c => c.id === contact?.id);
+        if (!exists && contact) {
+          addNewContact(contact, message);
+        }
+        addMessage(message);
+      }
+      
+      if (eventType === 'outgoing_message') {
+        const { message, contact } = data;
+        console.log('[ContactsPage] Adding outgoing message:', message?.id);
+        const exists = useContactsStore.getState().contacts.find(c => c.id === contact?.id);
+        if (!exists && contact) {
+          addNewContact(contact, message);
+        }
+        addMessage(message);
+      }
+      
+      if (eventType === 'message_reaction') {
+        const { messageId, reaction } = data;
+        console.log('[ContactsPage] Updating reaction:', messageId, reaction);
+        updateMessageReaction(messageId, reaction);
+      }
+    });
     
+    // Then connect socket
     fetchMe().then((userData) => {
       if (userData?.user?.id) {
         connectSocket(userData.user.id);
-        
-        // Register message handler using the global onMessage callback
-        unsubscribeMessages = onMessage((eventType, data) => {
-          if (eventType === 'new_message') {
-            const { message, contact } = data;
-            const exists = useContactsStore.getState().contacts.find(c => c.id === contact?.id);
-            if (!exists && contact) {
-              addNewContact(contact, message);
-            }
-            addMessage(message);
-          }
-          
-          if (eventType === 'outgoing_message') {
-            const { message, contact } = data;
-            const exists = useContactsStore.getState().contacts.find(c => c.id === contact?.id);
-            if (!exists && contact) {
-              addNewContact(contact, message);
-            }
-            addMessage(message);
-          }
-          
-          if (eventType === 'message_reaction') {
-            const { messageId, reaction } = data;
-            updateMessageReaction(messageId, reaction);
-          }
-        });
       }
     });
     
@@ -72,7 +76,7 @@ export default function ContactsPage() {
     loadStats();
     
     return () => {
-      if (unsubscribeMessages) unsubscribeMessages();
+      unsubscribeMessages();
       disconnectSocket();
     };
   }, []);

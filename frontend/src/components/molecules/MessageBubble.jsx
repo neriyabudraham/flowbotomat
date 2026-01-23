@@ -402,10 +402,10 @@ export default function MessageBubble({ message }) {
           </div>
         </div>
         
-        {/* Reaction badge - appears on the message */}
+        {/* Reaction badge - appears on the side of the message */}
         {reaction && (
-          <div className={`absolute -bottom-2 ${isOutgoing ? 'left-2' : 'right-2'} 
-            bg-white rounded-full px-1.5 py-0.5 shadow-md border border-gray-100 text-lg`}>
+          <div className={`absolute top-1/2 -translate-y-1/2 ${isOutgoing ? '-left-8' : '-right-8'} 
+            bg-white rounded-full p-1 shadow-md border border-gray-100 text-base leading-none`}>
             {reaction}
           </div>
         )}
