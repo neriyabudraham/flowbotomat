@@ -2,6 +2,7 @@ import { io } from 'socket.io-client';
 
 let socket = null;
 let alertCallbacks = [];
+let messageCallbacks = [];
 
 export function connectSocket(userId) {
   if (socket?.connected) return socket;
@@ -32,23 +33,37 @@ export function connectSocket(userId) {
     console.log('🔌 Socket disconnected:', reason);
   });
   
-  socket.on('new_message', (data) => {
-    console.log('🔌 Received new_message event:', data);
-  });
-  
   // USE onAny to catch ALL events - guaranteed to work!
   socket.onAny((eventName, ...args) => {
-    console.log('🔌 Socket event:', eventName);
+    // Handle new_message
+    if (eventName === 'new_message' && args[0]) {
+      console.log('📩 [Socket] New incoming message:', args[0].message?.id);
+      messageCallbacks.forEach(cb => {
+        try { cb('new_message', args[0]); } catch (e) { console.error(e); }
+      });
+    }
+    
+    // Handle outgoing_message (bot messages)
+    if (eventName === 'outgoing_message' && args[0]) {
+      console.log('📤 [Socket] New outgoing message:', args[0].message?.id, args[0].message?.message_type);
+      messageCallbacks.forEach(cb => {
+        try { cb('outgoing_message', args[0]); } catch (e) { console.error(e); }
+      });
+    }
+    
+    // Handle message_reaction
+    if (eventName === 'message_reaction' && args[0]) {
+      console.log('👍 [Socket] Reaction:', args[0].messageId, args[0].reaction);
+      messageCallbacks.forEach(cb => {
+        try { cb('message_reaction', args[0]); } catch (e) { console.error(e); }
+      });
+    }
     
     // Handle system_alert
     if (eventName === 'system_alert' && args[0]) {
       console.log('📢 ALERT! Notifying', alertCallbacks.length, 'listeners');
       alertCallbacks.forEach(cb => {
-        try {
-          cb(args[0]);
-        } catch (e) {
-          console.error('Alert callback error:', e);
-        }
+        try { cb(args[0]); } catch (e) { console.error(e); }
       });
     }
     
@@ -56,11 +71,7 @@ export function connectSocket(userId) {
     if (eventName === 'system_update' && args[0]) {
       console.log('🔄 UPDATE! Notifying', alertCallbacks.length, 'listeners');
       alertCallbacks.forEach(cb => {
-        try {
-          cb({ ...args[0], isUpdate: true });
-        } catch (e) {
-          console.error('Alert callback error:', e);
-        }
+        try { cb({ ...args[0], isUpdate: true }); } catch (e) { console.error(e); }
       });
     }
   });
@@ -88,10 +99,23 @@ export function onSystemAlert(callback) {
   };
 }
 
+// Register callback for messages (new_message, outgoing_message, message_reaction)
+export function onMessage(callback) {
+  messageCallbacks.push(callback);
+  console.log('💬 Message listener registered, total:', messageCallbacks.length);
+  
+  // Return unsubscribe function
+  return () => {
+    messageCallbacks = messageCallbacks.filter(cb => cb !== callback);
+    console.log('💬 Message listener removed, total:', messageCallbacks.length);
+  };
+}
+
 export function disconnectSocket() {
   if (socket) {
     socket.disconnect();
     socket = null;
   }
   alertCallbacks = [];
+  messageCallbacks = [];
 }

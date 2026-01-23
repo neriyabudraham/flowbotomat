@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useContactsStore from '../store/contactsStore';
-import { connectSocket, getSocket, disconnectSocket } from '../services/socket';
+import { connectSocket, disconnectSocket, onMessage } from '../services/socket';
 import Logo from '../components/atoms/Logo';
 import ContactsList from '../components/organisms/ContactsList';
 import ChatView from '../components/organisms/ChatView';
@@ -34,42 +34,37 @@ export default function ContactsPage() {
       return;
     }
     
+    let unsubscribeMessages = null;
+    
     fetchMe().then((userData) => {
       if (userData?.user?.id) {
-        const socket = connectSocket(userData.user.id);
+        connectSocket(userData.user.id);
         
-        // Remove old listeners first to prevent duplicates
-        socket.off('new_message');
-        socket.off('outgoing_message');
-        socket.off('message_reaction');
-        
-        // Listen for incoming messages
-        socket.on('new_message', ({ message, contact }) => {
-          console.log('[Socket] 📩 Received new_message:', message?.id, message?.message_type);
-          const exists = useContactsStore.getState().contacts.find(c => c.id === contact.id);
-          if (!exists) {
-            addNewContact(contact, message);
+        // Register message handler using the global onMessage callback
+        unsubscribeMessages = onMessage((eventType, data) => {
+          if (eventType === 'new_message') {
+            const { message, contact } = data;
+            const exists = useContactsStore.getState().contacts.find(c => c.id === contact?.id);
+            if (!exists && contact) {
+              addNewContact(contact, message);
+            }
+            addMessage(message);
           }
-          addMessage(message);
-        });
-        
-        // Listen for outgoing messages (sent by bot or from device)
-        socket.on('outgoing_message', ({ message, contact }) => {
-          console.log('[Socket] 📤 Received outgoing_message:', message?.id, message?.message_type);
-          const exists = useContactsStore.getState().contacts.find(c => c.id === contact.id);
-          if (!exists) {
-            addNewContact(contact, message);
+          
+          if (eventType === 'outgoing_message') {
+            const { message, contact } = data;
+            const exists = useContactsStore.getState().contacts.find(c => c.id === contact?.id);
+            if (!exists && contact) {
+              addNewContact(contact, message);
+            }
+            addMessage(message);
           }
-          addMessage(message);
+          
+          if (eventType === 'message_reaction') {
+            const { messageId, reaction } = data;
+            updateMessageReaction(messageId, reaction);
+          }
         });
-        
-        // Listen for message reactions
-        socket.on('message_reaction', ({ messageId, reaction }) => {
-          console.log('[Socket] 👍 Received message_reaction:', messageId, reaction);
-          updateMessageReaction(messageId, reaction);
-        });
-        
-        console.log('[Socket] ✅ Listeners registered for user:', userData.user.id);
       }
     });
     
@@ -77,6 +72,7 @@ export default function ContactsPage() {
     loadStats();
     
     return () => {
+      if (unsubscribeMessages) unsubscribeMessages();
       disconnectSocket();
     };
   }, []);
