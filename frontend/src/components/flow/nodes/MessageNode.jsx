@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { MessageSquare, Image, FileText, MessageCircle, Edit2, Copy, Trash2, Video, Mic, User, MapPin, Keyboard, CheckCheck, SmilePlus } from 'lucide-react';
+import { MessageSquare, Image, FileText, MessageCircle, Edit2, Copy, Trash2, Video, Mic, User, MapPin, Keyboard, CheckCheck, SmilePlus, Clock } from 'lucide-react';
 
 const actionIcons = {
   text: MessageSquare,
@@ -11,8 +11,10 @@ const actionIcons = {
   contact: User,
   location: MapPin,
   typing: Keyboard,
+  delay: Clock,
   mark_seen: CheckCheck,
   reaction: SmilePlus,
+  wait_reply: MessageCircle,
 };
 
 const actionLabels = {
@@ -24,8 +26,10 @@ const actionLabels = {
   contact: 'איש קשר',
   location: 'מיקום',
   typing: 'מקליד/ה',
+  delay: 'המתנה',
   mark_seen: 'סמן כנקרא',
   reaction: 'ריאקציה',
+  wait_reply: 'המתן לתגובה',
 };
 
 function MessageNode({ data, selected }) {
@@ -140,8 +144,10 @@ function MessageNode({ data, selected }) {
                 {action.type === 'contact' && (action.contactName ? `👤 ${action.contactName}` : '(הגדר איש קשר)')}
                 {action.type === 'location' && (action.locationTitle || (action.latitude ? '📍 מיקום' : '(הגדר מיקום)'))}
                 {action.type === 'typing' && `⌨️ ${action.typingDuration || 3} שניות`}
+                {action.type === 'delay' && `⏱️ ${action.delay || 1} ${action.unit === 'minutes' ? 'דקות' : 'שניות'}`}
                 {action.type === 'mark_seen' && '✅ סימון כנקרא'}
                 {action.type === 'reaction' && (action.reaction || '👍🏻')}
+                {action.type === 'wait_reply' && '💬 ממתין לתגובה'}
               </div>
             </div>
           );

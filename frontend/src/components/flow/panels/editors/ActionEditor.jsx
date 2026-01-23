@@ -52,6 +52,7 @@ const categoryColors = {
 export default function ActionEditor({ data, onUpdate }) {
   const actions = data.actions || [];
   const [openCategories, setOpenCategories] = useState(['basic']);
+  const [dragIndex, setDragIndex] = useState(null);
 
   const toggleCategory = (categoryId) => {
     setOpenCategories(prev => 
@@ -75,6 +76,18 @@ export default function ActionEditor({ data, onUpdate }) {
     onUpdate({ actions: newActions });
   };
 
+  const handleDragStart = (index) => setDragIndex(index);
+  
+  const handleDragOver = (e, index) => {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === index) return;
+    const newActions = [...actions];
+    const [removed] = newActions.splice(dragIndex, 1);
+    newActions.splice(index, 0, removed);
+    onUpdate({ actions: newActions });
+    setDragIndex(index);
+  };
+
   return (
     <div className="space-y-5">
       {/* Current Actions */}
@@ -86,12 +99,20 @@ export default function ActionEditor({ data, onUpdate }) {
           </div>
           <div className="space-y-2">
             {actions.map((action, index) => (
-              <ActionItem
+              <div
                 key={index}
-                action={action}
-                onUpdate={(updates) => updateAction(index, updates)}
-                onRemove={() => removeAction(index)}
-              />
+                draggable
+                onDragStart={() => handleDragStart(index)}
+                onDragOver={(e) => handleDragOver(e, index)}
+                onDragEnd={() => setDragIndex(null)}
+                className={`cursor-grab active:cursor-grabbing ${dragIndex === index ? 'opacity-50' : ''}`}
+              >
+                <ActionItem
+                  action={action}
+                  onUpdate={(updates) => updateAction(index, updates)}
+                  onRemove={() => removeAction(index)}
+                />
+              </div>
             ))}
           </div>
         </div>

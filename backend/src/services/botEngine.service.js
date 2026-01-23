@@ -775,9 +775,20 @@ class BotEngine {
           case 'file':
             if (action.url || action.fileData) {
               const fileUrl = action.fileData || action.url;
-              console.log('[BotEngine] Sending file:', fileUrl.substring(0, 50) + '...');
-              await wahaService.sendFile(connection, contact.phone, fileUrl, action.fileName);
-              console.log('[BotEngine] ✅ File sent');
+              // Ensure we have a filename - extract from URL or use a default
+              let filename = action.fileName || action.filename || 'file';
+              if (!filename || filename === 'file') {
+                // Try to extract from URL
+                try {
+                  const urlPath = new URL(fileUrl.startsWith('data:') ? '' : fileUrl).pathname;
+                  filename = urlPath.split('/').pop() || 'file';
+                } catch {
+                  filename = 'file';
+                }
+              }
+              console.log('[BotEngine] Sending file:', filename, '-', fileUrl.substring(0, 50) + '...');
+              await wahaService.sendFile(connection, contact.phone, fileUrl, filename);
+              console.log('[BotEngine] ✅ File sent:', filename);
             } else {
               console.log('[BotEngine] ⚠️ File action has no URL');
             }
@@ -828,14 +839,19 @@ class BotEngine {
             break;
           
           case 'reaction':
-            if (action.reaction && originalMessage) {
-              // React to the last received message - get the message ID from the original message
-              const messageId = typeof originalMessage === 'object' ? originalMessage.id : null;
-              if (messageId) {
-                await wahaService.sendReaction(connection, messageId, action.reaction);
+            if (action.reaction) {
+              // Get the last incoming message ID from database
+              const lastMsg = await db.query(
+                `SELECT wa_message_id FROM messages 
+                 WHERE contact_id = $1 AND direction = $2 AND wa_message_id IS NOT NULL
+                 ORDER BY created_at DESC LIMIT 1`,
+                [contact.id, 'incoming']
+              );
+              if (lastMsg.rows.length > 0 && lastMsg.rows[0].wa_message_id) {
+                await wahaService.sendReaction(connection, lastMsg.rows[0].wa_message_id, action.reaction);
                 console.log('[BotEngine] ✅ Reaction sent:', action.reaction);
               } else {
-                console.log('[BotEngine] ⚠️ Cannot send reaction - no message ID');
+                console.log('[BotEngine] ⚠️ Cannot send reaction - no message ID found');
               }
             }
             break;

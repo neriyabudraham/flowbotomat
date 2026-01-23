@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Upload, CheckCircle, Play, Mic, User, MapPin, Keyboard, CheckCheck, SmilePlus, Link, Square } from 'lucide-react';
+import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Upload, CheckCircle, Play, Mic, User, MapPin, Keyboard, CheckCheck, SmilePlus, Link, Square, Clock } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 import { COMMON_REACTIONS, EMOJI_CATEGORIES } from './emojis';
 
@@ -16,11 +16,13 @@ const contentTypes = [
   { id: 'location', label: 'מיקום', icon: MapPin, color: 'red' },
 ];
 
-// Utility types - status actions (no delay)
+// Utility types - status actions
 const utilityTypes = [
   { id: 'typing', label: 'מקליד/ה', icon: Keyboard, color: 'gray' },
+  { id: 'delay', label: 'המתנה', icon: Clock, color: 'amber' },
   { id: 'mark_seen', label: 'סמן כנקרא', icon: CheckCheck, color: 'blue' },
   { id: 'reaction', label: 'ריאקציה', icon: SmilePlus, color: 'yellow' },
+  { id: 'wait_reply', label: 'המתן לתגובה', icon: MessageSquare, color: 'teal' },
 ];
 
 export default function MessageEditor({ data, onUpdate }) {
@@ -52,11 +54,17 @@ export default function MessageEditor({ data, onUpdate }) {
       case 'typing':
         newAction = { type, typingDuration: 3 };
         break;
+      case 'delay':
+        newAction = { type, delay: 1, unit: 'seconds' };
+        break;
       case 'mark_seen':
         newAction = { type };
         break;
       case 'reaction':
         newAction = { type, reaction: '👍🏻' };
+        break;
+      case 'wait_reply':
+        newAction = { type, saveToVariable: false, variableName: '' };
         break;
       default:
         newAction = { type };
@@ -219,8 +227,8 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
     setUploadProgress(10);
     
     // Check file size - different limits for different types
-    const maxSizeVideo = 16 * 1024 * 1024; // 16MB for video
-    const maxSizeImage = 5 * 1024 * 1024;   // 5MB for images
+    const maxSizeVideo = 20 * 1024 * 1024; // 20MB for video
+    const maxSizeImage = 10 * 1024 * 1024;  // 10MB for images
     const maxSizeFile = 25 * 1024 * 1024;   // 25MB for files
     
     const maxSize = action.type === 'video' ? maxSizeVideo 
@@ -356,48 +364,23 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
           <TextInputWithVariables
             value={action.content || ''}
             onChange={(v) => onUpdate({ content: v })}
-            placeholder="כתוב את ההודעה...&#10;ניתן להוסיף ירידות שורה"
+            placeholder="כתוב את ההודעה..."
             maxLength={LIMITS.text}
             multiline
-            rows={4}
+            rows={3}
             label="תוכן ההודעה"
           />
           
-          {/* Link Preview Toggle */}
-          <div className="bg-white rounded-lg border border-gray-200 p-3">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={action.enableLinkPreview || false}
-                onChange={(e) => onUpdate({ enableLinkPreview: e.target.checked })}
-                className="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
-              />
-              <div>
-                <div className="text-sm font-medium text-gray-700">תצוגה מקדימה של קישור</div>
-                <div className="text-xs text-gray-500">אם ההודעה מכילה קישור, תוצג תצוגה מקדימה</div>
-              </div>
-            </label>
-            
-            {action.enableLinkPreview && (
-              <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
-                <input
-                  type="url"
-                  value={action.linkPreviewUrl || ''}
-                  onChange={(e) => onUpdate({ linkPreviewUrl: e.target.value })}
-                  placeholder="URL לתצוגה מקדימה (אופציונלי - ברירת מחדל: הקישור הראשון בהודעה)"
-                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-                  dir="ltr"
-                />
-                <input
-                  type="text"
-                  value={action.linkPreviewTitle || ''}
-                  onChange={(e) => onUpdate({ linkPreviewTitle: e.target.value })}
-                  placeholder="כותרת מותאמת (אופציונלי)"
-                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-                />
-              </div>
-            )}
-          </div>
+          {/* Link Preview Toggle - Compact */}
+          <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-500 hover:text-gray-700">
+            <input
+              type="checkbox"
+              checked={action.enableLinkPreview || false}
+              onChange={(e) => onUpdate({ enableLinkPreview: e.target.checked })}
+              className="w-3.5 h-3.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+            />
+            <span>תצוגה מקדימה של קישור</span>
+          </label>
         </div>
       )}
 
@@ -504,7 +487,7 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
                     <span className="text-sm text-gray-600">לחץ להעלאת {action.type === 'image' ? 'תמונה' : 'סרטון'}</span>
                   </button>
                   <p className="text-xs text-gray-400 text-center">
-                    גודל מקסימלי: {action.type === 'video' ? '16MB' : '5MB'}
+                    גודל מקסימלי: {action.type === 'video' ? '20MB' : '10MB'}
                   </p>
                   <input 
                     ref={fileInputRef} 
@@ -740,7 +723,7 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
       {action.type === 'mark_seen' && (
         <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
           <p className="text-xs text-blue-600 font-medium">סימון ההודעה כנקראה</p>
-          <p className="text-xs text-blue-500 mt-1">הבוט יסמן את ההודעה האחרונה שהתקבלה כנקראה (וי וי כחול)</p>
+          <p className="text-xs text-blue-500 mt-1">הבוט יסמן את ההודעה האחרונה שהתקבלה כנקראה - וי וי כחול ✓✓</p>
         </div>
       )}
 
@@ -809,6 +792,64 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
               <span className="text-2xl">{action.reaction}</span>
               <span className="text-sm text-yellow-700">אימוג'י נבחר</span>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Delay */}
+      {action.type === 'delay' && (
+        <div className="space-y-3">
+          <div className="p-3 bg-amber-50 rounded-lg border border-amber-100">
+            <p className="text-xs text-amber-600 font-medium">המתנה לפני הפעולה הבאה</p>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min="1"
+              max="300"
+              value={action.delay || 1}
+              onChange={(e) => onUpdate({ delay: Math.min(300, Math.max(1, parseInt(e.target.value) || 1)) })}
+              className="w-24 px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-center font-medium"
+            />
+            <select
+              value={action.unit || 'seconds'}
+              onChange={(e) => onUpdate({ unit: e.target.value })}
+              className="px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm"
+            >
+              <option value="seconds">שניות</option>
+              <option value="minutes">דקות</option>
+            </select>
+          </div>
+          <p className="text-xs text-gray-400">מקסימום 300 שניות / 5 דקות</p>
+        </div>
+      )}
+
+      {/* Wait for reply */}
+      {action.type === 'wait_reply' && (
+        <div className="space-y-3">
+          <div className="p-3 bg-teal-50 rounded-lg border border-teal-100">
+            <p className="text-xs text-teal-600 font-medium">הבוט ימתין לתגובה מהלקוח</p>
+            <p className="text-xs text-teal-500 mt-1">הפעולות הבאות ימשיכו רק לאחר קבלת תגובה</p>
+          </div>
+          
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={action.saveToVariable || false}
+              onChange={(e) => onUpdate({ saveToVariable: e.target.checked })}
+              className="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+            />
+            <span className="text-sm text-gray-700">שמור את התגובה למשתנה</span>
+          </label>
+          
+          {action.saveToVariable && (
+            <TextInputWithVariables
+              value={action.variableName || ''}
+              onChange={(v) => onUpdate({ variableName: v })}
+              placeholder="שם המשתנה (למשל: user_response)"
+              label="שם המשתנה לשמירה"
+            />
           )}
         </div>
       )}
