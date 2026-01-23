@@ -454,14 +454,75 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
                     className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
                     dir="ltr"
                   />
-                  <input
-                    type="url"
-                    value={action.linkPreviewImage || ''}
-                    onChange={(e) => onUpdate({ linkPreviewImage: e.target.value })}
-                    placeholder="תמונה (URL)"
-                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-                    dir="ltr"
-                  />
+                  
+                  {/* Link Preview Image - Upload or URL */}
+                  <div className="space-y-2">
+                    <label className="text-xs text-gray-500 block">תמונה לתצוגה מקדימה:</label>
+                    <div className="flex gap-1 bg-gray-100 rounded-lg p-1 mb-2">
+                      <button
+                        type="button"
+                        onClick={() => onUpdate({ linkPreviewImageMode: 'upload' })}
+                        className={`flex-1 px-3 py-1.5 text-xs rounded-md transition-colors ${
+                          (action.linkPreviewImageMode || 'upload') === 'upload' ? 'bg-white shadow text-gray-700' : 'text-gray-500'
+                        }`}
+                      >
+                        העלאה
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onUpdate({ linkPreviewImageMode: 'url' })}
+                        className={`flex-1 px-3 py-1.5 text-xs rounded-md transition-colors ${
+                          action.linkPreviewImageMode === 'url' ? 'bg-white shadow text-gray-700' : 'text-gray-500'
+                        }`}
+                      >
+                        קישור
+                      </button>
+                    </div>
+                    
+                    {(action.linkPreviewImageMode || 'upload') === 'upload' ? (
+                      <div>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            
+                            const formData = new FormData();
+                            formData.append('file', file);
+                            
+                            try {
+                              const res = await api.post('/upload', formData, {
+                                headers: { 'Content-Type': 'multipart/form-data' }
+                              });
+                              onUpdate({ linkPreviewImage: res.data.url });
+                            } catch (err) {
+                              console.error('Upload error:', err);
+                            }
+                          }}
+                          className="hidden"
+                          id="link-preview-image-upload"
+                        />
+                        <label
+                          htmlFor="link-preview-image-upload"
+                          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm cursor-pointer hover:bg-gray-50 transition-colors"
+                        >
+                          <Upload className="w-4 h-4" />
+                          {action.linkPreviewImage ? 'שנה תמונה' : 'העלה תמונה'}
+                        </label>
+                        {action.linkPreviewImage && (
+                          <img src={action.linkPreviewImage} alt="Preview" className="mt-2 w-full h-20 object-cover rounded-lg" />
+                        )}
+                      </div>
+                    ) : (
+                      <TextInputWithVariables
+                        value={action.linkPreviewImage || ''}
+                        onChange={(v) => onUpdate({ linkPreviewImage: v })}
+                        placeholder="https://example.com/image.jpg או {{image_url}}"
+                        dir="ltr"
+                      />
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -745,12 +806,11 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
             label="מספר טלפון (עם קידומת מדינה)"
           />
           
-          <input
-            type="text"
+          <TextInputWithVariables
             value={action.contactOrg || ''}
-            onChange={(e) => onUpdate({ contactOrg: e.target.value })}
+            onChange={(v) => onUpdate({ contactOrg: v })}
             placeholder="שם החברה/ארגון (אופציונלי)"
-            className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none"
+            label="חברה/ארגון"
           />
         </div>
       )}
@@ -766,25 +826,19 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">קו רוחב (Latitude)</label>
-              <input
-                type="number"
-                step="any"
-                value={action.latitude || ''}
-                onChange={(e) => onUpdate({ latitude: parseFloat(e.target.value) || '' })}
-                placeholder="32.0853"
-                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+              <TextInputWithVariables
+                value={action.latitude?.toString() || ''}
+                onChange={(v) => onUpdate({ latitude: v })}
+                placeholder="32.0853 או {{lat}}"
                 dir="ltr"
               />
             </div>
             <div>
               <label className="text-xs text-gray-500 mb-1 block">קו אורך (Longitude)</label>
-              <input
-                type="number"
-                step="any"
-                value={action.longitude || ''}
-                onChange={(e) => onUpdate({ longitude: parseFloat(e.target.value) || '' })}
-                placeholder="34.7818"
-                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+              <TextInputWithVariables
+                value={action.longitude?.toString() || ''}
+                onChange={(v) => onUpdate({ longitude: v })}
+                placeholder="34.7818 או {{lng}}"
                 dir="ltr"
               />
             </div>
@@ -806,17 +860,35 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
             <p className="text-xs text-gray-600 font-medium">הבוט יציג "מקליד/ה..." למשך:</p>
           </div>
           
-          <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-gray-500">
             <input
-              type="number"
-              min="1"
-              max="30"
-              value={action.typingDuration || 3}
-              onChange={(e) => onUpdate({ typingDuration: Math.min(30, Math.max(1, parseInt(e.target.value) || 3)) })}
-              className="w-24 px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-center font-medium"
+              type="checkbox"
+              checked={action.useVariableDuration || false}
+              onChange={(e) => onUpdate({ useVariableDuration: e.target.checked })}
+              className="rounded"
             />
-            <span className="text-sm text-gray-500">שניות</span>
-          </div>
+            <span>השתמש במשתנה</span>
+          </label>
+          
+          {action.useVariableDuration ? (
+            <TextInputWithVariables
+              value={action.typingDuration?.toString() || '3'}
+              onChange={(v) => onUpdate({ typingDuration: v })}
+              placeholder="{{duration}} או מספר"
+            />
+          ) : (
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                min="1"
+                max="30"
+                value={action.typingDuration || 3}
+                onChange={(e) => onUpdate({ typingDuration: Math.min(30, Math.max(1, parseInt(e.target.value) || 3)) })}
+                className="w-24 px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-center font-medium"
+              />
+              <span className="text-sm text-gray-500">שניות</span>
+            </div>
+          )}
           <p className="text-xs text-gray-400">מקסימום 30 שניות</p>
         </div>
       )}
@@ -886,24 +958,53 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
             <p className="text-xs text-amber-600 font-medium">המתנה לפני הפעולה הבאה</p>
           </div>
           
-          <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-gray-500">
             <input
-              type="number"
-              min="1"
-              max="300"
-              value={action.delay || 1}
-              onChange={(e) => onUpdate({ delay: Math.min(300, Math.max(1, parseInt(e.target.value) || 1)) })}
-              className="w-24 px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-center font-medium"
+              type="checkbox"
+              checked={action.useVariableDelay || false}
+              onChange={(e) => onUpdate({ useVariableDelay: e.target.checked })}
+              className="rounded"
             />
-            <select
-              value={action.unit || 'seconds'}
-              onChange={(e) => onUpdate({ unit: e.target.value })}
-              className="px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm"
-            >
-              <option value="seconds">שניות</option>
-              <option value="minutes">דקות</option>
-            </select>
-          </div>
+            <span>השתמש במשתנה</span>
+          </label>
+          
+          {action.useVariableDelay ? (
+            <div className="flex items-center gap-3">
+              <TextInputWithVariables
+                value={action.delay?.toString() || '1'}
+                onChange={(v) => onUpdate({ delay: v })}
+                placeholder="{{wait_time}} או מספר"
+                className="flex-1"
+              />
+              <select
+                value={action.unit || 'seconds'}
+                onChange={(e) => onUpdate({ unit: e.target.value })}
+                className="px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm"
+              >
+                <option value="seconds">שניות</option>
+                <option value="minutes">דקות</option>
+              </select>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                min="1"
+                max="300"
+                value={action.delay || 1}
+                onChange={(e) => onUpdate({ delay: Math.min(300, Math.max(1, parseInt(e.target.value) || 1)) })}
+                className="w-24 px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-center font-medium"
+              />
+              <select
+                value={action.unit || 'seconds'}
+                onChange={(e) => onUpdate({ unit: e.target.value })}
+                className="px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm"
+              >
+                <option value="seconds">שניות</option>
+                <option value="minutes">דקות</option>
+              </select>
+            </div>
+          )}
           <p className="text-xs text-gray-400">מקסימום 300 שניות / 5 דקות</p>
         </div>
       )}

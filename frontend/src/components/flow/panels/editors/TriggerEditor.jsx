@@ -1,5 +1,6 @@
-import { Plus, X, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { Plus, X, ChevronDown, ChevronUp, Trash2, RefreshCw } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import api from '../../../../services/api';
 
 const triggerTypes = [
   { id: 'any_message', label: 'כל הודעה נכנסת', icon: '💬', category: 'message' },
@@ -38,6 +39,24 @@ export default function TriggerEditor({ data, onUpdate }) {
   const groups = data.triggerGroups || [];
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState(new Set(groups[0]?.id ? [groups[0].id] : []));
+  const [availableTags, setAvailableTags] = useState([]);
+  const [loadingTags, setLoadingTags] = useState(false);
+
+  // Load available tags
+  useEffect(() => {
+    loadTags();
+  }, []);
+
+  const loadTags = async () => {
+    setLoadingTags(true);
+    try {
+      const { data } = await api.get('/contacts/tags');
+      setAvailableTags(data || []);
+    } catch (err) {
+      console.error('Error loading tags:', err);
+    }
+    setLoadingTags(false);
+  };
 
   const toggleGroup = (groupId) => {
     const newExpanded = new Set(expandedGroups);
@@ -258,20 +277,58 @@ export default function TriggerEditor({ data, onUpdate }) {
                             </select>
                           )}
                           
-                          {/* Value input */}
+                          {/* Value input - with tag selector for tag-related conditions */}
                           {triggerInfo.hasValue && needsValue(condition.operator) && (
-                            <input
-                              type="text"
-                              value={condition.value || ''}
-                              onChange={(e) => updateCondition(group.id, conditionIndex, 'value', e.target.value)}
-                              placeholder={
-                                condition.type.includes('tag') ? 'שם התגית...' : 
-                                condition.operator === 'regex' ? 'ביטוי רגולרי...' : 
-                                'הזן ערך...'
-                              }
-                              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
-                              dir={condition.operator === 'regex' ? 'ltr' : 'rtl'}
-                            />
+                            condition.type.includes('tag') ? (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    value={condition.value || ''}
+                                    onChange={(e) => updateCondition(group.id, conditionIndex, 'value', e.target.value)}
+                                    className="flex-1 px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                                  >
+                                    <option value="">-- בחר תגית --</option>
+                                    {availableTags.map(tag => (
+                                      <option key={tag} value={tag}>{tag}</option>
+                                    ))}
+                                    <option value="_new">+ צור תגית חדשה...</option>
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={loadTags}
+                                    disabled={loadingTags}
+                                    className="p-2.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+                                    title="רענן רשימת תגיות"
+                                  >
+                                    <RefreshCw className={`w-4 h-4 ${loadingTags ? 'animate-spin' : ''}`} />
+                                  </button>
+                                </div>
+                                {condition.value === '_new' && (
+                                  <input
+                                    type="text"
+                                    value={condition.customTagName || ''}
+                                    onChange={(e) => {
+                                      updateCondition(group.id, conditionIndex, 'customTagName', e.target.value);
+                                      updateCondition(group.id, conditionIndex, 'value', e.target.value);
+                                    }}
+                                    placeholder="שם התגית החדשה..."
+                                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                                  />
+                                )}
+                              </div>
+                            ) : (
+                              <input
+                                type="text"
+                                value={condition.value || ''}
+                                onChange={(e) => updateCondition(group.id, conditionIndex, 'value', e.target.value)}
+                                placeholder={
+                                  condition.operator === 'regex' ? 'ביטוי רגולרי...' : 
+                                  'הזן ערך...'
+                                }
+                                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                                dir={condition.operator === 'regex' ? 'ltr' : 'rtl'}
+                              />
+                            )
                           )}
                           
                           {/* Case sensitive option */}
@@ -423,33 +480,19 @@ export default function TriggerEditor({ data, onUpdate }) {
               )}
             </div>
 
-            {/* Excluded tags */}
-            <div>
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={data.hasExcludedTags || false}
-                  onChange={(e) => onUpdate({ hasExcludedTags: e.target.checked })}
-                  className="w-5 h-5 mt-0.5 rounded border-gray-300 text-purple-600"
-                />
-                <div>
-                  <div className="font-medium text-gray-700">החרג לפי תגיות</div>
-                  <div className="text-xs text-gray-500">לא יופעל לאנשי קשר עם תגיות מסוימות</div>
-                </div>
-              </label>
-              
-              {data.hasExcludedTags && (
-                <div className="mt-2 mr-8">
-                  <input
-                    type="text"
-                    value={data.excludedTags || ''}
-                    onChange={(e) => onUpdate({ excludedTags: e.target.value })}
-                    placeholder="תגיות מופרדות בפסיקים..."
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                  />
-                </div>
-              )}
-            </div>
+            {/* Mark all messages as read */}
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={data.markAllAsRead || false}
+                onChange={(e) => onUpdate({ markAllAsRead: e.target.checked })}
+                className="w-5 h-5 mt-0.5 rounded border-gray-300 text-purple-600"
+              />
+              <div>
+                <div className="font-medium text-gray-700">סמן כנקרא אוטומטית</div>
+                <div className="text-xs text-gray-500">כל הודעה נכנסת תסומן כנקראה במהלך הפלואו</div>
+              </div>
+            </label>
           </div>
         )}
       </div>
