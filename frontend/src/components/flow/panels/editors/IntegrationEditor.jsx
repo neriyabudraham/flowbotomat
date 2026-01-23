@@ -6,14 +6,16 @@ import api from '../../../../services/api';
 export default function IntegrationEditor({ data, onUpdate }) {
   const actions = data.actions || [];
   const [dragIndex, setDragIndex] = useState(null);
+  const [initialized, setInitialized] = useState(false);
 
   // Auto-add first API request if empty (since it's the only type)
   useEffect(() => {
-    if (actions.length === 0) {
+    if (!initialized && actions.length === 0) {
       const newAction = { type: 'http_request', method: 'GET', apiUrl: '', headers: [], body: '', bodyParams: [], mappings: [] };
       onUpdate({ actions: [newAction] });
+      setInitialized(true);
     }
-  }, []);
+  }, [initialized, actions.length, onUpdate]);
 
   const addAction = () => {
     const newAction = { type: 'http_request', method: 'GET', apiUrl: '', headers: [], body: '', bodyParams: [], mappings: [] };
