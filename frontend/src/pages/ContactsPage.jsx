@@ -186,6 +186,13 @@ export default function ContactsPage() {
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3">
+              <button 
+                onClick={() => navigate('/settings?tab=livechat')}
+                className="p-2 rounded-xl hover:bg-gray-100 transition-colors"
+                title="הגדרות לייב צ'אט"
+              >
+                <Settings className="w-5 h-5 text-gray-500" />
+              </button>
               <NotificationsDropdown />
               <div className="hidden sm:block h-8 w-px bg-gray-200" />
               <div className="flex items-center gap-2">
