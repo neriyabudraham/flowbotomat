@@ -1,4 +1,4 @@
-import { MessageSquare, GitBranch, Clock, Cog, List, X, ClipboardList, StickyNote } from 'lucide-react';
+import { MessageSquare, GitBranch, Clock, Cog, List, X, ClipboardList, StickyNote, Globe } from 'lucide-react';
 
 const nodeTypes = [
   { type: 'message', label: 'WhatsApp', icon: MessageSquare, color: 'teal', description: 'הודעות, מדיה וריאקציות' },
@@ -7,6 +7,7 @@ const nodeTypes = [
   { type: 'condition', label: 'תנאי', icon: GitBranch, color: 'orange', description: 'בדוק תנאי' },
   { type: 'delay', label: 'השהייה', icon: Clock, color: 'blue', description: 'המתן' },
   { type: 'action', label: 'פעולה', icon: Cog, color: 'pink', description: 'תגיות ובקרה' },
+  { type: 'integration', label: 'אינטגרציה', icon: Globe, color: 'amber', description: 'Webhook וAPI' },
   { type: 'note', label: 'הערה', icon: StickyNote, color: 'yellow', description: 'הערות ותזכורות' },
 ];
 
@@ -18,6 +19,7 @@ const colorClasses = {
   pink: 'hover:bg-pink-50 hover:border-pink-200',
   indigo: 'hover:bg-indigo-50 hover:border-indigo-200',
   yellow: 'hover:bg-yellow-50 hover:border-yellow-200',
+  amber: 'hover:bg-amber-50 hover:border-amber-200',
 };
 
 const iconColors = {
@@ -28,6 +30,7 @@ const iconColors = {
   pink: 'bg-pink-500',
   indigo: 'bg-indigo-500',
   yellow: 'bg-yellow-500',
+  amber: 'bg-amber-500',
 };
 
 export default function QuickAddMenu({ position, onSelect, onClose }) {

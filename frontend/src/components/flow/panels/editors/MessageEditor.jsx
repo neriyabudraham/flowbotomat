@@ -1,7 +1,8 @@
-import { useState, useRef } from 'react';
-import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Upload, CheckCircle, Play, Mic, User, MapPin, Keyboard, CheckCheck, SmilePlus, Link, Square, Clock } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Upload, CheckCircle, Play, Mic, User, MapPin, Keyboard, CheckCheck, SmilePlus, Link, Square, Clock, ChevronDown, ChevronUp, RefreshCw, Users, Building2 } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 import { COMMON_REACTIONS, EMOJI_CATEGORIES } from './emojis';
+import api from '../../../../services/api';
 
 const LIMITS = { text: 4096, caption: 1024 };
 
@@ -23,6 +24,21 @@ const utilityTypes = [
   { id: 'mark_seen', label: 'סמן כנקרא', icon: CheckCheck, color: 'blue' },
   { id: 'reaction', label: 'ריאקציה', icon: SmilePlus, color: 'yellow' },
   { id: 'wait_reply', label: 'המתן לתגובה', icon: MessageSquare, color: 'teal' },
+];
+
+// WhatsApp Group actions
+const groupTypes = [
+  { id: 'add_to_group', label: 'הוסף לקבוצה', icon: '➕' },
+  { id: 'remove_from_group', label: 'הסר מקבוצה', icon: '➖' },
+  { id: 'check_group_member', label: 'בדוק חברות', icon: '🔍' },
+  { id: 'set_group_admin_only', label: 'הגדר מנהלים', icon: '👑' },
+  { id: 'update_group_subject', label: 'שנה שם קבוצה', icon: '✏️' },
+  { id: 'update_group_description', label: 'עדכן תיאור', icon: '📄' },
+];
+
+// WhatsApp Business actions
+const businessTypes = [
+  { id: 'set_label', label: 'הגדר תווית', icon: '🔖' },
 ];
 
 export default function MessageEditor({ data, onUpdate }) {
@@ -65,6 +81,27 @@ export default function MessageEditor({ data, onUpdate }) {
         break;
       case 'wait_reply':
         newAction = { type, saveToVariable: false, variableName: '' };
+        break;
+      // Group actions
+      case 'add_to_group':
+      case 'remove_from_group':
+        newAction = { type, groupId: '', useVariable: false };
+        break;
+      case 'check_group_member':
+        newAction = { type, groupId: '', useVariable: false, resultVar: 'is_member' };
+        break;
+      case 'set_group_admin_only':
+        newAction = { type, groupId: '', useVariable: false, adminsOnly: true };
+        break;
+      case 'update_group_subject':
+        newAction = { type, groupId: '', useVariable: false, groupSubject: '' };
+        break;
+      case 'update_group_description':
+        newAction = { type, groupId: '', useVariable: false, groupDescription: '' };
+        break;
+      // Business actions
+      case 'set_label':
+        newAction = { type, labelId: '', labelName: '' };
         break;
       default:
         newAction = { type };
@@ -158,6 +195,46 @@ export default function MessageEditor({ data, onUpdate }) {
               <span className="text-[11px] font-medium">{label}</span>
             </button>
           ))}
+        </div>
+        
+        {/* WhatsApp Groups */}
+        <div className="mt-4 pt-4 border-t border-gray-100">
+          <div className="flex items-center gap-2 mb-2">
+            <Users className="w-4 h-4 text-green-600" />
+            <p className="text-sm font-medium text-gray-700">קבוצות WhatsApp</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {groupTypes.map(({ id, label, icon }) => (
+              <button
+                key={id}
+                onClick={() => addAction(id)}
+                className="flex items-center gap-2 p-2.5 bg-green-50 hover:bg-green-100 text-green-700 rounded-xl transition-all text-sm border border-green-100 hover:border-green-200 hover:shadow-sm"
+              >
+                <span className="text-base">{icon}</span>
+                <span className="text-[11px] font-medium truncate">{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        {/* WhatsApp Business */}
+        <div className="mt-4 pt-4 border-t border-gray-100">
+          <div className="flex items-center gap-2 mb-2">
+            <Building2 className="w-4 h-4 text-purple-600" />
+            <p className="text-sm font-medium text-gray-700">WhatsApp Business</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {businessTypes.map(({ id, label, icon }) => (
+              <button
+                key={id}
+                onClick={() => addAction(id)}
+                className="flex items-center gap-2 p-2.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl transition-all text-sm border border-purple-100 hover:border-purple-200 hover:shadow-sm"
+              >
+                <span className="text-base">{icon}</span>
+                <span className="text-[11px] font-medium truncate">{label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -893,6 +970,206 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
         </div>
       )}
 
+      {/* Group Actions */}
+      <GroupActionUI action={action} onUpdate={onUpdate} />
+      
+      {/* Business Actions */}
+      <BusinessActionUI action={action} onUpdate={onUpdate} />
+
+    </div>
+  );
+}
+
+// Group Action UI Component
+function GroupActionUI({ action, onUpdate }) {
+  const [groups, setGroups] = useState([]);
+  const [loading, setLoading] = useState(false);
+  
+  const groupActionTypes = ['add_to_group', 'remove_from_group', 'check_group_member', 'set_group_admin_only', 'update_group_subject', 'update_group_description'];
+  
+  if (!groupActionTypes.includes(action.type)) return null;
+  
+  const loadGroups = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get('/whatsapp/groups');
+      setGroups(data.groups || []);
+    } catch (err) {
+      console.error('Error loading groups:', err);
+    }
+    setLoading(false);
+  };
+  
+  useEffect(() => {
+    if (groups.length === 0) loadGroups();
+  }, []);
+  
+  return (
+    <div className="space-y-3">
+      <div className="p-3 bg-green-50 rounded-lg border border-green-100">
+        <p className="text-xs text-green-600 font-medium">
+          {action.type === 'add_to_group' && 'הוספת איש קשר לקבוצה'}
+          {action.type === 'remove_from_group' && 'הסרת איש קשר מקבוצה'}
+          {action.type === 'check_group_member' && 'בדיקת חברות בקבוצה'}
+          {action.type === 'set_group_admin_only' && 'הגדרת הרשאות הודעות'}
+          {action.type === 'update_group_subject' && 'עדכון שם קבוצה'}
+          {action.type === 'update_group_description' && 'עדכון תיאור קבוצה'}
+        </p>
+      </div>
+      
+      <div className="flex items-center gap-2">
+        <select
+          value={action.groupId || ''}
+          onChange={(e) => onUpdate({ groupId: e.target.value, useVariable: false })}
+          className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+          disabled={loading || action.useVariable}
+        >
+          <option value="">-- בחר קבוצה --</option>
+          {groups.map(g => (
+            <option key={g.id} value={g.id}>{g.name} ({g.participants || 0})</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={loadGroups}
+          disabled={loading}
+          className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+      
+      <label className="flex items-center gap-2 text-xs text-gray-500">
+        <input
+          type="checkbox"
+          checked={action.useVariable || false}
+          onChange={(e) => onUpdate({ useVariable: e.target.checked, groupId: '' })}
+          className="rounded"
+        />
+        <span>השתמש במשתנה</span>
+      </label>
+      
+      {action.useVariable && (
+        <TextInputWithVariables
+          value={action.groupId || ''}
+          onChange={(v) => onUpdate({ groupId: v })}
+          placeholder="{{group_id}} או מזהה ידני..."
+        />
+      )}
+      
+      {/* Additional fields for specific actions */}
+      {action.type === 'check_group_member' && (
+        <div className="space-y-2">
+          <label className="text-xs text-gray-500">שם משתנה לתוצאה:</label>
+          <input
+            type="text"
+            value={action.resultVar || 'is_member'}
+            onChange={(e) => onUpdate({ resultVar: e.target.value })}
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+          />
+          <p className="text-xs text-gray-400">התוצאה תישמר במשתנה (true/false)</p>
+        </div>
+      )}
+      
+      {action.type === 'set_group_admin_only' && (
+        <select
+          value={action.adminsOnly ? 'true' : 'false'}
+          onChange={(e) => onUpdate({ adminsOnly: e.target.value === 'true' })}
+          className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+        >
+          <option value="true">רק מנהלים יכולים לשלוח הודעות</option>
+          <option value="false">כולם יכולים לשלוח הודעות</option>
+        </select>
+      )}
+      
+      {action.type === 'update_group_subject' && (
+        <TextInputWithVariables
+          value={action.groupSubject || ''}
+          onChange={(v) => onUpdate({ groupSubject: v })}
+          placeholder="שם הקבוצה החדש..."
+        />
+      )}
+      
+      {action.type === 'update_group_description' && (
+        <TextInputWithVariables
+          value={action.groupDescription || ''}
+          onChange={(v) => onUpdate({ groupDescription: v })}
+          placeholder="תיאור הקבוצה החדש..."
+          multiline
+          rows={3}
+        />
+      )}
+    </div>
+  );
+}
+
+// Business Action UI Component
+function BusinessActionUI({ action, onUpdate }) {
+  const [labels, setLabels] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  
+  if (action.type !== 'set_label') return null;
+  
+  const loadLabels = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data } = await api.get('/whatsapp/labels');
+      setLabels(data.labels || []);
+    } catch (err) {
+      console.error('Error loading labels:', err);
+      setError('לא ניתן לטעון תוויות. ודא שיש לך WhatsApp Business');
+    }
+    setLoading(false);
+  };
+  
+  useEffect(() => {
+    if (labels.length === 0) loadLabels();
+  }, []);
+  
+  return (
+    <div className="space-y-3">
+      <div className="p-3 bg-purple-50 rounded-lg border border-purple-100">
+        <p className="text-xs text-purple-600 font-medium">הגדרת תווית WhatsApp Business</p>
+        <p className="text-xs text-purple-500 mt-1">זמין רק ב-WhatsApp Business</p>
+      </div>
+      
+      <div className="flex items-center gap-2">
+        <select
+          value={action.labelId || ''}
+          onChange={(e) => {
+            const selected = labels.find(l => l.id === e.target.value);
+            onUpdate({ labelId: e.target.value, labelName: selected?.name || '' });
+          }}
+          className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+          disabled={loading}
+        >
+          <option value="">-- בחר תווית --</option>
+          {labels.map(l => (
+            <option key={l.id} value={l.id}>
+              {l.name} {l.color && `(${l.color})`}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={loadLabels}
+          disabled={loading}
+          className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+      
+      {error && <p className="text-xs text-red-500">{error}</p>}
+      
+      {action.labelId && action.labelName && (
+        <div className="flex items-center gap-2 p-2 bg-purple-100 rounded-lg">
+          <span className="text-purple-600">🔖</span>
+          <span className="text-sm text-purple-700">{action.labelName}</span>
+        </div>
+      )}
     </div>
   );
 }

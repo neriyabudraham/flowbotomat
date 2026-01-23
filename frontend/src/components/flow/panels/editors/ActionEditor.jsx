@@ -19,40 +19,18 @@ const actionTypes = [
   { id: 'pause_all_bots', label: 'השהה את כל הבוטים', icon: '⏸️', category: 'control' },
   { id: 'enable_all_bots', label: 'הפעל את כל הבוטים', icon: '⏯️', category: 'control' },
   { id: 'delete_contact', label: 'מחק איש קשר', icon: '🗑️', category: 'control' },
-  
-  // Group Actions
-  { id: 'add_to_group', label: 'הוסף לקבוצה', icon: '➕', hasValue: 'group', category: 'group' },
-  { id: 'remove_from_group', label: 'הסר מקבוצה', icon: '➖', hasValue: 'group', category: 'group' },
-  { id: 'check_group_member', label: 'בדוק חברות בקבוצה', icon: '🔍', hasValue: 'group_check', category: 'group' },
-  { id: 'set_group_admin_only', label: 'הגדר הודעות מנהלים', icon: '👑', hasValue: 'group_settings', category: 'group' },
-  { id: 'update_group_subject', label: 'עדכן שם קבוצה', icon: '✏️', hasValue: 'group_subject', category: 'group' },
-  { id: 'update_group_description', label: 'עדכן תיאור קבוצה', icon: '📄', hasValue: 'group_desc', category: 'group' },
-  
-  // Labels (WhatsApp Business)
-  { id: 'set_label', label: 'הגדר תווית', icon: '🔖', hasValue: 'label', category: 'business' },
-  
-  // Integration Actions
-  { id: 'webhook', label: 'Webhook', icon: '🌐', hasValue: 'url', category: 'integration' },
-  { id: 'http_request', label: 'קריאת API', icon: '📡', hasValue: 'api', category: 'integration' },
-  { id: 'notify', label: 'התראה', icon: '🔔', hasValue: 'text', category: 'integration' },
 ];
 
 const categories = [
   { id: 'tags', label: 'תגיות', icon: '🏷️', color: 'pink', defaultOpen: true },
   { id: 'variables', label: 'משתנים', icon: '📝', color: 'blue', defaultOpen: false },
   { id: 'control', label: 'בקרת בוטים', icon: '🎮', color: 'red', defaultOpen: false },
-  { id: 'group', label: 'קבוצות WhatsApp', icon: '👥', color: 'green', defaultOpen: false },
-  { id: 'business', label: 'WhatsApp Business', icon: '🏢', color: 'purple', defaultOpen: false },
-  { id: 'integration', label: 'אינטגרציות', icon: '🔌', color: 'orange', defaultOpen: false },
 ];
 
 const categoryColors = {
   tags: { bg: 'bg-pink-50', hover: 'hover:bg-pink-100', text: 'text-pink-700', border: 'border-pink-200' },
   variables: { bg: 'bg-blue-50', hover: 'hover:bg-blue-100', text: 'text-blue-700', border: 'border-blue-200' },
   control: { bg: 'bg-red-50', hover: 'hover:bg-red-100', text: 'text-red-700', border: 'border-red-200' },
-  group: { bg: 'bg-green-50', hover: 'hover:bg-green-100', text: 'text-green-700', border: 'border-green-200' },
-  business: { bg: 'bg-purple-50', hover: 'hover:bg-purple-100', text: 'text-purple-700', border: 'border-purple-200' },
-  integration: { bg: 'bg-orange-50', hover: 'hover:bg-orange-100', text: 'text-orange-700', border: 'border-orange-200' },
 };
 
 export default function ActionEditor({ data, onUpdate }) {

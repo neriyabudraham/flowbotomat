@@ -546,6 +546,7 @@ function getDefaultData(type) {
       sendSummary: false 
     };
     case 'note': return { note: '', color: 'yellow' };
+    case 'integration': return { actions: [] };
     default: return {};
   }
 }

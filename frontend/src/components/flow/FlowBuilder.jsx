@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { TriggerNode, MessageNode, ConditionNode, DelayNode, ActionNode, ListNode, NoteNode } from './nodes';
+import { TriggerNode, MessageNode, ConditionNode, DelayNode, ActionNode, ListNode, NoteNode, IntegrationNode } from './nodes';
 import RegistrationNode from './nodes/RegistrationNode';
 import QuickAddMenu from './panels/QuickAddMenu';
 import EdgeWithDelete from './EdgeWithDelete';
@@ -27,6 +27,7 @@ const nodeTypes = {
   list: ListNode,
   registration: RegistrationNode,
   note: NoteNode,
+  integration: IntegrationNode,
 };
 
 const edgeTypes = {
@@ -275,6 +276,8 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
                     action: '#ec4899',
                     list: '#06b6d4',
                     registration: '#6366f1',
+                    integration: '#f97316',
+                    note: '#eab308',
                   };
                   return colors[n.type] || '#6b7280';
                 }}
@@ -341,6 +344,8 @@ function getDefaultData(type) {
       return { questions: [], title: '' };
     case 'note':
       return { note: '', color: 'yellow' };
+    case 'integration':
+      return { actions: [] };
     default:
       return {};
   }
