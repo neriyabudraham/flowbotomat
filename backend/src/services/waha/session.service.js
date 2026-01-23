@@ -415,35 +415,46 @@ async function sendLocation(connection, phone, latitude, longitude, title = '') 
 }
 
 /**
- * Send contact vCard - generates proper vCard 3.0 format
+ * Format phone number to international format
+ */
+function formatPhoneNumber(phone) {
+  // Remove all non-digit characters
+  let cleaned = phone.replace(/[^0-9]/g, '');
+  
+  // If starts with 0, assume Israeli number and replace with 972
+  if (cleaned.startsWith('0')) {
+    cleaned = '972' + cleaned.substring(1);
+  }
+  
+  // Ensure it starts with country code (if not, assume 972)
+  if (cleaned.length === 9) {
+    cleaned = '972' + cleaned;
+  }
+  
+  return cleaned;
+}
+
+/**
+ * Send contact vCard
  */
 async function sendContactVcard(connection, phone, contactName, contactPhone, contactOrg = '') {
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
   
-  // Format phone number with + prefix if not present
-  const formattedPhone = contactPhone.startsWith('+') ? contactPhone : `+${contactPhone}`;
-  
-  // Generate vCard 3.0 format exactly as specified
-  const vcard = [
-    'BEGIN:VCARD',
-    'VERSION:3.0',
-    `N:;${contactName};;;`,
-    `FN:${contactName}`,
-    `TEL;TYPE=CELL:${formattedPhone}`,
-    contactOrg ? `ORG:${contactOrg}` : null,
-    'END:VCARD'
-  ].filter(Boolean).join('\n');
+  // Format phone number to clean international format
+  const formattedPhone = formatPhoneNumber(contactPhone);
   
   const response = await client.post(`/api/sendContactVcard`, {
     session: connection.session_name,
     chatId: chatId,
     contacts: [{
-      vcard: vcard
+      fullName: contactName,
+      phoneNumber: formattedPhone,
+      organization: contactOrg || undefined
     }],
   });
   
-  console.log(`[WAHA] Sent vCard to ${phone}: ${contactName}`);
+  console.log(`[WAHA] Sent vCard to ${phone}: ${contactName} (${formattedPhone})`);
   return response.data;
 }
 

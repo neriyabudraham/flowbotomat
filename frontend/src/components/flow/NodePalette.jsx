@@ -1,7 +1,7 @@
 import { MessageSquare, GitBranch, Clock, Cog, List, ClipboardList, ChevronLeft } from 'lucide-react';
 
 const nodeTypes = [
-  { type: 'message', label: 'הודעה', icon: MessageSquare, color: 'bg-teal-500', description: 'טקסט, תמונה, סרטון או קובץ' },
+  { type: 'message', label: 'WhatsApp', icon: MessageSquare, color: 'bg-teal-500', description: 'הודעות, מדיה וריאקציות' },
   { type: 'list', label: 'רשימה', icon: List, color: 'bg-cyan-500', description: 'רשימת בחירה עם כפתורים' },
   { type: 'registration', label: 'תהליך רישום', icon: ClipboardList, color: 'bg-indigo-500', description: 'איסוף מידע בשאלות' },
   { type: 'condition', label: 'תנאי', icon: GitBranch, color: 'bg-orange-500', description: 'הסתעפות לפי תנאים' },

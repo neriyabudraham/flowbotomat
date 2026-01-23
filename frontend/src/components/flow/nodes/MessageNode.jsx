@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { MessageSquare, Image, FileText, Clock, MessageCircle, Edit2, Copy, Trash2, Video, Mic, User } from 'lucide-react';
+import { MessageSquare, Image, FileText, MessageCircle, Edit2, Copy, Trash2, Video, Mic, User, MapPin, Keyboard, CheckCheck, SmilePlus } from 'lucide-react';
 
 const actionIcons = {
   text: MessageSquare,
@@ -9,7 +9,10 @@ const actionIcons = {
   audio: Mic,
   file: FileText,
   contact: User,
-  delay: Clock,
+  location: MapPin,
+  typing: Keyboard,
+  mark_seen: CheckCheck,
+  reaction: SmilePlus,
 };
 
 const actionLabels = {
@@ -19,17 +22,25 @@ const actionLabels = {
   audio: 'הודעה קולית',
   file: 'קובץ',
   contact: 'איש קשר',
-  delay: 'השהייה',
+  location: 'מיקום',
+  typing: 'מקליד/ה',
+  mark_seen: 'סמן כנקרא',
+  reaction: 'ריאקציה',
 };
 
 function MessageNode({ data, selected }) {
-  const actions = data.actions || [{ type: 'text', content: '' }];
+  const actions = data.actions || [];
   const canDuplicate = true;
   const canDelete = true;
   
+  // Find first image/video for large preview
+  const mediaAction = actions.find(a => (a.type === 'image' || a.type === 'video') && (a.url || a.previewUrl));
+  
   return (
     <div 
-      className={`group bg-white rounded-2xl border-2 transition-all duration-200 min-w-[220px] max-w-[300px] ${
+      className={`group bg-white rounded-2xl border-2 transition-all duration-200 min-w-[220px] ${
+        mediaAction ? 'max-w-[350px]' : 'max-w-[300px]'
+      } ${
         selected 
           ? 'border-teal-400 shadow-lg shadow-teal-200' 
           : 'border-gray-200 shadow-md hover:shadow-lg hover:border-gray-300'
@@ -75,12 +86,42 @@ function MessageNode({ data, selected }) {
         <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
           <MessageSquare className="w-4 h-4 text-white" />
         </div>
-        <span className="font-bold text-white">שליחת הודעה</span>
+        <span className="font-bold text-white">WhatsApp</span>
       </div>
+      
+      {/* Large Media Preview */}
+      {mediaAction && (mediaAction.previewUrl || mediaAction.url) && (
+        <div className="overflow-hidden">
+          {mediaAction.type === 'image' ? (
+            <img 
+              src={mediaAction.previewUrl || mediaAction.url} 
+              alt="תצוגה מקדימה" 
+              className="w-full max-h-48 object-cover"
+              onError={(e) => e.target.style.display = 'none'}
+            />
+          ) : (
+            <video 
+              src={mediaAction.previewUrl || mediaAction.url} 
+              className="w-full max-h-48 object-cover"
+              muted
+            />
+          )}
+        </div>
+      )}
       
       {/* Content */}
       <div className="p-3 space-y-2">
-        {actions.slice(0, 3).map((action, i) => {
+        {/* Empty State */}
+        {actions.length === 0 && (
+          <div className="text-center py-2 text-gray-400 text-sm">
+            לחץ להוספת תוכן
+          </div>
+        )}
+        
+        {actions.slice(0, 4).map((action, i) => {
+          // Skip media that's shown in large preview
+          if (mediaAction && action === mediaAction) return null;
+          
           const Icon = actionIcons[action.type] || MessageSquare;
           return (
             <div key={i} className="bg-gray-50 rounded-lg p-2">
@@ -97,14 +138,17 @@ function MessageNode({ data, selected }) {
                 {action.type === 'audio' && (action.fileName || action.url ? '🎙️ הודעה קולית' : '(בחר הקלטה)')}
                 {action.type === 'file' && (action.fileName || action.url ? '📎 קובץ' : '(בחר קובץ)')}
                 {action.type === 'contact' && (action.contactName ? `👤 ${action.contactName}` : '(הגדר איש קשר)')}
-                {action.type === 'delay' && `${action.delay || 1} ${action.unit === 'minutes' ? 'דקות' : 'שניות'}`}
+                {action.type === 'location' && (action.locationTitle || (action.latitude ? '📍 מיקום' : '(הגדר מיקום)'))}
+                {action.type === 'typing' && `⌨️ ${action.typingDuration || 3} שניות`}
+                {action.type === 'mark_seen' && '✅ סימון כנקרא'}
+                {action.type === 'reaction' && (action.reaction || '👍🏻')}
               </div>
             </div>
           );
-        })}
-        {actions.length > 3 && (
+        }).filter(Boolean)}
+        {actions.length > 4 && (
           <div className="text-xs text-gray-400 text-center">
-            +{actions.length - 3} נוספים
+            +{actions.length - 4} נוספים
           </div>
         )}
         

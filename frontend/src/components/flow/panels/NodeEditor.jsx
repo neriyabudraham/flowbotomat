@@ -19,7 +19,7 @@ const editors = {
 
 const titles = {
   trigger: 'עריכת טריגר',
-  message: 'עריכת הודעה',
+  message: 'WhatsApp',
   condition: 'עריכת תנאי',
   delay: 'עריכת השהייה',
   action: 'עריכת פעולה',

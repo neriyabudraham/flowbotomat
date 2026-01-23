@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Upload, CheckCircle, Play, Mic, User, MapPin, Clock, Keyboard, CheckCheck, SmilePlus } from 'lucide-react';
+import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Upload, CheckCircle, Play, Mic, User, MapPin, Keyboard, CheckCheck, SmilePlus, Link, Square } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 import { COMMON_REACTIONS, EMOJI_CATEGORIES } from './emojis';
 
@@ -16,9 +16,8 @@ const contentTypes = [
   { id: 'location', label: 'מיקום', icon: MapPin, color: 'red' },
 ];
 
-// Utility types - timing and status
+// Utility types - status actions (no delay)
 const utilityTypes = [
-  { id: 'delay', label: 'השהייה', icon: Clock, color: 'amber' },
   { id: 'typing', label: 'מקליד/ה', icon: Keyboard, color: 'gray' },
   { id: 'mark_seen', label: 'סמן כנקרא', icon: CheckCheck, color: 'blue' },
   { id: 'reaction', label: 'ריאקציה', icon: SmilePlus, color: 'yellow' },
@@ -36,22 +35,19 @@ export default function MessageEditor({ data, onUpdate }) {
         break;
       case 'image':
       case 'video':
-        newAction = { type, url: '', caption: '' };
+        newAction = { type, url: '', caption: '', inputMode: 'upload' };
         break;
       case 'audio':
-        newAction = { type, url: '' };
+        newAction = { type, url: '', inputMode: 'upload' };
         break;
       case 'file':
-        newAction = { type, url: '', filename: '' };
+        newAction = { type, url: '', filename: '', inputMode: 'upload' };
         break;
       case 'contact':
         newAction = { type, contactName: '', contactPhone: '', contactOrg: '' };
         break;
       case 'location':
         newAction = { type, latitude: '', longitude: '', locationTitle: '' };
-        break;
-      case 'delay':
-        newAction = { type, delay: 1, unit: 'seconds' };
         break;
       case 'typing':
         newAction = { type, typingDuration: 3 };
@@ -60,7 +56,7 @@ export default function MessageEditor({ data, onUpdate }) {
         newAction = { type };
         break;
       case 'reaction':
-        newAction = { type, reaction: '👍' };
+        newAction = { type, reaction: '👍🏻' };
         break;
       default:
         newAction = { type };
@@ -432,31 +428,29 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
             </div>
           )}
           
-          {/* Preview */}
+          {/* Preview - Large size */}
           {previewUrl && !previewError && !isLoading && (
-            <div className="relative rounded-lg overflow-hidden bg-gray-100">
+            <div className="relative rounded-xl overflow-hidden bg-gray-100 shadow-lg">
               {action.type === 'image' ? (
                 <img 
                   src={previewUrl} 
                   alt="תצוגה מקדימה" 
-                  className="w-full h-32 object-cover"
+                  className="w-full max-h-64 object-contain bg-black/5"
                   onError={() => setPreviewError(true)}
                 />
               ) : (
-                <div className="relative">
-                  <video 
-                    src={previewUrl} 
-                    className="w-full h-32 object-cover"
-                    controls
-                    onError={() => setPreviewError(true)}
-                  />
-                </div>
+                <video 
+                  src={previewUrl} 
+                  className="w-full max-h-64"
+                  controls
+                  onError={() => setPreviewError(true)}
+                />
               )}
               <button
-                onClick={() => { onUpdate({ url: '', previewUrl: '', localFile: false, fileName: '', fileSize: null }); setPreviewError(false); setUploadError(''); }}
-                className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
+                onClick={() => { onUpdate({ url: '', previewUrl: '', localFile: false, fileName: '', fileSize: null, inputMode: 'upload' }); setPreviewError(false); setUploadError(''); }}
+                className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 shadow-lg"
               >
-                <X className="w-3 h-3" />
+                <X className="w-4 h-4" />
               </button>
             </div>
           )}
@@ -469,37 +463,68 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
             </div>
           )}
 
-          {/* Upload */}
+          {/* Input Mode Tabs */}
           {!previewUrl && !isLoading && (
             <>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full flex items-center justify-center gap-2 py-4 bg-white border-2 border-dashed border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50 transition-colors"
-              >
-                <Upload className="w-5 h-5" />
-                <span className="text-sm">העלה {action.type === 'image' ? 'תמונה' : 'סרטון'}</span>
-              </button>
-              <p className="text-xs text-gray-400 text-center">
-                גודל מקסימלי: {action.type === 'video' ? '16MB' : '5MB'}
-              </p>
-              <input 
-                ref={fileInputRef} 
-                type="file" 
-                accept={action.type === 'image' ? 'image/*' : 'video/*'} 
-                onChange={handleFileUpload} 
-                className="hidden" 
-              />
+              <div className="flex bg-gray-100 rounded-lg p-1">
+                <button
+                  type="button"
+                  onClick={() => onUpdate({ inputMode: 'upload' })}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+                    (action.inputMode || 'upload') === 'upload'
+                      ? 'bg-white shadow text-gray-800'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <Upload className="w-4 h-4" />
+                  העלאה
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onUpdate({ inputMode: 'url' })}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+                    action.inputMode === 'url'
+                      ? 'bg-white shadow text-gray-800'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <Link className="w-4 h-4" />
+                  קישור
+                </button>
+              </div>
               
-              <div className="text-xs text-gray-400 text-center">או הדבק URL</div>
+              {/* Upload Mode */}
+              {(action.inputMode || 'upload') === 'upload' && (
+                <>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full flex items-center justify-center gap-2 py-6 bg-white border-2 border-dashed border-gray-200 rounded-xl hover:border-teal-300 hover:bg-teal-50 transition-colors"
+                  >
+                    <Upload className="w-6 h-6 text-gray-400" />
+                    <span className="text-sm text-gray-600">לחץ להעלאת {action.type === 'image' ? 'תמונה' : 'סרטון'}</span>
+                  </button>
+                  <p className="text-xs text-gray-400 text-center">
+                    גודל מקסימלי: {action.type === 'video' ? '16MB' : '5MB'}
+                  </p>
+                  <input 
+                    ref={fileInputRef} 
+                    type="file" 
+                    accept={action.type === 'image' ? 'image/*' : 'video/*'} 
+                    onChange={handleFileUpload} 
+                    className="hidden" 
+                  />
+                </>
+              )}
               
-              <input
-                type="url"
-                value={action.url || ''}
-                onChange={(e) => { onUpdate({ url: e.target.value, previewUrl: e.target.value, localFile: false }); setPreviewError(false); setUploadError(''); }}
-                placeholder="https://..."
-                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-                dir="ltr"
-              />
+              {/* URL Mode */}
+              {action.inputMode === 'url' && (
+                <TextInputWithVariables
+                  value={action.url || ''}
+                  onChange={(v) => { onUpdate({ url: v, previewUrl: v, localFile: false }); setPreviewError(false); setUploadError(''); }}
+                  placeholder="https://example.com/image.jpg או {{משתנה}}"
+                  label="קישור לקובץ (ניתן להשתמש במשתנים)"
+                />
+              )}
             </>
           )}
 
@@ -530,94 +555,86 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
 
       {/* Audio/Voice message */}
       {action.type === 'audio' && (
-        <div className="space-y-3">
-          {/* Upload */}
-          <button 
-            onClick={() => fileInputRef.current?.click()} 
-            className="w-full flex items-center justify-center gap-2 py-4 bg-white border-2 border-dashed border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50 transition-colors"
-          >
-            <Mic className="w-5 h-5" />
-            <span className="text-sm">העלה הקלטה קולית</span>
-          </button>
-          <input 
-            ref={fileInputRef} 
-            type="file" 
-            accept="audio/*" 
-            onChange={handleFileUpload} 
-            className="hidden" 
-          />
-          
-          {action.fileName && (
-            <div className="flex items-center justify-between gap-2 p-2 bg-teal-50 rounded-lg text-sm text-teal-700">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4" />
-                <span className="truncate max-w-[150px]">{action.fileName}</span>
-              </div>
-              <button 
-                onClick={() => onUpdate({ url: '', fileName: '', localFile: false })}
-                className="text-red-500 hover:text-red-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-          
-          <div className="text-xs text-gray-400 text-center">או הזן URL</div>
-          
-          <input 
-            type="url" 
-            value={action.url || ''} 
-            onChange={(e) => onUpdate({ url: e.target.value, localFile: false })} 
-            placeholder="URL לקובץ שמע (ogg/opus מומלץ)..." 
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm" 
-            dir="ltr" 
-          />
-          <p className="text-xs text-gray-400">פורמט מומלץ: ogg/opus. פורמטים נתמכים: mp3, ogg, wav</p>
-        </div>
+        <AudioRecorder action={action} onUpdate={onUpdate} fileInputRef={fileInputRef} handleFileUpload={handleFileUpload} />
       )}
 
       {/* File upload with auto-detect mimetype */}
       {action.type === 'file' && (
         <div className="space-y-3">
-          <button 
-            onClick={() => fileInputRef.current?.click()} 
-            className="w-full flex items-center justify-center gap-2 py-4 bg-white border-2 border-dashed border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50 transition-colors"
-          >
-            <Upload className="w-5 h-5" />
-            <span className="text-sm">העלה קובץ</span>
-          </button>
-          <input ref={fileInputRef} type="file" onChange={handleFileUpload} className="hidden" />
+          {/* Input Mode Tabs */}
+          {!action.fileName && (
+            <>
+              <div className="flex bg-gray-100 rounded-lg p-1">
+                <button
+                  type="button"
+                  onClick={() => onUpdate({ inputMode: 'upload' })}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+                    (action.inputMode || 'upload') === 'upload'
+                      ? 'bg-white shadow text-gray-800'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <Upload className="w-4 h-4" />
+                  העלאה
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onUpdate({ inputMode: 'url' })}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+                    action.inputMode === 'url'
+                      ? 'bg-white shadow text-gray-800'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <Link className="w-4 h-4" />
+                  קישור
+                </button>
+              </div>
+              
+              {/* Upload Mode */}
+              {(action.inputMode || 'upload') === 'upload' && (
+                <>
+                  <button 
+                    onClick={() => fileInputRef.current?.click()} 
+                    className="w-full flex items-center justify-center gap-2 py-6 bg-white border-2 border-dashed border-gray-200 rounded-xl hover:border-gray-400 hover:bg-gray-50 transition-colors"
+                  >
+                    <Upload className="w-6 h-6 text-gray-400" />
+                    <span className="text-sm text-gray-600">לחץ להעלאת קובץ</span>
+                  </button>
+                  <input ref={fileInputRef} type="file" onChange={handleFileUpload} className="hidden" />
+                  <p className="text-xs text-gray-400 text-center">נתמכים: PDF, Word, Excel, תמונות, וידאו, שמע</p>
+                </>
+              )}
+              
+              {/* URL Mode */}
+              {action.inputMode === 'url' && (
+                <TextInputWithVariables
+                  value={action.url || ''}
+                  onChange={(v) => onUpdate({ url: v, localFile: false })}
+                  placeholder="https://example.com/file.pdf או {{משתנה}}"
+                  label="קישור לקובץ (ניתן להשתמש במשתנים)"
+                />
+              )}
+            </>
+          )}
           
           {action.fileName && (
-            <div className="flex items-center justify-between gap-2 p-2 bg-teal-50 rounded-lg text-sm text-teal-700">
+            <div className="flex items-center justify-between gap-2 p-3 bg-gray-100 rounded-lg text-sm text-gray-700">
               <div className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4" />
-                <span className="truncate max-w-[150px]">{action.fileName}</span>
+                <CheckCircle className="w-4 h-4 text-green-500" />
+                <span className="truncate max-w-[180px]">{action.fileName}</span>
                 {action.fileSize && (
-                  <span className="text-xs text-teal-600">({formatFileSize(action.fileSize)})</span>
+                  <span className="text-xs text-gray-500">({formatFileSize(action.fileSize)})</span>
                 )}
               </div>
               <button 
-                onClick={() => onUpdate({ url: '', fileName: '', localFile: false, fileSize: null })}
+                onClick={() => onUpdate({ url: '', fileName: '', localFile: false, fileSize: null, inputMode: 'upload' })}
                 className="text-red-500 hover:text-red-700"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
           )}
-          
-          <div className="text-xs text-gray-400 text-center">או הזן URL</div>
-          
-          <input 
-            type="url" 
-            value={action.url || ''} 
-            onChange={(e) => onUpdate({ url: e.target.value, localFile: false })} 
-            placeholder="URL לקובץ..." 
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm" 
-            dir="ltr" 
-          />
-          
-          <p className="text-xs text-gray-400">סוג הקובץ יזוהה אוטומטית. נתמכים: PDF, Word, Excel, תמונות, וידאו, שמע</p>
         </div>
       )}
 
@@ -694,35 +711,6 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
             placeholder="שם המיקום (אופציונלי)..."
             label="שם המיקום"
           />
-        </div>
-      )}
-
-      {/* Delay */}
-      {action.type === 'delay' && (
-        <div className="space-y-3">
-          <div className="p-3 bg-amber-50 rounded-lg border border-amber-100">
-            <p className="text-xs text-amber-600 font-medium">השהייה לפני הפעולה הבאה</p>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            <input
-              type="number"
-              min="1"
-              max="300"
-              value={action.delay || 1}
-              onChange={(e) => onUpdate({ delay: Math.min(300, Math.max(1, parseInt(e.target.value) || 1)) })}
-              className="w-24 px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-center font-medium"
-            />
-            <select
-              value={action.unit || 'seconds'}
-              onChange={(e) => onUpdate({ unit: e.target.value })}
-              className="px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm"
-            >
-              <option value="seconds">שניות</option>
-              <option value="minutes">דקות</option>
-            </select>
-          </div>
-          <p className="text-xs text-gray-400">מקסימום 300 שניות / 5 דקות</p>
         </div>
       )}
 
@@ -825,6 +813,239 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
         </div>
       )}
 
+    </div>
+  );
+}
+
+// Audio Recorder Component
+function AudioRecorder({ action, onUpdate, fileInputRef, handleFileUpload }) {
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState(null);
+  const [audioUrl, setAudioUrl] = useState(null);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const timerRef = useRef(null);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const url = URL.createObjectURL(blob);
+        setAudioBlob(blob);
+        setAudioUrl(url);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start(100);
+      setIsRecording(true);
+      setRecordingTime(0);
+      
+      timerRef.current = setInterval(() => {
+        setRecordingTime(t => t + 1);
+      }, 1000);
+    } catch (err) {
+      console.error('Error accessing microphone:', err);
+      alert('לא ניתן לגשת למיקרופון. אנא בדוק הרשאות.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      clearInterval(timerRef.current);
+    }
+  };
+
+  const saveRecording = () => {
+    if (audioBlob) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        onUpdate({
+          localFile: true,
+          fileName: `recording_${Date.now()}.webm`,
+          fileData: reader.result,
+          url: audioUrl,
+          fileSize: audioBlob.size
+        });
+      };
+      reader.readAsDataURL(audioBlob);
+    }
+  };
+
+  const discardRecording = () => {
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setRecordingTime(0);
+  };
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Input Mode Tabs */}
+      <div className="flex bg-gray-100 rounded-lg p-1">
+        <button
+          type="button"
+          onClick={() => onUpdate({ inputMode: 'upload' })}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+            (action.inputMode || 'upload') === 'upload'
+              ? 'bg-white shadow text-gray-800'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Upload className="w-4 h-4" />
+          העלאה
+        </button>
+        <button
+          type="button"
+          onClick={() => onUpdate({ inputMode: 'record' })}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+            action.inputMode === 'record'
+              ? 'bg-white shadow text-gray-800'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Mic className="w-4 h-4" />
+          הקלטה
+        </button>
+        <button
+          type="button"
+          onClick={() => onUpdate({ inputMode: 'url' })}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+            action.inputMode === 'url'
+              ? 'bg-white shadow text-gray-800'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Link className="w-4 h-4" />
+          קישור
+        </button>
+      </div>
+
+      {/* Already has file */}
+      {action.fileName && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2 p-3 bg-pink-50 rounded-lg text-sm text-pink-700">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4" />
+              <span className="truncate max-w-[150px]">{action.fileName}</span>
+            </div>
+            <button 
+              onClick={() => onUpdate({ url: '', fileName: '', localFile: false, fileData: null })}
+              className="text-red-500 hover:text-red-700"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {action.url && (
+            <audio src={action.url} controls className="w-full" />
+          )}
+        </div>
+      )}
+
+      {/* Upload Mode */}
+      {!action.fileName && (action.inputMode || 'upload') === 'upload' && (
+        <>
+          <button 
+            onClick={() => fileInputRef.current?.click()} 
+            className="w-full flex items-center justify-center gap-2 py-6 bg-white border-2 border-dashed border-gray-200 rounded-xl hover:border-pink-300 hover:bg-pink-50 transition-colors"
+          >
+            <Upload className="w-6 h-6 text-gray-400" />
+            <span className="text-sm text-gray-600">לחץ להעלאת קובץ שמע</span>
+          </button>
+          <input 
+            ref={fileInputRef} 
+            type="file" 
+            accept="audio/*" 
+            onChange={handleFileUpload} 
+            className="hidden" 
+          />
+          <p className="text-xs text-gray-400 text-center">פורמטים נתמכים: mp3, ogg, wav, webm</p>
+        </>
+      )}
+
+      {/* Record Mode */}
+      {!action.fileName && action.inputMode === 'record' && (
+        <div className="space-y-3">
+          {!audioUrl ? (
+            <div className="flex flex-col items-center gap-3 py-6 bg-white border-2 border-dashed border-gray-200 rounded-xl">
+              {isRecording ? (
+                <>
+                  <div className="w-16 h-16 rounded-full bg-red-500 animate-pulse flex items-center justify-center">
+                    <Mic className="w-8 h-8 text-white" />
+                  </div>
+                  <span className="text-lg font-mono text-red-600">{formatTime(recordingTime)}</span>
+                  <button
+                    onClick={stopRecording}
+                    className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                  >
+                    <Square className="w-4 h-4" />
+                    עצור הקלטה
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={startRecording}
+                    className="w-16 h-16 rounded-full bg-pink-500 hover:bg-pink-600 flex items-center justify-center transition-colors"
+                  >
+                    <Mic className="w-8 h-8 text-white" />
+                  </button>
+                  <span className="text-sm text-gray-500">לחץ להתחלת הקלטה</span>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3 p-4 bg-pink-50 rounded-xl">
+              <p className="text-sm font-medium text-pink-700">תצוגה מקדימה:</p>
+              <audio src={audioUrl} controls className="w-full" />
+              <div className="flex gap-2">
+                <button
+                  onClick={saveRecording}
+                  className="flex-1 flex items-center justify-center gap-2 py-2 bg-pink-500 text-white rounded-lg hover:bg-pink-600"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  שמור
+                </button>
+                <button
+                  onClick={discardRecording}
+                  className="flex-1 flex items-center justify-center gap-2 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                >
+                  <X className="w-4 h-4" />
+                  הקלט מחדש
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* URL Mode */}
+      {!action.fileName && action.inputMode === 'url' && (
+        <TextInputWithVariables
+          value={action.url || ''}
+          onChange={(v) => onUpdate({ url: v, localFile: false })}
+          placeholder="https://example.com/audio.mp3 או {{משתנה}}"
+          label="קישור לקובץ שמע (ניתן להשתמש במשתנים)"
+        />
+      )}
     </div>
   );
 }
