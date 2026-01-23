@@ -1,4 +1,4 @@
-import { Check, CheckCheck, Image, FileText, Mic, MapPin, Video, Play, Download, ExternalLink, Bot, User, List, MousePointer, ChevronDown } from 'lucide-react';
+import { Check, CheckCheck, Image, FileText, Mic, MapPin, Video, Play, Download, ExternalLink, Bot, User, List, MousePointer, ChevronDown, UserCircle, Phone, Building2, Eye, ThumbsUp } from 'lucide-react';
 
 export default function MessageBubble({ message }) {
   const isOutgoing = message.direction === 'outgoing';
@@ -11,6 +11,22 @@ export default function MessageBubble({ message }) {
   const metadata = typeof message.metadata === 'string' 
     ? JSON.parse(message.metadata || '{}') 
     : (message.metadata || {});
+
+  // Parse vCard to extract contact info
+  const parseVcard = (vcardString) => {
+    if (!vcardString) return null;
+    const lines = vcardString.split('\n');
+    const contact = {};
+    for (const line of lines) {
+      if (line.startsWith('FN:')) contact.name = line.substring(3).trim();
+      if (line.startsWith('TEL')) {
+        const match = line.match(/:([+\d]+)/);
+        if (match) contact.phone = match[1];
+      }
+      if (line.startsWith('ORG:')) contact.org = line.substring(4).replace(';', '').trim();
+    }
+    return contact;
+  };
 
   const renderContent = () => {
     switch (message.message_type) {
@@ -214,6 +230,67 @@ export default function MessageBubble({ message }) {
           <img src={message.media_url} alt="sticker" className="w-28 h-28" />
         ) : (
           <span className="text-4xl">🎉</span>
+        );
+      
+      // Contact vCard
+      case 'vcard':
+      case 'contact': {
+        const contactInfo = parseVcard(message.content);
+        return (
+          <div className={`flex items-center gap-3 p-3 rounded-xl ${
+            isOutgoing ? 'bg-white/10' : 'bg-gray-50 border border-gray-100'
+          }`}>
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+              isOutgoing ? 'bg-white/20' : 'bg-gradient-to-br from-green-400 to-emerald-500'
+            }`}>
+              <UserCircle className={`w-7 h-7 ${isOutgoing ? 'text-white' : 'text-white'}`} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className={`font-semibold text-sm ${isOutgoing ? 'text-white' : 'text-gray-800'}`}>
+                {contactInfo?.name || 'איש קשר'}
+              </p>
+              {contactInfo?.phone && (
+                <p className={`text-xs flex items-center gap-1 mt-0.5 ${
+                  isOutgoing ? 'text-white/70' : 'text-gray-500'
+                }`}>
+                  <Phone className="w-3 h-3" />
+                  <span dir="ltr">{contactInfo.phone}</span>
+                </p>
+              )}
+              {contactInfo?.org && (
+                <p className={`text-xs flex items-center gap-1 mt-0.5 ${
+                  isOutgoing ? 'text-white/70' : 'text-gray-500'
+                }`}>
+                  <Building2 className="w-3 h-3" />
+                  {contactInfo.org}
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      }
+      
+      // Reaction message
+      case 'reaction':
+        return (
+          <div className="flex items-center gap-2">
+            <ThumbsUp className={`w-4 h-4 ${isOutgoing ? 'text-white/70' : 'text-gray-400'}`} />
+            <span className={`text-xs ${isOutgoing ? 'text-white/70' : 'text-gray-500'}`}>
+              הגיב עם
+            </span>
+            <span className="text-2xl">{message.content || '👍'}</span>
+          </div>
+        );
+      
+      // Mark as seen notification
+      case 'mark_seen':
+        return (
+          <div className="flex items-center gap-2">
+            <Eye className={`w-4 h-4 ${isOutgoing ? 'text-white/70' : 'text-gray-400'}`} />
+            <span className={`text-xs ${isOutgoing ? 'text-white/70' : 'text-gray-500'}`}>
+              סומן כנקרא
+            </span>
+          </div>
         );
       
       default:

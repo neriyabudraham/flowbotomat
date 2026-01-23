@@ -721,4 +721,24 @@ module.exports = {
   getLabels,
   setChatLabels,
   getChatsByLabel,
+  // Contacts
+  getWhatsAppContacts,
 };
+
+/**
+ * Get all WhatsApp contacts from device
+ */
+async function getWhatsAppContacts(connection) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const sessionName = connection.session_name || 'default';
+  
+  try {
+    const response = await client.get(`/api/contacts/all`, {
+      params: { session: sessionName }
+    });
+    return response.data || [];
+  } catch (error) {
+    console.error('[WAHA] Failed to get contacts:', error.message);
+    return [];
+  }
+}

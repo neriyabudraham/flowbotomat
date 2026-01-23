@@ -173,9 +173,24 @@ async function handleIncomingMessage(userId, event) {
  */
 async function getOrCreateContact(userId, phone, payload) {
   // Extract name from various WAHA payload formats - prefer _data.Info.PushName
-  const displayName = payload._data?.Info?.PushName || 
-                      payload._data?.Info?.VerifiedName?.Details?.verifiedName ||
-                      payload.notifyName || payload.pushName || phone;
+  let displayName = payload._data?.Info?.PushName || 
+                    payload._data?.Info?.VerifiedName?.Details?.verifiedName ||
+                    payload.notifyName || payload.pushName || phone;
+  
+  // Check if we have a synced WhatsApp contact name (from user's phone contacts)
+  try {
+    const syncedContact = await pool.query(
+      `SELECT display_name FROM whatsapp_contacts 
+       WHERE user_id = $1 AND phone = $2 AND display_name IS NOT NULL AND display_name != ''`,
+      [userId, phone]
+    );
+    if (syncedContact.rows.length > 0 && syncedContact.rows[0].display_name) {
+      // Prefer the synced contact name over pushname
+      displayName = syncedContact.rows[0].display_name;
+    }
+  } catch (err) {
+    // Table might not exist yet, ignore
+  }
   
   // Get the real WhatsApp ID
   const waId = payload._data?.Info?.SenderAlt || payload.from || `${phone}@s.whatsapp.net`;
