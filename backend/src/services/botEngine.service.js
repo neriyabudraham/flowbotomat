@@ -6,6 +6,16 @@ const validationService = require('./validation.service');
 const { checkLimit, incrementBotRuns } = require('../controllers/subscriptions/subscriptions.controller');
 const { getSocketManager } = require('./socket/manager.service');
 
+// Ensure metadata column exists
+(async () => {
+  try {
+    await db.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS metadata JSONB`);
+    console.log('[BotEngine] Metadata column ensured');
+  } catch (err) {
+    // Column might already exist or table might not exist yet
+  }
+})();
+
 class BotEngine {
   
   // Save outgoing message to database and emit via socket
@@ -19,16 +29,18 @@ class BotEngine {
       
       const result = await db.query(`
         INSERT INTO messages 
-        (user_id, contact_id, wa_message_id, direction, message_type, content, media_url, media_filename, media_mime_type, latitude, longitude, status, sent_at)
-        VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, $9, $10, 'sent', NOW())
+        (user_id, contact_id, wa_message_id, direction, message_type, content, media_url, media_filename, media_mime_type, latitude, longitude, metadata, status, sent_at)
+        VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, $9, $10, $11, 'sent', NOW())
         RETURNING *
-      `, [userId, contactId, waMessageId, messageType, content, mediaUrl, filename, mimetype, latitude, longitude]);
+      `, [userId, contactId, waMessageId, messageType, content, mediaUrl, filename, mimetype, latitude, longitude, metadata ? JSON.stringify(metadata) : null]);
       
       const savedMessage = result.rows[0];
       
-      // Add metadata to the response for frontend display (buttons, etc.)
-      if (metadata) {
-        savedMessage.metadata = metadata;
+      // Parse metadata back if stored as string
+      if (savedMessage.metadata && typeof savedMessage.metadata === 'string') {
+        try {
+          savedMessage.metadata = JSON.parse(savedMessage.metadata);
+        } catch (e) {}
       }
       
       // Get contact info for socket emission
