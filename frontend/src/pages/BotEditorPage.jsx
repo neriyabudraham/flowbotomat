@@ -530,12 +530,12 @@ export default function BotEditorPage() {
 
 function getDefaultData(type) {
   switch (type) {
-    case 'trigger': return { triggers: [{ type: 'any_message', value: '' }] };
-    case 'message': return { actions: [{ type: 'text', content: '' }], waitForReply: false };
-    case 'condition': return { variable: 'message', operator: 'contains', value: '' };
-    case 'delay': return { delay: 1, unit: 'seconds' };
-    case 'action': return { actions: [{ type: 'add_tag', tagName: '' }] };
-    case 'list': return { title: '', body: '', buttonText: 'בחר', buttons: [], waitForReply: true, timeout: null };
+    case 'trigger': return { triggerGroups: [] };
+    case 'message': return { actions: [], waitForReply: false };
+    case 'condition': return { conditions: [], logic: 'and' };
+    case 'delay': return { actions: [] };
+    case 'action': return { actions: [] };
+    case 'list': return { title: '', body: '', buttonText: 'בחר', sections: [], waitForReply: true, timeout: null };
     case 'registration': return { 
       title: '', 
       welcomeMessage: '', 

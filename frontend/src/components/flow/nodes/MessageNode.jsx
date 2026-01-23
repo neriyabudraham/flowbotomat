@@ -37,13 +37,14 @@ function MessageNode({ data, selected }) {
   const canDuplicate = true;
   const canDelete = true;
   
-  // Find first image/video for large preview
-  const mediaAction = actions.find(a => (a.type === 'image' || a.type === 'video') && (a.url || a.previewUrl));
+  // Get all media actions with URLs
+  const mediaActions = actions.filter(a => (a.type === 'image' || a.type === 'video') && (a.url || a.previewUrl));
+  const hasMedia = mediaActions.length > 0;
   
   return (
     <div 
       className={`group bg-white rounded-2xl border-2 transition-all duration-200 min-w-[220px] ${
-        mediaAction ? 'max-w-[350px]' : 'max-w-[300px]'
+        hasMedia ? 'max-w-[350px]' : 'max-w-[300px]'
       } ${
         selected 
           ? 'border-teal-400 shadow-lg shadow-teal-200' 
@@ -93,27 +94,7 @@ function MessageNode({ data, selected }) {
         <span className="font-bold text-white">WhatsApp</span>
       </div>
       
-      {/* Large Media Preview */}
-      {mediaAction && (mediaAction.previewUrl || mediaAction.url) && (
-        <div className="overflow-hidden">
-          {mediaAction.type === 'image' ? (
-            <img 
-              src={mediaAction.previewUrl || mediaAction.url} 
-              alt="תצוגה מקדימה" 
-              className="w-full max-h-48 object-cover"
-              onError={(e) => e.target.style.display = 'none'}
-            />
-          ) : (
-            <video 
-              src={mediaAction.previewUrl || mediaAction.url} 
-              className="w-full max-h-48 object-cover"
-              muted
-            />
-          )}
-        </div>
-      )}
-      
-      {/* Content */}
+      {/* Content - Display all actions in order */}
       <div className="p-3 space-y-2">
         {/* Empty State */}
         {actions.length === 0 && (
@@ -122,11 +103,37 @@ function MessageNode({ data, selected }) {
           </div>
         )}
         
-        {actions.slice(0, 4).map((action, i) => {
-          // Skip media that's shown in large preview
-          if (mediaAction && action === mediaAction) return null;
-          
+        {actions.map((action, i) => {
           const Icon = actionIcons[action.type] || MessageSquare;
+          
+          // Media with preview - show large preview
+          if ((action.type === 'image' || action.type === 'video') && (action.previewUrl || action.url)) {
+            return (
+              <div key={i} className="rounded-lg overflow-hidden border border-gray-100">
+                {action.type === 'image' ? (
+                  <img 
+                    src={action.previewUrl || action.url} 
+                    alt="תצוגה מקדימה" 
+                    className="w-full object-cover"
+                    onError={(e) => e.target.style.display = 'none'}
+                  />
+                ) : (
+                  <video 
+                    src={action.previewUrl || action.url} 
+                    className="w-full object-cover"
+                    muted
+                  />
+                )}
+                {action.caption && (
+                  <div className="px-2 py-1 bg-gray-50 text-xs text-gray-600 line-clamp-1">
+                    {action.caption}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          
+          // Regular action display
           return (
             <div key={i} className="bg-gray-50 rounded-lg p-2">
               <div className="flex items-center gap-2 mb-1">
@@ -137,10 +144,10 @@ function MessageNode({ data, selected }) {
               </div>
               <div className="text-sm text-gray-600 line-clamp-2">
                 {action.type === 'text' && (action.content || '(ריק)')}
-                {action.type === 'image' && (action.fileName || action.url ? '📷 תמונה' : '(בחר תמונה)')}
-                {action.type === 'video' && (action.fileName || action.url ? '🎬 סרטון' : '(בחר סרטון)')}
+                {action.type === 'image' && !action.url && '(בחר תמונה)'}
+                {action.type === 'video' && !action.url && '(בחר סרטון)'}
                 {action.type === 'audio' && (action.fileName || action.url ? '🎙️ הודעה קולית' : '(בחר הקלטה)')}
-                {action.type === 'file' && (action.fileName || action.url ? '📎 קובץ' : '(בחר קובץ)')}
+                {action.type === 'file' && (action.fileName || action.url ? `📎 ${action.filename || 'קובץ'}` : '(בחר קובץ)')}
                 {action.type === 'contact' && (action.contactName ? `👤 ${action.contactName}` : '(הגדר איש קשר)')}
                 {action.type === 'location' && (action.locationTitle || (action.latitude ? '📍 מיקום' : '(הגדר מיקום)'))}
                 {action.type === 'typing' && `⌨️ ${action.typingDuration || 3} שניות`}
@@ -151,12 +158,7 @@ function MessageNode({ data, selected }) {
               </div>
             </div>
           );
-        }).filter(Boolean)}
-        {actions.length > 4 && (
-          <div className="text-xs text-gray-400 text-center">
-            +{actions.length - 4} נוספים
-          </div>
-        )}
+        })}
         
         {/* Wait for reply indicator */}
         {data.waitForReply && (

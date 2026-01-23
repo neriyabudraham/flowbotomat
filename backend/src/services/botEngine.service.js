@@ -786,8 +786,27 @@ class BotEngine {
                   filename = 'file';
                 }
               }
-              console.log('[BotEngine] Sending file:', filename, '-', fileUrl.substring(0, 50) + '...');
-              await wahaService.sendFile(connection, contact.phone, fileUrl, filename);
+              // Detect mimetype from filename or action
+              let mimetype = action.mimetype;
+              if (!mimetype && filename) {
+                const ext = filename.toLowerCase().split('.').pop();
+                const mimetypes = {
+                  'pdf': 'application/pdf',
+                  'doc': 'application/msword',
+                  'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                  'xls': 'application/vnd.ms-excel',
+                  'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                  'ppt': 'application/vnd.ms-powerpoint',
+                  'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                  'txt': 'text/plain',
+                  'zip': 'application/zip',
+                  'rar': 'application/x-rar-compressed',
+                  'csv': 'text/csv',
+                };
+                mimetype = mimetypes[ext] || 'application/octet-stream';
+              }
+              console.log('[BotEngine] Sending file:', filename, '- mimetype:', mimetype, '-', fileUrl.substring(0, 50) + '...');
+              await wahaService.sendFile(connection, contact.phone, fileUrl, filename, mimetype);
               console.log('[BotEngine] ✅ File sent:', filename);
             } else {
               console.log('[BotEngine] ⚠️ File action has no URL');

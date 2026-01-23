@@ -161,48 +161,6 @@ export default function MessageEditor({ data, onUpdate }) {
         </div>
       </div>
 
-      {/* Wait for reply */}
-      <div className="border-t border-gray-100 pt-4">
-        <label className="flex items-center gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={data.waitForReply || false}
-            onChange={(e) => onUpdate({ waitForReply: e.target.checked, timeout: e.target.checked ? null : undefined })}
-            className="w-5 h-5 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
-          />
-          <div>
-            <div className="font-medium text-gray-700">המתן לתגובה</div>
-            <div className="text-xs text-gray-500">הבוט יחכה לתגובה לפני שימשיך</div>
-          </div>
-        </label>
-        
-        {data.waitForReply && (
-          <div className="mt-3 mr-8 space-y-2">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={data.timeout !== null && data.timeout !== undefined}
-                onChange={(e) => onUpdate({ timeout: e.target.checked ? 60 : null })}
-                className="w-4 h-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
-              />
-              <span className="text-sm text-gray-600">הגבל זמן המתנה</span>
-            </label>
-            
-            {data.timeout !== null && data.timeout !== undefined && (
-              <div className="flex items-center gap-2 mr-7">
-                <input
-                  type="number"
-                  value={data.timeout}
-                  onChange={(e) => onUpdate({ timeout: parseInt(e.target.value) || 60 })}
-                  min={10}
-                  className="w-20 px-2 py-1 border border-gray-200 rounded-lg text-sm text-center"
-                />
-                <span className="text-sm text-gray-500">שניות</span>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

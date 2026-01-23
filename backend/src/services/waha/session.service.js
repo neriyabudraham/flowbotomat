@@ -456,38 +456,63 @@ function formatPhoneNumber(phone) {
 }
 
 /**
- * Send contact vCard
+ * Build vCard string for a contact
  */
-async function sendContactVcard(connection, phone, contactName, contactPhone, contactOrg = '') {
-  const client = createClient(connection.base_url, connection.api_key);
-  const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
-  
+function buildVcard(contactName, contactPhone, contactOrg = '') {
   // Format phone number to international format
   const formattedPhone = formatPhoneNumber(contactPhone);
   const phoneWithPlus = formattedPhone.startsWith('+') ? formattedPhone : `+${formattedPhone}`;
   
-  // Build raw vCard 3.0 format - this ensures proper name display
-  const vcard = [
+  // Split name to first/last for better WhatsApp display
+  const nameParts = contactName.trim().split(' ');
+  const firstName = nameParts[0] || contactName;
+  const lastName = nameParts.slice(1).join(' ') || '';
+  
+  // Build raw vCard 3.0 format with proper name encoding
+  return [
     'BEGIN:VCARD',
     'VERSION:3.0',
     `FN:${contactName}`,
-    `N:;${contactName};;;`,
-    `TEL;type=CELL;type=VOICE;waid=${formattedPhone}:${phoneWithPlus}`,
+    `N:${lastName};${firstName};;;`,
+    `TEL;type=CELL;waid=${formattedPhone}:${phoneWithPlus}`,
     contactOrg ? `ORG:${contactOrg}` : null,
     'END:VCARD'
-  ].filter(Boolean).join('\n');
+  ].filter(Boolean).join('\r\n');
+}
+
+/**
+ * Send contact vCard - supports single contact or array of contacts
+ */
+async function sendContactVcard(connection, phone, contactName, contactPhone, contactOrg = '', additionalContacts = []) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
-  console.log(`[WAHA] Sending vCard:`, vcard);
+  // Build contacts array
+  const contacts = [];
+  
+  // Add main contact
+  const mainVcard = buildVcard(contactName, contactPhone, contactOrg);
+  contacts.push({ vcard: mainVcard });
+  
+  // Add additional contacts if provided
+  if (additionalContacts && additionalContacts.length > 0) {
+    for (const c of additionalContacts) {
+      if (c.contactName && c.contactPhone) {
+        const vcard = buildVcard(c.contactName, c.contactPhone, c.contactOrg || '');
+        contacts.push({ vcard: vcard });
+      }
+    }
+  }
+  
+  console.log(`[WAHA] Sending ${contacts.length} vCard(s):`, contacts.map(c => c.vcard).join('\n---\n'));
   
   const response = await client.post(`/api/sendContactVcard`, {
     session: connection.session_name,
     chatId: chatId,
-    contacts: [{
-      vcard: vcard
-    }],
+    contacts: contacts,
   });
   
-  console.log(`[WAHA] Sent vCard to ${phone}: ${contactName} (${phoneWithPlus})`);
+  console.log(`[WAHA] Sent ${contacts.length} vCard(s) to ${phone}`);
   return response.data;
 }
 
