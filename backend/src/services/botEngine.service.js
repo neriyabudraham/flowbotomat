@@ -1436,16 +1436,32 @@ class BotEngine {
       console.log('[BotEngine] ✅ HTTP Response status:', response.status);
       
       // Apply response mappings
+      console.log('[BotEngine] Response data:', JSON.stringify(response.data).substring(0, 500));
+      console.log('[BotEngine] Mappings to apply:', JSON.stringify(action.mappings));
+      
       if (action.mappings && Array.isArray(action.mappings)) {
         for (const mapping of action.mappings) {
           if (mapping.path && mapping.varName) {
-            const value = this.getValueFromPath(response.data, mapping.path);
-            if (value !== undefined) {
-              await this.setContactVariable(contact.id, mapping.varName, String(value));
-              console.log('[BotEngine] Mapped', mapping.path, '→', mapping.varName, '=', value);
+            let value;
+            
+            // Special case: _full_response returns entire response as JSON string
+            if (mapping.path === '_full_response') {
+              value = JSON.stringify(response.data);
+            } else {
+              value = this.getValueFromPath(response.data, mapping.path);
+            }
+            
+            if (value !== undefined && value !== null) {
+              const stringValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+              await this.setContactVariable(contact.id, mapping.varName, stringValue);
+              console.log('[BotEngine] ✅ Mapped', mapping.path, '→', mapping.varName, '=', stringValue.substring(0, 100));
+            } else {
+              console.log('[BotEngine] ⚠️ No value found for path:', mapping.path);
             }
           }
         }
+      } else {
+        console.log('[BotEngine] No mappings defined for this API request');
       }
     } catch (error) {
       console.error('[BotEngine] ❌ HTTP Request failed:', error.message);
@@ -1454,12 +1470,19 @@ class BotEngine {
   
   // Get value from nested path (e.g., "data.user.name")
   getValueFromPath(obj, path) {
+    if (!path || !obj) return undefined;
+    
     const parts = path.split('.');
     let current = obj;
+    
     for (const part of parts) {
-      if (current === null || current === undefined) return undefined;
+      if (current === null || current === undefined) {
+        console.log('[BotEngine] Path traversal failed at:', part);
+        return undefined;
+      }
       current = current[part];
     }
+    
     return current;
   }
   
@@ -2099,6 +2122,8 @@ class BotEngine {
   
   // Helper: Set contact variable
   async setContactVariable(contactId, key, value) {
+    console.log(`[BotEngine] Setting variable for contact ${contactId}: ${key} = ${String(value).substring(0, 100)}`);
+    
     // Save the value to contact
     await db.query(
       `INSERT INTO contact_variables (contact_id, key, value)
@@ -2106,6 +2131,7 @@ class BotEngine {
        ON CONFLICT (contact_id, key) DO UPDATE SET value = $3, updated_at = NOW()`,
       [contactId, key, value]
     );
+    console.log(`[BotEngine] ✅ Variable saved to contact_variables table`);
     
     // Auto-add variable to user's variable definitions (if not exists)
     try {
@@ -2113,12 +2139,20 @@ class BotEngine {
       const contactRes = await db.query('SELECT user_id FROM contacts WHERE id = $1', [contactId]);
       if (contactRes.rows[0]) {
         const userId = contactRes.rows[0].user_id;
-        await db.query(
+        const result = await db.query(
           `INSERT INTO user_variable_definitions (user_id, name, label, var_type)
            VALUES ($1, $2, $2, 'text')
-           ON CONFLICT (user_id, name) DO NOTHING`,
+           ON CONFLICT (user_id, name) DO NOTHING
+           RETURNING id`,
           [userId, key]
         );
+        if (result.rows.length > 0) {
+          console.log(`[BotEngine] ✅ New variable definition added for user ${userId}: ${key}`);
+        } else {
+          console.log(`[BotEngine] Variable definition already exists: ${key}`);
+        }
+      } else {
+        console.log(`[BotEngine] ⚠️ Contact ${contactId} not found - cannot add variable definition`);
       }
     } catch (err) {
       // Ignore errors - table might not exist yet
