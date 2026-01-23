@@ -18,10 +18,12 @@ async function getContactStats(req, res) {
       return res.status(404).json({ error: 'איש קשר לא נמצא' });
     }
     
-    // Get message count and last message
+    // Get message counts - incoming and outgoing separately
     const messagesResult = await db.query(`
       SELECT 
-        COUNT(*) as message_count,
+        COUNT(*) as total_count,
+        COUNT(*) FILTER (WHERE direction = 'incoming') as incoming_count,
+        COUNT(*) FILTER (WHERE direction = 'outgoing') as outgoing_count,
         MAX(sent_at) as last_message_at
       FROM messages 
       WHERE contact_id = $1
@@ -29,41 +31,44 @@ async function getContactStats(req, res) {
     
     // Get last message content
     const lastMessageResult = await db.query(`
-      SELECT content, message_type, sent_at as created_at
+      SELECT content, message_type, direction, sent_at as created_at
       FROM messages 
       WHERE contact_id = $1 
       ORDER BY sent_at DESC 
       LIMIT 1
     `, [contactId]);
     
-    console.log(`[Stats] Contact ${contactId} - Message count: ${messagesResult.rows[0]?.message_count}`);
+    console.log(`[Stats] Contact ${contactId} - Total: ${messagesResult.rows[0]?.total_count}, In: ${messagesResult.rows[0]?.incoming_count}, Out: ${messagesResult.rows[0]?.outgoing_count}`);
     
-    // Get bots that this contact interacted with (through flows)
-    const flowsResult = await db.query(`
+    // Get bots that this contact triggered - from bot_runs table
+    const botsResult = await db.query(`
       SELECT 
         b.name as bot_name,
         b.id as bot_id,
-        COUNT(DISTINCT m.id) as interaction_count
-      FROM messages m
-      JOIN flows f ON m.flow_id = f.id
-      JOIN bots b ON f.bot_id = b.id
-      WHERE m.contact_id = $1 AND m.direction = 'outgoing' AND m.flow_id IS NOT NULL
+        COUNT(br.id) as run_count
+      FROM bot_runs br
+      JOIN bots b ON br.bot_id = b.id
+      WHERE br.contact_id = $1
       GROUP BY b.id, b.name
-      ORDER BY interaction_count DESC
-      LIMIT 5
+      ORDER BY run_count DESC
+      LIMIT 10
     `, [contactId]);
     
     const lastMessage = lastMessageResult.rows[0];
+    const stats = messagesResult.rows[0] || {};
     
     res.json({
-      messageCount: parseInt(messagesResult.rows[0]?.message_count || 0),
+      messageCount: parseInt(stats.total_count || 0),
+      incomingCount: parseInt(stats.incoming_count || 0),
+      outgoingCount: parseInt(stats.outgoing_count || 0),
       lastMessageAt: lastMessage?.created_at || null,
       lastMessageContent: lastMessage?.content || null,
       lastMessageType: lastMessage?.message_type || null,
-      botsInteracted: flowsResult.rows.map(f => ({
-        name: f.bot_name,
-        id: f.bot_id,
-        count: parseInt(f.interaction_count)
+      lastMessageDirection: lastMessage?.direction || null,
+      botsInteracted: botsResult.rows.map(b => ({
+        name: b.bot_name,
+        id: b.bot_id,
+        count: parseInt(b.run_count)
       }))
     });
     

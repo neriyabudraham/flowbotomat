@@ -40,9 +40,12 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
   const [newVarValue, setNewVarValue] = useState('');
   const [newTagName, setNewTagName] = useState('');
   const [stats, setStats] = useState({ 
-    messageCount: 0, 
+    messageCount: 0,
+    incomingCount: 0,
+    outgoingCount: 0,
     lastMessageAt: null,
     lastMessageContent: null,
+    lastMessageDirection: null,
     botsInteracted: []
   });
   const [loading, setLoading] = useState(true);
@@ -77,8 +80,11 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
       setVarDefinitions(defsRes.data.variables || []);
       setStats({
         messageCount: statsRes.data.messageCount || 0,
+        incomingCount: statsRes.data.incomingCount || 0,
+        outgoingCount: statsRes.data.outgoingCount || 0,
         lastMessageAt: statsRes.data.lastMessageAt || null,
         lastMessageContent: statsRes.data.lastMessageContent || null,
+        lastMessageDirection: statsRes.data.lastMessageDirection || null,
         botsInteracted: statsRes.data.botsInteracted || [],
       });
     } catch (err) {
@@ -243,50 +249,55 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Quick Stats Grid */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-xl">
-                <MessageSquare className="w-5 h-5 text-blue-600" />
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-gray-900">{stats.messageCount}</div>
-                <div className="text-xs text-gray-500">הודעות</div>
-              </div>
-            </div>
+        {/* Quick Stats Grid - 3 columns */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 text-center">
+            <div className="text-xl font-bold text-green-600">{stats.incomingCount}</div>
+            <div className="text-[10px] text-gray-500">נכנסות</div>
           </div>
-          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-gradient-to-br from-purple-100 to-pink-100 rounded-xl">
-                <Calendar className="w-5 h-5 text-purple-600" />
-              </div>
-              <div>
-                <div className="text-sm font-semibold text-gray-900">
-                  {contact.created_at 
-                    ? new Date(contact.created_at).toLocaleDateString('he-IL', { day: 'numeric', month: 'short' })
-                    : '-'}
-                </div>
-                <div className="text-xs text-gray-500">הצטרף</div>
-              </div>
-            </div>
+          <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 text-center">
+            <div className="text-xl font-bold text-blue-600">{stats.outgoingCount}</div>
+            <div className="text-[10px] text-gray-500">יוצאות</div>
           </div>
+          <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 text-center">
+            <div className="text-xl font-bold text-purple-600">{stats.botsInteracted?.length || 0}</div>
+            <div className="text-[10px] text-gray-500">בוטים</div>
+          </div>
+        </div>
+        
+        {/* Join Date */}
+        <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-gray-400" />
+            <span className="text-sm text-gray-600">הצטרף</span>
+          </div>
+          <span className="text-sm font-medium text-gray-900">
+            {contact.created_at 
+              ? new Date(contact.created_at).toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' })
+              : '-'}
+          </span>
         </div>
         
         {/* Last Message */}
         {stats.lastMessageAt && (
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-4 border border-blue-100/50">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="p-1.5 bg-blue-500 rounded-lg">
-                <Clock className="w-4 h-4 text-white" />
+          <div className={`rounded-xl p-3 border ${
+            stats.lastMessageDirection === 'incoming' 
+              ? 'bg-green-50 border-green-100' 
+              : 'bg-blue-50 border-blue-100'
+          }`}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Clock className={`w-4 h-4 ${stats.lastMessageDirection === 'incoming' ? 'text-green-500' : 'text-blue-500'}`} />
+                <span className={`text-xs font-medium ${stats.lastMessageDirection === 'incoming' ? 'text-green-700' : 'text-blue-700'}`}>
+                  {stats.lastMessageDirection === 'incoming' ? 'הודעה אחרונה ממנו' : 'הודעה אחרונה אליו'}
+                </span>
               </div>
-              <span className="text-sm font-semibold text-blue-900">הודעה אחרונה</span>
+              <span className="text-[10px] text-gray-500">
+                {new Date(stats.lastMessageAt).toLocaleString('he-IL')}
+              </span>
             </div>
-            <p className="text-xs text-blue-600 mb-2">
-              {new Date(stats.lastMessageAt).toLocaleString('he-IL')}
-            </p>
             {stats.lastMessageContent && (
-              <p className="text-sm text-gray-700 bg-white/60 p-2 rounded-lg line-clamp-2">
+              <p className="text-sm text-gray-700 line-clamp-2">
                 {stats.lastMessageContent}
               </p>
             )}
@@ -294,38 +305,46 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
         )}
         
         {/* Bots Interacted */}
-        {stats.botsInteracted && stats.botsInteracted.length > 0 && (
-          <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-2xl p-4 border border-purple-100/50">
-            <button 
-              onClick={() => toggleSection('flows')}
-              className="flex items-center justify-between w-full mb-3"
-            >
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-purple-500 rounded-lg">
-                  <Bot className="w-4 h-4 text-white" />
-                </div>
-                <span className="text-sm font-semibold text-purple-900">בוטים שעבר</span>
-              </div>
-              {expandedSections.flows ? (
-                <ChevronUp className="w-4 h-4 text-purple-400" />
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+          <button 
+            onClick={() => toggleSection('flows')}
+            className="flex items-center justify-between w-full mb-3"
+          >
+            <div className="flex items-center gap-2">
+              <Bot className="w-5 h-5 text-gray-600" />
+              <span className="font-semibold text-gray-900">היסטוריית בוטים</span>
+              <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full">
+                {stats.botsInteracted?.length || 0}
+              </span>
+            </div>
+            {expandedSections.flows ? (
+              <ChevronUp className="w-4 h-4 text-gray-400" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-gray-400" />
+            )}
+          </button>
+          {expandedSections.flows && (
+            <div className="space-y-2">
+              {!stats.botsInteracted || stats.botsInteracted.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-2">עדיין לא עבר בבוטים</p>
               ) : (
-                <ChevronDown className="w-4 h-4 text-purple-400" />
-              )}
-            </button>
-            {expandedSections.flows && (
-              <div className="space-y-2">
-                {stats.botsInteracted.map((bot, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-2 bg-white/60 rounded-xl">
-                    <span className="text-sm font-medium text-purple-700">{bot.name}</span>
-                    <span className="px-2 py-0.5 bg-purple-100 text-purple-600 text-xs font-bold rounded-full">
-                      {bot.count} הודעות
+                stats.botsInteracted.map((bot, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl border border-purple-100/50">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-purple-500 rounded-lg">
+                        <Bot className="w-3.5 h-3.5 text-white" />
+                      </div>
+                      <span className="text-sm font-medium text-purple-700">{bot.name}</span>
+                    </div>
+                    <span className="px-2.5 py-1 bg-purple-100 text-purple-600 text-xs font-bold rounded-full">
+                      {bot.count} פעמים
                     </span>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+                ))
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Bot Status */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
