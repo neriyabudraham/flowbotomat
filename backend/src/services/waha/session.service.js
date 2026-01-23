@@ -180,7 +180,7 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
  */
 async function sendMessage(connection, phone, text) {
   const client = createClient(connection.base_url, connection.api_key);
-  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const response = await client.post(`/api/sendText`, {
     session: connection.session_name,
@@ -197,7 +197,7 @@ async function sendMessage(connection, phone, text) {
  */
 async function sendImage(connection, phone, imageUrl, caption = '') {
   const client = createClient(connection.base_url, connection.api_key);
-  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const response = await client.post(`/api/sendImage`, {
     session: connection.session_name,
@@ -213,18 +213,28 @@ async function sendImage(connection, phone, imageUrl, caption = '') {
 /**
  * Send file
  */
-async function sendFile(connection, phone, fileUrl, filename = 'file') {
+async function sendFile(connection, phone, fileUrl, filename = 'file', mimetype = null) {
   const client = createClient(connection.base_url, connection.api_key);
-  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
+  
+  // Build file object with proper structure
+  const fileObj = {
+    url: fileUrl,
+    filename: filename,
+  };
+  
+  // Add mimetype if provided
+  if (mimetype) {
+    fileObj.mimetype = mimetype;
+  }
   
   const response = await client.post(`/api/sendFile`, {
     session: connection.session_name,
     chatId: chatId,
-    file: { url: fileUrl },
-    fileName: filename,
+    file: fileObj,
   });
   
-  console.log(`[WAHA] Sent file to ${phone}`);
+  console.log(`[WAHA] Sent file to ${phone}: ${filename}`);
   return response.data;
 }
 
@@ -233,7 +243,7 @@ async function sendFile(connection, phone, fileUrl, filename = 'file') {
  */
 async function sendVideo(connection, phone, videoUrl, caption = '') {
   const client = createClient(connection.base_url, connection.api_key);
-  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const response = await client.post(`/api/sendVideo`, {
     session: connection.session_name,
@@ -251,7 +261,7 @@ async function sendVideo(connection, phone, videoUrl, caption = '') {
  */
 async function sendList(connection, phone, listData) {
   const client = createClient(connection.base_url, connection.api_key);
-  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const rows = (listData.buttons || []).map((btn, i) => {
     const row = {
@@ -294,7 +304,7 @@ async function sendList(connection, phone, listData) {
  */
 async function sendVoice(connection, phone, audioUrl, convert = true) {
   const client = createClient(connection.base_url, connection.api_key);
-  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const response = await client.post(`/api/sendVoice`, {
     session: connection.session_name,
@@ -315,20 +325,30 @@ async function sendVoice(connection, phone, audioUrl, convert = true) {
  */
 async function sendFileAdvanced(connection, phone, fileData, caption = '') {
   const client = createClient(connection.base_url, connection.api_key);
-  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
-  const response = await client.post(`/api/sendFile`, {
+  const payload = {
     session: connection.session_name,
     chatId: chatId,
     file: {
-      mimetype: fileData.mimetype,
-      filename: fileData.filename,
       url: fileData.url,
+      filename: fileData.filename,
     },
-    caption: caption,
-  });
+  };
   
-  console.log(`[WAHA] Sent file to ${phone}`);
+  // Add mimetype if provided
+  if (fileData.mimetype) {
+    payload.file.mimetype = fileData.mimetype;
+  }
+  
+  // Add caption if provided
+  if (caption) {
+    payload.caption = caption;
+  }
+  
+  const response = await client.post(`/api/sendFile`, payload);
+  
+  console.log(`[WAHA] Sent advanced file to ${phone}: ${fileData.filename}`);
   return response.data;
 }
 
@@ -337,7 +357,7 @@ async function sendFileAdvanced(connection, phone, fileData, caption = '') {
  */
 async function sendSeen(connection, phone, messageIds = []) {
   const client = createClient(connection.base_url, connection.api_key);
-  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const response = await client.post(`/api/sendSeen`, {
     session: connection.session_name,
@@ -354,7 +374,7 @@ async function sendSeen(connection, phone, messageIds = []) {
  */
 async function startTyping(connection, phone) {
   const client = createClient(connection.base_url, connection.api_key);
-  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const response = await client.post(`/api/startTyping`, {
     session: connection.session_name,
@@ -369,7 +389,7 @@ async function startTyping(connection, phone) {
  */
 async function stopTyping(connection, phone) {
   const client = createClient(connection.base_url, connection.api_key);
-  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const response = await client.post(`/api/stopTyping`, {
     session: connection.session_name,
@@ -401,7 +421,7 @@ async function sendReaction(connection, messageId, reaction) {
  */
 async function sendLocation(connection, phone, latitude, longitude, title = '') {
   const client = createClient(connection.base_url, connection.api_key);
-  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const response = await client.post(`/api/sendLocation`, {
     session: connection.session_name,
@@ -440,21 +460,30 @@ function formatPhoneNumber(phone) {
  */
 async function sendContactVcard(connection, phone, contactName, contactPhone, contactOrg = '') {
   const client = createClient(connection.base_url, connection.api_key);
-  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   // Format phone number to international format
   const formattedPhone = formatPhoneNumber(contactPhone);
   const phoneWithPlus = formattedPhone.startsWith('+') ? formattedPhone : `+${formattedPhone}`;
   
-  // Use WAHA's structured contact format with whatsappId for clickable contacts
+  // Build raw vCard 3.0 format - this ensures proper name display
+  const vcard = [
+    'BEGIN:VCARD',
+    'VERSION:3.0',
+    `FN:${contactName}`,
+    `N:;${contactName};;;`,
+    `TEL;type=CELL;type=VOICE;waid=${formattedPhone}:${phoneWithPlus}`,
+    contactOrg ? `ORG:${contactOrg}` : null,
+    'END:VCARD'
+  ].filter(Boolean).join('\n');
+  
+  console.log(`[WAHA] Sending vCard:`, vcard);
+  
   const response = await client.post(`/api/sendContactVcard`, {
     session: connection.session_name,
     chatId: chatId,
     contacts: [{
-      fullName: contactName,
-      phoneNumber: phoneWithPlus,
-      organization: contactOrg || '',
-      whatsappId: formattedPhone, // This makes it clickable in WhatsApp
+      vcard: vcard
     }],
   });
   
@@ -467,7 +496,7 @@ async function sendContactVcard(connection, phone, contactName, contactPhone, co
  */
 async function sendLinkPreview(connection, phone, text, preview) {
   const client = createClient(connection.base_url, connection.api_key);
-  const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+  const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const response = await client.post(`/api/send/link-custom-preview`, {
     session: connection.session_name,
