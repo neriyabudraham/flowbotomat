@@ -6,7 +6,7 @@ const { getStatus, getQR, requestCode } = require('../controllers/whatsapp/statu
 const { disconnect, deleteConnection } = require('../controllers/whatsapp/disconnect.controller');
 const { getGroups } = require('../controllers/whatsapp/groups.controller');
 const { getLabels } = require('../controllers/whatsapp/labels.controller');
-const { syncContacts, getSyncStatus } = require('../controllers/whatsapp/contacts.controller');
+const { checkAndSync } = require('../controllers/whatsapp/contacts.controller');
 
 // All routes require authentication
 router.use(authMiddleware);
@@ -14,9 +14,8 @@ router.use(authMiddleware);
 // Check if user has existing session in WAHA
 router.get('/check-existing', checkExisting);
 
-// WhatsApp contacts sync
-router.post('/contacts/sync', syncContacts);
-router.get('/contacts/status', getSyncStatus);
+// WhatsApp contacts sync - automatic check on app load
+router.get('/contacts/check-sync', checkAndSync);
 
 // Get connection status
 router.get('/status', getStatus);

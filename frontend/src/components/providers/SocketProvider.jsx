@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import useAuthStore from '../../store/authStore';
 import { connectSocket, disconnectSocket, getSocket } from '../../services/socket';
+import api from '../../services/api';
 
 // Pages that require authentication (socket should connect on these)
 const AUTH_PAGES = [
@@ -20,6 +21,7 @@ const AUTH_PAGES = [
 export default function SocketProvider({ children }) {
   const location = useLocation();
   const { user, fetchMe } = useAuthStore();
+  const syncCheckedRef = useRef(false);
   
   useEffect(() => {
     // Check if current page requires auth
@@ -44,6 +46,16 @@ export default function SocketProvider({ children }) {
           if (!existingSocket?.connected) {
             console.log('🔌 SocketProvider: Connecting socket for user', currentUser.id);
             connectSocket(currentUser.id);
+          }
+          
+          // Check if WhatsApp contacts need sync (only once per session)
+          if (!syncCheckedRef.current) {
+            syncCheckedRef.current = true;
+            try {
+              await api.get('/whatsapp/contacts/check-sync');
+            } catch (err) {
+              // Ignore errors - sync is not critical
+            }
           }
         }
       } catch (err) {
