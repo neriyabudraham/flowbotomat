@@ -21,11 +21,11 @@ async function getVariables(req, res) {
     let result = { rows: [] };
     try {
       result = await pool.query(
-        'SELECT key, value, created_at, updated_at FROM contact_variables WHERE contact_id = $1 ORDER BY key',
+        'SELECT key, value FROM contact_variables WHERE contact_id = $1 ORDER BY key',
         [contactId]
       );
     } catch (e) {
-      console.log('[Variables] Query error (table may not exist):', e.message);
+      console.log('[Variables] Query error:', e.message);
     }
     
     console.log(`[Variables] Contact ${contactId} has ${result.rows.length} variables:`, result.rows.map(v => v.key));
