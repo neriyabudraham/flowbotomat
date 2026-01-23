@@ -336,14 +336,15 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                           value={header.key}
                           onChange={(e) => updateHeader(i, 'key', e.target.value)}
                           placeholder="Header Name"
-                          className="w-[130px] px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                          className="w-[120px] px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm flex-shrink-0"
                           dir="ltr"
                         />
-                        <TextInputWithVariables
+                        <input
+                          type="text"
                           value={header.value}
-                          onChange={(v) => updateHeader(i, 'value', v)}
+                          onChange={(e) => updateHeader(i, 'value', e.target.value)}
                           placeholder="Value {{variable}}"
-                          className="flex-1"
+                          className="flex-1 min-w-0 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
                           dir="ltr"
                         />
                         <button 
@@ -362,6 +363,7 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                     >
                       + הוסף Header
                     </button>
+                    <p className="text-xs text-gray-400">הקלד משתנים בפורמט: {'{{api_key}}'}</p>
                   </div>
                 )}
               </div>
@@ -423,27 +425,29 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                           rows={6}
                           dir="ltr"
                         />
-                        <p className="text-xs text-gray-400">לחץ על "הוסף משתנה" להכנסת משתנים</p>
                       </div>
                     ) : (
                       <div className="space-y-2">
                         {bodyParams.map((param, i) => (
-                          <div key={i} className="flex items-center gap-2">
+                          <div key={i} className="flex items-start gap-2">
                             <input
                               type="text"
                               value={param.key}
                               onChange={(e) => updateBodyParam(i, 'key', e.target.value)}
                               placeholder="Key"
-                              className="w-[120px] px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                              className="w-[100px] px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm flex-shrink-0"
                               dir="ltr"
                             />
-                            <TextInputWithVariables
-                              value={param.value}
-                              onChange={(v) => updateBodyParam(i, 'value', v)}
-                              placeholder="Value {{variable}}"
-                              className="flex-1"
-                              dir="ltr"
-                            />
+                            <div className="flex-1 min-w-0">
+                              <input
+                                type="text"
+                                value={param.value}
+                                onChange={(e) => updateBodyParam(i, 'value', e.target.value)}
+                                placeholder="Value {{phone}} {{name}}"
+                                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                                dir="ltr"
+                              />
+                            </div>
                             <button 
                               type="button"
                               onClick={() => removeBodyParam(i)}
@@ -453,13 +457,16 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                             </button>
                           </div>
                         ))}
-                        <button
-                          type="button"
-                          onClick={addBodyParam}
-                          className="w-full py-2 text-sm text-orange-600 hover:bg-orange-50 rounded-lg border border-dashed border-orange-200"
-                        >
-                          + הוסף פרמטר
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={addBodyParam}
+                            className="flex-1 py-2 text-sm text-orange-600 hover:bg-orange-50 rounded-lg border border-dashed border-orange-200"
+                          >
+                            + הוסף פרמטר
+                          </button>
+                        </div>
+                        <p className="text-xs text-gray-400">הקלד משתנים בפורמט: {'{{phone}}'} או {'{{contact_name}}'}</p>
                       </div>
                     )}
                   </div>

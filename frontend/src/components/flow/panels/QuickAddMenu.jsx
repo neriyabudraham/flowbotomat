@@ -1,5 +1,6 @@
-import { MessageSquare, GitBranch, Clock, Cog, List, X, ClipboardList, StickyNote, Globe } from 'lucide-react';
+import { MessageSquare, GitBranch, Clock, Cog, List, X, ClipboardList, Globe } from 'lucide-react';
 
+// Note: 'note' is excluded from quick add menu - only available from palette
 const nodeTypes = [
   { type: 'message', label: 'WhatsApp', icon: MessageSquare, color: 'teal', description: 'הודעות, מדיה וריאקציות' },
   { type: 'list', label: 'רשימה', icon: List, color: 'cyan', description: 'רשימת בחירה' },
@@ -8,7 +9,6 @@ const nodeTypes = [
   { type: 'delay', label: 'השהייה', icon: Clock, color: 'blue', description: 'המתן' },
   { type: 'action', label: 'פעולה', icon: Cog, color: 'pink', description: 'תגיות ובקרה' },
   { type: 'integration', label: 'אינטגרציה', icon: Globe, color: 'amber', description: 'Webhook וAPI' },
-  { type: 'note', label: 'הערה', icon: StickyNote, color: 'yellow', description: 'הערות ותזכורות' },
 ];
 
 const colorClasses = {
