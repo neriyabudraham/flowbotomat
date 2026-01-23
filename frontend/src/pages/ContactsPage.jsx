@@ -17,7 +17,7 @@ import api from '../services/api';
 
 export default function ContactsPage() {
   const navigate = useNavigate();
-  const [showProfile, setShowProfile] = useState(false);
+  const [showProfile, setShowProfile] = useState(true); // Open by default
   const [showMobileSidebar, setShowMobileSidebar] = useState(true);
   const [stats, setStats] = useState({ totalContacts: 0, activeChats: 0, messagesCount: 0 });
   const { user, logout, fetchMe } = useAuthStore();

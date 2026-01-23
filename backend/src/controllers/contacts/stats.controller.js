@@ -50,23 +50,23 @@ async function getContactStats(req, res) {
     
     console.log(`[Stats] Contact ${contactId} - Total: ${messagesResult.rows[0]?.total_count}, In: ${messagesResult.rows[0]?.incoming_count}, Out: ${messagesResult.rows[0]?.outgoing_count}`);
     
-    // Get bots that this contact triggered - from bot_runs table (if exists)
+    // Get bots that this contact triggered - from bot_logs table
     let botsResult = { rows: [] };
     try {
       botsResult = await db.query(`
         SELECT 
           b.name as bot_name,
           b.id as bot_id,
-          COUNT(br.id) as run_count
-        FROM bot_runs br
-        JOIN bots b ON br.bot_id = b.id
-        WHERE br.contact_id = $1
+          COUNT(bl.id) as run_count
+        FROM bot_logs bl
+        JOIN bots b ON bl.bot_id = b.id
+        WHERE bl.contact_id = $1 AND bl.status = 'triggered'
         GROUP BY b.id, b.name
         ORDER BY run_count DESC
         LIMIT 10
       `, [contactId]);
     } catch (e) {
-      console.log('[Stats] bot_runs query failed (table may not exist):', e.message);
+      console.log('[Stats] bot_logs query failed:', e.message);
     }
     
     const lastMessage = lastMessageResult.rows[0];
