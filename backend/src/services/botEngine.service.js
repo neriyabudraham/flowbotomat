@@ -51,11 +51,13 @@ class BotEngine {
       const contact = contactResult.rows[0];
       
       // Emit to frontend via socket
+      console.log('[BotEngine] 📡 Emitting outgoing_message via socket for user:', userId);
       const socketManager = getSocketManager();
       socketManager.emitToUser(userId, 'outgoing_message', {
         message: { ...savedMessage, from_bot: true },
         contact
       });
+      console.log('[BotEngine] 📡 Socket emit complete');
       
       return savedMessage;
     } catch (error) {

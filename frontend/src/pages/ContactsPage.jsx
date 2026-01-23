@@ -38,8 +38,13 @@ export default function ContactsPage() {
       if (userData?.user?.id) {
         const socket = connectSocket(userData.user.id);
         
+        // Remove old listeners first to prevent duplicates
+        socket.off('new_message');
+        socket.off('outgoing_message');
+        
         // Listen for incoming messages
         socket.on('new_message', ({ message, contact }) => {
+          console.log('[Socket] 📩 Received new_message:', message?.id, message?.message_type);
           const exists = useContactsStore.getState().contacts.find(c => c.id === contact.id);
           if (!exists) {
             addNewContact(contact, message);
@@ -47,14 +52,17 @@ export default function ContactsPage() {
           addMessage(message);
         });
         
-        // Listen for outgoing messages (sent from device)
+        // Listen for outgoing messages (sent by bot or from device)
         socket.on('outgoing_message', ({ message, contact }) => {
+          console.log('[Socket] 📤 Received outgoing_message:', message?.id, message?.message_type);
           const exists = useContactsStore.getState().contacts.find(c => c.id === contact.id);
           if (!exists) {
             addNewContact(contact, message);
           }
           addMessage(message);
         });
+        
+        console.log('[Socket] ✅ Listeners registered for user:', userData.user.id);
       }
     });
     

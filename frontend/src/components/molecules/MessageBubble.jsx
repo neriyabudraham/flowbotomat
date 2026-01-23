@@ -52,9 +52,20 @@ export default function MessageBubble({ message }) {
                 {metadata.footer}
               </p>
             )}
+            {/* Button Text - Above buttons like in WhatsApp */}
+            {metadata.buttonText && (
+              <div className={`flex items-center justify-center gap-2 mt-2 py-2 rounded-lg text-sm font-medium ${
+                isOutgoing 
+                  ? 'bg-white/20 text-white' 
+                  : 'bg-blue-50 text-blue-600'
+              }`}>
+                <ChevronDown className="w-4 h-4" />
+                {metadata.buttonText}
+              </div>
+            )}
             {/* Buttons */}
             {metadata.buttons && metadata.buttons.length > 0 && (
-              <div className="mt-3 space-y-1.5">
+              <div className="mt-2 space-y-1.5">
                 {metadata.buttons.map((btn, idx) => (
                   <div 
                     key={idx}
@@ -75,17 +86,6 @@ export default function MessageBubble({ message }) {
                     </div>
                   </div>
                 ))}
-              </div>
-            )}
-            {/* Button Text */}
-            {metadata.buttonText && (
-              <div className={`flex items-center justify-center gap-2 mt-2 py-2 rounded-lg text-sm font-medium ${
-                isOutgoing 
-                  ? 'bg-white/20 text-white' 
-                  : 'bg-blue-50 text-blue-600'
-              }`}>
-                <ChevronDown className="w-4 h-4" />
-                {metadata.buttonText}
               </div>
             )}
           </div>
