@@ -551,6 +551,10 @@ function getDefaultData(type) {
     };
     case 'note': return { note: '', color: 'yellow' };
     case 'integration': return { actions: [] };
+    case 'send_other': return { 
+      recipient: { type: 'phone', phone: '', useVariable: false, variableName: '' },
+      actions: [] 
+    };
     default: return {};
   }
 }

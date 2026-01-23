@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { TriggerNode, MessageNode, ConditionNode, DelayNode, ActionNode, ListNode, NoteNode, IntegrationNode } from './nodes';
+import { TriggerNode, MessageNode, ConditionNode, DelayNode, ActionNode, ListNode, NoteNode, IntegrationNode, SendOtherNode } from './nodes';
 import RegistrationNode from './nodes/RegistrationNode';
 import QuickAddMenu from './panels/QuickAddMenu';
 import EdgeWithDelete from './EdgeWithDelete';
@@ -28,6 +28,7 @@ const nodeTypes = {
   registration: RegistrationNode,
   note: NoteNode,
   integration: IntegrationNode,
+  send_other: SendOtherNode,
 };
 
 const edgeTypes = {

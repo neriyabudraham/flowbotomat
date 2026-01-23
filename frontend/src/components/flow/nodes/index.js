@@ -6,4 +6,5 @@ export { default as ActionNode } from './ActionNode';
 export { default as ListNode } from './ListNode';
 export { default as NoteNode } from './NoteNode';
 export { default as IntegrationNode } from './IntegrationNode';
+export { default as SendOtherNode } from './SendOtherNode';
 export { default as BaseNode } from './BaseNode';

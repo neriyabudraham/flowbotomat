@@ -720,6 +720,10 @@ class BotEngine {
         // Note nodes are just for documentation, skip them
         console.log('[BotEngine] 📝 Note node (skipped):', node.data?.text?.substring(0, 50) || '');
         break;
+        
+      case 'send_other':
+        await this.executeSendOtherNode(node, contact, userId);
+        break;
     }
     
     // Find all next edges (support multiple outputs)
@@ -1575,6 +1579,187 @@ class BotEngine {
     }
     
     return current;
+  }
+  
+  // Execute send_other node - send to a different phone number or group
+  async executeSendOtherNode(node, contact, userId) {
+    const recipient = node.data?.recipient || {};
+    const actions = node.data?.actions || [];
+    
+    console.log('[BotEngine] Send Other node - recipient type:', recipient.type, 'actions:', actions.length);
+    
+    // Get WAHA connection
+    const connection = await this.getConnection(userId);
+    if (!connection) {
+      console.log('[BotEngine] No WAHA connection for user:', userId);
+      return;
+    }
+    
+    // Determine the target chat ID
+    let targetChatId;
+    
+    if (recipient.type === 'group') {
+      // Group recipient
+      let groupId;
+      if (recipient.useVariable && recipient.variableName) {
+        // Get group ID from variable
+        groupId = this.replaceVariables(`{{${recipient.variableName}}}`, contact, '', '');
+      } else {
+        groupId = recipient.groupId || '';
+      }
+      
+      // Normalize group ID - add @g.us if not present
+      if (groupId && !groupId.includes('@')) {
+        targetChatId = `${groupId}@g.us`;
+      } else {
+        targetChatId = groupId;
+      }
+      
+      console.log('[BotEngine] Target group:', targetChatId);
+    } else {
+      // Phone recipient
+      let phone;
+      if (recipient.useVariable && recipient.variableName) {
+        // Get phone from variable
+        phone = this.replaceVariables(`{{${recipient.variableName}}}`, contact, '', '');
+      } else {
+        phone = recipient.phone || '';
+      }
+      
+      // Normalize phone number
+      phone = this.normalizePhoneNumber(phone);
+      targetChatId = phone;
+      
+      console.log('[BotEngine] Target phone:', targetChatId);
+    }
+    
+    if (!targetChatId) {
+      console.log('[BotEngine] ⚠️ No target chat ID specified');
+      return;
+    }
+    
+    // Execute each action
+    for (let i = 0; i < actions.length; i++) {
+      const action = actions[i];
+      console.log(`[BotEngine] Executing send_other action ${i + 1}/${actions.length}:`, action.type);
+      
+      try {
+        switch (action.type) {
+          case 'text':
+            if (action.content) {
+              const text = await this.replaceAllVariables(action.content, contact, '', '', userId);
+              console.log('[BotEngine] Sending text to', targetChatId.substring(0, 20) + '...');
+              await wahaService.sendMessage(connection, targetChatId, text);
+              console.log('[BotEngine] ✅ Text sent to other recipient');
+            }
+            break;
+            
+          case 'image':
+            if (action.url || action.fileData) {
+              const imageUrl = action.fileData || action.url;
+              const caption = await this.replaceAllVariables(action.caption || '', contact, '', '', userId);
+              await wahaService.sendImage(connection, targetChatId, imageUrl, caption);
+              console.log('[BotEngine] ✅ Image sent to other recipient');
+            }
+            break;
+            
+          case 'video':
+            if (action.url || action.fileData) {
+              const videoUrl = action.fileData || action.url;
+              const caption = await this.replaceAllVariables(action.caption || '', contact, '', '', userId);
+              await wahaService.sendVideo(connection, targetChatId, videoUrl, caption);
+              console.log('[BotEngine] ✅ Video sent to other recipient');
+            }
+            break;
+            
+          case 'audio':
+            if (action.url || action.fileData) {
+              const audioUrl = action.fileData || action.url;
+              await wahaService.sendVoice(connection, targetChatId, audioUrl);
+              console.log('[BotEngine] ✅ Audio sent to other recipient');
+            }
+            break;
+            
+          case 'file':
+            if (action.url || action.fileData) {
+              const fileUrl = action.fileData || action.url;
+              let filename = action.customFilename || action.fileName || action.filename || 'file';
+              
+              // Detect mimetype
+              let mimetype = action.mimetype;
+              if (!mimetype && filename) {
+                const ext = filename.toLowerCase().split('.').pop();
+                const mimetypes = {
+                  'pdf': 'application/pdf',
+                  'doc': 'application/msword',
+                  'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                  'xls': 'application/vnd.ms-excel',
+                  'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                  'txt': 'text/plain',
+                  'zip': 'application/zip',
+                };
+                mimetype = mimetypes[ext] || 'application/octet-stream';
+              }
+              
+              await wahaService.sendFile(connection, targetChatId, fileUrl, filename, mimetype);
+              console.log('[BotEngine] ✅ File sent to other recipient:', filename);
+            }
+            break;
+            
+          case 'contact':
+            if (action.contactPhone) {
+              const contactName = this.replaceVariables(action.contactName || '', contact, '', '');
+              const contactPhoneNum = this.replaceVariables(action.contactPhone || '', contact, '', '');
+              const contactOrg = action.contactOrg || '';
+              await wahaService.sendContactVcard(connection, targetChatId, contactName, contactPhoneNum, contactOrg);
+              console.log('[BotEngine] ✅ Contact vCard sent to other recipient');
+            }
+            break;
+          
+          case 'location':
+            if (action.latitude && action.longitude) {
+              const lat = parseFloat(this.replaceVariables(String(action.latitude), contact, '', ''));
+              const lng = parseFloat(this.replaceVariables(String(action.longitude), contact, '', ''));
+              const title = this.replaceVariables(action.locationTitle || '', contact, '', '');
+              await wahaService.sendLocation(connection, targetChatId, lat, lng, title);
+              console.log('[BotEngine] ✅ Location sent to other recipient');
+            }
+            break;
+            
+          default:
+            console.log('[BotEngine] ⚠️ Unknown action type in send_other:', action.type);
+        }
+      } catch (error) {
+        console.error(`[BotEngine] ❌ Send other action ${action.type} failed:`, error.message);
+      }
+    }
+    
+    console.log('[BotEngine] ✅ Send Other node completed');
+  }
+  
+  // Normalize phone number to consistent format
+  normalizePhoneNumber(phone) {
+    if (!phone) return '';
+    
+    // Remove all non-digit characters except +
+    let cleaned = phone.replace(/[^\d+]/g, '');
+    
+    // Remove leading +
+    if (cleaned.startsWith('+')) {
+      cleaned = cleaned.substring(1);
+    }
+    
+    // Handle Israeli numbers
+    if (cleaned.startsWith('0')) {
+      cleaned = '972' + cleaned.substring(1);
+    }
+    
+    // Ensure it ends with @s.whatsapp.net for direct chat
+    if (!cleaned.includes('@')) {
+      cleaned = `${cleaned}@s.whatsapp.net`;
+    }
+    
+    return cleaned;
   }
   
   // Execute list node

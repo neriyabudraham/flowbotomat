@@ -8,6 +8,7 @@ import ListEditor from './editors/ListEditor';
 import RegistrationEditor from './editors/RegistrationEditor';
 import NoteEditor from './editors/NoteEditor';
 import IntegrationEditor from './editors/IntegrationEditor';
+import SendOtherEditor from './editors/SendOtherEditor';
 
 const editors = {
   trigger: TriggerEditor,
@@ -19,6 +20,7 @@ const editors = {
   registration: RegistrationEditor,
   note: NoteEditor,
   integration: IntegrationEditor,
+  send_other: SendOtherEditor,
 };
 
 const titles = {
@@ -31,6 +33,7 @@ const titles = {
   registration: 'עריכת תהליך רישום',
   note: 'עריכת הערה',
   integration: 'עריכת אינטגרציה',
+  send_other: 'שליחה אחרת',
 };
 
 const colors = {
@@ -43,6 +46,7 @@ const colors = {
   registration: 'bg-indigo-50 border-indigo-200',
   note: 'bg-yellow-50 border-yellow-200',
   integration: 'bg-orange-50 border-orange-200',
+  send_other: 'bg-violet-50 border-violet-200',
 };
 
 export default function NodeEditor({ node, onUpdate, onClose, onDelete, isNodeConnected }) {
