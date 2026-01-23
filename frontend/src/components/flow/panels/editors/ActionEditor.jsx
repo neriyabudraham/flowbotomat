@@ -19,32 +19,28 @@ const actionTypes = [
   { id: 'pause_all_bots', label: 'השהה את כל הבוטים', icon: '⏸️', category: 'control' },
   { id: 'enable_all_bots', label: 'הפעל את כל הבוטים', icon: '⏯️', category: 'control' },
   { id: 'delete_contact', label: 'מחק איש קשר', icon: '🗑️', category: 'control' },
+  
+  // Notifications
+  { id: 'notify', label: 'התראה', icon: '🔔', hasValue: 'text', category: 'notify' },
 ];
 
 const categories = [
-  { id: 'tags', label: 'תגיות', icon: '🏷️', color: 'pink', defaultOpen: true },
-  { id: 'variables', label: 'משתנים', icon: '📝', color: 'blue', defaultOpen: false },
-  { id: 'control', label: 'בקרת בוטים', icon: '🎮', color: 'red', defaultOpen: false },
+  { id: 'tags', label: 'תגיות', icon: '🏷️', color: 'pink' },
+  { id: 'variables', label: 'משתנים', icon: '📝', color: 'blue' },
+  { id: 'control', label: 'בקרת בוטים', icon: '🎮', color: 'red' },
+  { id: 'notify', label: 'התראות', icon: '🔔', color: 'yellow' },
 ];
 
 const categoryColors = {
   tags: { bg: 'bg-pink-50', hover: 'hover:bg-pink-100', text: 'text-pink-700', border: 'border-pink-200' },
   variables: { bg: 'bg-blue-50', hover: 'hover:bg-blue-100', text: 'text-blue-700', border: 'border-blue-200' },
   control: { bg: 'bg-red-50', hover: 'hover:bg-red-100', text: 'text-red-700', border: 'border-red-200' },
+  notify: { bg: 'bg-yellow-50', hover: 'hover:bg-yellow-100', text: 'text-yellow-700', border: 'border-yellow-200' },
 };
 
 export default function ActionEditor({ data, onUpdate }) {
   const actions = data.actions || [];
-  const [openCategories, setOpenCategories] = useState(['basic']);
   const [dragIndex, setDragIndex] = useState(null);
-
-  const toggleCategory = (categoryId) => {
-    setOpenCategories(prev => 
-      prev.includes(categoryId) 
-        ? prev.filter(id => id !== categoryId)
-        : [...prev, categoryId]
-    );
-  };
 
   const addAction = (type) => {
     onUpdate({ actions: [...actions, { type }] });
@@ -73,37 +69,28 @@ export default function ActionEditor({ data, onUpdate }) {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* Current Actions */}
-      {actions.length > 0 && (
+      {actions.length > 0 ? (
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-gray-700">פעולות פעילות</p>
-            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{actions.length}</span>
-          </div>
-          <div className="space-y-2">
-            {actions.map((action, index) => (
-              <div
-                key={index}
-                draggable
-                onDragStart={() => handleDragStart(index)}
-                onDragOver={(e) => handleDragOver(e, index)}
-                onDragEnd={() => setDragIndex(null)}
-                className={`cursor-grab active:cursor-grabbing ${dragIndex === index ? 'opacity-50' : ''}`}
-              >
-                <ActionItem
-                  action={action}
-                  onUpdate={(updates) => updateAction(index, updates)}
-                  onRemove={() => removeAction(index)}
-                />
-              </div>
-            ))}
-          </div>
+          {actions.map((action, index) => (
+            <div
+              key={index}
+              draggable
+              onDragStart={() => handleDragStart(index)}
+              onDragOver={(e) => handleDragOver(e, index)}
+              onDragEnd={() => setDragIndex(null)}
+              className={`transition-opacity ${dragIndex === index ? 'opacity-50' : ''}`}
+            >
+              <ActionItem
+                action={action}
+                onUpdate={(updates) => updateAction(index, updates)}
+                onRemove={() => removeAction(index)}
+              />
+            </div>
+          ))}
         </div>
-      )}
-
-      {/* Empty State */}
-      {actions.length === 0 && (
+      ) : (
         <div className="text-center py-8 px-4 bg-gradient-to-b from-pink-50/50 to-white rounded-2xl border-2 border-dashed border-pink-200">
           <div className="w-14 h-14 bg-pink-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <span className="text-2xl">⚡</span>
@@ -113,43 +100,30 @@ export default function ActionEditor({ data, onUpdate }) {
         </div>
       )}
 
-      {/* Add Actions by Category */}
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-gray-700 mb-3">הוסף פעולה</p>
-        
+      {/* Add Actions - Open categories like MessageEditor */}
+      <div className={actions.length > 0 ? "border-t border-gray-100 pt-4" : ""}>
         {categories.map((category) => {
           const categoryActions = actionTypes.filter(a => a.category === category.id);
           const colors = categoryColors[category.id];
-          const isOpen = openCategories.includes(category.id);
           
           return (
-            <div key={category.id} className={`rounded-xl border ${colors.border} overflow-hidden`}>
-              <button
-                onClick={() => toggleCategory(category.id)}
-                className={`w-full flex items-center justify-between px-4 py-3 ${colors.bg} ${colors.hover} transition-colors`}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-base">{category.icon}</span>
-                  <span className={`text-sm font-medium ${colors.text}`}>{category.label}</span>
-                  <span className="text-xs text-gray-400 bg-white/60 px-1.5 py-0.5 rounded">{categoryActions.length}</span>
-                </div>
-                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-              </button>
-              
-              {isOpen && (
-                <div className="p-3 bg-white grid grid-cols-2 gap-2">
-                  {categoryActions.map(({ id, label, icon }) => (
-                    <button
-                      key={id}
-                      onClick={() => addAction(id)}
-                      className={`flex items-center gap-2.5 p-3 ${colors.bg} ${colors.hover} rounded-xl text-sm transition-all hover:shadow-sm group`}
-                    >
-                      <span className="text-lg group-hover:scale-110 transition-transform">{icon}</span>
-                      <span className={`font-medium ${colors.text} text-xs`}>{label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+            <div key={category.id} className="mb-4">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-base">{category.icon}</span>
+                <p className={`text-sm font-medium ${colors.text}`}>{category.label}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {categoryActions.map(({ id, label, icon }) => (
+                  <button
+                    key={id}
+                    onClick={() => addAction(id)}
+                    className={`flex items-center gap-2 p-2.5 ${colors.bg} ${colors.hover} rounded-xl transition-all text-sm border ${colors.border} hover:shadow-sm`}
+                  >
+                    <span className="text-base">{icon}</span>
+                    <span className={`text-[11px] font-medium ${colors.text} truncate`}>{label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           );
         })}

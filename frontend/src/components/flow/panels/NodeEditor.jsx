@@ -45,7 +45,7 @@ const colors = {
   integration: 'bg-orange-50 border-orange-200',
 };
 
-export default function NodeEditor({ node, onUpdate, onClose, onDelete }) {
+export default function NodeEditor({ node, onUpdate, onClose, onDelete, isNodeConnected }) {
   if (!node) return null;
   
   const Editor = editors[node.type];
@@ -59,13 +59,21 @@ export default function NodeEditor({ node, onUpdate, onClose, onDelete }) {
     onDelete(node.id);
   };
   
+  const handleClose = () => {
+    // If node is NOT connected to any edge, delete it when closing
+    if (node.type !== 'trigger' && isNodeConnected && !isNodeConnected(node.id)) {
+      onDelete(node.id);
+    }
+    onClose();
+  };
+  
   return (
     <div className="w-96 bg-white border-r border-gray-200 flex flex-col h-full shadow-xl">
       {/* Header */}
       <div className={`flex items-center justify-between px-4 py-3 border-b ${colors[node.type] || 'bg-gray-50 border-gray-200'}`}>
         <h3 className="font-bold text-gray-800">{titles[node.type]}</h3>
         <button
-          onClick={onClose}
+          onClick={handleClose}
           className="p-2 hover:bg-white/50 rounded-lg transition-colors"
         >
           <X className="w-5 h-5 text-gray-500" />

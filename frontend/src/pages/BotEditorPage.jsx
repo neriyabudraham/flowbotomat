@@ -478,6 +478,10 @@ export default function BotEditorPage() {
               onUpdate={handleNodeUpdate}
               onClose={() => setSelectedNodeId(null)}
               onDelete={handleNodeDelete}
+              isNodeConnected={(nodeId) => {
+                if (!flowData?.edges) return true;
+                return flowData.edges.some(e => e.source === nodeId || e.target === nodeId);
+              }}
             />
           ) : (
             <div className="h-full p-3 bg-white border-r border-gray-200 overflow-y-auto">
