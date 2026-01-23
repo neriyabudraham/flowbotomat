@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { X, GripVertical, ChevronDown, ChevronUp, Play, Check, AlertCircle, Loader2, Globe, Copy } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 import api from '../../../../services/api';
@@ -6,16 +6,6 @@ import api from '../../../../services/api';
 export default function IntegrationEditor({ data, onUpdate }) {
   const actions = data.actions || [];
   const [dragIndex, setDragIndex] = useState(null);
-  const [initialized, setInitialized] = useState(false);
-
-  // Auto-add first API request if empty (since it's the only type)
-  useEffect(() => {
-    if (!initialized && actions.length === 0) {
-      const newAction = { type: 'http_request', method: 'GET', apiUrl: '', headers: [], body: '', bodyParams: [], mappings: [] };
-      onUpdate({ actions: [newAction] });
-      setInitialized(true);
-    }
-  }, [initialized, actions.length, onUpdate]);
 
   const addAction = () => {
     const newAction = { type: 'http_request', method: 'GET', apiUrl: '', headers: [], body: '', bodyParams: [], mappings: [] };
@@ -47,7 +37,7 @@ export default function IntegrationEditor({ data, onUpdate }) {
   return (
     <div className="space-y-4">
       {/* Current Actions */}
-      {actions.length > 0 ? (
+      {actions.length > 0 && (
         <div className="space-y-3">
           {actions.map((action, index) => (
             <div
@@ -66,28 +56,25 @@ export default function IntegrationEditor({ data, onUpdate }) {
             </div>
           ))}
         </div>
-      ) : (
-        <div className="text-center py-8 px-4 bg-gradient-to-b from-orange-50/50 to-white rounded-2xl border-2 border-dashed border-orange-200">
-          <div className="w-14 h-14 bg-orange-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Globe className="w-7 h-7 text-orange-600" />
-          </div>
-          <p className="text-gray-700 font-medium mb-1">אין קריאות API עדיין</p>
-          <p className="text-sm text-gray-500">הוסף קריאת API חיצונית</p>
-        </div>
       )}
 
-      {/* Add more API calls button */}
-      {actions.length > 0 && (
-        <div className="border-t border-gray-100 pt-4">
-          <button
-            onClick={addAction}
-            className="w-full flex items-center gap-3 p-3 bg-orange-50 hover:bg-orange-100 rounded-xl transition-all border border-orange-200 hover:border-orange-300"
-          >
-            <span className="text-xl">📡</span>
-            <span className="text-sm font-medium text-orange-700">הוסף קריאת API נוספת</span>
-          </button>
-        </div>
-      )}
+      {/* Add API call button - always visible */}
+      <div className={actions.length > 0 ? "border-t border-gray-100 pt-4" : ""}>
+        <button
+          onClick={addAction}
+          className="w-full flex items-center gap-3 p-4 bg-orange-50 hover:bg-orange-100 rounded-xl transition-all border border-orange-200 hover:border-orange-300 hover:shadow-sm"
+        >
+          <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center">
+            <span className="text-2xl">📡</span>
+          </div>
+          <div className="flex-1 text-right">
+            <span className="font-medium text-orange-700 block">
+              {actions.length > 0 ? 'הוסף קריאת API נוספת' : 'הוסף קריאת API'}
+            </span>
+            <p className="text-xs text-orange-500">שלח בקשות HTTP ומפה תגובות למשתנים</p>
+          </div>
+        </button>
+      </div>
     </div>
   );
 }
