@@ -727,70 +727,51 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
         </div>
       )}
 
-      {/* Reaction */}
+      {/* Reaction - Compact */}
       {action.type === 'reaction' && (
-        <div className="space-y-3">
-          <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-100">
-            <p className="text-xs text-yellow-700 font-medium">שלח ריאקציה להודעה האחרונה</p>
-          </div>
-          
-          <div className="space-y-2">
-            <p className="text-xs text-gray-500">בחר אימוג'י:</p>
-            <div className="flex flex-wrap gap-1.5 p-2 bg-white rounded-lg border border-gray-200">
-              {COMMON_REACTIONS.map(emoji => (
-                <button
-                  key={emoji}
-                  type="button"
-                  onClick={() => onUpdate({ reaction: emoji })}
-                  className={`w-9 h-9 text-lg rounded-lg border-2 transition-all hover:scale-110 ${
-                    action.reaction === emoji 
-                      ? 'border-yellow-500 bg-yellow-50 scale-110' 
-                      : 'border-transparent hover:border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-            
-            {/* Show more emojis */}
+        <div className="space-y-2">
+          {/* Quick select - always visible */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {['👍🏻', '❤️', '😂', '😮', '😢', '🙏🏻', '🔥', '🎉'].map(emoji => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => onUpdate({ reaction: emoji })}
+                className={`w-8 h-8 text-base rounded-lg border transition-all ${
+                  action.reaction === emoji 
+                    ? 'border-yellow-500 bg-yellow-50 scale-110' 
+                    : 'border-gray-200 hover:border-yellow-300 hover:bg-yellow-50'
+                }`}
+              >
+                {emoji}
+              </button>
+            ))}
             <button
               type="button"
               onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              className="text-xs text-yellow-600 hover:text-yellow-700"
+              className="w-8 h-8 text-base rounded-lg border border-gray-200 hover:border-yellow-300 hover:bg-yellow-50 text-gray-400"
             >
-              {showEmojiPicker ? 'הסתר עוד' : 'הצג עוד אימוג\'ים...'}
+              {showEmojiPicker ? '×' : '+'}
             </button>
-            
-            {showEmojiPicker && (
-              <div className="max-h-48 overflow-y-auto p-2 bg-white rounded-lg border border-gray-200">
-                {Object.entries(EMOJI_CATEGORIES).map(([category, emojis]) => (
-                  <div key={category} className="mb-3">
-                    <p className="text-xs text-gray-400 mb-1 font-medium">{category}</p>
-                    <div className="flex flex-wrap gap-1">
-                      {emojis.slice(0, 30).map(emoji => (
-                        <button
-                          key={emoji}
-                          type="button"
-                          onClick={() => { onUpdate({ reaction: emoji }); setShowEmojiPicker(false); }}
-                          className={`w-7 h-7 text-sm rounded hover:bg-gray-100 ${
-                            action.reaction === emoji ? 'bg-yellow-100' : ''
-                          }`}
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
           
-          {action.reaction && (
-            <div className="flex items-center gap-2 p-2 bg-yellow-100 rounded-lg">
-              <span className="text-2xl">{action.reaction}</span>
-              <span className="text-sm text-yellow-700">אימוג'י נבחר</span>
+          {/* Expanded picker */}
+          {showEmojiPicker && (
+            <div className="max-h-40 overflow-y-auto p-2 bg-white rounded-lg border border-gray-200">
+              <div className="flex flex-wrap gap-1">
+                {COMMON_REACTIONS.filter(e => !['👍🏻', '❤️', '😂', '😮', '😢', '🙏🏻', '🔥', '🎉'].includes(e)).map(emoji => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => { onUpdate({ reaction: emoji }); setShowEmojiPicker(false); }}
+                    className={`w-7 h-7 text-sm rounded hover:bg-gray-100 ${
+                      action.reaction === emoji ? 'bg-yellow-100' : ''
+                    }`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -844,12 +825,45 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
           </label>
           
           {action.saveToVariable && (
-            <TextInputWithVariables
-              value={action.variableName || ''}
-              onChange={(v) => onUpdate({ variableName: v })}
-              placeholder="שם המשתנה (למשל: user_response)"
-              label="שם המשתנה לשמירה"
-            />
+            <div className="space-y-2">
+              <label className="text-xs text-gray-500">בחר משתנה לשמירה:</label>
+              <select
+                value={action.variableName || ''}
+                onChange={(e) => onUpdate({ variableName: e.target.value })}
+                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+              >
+                <option value="">בחר משתנה...</option>
+                <optgroup label="משתנים נפוצים">
+                  <option value="user_response">user_response - תגובת משתמש</option>
+                  <option value="user_choice">user_choice - בחירת משתמש</option>
+                  <option value="user_input">user_input - קלט משתמש</option>
+                  <option value="answer">answer - תשובה</option>
+                </optgroup>
+                <optgroup label="פרטים אישיים">
+                  <option value="full_name">full_name - שם מלא</option>
+                  <option value="email">email - אימייל</option>
+                  <option value="phone">phone - טלפון</option>
+                  <option value="address">address - כתובת</option>
+                  <option value="id_number">id_number - מספר זהות</option>
+                </optgroup>
+                <optgroup label="עסקי">
+                  <option value="company">company - חברה</option>
+                  <option value="order_id">order_id - מספר הזמנה</option>
+                  <option value="product">product - מוצר</option>
+                  <option value="quantity">quantity - כמות</option>
+                  <option value="notes">notes - הערות</option>
+                </optgroup>
+              </select>
+              <p className="text-xs text-gray-400">או הזן שם משתנה חדש:</p>
+              <input
+                type="text"
+                value={action.variableName || ''}
+                onChange={(e) => onUpdate({ variableName: e.target.value })}
+                placeholder="שם_משתנה_חדש"
+                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                dir="ltr"
+              />
+            </div>
           )}
         </div>
       )}

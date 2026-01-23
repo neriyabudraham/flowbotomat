@@ -385,13 +385,13 @@ async function stopTyping(connection, phone) {
 async function sendReaction(connection, messageId, reaction) {
   const client = createClient(connection.base_url, connection.api_key);
   
-  const response = await client.post(`/api/reaction`, {
-    session: connection.session_name,
+  // WAHA expects PUT to /api/{session}/reaction endpoint
+  const response = await client.put(`/api/${connection.session_name}/reaction`, {
     messageId: messageId,
     reaction: reaction,
   });
   
-  console.log(`[WAHA] Sent reaction: ${reaction}`);
+  console.log(`[WAHA] Sent reaction: ${reaction} to ${messageId}`);
   return response.data;
 }
 
@@ -441,20 +441,37 @@ async function sendContactVcard(connection, phone, contactName, contactPhone, co
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
   
-  // Format phone number to clean international format
+  // Format phone number to international format with +
   const formattedPhone = formatPhoneNumber(contactPhone);
+  const phoneWithPlus = formattedPhone.startsWith('+') ? formattedPhone : `+${formattedPhone}`;
+  
+  // Build raw vCard 3.0 format
+  const vcardLines = [
+    'BEGIN:VCARD',
+    'VERSION:3.0',
+    `N:;${contactName};;;`,
+    `FN:${contactName}`,
+    `TEL;TYPE=CELL:${phoneWithPlus}`,
+  ];
+  
+  if (contactOrg) {
+    vcardLines.push(`ORG:${contactOrg}`);
+  }
+  
+  vcardLines.push('END:VCARD');
+  const vcard = vcardLines.join('\n');
+  
+  console.log(`[WAHA] Sending vCard:`, vcard);
   
   const response = await client.post(`/api/sendContactVcard`, {
     session: connection.session_name,
     chatId: chatId,
     contacts: [{
-      fullName: contactName,
-      phoneNumber: formattedPhone,
-      organization: contactOrg || undefined
+      vcard: vcard
     }],
   });
   
-  console.log(`[WAHA] Sent vCard to ${phone}: ${contactName} (${formattedPhone})`);
+  console.log(`[WAHA] Sent vCard to ${phone}: ${contactName} (${phoneWithPlus})`);
   return response.data;
 }
 

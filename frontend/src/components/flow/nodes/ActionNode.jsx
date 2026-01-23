@@ -15,7 +15,7 @@ const actionLabels = {
 };
 
 function ActionNode({ data, selected }) {
-  const actions = data.actions || [{ type: data.actionType || 'add_tag' }];
+  const actions = data.actions || [];
   
   return (
     <BaseNode

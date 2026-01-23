@@ -648,7 +648,7 @@ class BotEngine {
         break;
         
       case 'delay':
-        await this.executeDelayNode(node);
+        await this.executeDelayNode(node, contact, userId);
         break;
         
       case 'action':
@@ -834,21 +834,38 @@ class BotEngine {
             break;
           
           case 'mark_seen':
-            await wahaService.sendSeen(connection, contact.phone);
-            console.log('[BotEngine] ✅ Marked as seen');
-            break;
-          
-          case 'reaction':
-            if (action.reaction) {
+            {
               // Get the last incoming message ID from database
-              const lastMsg = await db.query(
+              const lastSeenMsg = await db.query(
                 `SELECT wa_message_id FROM messages 
                  WHERE contact_id = $1 AND direction = $2 AND wa_message_id IS NOT NULL
                  ORDER BY created_at DESC LIMIT 1`,
                 [contact.id, 'incoming']
               );
-              if (lastMsg.rows.length > 0 && lastMsg.rows[0].wa_message_id) {
-                await wahaService.sendReaction(connection, lastMsg.rows[0].wa_message_id, action.reaction);
+              if (lastSeenMsg.rows.length > 0 && lastSeenMsg.rows[0].wa_message_id) {
+                await wahaService.sendSeen(connection, contact.phone, [lastSeenMsg.rows[0].wa_message_id]);
+                console.log('[BotEngine] ✅ Marked as seen:', lastSeenMsg.rows[0].wa_message_id);
+              } else {
+                // Fallback to just chat seen
+                await wahaService.sendSeen(connection, contact.phone, []);
+                console.log('[BotEngine] ✅ Marked chat as seen');
+              }
+            }
+            break;
+          
+          case 'reaction':
+            if (action.reaction) {
+              // Get the last incoming message ID from database
+              const lastReactMsg = await db.query(
+                `SELECT wa_message_id FROM messages 
+                 WHERE contact_id = $1 AND direction = $2 AND wa_message_id IS NOT NULL
+                 ORDER BY created_at DESC LIMIT 1`,
+                [contact.id, 'incoming']
+              );
+              if (lastReactMsg.rows.length > 0 && lastReactMsg.rows[0].wa_message_id) {
+                const msgId = lastReactMsg.rows[0].wa_message_id;
+                console.log('[BotEngine] Sending reaction to message:', msgId);
+                await wahaService.sendReaction(connection, msgId, action.reaction);
                 console.log('[BotEngine] ✅ Reaction sent:', action.reaction);
               } else {
                 console.log('[BotEngine] ⚠️ Cannot send reaction - no message ID found');
@@ -1030,11 +1047,33 @@ class BotEngine {
   }
   
   // Execute delay node
-  async executeDelayNode(node) {
-    const { delay, unit } = node.data;
-    const ms = (delay || 1) * (unit === 'minutes' ? 60000 : unit === 'hours' ? 3600000 : 1000);
-    console.log('[BotEngine] Delay:', ms, 'ms');
-    await this.sleep(ms);
+  async executeDelayNode(node, contact, userId) {
+    // Support both old format (delay, unit) and new format (actions array)
+    if (node.data.actions && Array.isArray(node.data.actions)) {
+      const connection = await this.getConnection(userId);
+      
+      for (const action of node.data.actions) {
+        if (action.type === 'delay') {
+          const ms = (action.delay || 1) * (action.unit === 'minutes' ? 60000 : 1000);
+          console.log('[BotEngine] Delay:', ms, 'ms');
+          await this.sleep(ms);
+        } else if (action.type === 'typing') {
+          if (connection) {
+            const duration = Math.min(30, Math.max(1, action.typingDuration || 3));
+            await wahaService.startTyping(connection, contact.phone);
+            await this.sleep(duration * 1000);
+            await wahaService.stopTyping(connection, contact.phone);
+            console.log('[BotEngine] ✅ Typing indicator shown for', duration, 'seconds');
+          }
+        }
+      }
+    } else {
+      // Old format fallback
+      const { delay, unit } = node.data;
+      const ms = (delay || 1) * (unit === 'minutes' ? 60000 : unit === 'hours' ? 3600000 : 1000);
+      console.log('[BotEngine] Delay:', ms, 'ms');
+      await this.sleep(ms);
+    }
   }
   
   // Execute action node
