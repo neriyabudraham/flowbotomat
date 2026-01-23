@@ -34,11 +34,25 @@ export default function MessageBubble({ message }) {
       case 'list':
         return (
           <div className="space-y-2">
+            {/* Title */}
+            {metadata.title && (
+              <p className={`font-bold text-sm ${isOutgoing ? 'text-white' : 'text-gray-900'}`}>
+                {metadata.title}
+              </p>
+            )}
+            {/* Body/Content */}
             {message.content && (
               <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
                 {message.content}
               </p>
             )}
+            {/* Footer */}
+            {metadata.footer && (
+              <p className={`text-xs ${isOutgoing ? 'text-white/60' : 'text-gray-400'}`}>
+                {metadata.footer}
+              </p>
+            )}
+            {/* Buttons */}
             {metadata.buttons && metadata.buttons.length > 0 && (
               <div className="mt-3 space-y-1.5">
                 {metadata.buttons.map((btn, idx) => (
@@ -51,11 +65,19 @@ export default function MessageBubble({ message }) {
                     }`}
                   >
                     <List className="w-4 h-4 opacity-60" />
-                    <span>{btn.title || btn}</span>
+                    <div>
+                      <span className="font-medium">{btn.title || btn}</span>
+                      {btn.description && (
+                        <p className={`text-xs mt-0.5 ${isOutgoing ? 'text-white/60' : 'text-gray-500'}`}>
+                          {btn.description}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
             )}
+            {/* Button Text */}
             {metadata.buttonText && (
               <div className={`flex items-center justify-center gap-2 mt-2 py-2 rounded-lg text-sm font-medium ${
                 isOutgoing 

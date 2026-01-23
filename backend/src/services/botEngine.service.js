@@ -11,14 +11,25 @@ class BotEngine {
   // Save outgoing message to database and emit via socket
   async saveOutgoingMessage(userId, contactId, content, messageType = 'text', mediaUrl = null, waMessageId = null, metadata = null) {
     try {
+      // Extract lat/lng if present in metadata
+      const latitude = metadata?.latitude || null;
+      const longitude = metadata?.longitude || null;
+      const filename = metadata?.filename || null;
+      const mimetype = metadata?.mimetype || null;
+      
       const result = await db.query(`
         INSERT INTO messages 
-        (user_id, contact_id, wa_message_id, direction, message_type, content, media_url, metadata, status, sent_at)
-        VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, 'sent', NOW())
+        (user_id, contact_id, wa_message_id, direction, message_type, content, media_url, media_filename, media_mime_type, latitude, longitude, status, sent_at)
+        VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, $9, $10, 'sent', NOW())
         RETURNING *
-      `, [userId, contactId, waMessageId, messageType, content, mediaUrl, metadata ? JSON.stringify(metadata) : null]);
+      `, [userId, contactId, waMessageId, messageType, content, mediaUrl, filename, mimetype, latitude, longitude]);
       
       const savedMessage = result.rows[0];
+      
+      // Add metadata to the response for frontend display (buttons, etc.)
+      if (metadata) {
+        savedMessage.metadata = metadata;
+      }
       
       // Get contact info for socket emission
       const contactResult = await db.query(
@@ -907,11 +918,14 @@ class BotEngine {
               );
               if (lastSeenMsg.rows.length > 0 && lastSeenMsg.rows[0].wa_message_id) {
                 await wahaService.sendSeen(connection, contact.phone, [lastSeenMsg.rows[0].wa_message_id]);
-                console.log('[BotEngine] ✅ Marked as seen:', lastSeenMsg.rows[0].wa_message_id);
+                // Save mark_seen as a message for display
+                await this.saveOutgoingMessage(userId, contact.id, 'סומן כנקרא', 'mark_seen', null, null);
+                console.log('[BotEngine] ✅ Marked as seen and saved:', lastSeenMsg.rows[0].wa_message_id);
               } else {
                 // Fallback to just chat seen
                 await wahaService.sendSeen(connection, contact.phone, []);
-                console.log('[BotEngine] ✅ Marked chat as seen');
+                await this.saveOutgoingMessage(userId, contact.id, 'סומן כנקרא', 'mark_seen', null, null);
+                console.log('[BotEngine] ✅ Marked chat as seen and saved');
               }
             }
             break;
@@ -929,7 +943,9 @@ class BotEngine {
                 const msgId = lastReactMsg.rows[0].wa_message_id;
                 console.log('[BotEngine] Sending reaction to message:', msgId);
                 await wahaService.sendReaction(connection, msgId, action.reaction);
-                console.log('[BotEngine] ✅ Reaction sent:', action.reaction);
+                // Save reaction as a message for display
+                await this.saveOutgoingMessage(userId, contact.id, action.reaction, 'reaction', null, null);
+                console.log('[BotEngine] ✅ Reaction sent and saved:', action.reaction);
               } else {
                 console.log('[BotEngine] ⚠️ Cannot send reaction - no message ID found');
               }
