@@ -4,19 +4,40 @@ const { decrypt } = require('./crypto/encrypt.service');
 const { getWahaCredentials } = require('./settings/system.service');
 const validationService = require('./validation.service');
 const { checkLimit, incrementBotRuns } = require('../controllers/subscriptions/subscriptions.controller');
+const { getSocketManager } = require('./socket/manager.service');
 
 class BotEngine {
   
-  // Save outgoing message to database
-  async saveOutgoingMessage(userId, contactId, content, messageType = 'text', mediaUrl = null, waMessageId = null) {
+  // Save outgoing message to database and emit via socket
+  async saveOutgoingMessage(userId, contactId, content, messageType = 'text', mediaUrl = null, waMessageId = null, metadata = null) {
     try {
-      await db.query(`
+      const result = await db.query(`
         INSERT INTO messages 
-        (user_id, contact_id, wa_message_id, direction, message_type, content, media_url, status, sent_at)
-        VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, 'sent', NOW())
-      `, [userId, contactId, waMessageId, messageType, content, mediaUrl]);
+        (user_id, contact_id, wa_message_id, direction, message_type, content, media_url, metadata, status, sent_at)
+        VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, 'sent', NOW())
+        RETURNING *
+      `, [userId, contactId, waMessageId, messageType, content, mediaUrl, metadata ? JSON.stringify(metadata) : null]);
+      
+      const savedMessage = result.rows[0];
+      
+      // Get contact info for socket emission
+      const contactResult = await db.query(
+        'SELECT * FROM contacts WHERE id = $1',
+        [contactId]
+      );
+      const contact = contactResult.rows[0];
+      
+      // Emit to frontend via socket
+      const socketManager = getSocketManager();
+      socketManager.emitToUser(userId, 'outgoing_message', {
+        message: { ...savedMessage, from_bot: true },
+        contact
+      });
+      
+      return savedMessage;
     } catch (error) {
       console.error('[BotEngine] Error saving outgoing message:', error.message);
+      return null;
     }
   }
   
@@ -824,8 +845,9 @@ class BotEngine {
                 mimetype = mimetypes[ext] || 'application/octet-stream';
               }
               console.log('[BotEngine] Sending file:', filename, '- mimetype:', mimetype, '-', fileUrl.substring(0, 50) + '...');
-              await wahaService.sendFile(connection, contact.phone, fileUrl, filename, mimetype);
-              console.log('[BotEngine] ✅ File sent:', filename);
+              const fileResult = await wahaService.sendFile(connection, contact.phone, fileUrl, filename, mimetype);
+              await this.saveOutgoingMessage(userId, contact.id, filename, 'document', fileUrl, fileResult?.id?.id, { filename, mimetype });
+              console.log('[BotEngine] ✅ File sent and saved:', filename);
             } else {
               console.log('[BotEngine] ⚠️ File action has no URL');
             }
@@ -841,10 +863,13 @@ class BotEngine {
           case 'contact':
             if (action.contactPhone) {
               const contactName = this.replaceVariables(action.contactName || '', contact, originalMessage, botName);
-              const contactPhone = this.replaceVariables(action.contactPhone || '', contact, originalMessage, botName);
+              const contactPhoneNum = this.replaceVariables(action.contactPhone || '', contact, originalMessage, botName);
               const contactOrg = action.contactOrg || '';
-              await wahaService.sendContactVcard(connection, contact.phone, contactName, contactPhone, contactOrg);
-              console.log('[BotEngine] ✅ Contact vCard sent');
+              await wahaService.sendContactVcard(connection, contact.phone, contactName, contactPhoneNum, contactOrg);
+              // Save vCard content for display
+              const vcardContent = `BEGIN:VCARD\nVERSION:3.0\nFN:${contactName}\nTEL:${contactPhoneNum}\n${contactOrg ? `ORG:${contactOrg};\n` : ''}END:VCARD`;
+              await this.saveOutgoingMessage(userId, contact.id, vcardContent, 'vcard', null, null);
+              console.log('[BotEngine] ✅ Contact vCard sent and saved');
             } else {
               console.log('[BotEngine] ⚠️ Contact action has no phone number');
             }
@@ -854,7 +879,8 @@ class BotEngine {
             if (action.latitude && action.longitude) {
               const title = this.replaceVariables(action.locationTitle || '', contact, originalMessage, botName);
               await wahaService.sendLocation(connection, contact.phone, action.latitude, action.longitude, title);
-              console.log('[BotEngine] ✅ Location sent');
+              await this.saveOutgoingMessage(userId, contact.id, title || 'מיקום', 'location', null, null, { latitude: action.latitude, longitude: action.longitude });
+              console.log('[BotEngine] ✅ Location sent and saved');
             } else {
               console.log('[BotEngine] ⚠️ Location action missing coordinates');
             }
@@ -1550,7 +1576,14 @@ class BotEngine {
     
     try {
       await wahaService.sendList(connection, contact.phone, listData);
-      console.log('[BotEngine] ✅ List sent');
+      // Save list message with metadata for display
+      await this.saveOutgoingMessage(userId, contact.id, listData.body, 'list', null, null, {
+        title: listData.title,
+        buttons: listData.buttons.map(b => ({ title: b.title, description: b.description })),
+        buttonText: listData.buttonText,
+        footer: listData.footer
+      });
+      console.log('[BotEngine] ✅ List sent and saved');
     } catch (listError) {
       console.error('[BotEngine] ❌ List send failed:', listError.message);
       console.error('[BotEngine] Error details:', listError.response?.data || 'No details');
@@ -1566,7 +1599,8 @@ class BotEngine {
         text += `\n_${listData.footer}_`;
       }
       await wahaService.sendMessage(connection, contact.phone, text);
-      console.log('[BotEngine] ✅ List sent as text fallback');
+      await this.saveOutgoingMessage(userId, contact.id, text, 'text', null, null);
+      console.log('[BotEngine] ✅ List sent as text fallback and saved');
     }
     
     // Save session to wait for response
@@ -1631,8 +1665,9 @@ class BotEngine {
     // Send welcome message if defined
     if (welcomeMessage && welcomeMessage.trim()) {
       const welcomeText = this.replaceVariables(welcomeMessage, contact, triggerMessage, botName);
-      await wahaService.sendMessage(connection, contact.phone, welcomeText);
-      console.log('[BotEngine] ✅ Welcome message sent');
+      const welcomeResult = await wahaService.sendMessage(connection, contact.phone, welcomeText);
+      await this.saveOutgoingMessage(userId, contact.id, welcomeText, 'text', null, welcomeResult?.id?.id);
+      console.log('[BotEngine] ✅ Welcome message sent and saved');
       // Wait for configured delay before sending first question
       await this.sleep((welcomeDelay || 2) * 1000);
     }
@@ -1640,8 +1675,9 @@ class BotEngine {
     // Send first question
     const firstQuestion = filteredQuestions[0];
     const questionText = this.replaceVariables(firstQuestion.question, contact, triggerMessage, botName);
-    await wahaService.sendMessage(connection, contact.phone, questionText);
-    console.log('[BotEngine] ✅ First question sent:', questionText.substring(0, 50));
+    const questionResult = await wahaService.sendMessage(connection, contact.phone, questionText);
+    await this.saveOutgoingMessage(userId, contact.id, questionText, 'text', null, questionResult?.id?.id);
+    console.log('[BotEngine] ✅ First question sent and saved:', questionText.substring(0, 50));
     
     // Calculate timeout in seconds
     const timeoutSeconds = timeout * (timeoutUnit === 'hours' ? 3600 : 60);
@@ -1694,9 +1730,9 @@ class BotEngine {
       
       // Send cancel message
       const cancelMessage = node.data.cancelMessage || 'הרישום בוטל.';
-      await wahaService.sendMessage(connection, contact.phone, 
-        this.replaceVariables(cancelMessage, contact, triggerMessage, bot.name)
-      );
+      const cancelText = this.replaceVariables(cancelMessage, contact, triggerMessage, bot.name);
+      const cancelResult = await wahaService.sendMessage(connection, contact.phone, cancelText);
+      await this.saveOutgoingMessage(userId, contact.id, cancelText, 'text', null, cancelResult?.id?.id);
       
       // Execute cancel path
       const cancelEdge = flowData.edges.find(e => e.source === nodeId && e.sourceHandle === 'cancel');
@@ -1713,7 +1749,8 @@ class BotEngine {
     if (!isValid) {
       // Send error message
       const errorMessage = currentQuestion.errorMessage || 'התשובה לא תקינה, נסה שוב';
-      await wahaService.sendMessage(connection, contact.phone, errorMessage);
+      const errorResult = await wahaService.sendMessage(connection, contact.phone, errorMessage);
+      await this.saveOutgoingMessage(userId, contact.id, errorMessage, 'text', null, errorResult?.id?.id);
       
       // Re-save session (same state)
       await this.saveSession(
@@ -1741,8 +1778,9 @@ class BotEngine {
       // More questions - send next one
       const nextQuestion = questions[nextQuestionIndex];
       const questionText = this.replaceVariables(nextQuestion.question, contact, triggerMessage, bot.name);
-      await wahaService.sendMessage(connection, contact.phone, questionText);
-      console.log('[BotEngine] ✅ Next question sent:', questionText.substring(0, 50));
+      const nextResult = await wahaService.sendMessage(connection, contact.phone, questionText);
+      await this.saveOutgoingMessage(userId, contact.id, questionText, 'text', null, nextResult?.id?.id);
+      console.log('[BotEngine] ✅ Next question sent and saved:', questionText.substring(0, 50));
       
       // Update session
       await this.saveSession(
@@ -1762,9 +1800,9 @@ class BotEngine {
     
     // Send completion message
     const completionMessage = node.data.completionMessage || 'תודה! הרישום הושלם בהצלחה.';
-    await wahaService.sendMessage(connection, contact.phone, 
-      this.replaceVariables(completionMessage, contact, triggerMessage, bot.name)
-    );
+    const completionText = this.replaceVariables(completionMessage, contact, triggerMessage, bot.name);
+    const completionResult = await wahaService.sendMessage(connection, contact.phone, completionText);
+    await this.saveOutgoingMessage(userId, contact.id, completionText, 'text', null, completionResult?.id?.id);
     
     // Send summary if enabled
     if (node.data.sendSummary) {
