@@ -731,7 +731,7 @@ class BotEngine {
         switch (action.type) {
           case 'text':
             if (action.content) {
-              const text = this.replaceVariables(action.content, contact, originalMessage, botName);
+              const text = await this.replaceAllVariables(action.content, contact, originalMessage, botName, userId);
               console.log('[BotEngine] Sending text:', text.substring(0, 50) + '...');
               const result = await wahaService.sendMessage(connection, contact.phone, text);
               // Save outgoing message to DB
@@ -743,7 +743,7 @@ class BotEngine {
           case 'image':
             if (action.url || action.fileData) {
               const imageUrl = action.fileData || action.url;
-              const caption = this.replaceVariables(action.caption || '', contact, originalMessage, botName);
+              const caption = await this.replaceAllVariables(action.caption || '', contact, originalMessage, botName, userId);
               console.log('[BotEngine] Sending image:', imageUrl.substring(0, 50) + '...');
               const result = await wahaService.sendImage(connection, contact.phone, imageUrl, caption);
               // Save outgoing message to DB
@@ -757,7 +757,7 @@ class BotEngine {
           case 'video':
             if (action.url || action.fileData) {
               const videoUrl = action.fileData || action.url;
-              const caption = this.replaceVariables(action.caption || '', contact, originalMessage, botName);
+              const caption = await this.replaceAllVariables(action.caption || '', contact, originalMessage, botName, userId);
               console.log('[BotEngine] Sending video:', videoUrl.substring(0, 50) + '...');
               const result = await wahaService.sendVideo(connection, contact.phone, videoUrl, caption);
               // Save outgoing message to DB
@@ -2029,6 +2029,13 @@ class BotEngine {
       }
     }
     
+    // Remove any remaining unreplaced {{...}} patterns
+    const unreplacedMatches = result.match(/\{\{[^}]+\}\}/g);
+    if (unreplacedMatches) {
+      console.log('[BotEngine] ⚠️ Removing unreplaced variables:', unreplacedMatches);
+      result = result.replace(/\{\{[^}]+\}\}/g, '');
+    }
+    
     return result;
   }
   
@@ -2143,14 +2150,14 @@ class BotEngine {
     }
   }
   
-  // Reserved system variable names - never add these to user_variable_definitions
-  static RESERVED_VARIABLES = [
-    'name', 'contact_phone', 'last_message', 'bot_name', 
-    'date', 'time', 'day', 'phone', 'email'
-  ];
-  
   // Helper: Set contact variable
   async setContactVariable(contactId, key, value) {
+    // Reserved system variable names - never add these to user_variable_definitions
+    const RESERVED_VARIABLES = [
+      'name', 'contact_phone', 'last_message', 'bot_name', 
+      'date', 'time', 'day', 'phone', 'email'
+    ];
+    
     console.log(`[BotEngine] Setting variable for contact ${contactId}: ${key} = ${String(value).substring(0, 100)}`);
     
     // Save the value to contact
@@ -2163,7 +2170,7 @@ class BotEngine {
     console.log(`[BotEngine] ✅ Variable saved to contact_variables table`);
     
     // Don't add reserved system variable names to user definitions
-    if (BotEngineService.RESERVED_VARIABLES.includes(key.toLowerCase())) {
+    if (RESERVED_VARIABLES.includes(key.toLowerCase())) {
       console.log(`[BotEngine] ⚠️ Skipping user definition for reserved variable: ${key}`);
       return;
     }
