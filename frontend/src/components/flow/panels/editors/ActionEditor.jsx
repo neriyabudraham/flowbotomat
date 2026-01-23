@@ -8,38 +8,24 @@ const actionTypes = [
   { id: 'add_tag', label: 'הוסף תגית', icon: '🏷️', hasValue: 'tag', category: 'tags' },
   { id: 'remove_tag', label: 'הסר תגית', icon: '🏷️', hasValue: 'tag', category: 'tags' },
   
-  // Integration Actions
-  { id: 'webhook', label: 'Webhook', icon: '🌐', hasValue: 'url', category: 'integration' },
-  { id: 'http_request', label: 'קריאת API', icon: '📡', hasValue: 'api', category: 'integration' },
-  { id: 'notify', label: 'התראה', icon: '🔔', hasValue: 'text', category: 'integration' },
-  
   // Variables
   { id: 'set_variable', label: 'הגדר משתנה', icon: '📝', hasValue: 'keyvalue', category: 'variables' },
   { id: 'delete_variable', label: 'נקה משתנה', icon: '🧹', hasValue: 'varname', category: 'variables' },
   
-  // Group Actions
-  { id: 'add_to_group', label: 'הוסף לקבוצה', icon: '➕', hasValue: 'group', category: 'group' },
-  { id: 'remove_from_group', label: 'הסר מקבוצה', icon: '➖', hasValue: 'group', category: 'group' },
-  { id: 'check_group_member', label: 'בדוק חברות בקבוצה', icon: '🔍', hasValue: 'group_check', category: 'group' },
-  { id: 'set_group_admin_only', label: 'הגדר הודעות מנהלים', icon: '👑', hasValue: 'group_settings', category: 'group' },
-  { id: 'update_group_subject', label: 'עדכן שם קבוצה', icon: '✏️', hasValue: 'group_subject', category: 'group' },
-  { id: 'update_group_description', label: 'עדכן תיאור קבוצה', icon: '📄', hasValue: 'group_desc', category: 'group' },
-  
-  // Labels (WhatsApp Business)
-  { id: 'set_label', label: 'הגדר תווית', icon: '🔖', hasValue: 'label', category: 'business' },
-  
   // Bot Control
-  { id: 'stop_bot', label: 'עצור בוט', icon: '🛑', category: 'control' },
+  { id: 'stop_bot', label: 'עצור בוט נוכחי', icon: '🛑', category: 'control' },
+  { id: 'run_bot', label: 'הפעל בוט נוסף', icon: '▶️', hasValue: 'bot_select', category: 'control' },
+  { id: 'disable_bot', label: 'כבה בוט', icon: '⏹️', hasValue: 'bot_select', category: 'control' },
+  { id: 'pause_all_bots', label: 'השהה את כל הבוטים', icon: '⏸️', category: 'control' },
+  { id: 'enable_all_bots', label: 'הפעל את כל הבוטים', icon: '⏯️', category: 'control' },
+  { id: 'random_choice', label: 'בחירה אקראית', icon: '🎲', hasValue: 'random', category: 'control' },
   { id: 'delete_contact', label: 'מחק איש קשר', icon: '🗑️', category: 'control' },
 ];
 
 const categories = [
   { id: 'tags', label: 'תגיות', icon: '🏷️', color: 'pink', defaultOpen: true },
-  { id: 'integration', label: 'אינטגרציות', icon: '🔌', color: 'orange', defaultOpen: false },
   { id: 'variables', label: 'משתנים', icon: '📝', color: 'blue', defaultOpen: false },
-  { id: 'group', label: 'קבוצות', icon: '👥', color: 'green', defaultOpen: false },
-  { id: 'business', label: 'WhatsApp Business', icon: '🏢', color: 'purple', defaultOpen: false },
-  { id: 'control', label: 'שליטה', icon: '⚙️', color: 'red', defaultOpen: false },
+  { id: 'control', label: 'בקרת בוטים', icon: '🎮', color: 'red', defaultOpen: false },
 ];
 
 const categoryColors = {
@@ -300,6 +286,45 @@ function ActionItem({ action, onUpdate, onRemove }) {
         </div>
       )}
 
+      {/* Bot Select */}
+      {actionInfo.hasValue === 'bot_select' && (
+        <BotSelector action={action} onUpdate={onUpdate} actionType={action.type} />
+      )}
+
+      {/* Random Choice */}
+      {actionInfo.hasValue === 'random' && (
+        <div className="space-y-4">
+          <p className="text-xs text-gray-500">הגדר אחוזים לבחירה אקראית:</p>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-green-600 w-16">אפשרות א׳</span>
+              <input
+                type="range"
+                min={1}
+                max={99}
+                value={action.percentA || 50}
+                onChange={(e) => onUpdate({ percentA: parseInt(e.target.value), percentB: 100 - parseInt(e.target.value) })}
+                className="flex-1 accent-green-500"
+              />
+              <span className="text-sm font-bold text-green-600 w-12 text-center">{action.percentA || 50}%</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-red-600 w-16">אפשרות ב׳</span>
+              <input
+                type="range"
+                min={1}
+                max={99}
+                value={action.percentB || 50}
+                onChange={(e) => onUpdate({ percentB: parseInt(e.target.value), percentA: 100 - parseInt(e.target.value) })}
+                className="flex-1 accent-red-500"
+              />
+              <span className="text-sm font-bold text-red-600 w-12 text-center">{action.percentB || 50}%</span>
+            </div>
+          </div>
+          <p className="text-xs text-gray-400">הפלואו יתפצל אקראית לפי האחוזים שהגדרת</p>
+        </div>
+      )}
+
       {/* Group selector */}
       {actionInfo.hasValue === 'group' && (
         <div className="space-y-2">
@@ -495,6 +520,66 @@ function ActionItem({ action, onUpdate, onRemove }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Bot Selector Component
+function BotSelector({ action, onUpdate, actionType }) {
+  const [bots, setBots] = useState([]);
+  const [loading, setLoading] = useState(false);
+  
+  useEffect(() => {
+    loadBots();
+  }, []);
+  
+  const loadBots = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get('/bots');
+      setBots(data || []);
+    } catch (err) {
+      console.error('Error loading bots:', err);
+    }
+    setLoading(false);
+  };
+  
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-gray-500">
+        {actionType === 'run_bot' ? 'בחר בוט להפעלה:' : 'בחר בוט לכיבוי:'}
+      </p>
+      <div className="flex items-center gap-2">
+        <select
+          value={action.botId || ''}
+          onChange={(e) => {
+            const selected = bots.find(b => b.id === e.target.value);
+            onUpdate({ botId: e.target.value, botName: selected?.name || '' });
+          }}
+          className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+          disabled={loading}
+        >
+          <option value="">-- בחר בוט --</option>
+          {bots.map(bot => (
+            <option key={bot.id} value={bot.id}>{bot.name}</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={loadBots}
+          disabled={loading}
+          className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+          title="רענן רשימת בוטים"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+      <p className="text-xs text-gray-400">
+        {actionType === 'run_bot' 
+          ? 'הבוט הנבחר יופעל עבור איש הקשר הנוכחי'
+          : 'הבוט הנבחר ייכבה עבור איש הקשר הנוכחי'
+        }
+      </p>
     </div>
   );
 }

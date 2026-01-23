@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { TriggerNode, MessageNode, ConditionNode, DelayNode, ActionNode, ListNode } from './nodes';
+import { TriggerNode, MessageNode, ConditionNode, DelayNode, ActionNode, ListNode, NoteNode } from './nodes';
 import RegistrationNode from './nodes/RegistrationNode';
 import QuickAddMenu from './panels/QuickAddMenu';
 import EdgeWithDelete from './EdgeWithDelete';
@@ -26,6 +26,7 @@ const nodeTypes = {
   action: ActionNode,
   list: ListNode,
   registration: RegistrationNode,
+  note: NoteNode,
 };
 
 const edgeTypes = {
@@ -325,7 +326,7 @@ export default function FlowBuilder(props) {
 function getDefaultData(type) {
   switch (type) {
     case 'trigger':
-      return { triggers: [] };
+      return { triggerGroups: [] };
     case 'message':
       return { actions: [], waitForReply: false };
     case 'condition':
@@ -338,6 +339,8 @@ function getDefaultData(type) {
       return { title: '', body: '', buttonText: 'בחר', sections: [], waitForReply: true, timeout: null };
     case 'registration':
       return { questions: [], title: '' };
+    case 'note':
+      return { note: '', color: 'yellow' };
     default:
       return {};
   }

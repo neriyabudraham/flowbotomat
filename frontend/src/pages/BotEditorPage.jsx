@@ -545,6 +545,7 @@ function getDefaultData(type) {
       cancelMessage: 'הרישום בוטל.',
       sendSummary: false 
     };
+    case 'note': return { note: '', color: 'yellow' };
     default: return {};
   }
 }

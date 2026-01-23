@@ -1,4 +1,4 @@
-import { MessageSquare, GitBranch, Clock, Cog, List, ClipboardList, ChevronLeft } from 'lucide-react';
+import { MessageSquare, GitBranch, Clock, Cog, List, ClipboardList, ChevronLeft, StickyNote } from 'lucide-react';
 
 const nodeTypes = [
   { type: 'message', label: 'WhatsApp', icon: MessageSquare, color: 'bg-teal-500', description: 'הודעות, מדיה וריאקציות' },
@@ -6,7 +6,8 @@ const nodeTypes = [
   { type: 'registration', label: 'תהליך רישום', icon: ClipboardList, color: 'bg-indigo-500', description: 'איסוף מידע בשאלות' },
   { type: 'condition', label: 'תנאי', icon: GitBranch, color: 'bg-orange-500', description: 'הסתעפות לפי תנאים' },
   { type: 'delay', label: 'השהייה', icon: Clock, color: 'bg-blue-500', description: 'המתנה לפני המשך' },
-  { type: 'action', label: 'פעולה', icon: Cog, color: 'bg-pink-500', description: 'תגיות, משתנים ו-API' },
+  { type: 'action', label: 'פעולה', icon: Cog, color: 'bg-pink-500', description: 'תגיות ובקרת בוטים' },
+  { type: 'note', label: 'הערה', icon: StickyNote, color: 'bg-yellow-500', description: 'הערות ותזכורות' },
 ];
 
 export default function NodePalette({ onAddNode }) {

@@ -38,21 +38,21 @@ function TriggerNode({ data, selected }) {
   const getConditionSummary = (condition) => {
     const label = triggerLabels[condition.type] || condition.type;
     
-    // For simple triggers like any_message, first_message
-    if (!condition.value && !condition.operator) {
+    // For simple triggers like any_message, first_message, contact_added - no operator/value needed
+    if (['any_message', 'first_message', 'contact_added'].includes(condition.type)) {
       return label;
     }
     
     // For triggers with operators (message_content, contact_field)
-    if (condition.operator) {
+    if (condition.operator && condition.type === 'message_content') {
       const op = operatorLabels[condition.operator] || condition.operator;
       if (condition.value) {
-        return `${label} ${op} "${condition.value}"`;
+        return `הודעה ${op} "${condition.value}"`;
       }
-      return `${label} ${op}`;
+      return label;
     }
     
-    // For triggers with just a value (has_tag, no_tag)
+    // For triggers with just a value (has_tag, no_tag, tag_added, tag_removed)
     if (condition.value) {
       return `${label}: ${condition.value}`;
     }

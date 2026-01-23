@@ -6,6 +6,7 @@ import DelayEditor from './editors/DelayEditor';
 import ActionEditor from './editors/ActionEditor';
 import ListEditor from './editors/ListEditor';
 import RegistrationEditor from './editors/RegistrationEditor';
+import NoteEditor from './editors/NoteEditor';
 
 const editors = {
   trigger: TriggerEditor,
@@ -15,6 +16,7 @@ const editors = {
   action: ActionEditor,
   list: ListEditor,
   registration: RegistrationEditor,
+  note: NoteEditor,
 };
 
 const titles = {
@@ -25,6 +27,7 @@ const titles = {
   action: 'עריכת פעולה',
   list: 'עריכת רשימת בחירה',
   registration: 'עריכת תהליך רישום',
+  note: 'עריכת הערה',
 };
 
 const colors = {
@@ -35,6 +38,7 @@ const colors = {
   action: 'bg-pink-50 border-pink-200',
   list: 'bg-cyan-50 border-cyan-200',
   registration: 'bg-indigo-50 border-indigo-200',
+  note: 'bg-yellow-50 border-yellow-200',
 };
 
 export default function NodeEditor({ node, onUpdate, onClose, onDelete }) {
