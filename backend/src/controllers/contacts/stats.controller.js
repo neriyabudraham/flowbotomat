@@ -18,41 +18,56 @@ async function getContactStats(req, res) {
       return res.status(404).json({ error: 'איש קשר לא נמצא' });
     }
     
-    // Get message counts - incoming and outgoing separately
-    const messagesResult = await db.query(`
-      SELECT 
-        COUNT(*) as total_count,
-        COUNT(*) FILTER (WHERE direction = 'incoming') as incoming_count,
-        COUNT(*) FILTER (WHERE direction = 'outgoing') as outgoing_count,
-        MAX(sent_at) as last_message_at
-      FROM messages 
-      WHERE contact_id = $1
-    `, [contactId]);
+    // Get message counts - incoming and outgoing separately (compatible with all PostgreSQL versions)
+    let messagesResult = { rows: [{ total_count: 0, incoming_count: 0, outgoing_count: 0 }] };
+    let lastMessageResult = { rows: [] };
     
-    // Get last message content
-    const lastMessageResult = await db.query(`
-      SELECT content, message_type, direction, sent_at as created_at
-      FROM messages 
-      WHERE contact_id = $1 
-      ORDER BY sent_at DESC 
-      LIMIT 1
-    `, [contactId]);
+    try {
+      messagesResult = await db.query(`
+        SELECT 
+          COUNT(*) as total_count,
+          SUM(CASE WHEN direction = 'incoming' THEN 1 ELSE 0 END) as incoming_count,
+          SUM(CASE WHEN direction = 'outgoing' THEN 1 ELSE 0 END) as outgoing_count,
+          MAX(sent_at) as last_message_at
+        FROM messages 
+        WHERE contact_id = $1
+      `, [contactId]);
+    } catch (e) {
+      console.log('[Stats] Messages query error:', e.message);
+    }
+    
+    try {
+      lastMessageResult = await db.query(`
+        SELECT content, message_type, direction, sent_at as created_at
+        FROM messages 
+        WHERE contact_id = $1 
+        ORDER BY sent_at DESC 
+        LIMIT 1
+      `, [contactId]);
+    } catch (e) {
+      console.log('[Stats] Last message query error:', e.message);
+    }
     
     console.log(`[Stats] Contact ${contactId} - Total: ${messagesResult.rows[0]?.total_count}, In: ${messagesResult.rows[0]?.incoming_count}, Out: ${messagesResult.rows[0]?.outgoing_count}`);
     
-    // Get bots that this contact triggered - from bot_runs table
-    const botsResult = await db.query(`
-      SELECT 
-        b.name as bot_name,
-        b.id as bot_id,
-        COUNT(br.id) as run_count
-      FROM bot_runs br
-      JOIN bots b ON br.bot_id = b.id
-      WHERE br.contact_id = $1
-      GROUP BY b.id, b.name
-      ORDER BY run_count DESC
-      LIMIT 10
-    `, [contactId]);
+    // Get bots that this contact triggered - from bot_runs table (if exists)
+    let botsResult = { rows: [] };
+    try {
+      botsResult = await db.query(`
+        SELECT 
+          b.name as bot_name,
+          b.id as bot_id,
+          COUNT(br.id) as run_count
+        FROM bot_runs br
+        JOIN bots b ON br.bot_id = b.id
+        WHERE br.contact_id = $1
+        GROUP BY b.id, b.name
+        ORDER BY run_count DESC
+        LIMIT 10
+      `, [contactId]);
+    } catch (e) {
+      console.log('[Stats] bot_runs query failed (table may not exist):', e.message);
+    }
     
     const lastMessage = lastMessageResult.rows[0];
     const stats = messagesResult.rows[0] || {};
@@ -78,7 +93,7 @@ async function getContactStats(req, res) {
     
   } catch (error) {
     console.error('[Contacts] Get stats error:', error);
-    res.status(500).json({ error: 'שגיאה בטעינת סטטיסטיקות' });
+    res.status(500).json({ error: 'שגיאה בטעינת סטטיסטיקות', details: error.message });
   }
 }
 

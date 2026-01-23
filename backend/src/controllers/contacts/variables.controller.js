@@ -18,17 +18,22 @@ async function getVariables(req, res) {
       return res.status(404).json({ error: 'איש קשר לא נמצא' });
     }
     
-    const result = await pool.query(
-      'SELECT key, value, created_at, updated_at FROM contact_variables WHERE contact_id = $1 ORDER BY key',
-      [contactId]
-    );
+    let result = { rows: [] };
+    try {
+      result = await pool.query(
+        'SELECT key, value, created_at, updated_at FROM contact_variables WHERE contact_id = $1 ORDER BY key',
+        [contactId]
+      );
+    } catch (e) {
+      console.log('[Variables] Query error (table may not exist):', e.message);
+    }
     
     console.log(`[Variables] Contact ${contactId} has ${result.rows.length} variables:`, result.rows.map(v => v.key));
     
     res.json({ variables: result.rows });
   } catch (error) {
     console.error('Get variables error:', error);
-    res.status(500).json({ error: 'שגיאה' });
+    res.status(500).json({ error: 'שגיאה', details: error.message });
   }
 }
 
