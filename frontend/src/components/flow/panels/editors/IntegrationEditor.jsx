@@ -367,42 +367,54 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
               </div>
               
               {/* Body */}
-              {['POST', 'PUT', 'PATCH'].includes(action.method || 'GET') && (
-                <div className="border border-gray-200 rounded-xl overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setShowBody(!showBody)}
-                    className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 text-sm font-medium"
-                  >
+              {/* Body - always visible */}
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowBody(!showBody)}
+                  className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 text-sm font-medium"
+                >
+                  <div className="flex items-center gap-2">
                     <span>Body</span>
-                    <div className="flex items-center gap-2">
-                      <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); onUpdate({ bodyMode: 'json' }); }}
-                          className={`px-2 py-0.5 text-xs rounded transition-colors ${
-                            (action.bodyMode || 'json') === 'json' ? 'bg-white shadow text-gray-700' : 'text-gray-500'
-                          }`}
-                        >
-                          JSON
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); onUpdate({ bodyMode: 'keyvalue' }); }}
-                          className={`px-2 py-0.5 text-xs rounded transition-colors ${
-                            action.bodyMode === 'keyvalue' ? 'bg-white shadow text-gray-700' : 'text-gray-500'
-                          }`}
-                        >
-                          Key-Value
-                        </button>
-                      </div>
-                      {showBody ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    {!['POST', 'PUT', 'PATCH'].includes(action.method || 'GET') && (
+                      <span className="text-xs text-gray-400">(זמין ב-POST/PUT/PATCH)</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onUpdate({ bodyMode: 'json' }); }}
+                        className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                          (action.bodyMode || 'json') === 'json' ? 'bg-white shadow text-gray-700' : 'text-gray-500'
+                        }`}
+                      >
+                        JSON
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onUpdate({ bodyMode: 'keyvalue' }); }}
+                        className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                          action.bodyMode === 'keyvalue' ? 'bg-white shadow text-gray-700' : 'text-gray-500'
+                        }`}
+                      >
+                        Key-Value
+                      </button>
                     </div>
-                  </button>
-                  
-                  {showBody && (
-                    <div className="p-4 space-y-2 bg-white">
-                      {(action.bodyMode || 'json') === 'json' ? (
+                    {showBody ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </div>
+                </button>
+                
+                {showBody && (
+                  <div className="p-4 space-y-3 bg-white">
+                    {!['POST', 'PUT', 'PATCH'].includes(action.method || 'GET') && (
+                      <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded-lg">
+                        💡 Body יישלח רק בבקשות POST, PUT או PATCH
+                      </p>
+                    )}
+                    
+                    {(action.bodyMode || 'json') === 'json' ? (
+                      <div className="space-y-2">
                         <TextInputWithVariables
                           value={action.body || ''}
                           onChange={(v) => onUpdate({ body: v })}
@@ -411,47 +423,48 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                           rows={6}
                           dir="ltr"
                         />
-                      ) : (
-                        <div className="space-y-2">
-                          {bodyParams.map((param, i) => (
-                            <div key={i} className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                value={param.key}
-                                onChange={(e) => updateBodyParam(i, 'key', e.target.value)}
-                                placeholder="Key"
-                                className="w-[100px] px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-                                dir="ltr"
-                              />
-                              <TextInputWithVariables
-                                value={param.value}
-                                onChange={(v) => updateBodyParam(i, 'value', v)}
-                                placeholder="Value {{variable}}"
-                                className="flex-1"
-                                dir="ltr"
-                              />
-                              <button 
-                                type="button"
-                                onClick={() => removeBodyParam(i)}
-                                className="flex-shrink-0 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-                          ))}
-                          <button
-                            type="button"
-                            onClick={addBodyParam}
-                            className="w-full py-2 text-sm text-orange-600 hover:bg-orange-50 rounded-lg border border-dashed border-orange-200"
-                          >
-                            + הוסף פרמטר
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
+                        <p className="text-xs text-gray-400">לחץ על "הוסף משתנה" להכנסת משתנים</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {bodyParams.map((param, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={param.key}
+                              onChange={(e) => updateBodyParam(i, 'key', e.target.value)}
+                              placeholder="Key"
+                              className="w-[120px] px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                              dir="ltr"
+                            />
+                            <TextInputWithVariables
+                              value={param.value}
+                              onChange={(v) => updateBodyParam(i, 'value', v)}
+                              placeholder="Value {{variable}}"
+                              className="flex-1"
+                              dir="ltr"
+                            />
+                            <button 
+                              type="button"
+                              onClick={() => removeBodyParam(i)}
+                              className="flex-shrink-0 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={addBodyParam}
+                          className="w-full py-2 text-sm text-orange-600 hover:bg-orange-50 rounded-lg border border-dashed border-orange-200"
+                        >
+                          + הוסף פרמטר
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
               
               {/* Test Button */}
               <button
