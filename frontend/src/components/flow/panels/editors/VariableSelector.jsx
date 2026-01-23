@@ -6,7 +6,6 @@ import api from '../../../../services/api';
 const defaultSystemVariables = [
   { key: 'name', label: 'שם איש קשר (מ-WhatsApp)', icon: User },
   { key: 'contact_phone', label: 'טלפון איש קשר', icon: User },
-  { key: 'message', label: 'הודעה נוכחית (טריגר)', icon: Settings },
   { key: 'last_message', label: 'ההודעה האחרונה', icon: Settings },
   { key: 'date', label: 'תאריך נוכחי', icon: Settings },
   { key: 'time', label: 'שעה נוכחית', icon: Settings },

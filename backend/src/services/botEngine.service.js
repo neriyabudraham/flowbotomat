@@ -1958,11 +1958,10 @@ class BotEngine {
     
     const days = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
     
-    // Basic replacements
+    // Basic replacements (system variables)
     let result = text
       .replace(/\{\{name\}\}/gi, contact.display_name || '')
       .replace(/\{\{contact_phone\}\}/gi, contact.phone || '')
-      .replace(/\{\{message\}\}/gi, message || '')
       .replace(/\{\{last_message\}\}/gi, message || '')
       .replace(/\{\{bot_name\}\}/gi, botName || '')
       .replace(/\{\{date\}\}/gi, now.toLocaleDateString('he-IL'))
@@ -2144,6 +2143,12 @@ class BotEngine {
     }
   }
   
+  // Reserved system variable names - never add these to user_variable_definitions
+  static RESERVED_VARIABLES = [
+    'name', 'contact_phone', 'last_message', 'bot_name', 
+    'date', 'time', 'day', 'phone', 'email'
+  ];
+  
   // Helper: Set contact variable
   async setContactVariable(contactId, key, value) {
     console.log(`[BotEngine] Setting variable for contact ${contactId}: ${key} = ${String(value).substring(0, 100)}`);
@@ -2156,6 +2161,12 @@ class BotEngine {
       [contactId, key, value]
     );
     console.log(`[BotEngine] ✅ Variable saved to contact_variables table`);
+    
+    // Don't add reserved system variable names to user definitions
+    if (BotEngineService.RESERVED_VARIABLES.includes(key.toLowerCase())) {
+      console.log(`[BotEngine] ⚠️ Skipping user definition for reserved variable: ${key}`);
+      return;
+    }
     
     // Auto-add variable to user's variable definitions (if not exists)
     try {
