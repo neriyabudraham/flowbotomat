@@ -664,6 +664,15 @@ class BotEngine {
         await this.executeRegistrationNode(node, contact, message, userId, botName, botId);
         // Registration nodes wait for responses, session saved
         return;
+        
+      case 'integration':
+        await this.executeIntegrationNode(node, contact, userId);
+        break;
+        
+      case 'note':
+        // Note nodes are just for documentation, skip them
+        console.log('[BotEngine] 📝 Note node (skipped):', node.data?.text?.substring(0, 50) || '');
+        break;
     }
     
     // Find all next edges (support multiple outputs)
@@ -1377,6 +1386,21 @@ class BotEngine {
             }
           }
           break;
+      }
+    }
+  }
+  
+  // Execute integration node (API requests)
+  async executeIntegrationNode(node, contact, userId) {
+    const actions = node.data?.actions || [];
+    console.log(`[BotEngine] Integration node has ${actions.length} API request(s)`);
+    
+    for (let i = 0; i < actions.length; i++) {
+      const action = actions[i];
+      console.log(`[BotEngine] Executing API request ${i + 1}/${actions.length}: ${action.method || 'GET'} ${action.apiUrl}`);
+      
+      if (action.type === 'http_request') {
+        await this.executeHttpRequest(action, contact);
       }
     }
   }
