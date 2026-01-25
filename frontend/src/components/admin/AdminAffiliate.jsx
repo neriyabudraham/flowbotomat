@@ -370,6 +370,24 @@ export default function AdminAffiliate() {
                   </select>
                 </div>
               </div>
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">זמן תפוגה להנחה (דקות)</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="10080"
+                    value={settingsForm.referral_expiry_minutes || ''}
+                    onChange={e => setSettingsForm({...settingsForm, referral_expiry_minutes: parseInt(e.target.value) || 60})}
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg"
+                    placeholder="60"
+                  />
+                  <span className="text-gray-500">דקות</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  כמה זמן (בדקות) יש למשתמש לממש את ההנחה מרגע הכניסה ללינק. ברירת מחדל: 60 דקות (שעה)
+                </p>
+              </div>
             </div>
 
             <Button onClick={handleSaveSettings} className="w-full">
