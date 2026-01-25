@@ -41,17 +41,26 @@ const googleCallback = async (req, res) => {
       }
     }
     
-    // Create a fresh client with the exact redirect URI
-    const callbackClient = new OAuth2Client(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      redirectUri
-    );
-    
     console.log('[Google Auth] Exchanging code for tokens...');
-    // Exchange code for tokens
-    const { tokens } = await callbackClient.getToken(code);
-    console.log('[Google Auth] Token exchange successful');
+    console.log('[Google Auth] Client ID:', process.env.GOOGLE_CLIENT_ID?.substring(0, 20) + '...');
+    
+    // Exchange code for tokens using axios directly for better error handling
+    let tokens;
+    try {
+      const tokenResponse = await axios.post('https://oauth2.googleapis.com/token', {
+        code,
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code'
+      });
+      tokens = tokenResponse.data;
+      console.log('[Google Auth] Token exchange successful');
+    } catch (tokenError) {
+      console.error('[Google Auth] Token exchange failed');
+      console.error('[Google Auth] Error response:', JSON.stringify(tokenError.response?.data));
+      throw tokenError;
+    }
     
     // Get user info from Google
     const userInfoRes = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
@@ -75,18 +84,33 @@ const googleCallback = async (req, res) => {
     res.redirect(`${frontendUrl}/auth/callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}&isNewUser=${result.isNewUser}`);
   } catch (error) {
     console.error('Google callback error:', error.message);
-    console.error('Google callback full error:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    
+    // Log the full error response from Google
+    if (error.response) {
+      console.error('Google error response status:', error.response.status);
+      console.error('Google error response data:', JSON.stringify(error.response.data));
+    }
+    
+    // Log additional error details
+    if (error.code) console.error('Error code:', error.code);
+    if (error.errors) console.error('Errors:', JSON.stringify(error.errors));
     
     // More specific error messages
     let errorType = 'google_error';
-    if (error.message?.includes('invalid_grant')) {
+    const errorMsg = error.message || '';
+    const errorData = JSON.stringify(error.response?.data || {});
+    
+    if (errorMsg.includes('invalid_grant') || errorData.includes('invalid_grant')) {
       errorType = 'invalid_grant';
-    } else if (error.message?.includes('redirect_uri_mismatch')) {
+    } else if (errorMsg.includes('redirect_uri_mismatch') || errorData.includes('redirect_uri_mismatch')) {
       errorType = 'redirect_mismatch';
-    } else if (error.message?.includes('access_denied')) {
+    } else if (errorMsg.includes('access_denied') || errorData.includes('access_denied')) {
       errorType = 'access_denied';
+    } else if (errorMsg.includes('invalid_request') || errorData.includes('invalid_request')) {
+      errorType = 'invalid_request';
     }
     
+    console.error('Redirecting with error type:', errorType);
     res.redirect(`${frontendUrl}/login?error=${errorType}`);
   }
 };
