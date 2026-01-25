@@ -59,7 +59,7 @@ export default function PricingPage() {
       case 'forever':
         return 'לתמיד';
       case 'first_year':
-        return 'לשנה הראשונה';
+        return 'ל-12 חודשים הראשונים';
       case 'custom_months':
         return referralDiscountMonths > 1 ? `ל-${referralDiscountMonths} חודשים הראשונים` : 'לחודש הראשון';
       default:
@@ -1158,9 +1158,33 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
   const [couponData, setCouponData] = useState(null);
   const [couponLoading, setCouponLoading] = useState(false);
   const [couponError, setCouponError] = useState(null);
+  
+  // Referral discount state
+  const [referralInfo, setReferralInfo] = useState(null);
 
   useEffect(() => {
     loadPaymentMethod();
+    
+    // Load referral discount info
+    const referralCode = localStorage.getItem('referral_code');
+    const referralPercent = parseInt(localStorage.getItem('referral_discount_percent') || '0');
+    const referralType = localStorage.getItem('referral_discount_type') || 'first_payment';
+    const referralMonths = parseInt(localStorage.getItem('referral_discount_months') || '0');
+    const referralExpiry = localStorage.getItem('referral_expiry');
+    
+    if (referralCode && referralPercent > 0) {
+      // Check if not expired
+      const now = Date.now();
+      const expiry = parseInt(referralExpiry || '0');
+      if (!expiry || now < expiry) {
+        setReferralInfo({
+          code: referralCode,
+          percent: referralPercent,
+          type: referralType,
+          months: referralMonths
+        });
+      }
+    }
   }, []);
 
   const loadPaymentMethod = async () => {
@@ -1211,16 +1235,28 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
     setCouponError(null);
   };
 
+  const getReferralDurationText = () => {
+    if (!referralInfo) return '';
+    switch (referralInfo.type) {
+      case 'forever': return 'לתמיד';
+      case 'first_year': return 'ל-12 חודשים הראשונים';
+      case 'custom_months': 
+        return referralInfo.months > 1 ? `ל-${referralInfo.months} חודשים הראשונים` : 'לחודש הראשון';
+      default: return 'לחודש הראשון';
+    }
+  };
+
   const calculatePrice = () => {
     const basePrice = Math.floor(plan.price);
+    let result = { monthly: basePrice, total: basePrice, originalTotal: basePrice };
     
     if (billingPeriod === 'yearly') {
-      const yearlyTotal = Math.floor(plan.price * 12 * 0.8);
+      const yearlyTotal = Math.floor(plan.price * 12 * 0.8); // 20% yearly discount
       const yearlyMonthly = Math.floor(plan.price * 0.8);
-      return { monthly: yearlyMonthly, total: yearlyTotal, originalTotal: yearlyTotal };
+      result = { monthly: yearlyMonthly, total: yearlyTotal, originalTotal: yearlyTotal, originalMonthly: basePrice };
     }
     
-    // Apply coupon if valid
+    // Apply coupon if valid (coupon takes priority)
     if (couponData?.calculation) {
       return { 
         monthly: couponData.calculation.final_price, 
@@ -1230,7 +1266,24 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
       };
     }
     
-    return { monthly: basePrice, total: basePrice, originalTotal: basePrice };
+    // Apply referral discount (if no coupon)
+    if (referralInfo && referralInfo.percent > 0) {
+      const discountAmount = Math.floor(result.total * referralInfo.percent / 100);
+      const discountedTotal = result.total - discountAmount;
+      const discountedMonthly = Math.floor(result.monthly * (1 - referralInfo.percent / 100));
+      return {
+        monthly: discountedMonthly,
+        total: discountedTotal,
+        originalTotal: result.total,
+        originalMonthly: result.monthly,
+        discount: discountAmount,
+        referralDiscount: true,
+        referralPercent: referralInfo.percent,
+        referralDuration: getReferralDurationText()
+      };
+    }
+    
+    return result;
   };
 
   const formatCardNumber = (value) => {
@@ -1284,6 +1337,7 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
         billingPeriod,
         paymentMethodId: paymentMethod?.id,
         couponCode: couponData ? couponCode : undefined,
+        referralCode: referralInfo?.code,
       });
       
       onSuccess();
@@ -1520,15 +1574,19 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
                 )}
               </div>
 
-              {/* Price Summary with Coupon */}
-              {couponData && (
+              {/* Price Summary with Discount (Coupon or Referral) */}
+              {(couponData || prices.referralDiscount) && (
                 <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-4 border border-green-200">
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-gray-600">מחיר מקורי</span>
                     <span className="text-gray-400 line-through">₪{prices.originalTotal}</span>
                   </div>
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-green-700 font-medium">הנחה</span>
+                    <span className="text-green-700 font-medium">
+                      {prices.referralDiscount 
+                        ? `הנחת חבר ${prices.referralPercent}% ${prices.referralDuration}`
+                        : 'הנחה'}
+                    </span>
                     <span className="text-green-600 font-bold">-₪{prices.discount}</span>
                   </div>
                   <div className="border-t border-green-200 pt-2 mt-2">
@@ -1536,6 +1594,26 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
                       <span className="text-gray-900 font-bold">סה״כ לתשלום</span>
                       <span className="text-2xl font-bold text-green-600">₪{prices.total}</span>
                     </div>
+                    {prices.referralDiscount && referralInfo?.type !== 'forever' && (
+                      <p className="text-xs text-gray-500 mt-2 text-left">
+                        * {referralInfo?.type === 'first_year' 
+                            ? 'החל מהחודש ה-13' 
+                            : referralInfo?.type === 'custom_months' && referralInfo?.months > 1
+                              ? `החל מהחודש ה-${referralInfo.months + 1}`
+                              : 'החל מהחודש השני'}: ₪{prices.originalMonthly || prices.originalTotal}/חודש
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {/* Referral Badge when active */}
+              {referralInfo && !couponData && (
+                <div className="bg-purple-50 rounded-xl p-3 border border-purple-200 flex items-center gap-3">
+                  <Gift className="w-5 h-5 text-purple-600" />
+                  <div>
+                    <span className="text-purple-700 font-medium">הנחת חבר {referralInfo.percent}% פעילה</span>
+                    <p className="text-xs text-purple-600">{getReferralDurationText()}</p>
                   </div>
                 </div>
               )}

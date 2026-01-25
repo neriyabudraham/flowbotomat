@@ -71,9 +71,9 @@ export default function PaymentRequiredModal({
       const getDiscountDuration = () => {
         switch (referralDiscountType) {
           case 'forever': return 'לתמיד';
-          case 'first_year': return 'לשנה הראשונה';
+          case 'first_year': return 'ל-12 חודשים הראשונים';
           case 'custom_months': 
-            return referralDiscountMonths > 1 ? `ל-${referralDiscountMonths} חודשים` : 'לחודש הראשון';
+            return referralDiscountMonths > 1 ? `ל-${referralDiscountMonths} חודשים הראשונים` : 'לחודש הראשון';
           default: return 'לחודש הראשון';
         }
       };
@@ -262,10 +262,10 @@ export default function PaymentRequiredModal({
                       {priceInfo.referralDiscount > 0 && priceInfo.referralDiscountType !== 'forever' && (
                         <p className="text-xs text-gray-500 mt-2">
                           * {priceInfo.referralDiscountType === 'first_year' 
-                              ? 'מהשנה השנייה' 
+                              ? 'החל מהחודש ה-13' 
                               : priceInfo.referralDiscountType === 'custom_months' && priceInfo.referralDiscountMonths > 1
-                                ? `לאחר ${priceInfo.referralDiscountMonths} חודשים`
-                                : 'מהחודש השני'}: ₪{priceInfo.regularPrice}/חודש
+                                ? `החל מהחודש ה-${priceInfo.referralDiscountMonths + 1}`
+                                : 'החל מהחודש השני'}: ₪{priceInfo.regularPrice}/חודש
                         </p>
                       )}
                       <div className="mt-3 pt-3 border-t border-purple-200 text-xs text-gray-500">
