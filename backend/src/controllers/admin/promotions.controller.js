@@ -619,7 +619,7 @@ async function getMyAffiliate(req, res) {
       WHERE price > 0 AND is_active = true 
       ORDER BY price ASC LIMIT 1
     `);
-    settings.cheapest_plan_price = parseFloat(cheapestPlan.rows[0]?.price || 79);
+    settings.cheapest_plan_price = parseFloat(cheapestPlan.rows[0]?.price || 0);
     
     // Get recent referrals
     const referrals = await db.query(`
@@ -746,7 +746,7 @@ async function redeemCredits(req, res) {
       ORDER BY price ASC LIMIT 1
     `);
     const planForCalc = cheapestPlan.rows[0];
-    const planPrice = parseFloat(planForCalc?.price || 79);
+    const planPrice = parseFloat(planForCalc?.price || 0);
     
     // Calculate how many months the credits are worth
     monthsToAdd = Math.floor(balance / planPrice);

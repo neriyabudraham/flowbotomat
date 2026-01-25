@@ -28,7 +28,8 @@ export default function PaymentRequiredModal({
   const fetchPriceInfo = async () => {
     try {
       // Get Basic plan specifically
-      const { data: plansData } = await api.get('/subscriptions/plans');
+      const { data } = await api.get('/subscriptions/plans');
+      const plansData = data.plans || data || [];
       const basicPlan = plansData.find(p => p.name === 'Basic') || plansData.filter(p => parseFloat(p.price) > 0).sort((a, b) => parseFloat(a.price) - parseFloat(b.price))[0];
       
       if (!basicPlan) {
@@ -44,7 +45,7 @@ export default function PaymentRequiredModal({
       const referralCode = localStorage.getItem('referral_code');
       const referralDiscountPercent = parseInt(localStorage.getItem('referral_discount_percent') || '0');
       
-      let regularPrice = parseFloat(basicPlan?.price || 79);
+      let regularPrice = parseFloat(basicPlan?.price || 0);
       let firstMonthPrice = regularPrice;
       let hasDiscount = false;
       let discountNote = null;
