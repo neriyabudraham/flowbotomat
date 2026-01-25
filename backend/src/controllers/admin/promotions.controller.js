@@ -470,14 +470,45 @@ async function getAffiliateStats(req, res) {
         (SELECT SUM(available_balance) FROM affiliates) as pending_payouts
     `);
     
+    // Get all affiliates with their referrals
     const topAffiliates = await db.query(`
       SELECT a.*, u.name, u.email
       FROM affiliates a
       JOIN users u ON a.user_id = u.id
-      WHERE a.total_conversions > 0
-      ORDER BY a.total_earned DESC
-      LIMIT 20
+      ORDER BY a.total_earned DESC, a.total_signups DESC
     `);
+    
+    // Get referrals for each affiliate
+    const referrals = await db.query(`
+      SELECT 
+        ar.affiliate_id,
+        ar.referred_user_id,
+        ar.status,
+        ar.commission_amount,
+        ar.created_at,
+        ar.converted_at,
+        u.email as referred_email,
+        u.name as referred_name,
+        u.created_at as user_created_at
+      FROM affiliate_referrals ar
+      JOIN users u ON ar.referred_user_id = u.id
+      ORDER BY ar.created_at DESC
+    `);
+    
+    // Group referrals by affiliate
+    const referralsByAffiliate = {};
+    for (const ref of referrals.rows) {
+      if (!referralsByAffiliate[ref.affiliate_id]) {
+        referralsByAffiliate[ref.affiliate_id] = [];
+      }
+      referralsByAffiliate[ref.affiliate_id].push(ref);
+    }
+    
+    // Add referrals to each affiliate
+    const affiliatesWithReferrals = topAffiliates.rows.map(aff => ({
+      ...aff,
+      referrals: referralsByAffiliate[aff.id] || []
+    }));
     
     const pendingPayouts = await db.query(`
       SELECT p.*, u.name, u.email
@@ -490,7 +521,7 @@ async function getAffiliateStats(req, res) {
     
     res.json({
       stats: stats.rows[0],
-      topAffiliates: topAffiliates.rows,
+      topAffiliates: affiliatesWithReferrals,
       pendingPayouts: pendingPayouts.rows
     });
   } catch (error) {
@@ -579,7 +610,16 @@ async function getMyAffiliate(req, res) {
     }
     
     // Get settings
-    const settings = await db.query('SELECT * FROM affiliate_settings LIMIT 1');
+    const settingsResult = await db.query('SELECT * FROM affiliate_settings LIMIT 1');
+    const settings = settingsResult.rows[0] || {};
+    
+    // Get cheapest paid plan price for redemption calculation
+    const cheapestPlan = await db.query(`
+      SELECT price FROM subscription_plans 
+      WHERE price > 0 AND is_active = true 
+      ORDER BY price ASC LIMIT 1
+    `);
+    settings.cheapest_plan_price = parseFloat(cheapestPlan.rows[0]?.price || 79);
     
     // Get recent referrals
     const referrals = await db.query(`
@@ -601,7 +641,7 @@ async function getMyAffiliate(req, res) {
     
     res.json({
       affiliate: affiliate.rows[0],
-      settings: settings.rows[0],
+      settings: settings,
       referrals: referrals.rows,
       payouts: payouts.rows,
       shareLink: `${process.env.FRONTEND_URL || 'https://flow.botomat.co.il'}?ref=${affiliate.rows[0].ref_code}`
@@ -664,7 +704,7 @@ async function requestPayout(req, res) {
   }
 }
 
-// Redeem affiliate credits as discount on next payment
+// Redeem affiliate credits - extend subscription or create one
 async function redeemCredits(req, res) {
   try {
     const userId = req.user.id;
@@ -687,33 +727,135 @@ async function redeemCredits(req, res) {
       });
     }
     
-    // Add credit to user account
-    await db.query(`
-      UPDATE users SET
-        affiliate_credit = COALESCE(affiliate_credit, 0) + $1,
-        updated_at = NOW()
-      WHERE id = $2
-    `, [balance, userId]);
+    // Get user's current subscription
+    const subscription = await db.query(`
+      SELECT us.*, sp.name as plan_name, sp.price as plan_price, sp.name_he as plan_name_he
+      FROM user_subscriptions us
+      JOIN subscription_plans sp ON us.plan_id = sp.id
+      WHERE us.user_id = $1
+    `, [userId]);
+    
+    const currentSub = subscription.rows[0];
+    let resultMessage = '';
+    let monthsToAdd = 0;
+    
+    // Get cheapest paid plan
+    const cheapestPlan = await db.query(`
+      SELECT * FROM subscription_plans 
+      WHERE price > 0 AND is_active = true 
+      ORDER BY price ASC LIMIT 1
+    `);
+    const planForCalc = cheapestPlan.rows[0];
+    const planPrice = parseFloat(planForCalc?.price || 79);
+    
+    // Calculate how many months the credits are worth
+    monthsToAdd = Math.floor(balance / planPrice);
+    const usedCredits = monthsToAdd * planPrice;
+    const remainingCredits = balance - usedCredits;
+    
+    if (monthsToAdd < 1) {
+      return res.status(400).json({
+        error: `הנקודות שלך (₪${balance}) לא מספיקות לחודש מנוי אחד (₪${planPrice}). צבור עוד ${planPrice - balance} נקודות.`,
+        current: balance,
+        required: planPrice
+      });
+    }
+    
+    const isFree = !currentSub || currentSub.plan_name === 'Free';
+    const isCancelled = currentSub?.status === 'cancelled';
+    const isActive = currentSub?.status === 'active' && !isFree;
+    
+    if (isFree || !currentSub) {
+      // FREE USER - Create a new paid subscription
+      const newExpiry = new Date();
+      newExpiry.setMonth(newExpiry.getMonth() + monthsToAdd);
+      
+      if (currentSub) {
+        // Update existing subscription to paid plan
+        await db.query(`
+          UPDATE user_subscriptions SET
+            plan_id = $1,
+            status = 'active',
+            expires_at = $2,
+            is_manual = true,
+            admin_notes = COALESCE(admin_notes, '') || E'\n' || $3,
+            updated_at = NOW()
+          WHERE user_id = $4
+        `, [planForCalc.id, newExpiry, `מומש ${usedCredits} נקודות ל-${monthsToAdd} חודשי מנוי (${new Date().toLocaleDateString('he-IL')})`, userId]);
+      } else {
+        // Create new subscription
+        await db.query(`
+          INSERT INTO user_subscriptions (user_id, plan_id, status, expires_at, is_manual, admin_notes, billing_period)
+          VALUES ($1, $2, 'active', $3, true, $4, 'monthly')
+        `, [userId, planForCalc.id, newExpiry, `מומש ${usedCredits} נקודות ל-${monthsToAdd} חודשי מנוי`]);
+      }
+      
+      resultMessage = `מעולה! קיבלת מנוי ${planForCalc.name_he || planForCalc.name} ל-${monthsToAdd} חודשים (עד ${newExpiry.toLocaleDateString('he-IL')})`;
+      
+    } else if (isCancelled) {
+      // CANCELLED USER - Extend current subscription without future charges
+      let newExpiry = currentSub.expires_at ? new Date(currentSub.expires_at) : new Date();
+      if (newExpiry < new Date()) {
+        newExpiry = new Date();
+      }
+      newExpiry.setMonth(newExpiry.getMonth() + monthsToAdd);
+      
+      await db.query(`
+        UPDATE user_subscriptions SET
+          expires_at = $1,
+          admin_notes = COALESCE(admin_notes, '') || E'\n' || $2,
+          updated_at = NOW()
+        WHERE user_id = $3
+      `, [newExpiry, `הוארך ${monthsToAdd} חודשים ע"י מימוש ${usedCredits} נקודות (${new Date().toLocaleDateString('he-IL')})`, userId]);
+      
+      resultMessage = `מעולה! המנוי שלך הוארך ב-${monthsToAdd} חודשים (עד ${newExpiry.toLocaleDateString('he-IL')}) ללא חיוב נוסף`;
+      
+    } else if (isActive) {
+      // ACTIVE PAYING USER - Extend next payment date
+      let nextCharge = currentSub.next_charge_date ? new Date(currentSub.next_charge_date) : new Date();
+      if (nextCharge < new Date()) {
+        nextCharge = new Date();
+      }
+      nextCharge.setMonth(nextCharge.getMonth() + monthsToAdd);
+      
+      await db.query(`
+        UPDATE user_subscriptions SET
+          next_charge_date = $1,
+          admin_notes = COALESCE(admin_notes, '') || E'\n' || $2,
+          updated_at = NOW()
+        WHERE user_id = $3
+      `, [nextCharge, `נדחה חיוב ב-${monthsToAdd} חודשים ע"י מימוש ${usedCredits} נקודות (${new Date().toLocaleDateString('he-IL')})`, userId]);
+      
+      // TODO: Update Sumit standing order if exists
+      if (currentSub.sumit_standing_order_id) {
+        console.log('[Affiliate] TODO: Update Sumit standing order', currentSub.sumit_standing_order_id, 'to next charge:', nextCharge);
+        // This would require Sumit API integration to update the standing order
+      }
+      
+      resultMessage = `מעולה! תאריך החיוב הבא נדחה ל-${nextCharge.toLocaleDateString('he-IL')} (${monthsToAdd} חודשים נוספים)`;
+    }
     
     // Record redemption
     await db.query(`
-      INSERT INTO affiliate_payouts (affiliate_id, amount, payout_method, status, processed_at)
-      VALUES ($1, $2, 'credit', 'paid', NOW())
-    `, [aff.id, balance]);
+      INSERT INTO affiliate_payouts (affiliate_id, amount, payout_method, status, processed_at, admin_notes)
+      VALUES ($1, $2, 'credit', 'paid', NOW(), $3)
+    `, [aff.id, usedCredits, `מומש ל-${monthsToAdd} חודשי מנוי`]);
     
-    // Update affiliate balance
+    // Update affiliate balance (only deduct used credits, keep remainder)
     await db.query(`
       UPDATE affiliates SET
-        available_balance = 0,
-        total_paid_out = total_paid_out + $1,
+        available_balance = $1,
+        total_paid_out = total_paid_out + $2,
         updated_at = NOW()
-      WHERE id = $2
-    `, [balance, aff.id]);
+      WHERE id = $3
+    `, [remainingCredits, usedCredits, aff.id]);
     
     res.json({ 
       success: true, 
-      message: `מעולה! ${balance} נקודות (₪${balance}) נוספו לחשבונך כזיכוי. הסכום יקוזז מהתשלום הבא שלך.`,
-      credited: balance
+      message: resultMessage,
+      credited: usedCredits,
+      monthsAdded: monthsToAdd,
+      remainingBalance: remainingCredits
     });
   } catch (error) {
     console.error('[Affiliate] Redeem credits error:', error);

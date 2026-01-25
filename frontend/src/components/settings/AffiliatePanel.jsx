@@ -3,15 +3,19 @@ import { Link } from 'react-router-dom';
 import { 
   Share2, Copy, Check, Users, DollarSign, TrendingUp, 
   Clock, Gift, ExternalLink, CreditCard, Eye, MousePointer,
-  FileText, Coins
+  FileText, Coins, X
 } from 'lucide-react';
 import api from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function AffiliatePanel() {
+  const { user } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [redeeming, setRedeeming] = useState(false);
+  const [showRedeemModal, setShowRedeemModal] = useState(false);
+  const [redeemResult, setRedeemResult] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -35,17 +39,36 @@ export default function AffiliatePanel() {
   };
 
   const handleRedeem = async () => {
-    if (!confirm('לממש את הנקודות שצברת? הסכום יופחת מהתשלום הבא שלך.')) return;
-    
     setRedeeming(true);
     try {
       const res = await api.post('/payment/affiliate/redeem');
-      alert(res.data.message);
+      setRedeemResult({ success: true, ...res.data });
       loadData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה במימוש');
+      setRedeemResult({ success: false, error: err.response?.data?.error || 'שגיאה במימוש' });
     } finally {
       setRedeeming(false);
+    }
+  };
+
+  const getRedeemDescription = () => {
+    const balance = parseFloat(data?.affiliate?.available_balance || 0);
+    const planPrice = parseFloat(data?.settings?.cheapest_plan_price || 79);
+    const months = Math.floor(balance / planPrice);
+    
+    if (months < 1) {
+      return `הנקודות שצברת (₪${balance}) עדיין לא מספיקות לחודש מנוי אחד (₪${planPrice}).`;
+    }
+
+    const isFree = !user?.subscription_plan || user?.subscription_plan === 'Free';
+    const isCancelled = user?.subscription_status === 'cancelled';
+    
+    if (isFree) {
+      return `הנקודות שצברת מזכות אותך ב-${months} חודשי מנוי חינם! לאחר המימוש יתחיל המנוי שלך באופן מיידי.`;
+    } else if (isCancelled) {
+      return `הנקודות שצברת יאריכו את המנוי הנוכחי שלך ב-${months} חודשים נוספים, ללא חיוב עתידי.`;
+    } else {
+      return `הנקודות שצברת ידחו את החיוב הבא שלך ב-${months} חודשים.`;
     }
   };
 
@@ -162,8 +185,8 @@ export default function AffiliatePanel() {
             </div>
           </div>
           <button
-            onClick={handleRedeem}
-            disabled={!canRedeem || redeeming}
+            onClick={() => setShowRedeemModal(true)}
+            disabled={!canRedeem}
             className={`px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all ${
               canRedeem 
                 ? 'bg-amber-600 text-white hover:bg-amber-700 shadow-lg' 
@@ -171,13 +194,106 @@ export default function AffiliatePanel() {
             }`}
           >
             <Gift className="w-5 h-5" />
-            {redeeming ? 'מממש...' : 'ממש נקודות'}
+            ממש נקודות
           </button>
         </div>
         <p className="text-xs text-amber-700 mt-3">
-          * המימוש יקוזז מהתשלום הבא שלך במערכת
+          {canRedeem ? getRedeemDescription() : `* צבור עוד ${Math.ceil(parseFloat(settings?.min_payout_amount || 100) - parseFloat(affiliate?.available_balance || 0))} נקודות כדי לממש`}
         </p>
       </div>
+
+      {/* Redeem Modal */}
+      {showRedeemModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => !redeeming && setShowRedeemModal(false)}>
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-6 text-white">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-white/20 rounded-xl">
+                    <Gift className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-xl font-bold">מימוש נקודות</h3>
+                </div>
+                {!redeeming && (
+                  <button onClick={() => setShowRedeemModal(false)} className="p-1 hover:bg-white/20 rounded-lg">
+                    <X className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
+            </div>
+            
+            <div className="p-6">
+              {redeemResult ? (
+                <div className="text-center py-4">
+                  {redeemResult.success ? (
+                    <>
+                      <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Check className="w-8 h-8 text-green-600" />
+                      </div>
+                      <h4 className="text-xl font-bold text-gray-900 mb-2">המימוש בוצע בהצלחה!</h4>
+                      <p className="text-gray-600 mb-4">{redeemResult.message}</p>
+                      {redeemResult.remainingBalance > 0 && (
+                        <p className="text-sm text-amber-600">יתרה שנותרה: {redeemResult.remainingBalance} נקודות</p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <X className="w-8 h-8 text-red-600" />
+                      </div>
+                      <h4 className="text-xl font-bold text-gray-900 mb-2">שגיאה במימוש</h4>
+                      <p className="text-gray-600">{redeemResult.error}</p>
+                    </>
+                  )}
+                  <button
+                    onClick={() => { setShowRedeemModal(false); setRedeemResult(null); }}
+                    className="mt-6 px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200"
+                  >
+                    סגור
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="bg-amber-50 rounded-xl p-4 mb-6">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-600">הנקודות שלך:</span>
+                      <span className="text-2xl font-bold text-amber-700">{Math.floor(affiliate?.available_balance || 0)}</span>
+                    </div>
+                    <p className="text-sm text-amber-800">{getRedeemDescription()}</p>
+                  </div>
+                  
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowRedeemModal(false)}
+                      disabled={redeeming}
+                      className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 disabled:opacity-50"
+                    >
+                      ביטול
+                    </button>
+                    <button
+                      onClick={handleRedeem}
+                      disabled={redeeming}
+                      className="flex-1 px-4 py-3 bg-amber-600 text-white rounded-xl font-bold hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {redeeming ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          מממש...
+                        </>
+                      ) : (
+                        <>
+                          <Gift className="w-5 h-5" />
+                          ממש עכשיו
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* How it works */}
       <div className="p-6 bg-gray-50 border-t border-gray-100">

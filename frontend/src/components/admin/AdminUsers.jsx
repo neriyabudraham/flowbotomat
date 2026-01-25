@@ -455,6 +455,19 @@ function UserDetailsModal({ user, onClose }) {
                 <div className="font-medium">{new Date(user.started_at).toLocaleDateString('he-IL')}</div>
               </div>
             )}
+            {user.referred_by_name && (
+              <div className="col-span-2">
+                <label className="text-sm text-gray-500">הגיע דרך</label>
+                <div className="font-medium flex items-center gap-2">
+                  <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">שותף</span>
+                  {user.referred_by_name}
+                  <span className="text-gray-500 text-sm">({user.referred_by_email})</span>
+                  {user.referral_status === 'converted' && (
+                    <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">הומר</span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

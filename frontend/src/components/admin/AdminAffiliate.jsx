@@ -172,44 +172,16 @@ export default function AdminAffiliate() {
             />
           </div>
 
-          {/* Top Affiliates */}
+          {/* All Affiliates with Referrals */}
           <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <h3 className="font-bold text-gray-800 mb-4">שותפים מובילים</h3>
+            <h3 className="font-bold text-gray-800 mb-4">כל השותפים והמשתמשים שהביאו</h3>
             {topAffiliates.length === 0 ? (
-              <p className="text-gray-500 text-center py-4">אין נתונים עדיין</p>
+              <p className="text-gray-500 text-center py-4">אין שותפים עדיין</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 text-sm text-gray-600">
-                    <tr>
-                      <th className="px-3 py-2 text-right">שותף</th>
-                      <th className="px-3 py-2 text-right">קוד</th>
-                      <th className="px-3 py-2 text-right">קליקים</th>
-                      <th className="px-3 py-2 text-right">הרשמות</th>
-                      <th className="px-3 py-2 text-right">המרות</th>
-                      <th className="px-3 py-2 text-right">הרוויח</th>
-                      <th className="px-3 py-2 text-right">זמין למשיכה</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {topAffiliates.map(aff => (
-                      <tr key={aff.id} className="hover:bg-gray-50">
-                        <td className="px-3 py-2">
-                          <div className="font-medium text-gray-800">{aff.name}</div>
-                          <div className="text-xs text-gray-500">{aff.email}</div>
-                        </td>
-                        <td className="px-3 py-2">
-                          <code className="bg-gray-100 px-2 py-0.5 rounded text-sm">{aff.ref_code}</code>
-                        </td>
-                        <td className="px-3 py-2 text-gray-600">{aff.total_clicks}</td>
-                        <td className="px-3 py-2 text-gray-600">{aff.total_signups}</td>
-                        <td className="px-3 py-2 font-medium text-green-600">{aff.total_conversions}</td>
-                        <td className="px-3 py-2 font-medium">₪{aff.total_earned}</td>
-                        <td className="px-3 py-2 text-amber-600">₪{aff.available_balance}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-4">
+                {topAffiliates.map(aff => (
+                  <AffiliateCard key={aff.id} affiliate={aff} />
+                ))}
               </div>
             )}
           </div>
@@ -465,6 +437,95 @@ function StatCard({ icon: Icon, label, value, color }) {
       </div>
       <div className="text-2xl font-bold text-gray-800">{value}</div>
       <div className="text-sm text-gray-500">{label}</div>
+    </div>
+  );
+}
+
+function AffiliateCard({ affiliate }) {
+  const [expanded, setExpanded] = useState(false);
+  const referrals = affiliate.referrals || [];
+  
+  return (
+    <div className="border border-gray-200 rounded-xl overflow-hidden">
+      {/* Header */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full px-4 py-3 bg-gray-50 flex items-center justify-between hover:bg-gray-100 transition-colors"
+      >
+        <div className="flex items-center gap-4">
+          <div>
+            <div className="font-medium text-gray-800 text-right">{affiliate.name}</div>
+            <div className="text-xs text-gray-500">{affiliate.email}</div>
+          </div>
+          <code className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-sm">{affiliate.ref_code}</code>
+        </div>
+        <div className="flex items-center gap-6 text-sm">
+          <div className="text-center">
+            <div className="font-bold text-purple-600">{affiliate.total_clicks}</div>
+            <div className="text-xs text-gray-500">קליקים</div>
+          </div>
+          <div className="text-center">
+            <div className="font-bold text-blue-600">{affiliate.total_signups}</div>
+            <div className="text-xs text-gray-500">הרשמות</div>
+          </div>
+          <div className="text-center">
+            <div className="font-bold text-green-600">{affiliate.total_conversions}</div>
+            <div className="text-xs text-gray-500">המרות</div>
+          </div>
+          <div className="text-center">
+            <div className="font-bold text-amber-600">₪{affiliate.total_earned}</div>
+            <div className="text-xs text-gray-500">הרוויח</div>
+          </div>
+          <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        </div>
+      </button>
+      
+      {/* Referrals List */}
+      {expanded && (
+        <div className="border-t border-gray-200">
+          {referrals.length === 0 ? (
+            <div className="px-4 py-6 text-center text-gray-500 text-sm">
+              אין הפניות עדיין
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="px-4 py-2 text-right">משתמש</th>
+                  <th className="px-4 py-2 text-right">תאריך הרשמה</th>
+                  <th className="px-4 py-2 text-right">סטטוס</th>
+                  <th className="px-4 py-2 text-right">עמלה</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {referrals.map(ref => (
+                  <tr key={ref.referred_user_id} className="hover:bg-gray-50">
+                    <td className="px-4 py-2">
+                      <div className="font-medium text-gray-800">{ref.referred_name || 'ללא שם'}</div>
+                      <div className="text-xs text-gray-500">{ref.referred_email}</div>
+                    </td>
+                    <td className="px-4 py-2 text-gray-600">
+                      {new Date(ref.created_at).toLocaleDateString('he-IL')}
+                    </td>
+                    <td className="px-4 py-2">
+                      <span className={`px-2 py-0.5 rounded-full text-xs ${
+                        ref.status === 'converted' 
+                          ? 'bg-green-100 text-green-700' 
+                          : 'bg-yellow-100 text-yellow-700'
+                      }`}>
+                        {ref.status === 'converted' ? 'הומר' : 'ממתין'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 font-medium text-green-600">
+                      {ref.commission_amount ? `₪${ref.commission_amount}` : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -28,18 +28,26 @@ export default function PaymentRequiredModal({
 
   const fetchPriceInfo = async () => {
     try {
-      // Get basic plan price
+      // Get all plans and find the cheapest paid plan
       const { data: plansData } = await api.get('/subscriptions/plans');
-      const basicPlan = plansData.find(p => p.name === 'Basic') || plansData[0];
+      
+      // Filter out free plans and find the cheapest
+      const paidPlans = plansData.filter(p => parseFloat(p.price) > 0);
+      const cheapestPlan = paidPlans.sort((a, b) => parseFloat(a.price) - parseFloat(b.price))[0];
+      
+      if (!cheapestPlan) {
+        console.log('No paid plans found');
+        return;
+      }
       
       // Get active promotions
       const { data: promos } = await api.get('/payment/promotions/active');
-      const promo = promos.find(p => p.plan_id === basicPlan?.id);
+      const promo = promos.find(p => p.plan_id === cheapestPlan?.id);
       
       // Check if user came via referral
       const referralCode = localStorage.getItem('referral_code');
       
-      let firstMonthPrice = parseFloat(basicPlan?.price || 79);
+      let firstMonthPrice = parseFloat(cheapestPlan?.price || 0);
       let regularPrice = firstMonthPrice;
       let hasDiscount = false;
       let discountNote = null;
@@ -63,8 +71,8 @@ export default function PaymentRequiredModal({
         regularPrice,
         hasDiscount,
         discountNote,
-        planName: basicPlan?.name_he || 'תוכנית בסיסית',
-        trialDays: basicPlan?.trial_days || 14
+        planName: cheapestPlan?.name_he || cheapestPlan?.name || 'תוכנית בסיסית',
+        trialDays: cheapestPlan?.trial_days || 14
       });
     } catch (err) {
       console.error('Failed to fetch price info:', err);

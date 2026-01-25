@@ -39,7 +39,7 @@ async function getUsers(req, res) {
     );
     const total = parseInt(countResult.rows[0].count);
     
-    // Get users with subscription info
+    // Get users with subscription info and referrer
     const result = await db.query(
       `SELECT u.id, u.email, u.name, u.role, u.plan, u.is_verified, u.is_active, 
               u.language, u.theme, u.created_at, u.last_login_at,
@@ -49,12 +49,19 @@ async function getUsers(req, res) {
               us.is_manual,
               us.expires_at,
               us.started_at,
+              us.trial_ends_at,
               sp.name as plan_name,
               sp.name_he as plan_name_he,
-              sp.price as plan_price
+              sp.price as plan_price,
+              ref_user.name as referred_by_name,
+              ref_user.email as referred_by_email,
+              ar.status as referral_status
        FROM users u
        LEFT JOIN user_subscriptions us ON us.user_id = u.id
        LEFT JOIN subscription_plans sp ON sp.id = us.plan_id
+       LEFT JOIN affiliate_referrals ar ON ar.referred_user_id = u.id
+       LEFT JOIN affiliates aff ON aff.id = ar.affiliate_id
+       LEFT JOIN users ref_user ON ref_user.id = aff.user_id
        WHERE ${whereClause}
        ORDER BY u.created_at DESC
        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
