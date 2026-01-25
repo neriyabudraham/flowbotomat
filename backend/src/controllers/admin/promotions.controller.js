@@ -470,6 +470,17 @@ async function getAffiliateStats(req, res) {
         (SELECT SUM(available_balance) FROM affiliates) as pending_payouts
     `);
     
+    // Add custom settings columns if they don't exist
+    await db.query(`
+      DO $$ BEGIN
+        ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS custom_commission INTEGER;
+        ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS custom_discount_percent INTEGER;
+        ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS track_stats BOOLEAN DEFAULT true;
+        ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS notes TEXT;
+      EXCEPTION WHEN others THEN NULL;
+      END $$;
+    `);
+
     // Get all affiliates with their referrals
     const topAffiliates = await db.query(`
       SELECT a.*, u.name, u.email
@@ -582,6 +593,46 @@ async function processPayoutRequest(req, res) {
   } catch (error) {
     console.error('[Affiliate] Process payout error:', error);
     res.status(500).json({ error: 'שגיאה בעיבוד בקשה' });
+  }
+}
+
+// Update individual affiliate settings
+async function updateAffiliate(req, res) {
+  try {
+    const { affiliateId } = req.params;
+    const { custom_commission, custom_discount_percent, track_stats, notes, is_active } = req.body;
+    
+    // Check affiliate exists
+    const affiliate = await db.query('SELECT * FROM affiliates WHERE id = $1', [affiliateId]);
+    if (affiliate.rows.length === 0) {
+      return res.status(404).json({ error: 'שותף לא נמצא' });
+    }
+    
+    // Update affiliate settings
+    await db.query(`
+      UPDATE affiliates SET
+        custom_commission = COALESCE($1, custom_commission),
+        custom_discount_percent = COALESCE($2, custom_discount_percent),
+        track_stats = COALESCE($3, track_stats),
+        notes = COALESCE($4, notes),
+        is_active = COALESCE($5, is_active),
+        updated_at = NOW()
+      WHERE id = $6
+    `, [
+      custom_commission !== undefined ? custom_commission : null,
+      custom_discount_percent !== undefined ? custom_discount_percent : null,
+      track_stats,
+      notes,
+      is_active,
+      affiliateId
+    ]);
+    
+    console.log(`[Affiliate] Updated affiliate ${affiliateId} settings:`, { custom_commission, custom_discount_percent, track_stats, notes, is_active });
+    
+    res.json({ success: true, message: 'הגדרות השותף עודכנו' });
+  } catch (error) {
+    console.error('[Affiliate] Update affiliate error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון הגדרות' });
   }
 }
 
@@ -872,12 +923,17 @@ async function trackClick(req, res) {
       return res.status(400).json({ error: 'Missing ref code' });
     }
     
-    const affiliate = await db.query('SELECT id FROM affiliates WHERE ref_code = $1', [ref_code.toUpperCase()]);
+    // Get affiliate with custom settings
+    const affiliate = await db.query(
+      'SELECT id, custom_discount_percent, track_stats FROM affiliates WHERE ref_code = $1 AND is_active = true', 
+      [ref_code.toUpperCase()]
+    );
     if (affiliate.rows.length === 0) {
       return res.status(404).json({ error: 'Invalid ref code' });
     }
     
-    const affiliateId = affiliate.rows[0].id;
+    const aff = affiliate.rows[0];
+    const affiliateId = aff.id;
     const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
     const userAgent = req.headers['user-agent'] || '';
     
@@ -888,10 +944,12 @@ async function trackClick(req, res) {
       RETURNING id
     `, [affiliateId, ref_code.toUpperCase(), ip, userAgent, referrer_url, landing_page]);
     
-    // Update total clicks
-    await db.query('UPDATE affiliates SET total_clicks = total_clicks + 1 WHERE id = $1', [affiliateId]);
+    // Update total clicks only if tracking is enabled
+    if (aff.track_stats !== false) {
+      await db.query('UPDATE affiliates SET total_clicks = total_clicks + 1 WHERE id = $1', [affiliateId]);
+    }
     
-    // Get discount settings to return to frontend
+    // Get global discount settings
     await db.query(`
       DO $$ BEGIN
         ALTER TABLE affiliate_settings ADD COLUMN IF NOT EXISTS referral_expiry_minutes INTEGER DEFAULT 60;
@@ -900,7 +958,9 @@ async function trackClick(req, res) {
     `);
     
     const settings = await db.query('SELECT referral_discount_percent, referral_discount_type, referral_expiry_minutes FROM affiliate_settings LIMIT 1');
-    const discountPercent = settings.rows[0]?.referral_discount_percent || 10;
+    
+    // Use custom discount if set, otherwise use global
+    const discountPercent = aff.custom_discount_percent || settings.rows[0]?.referral_discount_percent || 10;
     const expiryMinutes = settings.rows[0]?.referral_expiry_minutes || 60;
     
     res.json({ 
@@ -944,8 +1004,10 @@ async function registerReferral(userId, refCode, clickId = null) {
       VALUES ($1, $2, $3, 'pending')
     `, [aff.id, userId, clickId]);
     
-    // Update affiliate stats
-    await db.query('UPDATE affiliates SET total_signups = total_signups + 1 WHERE id = $1', [aff.id]);
+    // Update affiliate stats only if tracking is enabled
+    if (aff.track_stats !== false) {
+      await db.query('UPDATE affiliates SET total_signups = total_signups + 1 WHERE id = $1', [aff.id]);
+    }
     
     // Update user
     await db.query(
@@ -975,8 +1037,9 @@ async function completeConversion(userId) {
     const settings = await db.query('SELECT * FROM affiliate_settings LIMIT 1');
     if (!settings.rows[0]?.is_active) return null;
     
+    // Get referral with affiliate custom settings
     const referral = await db.query(
-      `SELECT ar.*, a.user_id as affiliate_user_id
+      `SELECT ar.*, a.user_id as affiliate_user_id, a.custom_commission, a.track_stats
        FROM affiliate_referrals ar
        JOIN affiliates a ON ar.affiliate_id = a.id
        WHERE ar.referred_user_id = $1 AND ar.status = 'pending'`,
@@ -986,7 +1049,11 @@ async function completeConversion(userId) {
     if (referral.rows.length === 0) return null;
     
     const ref = referral.rows[0];
-    const commission = parseFloat(settings.rows[0].commission_amount);
+    
+    // Use custom commission if set, otherwise use global
+    const commission = ref.custom_commission !== null 
+      ? parseFloat(ref.custom_commission) 
+      : parseFloat(settings.rows[0].commission_amount);
     
     // Update referral
     await db.query(`
@@ -998,17 +1065,27 @@ async function completeConversion(userId) {
       WHERE id = $2
     `, [commission, ref.id]);
     
-    // Update affiliate balance
-    await db.query(`
-      UPDATE affiliates SET
-        total_conversions = total_conversions + 1,
-        total_earned = total_earned + $1,
-        available_balance = available_balance + $1,
-        updated_at = NOW()
-      WHERE id = $2
-    `, [commission, ref.affiliate_id]);
+    // Update affiliate balance only if tracking is enabled and commission > 0
+    if (ref.track_stats !== false && commission > 0) {
+      await db.query(`
+        UPDATE affiliates SET
+          total_conversions = total_conversions + 1,
+          total_earned = total_earned + $1,
+          available_balance = available_balance + $1,
+          updated_at = NOW()
+        WHERE id = $2
+      `, [commission, ref.affiliate_id]);
+    } else if (ref.track_stats !== false) {
+      // Just count conversion without commission
+      await db.query(`
+        UPDATE affiliates SET
+          total_conversions = total_conversions + 1,
+          updated_at = NOW()
+        WHERE id = $1
+      `, [ref.affiliate_id]);
+    }
     
-    console.log(`[Affiliate] Conversion completed: ₪${commission} to affiliate ${ref.affiliate_id}`);
+    console.log(`[Affiliate] Conversion completed: ₪${commission} to affiliate ${ref.affiliate_id} (custom: ${ref.custom_commission !== null})`);
     return { commission, affiliateId: ref.affiliate_id };
   } catch (error) {
     console.error('[Affiliate] Complete conversion error:', error);
@@ -1044,6 +1121,7 @@ module.exports = {
   updateAffiliateSettings,
   getAffiliateStats,
   processPayoutRequest,
+  updateAffiliate,
   getAffiliateTerms,
   updateAffiliateTerms,
   // Affiliate User

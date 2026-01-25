@@ -180,7 +180,7 @@ export default function AdminAffiliate() {
             ) : (
               <div className="space-y-4">
                 {topAffiliates.map(aff => (
-                  <AffiliateCard key={aff.id} affiliate={aff} />
+                  <AffiliateCard key={aff.id} affiliate={aff} onUpdate={loadData} />
                 ))}
               </div>
             )}
@@ -441,12 +441,40 @@ function StatCard({ icon: Icon, label, value, color }) {
   );
 }
 
-function AffiliateCard({ affiliate }) {
+function AffiliateCard({ affiliate, onUpdate }) {
   const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editForm, setEditForm] = useState({
+    custom_commission: affiliate.custom_commission ?? '',
+    custom_discount_percent: affiliate.custom_discount_percent ?? '',
+    track_stats: affiliate.track_stats !== false,
+    is_active: affiliate.is_active !== false,
+    notes: affiliate.notes || ''
+  });
   const referrals = affiliate.referrals || [];
   
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.put(`/admin/affiliate/${affiliate.id}`, {
+        custom_commission: editForm.custom_commission === '' ? null : parseInt(editForm.custom_commission),
+        custom_discount_percent: editForm.custom_discount_percent === '' ? null : parseInt(editForm.custom_discount_percent),
+        track_stats: editForm.track_stats,
+        is_active: editForm.is_active,
+        notes: editForm.notes
+      });
+      setEditing(false);
+      onUpdate?.();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בשמירה');
+    } finally {
+      setSaving(false);
+    }
+  };
+  
   return (
-    <div className="border border-gray-200 rounded-xl overflow-hidden">
+    <div className={`border rounded-xl overflow-hidden ${affiliate.is_active === false ? 'border-red-200 bg-red-50/30' : 'border-gray-200'}`}>
       {/* Header */}
       <button
         onClick={() => setExpanded(!expanded)}
@@ -454,10 +482,18 @@ function AffiliateCard({ affiliate }) {
       >
         <div className="flex items-center gap-4">
           <div>
-            <div className="font-medium text-gray-800 text-right">{affiliate.name}</div>
+            <div className="font-medium text-gray-800 text-right flex items-center gap-2">
+              {affiliate.name}
+              {affiliate.is_active === false && (
+                <span className="px-1.5 py-0.5 bg-red-100 text-red-600 text-xs rounded">מושבת</span>
+              )}
+            </div>
             <div className="text-xs text-gray-500">{affiliate.email}</div>
           </div>
           <code className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-sm">{affiliate.ref_code}</code>
+          {(affiliate.custom_commission !== null || affiliate.custom_discount_percent !== null) && (
+            <span className="px-1.5 py-0.5 bg-purple-100 text-purple-600 text-xs rounded">מותאם</span>
+          )}
         </div>
         <div className="flex items-center gap-6 text-sm">
           <div className="text-center">
@@ -480,9 +516,131 @@ function AffiliateCard({ affiliate }) {
         </div>
       </button>
       
-      {/* Referrals List */}
+      {/* Expanded Content */}
       {expanded && (
         <div className="border-t border-gray-200">
+          {/* Custom Settings */}
+          <div className="p-4 bg-purple-50/50 border-b border-gray-200">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-medium text-gray-800 flex items-center gap-2">
+                <Settings className="w-4 h-4 text-purple-600" />
+                הגדרות מותאמות אישית
+              </h4>
+              {!editing ? (
+                <button
+                  onClick={() => setEditing(true)}
+                  className="text-sm text-purple-600 hover:text-purple-700"
+                >
+                  ערוך
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEditing(false)}
+                    className="text-sm text-gray-500 hover:text-gray-700"
+                    disabled={saving}
+                  >
+                    ביטול
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="text-sm text-green-600 hover:text-green-700 font-medium"
+                  >
+                    {saving ? 'שומר...' : 'שמור'}
+                  </button>
+                </div>
+              )}
+            </div>
+            
+            {editing ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">עמלה מותאמת (נקודות)</label>
+                  <input
+                    type="number"
+                    value={editForm.custom_commission}
+                    onChange={(e) => setEditForm({ ...editForm, custom_commission: e.target.value })}
+                    placeholder="ברירת מחדל"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">0 = ללא עמלה</p>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">% הנחה למגיעים</label>
+                  <input
+                    type="number"
+                    value={editForm.custom_discount_percent}
+                    onChange={(e) => setEditForm({ ...editForm, custom_discount_percent: e.target.value })}
+                    placeholder="ברירת מחדל"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">0 = ללא הנחה</p>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">סטטוס</label>
+                  <div className="space-y-2 mt-2">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={editForm.is_active}
+                        onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })}
+                        className="rounded"
+                      />
+                      פעיל
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={editForm.track_stats}
+                        onChange={(e) => setEditForm({ ...editForm, track_stats: e.target.checked })}
+                        className="rounded"
+                      />
+                      ספור סטטיסטיקות
+                    </label>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">הערות</label>
+                  <textarea
+                    value={editForm.notes}
+                    onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                    placeholder="הערות פנימיות..."
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm h-20 resize-none"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-500">עמלה:</span>
+                  <span className="font-medium mr-2">
+                    {affiliate.custom_commission !== null ? `${affiliate.custom_commission} נקודות` : 'ברירת מחדל'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">הנחה:</span>
+                  <span className="font-medium mr-2">
+                    {affiliate.custom_discount_percent !== null ? `${affiliate.custom_discount_percent}%` : 'ברירת מחדל'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">סטטיסטיקות:</span>
+                  <span className={`font-medium mr-2 ${affiliate.track_stats !== false ? 'text-green-600' : 'text-red-600'}`}>
+                    {affiliate.track_stats !== false ? 'נספרות' : 'לא נספרות'}
+                  </span>
+                </div>
+                {affiliate.notes && (
+                  <div className="col-span-2 md:col-span-1">
+                    <span className="text-gray-500">הערות:</span>
+                    <span className="font-medium mr-2 text-gray-700">{affiliate.notes}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          
+          {/* Referrals List */}
           {referrals.length === 0 ? (
             <div className="px-4 py-6 text-center text-gray-500 text-sm">
               אין הפניות עדיין
