@@ -36,13 +36,9 @@ function ReferralTracker() {
     console.log('[ReferralTracker] URL ref code:', refCode, 'Current path:', location.pathname);
     
     if (refCode) {
-      // Check if user is already logged in (existing user)
-      const token = localStorage.getItem('accessToken');
-      if (token) {
-        // User is logged in - they can't use referral link
-        console.log('[ReferralTracker] Referral ignored - user already logged in');
-        return;
-      }
+      // Note: We now save referral code even if user has a token
+      // The signup process will validate if the email is actually new
+      // This fixes the issue where deleted users couldn't use referral links
       
       // Check if we already tracked this ref code recently (prevent double tracking)
       const lastTrackedRef = sessionStorage.getItem('last_tracked_ref');
