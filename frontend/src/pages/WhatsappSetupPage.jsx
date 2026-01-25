@@ -697,7 +697,6 @@ export default function WhatsappSetupPage() {
         }}
         onSuccess={handlePaymentSuccess}
         title="14 ימי ניסיון חינם"
-        description="הזן פרטי כרטיס אשראי כדי להתחיל 14 ימי ניסיון בחינם. לא תחויב עכשיו - לאחר תקופת הניסיון יתחיל המנוי לפי התוכנית שתבחר."
         features={[
           '14 ימי ניסיון חינם',
           'לא תחויב עכשיו',

@@ -8,7 +8,6 @@ export default function PaymentRequiredModal({
   onClose, 
   onSuccess,
   title = 'נדרש אמצעי תשלום',
-  description = 'על מנת להמשיך, נדרש להזין פרטי כרטיס אשראי. לא תחויב כעת.',
   features = [
     'ללא חיוב מיידי',
     'ביטול בכל עת',
@@ -28,29 +27,28 @@ export default function PaymentRequiredModal({
 
   const fetchPriceInfo = async () => {
     try {
-      // Get all plans and find the cheapest paid plan
+      // Get Basic plan specifically
       const { data: plansData } = await api.get('/subscriptions/plans');
+      const basicPlan = plansData.find(p => p.name === 'Basic') || plansData.filter(p => parseFloat(p.price) > 0).sort((a, b) => parseFloat(a.price) - parseFloat(b.price))[0];
       
-      // Filter out free plans and find the cheapest
-      const paidPlans = plansData.filter(p => parseFloat(p.price) > 0);
-      const cheapestPlan = paidPlans.sort((a, b) => parseFloat(a.price) - parseFloat(b.price))[0];
-      
-      if (!cheapestPlan) {
-        console.log('No paid plans found');
+      if (!basicPlan) {
+        console.log('No Basic plan found');
         return;
       }
       
       // Get active promotions
       const { data: promos } = await api.get('/payment/promotions/active');
-      const promo = promos.find(p => p.plan_id === cheapestPlan?.id);
+      const promo = promos.find(p => p.plan_id === basicPlan?.id);
       
-      // Check if user came via referral
+      // Check if user came via referral and get discount percentage
       const referralCode = localStorage.getItem('referral_code');
+      const referralDiscountPercent = parseInt(localStorage.getItem('referral_discount_percent') || '0');
       
-      let firstMonthPrice = parseFloat(cheapestPlan?.price || 0);
-      let regularPrice = firstMonthPrice;
+      let regularPrice = parseFloat(basicPlan?.price || 79);
+      let firstMonthPrice = regularPrice;
       let hasDiscount = false;
       let discountNote = null;
+      let referralDiscount = 0;
       
       if (promo) {
         firstMonthPrice = parseFloat(promo.promo_price);
@@ -58,12 +56,15 @@ export default function PaymentRequiredModal({
         discountNote = `מבצע: ${promo.duration_months} חודשים ב-₪${promo.promo_price}/חודש`;
       }
       
-      if (referralCode) {
-        // Show referral discount note
-        discountNote = discountNote 
-          ? `${discountNote} + בונוס הפניה`
-          : 'בונוס הפניה פעיל';
+      if (referralCode && referralDiscountPercent > 0) {
+        // Apply referral discount to first month
+        referralDiscount = Math.round(firstMonthPrice * referralDiscountPercent / 100);
+        const discountedPrice = firstMonthPrice - referralDiscount;
         hasDiscount = true;
+        discountNote = discountNote 
+          ? `${discountNote} + ${referralDiscountPercent}% הנחת הפניה (חיסכון של ₪${referralDiscount})`
+          : `${referralDiscountPercent}% הנחת הפניה בחודש הראשון (₪${discountedPrice} במקום ₪${firstMonthPrice})`;
+        firstMonthPrice = discountedPrice;
       }
       
       setPriceInfo({
@@ -71,8 +72,10 @@ export default function PaymentRequiredModal({
         regularPrice,
         hasDiscount,
         discountNote,
-        planName: cheapestPlan?.name_he || cheapestPlan?.name || 'תוכנית בסיסית',
-        trialDays: cheapestPlan?.trial_days || 14
+        referralDiscount,
+        referralDiscountPercent,
+        planName: basicPlan?.name_he || basicPlan?.name || 'Basic',
+        trialDays: basicPlan?.trial_days || 14
       });
     } catch (err) {
       console.error('Failed to fetch price info:', err);
@@ -139,7 +142,10 @@ export default function PaymentRequiredModal({
                 <div className="flex items-start gap-3">
                   <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
                   <p className="text-sm text-blue-800">
-                    {description}
+                    {priceInfo ? 
+                      `הזן פרטי כרטיס אשראי כדי להתחיל ${priceInfo.trialDays} ימי ניסיון בחינם. לא תחויב עכשיו - לאחר תקופת הניסיון יתחיל המנוי ${priceInfo.planName}.` :
+                      'הזן פרטי כרטיס אשראי כדי להתחיל 14 ימי ניסיון בחינם.'
+                    }
                   </p>
                 </div>
               </div>
@@ -175,18 +181,31 @@ export default function PaymentRequiredModal({
                       <span className="font-bold text-purple-700">{priceInfo.trialDays} ימים בחינם</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-gray-600">לאחר תקופת הניסיון:</span>
-                      <span className="font-bold text-gray-900">₪{priceInfo.firstMonthPrice}/חודש</span>
+                      <span className="text-gray-600">תוכנית:</span>
+                      <span className="font-bold text-gray-900">{priceInfo.planName}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">מחיר לאחר הניסיון:</span>
+                      <div className="text-left">
+                        {priceInfo.referralDiscount > 0 ? (
+                          <>
+                            <span className="font-bold text-green-600">₪{priceInfo.firstMonthPrice}</span>
+                            <span className="text-gray-400 line-through text-xs mr-2">₪{priceInfo.regularPrice}</span>
+                          </>
+                        ) : (
+                          <span className="font-bold text-gray-900">₪{priceInfo.firstMonthPrice}/חודש</span>
+                        )}
+                      </div>
                     </div>
                     {priceInfo.hasDiscount && priceInfo.discountNote && (
-                      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-purple-200">
-                        <Gift className="w-4 h-4 text-green-600" />
-                        <span className="text-green-700 text-xs">{priceInfo.discountNote}</span>
+                      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-purple-200 bg-green-50 rounded-lg p-2 -mx-2">
+                        <Gift className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        <span className="text-green-700 text-xs font-medium">{priceInfo.discountNote}</span>
                       </div>
                     )}
-                    {priceInfo.firstMonthPrice !== priceInfo.regularPrice && (
+                    {priceInfo.referralDiscount > 0 && (
                       <p className="text-xs text-gray-500 mt-2">
-                        * לאחר תקופת המבצע: ₪{priceInfo.regularPrice}/חודש
+                        * מהחודש השני: ₪{priceInfo.regularPrice}/חודש
                       </p>
                     )}
                   </div>
