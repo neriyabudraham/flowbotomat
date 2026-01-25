@@ -554,7 +554,15 @@ class BotEngine {
   
   // Check if trigger matches (with advanced settings)
   async checkTrigger(triggerData, message, messageType, contact, botId) {
-    const triggers = triggerData.triggers || [{ type: 'any_message' }];
+    // Support both new triggerGroups format and old triggers format
+    const triggerGroups = triggerData.triggerGroups || [];
+    const oldTriggers = triggerData.triggers || [];
+    
+    // If no triggers defined at all, don't match
+    if (triggerGroups.length === 0 && oldTriggers.length === 0) {
+      console.log('[BotEngine] No triggers defined - not matching');
+      return false;
+    }
     
     // Check advanced settings first
     
@@ -572,13 +580,12 @@ class BotEngine {
     
     // Cooldown check
     if (triggerData.hasCooldown && (triggerData.cooldownValue || triggerData.cooldownHours)) {
-      // Support both old (cooldownHours) and new (cooldownValue + cooldownUnit) format
       let cooldownMs;
       if (triggerData.cooldownValue && triggerData.cooldownUnit) {
         const multipliers = { minutes: 60 * 1000, hours: 60 * 60 * 1000, days: 24 * 60 * 60 * 1000, weeks: 7 * 24 * 60 * 60 * 1000 };
         cooldownMs = triggerData.cooldownValue * (multipliers[triggerData.cooldownUnit] || multipliers.days);
       } else {
-        cooldownMs = triggerData.cooldownHours * 60 * 60 * 1000; // Backward compatibility
+        cooldownMs = triggerData.cooldownHours * 60 * 60 * 1000;
       }
       const lastRun = await db.query(
         'SELECT created_at FROM bot_logs WHERE bot_id = $1 AND contact_id = $2 AND status = $3 ORDER BY created_at DESC LIMIT 1',
@@ -608,68 +615,176 @@ class BotEngine {
       }
     }
     
-    // Excluded tags check
-    if (triggerData.hasExcludedTags && triggerData.excludedTags) {
-      const excludedList = triggerData.excludedTags.split(',').map(t => t.trim().toLowerCase());
-      const contactTags = await db.query(
+    // NEW FORMAT: Check triggerGroups (groups are OR, conditions within group are AND)
+    if (triggerGroups.length > 0) {
+      console.log('[BotEngine] Checking', triggerGroups.length, 'trigger groups');
+      
+      for (const group of triggerGroups) {
+        const conditions = group.conditions || [];
+        if (conditions.length === 0) continue;
+        
+        // All conditions in this group must match (AND)
+        let groupMatches = true;
+        
+        for (const condition of conditions) {
+          const conditionMatches = await this.checkSingleCondition(condition, message, contact);
+          console.log('[BotEngine] Condition', condition.type, condition.operator, ':', conditionMatches);
+          
+          if (!conditionMatches) {
+            groupMatches = false;
+            break;
+          }
+        }
+        
+        // If this group matches, trigger matches (OR between groups)
+        if (groupMatches) {
+          console.log('[BotEngine] Trigger group matched!');
+          return true;
+        }
+      }
+      
+      // No group matched
+      console.log('[BotEngine] No trigger group matched');
+      return false;
+    }
+    
+    // OLD FORMAT: Check triggers array (backward compatibility)
+    if (oldTriggers.length > 0) {
+      console.log('[BotEngine] Using old triggers format');
+      for (const trigger of oldTriggers) {
+        let matches = false;
+        
+        switch (trigger.type) {
+          case 'any_message':
+            matches = true;
+            break;
+          case 'contains':
+            matches = message.toLowerCase().includes((trigger.value || '').toLowerCase());
+            break;
+          case 'starts_with':
+            matches = message.toLowerCase().startsWith((trigger.value || '').toLowerCase());
+            break;
+          case 'exact':
+            matches = message.toLowerCase() === (trigger.value || '').toLowerCase();
+            break;
+          case 'regex':
+            try {
+              const regex = new RegExp(trigger.value, 'i');
+              matches = regex.test(message);
+            } catch (e) {
+              console.log('[BotEngine] Invalid regex:', trigger.value);
+              matches = false;
+            }
+            break;
+          case 'first_message':
+            matches = contact.message_count <= 1;
+            break;
+          default:
+            matches = false;
+        }
+        
+        if (trigger.not) matches = !matches;
+        if (matches) return true;
+      }
+    }
+    
+    return false;
+  }
+  
+  // Check a single trigger condition
+  async checkSingleCondition(condition, message, contact) {
+    const { type, operator, value, field } = condition;
+    
+    // any_message always matches
+    if (type === 'any_message') {
+      return true;
+    }
+    
+    // first_message - check if this is the contact's first message
+    if (type === 'first_message') {
+      return contact.message_count <= 1;
+    }
+    
+    // message_content - check the message content
+    if (type === 'message_content') {
+      return this.matchOperator(message, operator, value);
+    }
+    
+    // contact_field - check a contact field
+    if (type === 'contact_field') {
+      const fieldValue = contact[field] || '';
+      return this.matchOperator(fieldValue, operator, value);
+    }
+    
+    // has_tag - check if contact has a specific tag
+    if (type === 'has_tag') {
+      const tags = await db.query(
         `SELECT t.name FROM tags t 
          JOIN contact_tags ct ON t.id = ct.tag_id 
          WHERE ct.contact_id = $1`,
         [contact.id]
       );
-      for (const tag of contactTags.rows) {
-        if (excludedList.includes(tag.name.toLowerCase())) {
-          console.log('[BotEngine] Contact has excluded tag:', tag.name);
-          return false;
-        }
-      }
+      const tagNames = tags.rows.map(t => t.name.toLowerCase());
+      return tagNames.includes((value || '').toLowerCase());
     }
     
-    // Check triggers (OR logic)
-    for (const trigger of triggers) {
-      let matches = false;
-      
-      switch (trigger.type) {
-        case 'any_message':
-          matches = true;
-          break;
-        case 'contains':
-          matches = message.toLowerCase().includes((trigger.value || '').toLowerCase());
-          break;
-        case 'starts_with':
-          matches = message.toLowerCase().startsWith((trigger.value || '').toLowerCase());
-          break;
-        case 'exact':
-          matches = message.toLowerCase() === (trigger.value || '').toLowerCase();
-          break;
-        case 'regex':
-          try {
-            const regex = new RegExp(trigger.value, 'i');
-            matches = regex.test(message);
-          } catch (e) {
-            console.log('[BotEngine] Invalid regex:', trigger.value);
-            matches = false;
-          }
-          break;
-        case 'first_message':
-          matches = contact.message_count <= 1;
-          break;
-        case 'contact_added':
-          matches = false; // Triggered separately
-          break;
-        default:
-          matches = false;
-      }
-      
-      // Handle NOT modifier
-      if (trigger.not) {
-        matches = !matches;
-      }
-      
-      if (matches) return true;
+    // no_tag - check if contact does NOT have a specific tag
+    if (type === 'no_tag') {
+      const tags = await db.query(
+        `SELECT t.name FROM tags t 
+         JOIN contact_tags ct ON t.id = ct.tag_id 
+         WHERE ct.contact_id = $1`,
+        [contact.id]
+      );
+      const tagNames = tags.rows.map(t => t.name.toLowerCase());
+      return !tagNames.includes((value || '').toLowerCase());
+    }
+    
+    // contact_added - only matches when explicitly triggered
+    if (type === 'contact_added') {
+      return false;
+    }
+    
+    // tag_added / tag_removed - only matches when explicitly triggered
+    if (type === 'tag_added' || type === 'tag_removed') {
+      return false;
     }
     
     return false;
+  }
+  
+  // Match value against operator
+  matchOperator(fieldValue, operator, compareValue) {
+    const normalizedField = (fieldValue || '').toLowerCase();
+    const normalizedValue = (compareValue || '').toLowerCase();
+    
+    switch (operator) {
+      case 'contains':
+        return normalizedField.includes(normalizedValue);
+      case 'not_contains':
+        return !normalizedField.includes(normalizedValue);
+      case 'equals':
+        return normalizedField === normalizedValue;
+      case 'not_equals':
+        return normalizedField !== normalizedValue;
+      case 'starts_with':
+        return normalizedField.startsWith(normalizedValue);
+      case 'ends_with':
+        return normalizedField.endsWith(normalizedValue);
+      case 'regex':
+        try {
+          const regex = new RegExp(compareValue, 'i');
+          return regex.test(fieldValue);
+        } catch {
+          return false;
+        }
+      case 'is_empty':
+        return !fieldValue || fieldValue.trim() === '';
+      case 'is_not_empty':
+        return fieldValue && fieldValue.trim() !== '';
+      default:
+        return normalizedField.includes(normalizedValue);
+    }
   }
   
   // Execute a node

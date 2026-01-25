@@ -82,15 +82,41 @@ export default function CheckoutPage() {
   };
 
   const calculatePrice = () => {
-    if (!plan) return { monthly: 0, total: 0 };
+    if (!plan) return { monthly: 0, total: 0, referralDiscount: 0, hasReferral: false };
+    
+    // Check for referral discount (only on first subscription)
+    const referralCode = localStorage.getItem('referral_code');
+    const referralDiscountPercent = referralCode ? (parseInt(localStorage.getItem('referral_discount_percent')) || 10) : 0;
+    const hasReferral = !!referralCode && referralDiscountPercent > 0;
+    
+    let basePrice = plan.price;
+    let total = 0;
     
     if (billingPeriod === 'yearly') {
-      const yearlyTotal = Math.floor(plan.price * 12 * 0.8);
-      const yearlyMonthly = Math.floor(plan.price * 0.8);
-      return { monthly: yearlyMonthly, total: yearlyTotal };
+      // 20% off for yearly
+      const yearlyDiscount = 0.8;
+      total = Math.floor(basePrice * 12 * yearlyDiscount);
+    } else {
+      total = Math.floor(basePrice);
     }
     
-    return { monthly: Math.floor(plan.price), total: Math.floor(plan.price) };
+    // Apply referral discount on top of other discounts
+    let referralDiscount = 0;
+    if (hasReferral) {
+      referralDiscount = Math.floor(total * (referralDiscountPercent / 100));
+      total = total - referralDiscount;
+    }
+    
+    const monthly = billingPeriod === 'yearly' ? Math.floor(total / 12) : total;
+    
+    return { 
+      monthly, 
+      total, 
+      referralDiscount, 
+      hasReferral, 
+      referralDiscountPercent,
+      originalTotal: hasReferral ? total + referralDiscount : total
+    };
   };
 
   const handleSaveCard = async () => {
@@ -139,11 +165,20 @@ export default function CheckoutPage() {
       }
       
       // Subscribe to plan
+      const referralCode = localStorage.getItem('referral_code');
       await api.post('/payment/subscribe', {
         planId: plan.id,
         billingPeriod,
         paymentMethodId: paymentMethod.id,
+        referralCode: referralCode || undefined,
       });
+      
+      // Clear referral data after successful subscription
+      if (referralCode) {
+        localStorage.removeItem('referral_code');
+        localStorage.removeItem('referral_banner_dismissed');
+        localStorage.removeItem('referral_discount_percent');
+      }
       
       setSuccess(true);
       
@@ -469,8 +504,8 @@ export default function CheckoutPage() {
                   {/* Price Breakdown */}
                   <div className="space-y-3 mb-4">
                     <div className="flex justify-between text-gray-600 dark:text-gray-400">
-                      <span>מחיר לחודש</span>
-                      <span>₪{prices.monthly}</span>
+                      <span>מחיר בסיס לחודש</span>
+                      <span>₪{plan.price}</span>
                     </div>
                     {billingPeriod === 'yearly' && (
                       <>
@@ -479,10 +514,18 @@ export default function CheckoutPage() {
                           <span>₪{Math.floor(plan.price * 12)}</span>
                         </div>
                         <div className="flex justify-between text-green-600">
-                          <span>הנחה 20%</span>
+                          <span>הנחה 20% (שנתי)</span>
                           <span>-₪{Math.floor(plan.price * 12 * 0.2)}</span>
                         </div>
                       </>
+                    )}
+                    {prices.hasReferral && (
+                      <div className="flex justify-between text-purple-600 font-medium">
+                        <span className="flex items-center gap-1">
+                          🎁 הנחת חבר ({prices.referralDiscountPercent}%)
+                        </span>
+                        <span>-₪{prices.referralDiscount}</span>
+                      </div>
                     )}
                   </div>
 

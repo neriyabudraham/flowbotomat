@@ -4,25 +4,29 @@ import { Link } from 'react-router-dom';
 
 export default function ReferralBonusBanner() {
   const [show, setShow] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const [discountPercent, setDiscountPercent] = useState(10);
 
   useEffect(() => {
     // Check if user arrived via referral
     const referralCode = localStorage.getItem('referral_code');
-    const wasDismissed = sessionStorage.getItem('referral_banner_dismissed');
+    const wasDismissed = localStorage.getItem('referral_banner_dismissed');
     
     if (referralCode && !wasDismissed) {
       setShow(true);
+      // Get discount percentage from referral settings (default 10%)
+      const savedDiscount = localStorage.getItem('referral_discount_percent');
+      if (savedDiscount) {
+        setDiscountPercent(parseInt(savedDiscount) || 10);
+      }
     }
   }, []);
 
   const handleDismiss = () => {
     setShow(false);
-    setDismissed(true);
-    sessionStorage.setItem('referral_banner_dismissed', 'true');
+    localStorage.setItem('referral_banner_dismissed', 'true');
   };
 
-  if (!show || dismissed) return null;
+  if (!show) return null;
 
   return (
     <div className="bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 text-white">
@@ -35,7 +39,7 @@ export default function ReferralBonusBanner() {
             <div className="flex items-center gap-2 text-sm md:text-base">
               <Sparkles className="w-4 h-4 text-yellow-300" />
               <span>
-                <strong>מזל טוב!</strong> הגעת דרך חבר ואתה זכאי להנחה מיוחדת על המנוי הראשון שלך!
+                <strong>מזל טוב!</strong> הגעת דרך חבר ואתה זכאי ל-{discountPercent}% הנחה על המנוי הראשון!
               </span>
             </div>
           </div>
