@@ -576,35 +576,46 @@ class BotEngine {
     
     // Once per user check
     if (triggerData.oncePerUser) {
-      const hasRun = await db.query(
-        'SELECT id FROM bot_logs WHERE bot_id = $1 AND contact_id = $2 AND status = $3 LIMIT 1',
-        [botId, contact.id, 'triggered']
-      );
-      if (hasRun.rows.length > 0) {
-        console.log('[BotEngine] Already ran for this user (oncePerUser)');
-        return false;
+      try {
+        const hasRun = await db.query(
+          'SELECT id FROM bot_logs WHERE bot_id = $1 AND contact_id = $2 AND status = $3 LIMIT 1',
+          [botId, contact.id, 'triggered']
+        );
+        if (hasRun.rows.length > 0) {
+          console.log('[BotEngine] Already ran for this user (oncePerUser)');
+          return false;
+        }
+      } catch (err) {
+        console.log('[BotEngine] oncePerUser check failed, skipping:', err.message);
       }
     }
     
     // Cooldown check
     if (triggerData.hasCooldown && (triggerData.cooldownValue || triggerData.cooldownHours)) {
-      let cooldownMs;
-      if (triggerData.cooldownValue && triggerData.cooldownUnit) {
-        const multipliers = { minutes: 60 * 1000, hours: 60 * 60 * 1000, days: 24 * 60 * 60 * 1000, weeks: 7 * 24 * 60 * 60 * 1000 };
-        cooldownMs = triggerData.cooldownValue * (multipliers[triggerData.cooldownUnit] || multipliers.days);
-      } else {
-        cooldownMs = triggerData.cooldownHours * 60 * 60 * 1000;
-      }
-      const lastRun = await db.query(
-        'SELECT created_at FROM bot_logs WHERE bot_id = $1 AND contact_id = $2 AND status = $3 ORDER BY created_at DESC LIMIT 1',
-        [botId, contact.id, 'triggered']
-      );
-      if (lastRun.rows.length > 0) {
-        const lastRunTime = new Date(lastRun.rows[0].created_at).getTime();
-        if (Date.now() - lastRunTime < cooldownMs) {
-          console.log('[BotEngine] In cooldown period');
-          return false;
+      try {
+        // Ensure created_at column exists
+        await db.query(`ALTER TABLE bot_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`);
+        
+        let cooldownMs;
+        if (triggerData.cooldownValue && triggerData.cooldownUnit) {
+          const multipliers = { minutes: 60 * 1000, hours: 60 * 60 * 1000, days: 24 * 60 * 60 * 1000, weeks: 7 * 24 * 60 * 60 * 1000 };
+          cooldownMs = triggerData.cooldownValue * (multipliers[triggerData.cooldownUnit] || multipliers.days);
+        } else {
+          cooldownMs = triggerData.cooldownHours * 60 * 60 * 1000;
         }
+        const lastRun = await db.query(
+          'SELECT created_at FROM bot_logs WHERE bot_id = $1 AND contact_id = $2 AND status = $3 ORDER BY created_at DESC LIMIT 1',
+          [botId, contact.id, 'triggered']
+        );
+        if (lastRun.rows.length > 0 && lastRun.rows[0].created_at) {
+          const lastRunTime = new Date(lastRun.rows[0].created_at).getTime();
+          if (Date.now() - lastRunTime < cooldownMs) {
+            console.log('[BotEngine] In cooldown period');
+            return false;
+          }
+        }
+      } catch (cooldownErr) {
+        console.log('[BotEngine] Cooldown check failed, skipping:', cooldownErr.message);
       }
     }
     
