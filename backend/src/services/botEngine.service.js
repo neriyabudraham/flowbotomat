@@ -2497,11 +2497,19 @@ class BotEngine {
   
   // Helper: Log bot run
   async logBotRun(botId, contactId, status, errorMessage = null) {
-    await db.query(
-      `INSERT INTO bot_logs (bot_id, contact_id, trigger_type, status, error_message)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [botId, contactId, 'message', status, errorMessage]
-    );
+    try {
+      // Ensure created_at column exists
+      await db.query(`ALTER TABLE bot_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`);
+      
+      await db.query(
+        `INSERT INTO bot_logs (bot_id, contact_id, trigger_type, status, error_message, created_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [botId, contactId, 'message', status, errorMessage]
+      );
+      console.log('[BotEngine] 📝 Logged bot run:', { botId, contactId, status });
+    } catch (err) {
+      console.error('[BotEngine] Failed to log bot run:', err.message);
+    }
   }
   
   // Helper: Add tag to contact
