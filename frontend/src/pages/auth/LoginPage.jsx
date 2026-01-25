@@ -42,10 +42,18 @@ export default function LoginPage() {
     // Get referral code if exists (for new users signing up via login page)
     const referralCode = localStorage.getItem('referral_code');
     const referralExpiry = localStorage.getItem('referral_expiry');
-    const isValidReferral = referralExpiry && Date.now() < parseInt(referralExpiry);
+    const referralTimestamp = localStorage.getItem('referral_timestamp');
+    
+    // Check if referral is still valid (either by expiry time or within 30 days of timestamp)
+    const isValidByExpiry = referralExpiry && Date.now() < parseInt(referralExpiry);
+    const isValidByTimestamp = referralTimestamp && 
+      (Date.now() - parseInt(referralTimestamp)) < (30 * 24 * 60 * 60 * 1000);
+    const isValidReferral = referralCode && (isValidByExpiry || isValidByTimestamp);
+    
+    console.log('[Login] Referral check:', { referralCode, isValidByExpiry, isValidByTimestamp, isValidReferral });
     
     // Build state with referral code
-    const state = isValidReferral && referralCode ? JSON.stringify({ referral: referralCode }) : '';
+    const state = isValidReferral ? JSON.stringify({ referral: referralCode }) : '';
     
     // Build Google OAuth URL - redirect directly (no popup)
     const redirectUri = `${window.location.origin}/api/auth/google/callback`;

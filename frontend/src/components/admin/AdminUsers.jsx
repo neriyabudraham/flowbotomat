@@ -309,8 +309,8 @@ function SubscriptionBadge({ user, onClick }) {
   
   if (status === 'active') {
     if (isFree) {
-      badgeClass = 'bg-gray-100 text-gray-600';
-      label = 'חינמי';
+      badgeClass = 'bg-green-100 text-green-700';
+      label = 'חינם';
     } else {
       badgeClass = 'bg-blue-100 text-blue-700';
       label = planName || 'בתשלום';

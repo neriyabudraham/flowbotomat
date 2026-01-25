@@ -188,22 +188,35 @@ async function processGoogleUser(email, name, picture, googleId, referralCode) {
       userId = result.rows[0].id;
 
       // Process referral if provided
+      console.log('[Google Auth] Referral code received:', referralCode);
       if (referralCode) {
         try {
           const { registerReferral, completeConversion } = require('../admin/promotions.controller');
+          console.log('[Google Auth] Calling registerReferral with code:', referralCode);
           const referralResult = await registerReferral(userId, referralCode);
+          console.log('[Google Auth] registerReferral result:', referralResult);
+          
           if (referralResult) {
             console.log(`[Google Auth] User ${userId} referred by affiliate ${referralResult.affiliateId}`);
             
             // Check if conversion should happen on email verification (which is automatic with Google)
             const settings = await db.query('SELECT * FROM affiliate_settings LIMIT 1');
+            console.log('[Google Auth] Affiliate settings:', settings.rows[0]);
+            
+            // Google users are automatically verified - always complete conversion for email_verified type
             if (settings.rows[0]?.is_active && settings.rows[0]?.conversion_type === 'email_verified') {
+              console.log('[Google Auth] Completing conversion for email_verified...');
               await completeConversion(userId);
+              console.log('[Google Auth] Conversion completed!');
+            } else {
+              console.log('[Google Auth] Not completing conversion - is_active:', settings.rows[0]?.is_active, 'conversion_type:', settings.rows[0]?.conversion_type);
             }
           }
         } catch (refError) {
           console.error('[Google Auth] Referral registration failed:', refError);
         }
+      } else {
+        console.log('[Google Auth] No referral code provided');
       }
 
       // Create free subscription (not trial - they start with free plan)
