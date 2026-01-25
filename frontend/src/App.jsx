@@ -54,11 +54,16 @@ function ReferralTracker() {
         sessionStorage.setItem('last_tracked_ref', refCode);
         sessionStorage.setItem('last_tracked_time', now.toString());
         
-        // Track click on server
+        // Track click on server and get discount info
         api.post('/payment/affiliate/track-click', {
           ref_code: refCode,
           landing_page: location.pathname,
           referrer_url: document.referrer
+        }).then(res => {
+          // Store the discount percentage from server
+          if (res.data?.discount_percent) {
+            localStorage.setItem('referral_discount_percent', res.data.discount_percent.toString());
+          }
         }).catch(err => console.log('Referral tracking failed:', err));
       }
     }

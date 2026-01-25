@@ -336,6 +336,41 @@ export default function AdminAffiliate() {
               />
               <p className="text-xs text-gray-500 mt-1">כמה ימים אחרי קליק על הלינק ההמרה עדיין נזקפת לשותף</p>
             </div>
+            
+            {/* Referral Discount Section */}
+            <div className="pt-4 border-t border-gray-200">
+              <h4 className="font-medium text-gray-800 mb-3">הנחה למשתמש שהגיע דרך שותף</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">אחוז הנחה למנוי ראשון</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={settingsForm.referral_discount_percent || ''}
+                      onChange={e => setSettingsForm({...settingsForm, referral_discount_percent: parseInt(e.target.value) || 0})}
+                      className="flex-1 px-3 py-2 border border-gray-200 rounded-lg"
+                      placeholder="10"
+                    />
+                    <span className="text-gray-500">%</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">הנחה שמקבל המשתמש שהגיע דרך קישור שותף</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">סוג הנחה</label>
+                  <select
+                    value={settingsForm.referral_discount_type || 'first_payment'}
+                    onChange={e => setSettingsForm({...settingsForm, referral_discount_type: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                  >
+                    <option value="first_payment">תשלום ראשון בלבד</option>
+                    <option value="first_year">שנה ראשונה</option>
+                    <option value="forever">לתמיד</option>
+                  </select>
+                </div>
+              </div>
+            </div>
 
             <Button onClick={handleSaveSettings} className="w-full">
               שמור הגדרות
