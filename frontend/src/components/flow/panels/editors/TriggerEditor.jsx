@@ -50,10 +50,15 @@ export default function TriggerEditor({ data, onUpdate }) {
   const loadTags = async () => {
     setLoadingTags(true);
     try {
-      const { data } = await api.get('/contacts/tags');
-      setAvailableTags(data || []);
+      const response = await api.get('/contacts/tags');
+      // Handle different response formats
+      const tags = Array.isArray(response.data) 
+        ? response.data 
+        : (response.data?.tags || response.data?.data || []);
+      setAvailableTags(Array.isArray(tags) ? tags : []);
     } catch (err) {
       console.error('Error loading tags:', err);
+      setAvailableTags([]);
     }
     setLoadingTags(false);
   };
@@ -288,8 +293,10 @@ export default function TriggerEditor({ data, onUpdate }) {
                                     className="flex-1 px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
                                   >
                                     <option value="">-- בחר תגית --</option>
-                                    {availableTags.map(tag => (
-                                      <option key={tag} value={tag}>{tag}</option>
+                                    {(Array.isArray(availableTags) ? availableTags : []).map(tag => (
+                                      <option key={typeof tag === 'string' ? tag : tag?.name || tag?.id} value={typeof tag === 'string' ? tag : tag?.name || ''}>
+                                        {typeof tag === 'string' ? tag : tag?.name || ''}
+                                      </option>
                                     ))}
                                     <option value="_new">+ צור תגית חדשה...</option>
                                   </select>
