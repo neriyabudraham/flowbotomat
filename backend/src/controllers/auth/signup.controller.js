@@ -51,27 +51,26 @@ const signup = async (req, res) => {
       }
     }
 
-    // Create trial subscription with Basic plan (14 days trial)
+    // Create Free subscription (users start with free plan)
     try {
-      // Get Basic plan
       const planResult = await db.query(
-        `SELECT id FROM subscription_plans WHERE name = 'Basic' AND is_active = true LIMIT 1`
+        `SELECT id FROM subscription_plans WHERE name = 'Free' AND is_active = true LIMIT 1`
       );
       
       if (planResult.rows.length > 0) {
         const planId = planResult.rows[0].id;
-        const trialEndDate = new Date();
-        trialEndDate.setDate(trialEndDate.getDate() + 14); // 14 days trial
         
         await db.query(`
-          INSERT INTO user_subscriptions (user_id, plan_id, status, is_trial, trial_ends_at, billing_period)
-          VALUES ($1, $2, 'trial', true, $3, 'monthly')
-        `, [userId, planId, trialEndDate]);
+          INSERT INTO user_subscriptions (user_id, plan_id, status, is_trial, billing_period)
+          VALUES ($1, $2, 'active', false, 'monthly')
+        `, [userId, planId]);
         
-        console.log(`[Signup] Created trial subscription for user ${userId}`);
+        console.log(`[Signup] Created free subscription for user ${userId}`);
+      } else {
+        console.log('[Signup] No Free plan found');
       }
     } catch (subError) {
-      console.error('[Signup] Failed to create trial subscription:', subError);
+      console.error('[Signup] Failed to create subscription:', subError);
       // Continue with signup even if subscription creation fails
     }
 
