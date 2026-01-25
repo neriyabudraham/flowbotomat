@@ -15,11 +15,18 @@ const client = new OAuth2Client(
  */
 const googleCallback = async (req, res) => {
   const frontendUrl = process.env.FRONTEND_URL || 'https://flow.botomat.co.il';
+  const redirectUri = `${frontendUrl}/api/auth/google/callback`;
+  
+  console.log('[Google Auth] Callback received');
+  console.log('[Google Auth] Frontend URL:', frontendUrl);
+  console.log('[Google Auth] Redirect URI being used:', redirectUri);
+  console.log('[Google Auth] Query params:', req.query);
   
   try {
     const { code, state } = req.query;
     
     if (!code) {
+      console.log('[Google Auth] No code received');
       return res.redirect(`${frontendUrl}/login?error=no_code`);
     }
     
@@ -34,8 +41,17 @@ const googleCallback = async (req, res) => {
       }
     }
     
+    // Create a fresh client with the exact redirect URI
+    const callbackClient = new OAuth2Client(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      redirectUri
+    );
+    
+    console.log('[Google Auth] Exchanging code for tokens...');
     // Exchange code for tokens
-    const { tokens } = await client.getToken(code);
+    const { tokens } = await callbackClient.getToken(code);
+    console.log('[Google Auth] Token exchange successful');
     
     // Get user info from Google
     const userInfoRes = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
