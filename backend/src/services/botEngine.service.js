@@ -231,6 +231,11 @@ class BotEngine {
       
       console.log('[BotEngine] ✅ Trigger matched! Starting flow for bot:', bot.name);
       console.log('[BotEngine] Flow data has', flowData.nodes.length, 'nodes and', flowData.edges.length, 'edges');
+      console.log('[BotEngine] Trigger settings:', JSON.stringify({
+        autoMarkSeen: triggerNode.data.autoMarkSeen,
+        oncePerUser: triggerNode.data.oncePerUser,
+        hasCooldown: triggerNode.data.hasCooldown
+      }));
       
       // Auto mark as seen if enabled in trigger
       if (triggerNode.data.autoMarkSeen) {
