@@ -424,7 +424,7 @@ async function updateAffiliateSettings(req, res) {
     const {
       commission_amount, commission_type, min_payout_amount,
       conversion_type, cookie_days, is_active,
-      referral_discount_percent, referral_discount_type
+      referral_discount_percent, referral_discount_type, referral_expiry_minutes
     } = req.body;
     
     // Ensure columns exist
@@ -432,6 +432,7 @@ async function updateAffiliateSettings(req, res) {
       DO $$ BEGIN
         ALTER TABLE affiliate_settings ADD COLUMN IF NOT EXISTS referral_discount_percent INTEGER DEFAULT 10;
         ALTER TABLE affiliate_settings ADD COLUMN IF NOT EXISTS referral_discount_type VARCHAR(50) DEFAULT 'first_payment';
+        ALTER TABLE affiliate_settings ADD COLUMN IF NOT EXISTS referral_expiry_minutes INTEGER DEFAULT 60;
       EXCEPTION WHEN others THEN NULL;
       END $$;
     `);
@@ -446,9 +447,10 @@ async function updateAffiliateSettings(req, res) {
         is_active = COALESCE($6, is_active),
         referral_discount_percent = COALESCE($7, referral_discount_percent),
         referral_discount_type = COALESCE($8, referral_discount_type),
+        referral_expiry_minutes = COALESCE($9, referral_expiry_minutes),
         updated_at = NOW()
       RETURNING *
-    `, [commission_amount, commission_type, min_payout_amount, conversion_type, cookie_days, is_active, referral_discount_percent, referral_discount_type]);
+    `, [commission_amount, commission_type, min_payout_amount, conversion_type, cookie_days, is_active, referral_discount_percent, referral_discount_type, referral_expiry_minutes]);
     
     res.json({ settings: result.rows[0] });
   } catch (error) {
@@ -748,12 +750,21 @@ async function trackClick(req, res) {
     await db.query('UPDATE affiliates SET total_clicks = total_clicks + 1 WHERE id = $1', [affiliateId]);
     
     // Get discount settings to return to frontend
-    const settings = await db.query('SELECT referral_discount_percent, referral_discount_type FROM affiliate_settings LIMIT 1');
+    await db.query(`
+      DO $$ BEGIN
+        ALTER TABLE affiliate_settings ADD COLUMN IF NOT EXISTS referral_expiry_minutes INTEGER DEFAULT 60;
+      EXCEPTION WHEN others THEN NULL;
+      END $$;
+    `);
+    
+    const settings = await db.query('SELECT referral_discount_percent, referral_discount_type, referral_expiry_minutes FROM affiliate_settings LIMIT 1');
     const discountPercent = settings.rows[0]?.referral_discount_percent || 10;
+    const expiryMinutes = settings.rows[0]?.referral_expiry_minutes || 60;
     
     res.json({ 
       click_id: click.rows[0].id,
-      discount_percent: discountPercent
+      discount_percent: discountPercent,
+      expiry_minutes: expiryMinutes
     });
   } catch (error) {
     console.error('[Affiliate] Track click error:', error);

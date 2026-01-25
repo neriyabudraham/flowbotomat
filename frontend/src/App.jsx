@@ -57,6 +57,7 @@ function ReferralTracker() {
       localStorage.setItem('referral_landing', location.pathname);
       localStorage.setItem('referral_timestamp', now.toString());
       
+      
       if (shouldTrack) {
         // Mark as tracked
         sessionStorage.setItem('last_tracked_ref', refCode);
@@ -71,6 +72,12 @@ function ReferralTracker() {
           // Store the discount percentage from server
           if (res.data?.discount_percent) {
             localStorage.setItem('referral_discount_percent', res.data.discount_percent.toString());
+          }
+          // Set expiry time based on server settings
+          const expiryMinutes = res.data?.expiry_minutes || 60;
+          if (!localStorage.getItem('referral_expiry')) {
+            const expiryTime = Date.now() + (expiryMinutes * 60 * 1000);
+            localStorage.setItem('referral_expiry', expiryTime.toString());
           }
         }).catch(err => console.log('Referral tracking failed:', err));
       }

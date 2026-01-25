@@ -45,11 +45,25 @@ export default function PricingPage() {
   const [currentSubscription, setCurrentSubscription] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState(null);
   
-  // Referral discount
+  // Referral discount with timer
   const [referralDiscount, setReferralDiscount] = useState(0);
-  const hasReferral = referralDiscount > 0 && !user?.has_ever_paid && !currentSubscription;
+  const [referralTimeLeft, setReferralTimeLeft] = useState(0); // seconds remaining
+  const [referralExpired, setReferralExpired] = useState(false);
+  const hasReferral = referralDiscount > 0 && !user?.has_ever_paid && !referralExpired;
   
   const isAuthenticated = !!user;
+
+  // Format time left as MM:SS or HH:MM:SS
+  const formatTimeLeft = (seconds) => {
+    if (seconds <= 0) return '00:00';
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    if (hrs > 0) {
+      return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   useEffect(() => {
     const init = async () => {
@@ -60,15 +74,56 @@ export default function PricingPage() {
       }
       await loadPlans();
       
-      // Check for referral discount
+      // Check for referral discount with timer
       const referralCode = localStorage.getItem('referral_code');
       const discountPercent = localStorage.getItem('referral_discount_percent');
+      const referralExpiry = localStorage.getItem('referral_expiry');
+      
       if (referralCode && discountPercent) {
-        setReferralDiscount(parseInt(discountPercent) || 0);
+        // Check if expiry is set, if not set it to 60 minutes from now
+        let expiryTime;
+        if (!referralExpiry) {
+          expiryTime = Date.now() + (60 * 60 * 1000); // 60 minutes
+          localStorage.setItem('referral_expiry', expiryTime.toString());
+        } else {
+          expiryTime = parseInt(referralExpiry);
+        }
+        
+        const now = Date.now();
+        if (now >= expiryTime) {
+          // Expired - clear referral data
+          setReferralExpired(true);
+          localStorage.removeItem('referral_code');
+          localStorage.removeItem('referral_discount_percent');
+          localStorage.removeItem('referral_expiry');
+        } else {
+          setReferralDiscount(parseInt(discountPercent) || 0);
+          setReferralTimeLeft(Math.floor((expiryTime - now) / 1000));
+        }
       }
     };
     init();
   }, []);
+
+  // Countdown timer for referral
+  useEffect(() => {
+    if (referralTimeLeft <= 0 || referralExpired) return;
+    
+    const timer = setInterval(() => {
+      setReferralTimeLeft(prev => {
+        if (prev <= 1) {
+          setReferralExpired(true);
+          localStorage.removeItem('referral_code');
+          localStorage.removeItem('referral_discount_percent');
+          localStorage.removeItem('referral_expiry');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    
+    return () => clearInterval(timer);
+  }, [referralTimeLeft, referralExpired]);
 
   const loadCurrentSubscription = async () => {
     try {
@@ -236,6 +291,19 @@ export default function PricingPage() {
         </div>
       </header>
 
+      {/* Referral Timer Banner */}
+      {hasReferral && referralTimeLeft > 0 && (
+        <div className="bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 text-white py-3 px-6">
+          <div className="max-w-7xl mx-auto flex items-center justify-center gap-4">
+            <span className="text-lg">🎁 הגעת דרך חבר! קבל {referralDiscount}% הנחה על התשלום הראשון</span>
+            <div className="flex items-center gap-2 bg-white/20 px-4 py-1.5 rounded-full">
+              <span className="text-sm">ההצעה מסתיימת בעוד:</span>
+              <span className="font-mono font-bold text-xl">{formatTimeLeft(referralTimeLeft)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Hero Section */}
       <section className="relative overflow-hidden py-20 px-6">
         <div className="absolute inset-0 bg-gradient-to-r from-purple-600/5 via-transparent to-blue-600/5" />
@@ -355,8 +423,13 @@ export default function PricingPage() {
                       </div>
                     )}
                     {showReferralDiscount && !hasPromo && !isPopular && (
-                      <div className="absolute top-0 left-0 right-0 bg-gradient-to-r from-purple-500 via-indigo-500 to-blue-500 text-white text-sm py-2 text-center font-bold">
-                        🎁 הנחת חבר {referralDiscount}%
+                      <div className="absolute top-0 left-0 right-0 bg-gradient-to-r from-purple-500 via-indigo-500 to-blue-500 text-white text-sm py-2 text-center font-bold flex items-center justify-center gap-2">
+                        <span>🎁 הנחת חבר {referralDiscount}%</span>
+                        {referralTimeLeft > 0 && (
+                          <span className="bg-white/20 px-2 py-0.5 rounded text-xs font-mono">
+                            ⏱️ {formatTimeLeft(referralTimeLeft)}
+                          </span>
+                        )}
                       </div>
                     )}
                     
@@ -399,9 +472,16 @@ export default function PricingPage() {
                             <span className="text-purple-600 text-sm font-medium">
                               הנחת חבר {referralDiscount}%
                             </span>
-                            <p className="text-sm text-purple-600 mt-1">
-                              לתשלום הראשון בלבד
-                            </p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <p className="text-sm text-purple-600">
+                                לתשלום הראשון בלבד
+                              </p>
+                              {referralTimeLeft > 0 && (
+                                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-mono">
+                                  ⏱️ {formatTimeLeft(referralTimeLeft)}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         )}
                         

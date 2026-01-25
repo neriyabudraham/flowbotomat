@@ -41,6 +41,20 @@ export default function CheckoutPage() {
     cvv: '',
     citizenId: '',
   });
+  
+  // Referral timer
+  const [referralTimeLeft, setReferralTimeLeft] = useState(0);
+  
+  const formatTimeLeft = (seconds) => {
+    if (seconds <= 0) return '00:00';
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    if (hrs > 0) {
+      return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -54,7 +68,35 @@ export default function CheckoutPage() {
     }
     
     loadData();
+    
+    // Initialize referral timer
+    const referralExpiry = localStorage.getItem('referral_expiry');
+    if (referralExpiry) {
+      const remaining = Math.floor((parseInt(referralExpiry) - Date.now()) / 1000);
+      if (remaining > 0) {
+        setReferralTimeLeft(remaining);
+      }
+    }
   }, [planId, isAuthenticated]);
+  
+  // Referral countdown
+  useEffect(() => {
+    if (referralTimeLeft <= 0) return;
+    
+    const timer = setInterval(() => {
+      setReferralTimeLeft(prev => {
+        if (prev <= 1) {
+          localStorage.removeItem('referral_code');
+          localStorage.removeItem('referral_discount_percent');
+          localStorage.removeItem('referral_expiry');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    
+    return () => clearInterval(timer);
+  }, [referralTimeLeft]);
 
   const loadData = async () => {
     try {
@@ -87,10 +129,20 @@ export default function CheckoutPage() {
   const calculatePrice = () => {
     if (!plan) return { monthly: 0, total: 0, referralDiscount: 0, hasReferral: false, isUpgrade: false };
     
-    // Check for referral discount (only on first subscription)
+    // Check for referral discount (only on first subscription) and check expiry
     const referralCode = localStorage.getItem('referral_code');
-    const referralDiscountPercent = referralCode ? (parseInt(localStorage.getItem('referral_discount_percent')) || 10) : 0;
-    const hasReferral = !!referralCode && referralDiscountPercent > 0 && !currentSubscription;
+    const referralExpiry = localStorage.getItem('referral_expiry');
+    const isReferralExpired = referralExpiry && Date.now() >= parseInt(referralExpiry);
+    
+    // Clear expired referral
+    if (isReferralExpired) {
+      localStorage.removeItem('referral_code');
+      localStorage.removeItem('referral_discount_percent');
+      localStorage.removeItem('referral_expiry');
+    }
+    
+    const referralDiscountPercent = (referralCode && !isReferralExpired) ? (parseInt(localStorage.getItem('referral_discount_percent')) || 10) : 0;
+    const hasReferral = !!referralCode && !isReferralExpired && referralDiscountPercent > 0 && !currentSubscription;
     
     let basePrice = plan.price;
     let total = 0;
@@ -581,6 +633,11 @@ export default function CheckoutPage() {
                       <div className="flex justify-between text-purple-600 font-medium">
                         <span className="flex items-center gap-1">
                           🎁 הנחת חבר ({prices.referralDiscountPercent}%)
+                          {referralTimeLeft > 0 && (
+                            <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-mono mr-1">
+                              ⏱️ {formatTimeLeft(referralTimeLeft)}
+                            </span>
+                          )}
                         </span>
                         <span>-₪{prices.referralDiscount}</span>
                       </div>
