@@ -335,11 +335,37 @@ function SubscriptionBadge({ user, onClick }) {
   } else if (status === 'cancelled') {
     badgeClass = 'bg-orange-100 text-orange-700';
     label = planName || 'מנוי';
-    subLabel = 'מבוטל';
+    
+    // Show remaining days until subscription ends
+    if (user.expires_at) {
+      const expiresAt = new Date(user.expires_at);
+      const daysLeft = Math.ceil((expiresAt - new Date()) / (1000 * 60 * 60 * 24));
+      if (daysLeft > 0) {
+        subLabel = `מבוטל - ${daysLeft} ימים נותרו`;
+      } else {
+        subLabel = 'מבוטל - הסתיים';
+        badgeClass = 'bg-red-100 text-red-700';
+      }
+    } else {
+      subLabel = 'מבוטל';
+    }
   } else if (status === 'trial') {
     badgeClass = 'bg-cyan-100 text-cyan-700';
     label = planName || 'ניסיון';
-    subLabel = 'תקופת ניסיון';
+    
+    // Show remaining trial days
+    if (user.trial_ends_at) {
+      const trialEnds = new Date(user.trial_ends_at);
+      const daysLeft = Math.ceil((trialEnds - new Date()) / (1000 * 60 * 60 * 24));
+      if (daysLeft > 0) {
+        subLabel = `ניסיון - ${daysLeft} ימים`;
+      } else {
+        subLabel = 'ניסיון הסתיים';
+        badgeClass = 'bg-red-100 text-red-700';
+      }
+    } else {
+      subLabel = 'תקופת ניסיון';
+    }
   } else if (status === 'expired') {
     badgeClass = 'bg-red-100 text-red-700';
     label = planName || 'מנוי';
