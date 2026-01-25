@@ -424,7 +424,7 @@ async function updateAffiliateSettings(req, res) {
     const {
       commission_amount, commission_type, min_payout_amount,
       conversion_type, cookie_days, is_active,
-      referral_discount_percent, referral_discount_type, referral_expiry_minutes
+      referral_discount_percent, referral_discount_type, referral_discount_months, referral_expiry_minutes
     } = req.body;
     
     // Ensure columns exist
@@ -432,6 +432,7 @@ async function updateAffiliateSettings(req, res) {
       DO $$ BEGIN
         ALTER TABLE affiliate_settings ADD COLUMN IF NOT EXISTS referral_discount_percent INTEGER DEFAULT 10;
         ALTER TABLE affiliate_settings ADD COLUMN IF NOT EXISTS referral_discount_type VARCHAR(50) DEFAULT 'first_payment';
+        ALTER TABLE affiliate_settings ADD COLUMN IF NOT EXISTS referral_discount_months INTEGER;
         ALTER TABLE affiliate_settings ADD COLUMN IF NOT EXISTS referral_expiry_minutes INTEGER DEFAULT 60;
       EXCEPTION WHEN others THEN NULL;
       END $$;
@@ -447,10 +448,11 @@ async function updateAffiliateSettings(req, res) {
         is_active = COALESCE($6, is_active),
         referral_discount_percent = COALESCE($7, referral_discount_percent),
         referral_discount_type = COALESCE($8, referral_discount_type),
-        referral_expiry_minutes = COALESCE($9, referral_expiry_minutes),
+        referral_discount_months = $9,
+        referral_expiry_minutes = COALESCE($10, referral_expiry_minutes),
         updated_at = NOW()
       RETURNING *
-    `, [commission_amount, commission_type, min_payout_amount, conversion_type, cookie_days, is_active, referral_discount_percent, referral_discount_type, referral_expiry_minutes]);
+    `, [commission_amount, commission_type, min_payout_amount, conversion_type, cookie_days, is_active, referral_discount_percent, referral_discount_type, referral_discount_months || null, referral_expiry_minutes]);
     
     res.json({ settings: result.rows[0] });
   } catch (error) {
@@ -475,6 +477,8 @@ async function getAffiliateStats(req, res) {
       DO $$ BEGIN
         ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS custom_commission INTEGER;
         ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS custom_discount_percent INTEGER;
+        ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS custom_discount_type VARCHAR(50);
+        ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS custom_discount_months INTEGER;
         ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS track_stats BOOLEAN DEFAULT true;
         ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS notes TEXT;
       EXCEPTION WHEN others THEN NULL;
@@ -630,7 +634,7 @@ async function processPayoutRequest(req, res) {
 async function updateAffiliate(req, res) {
   try {
     const { affiliateId } = req.params;
-    const { custom_commission, custom_discount_percent, track_stats, notes, is_active } = req.body;
+    const { custom_commission, custom_discount_percent, custom_discount_type, custom_discount_months, track_stats, notes, is_active } = req.body;
     
     // Check affiliate exists
     const affiliate = await db.query('SELECT * FROM affiliates WHERE id = $1', [affiliateId]);
@@ -643,21 +647,25 @@ async function updateAffiliate(req, res) {
       UPDATE affiliates SET
         custom_commission = COALESCE($1, custom_commission),
         custom_discount_percent = COALESCE($2, custom_discount_percent),
-        track_stats = COALESCE($3, track_stats),
-        notes = COALESCE($4, notes),
-        is_active = COALESCE($5, is_active),
+        custom_discount_type = $3,
+        custom_discount_months = $4,
+        track_stats = COALESCE($5, track_stats),
+        notes = COALESCE($6, notes),
+        is_active = COALESCE($7, is_active),
         updated_at = NOW()
-      WHERE id = $6
+      WHERE id = $8
     `, [
       custom_commission !== undefined ? custom_commission : null,
       custom_discount_percent !== undefined ? custom_discount_percent : null,
+      custom_discount_type || null,
+      custom_discount_months !== undefined ? custom_discount_months : null,
       track_stats,
       notes,
       is_active,
       affiliateId
     ]);
     
-    console.log(`[Affiliate] Updated affiliate ${affiliateId} settings:`, { custom_commission, custom_discount_percent, track_stats, notes, is_active });
+    console.log(`[Affiliate] Updated affiliate ${affiliateId} settings:`, { custom_commission, custom_discount_percent, custom_discount_type, custom_discount_months, track_stats, notes, is_active });
     
     res.json({ success: true, message: 'הגדרות השותף עודכנו' });
   } catch (error) {
@@ -955,7 +963,7 @@ async function trackClick(req, res) {
     
     // Get affiliate with custom settings
     const affiliate = await db.query(
-      'SELECT id, custom_discount_percent, track_stats FROM affiliates WHERE ref_code = $1 AND is_active = true', 
+      'SELECT id, custom_discount_percent, custom_discount_type, custom_discount_months, track_stats FROM affiliates WHERE ref_code = $1 AND is_active = true', 
       [ref_code.toUpperCase()]
     );
     if (affiliate.rows.length === 0) {

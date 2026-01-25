@@ -142,14 +142,22 @@ export default function PricingPage() {
 
   const loadPlans = async () => {
     try {
+      console.log('[PricingPage] Loading plans...');
       const [plansRes, promosRes] = await Promise.all([
         api.get('/subscriptions/plans'),
         api.get('/payment/promotions/active').catch(() => ({ data: { promotions: [] } }))
       ]);
-      setPlans(plansRes.data.plans || []);
+      console.log('[PricingPage] Plans response:', plansRes.data);
+      const loadedPlans = plansRes.data.plans || plansRes.data || [];
+      setPlans(loadedPlans);
       setPromotions(promosRes.data.promotions || []);
+      
+      if (loadedPlans.length === 0) {
+        console.warn('[PricingPage] No plans returned from API');
+      }
     } catch (err) {
-      console.error('Failed to load plans:', err);
+      console.error('[PricingPage] Failed to load plans:', err);
+      console.error('[PricingPage] Error details:', err.response?.data || err.message);
     } finally {
       setLoading(false);
     }
@@ -363,7 +371,16 @@ export default function PricingPage() {
         <div className="max-w-7xl mx-auto">
           {plans.length === 0 ? (
             <div className="text-center py-12">
-              <p className="text-gray-500">אין תכניות זמינות כרגע</p>
+              <p className="text-gray-500 mb-4">אין תכניות זמינות כרגע</p>
+              <button
+                onClick={() => {
+                  setLoading(true);
+                  loadPlans();
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                נסה שוב
+              </button>
             </div>
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">

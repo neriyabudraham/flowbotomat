@@ -349,17 +349,32 @@ export default function AdminAffiliate() {
                   <p className="text-xs text-gray-500 mt-1">הנחה שמקבל המשתמש שהגיע דרך קישור שותף</p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">סוג הנחה</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">תקופת הנחה</label>
                   <select
                     value={settingsForm.referral_discount_type || 'first_payment'}
                     onChange={e => setSettingsForm({...settingsForm, referral_discount_type: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg"
                   >
                     <option value="first_payment">תשלום ראשון בלבד</option>
-                    <option value="first_year">שנה ראשונה</option>
+                    <option value="custom_months">מספר חודשים מותאם</option>
+                    <option value="first_year">שנה ראשונה (12 חודשים)</option>
                     <option value="forever">לתמיד</option>
                   </select>
                 </div>
+                {settingsForm.referral_discount_type === 'custom_months' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">מספר חודשים</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="36"
+                      value={settingsForm.referral_discount_months || ''}
+                      onChange={e => setSettingsForm({...settingsForm, referral_discount_months: parseInt(e.target.value) || 1})}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                      placeholder="3"
+                    />
+                  </div>
+                )}
               </div>
               <div className="mt-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1">זמן תפוגה להנחה (דקות)</label>
@@ -467,6 +482,8 @@ function AffiliateCard({ affiliate, onUpdate }) {
   const [editForm, setEditForm] = useState({
     custom_commission: affiliate.custom_commission ?? '',
     custom_discount_percent: affiliate.custom_discount_percent ?? '',
+    custom_discount_type: affiliate.custom_discount_type || '',
+    custom_discount_months: affiliate.custom_discount_months ?? '',
     track_stats: affiliate.track_stats !== false,
     is_active: affiliate.is_active !== false,
     notes: affiliate.notes || ''
@@ -479,6 +496,8 @@ function AffiliateCard({ affiliate, onUpdate }) {
       await api.put(`/admin/affiliate/${affiliate.id}`, {
         custom_commission: editForm.custom_commission === '' ? null : parseInt(editForm.custom_commission),
         custom_discount_percent: editForm.custom_discount_percent === '' ? null : parseInt(editForm.custom_discount_percent),
+        custom_discount_type: editForm.custom_discount_type || null,
+        custom_discount_months: editForm.custom_discount_months === '' ? null : parseInt(editForm.custom_discount_months),
         track_stats: editForm.track_stats,
         is_active: editForm.is_active,
         notes: editForm.notes
@@ -597,6 +616,34 @@ function AffiliateCard({ affiliate, onUpdate }) {
                   <p className="text-xs text-gray-400 mt-1">0 = ללא הנחה</p>
                 </div>
                 <div>
+                  <label className="block text-xs text-gray-600 mb-1">תקופת הנחה</label>
+                  <select
+                    value={editForm.custom_discount_type}
+                    onChange={(e) => setEditForm({ ...editForm, custom_discount_type: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  >
+                    <option value="">ברירת מחדל</option>
+                    <option value="first_payment">תשלום ראשון</option>
+                    <option value="custom_months">חודשים מותאם</option>
+                    <option value="first_year">שנה ראשונה</option>
+                    <option value="forever">לתמיד</option>
+                  </select>
+                </div>
+                {editForm.custom_discount_type === 'custom_months' && (
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">מספר חודשים</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="36"
+                      value={editForm.custom_discount_months}
+                      onChange={(e) => setEditForm({ ...editForm, custom_discount_months: e.target.value })}
+                      placeholder="3"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    />
+                  </div>
+                )}
+                <div>
                   <label className="block text-xs text-gray-600 mb-1">סטטוס</label>
                   <div className="space-y-2 mt-2">
                     <label className="flex items-center gap-2 text-sm">
@@ -641,6 +688,16 @@ function AffiliateCard({ affiliate, onUpdate }) {
                   <span className="text-gray-500">הנחה:</span>
                   <span className="font-medium mr-2">
                     {affiliate.custom_discount_percent !== null ? `${affiliate.custom_discount_percent}%` : 'ברירת מחדל'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">תקופת הנחה:</span>
+                  <span className="font-medium mr-2">
+                    {affiliate.custom_discount_type === 'first_payment' ? 'תשלום ראשון' 
+                      : affiliate.custom_discount_type === 'custom_months' ? `${affiliate.custom_discount_months || 1} חודשים`
+                      : affiliate.custom_discount_type === 'first_year' ? 'שנה ראשונה'
+                      : affiliate.custom_discount_type === 'forever' ? 'לתמיד'
+                      : 'ברירת מחדל'}
                   </span>
                 </div>
                 <div>

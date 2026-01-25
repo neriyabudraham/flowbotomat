@@ -477,15 +477,26 @@ async function subscribe(req, res) {
     let referralRegularPrice = null;
     
     if (referralCode && isNewUser && !coupon && !promotion) {
-      // Get referral discount settings
+      // First, get the affiliate to check for custom settings
+      const affiliateResult = await db.query(
+        `SELECT a.custom_discount_percent, a.custom_discount_type, a.custom_discount_months 
+         FROM affiliates a WHERE a.ref_code = $1`,
+        [referralCode.toUpperCase()]
+      );
+      
+      // Get global discount settings
       const settingsResult = await db.query(`
-        SELECT referral_discount_percent, referral_discount_type FROM affiliate_settings LIMIT 1
+        SELECT referral_discount_percent, referral_discount_type, referral_discount_months FROM affiliate_settings LIMIT 1
       `);
       
       if (settingsResult.rows.length > 0) {
         const settings = settingsResult.rows[0];
-        referralDiscountPercent = settings.referral_discount_percent || 10;
-        referralDiscountType = settings.referral_discount_type || 'first_payment';
+        const aff = affiliateResult.rows[0] || {};
+        
+        // Use affiliate custom settings if available, otherwise use global
+        referralDiscountPercent = aff.custom_discount_percent ?? settings.referral_discount_percent ?? 10;
+        referralDiscountType = aff.custom_discount_type || settings.referral_discount_type || 'first_payment';
+        const discountMonths = aff.custom_discount_months ?? settings.referral_discount_months;
         
         // Calculate base amount first (with yearly discount if applicable)
         let baseForReferral = originalPrice;
@@ -496,10 +507,13 @@ async function subscribe(req, res) {
         referralDiscount = Math.floor(baseForReferral * (referralDiscountPercent / 100));
         chargeAmount = Math.max(0, baseForReferral - referralDiscount);
         
-        // Set referral duration tracking
-        if (referralDiscountType === 'first_year') {
-          referralMonthsRemaining = 12; // Track 12 months for first year discount
-          referralRegularPrice = baseForReferral; // Price after discount ends
+        // Set referral duration tracking based on type
+        if (referralDiscountType === 'custom_months' && discountMonths) {
+          referralMonthsRemaining = discountMonths;
+          referralRegularPrice = baseForReferral;
+        } else if (referralDiscountType === 'first_year') {
+          referralMonthsRemaining = 12;
+          referralRegularPrice = baseForReferral;
         } else if (referralDiscountType === 'forever') {
           referralMonthsRemaining = -1; // -1 means forever
         } else {
@@ -507,7 +521,7 @@ async function subscribe(req, res) {
           referralMonthsRemaining = 0;
         }
         
-        console.log(`[Payment] Applying referral discount ${referralDiscountPercent}% (type: ${referralDiscountType}): -${referralDiscount} ILS, final: ${chargeAmount} ILS`);
+        console.log(`[Payment] Applying referral discount ${referralDiscountPercent}% (type: ${referralDiscountType}, months: ${referralMonthsRemaining}): -${referralDiscount} ILS, final: ${chargeAmount} ILS`);
         
         // Get click ID for attribution
         const clickResult = await db.query(
@@ -1629,14 +1643,14 @@ async function processEndingReferralDiscounts() {
     `);
     
     // Find subscriptions that need to transition to regular price
-    // Only for 'first_year' type (first_payment already charged once, forever never ends)
+    // For 'first_year' and 'custom_months' types (first_payment already charged once, forever never ends)
     const endingDiscounts = await db.query(`
       SELECT us.*, sp.name_he as plan_name, sp.price as plan_price,
              upm.sumit_customer_id as payment_sumit_customer_id
       FROM user_subscriptions us
       JOIN subscription_plans sp ON us.plan_id = sp.id
       LEFT JOIN user_payment_methods upm ON us.payment_method_id = upm.id
-      WHERE us.referral_discount_type = 'first_year'
+      WHERE us.referral_discount_type IN ('first_year', 'custom_months')
         AND us.referral_months_remaining = 0
         AND us.referral_discount_percent IS NOT NULL
         AND us.status = 'active'
@@ -1733,12 +1747,12 @@ async function processEndingReferralDiscounts() {
  */
 async function decrementReferralMonths() {
   try {
-    // Only decrement for first_year type (not forever which is -1)
+    // Only decrement for first_year and custom_months types (not forever which is -1)
     const result = await db.query(`
       UPDATE user_subscriptions 
       SET referral_months_remaining = GREATEST(0, referral_months_remaining - 1),
           updated_at = NOW()
-      WHERE referral_discount_type = 'first_year'
+      WHERE referral_discount_type IN ('first_year', 'custom_months')
         AND referral_months_remaining > 0
         AND status = 'active'
       RETURNING user_id, referral_months_remaining
