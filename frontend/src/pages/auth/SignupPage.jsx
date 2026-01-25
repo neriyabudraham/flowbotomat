@@ -80,10 +80,22 @@ export default function SignupPage() {
       // Get referral code from localStorage if exists
       const referralCode = localStorage.getItem('referral_code');
       const referralTimestamp = localStorage.getItem('referral_timestamp');
+      const referralExpiry = localStorage.getItem('referral_expiry');
       
-      // Only use referral if it's less than 30 days old
-      const isValidReferral = referralTimestamp && 
+      // Check if referral is valid (either by expiry time or within 30 days of timestamp)
+      const isValidByExpiry = referralExpiry && Date.now() < parseInt(referralExpiry);
+      const isValidByTimestamp = referralTimestamp && 
         (Date.now() - parseInt(referralTimestamp)) < (30 * 24 * 60 * 60 * 1000);
+      const isValidReferral = referralCode && (isValidByExpiry || isValidByTimestamp);
+      
+      console.log('[Signup Form] Referral check:', { 
+        referralCode, 
+        referralTimestamp, 
+        referralExpiry,
+        isValidByExpiry, 
+        isValidByTimestamp, 
+        isValidReferral 
+      });
       
       await signup(form.email, form.password, form.name, isValidReferral ? referralCode : null);
       navigate('/verify', { state: { email: form.email } });

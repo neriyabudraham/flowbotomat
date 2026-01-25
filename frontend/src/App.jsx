@@ -33,12 +33,14 @@ function ReferralTracker() {
   useEffect(() => {
     const refCode = searchParams.get('ref');
     
+    console.log('[ReferralTracker] URL ref code:', refCode, 'Current path:', location.pathname);
+    
     if (refCode) {
       // Check if user is already logged in (existing user)
       const token = localStorage.getItem('accessToken');
       if (token) {
         // User is logged in - they can't use referral link
-        console.log('Referral ignored - user already logged in');
+        console.log('[ReferralTracker] Referral ignored - user already logged in');
         return;
       }
       
@@ -57,11 +59,18 @@ function ReferralTracker() {
       localStorage.setItem('referral_landing', location.pathname);
       localStorage.setItem('referral_timestamp', now.toString());
       
+      console.log('[ReferralTracker] Saved referral to localStorage:', {
+        referral_code: refCode,
+        referral_landing: location.pathname,
+        referral_timestamp: now
+      });
       
       if (shouldTrack) {
         // Mark as tracked
         sessionStorage.setItem('last_tracked_ref', refCode);
         sessionStorage.setItem('last_tracked_time', now.toString());
+        
+        console.log('[ReferralTracker] Calling track-click API...');
         
         // Track click on server and get discount info
         api.post('/payment/affiliate/track-click', {
@@ -69,17 +78,28 @@ function ReferralTracker() {
           landing_page: location.pathname,
           referrer_url: document.referrer
         }).then(res => {
+          console.log('[ReferralTracker] Track-click response:', res.data);
+          
           // Store the discount percentage from server
           if (res.data?.discount_percent) {
             localStorage.setItem('referral_discount_percent', res.data.discount_percent.toString());
           }
           // Set expiry time based on server settings
           const expiryMinutes = res.data?.expiry_minutes || 60;
+          const expiryTime = Date.now() + (expiryMinutes * 60 * 1000);
+          localStorage.setItem('referral_expiry', expiryTime.toString());
+          
+          console.log('[ReferralTracker] Stored discount:', res.data?.discount_percent, 'Expiry minutes:', expiryMinutes);
+        }).catch(err => {
+          console.error('[ReferralTracker] Track-click failed:', err);
+          // Even if API fails, set a default expiry
           if (!localStorage.getItem('referral_expiry')) {
-            const expiryTime = Date.now() + (expiryMinutes * 60 * 1000);
+            const expiryTime = Date.now() + (60 * 60 * 1000); // 60 minutes default
             localStorage.setItem('referral_expiry', expiryTime.toString());
           }
-        }).catch(err => console.log('Referral tracking failed:', err));
+        });
+      } else {
+        console.log('[ReferralTracker] Skipping track - already tracked recently');
       }
     }
   }, [searchParams, location.pathname]);
