@@ -46,6 +46,8 @@ export default function BotsPage() {
   const [duplicateName, setDuplicateName] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteBotTarget, setDeleteBotTarget] = useState(null);
+  const [showDeleteTagConfirm, setShowDeleteTagConfirm] = useState(false);
+  const [deleteTagTarget, setDeleteTagTarget] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [totalStats, setTotalStats] = useState({ users: 0, triggers: 0, today: 0 });
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -321,11 +323,14 @@ export default function BotsPage() {
   };
 
   const handleDeleteTag = async (tagId) => {
-    if (!confirm('למחוק תגית?')) return;
     try {
       await api.delete(`/contacts/tags/${tagId}`);
       fetchTags();
-    } catch (e) {}
+      setShowDeleteTagConfirm(false);
+      setDeleteTagTarget(null);
+    } catch (e) {
+      console.error('Failed to delete tag:', e);
+    }
   };
 
   const filteredBots = bots.filter(bot => 
@@ -888,7 +893,13 @@ export default function BotsPage() {
                   {tags.map(tag => (
                     <span key={tag.id} className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-xl text-sm font-medium">
                       {tag.name}
-                      <button onClick={() => handleDeleteTag(tag.id)} className="hover:text-red-500 transition-colors">
+                      <button 
+                        onClick={() => {
+                          setDeleteTagTarget(tag);
+                          setShowDeleteTagConfirm(true);
+                        }} 
+                        className="hover:text-red-500 transition-colors"
+                      >
                         <X className="w-4 h-4" />
                       </button>
                     </span>
@@ -1325,6 +1336,43 @@ export default function BotsPage() {
                   שדרג עכשיו
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Tag Confirmation Modal */}
+      {showDeleteTagConfirm && deleteTagTarget && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="w-8 h-8 text-red-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">מחיקת תגית</h3>
+              <p className="text-gray-500">
+                האם אתה בטוח שברצונך למחוק את התגית <span className="font-bold text-gray-900">"{deleteTagTarget.name}"</span>?
+              </p>
+              <p className="text-sm text-amber-600 mt-2 bg-amber-50 px-4 py-2 rounded-lg">
+                ⚠️ התגית תוסר מכל אנשי הקשר שלך
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => {
+                  setShowDeleteTagConfirm(false);
+                  setDeleteTagTarget(null);
+                }} 
+                className="flex-1 px-6 py-3.5 border border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50"
+              >
+                ביטול
+              </button>
+              <button 
+                onClick={() => handleDeleteTag(deleteTagTarget.id)}
+                className="flex-1 px-6 py-3.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors"
+              >
+                מחק תגית
+              </button>
             </div>
           </div>
         </div>

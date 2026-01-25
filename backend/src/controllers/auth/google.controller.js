@@ -58,8 +58,20 @@ const googleCallback = async (req, res) => {
     // Redirect to frontend with tokens in URL (will be stored and cleared)
     res.redirect(`${frontendUrl}/auth/callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}&isNewUser=${result.isNewUser}`);
   } catch (error) {
-    console.error('Google callback error:', error);
-    res.redirect(`${frontendUrl}/login?error=google_error`);
+    console.error('Google callback error:', error.message);
+    console.error('Google callback full error:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    
+    // More specific error messages
+    let errorType = 'google_error';
+    if (error.message?.includes('invalid_grant')) {
+      errorType = 'invalid_grant';
+    } else if (error.message?.includes('redirect_uri_mismatch')) {
+      errorType = 'redirect_mismatch';
+    } else if (error.message?.includes('access_denied')) {
+      errorType = 'access_denied';
+    }
+    
+    res.redirect(`${frontendUrl}/login?error=${errorType}`);
   }
 };
 

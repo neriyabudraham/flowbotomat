@@ -58,10 +58,22 @@ async function deleteTag(req, res) {
     const userId = req.user.id;
     const { tagId } = req.params;
     
+    // First, remove tag from all contacts
     await pool.query(
-      'DELETE FROM contact_tags WHERE id = $1 AND user_id = $2',
+      `DELETE FROM contact_tag_assignments 
+       WHERE tag_id = $1 
+       AND contact_id IN (SELECT id FROM contacts WHERE user_id = $2)`,
       [tagId, userId]
     );
+    
+    // Then delete the tag itself
+    const result = await pool.query(
+      'DELETE FROM contact_tags WHERE id = $1 AND user_id = $2 RETURNING name',
+      [tagId, userId]
+    );
+    
+    const deletedTagName = result.rows[0]?.name;
+    console.log(`[Tags] Deleted tag "${deletedTagName}" and removed from all contacts`);
     
     res.json({ success: true });
   } catch (error) {
