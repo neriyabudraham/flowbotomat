@@ -299,15 +299,22 @@ function RoleBadge({ role }) {
 
 function SubscriptionBadge({ user, onClick }) {
   // Determine display based on real subscription data
-  const hasSubscription = user.subscription_status && user.subscription_status === 'active';
+  const status = user.subscription_status;
+  const planName = user.plan_name_he || user.plan_name;
+  const isFree = user.plan_name === 'Free' || !planName;
   
   let badgeClass = 'bg-gray-100 text-gray-600';
   let label = 'חינמי';
   let subLabel = null;
   
-  if (hasSubscription) {
-    badgeClass = 'bg-blue-100 text-blue-700';
-    label = user.plan_name_he || user.plan_name || 'בתשלום';
+  if (status === 'active') {
+    if (isFree) {
+      badgeClass = 'bg-gray-100 text-gray-600';
+      label = 'חינמי';
+    } else {
+      badgeClass = 'bg-blue-100 text-blue-700';
+      label = planName || 'בתשלום';
+    }
     
     if (user.is_manual) {
       badgeClass = 'bg-purple-100 text-purple-700';
@@ -325,6 +332,18 @@ function SubscriptionBadge({ user, onClick }) {
         subLabel = 'פג תוקף';
       }
     }
+  } else if (status === 'cancelled') {
+    badgeClass = 'bg-orange-100 text-orange-700';
+    label = planName || 'מנוי';
+    subLabel = 'מבוטל';
+  } else if (status === 'trial') {
+    badgeClass = 'bg-cyan-100 text-cyan-700';
+    label = planName || 'ניסיון';
+    subLabel = 'תקופת ניסיון';
+  } else if (status === 'expired') {
+    badgeClass = 'bg-red-100 text-red-700';
+    label = planName || 'מנוי';
+    subLabel = 'פג תוקף';
   }
   
   return (
