@@ -78,8 +78,10 @@ export default function ReferralBonusBanner() {
     
     // If user is logged in
     if (user) {
-      // If user already has subscription or has ever paid - don't show
-      if (user.has_ever_paid || user.subscription_plan_id) {
+      // If user already has paid subscription or has ever paid - don't show
+      // (Free plan doesn't count as "has subscription")
+      const hasPaidPlan = user.subscription_plan && user.subscription_plan !== 'Free';
+      if (user.has_ever_paid || hasPaidPlan) {
         setShow(false);
         localStorage.removeItem('referral_code');
         localStorage.removeItem('referral_discount_percent');
