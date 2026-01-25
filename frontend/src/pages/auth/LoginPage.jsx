@@ -39,10 +39,22 @@ export default function LoginPage() {
     setGoogleLoading(true);
     clearError();
     
+    // Get referral code if exists (for new users signing up via login page)
+    const referralCode = localStorage.getItem('referral_code');
+    const referralExpiry = localStorage.getItem('referral_expiry');
+    const isValidReferral = referralExpiry && Date.now() < parseInt(referralExpiry);
+    
+    // Build state with referral code
+    const state = isValidReferral && referralCode ? JSON.stringify({ referral: referralCode }) : '';
+    
     // Build Google OAuth URL - redirect directly (no popup)
     const redirectUri = `${window.location.origin}/api/auth/google/callback`;
     const scope = 'email profile';
-    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=select_account`;
+    let googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=select_account`;
+    
+    if (state) {
+      googleAuthUrl += `&state=${encodeURIComponent(state)}`;
+    }
     
     // Redirect to Google
     window.location.href = googleAuthUrl;

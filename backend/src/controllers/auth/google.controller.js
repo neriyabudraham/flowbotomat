@@ -206,24 +206,25 @@ async function processGoogleUser(email, name, picture, googleId, referralCode) {
         }
       }
 
-      // Create trial subscription
+      // Create free subscription (not trial - they start with free plan)
       try {
         const planResult = await db.query(
-          `SELECT id FROM subscription_plans WHERE name = 'Basic' AND is_active = true LIMIT 1`
+          `SELECT id FROM subscription_plans WHERE name = 'Free' AND is_active = true LIMIT 1`
         );
         
         if (planResult.rows.length > 0) {
           const planId = planResult.rows[0].id;
-          const trialEndDate = new Date();
-          trialEndDate.setDate(trialEndDate.getDate() + 14);
           
           await db.query(`
-            INSERT INTO user_subscriptions (user_id, plan_id, status, is_trial, trial_ends_at, billing_period)
-            VALUES ($1, $2, 'trial', true, $3, 'monthly')
-          `, [userId, planId, trialEndDate]);
+            INSERT INTO user_subscriptions (user_id, plan_id, status, is_trial, billing_period)
+            VALUES ($1, $2, 'active', false, 'monthly')
+          `, [userId, planId]);
+          console.log('[Google Auth] Created free subscription for user');
+        } else {
+          console.log('[Google Auth] No Free plan found');
         }
       } catch (subError) {
-        console.error('[Google Auth] Failed to create trial subscription:', subError);
+        console.error('[Google Auth] Failed to create subscription:', subError);
       }
 
       console.log(`[Google Auth] New user created: ${email}`);
