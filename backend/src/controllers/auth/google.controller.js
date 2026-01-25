@@ -173,13 +173,17 @@ async function processGoogleUser(email, name, picture, googleId, referralCode) {
     let isNewUser = false;
 
     if (user.rows.length === 0) {
-      // Create new user
+      // Create new user - set a random password hash for Google users (they won't use it)
       isNewUser = true;
+      const bcrypt = require('bcrypt');
+      const randomPassword = require('crypto').randomBytes(32).toString('hex');
+      const passwordHash = await bcrypt.hash(randomPassword, 10);
+      
       const result = await db.query(
-        `INSERT INTO users (email, name, google_id, is_verified, verified_at, avatar_url) 
-         VALUES ($1, $2, $3, true, NOW(), $4) 
+        `INSERT INTO users (email, name, password_hash, google_id, is_verified, verified_at, avatar_url) 
+         VALUES ($1, $2, $3, $4, true, NOW(), $5) 
          RETURNING id`,
-        [email.toLowerCase(), name, googleId, picture]
+        [email.toLowerCase(), name, passwordHash, googleId, picture]
       );
       userId = result.rows[0].id;
 
