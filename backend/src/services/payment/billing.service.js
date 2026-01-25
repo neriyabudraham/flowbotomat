@@ -366,6 +366,24 @@ async function runBillingTasks() {
     // 4. Process yearly subscription renewals
     await processSubscriptionCharges();
     
+    // 5. Process ending promotions (transition to regular price)
+    try {
+      const { processEndingPromotions, decrementPromoMonths } = require('../../controllers/payment/payment.controller');
+      await processEndingPromotions();
+      await decrementPromoMonths();
+    } catch (promoErr) {
+      console.error('[Billing] Error processing promotions:', promoErr.message);
+    }
+    
+    // 6. Process ending referral discounts (transition to regular price)
+    try {
+      const { processEndingReferralDiscounts, decrementReferralMonths } = require('../../controllers/payment/payment.controller');
+      await processEndingReferralDiscounts();
+      await decrementReferralMonths();
+    } catch (refErr) {
+      console.error('[Billing] Error processing referral discounts:', refErr.message);
+    }
+    
   } catch (error) {
     console.error('[Billing] Error running billing tasks:', error);
   }

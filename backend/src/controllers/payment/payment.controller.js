@@ -468,9 +468,14 @@ async function subscribe(req, res) {
       console.log(`[Payment] Applying promotion ${promotion.id}: ${chargeAmount} ILS for ${promoMonthsRemaining} months`);
     }
     
-    // Apply referral discount for new users only (first payment)
+    // Apply referral discount for new users only
     let referralDiscount = 0;
     let referralClickId = null;
+    let referralDiscountType = null;
+    let referralDiscountPercent = 0;
+    let referralMonthsRemaining = 0;
+    let referralRegularPrice = null;
+    
     if (referralCode && isNewUser && !coupon && !promotion) {
       // Get referral discount settings
       const settingsResult = await db.query(`
@@ -479,7 +484,8 @@ async function subscribe(req, res) {
       
       if (settingsResult.rows.length > 0) {
         const settings = settingsResult.rows[0];
-        const discountPercent = settings.referral_discount_percent || 10;
+        referralDiscountPercent = settings.referral_discount_percent || 10;
+        referralDiscountType = settings.referral_discount_type || 'first_payment';
         
         // Calculate base amount first (with yearly discount if applicable)
         let baseForReferral = originalPrice;
@@ -487,10 +493,21 @@ async function subscribe(req, res) {
           baseForReferral = originalPrice * 12 * 0.8;
         }
         
-        referralDiscount = Math.floor(baseForReferral * (discountPercent / 100));
+        referralDiscount = Math.floor(baseForReferral * (referralDiscountPercent / 100));
         chargeAmount = Math.max(0, baseForReferral - referralDiscount);
         
-        console.log(`[Payment] Applying referral discount ${discountPercent}%: -${referralDiscount} ILS, final: ${chargeAmount} ILS`);
+        // Set referral duration tracking
+        if (referralDiscountType === 'first_year') {
+          referralMonthsRemaining = 12; // Track 12 months for first year discount
+          referralRegularPrice = baseForReferral; // Price after discount ends
+        } else if (referralDiscountType === 'forever') {
+          referralMonthsRemaining = -1; // -1 means forever
+        } else {
+          // first_payment - no ongoing tracking needed
+          referralMonthsRemaining = 0;
+        }
+        
+        console.log(`[Payment] Applying referral discount ${referralDiscountPercent}% (type: ${referralDiscountType}): -${referralDiscount} ILS, final: ${chargeAmount} ILS`);
         
         // Get click ID for attribution
         const clickResult = await db.query(
@@ -661,13 +678,25 @@ async function subscribe(req, res) {
     
     console.log(`[Payment] Charge successful - Transaction: ${chargeResult.transactionId}`);
     
-    // Save subscription with promotion info
+    // Ensure referral discount columns exist
+    await db.query(`
+      DO $$ BEGIN
+        ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS referral_discount_type VARCHAR(50);
+        ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS referral_discount_percent INTEGER;
+        ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS referral_months_remaining INTEGER DEFAULT 0;
+        ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS referral_regular_price DECIMAL(10,2);
+      EXCEPTION WHEN others THEN NULL;
+      END $$;
+    `);
+    
+    // Save subscription with promotion and referral info
     const subResult = await db.query(`
       INSERT INTO user_subscriptions (
         user_id, plan_id, status, payment_method_id, 
         sumit_customer_id, sumit_standing_order_id, next_charge_date, billing_period, expires_at,
-        active_promotion_id, promo_months_remaining, promo_price, regular_price_after_promo
-      ) VALUES ($1, $2, 'active', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        active_promotion_id, promo_months_remaining, promo_price, regular_price_after_promo,
+        referral_discount_type, referral_discount_percent, referral_months_remaining, referral_regular_price
+      ) VALUES ($1, $2, 'active', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       ON CONFLICT (user_id) 
       DO UPDATE SET 
         plan_id = $2, 
@@ -683,6 +712,13 @@ async function subscribe(req, res) {
         promo_months_remaining = $10,
         promo_price = $11,
         regular_price_after_promo = $12,
+        referral_discount_type = COALESCE($13, referral_discount_type),
+        referral_discount_percent = COALESCE($14, referral_discount_percent),
+        referral_months_remaining = CASE 
+          WHEN $13 IS NOT NULL THEN $15 
+          ELSE GREATEST(0, COALESCE(referral_months_remaining, 0) - 1)
+        END,
+        referral_regular_price = COALESCE($16, referral_regular_price),
         updated_at = NOW()
       RETURNING *
     `, [
@@ -695,7 +731,11 @@ async function subscribe(req, res) {
       promotion?.id || null,
       promoMonthsRemaining > 0 ? promoMonthsRemaining - 1 : 0, // -1 because first month is charged now
       promotion ? chargeAmount : null,
-      regularPriceAfterPromo
+      regularPriceAfterPromo,
+      referralDiscountType,
+      referralDiscountPercent > 0 ? referralDiscountPercent : null,
+      referralMonthsRemaining > 0 ? referralMonthsRemaining - 1 : referralMonthsRemaining, // -1 because first month charged now
+      referralRegularPrice
     ]);
     
     // Mark user as having paid
@@ -1563,6 +1603,155 @@ async function decrementPromoMonths() {
   }
 }
 
+/**
+ * Process referral discounts that are ending
+ * Called by scheduled job to update prices when referral discount period ends
+ * 
+ * Logic:
+ * 1. Find subscriptions with referral_months_remaining = 0 and referral_discount_type = 'first_year'
+ * 2. Cancel old standing order in Sumit
+ * 3. Create new standing order with regular price
+ * 4. Update subscription with new price and clear referral discount fields
+ */
+async function processEndingReferralDiscounts() {
+  try {
+    console.log('[Referral] Checking for ending referral discounts...');
+    
+    // Ensure columns exist
+    await db.query(`
+      DO $$ BEGIN
+        ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS referral_discount_type VARCHAR(50);
+        ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS referral_discount_percent INTEGER;
+        ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS referral_months_remaining INTEGER DEFAULT 0;
+        ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS referral_regular_price DECIMAL(10,2);
+      EXCEPTION WHEN others THEN NULL;
+      END $$;
+    `);
+    
+    // Find subscriptions that need to transition to regular price
+    // Only for 'first_year' type (first_payment already charged once, forever never ends)
+    const endingDiscounts = await db.query(`
+      SELECT us.*, sp.name_he as plan_name, sp.price as plan_price,
+             upm.sumit_customer_id as payment_sumit_customer_id
+      FROM user_subscriptions us
+      JOIN subscription_plans sp ON us.plan_id = sp.id
+      LEFT JOIN user_payment_methods upm ON us.payment_method_id = upm.id
+      WHERE us.referral_discount_type = 'first_year'
+        AND us.referral_months_remaining = 0
+        AND us.referral_discount_percent IS NOT NULL
+        AND us.status = 'active'
+    `);
+    
+    console.log(`[Referral] Found ${endingDiscounts.rows.length} subscriptions ending referral discount period`);
+    
+    for (const sub of endingDiscounts.rows) {
+      try {
+        const regularPrice = sub.referral_regular_price || parseFloat(sub.plan_price);
+        const customerId = sub.payment_sumit_customer_id || sub.sumit_customer_id;
+        
+        if (!customerId) {
+          console.error(`[Referral] No customer ID for user ${sub.user_id}, skipping`);
+          continue;
+        }
+        
+        console.log(`[Referral] Transitioning user ${sub.user_id} from referral discount to regular price: ${regularPrice} ILS`);
+        
+        // Cancel old standing order if exists
+        if (sub.sumit_standing_order_id) {
+          try {
+            await sumitService.cancelRecurring(sub.sumit_standing_order_id, customerId);
+            console.log(`[Referral] Cancelled old standing order ${sub.sumit_standing_order_id}`);
+          } catch (cancelErr) {
+            console.error(`[Referral] Failed to cancel old standing order:`, cancelErr.message);
+          }
+        }
+        
+        // Create new standing order with regular price
+        const chargeResult = await sumitService.chargeRecurring({
+          customerId: customerId,
+          amount: regularPrice,
+          description: `מנוי חודשי - ${sub.plan_name}`,
+          durationMonths: 1,
+          recurrence: null, // unlimited
+        });
+        
+        if (!chargeResult.success) {
+          console.error(`[Referral] Failed to create new standing order for user ${sub.user_id}:`, chargeResult.error);
+          
+          // Notify admin about failed transition
+          await db.query(`
+            INSERT INTO notifications (user_id, notification_type, title, message, metadata, is_admin_notification)
+            VALUES ($1, 'payment_failure', 'שגיאה במעבר מהנחת חבר למחיר רגיל', $2, $3, true)
+          `, [
+            sub.user_id,
+            `המשתמש ${sub.user_id} לא עבר בהצלחה למחיר רגיל לאחר סיום הנחת חבר`,
+            JSON.stringify({ error: chargeResult.error, userId: sub.user_id, planId: sub.plan_id })
+          ]);
+          continue;
+        }
+        
+        // Update subscription with new standing order and clear referral discount fields
+        await db.query(`
+          UPDATE user_subscriptions 
+          SET sumit_standing_order_id = $1,
+              referral_discount_type = NULL,
+              referral_discount_percent = NULL,
+              referral_months_remaining = 0,
+              referral_regular_price = NULL,
+              updated_at = NOW()
+          WHERE user_id = $2
+        `, [chargeResult.standingOrderId, sub.user_id]);
+        
+        // Notify user about the transition
+        await db.query(`
+          INSERT INTO notifications (user_id, notification_type, title, message)
+          VALUES ($1, 'subscription', 'תקופת הנחת החבר הסתיימה', $2)
+        `, [
+          sub.user_id,
+          `תקופת הנחת החבר שלך הסתיימה. המחיר החדש הוא ₪${regularPrice}/חודש.`
+        ]);
+        
+        console.log(`[Referral] Successfully transitioned user ${sub.user_id} to regular price`);
+        
+      } catch (subError) {
+        console.error(`[Referral] Error processing subscription ${sub.id}:`, subError);
+      }
+    }
+    
+    console.log('[Referral] Finished processing ending referral discounts');
+    return { processed: endingDiscounts.rows.length };
+    
+  } catch (error) {
+    console.error('[Referral] Error processing ending referral discounts:', error);
+    throw error;
+  }
+}
+
+/**
+ * Decrement referral months remaining for all active referral discounts
+ * Called monthly by scheduled job after billing cycle
+ */
+async function decrementReferralMonths() {
+  try {
+    // Only decrement for first_year type (not forever which is -1)
+    const result = await db.query(`
+      UPDATE user_subscriptions 
+      SET referral_months_remaining = GREATEST(0, referral_months_remaining - 1),
+          updated_at = NOW()
+      WHERE referral_discount_type = 'first_year'
+        AND referral_months_remaining > 0
+        AND status = 'active'
+      RETURNING user_id, referral_months_remaining
+    `);
+    
+    console.log(`[Referral] Decremented referral months for ${result.rows.length} subscriptions`);
+    return result.rows;
+  } catch (error) {
+    console.error('[Referral] Error decrementing referral months:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   savePaymentMethod,
   getPaymentMethods,
@@ -1577,4 +1766,6 @@ module.exports = {
   changePlan,
   processEndingPromotions,
   decrementPromoMonths,
+  processEndingReferralDiscounts,
+  decrementReferralMonths,
 };
