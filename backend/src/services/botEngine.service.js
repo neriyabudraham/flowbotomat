@@ -554,9 +554,17 @@ class BotEngine {
   
   // Check if trigger matches (with advanced settings)
   async checkTrigger(triggerData, message, messageType, contact, botId) {
+    console.log('[BotEngine] checkTrigger called with:');
+    console.log('[BotEngine] - Message:', message);
+    console.log('[BotEngine] - MessageType:', messageType);
+    console.log('[BotEngine] - TriggerData:', JSON.stringify(triggerData, null, 2));
+    
     // Support both new triggerGroups format and old triggers format
     const triggerGroups = triggerData.triggerGroups || [];
     const oldTriggers = triggerData.triggers || [];
+    
+    console.log('[BotEngine] - triggerGroups count:', triggerGroups.length);
+    console.log('[BotEngine] - oldTriggers count:', oldTriggers.length);
     
     // If no triggers defined at all, don't match
     if (triggerGroups.length === 0 && oldTriggers.length === 0) {
