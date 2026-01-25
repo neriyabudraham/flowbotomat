@@ -557,7 +557,6 @@ class BotEngine {
     console.log('[BotEngine] checkTrigger called with:');
     console.log('[BotEngine] - Message:', message);
     console.log('[BotEngine] - MessageType:', messageType);
-    console.log('[BotEngine] - TriggerData:', JSON.stringify(triggerData, null, 2));
     
     // Support both new triggerGroups format and old triggers format
     const triggerGroups = triggerData.triggerGroups || [];
@@ -572,7 +571,105 @@ class BotEngine {
       return false;
     }
     
-    // Check advanced settings first
+    // FIRST: Check if the message content matches the trigger conditions
+    let contentMatches = false;
+    
+    // NEW FORMAT: Check triggerGroups (groups are OR, conditions within group are AND)
+    if (triggerGroups.length > 0) {
+      console.log('[BotEngine] Checking', triggerGroups.length, 'trigger groups');
+      
+      for (const group of triggerGroups) {
+        const conditions = group.conditions || [];
+        if (conditions.length === 0) continue;
+        
+        // All conditions in this group must match (AND)
+        let groupMatches = true;
+        
+        for (const condition of conditions) {
+          const conditionMatches = await this.checkSingleCondition(condition, message, contact);
+          console.log('[BotEngine] Condition', condition.type, condition.operator || '', ':', conditionMatches);
+          
+          if (!conditionMatches) {
+            groupMatches = false;
+            break;
+          }
+        }
+        
+        // If this group matches, content matches (OR between groups)
+        if (groupMatches) {
+          console.log('[BotEngine] Trigger group matched!');
+          contentMatches = true;
+          break;
+        }
+      }
+    }
+    // OLD FORMAT: Check triggers array (backward compatibility)
+    else if (oldTriggers.length > 0) {
+      console.log('[BotEngine] Using old triggers format');
+      for (const trigger of oldTriggers) {
+        let matches = false;
+        
+        switch (trigger.type) {
+          case 'any_message':
+            matches = true;
+            break;
+          case 'contains':
+            matches = message.toLowerCase().includes((trigger.value || '').toLowerCase());
+            break;
+          case 'starts_with':
+            matches = message.toLowerCase().startsWith((trigger.value || '').toLowerCase());
+            break;
+          case 'exact':
+            matches = message.toLowerCase() === (trigger.value || '').toLowerCase();
+            break;
+          case 'regex':
+            try {
+              const regex = new RegExp(trigger.value, 'i');
+              matches = regex.test(message);
+            } catch (e) {
+              console.log('[BotEngine] Invalid regex:', trigger.value);
+              matches = false;
+            }
+            break;
+          case 'first_message':
+            matches = contact.message_count <= 1;
+            break;
+          default:
+            matches = false;
+        }
+        
+        if (trigger.not) matches = !matches;
+        if (matches) {
+          contentMatches = true;
+          break;
+        }
+      }
+    }
+    
+    // If content doesn't match, return false immediately
+    if (!contentMatches) {
+      console.log('[BotEngine] Content does not match trigger conditions');
+      return false;
+    }
+    
+    console.log('[BotEngine] Content matches! Now checking advanced settings...');
+    
+    // SECOND: Check advanced settings (only if content matched)
+    
+    // Active hours check
+    if (triggerData.hasActiveHours && triggerData.activeFrom && triggerData.activeTo) {
+      const now = new Date();
+      const currentTime = now.getHours() * 100 + now.getMinutes();
+      const fromParts = triggerData.activeFrom.split(':');
+      const toParts = triggerData.activeTo.split(':');
+      const fromTime = parseInt(fromParts[0]) * 100 + parseInt(fromParts[1]);
+      const toTime = parseInt(toParts[0]) * 100 + parseInt(toParts[1]);
+      
+      if (currentTime < fromTime || currentTime > toTime) {
+        console.log('[BotEngine] Outside active hours');
+        return false;
+      }
+    }
     
     // Once per user check
     if (triggerData.oncePerUser) {
@@ -610,7 +707,7 @@ class BotEngine {
         if (lastRun.rows.length > 0 && lastRun.rows[0].created_at) {
           const lastRunTime = new Date(lastRun.rows[0].created_at).getTime();
           if (Date.now() - lastRunTime < cooldownMs) {
-            console.log('[BotEngine] In cooldown period');
+            console.log('[BotEngine] In cooldown period (', Math.round((cooldownMs - (Date.now() - lastRunTime)) / 1000), 'seconds left)');
             return false;
           }
         }
@@ -619,95 +716,8 @@ class BotEngine {
       }
     }
     
-    // Active hours check
-    if (triggerData.hasActiveHours && triggerData.activeFrom && triggerData.activeTo) {
-      const now = new Date();
-      const currentTime = now.getHours() * 100 + now.getMinutes();
-      const fromParts = triggerData.activeFrom.split(':');
-      const toParts = triggerData.activeTo.split(':');
-      const fromTime = parseInt(fromParts[0]) * 100 + parseInt(fromParts[1]);
-      const toTime = parseInt(toParts[0]) * 100 + parseInt(toParts[1]);
-      
-      if (currentTime < fromTime || currentTime > toTime) {
-        console.log('[BotEngine] Outside active hours');
-        return false;
-      }
-    }
-    
-    // NEW FORMAT: Check triggerGroups (groups are OR, conditions within group are AND)
-    if (triggerGroups.length > 0) {
-      console.log('[BotEngine] Checking', triggerGroups.length, 'trigger groups');
-      
-      for (const group of triggerGroups) {
-        const conditions = group.conditions || [];
-        if (conditions.length === 0) continue;
-        
-        // All conditions in this group must match (AND)
-        let groupMatches = true;
-        
-        for (const condition of conditions) {
-          const conditionMatches = await this.checkSingleCondition(condition, message, contact);
-          console.log('[BotEngine] Condition', condition.type, condition.operator, ':', conditionMatches);
-          
-          if (!conditionMatches) {
-            groupMatches = false;
-            break;
-          }
-        }
-        
-        // If this group matches, trigger matches (OR between groups)
-        if (groupMatches) {
-          console.log('[BotEngine] Trigger group matched!');
-          return true;
-        }
-      }
-      
-      // No group matched
-      console.log('[BotEngine] No trigger group matched');
-      return false;
-    }
-    
-    // OLD FORMAT: Check triggers array (backward compatibility)
-    if (oldTriggers.length > 0) {
-      console.log('[BotEngine] Using old triggers format');
-      for (const trigger of oldTriggers) {
-        let matches = false;
-        
-        switch (trigger.type) {
-          case 'any_message':
-            matches = true;
-            break;
-          case 'contains':
-            matches = message.toLowerCase().includes((trigger.value || '').toLowerCase());
-            break;
-          case 'starts_with':
-            matches = message.toLowerCase().startsWith((trigger.value || '').toLowerCase());
-            break;
-          case 'exact':
-            matches = message.toLowerCase() === (trigger.value || '').toLowerCase();
-            break;
-          case 'regex':
-            try {
-              const regex = new RegExp(trigger.value, 'i');
-              matches = regex.test(message);
-            } catch (e) {
-              console.log('[BotEngine] Invalid regex:', trigger.value);
-              matches = false;
-            }
-            break;
-          case 'first_message':
-            matches = contact.message_count <= 1;
-            break;
-          default:
-            matches = false;
-        }
-        
-        if (trigger.not) matches = !matches;
-        if (matches) return true;
-      }
-    }
-    
-    return false;
+    console.log('[BotEngine] ✅ All checks passed - trigger matches!');
+    return true;
   }
   
   // Check a single trigger condition
