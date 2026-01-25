@@ -37,6 +37,8 @@ export default function ReferralBonusBanner() {
           setShow(false);
           localStorage.removeItem('referral_code');
           localStorage.removeItem('referral_discount_percent');
+          localStorage.removeItem('referral_discount_type');
+          localStorage.removeItem('referral_discount_months');
           localStorage.removeItem('referral_expiry');
           return 0;
         }
@@ -72,6 +74,8 @@ export default function ReferralBonusBanner() {
       setShow(false);
       localStorage.removeItem('referral_code');
       localStorage.removeItem('referral_discount_percent');
+      localStorage.removeItem('referral_discount_type');
+      localStorage.removeItem('referral_discount_months');
       localStorage.removeItem('referral_expiry');
       return;
     }
@@ -85,6 +89,8 @@ export default function ReferralBonusBanner() {
         setShow(false);
         localStorage.removeItem('referral_code');
         localStorage.removeItem('referral_discount_percent');
+        localStorage.removeItem('referral_discount_type');
+        localStorage.removeItem('referral_discount_months');
         localStorage.removeItem('referral_expiry');
         return;
       }

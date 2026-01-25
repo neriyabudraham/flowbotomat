@@ -64,6 +64,19 @@ export default function PaymentRequiredModal({
       // Check if user came via referral and get discount percentage
       const referralCode = localStorage.getItem('referral_code');
       const referralDiscountPercent = parseInt(localStorage.getItem('referral_discount_percent') || '0');
+      const referralDiscountType = localStorage.getItem('referral_discount_type') || 'first_payment';
+      const referralDiscountMonths = parseInt(localStorage.getItem('referral_discount_months') || '0');
+      
+      // Get discount duration text
+      const getDiscountDuration = () => {
+        switch (referralDiscountType) {
+          case 'forever': return 'לתמיד';
+          case 'first_year': return 'לשנה הראשונה';
+          case 'custom_months': 
+            return referralDiscountMonths > 1 ? `ל-${referralDiscountMonths} חודשים` : 'לחודש הראשון';
+          default: return 'לחודש הראשון';
+        }
+      };
       
       let regularPrice = parseFloat(basicPlan?.price || 0);
       let firstMonthPrice = regularPrice;
@@ -78,13 +91,14 @@ export default function PaymentRequiredModal({
       }
       
       if (referralCode && referralDiscountPercent > 0) {
-        // Apply referral discount to first month
+        // Apply referral discount
         referralDiscount = Math.round(firstMonthPrice * referralDiscountPercent / 100);
         const discountedPrice = firstMonthPrice - referralDiscount;
+        const durationText = getDiscountDuration();
         hasDiscount = true;
         discountNote = discountNote 
-          ? `${discountNote} + ${referralDiscountPercent}% הנחת הפניה (חיסכון של ₪${referralDiscount})`
-          : `${referralDiscountPercent}% הנחת הפניה בחודש הראשון (₪${discountedPrice} במקום ₪${firstMonthPrice})`;
+          ? `${discountNote} + ${referralDiscountPercent}% הנחת הפניה ${durationText}`
+          : `${referralDiscountPercent}% הנחת הפניה ${durationText} (₪${discountedPrice} במקום ₪${firstMonthPrice})`;
         firstMonthPrice = discountedPrice;
       }
       
@@ -95,6 +109,8 @@ export default function PaymentRequiredModal({
         discountNote,
         referralDiscount,
         referralDiscountPercent,
+        referralDiscountType,
+        referralDiscountMonths,
         planName: basicPlan?.name_he || basicPlan?.name || 'Basic',
         trialDays: basicPlan?.trial_days || 14
       });
@@ -243,9 +259,13 @@ export default function PaymentRequiredModal({
                           <span className="text-green-700 text-xs font-medium">{priceInfo.discountNote}</span>
                         </div>
                       )}
-                      {priceInfo.referralDiscount > 0 && (
+                      {priceInfo.referralDiscount > 0 && priceInfo.referralDiscountType !== 'forever' && (
                         <p className="text-xs text-gray-500 mt-2">
-                          * מהחודש השני: ₪{priceInfo.regularPrice}/חודש
+                          * {priceInfo.referralDiscountType === 'first_year' 
+                              ? 'מהשנה השנייה' 
+                              : priceInfo.referralDiscountType === 'custom_months' && priceInfo.referralDiscountMonths > 1
+                                ? `לאחר ${priceInfo.referralDiscountMonths} חודשים`
+                                : 'מהחודש השני'}: ₪{priceInfo.regularPrice}/חודש
                         </p>
                       )}
                       <div className="mt-3 pt-3 border-t border-purple-200 text-xs text-gray-500">

@@ -991,19 +991,24 @@ async function trackClick(req, res) {
     await db.query(`
       DO $$ BEGIN
         ALTER TABLE affiliate_settings ADD COLUMN IF NOT EXISTS referral_expiry_minutes INTEGER DEFAULT 60;
+        ALTER TABLE affiliate_settings ADD COLUMN IF NOT EXISTS referral_discount_months INTEGER;
       EXCEPTION WHEN others THEN NULL;
       END $$;
     `);
     
-    const settings = await db.query('SELECT referral_discount_percent, referral_discount_type, referral_expiry_minutes FROM affiliate_settings LIMIT 1');
+    const settings = await db.query('SELECT referral_discount_percent, referral_discount_type, referral_discount_months, referral_expiry_minutes FROM affiliate_settings LIMIT 1');
     
     // Use custom discount if set, otherwise use global
-    const discountPercent = aff.custom_discount_percent || settings.rows[0]?.referral_discount_percent || 10;
+    const discountPercent = aff.custom_discount_percent ?? settings.rows[0]?.referral_discount_percent ?? 10;
+    const discountType = aff.custom_discount_type || settings.rows[0]?.referral_discount_type || 'first_payment';
+    const discountMonths = aff.custom_discount_months ?? settings.rows[0]?.referral_discount_months;
     const expiryMinutes = settings.rows[0]?.referral_expiry_minutes || 60;
     
     res.json({ 
       click_id: click.rows[0].id,
       discount_percent: discountPercent,
+      discount_type: discountType,
+      discount_months: discountMonths,
       expiry_minutes: expiryMinutes
     });
   } catch (error) {

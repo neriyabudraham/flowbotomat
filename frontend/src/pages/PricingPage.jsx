@@ -47,9 +47,25 @@ export default function PricingPage() {
   
   // Referral discount with timer
   const [referralDiscount, setReferralDiscount] = useState(0);
+  const [referralDiscountType, setReferralDiscountType] = useState('first_payment');
+  const [referralDiscountMonths, setReferralDiscountMonths] = useState(0);
   const [referralTimeLeft, setReferralTimeLeft] = useState(0); // seconds remaining
   const [referralExpired, setReferralExpired] = useState(false);
   const hasReferral = referralDiscount > 0 && !user?.has_ever_paid && !referralExpired;
+  
+  // Get discount duration text based on type
+  const getDiscountDurationText = () => {
+    switch (referralDiscountType) {
+      case 'forever':
+        return 'לתמיד';
+      case 'first_year':
+        return 'לשנה הראשונה';
+      case 'custom_months':
+        return referralDiscountMonths > 1 ? `ל-${referralDiscountMonths} חודשים הראשונים` : 'לחודש הראשון';
+      default:
+        return 'לתשלום הראשון בלבד';
+    }
+  };
   
   const isAuthenticated = !!user;
 
@@ -77,6 +93,8 @@ export default function PricingPage() {
       // Check for referral discount with timer
       const referralCode = localStorage.getItem('referral_code');
       const discountPercent = localStorage.getItem('referral_discount_percent');
+      const discountType = localStorage.getItem('referral_discount_type');
+      const discountMonths = localStorage.getItem('referral_discount_months');
       const referralExpiry = localStorage.getItem('referral_expiry');
       
       if (referralCode && discountPercent) {
@@ -95,9 +113,13 @@ export default function PricingPage() {
           setReferralExpired(true);
           localStorage.removeItem('referral_code');
           localStorage.removeItem('referral_discount_percent');
+          localStorage.removeItem('referral_discount_type');
+          localStorage.removeItem('referral_discount_months');
           localStorage.removeItem('referral_expiry');
         } else {
           setReferralDiscount(parseInt(discountPercent) || 0);
+          setReferralDiscountType(discountType || 'first_payment');
+          setReferralDiscountMonths(parseInt(discountMonths) || 0);
           setReferralTimeLeft(Math.floor((expiryTime - now) / 1000));
         }
       }
@@ -491,7 +513,7 @@ export default function PricingPage() {
                             </span>
                             <div className="flex items-center gap-2 mt-1">
                               <p className="text-sm text-purple-600">
-                                לתשלום הראשון בלבד
+                                {getDiscountDurationText()}
                               </p>
                               {referralTimeLeft > 0 && (
                                 <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-mono">

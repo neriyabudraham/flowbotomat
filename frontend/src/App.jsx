@@ -80,12 +80,19 @@ function ReferralTracker() {
           if (res.data?.discount_percent) {
             localStorage.setItem('referral_discount_percent', res.data.discount_percent.toString());
           }
+          // Store discount type and months
+          if (res.data?.discount_type) {
+            localStorage.setItem('referral_discount_type', res.data.discount_type);
+          }
+          if (res.data?.discount_months) {
+            localStorage.setItem('referral_discount_months', res.data.discount_months.toString());
+          }
           // Set expiry time based on server settings
           const expiryMinutes = res.data?.expiry_minutes || 60;
           const expiryTime = Date.now() + (expiryMinutes * 60 * 1000);
           localStorage.setItem('referral_expiry', expiryTime.toString());
           
-          console.log('[ReferralTracker] Stored discount:', res.data?.discount_percent, 'Expiry minutes:', expiryMinutes);
+          console.log('[ReferralTracker] Stored discount:', res.data?.discount_percent, 'Type:', res.data?.discount_type, 'Months:', res.data?.discount_months, 'Expiry minutes:', expiryMinutes);
         }).catch(err => {
           console.error('[ReferralTracker] Track-click failed:', err);
           // Even if API fails, set a default expiry
