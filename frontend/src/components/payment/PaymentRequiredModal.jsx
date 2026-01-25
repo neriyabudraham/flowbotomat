@@ -17,6 +17,7 @@ export default function PaymentRequiredModal({
 }) {
   const [success, setSuccess] = useState(false);
   const [priceInfo, setPriceInfo] = useState(null);
+  const [loadingPrice, setLoadingPrice] = useState(true);
 
   // Fetch price info when modal opens
   useEffect(() => {
@@ -26,20 +27,39 @@ export default function PaymentRequiredModal({
   }, [isOpen, showPriceInfo]);
 
   const fetchPriceInfo = async () => {
+    setLoadingPrice(true);
     try {
       // Get Basic plan specifically
       const { data } = await api.get('/subscriptions/plans');
-      const plansData = data.plans || data || [];
+      console.log('[PaymentModal] Plans response:', data);
+      const plansData = Array.isArray(data) ? data : (data.plans || []);
       const basicPlan = plansData.find(p => p.name === 'Basic') || plansData.filter(p => parseFloat(p.price) > 0).sort((a, b) => parseFloat(a.price) - parseFloat(b.price))[0];
       
+      console.log('[PaymentModal] Basic plan:', basicPlan);
+      
       if (!basicPlan) {
-        console.log('No Basic plan found');
+        console.log('No Basic plan found, using defaults');
+        setPriceInfo({
+          firstMonthPrice: 0,
+          regularPrice: 0,
+          hasDiscount: false,
+          discountNote: null,
+          referralDiscount: 0,
+          referralDiscountPercent: 0,
+          planName: 'Basic',
+          trialDays: 14
+        });
         return;
       }
       
       // Get active promotions
-      const { data: promos } = await api.get('/payment/promotions/active');
-      const promo = promos.find(p => p.plan_id === basicPlan?.id);
+      let promo = null;
+      try {
+        const { data: promos } = await api.get('/payment/promotions/active');
+        promo = promos?.find(p => p.plan_id === basicPlan?.id);
+      } catch (e) {
+        console.log('No promotions found');
+      }
       
       // Check if user came via referral and get discount percentage
       const referralCode = localStorage.getItem('referral_code');
@@ -80,6 +100,19 @@ export default function PaymentRequiredModal({
       });
     } catch (err) {
       console.error('Failed to fetch price info:', err);
+      // Set default values on error
+      setPriceInfo({
+        firstMonthPrice: 0,
+        regularPrice: 0,
+        hasDiscount: false,
+        discountNote: null,
+        referralDiscount: 0,
+        referralDiscountPercent: 0,
+        planName: 'Basic',
+        trialDays: 14
+      });
+    } finally {
+      setLoadingPrice(false);
     }
   };
 
@@ -170,46 +203,58 @@ export default function PaymentRequiredModal({
               </div>
 
               {/* Price Info */}
-              {showPriceInfo && priceInfo && (
+              {showPriceInfo && (
                 <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-2xl p-5 mb-6 border border-purple-200">
                   <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
                     <Tag className="w-5 h-5 text-purple-600" />
                     מה יקרה אחרי תקופת הניסיון?
                   </h3>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">תקופת ניסיון:</span>
-                      <span className="font-bold text-purple-700">{priceInfo.trialDays} ימים בחינם</span>
+                  {loadingPrice ? (
+                    <div className="animate-pulse space-y-2">
+                      <div className="h-4 bg-purple-200 rounded w-3/4"></div>
+                      <div className="h-4 bg-purple-200 rounded w-1/2"></div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">תוכנית:</span>
-                      <span className="font-bold text-gray-900">{priceInfo.planName}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">מחיר לאחר הניסיון:</span>
-                      <div className="text-left">
-                        {priceInfo.referralDiscount > 0 ? (
-                          <>
-                            <span className="font-bold text-green-600">₪{priceInfo.firstMonthPrice}</span>
-                            <span className="text-gray-400 line-through text-xs mr-2">₪{priceInfo.regularPrice}</span>
-                          </>
-                        ) : (
-                          <span className="font-bold text-gray-900">₪{priceInfo.firstMonthPrice}/חודש</span>
-                        )}
+                  ) : priceInfo ? (
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">תקופת ניסיון:</span>
+                        <span className="font-bold text-purple-700">{priceInfo.trialDays} ימים בחינם</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">תוכנית:</span>
+                        <span className="font-bold text-gray-900">{priceInfo.planName}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">חיוב לאחר הניסיון:</span>
+                        <div className="text-left">
+                          {priceInfo.referralDiscount > 0 ? (
+                            <>
+                              <span className="font-bold text-green-600">₪{priceInfo.firstMonthPrice}/חודש</span>
+                              <span className="text-gray-400 line-through text-xs mr-2">₪{priceInfo.regularPrice}</span>
+                            </>
+                          ) : (
+                            <span className="font-bold text-gray-900">₪{priceInfo.regularPrice}/חודש</span>
+                          )}
+                        </div>
+                      </div>
+                      {priceInfo.hasDiscount && priceInfo.discountNote && (
+                        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-purple-200 bg-green-50 rounded-lg p-2 -mx-2">
+                          <Gift className="w-4 h-4 text-green-600 flex-shrink-0" />
+                          <span className="text-green-700 text-xs font-medium">{priceInfo.discountNote}</span>
+                        </div>
+                      )}
+                      {priceInfo.referralDiscount > 0 && (
+                        <p className="text-xs text-gray-500 mt-2">
+                          * מהחודש השני: ₪{priceInfo.regularPrice}/חודש
+                        </p>
+                      )}
+                      <div className="mt-3 pt-3 border-t border-purple-200 text-xs text-gray-500">
+                        ניתן לבטל בכל עת לפני סיום תקופת הניסיון ולא תחויב כלל
                       </div>
                     </div>
-                    {priceInfo.hasDiscount && priceInfo.discountNote && (
-                      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-purple-200 bg-green-50 rounded-lg p-2 -mx-2">
-                        <Gift className="w-4 h-4 text-green-600 flex-shrink-0" />
-                        <span className="text-green-700 text-xs font-medium">{priceInfo.discountNote}</span>
-                      </div>
-                    )}
-                    {priceInfo.referralDiscount > 0 && (
-                      <p className="text-xs text-gray-500 mt-2">
-                        * מהחודש השני: ₪{priceInfo.regularPrice}/חודש
-                      </p>
-                    )}
-                  </div>
+                  ) : (
+                    <p className="text-sm text-gray-600">לאחר 14 ימי ניסיון יתחיל חיוב חודשי לפי תוכנית Basic</p>
+                  )}
                 </div>
               )}
 
