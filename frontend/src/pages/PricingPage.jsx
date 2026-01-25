@@ -45,6 +45,10 @@ export default function PricingPage() {
   const [currentSubscription, setCurrentSubscription] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState(null);
   
+  // Referral discount
+  const [referralDiscount, setReferralDiscount] = useState(0);
+  const hasReferral = referralDiscount > 0 && !user?.has_ever_paid && !currentSubscription;
+  
   const isAuthenticated = !!user;
 
   useEffect(() => {
@@ -55,6 +59,13 @@ export default function PricingPage() {
         await loadCurrentSubscription();
       }
       await loadPlans();
+      
+      // Check for referral discount
+      const referralCode = localStorage.getItem('referral_code');
+      const discountPercent = localStorage.getItem('referral_discount_percent');
+      if (referralCode && discountPercent) {
+        setReferralDiscount(parseInt(discountPercent) || 0);
+      }
     };
     init();
   }, []);
@@ -316,7 +327,15 @@ export default function PricingPage() {
                   }
                 }
                 
-                const displayPrice = billingPeriod === 'yearly' ? yearlyMonthly : (hasPromo ? promoPrice : monthlyPrice);
+                // Apply referral discount if eligible
+                let basePrice = billingPeriod === 'yearly' ? yearlyMonthly : (hasPromo ? promoPrice : monthlyPrice);
+                let finalPrice = basePrice;
+                const showReferralDiscount = hasReferral && !isFree;
+                if (showReferralDiscount) {
+                  finalPrice = Math.floor(basePrice * (1 - referralDiscount / 100));
+                }
+                
+                const displayPrice = finalPrice;
 
                 return (
                   <div
@@ -335,8 +354,13 @@ export default function PricingPage() {
                         🎁 {promo.badge_text || 'מבצע מיוחד!'}
                       </div>
                     )}
+                    {showReferralDiscount && !hasPromo && !isPopular && (
+                      <div className="absolute top-0 left-0 right-0 bg-gradient-to-r from-purple-500 via-indigo-500 to-blue-500 text-white text-sm py-2 text-center font-bold">
+                        🎁 הנחת חבר {referralDiscount}%
+                      </div>
+                    )}
                     
-                    <div className={`p-6 ${(isPopular || hasPromo) ? 'pt-12' : ''}`}>
+                    <div className={`p-6 ${(isPopular || hasPromo || showReferralDiscount) ? 'pt-12' : ''}`}>
                       {/* Plan Header */}
                       <div className="flex items-center gap-3 mb-6">
                         <div className={`p-3 bg-gradient-to-br ${gradient} rounded-2xl shadow-lg`}>
@@ -366,6 +390,18 @@ export default function PricingPage() {
                                 מחיר ל-{promo.promo_months} {promo.promo_months === 1 ? 'חודש ראשון' : 'חודשים ראשונים'} בלבד
                               </p>
                             )}
+                          </div>
+                        )}
+                        
+                        {showReferralDiscount && !isFree && (
+                          <div className="mt-2">
+                            <span className="text-gray-400 line-through text-lg ml-2">₪{basePrice}</span>
+                            <span className="text-purple-600 text-sm font-medium">
+                              הנחת חבר {referralDiscount}%
+                            </span>
+                            <p className="text-sm text-purple-600 mt-1">
+                              לתשלום הראשון בלבד
+                            </p>
                           </div>
                         )}
                         
@@ -453,7 +489,12 @@ export default function PricingPage() {
                           );
                         }
                         
-                        // Regular plans
+                        // Regular plans - determine if upgrade
+                        const isUpgrade = currentSubscription && 
+                          currentSubscription.status === 'active' && 
+                          !isCurrentPlan && 
+                          !isDowngrade;
+                        
                         return (
                           <button
                             onClick={() => handleSelectPlan(plan)}
@@ -463,7 +504,13 @@ export default function PricingPage() {
                                 : `bg-gradient-to-r ${gradient} text-white hover:shadow-lg hover:scale-[1.02]`
                             }`}
                           >
-                            {!isAuthenticated ? 'התחל עכשיו' : isDowngrade ? 'שנמך' : 'בחר תכנית'}
+                            {!isAuthenticated 
+                              ? 'התחל עכשיו' 
+                              : isDowngrade 
+                                ? 'שנמך' 
+                                : isUpgrade 
+                                  ? 'שדרג' 
+                                  : 'בחר תכנית'}
                           </button>
                         );
                       })()}

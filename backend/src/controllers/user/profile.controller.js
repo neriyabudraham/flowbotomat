@@ -213,4 +213,28 @@ async function updateLiveChatSettings(req, res) {
   }
 }
 
-module.exports = { getProfile, updateProfile, changePassword, getSubscription, getLiveChatSettings, updateLiveChatSettings };
+/**
+ * Dismiss referral banner - store in user record
+ */
+async function dismissReferralBanner(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    // Ensure column exists
+    try {
+      await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_banner_dismissed BOOLEAN DEFAULT false`);
+    } catch (e) {}
+    
+    await pool.query(
+      `UPDATE users SET referral_banner_dismissed = true, updated_at = NOW() WHERE id = $1`,
+      [userId]
+    );
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Dismiss referral banner error:', error);
+    res.status(500).json({ error: 'שגיאה' });
+  }
+}
+
+module.exports = { getProfile, updateProfile, changePassword, getSubscription, getLiveChatSettings, updateLiveChatSettings, dismissReferralBanner };

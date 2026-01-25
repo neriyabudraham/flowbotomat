@@ -13,7 +13,7 @@ async function getMySubscription(req, res) {
         us.*,
         sp.name as plan_name,
         sp.name_he as plan_name_he,
-        sp.price,
+        sp.price as plan_price,
         sp.max_bots,
         sp.max_bot_runs_per_month,
         sp.max_contacts,
@@ -21,7 +21,8 @@ async function getMySubscription(req, res) {
         sp.allow_waha_creation,
         sp.allow_export,
         sp.allow_api_access,
-        sp.priority_support
+        sp.priority_support,
+        (SELECT MAX(created_at) FROM payment_history ph WHERE ph.user_id = us.user_id AND ph.status = 'success') as last_charge_date
       FROM user_subscriptions us
       JOIN subscription_plans sp ON us.plan_id = sp.id
       WHERE us.user_id = $1 

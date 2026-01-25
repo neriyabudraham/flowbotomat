@@ -7,9 +7,16 @@ const me = async (req, res) => {
   try {
     const userId = req.user.userId;
 
+    // Ensure columns exist
+    try {
+      await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_banner_dismissed BOOLEAN DEFAULT false`);
+      await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS has_ever_paid BOOLEAN DEFAULT false`);
+    } catch (e) {}
+    
     // Get user info
     const userResult = await db.query(
-      `SELECT id, email, name, role, language, theme, created_at, avatar_url, google_id
+      `SELECT id, email, name, role, language, theme, created_at, avatar_url, google_id, 
+              has_ever_paid, referral_banner_dismissed
        FROM users WHERE id = $1`,
       [userId]
     );
@@ -77,7 +84,8 @@ const me = async (req, res) => {
     res.json({ 
       user: {
         ...user,
-        subscription
+        subscription,
+        subscription_plan_id: subscription?.plan?.id || null
       }
     });
   } catch (error) {

@@ -305,7 +305,7 @@ async function deletePaymentMethod(req, res) {
 async function subscribe(req, res) {
   try {
     const userId = req.user.id;
-    const { planId, paymentMethodId, billingPeriod = 'monthly', couponCode, promotionId } = req.body;
+    const { planId, paymentMethodId, billingPeriod = 'monthly', couponCode, promotionId, referralCode, isUpgrade, proratedAmount } = req.body;
     
     // Get plan info
     const planResult = await db.query(
@@ -468,11 +468,49 @@ async function subscribe(req, res) {
       console.log(`[Payment] Applying promotion ${promotion.id}: ${chargeAmount} ILS for ${promoMonthsRemaining} months`);
     }
     
+    // Apply referral discount for new users only (first payment)
+    let referralDiscount = 0;
+    let referralClickId = null;
+    if (referralCode && isNewUser && !coupon && !promotion) {
+      // Get referral discount settings
+      const settingsResult = await db.query(`
+        SELECT referral_discount_percent, referral_discount_type FROM affiliate_settings LIMIT 1
+      `);
+      
+      if (settingsResult.rows.length > 0) {
+        const settings = settingsResult.rows[0];
+        const discountPercent = settings.referral_discount_percent || 10;
+        
+        // Calculate base amount first (with yearly discount if applicable)
+        let baseForReferral = originalPrice;
+        if (billingPeriod === 'yearly') {
+          baseForReferral = originalPrice * 12 * 0.8;
+        }
+        
+        referralDiscount = Math.floor(baseForReferral * (discountPercent / 100));
+        chargeAmount = Math.max(0, baseForReferral - referralDiscount);
+        
+        console.log(`[Payment] Applying referral discount ${discountPercent}%: -${referralDiscount} ILS, final: ${chargeAmount} ILS`);
+        
+        // Get click ID for attribution
+        const clickResult = await db.query(
+          `SELECT id FROM affiliate_clicks WHERE user_id = $1 ORDER BY clicked_at DESC LIMIT 1`,
+          [userId]
+        );
+        if (clickResult.rows.length > 0) {
+          referralClickId = clickResult.rows[0].id;
+        }
+      }
+    }
+    
     let nextChargeDate = new Date(now);
     let expiresAt = null;
     
-    if (billingPeriod === 'yearly' && !promotion) {
+    if (billingPeriod === 'yearly' && !promotion && !referralDiscount) {
       chargeAmount = parseFloat(plan.price) * 12 * 0.8; // 20% discount
+      nextChargeDate.setFullYear(nextChargeDate.getFullYear() + 1);
+      expiresAt = new Date(nextChargeDate);
+    } else if (billingPeriod === 'yearly') {
       nextChargeDate.setFullYear(nextChargeDate.getFullYear() + 1);
       expiresAt = new Date(nextChargeDate);
     } else {
@@ -584,17 +622,33 @@ async function subscribe(req, res) {
     if (promotion) {
       description = `${plan.name_he} - מבצע ${promotion.promo_months} חודשים`;
     }
+    if (isUpgrade) {
+      description = `שדרוג ל-${plan.name_he} (${periodLabel})`;
+    }
+    if (referralDiscount > 0) {
+      description += ' + הנחת חבר';
+    }
     
-    console.log(`[Payment] Charging user ${userId} - Amount: ${chargeAmount} ILS, Period: ${billingPeriod}, Promo: ${promotion?.id || 'none'}`);
+    // For upgrades, use the prorated amount instead of full price
+    let actualChargeAmount = chargeAmount;
+    if (isUpgrade && proratedAmount !== undefined && proratedAmount >= 0) {
+      actualChargeAmount = proratedAmount;
+      console.log(`[Payment] Upgrade - using prorated amount: ${actualChargeAmount} ILS (original: ${chargeAmount} ILS)`);
+    }
+    
+    console.log(`[Payment] Charging user ${userId} - Amount: ${actualChargeAmount} ILS, Period: ${billingPeriod}, Promo: ${promotion?.id || 'none'}, Upgrade: ${isUpgrade || false}`);
     
     // For promotions, we create a recurring charge for the promo price
     // The expiry service will update the price after promo ends
+    // For upgrades, charge the prorated amount now but set up recurring for full price
     chargeResult = await sumitService.chargeRecurring({
       customerId: paymentMethod.sumit_customer_id,
-      amount: chargeAmount,
+      amount: actualChargeAmount,
       description: description,
       durationMonths: durationMonths,
       recurrence: null, // unlimited - auto-renew
+      // For upgrades, the full price will be used for future charges
+      futureAmount: isUpgrade ? chargeAmount : undefined,
     });
     
     if (!chargeResult.success) {
@@ -650,6 +704,22 @@ async function subscribe(req, res) {
       [userId]
     );
     
+    // Record referral conversion if applicable
+    if (referralClickId && referralDiscount > 0) {
+      try {
+        // Update the click with conversion
+        await db.query(`
+          UPDATE affiliate_clicks 
+          SET converted_at = NOW(), converted_amount = $1 
+          WHERE id = $2
+        `, [actualChargeAmount, referralClickId]);
+        
+        console.log(`[Payment] Recorded referral conversion: click ${referralClickId}, amount ${actualChargeAmount}`);
+      } catch (refErr) {
+        console.error('[Payment] Failed to record referral conversion:', refErr);
+      }
+    }
+    
     // Record promotion or coupon use
     if (promotion) {
       await recordPromotionUse(userId, promotion.id, subResult.rows[0].id, chargeAmount, regularPriceAfterPromo, promoMonthsRemaining);
@@ -683,13 +753,17 @@ async function subscribe(req, res) {
       ) VALUES ($1, $2, $3, $4, 'success', $5, $6, $7)
     `, [
       userId, subResult.rows[0].id, paymentMethodId, 
-      chargeAmount, chargeResult.transactionId, chargeResult.documentNumber,
+      actualChargeAmount, chargeResult.transactionId, chargeResult.documentNumber,
       description
     ]);
     
     let message = 'המנוי הופעל בהצלחה';
-    if (promotion) {
+    if (isUpgrade) {
+      message = `השדרוג בוצע בהצלחה! התוכנית ${plan.name_he} פעילה כעת.`;
+    } else if (promotion) {
       message = `המנוי הופעל! ${promotion.promo_months} חודשים ראשונים ב-₪${chargeAmount}/חודש`;
+    } else if (referralDiscount > 0) {
+      message = `המנוי הופעל בהצלחה עם הנחת חבר!`;
     }
     
     res.json({ 

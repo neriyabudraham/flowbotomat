@@ -34,6 +34,14 @@ function ReferralTracker() {
     const refCode = searchParams.get('ref');
     
     if (refCode) {
+      // Check if user is already logged in (existing user)
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        // User is logged in - they can't use referral link
+        console.log('Referral ignored - user already logged in');
+        return;
+      }
+      
       // Check if we already tracked this ref code recently (prevent double tracking)
       const lastTrackedRef = sessionStorage.getItem('last_tracked_ref');
       const lastTrackedTime = sessionStorage.getItem('last_tracked_time');

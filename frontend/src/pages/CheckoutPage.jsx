@@ -25,6 +25,7 @@ export default function CheckoutPage() {
   
   const [plan, setPlan] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState(null);
+  const [currentSubscription, setCurrentSubscription] = useState(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState(null);
@@ -60,13 +61,15 @@ export default function CheckoutPage() {
       setLoading(true);
       setError(null);
       
-      // Load plan details and payment method in parallel
-      const [planRes, paymentRes] = await Promise.all([
+      // Load plan details, payment method, and current subscription in parallel
+      const [planRes, paymentRes, subRes] = await Promise.all([
         api.get(`/subscriptions/plans/${planId}`),
         api.get('/payment/methods'),
+        api.get('/subscriptions/my').catch(() => ({ data: { subscription: null } })),
       ]);
       
       setPlan(planRes.data.plan);
+      setCurrentSubscription(subRes.data.subscription);
       
       if (paymentRes.data.paymentMethods?.length > 0) {
         setPaymentMethod(paymentRes.data.paymentMethods[0]);
@@ -82,12 +85,12 @@ export default function CheckoutPage() {
   };
 
   const calculatePrice = () => {
-    if (!plan) return { monthly: 0, total: 0, referralDiscount: 0, hasReferral: false };
+    if (!plan) return { monthly: 0, total: 0, referralDiscount: 0, hasReferral: false, isUpgrade: false };
     
     // Check for referral discount (only on first subscription)
     const referralCode = localStorage.getItem('referral_code');
     const referralDiscountPercent = referralCode ? (parseInt(localStorage.getItem('referral_discount_percent')) || 10) : 0;
-    const hasReferral = !!referralCode && referralDiscountPercent > 0;
+    const hasReferral = !!referralCode && referralDiscountPercent > 0 && !currentSubscription;
     
     let basePrice = plan.price;
     let total = 0;
@@ -100,11 +103,53 @@ export default function CheckoutPage() {
       total = Math.floor(basePrice);
     }
     
-    // Apply referral discount on top of other discounts
+    // Apply referral discount on top of other discounts (only for new subscriptions)
     let referralDiscount = 0;
     if (hasReferral) {
       referralDiscount = Math.floor(total * (referralDiscountPercent / 100));
       total = total - referralDiscount;
+    }
+    
+    // Calculate proration for upgrades
+    let isUpgrade = false;
+    let proratedCredit = 0;
+    let proratedTotal = total;
+    let daysRemaining = 0;
+    let currentPlanPrice = 0;
+    
+    if (currentSubscription && currentSubscription.status === 'active' && currentSubscription.plan_id !== plan.id) {
+      isUpgrade = true;
+      
+      // Calculate remaining value from current subscription
+      const nextCharge = currentSubscription.next_charge_date 
+        ? new Date(currentSubscription.next_charge_date) 
+        : new Date();
+      const now = new Date();
+      
+      // Calculate days remaining in current period
+      const currentBillingPeriod = currentSubscription.billing_period || 'monthly';
+      const periodDays = currentBillingPeriod === 'yearly' ? 365 : 30;
+      
+      // Calculate what user paid for current period
+      currentPlanPrice = parseFloat(currentSubscription.plan_price || 0);
+      if (currentBillingPeriod === 'yearly') {
+        currentPlanPrice = currentPlanPrice * 12 * 0.8; // Yearly price with discount
+      }
+      
+      // Calculate days since last charge
+      const lastCharge = currentSubscription.last_charge_date 
+        ? new Date(currentSubscription.last_charge_date) 
+        : new Date(currentSubscription.started_at);
+      
+      daysRemaining = Math.max(0, Math.ceil((nextCharge - now) / (1000 * 60 * 60 * 24)));
+      const daysUsed = periodDays - daysRemaining;
+      
+      // Calculate unused credit
+      const dailyRate = currentPlanPrice / periodDays;
+      proratedCredit = Math.floor(dailyRate * daysRemaining);
+      
+      // Final price to pay = new plan price - unused credit
+      proratedTotal = Math.max(0, total - proratedCredit);
     }
     
     const monthly = billingPeriod === 'yearly' ? Math.floor(total / 12) : total;
@@ -115,7 +160,12 @@ export default function CheckoutPage() {
       referralDiscount, 
       hasReferral, 
       referralDiscountPercent,
-      originalTotal: hasReferral ? total + referralDiscount : total
+      originalTotal: hasReferral ? total + referralDiscount : total,
+      isUpgrade,
+      proratedCredit,
+      proratedTotal,
+      daysRemaining,
+      currentPlanPrice
     };
   };
 
@@ -164,17 +214,21 @@ export default function CheckoutPage() {
         return;
       }
       
+      const prices = calculatePrice();
+      
       // Subscribe to plan
       const referralCode = localStorage.getItem('referral_code');
       await api.post('/payment/subscribe', {
         planId: plan.id,
         billingPeriod,
         paymentMethodId: paymentMethod.id,
-        referralCode: referralCode || undefined,
+        referralCode: (!currentSubscription && referralCode) ? referralCode : undefined,
+        isUpgrade: prices.isUpgrade,
+        proratedAmount: prices.isUpgrade ? prices.proratedTotal : undefined,
       });
       
-      // Clear referral data after successful subscription
-      if (referralCode) {
+      // Clear referral data after successful subscription (only for new users)
+      if (!currentSubscription && referralCode) {
         localStorage.removeItem('referral_code');
         localStorage.removeItem('referral_banner_dismissed');
         localStorage.removeItem('referral_discount_percent');
@@ -186,7 +240,9 @@ export default function CheckoutPage() {
       setTimeout(() => {
         navigate('/dashboard', { 
           state: { 
-            message: 'המנוי הופעל בהצלחה! ניתן כעת לחבר WhatsApp.',
+            message: prices.isUpgrade 
+              ? 'השדרוג בוצע בהצלחה! התוכנית החדשה פעילה כעת.'
+              : 'המנוי הופעל בהצלחה! ניתן כעת לחבר WhatsApp.',
             type: 'success'
           }
         });
@@ -457,7 +513,9 @@ export default function CheckoutPage() {
                     <Lock className="w-5 h-5" />
                     {isTrial 
                       ? `התחל ${plan.trial_days} ימי ניסיון חינם`
-                      : `שלם ₪${prices.total}`
+                      : prices.isUpgrade
+                        ? `שדרג עכשיו - ₪${prices.proratedTotal}`
+                        : `שלם ₪${prices.total}`
                     }
                   </>
                 )}
@@ -527,6 +585,20 @@ export default function CheckoutPage() {
                         <span>-₪{prices.referralDiscount}</span>
                       </div>
                     )}
+                    {prices.isUpgrade && prices.proratedCredit > 0 && (
+                      <>
+                        <div className="flex justify-between text-gray-600 dark:text-gray-400 border-t border-gray-100 dark:border-gray-600 pt-2 mt-2">
+                          <span>מחיר תוכנית חדשה</span>
+                          <span>₪{prices.total}</span>
+                        </div>
+                        <div className="flex justify-between text-green-600 font-medium">
+                          <span className="flex items-center gap-1">
+                            ✨ זיכוי מתוכנית נוכחית ({prices.daysRemaining} ימים)
+                          </span>
+                          <span>-₪{prices.proratedCredit}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   {/* Trial Notice */}
@@ -546,18 +618,25 @@ export default function CheckoutPage() {
                   <div className="border-t border-gray-200 dark:border-gray-600 pt-4">
                     <div className="flex justify-between items-center">
                       <span className="font-semibold text-gray-900 dark:text-white">
-                        {isTrial ? 'לאחר הניסיון' : 'סה״כ לתשלום'}
+                        {isTrial ? 'לאחר הניסיון' : prices.isUpgrade ? 'לתשלום כעת' : 'סה״כ לתשלום'}
                       </span>
                       <span className="text-2xl font-bold text-gray-900 dark:text-white">
-                        ₪{prices.total}
-                        <span className="text-sm font-normal text-gray-500">
-                          /{billingPeriod === 'yearly' ? 'שנה' : 'חודש'}
-                        </span>
+                        ₪{prices.isUpgrade ? prices.proratedTotal : prices.total}
+                        {!prices.isUpgrade && (
+                          <span className="text-sm font-normal text-gray-500">
+                            /{billingPeriod === 'yearly' ? 'שנה' : 'חודש'}
+                          </span>
+                        )}
                       </span>
                     </div>
                     {isTrial && (
                       <p className="text-sm text-gray-500 mt-1">
                         היום: ₪0
+                      </p>
+                    )}
+                    {prices.isUpgrade && (
+                      <p className="text-sm text-gray-500 mt-2">
+                        החל מהחידוש הבא: ₪{prices.total}/{billingPeriod === 'yearly' ? 'שנה' : 'חודש'}
                       </p>
                     )}
                   </div>

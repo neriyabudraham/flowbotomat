@@ -1,29 +1,66 @@
 import { useState, useEffect } from 'react';
 import { Gift, X, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import useAuthStore from '../store/authStore';
+import api from '../services/api';
 
 export default function ReferralBonusBanner() {
+  const { user } = useAuthStore();
   const [show, setShow] = useState(false);
   const [discountPercent, setDiscountPercent] = useState(10);
 
   useEffect(() => {
+    checkShowBanner();
+  }, [user]);
+  
+  const checkShowBanner = async () => {
     // Check if user arrived via referral
     const referralCode = localStorage.getItem('referral_code');
-    const wasDismissed = localStorage.getItem('referral_banner_dismissed');
+    if (!referralCode) {
+      setShow(false);
+      return;
+    }
     
-    if (referralCode && !wasDismissed) {
-      setShow(true);
-      // Get discount percentage from referral settings (default 10%)
-      const savedDiscount = localStorage.getItem('referral_discount_percent');
-      if (savedDiscount) {
-        setDiscountPercent(parseInt(savedDiscount) || 10);
+    // If user is logged in
+    if (user) {
+      // If user already has subscription or has ever paid - don't show
+      if (user.has_ever_paid || user.subscription_plan_id) {
+        setShow(false);
+        // Clear referral data - not eligible
+        localStorage.removeItem('referral_code');
+        localStorage.removeItem('referral_discount_percent');
+        return;
+      }
+      
+      // Check if user already dismissed banner (stored on server)
+      if (user.referral_banner_dismissed) {
+        setShow(false);
+        return;
       }
     }
-  }, []);
+    
+    // Show banner
+    setShow(true);
+    const savedDiscount = localStorage.getItem('referral_discount_percent');
+    if (savedDiscount) {
+      setDiscountPercent(parseInt(savedDiscount) || 10);
+    }
+  };
 
-  const handleDismiss = () => {
+  const handleDismiss = async () => {
     setShow(false);
-    localStorage.setItem('referral_banner_dismissed', 'true');
+    
+    // If logged in, save dismiss on server
+    if (user) {
+      try {
+        await api.post('/user/dismiss-referral-banner');
+      } catch (err) {
+        console.error('Failed to dismiss banner:', err);
+      }
+    } else {
+      // Not logged in - just use localStorage temporarily
+      localStorage.setItem('referral_banner_dismissed_temp', 'true');
+    }
   };
 
   if (!show) return null;
