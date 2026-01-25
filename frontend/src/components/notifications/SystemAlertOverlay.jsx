@@ -379,7 +379,7 @@ export default function SystemAlertOverlay() {
         </div>
       )}
 
-      <style jsx>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         @keyframes fade-in {
           from { opacity: 0; }
           to { opacity: 1; }
@@ -422,7 +422,7 @@ export default function SystemAlertOverlay() {
         .animate-pulse-slow {
           animation: pulse-slow 2s ease-in-out infinite;
         }
-      `}</style>
+      `}} />
     </>
   );
 }
