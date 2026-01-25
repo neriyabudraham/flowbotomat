@@ -443,15 +443,26 @@ export default function PricingPage() {
                   yearlyTotalFinal = Math.floor(yearlyTotalWithYearlyDiscount * (1 - referralDiscount / 100));
                 }
                 
-                // For display: yearly shows total/year, monthly shows per month
+                // For display: show monthly price (even for yearly, we show per-month equivalent)
                 let displayPrice;
                 let basePrice;
+                let yearlyMonthlyPrice; // Price per month when paying yearly
+                let yearlyTotalDisplay; // Total yearly payment
+                
                 if (billingPeriod === 'yearly') {
-                  basePrice = yearlyTotalWithYearlyDiscount;
-                  displayPrice = showReferralDiscount ? yearlyTotalFinal : yearlyTotalWithYearlyDiscount;
+                  // Calculate monthly equivalent for yearly billing
+                  const yearlyMonthlyBase = Math.floor(monthlyPrice * 0.8); // 20% yearly discount per month
+                  yearlyMonthlyPrice = showReferralDiscount 
+                    ? Math.floor(yearlyMonthlyBase * (1 - referralDiscount / 100)) 
+                    : yearlyMonthlyBase;
+                  yearlyTotalDisplay = showReferralDiscount ? yearlyTotalFinal : yearlyTotalWithYearlyDiscount;
+                  basePrice = yearlyMonthlyBase;
+                  displayPrice = yearlyMonthlyPrice;
                 } else {
                   basePrice = hasPromo ? promoPrice : monthlyPrice;
                   displayPrice = showReferralDiscount ? Math.floor(basePrice * (1 - referralDiscount / 100)) : basePrice;
+                  yearlyMonthlyPrice = null;
+                  yearlyTotalDisplay = null;
                 }
 
                 return (
@@ -498,7 +509,7 @@ export default function PricingPage() {
                       <div className="mb-6">
                         <div className="flex items-baseline gap-1">
                           <span className="text-5xl font-bold text-gray-900">₪{displayPrice}</span>
-                          <span className="text-gray-500 text-lg">{billingPeriod === 'yearly' ? '/שנה' : '/חודש'}</span>
+                          <span className="text-gray-500 text-lg">/חודש</span>
                         </div>
                         
                         {hasPromo && billingPeriod === 'monthly' && (
@@ -536,15 +547,20 @@ export default function PricingPage() {
                         
                         {billingPeriod === 'yearly' && !isFree && (
                           <div className="mt-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-gray-400 line-through text-sm">₪{yearlyTotalBeforeDiscount}</span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-gray-400 line-through text-sm">₪{monthlyPrice}/חודש</span>
                               {showReferralDiscount ? (
                                 <span className="text-purple-600 text-sm font-medium">
-                                  20% הנחה שנתית + {referralDiscount}% הנחת חבר
+                                  20% שנתית + {referralDiscount}% חבר
                                 </span>
                               ) : (
                                 <span className="text-green-600 text-sm font-medium">חסכון 20%</span>
                               )}
+                            </div>
+                            <div className="mt-2 p-2 bg-gray-50 rounded-lg">
+                              <span className="text-gray-600 text-sm">סה״כ לתשלום: </span>
+                              <span className="font-bold text-gray-900">₪{yearlyTotalDisplay}/שנה</span>
+                              <span className="text-gray-400 text-xs mr-1 line-through">₪{yearlyTotalBeforeDiscount}</span>
                             </div>
                             {showReferralDiscount && (
                               <div className="flex items-center gap-2 mt-1">
@@ -1417,12 +1433,12 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
             <div>
               <h2 className="text-xl font-bold">{plan.name_he}</h2>
               <p className="text-white/80 text-sm">
-                {billingPeriod === 'yearly' ? 'חיוב שנתי (תשלום אחד)' : 'חיוב חודשי'}
+                {billingPeriod === 'yearly' ? 'תשלום שנתי אחד' : 'חיוב חודשי'}
               </p>
             </div>
             <div className="mr-auto text-left">
               <div className="text-3xl font-bold">₪{prices.total}</div>
-              <div className="text-white/80 text-sm">{billingPeriod === 'yearly' ? '/שנה' : '/חודש'}</div>
+              <div className="text-white/80 text-sm">{billingPeriod === 'yearly' ? 'לשנה שלמה' : '/חודש'}</div>
             </div>
           </div>
           {isTrial && (
@@ -1432,7 +1448,7 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
                 <span>{plan.trial_days} ימי ניסיון חינם - לא תחויב היום</span>
               </div>
               <p className="text-white/70 text-xs mt-1">
-                לאחר {plan.trial_days} ימים יתחיל חיוב של ₪{prices.total}{billingPeriod === 'yearly' ? '/שנה' : '/חודש'}
+                לאחר {plan.trial_days} ימים יתחיל חיוב של ₪{prices.total} {billingPeriod === 'yearly' ? '(לשנה שלמה)' : '/חודש'}
               </p>
             </div>
           )}
@@ -1697,7 +1713,7 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
                 ) : (
                   <Lock className="w-5 h-5" />
                 )}
-                {processing ? 'מעבד...' : isTrial ? `התחל ${plan.trial_days} ימי ניסיון חינם` : `שלם ₪${prices.total}${prices.isYearly ? ' לשנה' : ''}`}
+                {processing ? 'מעבד...' : isTrial ? `התחל ${plan.trial_days} ימי ניסיון חינם` : `שלם ₪${prices.total}${prices.isYearly ? ' (לשנה)' : ''}`}
               </button>
             </div>
           )}
