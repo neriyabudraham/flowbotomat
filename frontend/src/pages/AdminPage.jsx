@@ -30,20 +30,32 @@ const TABS = [
 
 export default function AdminPage() {
   const navigate = useNavigate();
-  const { user, isLoading } = useAuthStore();
+  const { user, fetchMe } = useAuthStore();
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [loading, setLoading] = useState(true);
+
+  // Fetch user data on mount
+  useEffect(() => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      navigate('/login', { replace: true });
+      return;
+    }
+    
+    fetchMe().finally(() => setLoading(false));
+  }, []);
 
   const isAdmin = user && ['admin', 'superadmin'].includes(user.role);
 
-  // Redirect non-admin users immediately
+  // Redirect non-admin users after loading
   useEffect(() => {
-    if (!isLoading && !isAdmin) {
+    if (!loading && !isAdmin) {
       navigate('/dashboard', { replace: true });
     }
-  }, [user, isLoading, isAdmin, navigate]);
+  }, [user, loading, isAdmin, navigate]);
 
-  // Don't render anything while checking or if not admin
-  if (isLoading) {
+  // Show loading while fetching user data
+  if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />

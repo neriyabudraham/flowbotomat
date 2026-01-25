@@ -174,7 +174,26 @@ export default function AdminAffiliate() {
 
           {/* All Affiliates with Referrals */}
           <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <h3 className="font-bold text-gray-800 mb-4">כל השותפים והמשתמשים שהביאו</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-gray-800">כל השותפים והמשתמשים שהביאו</h3>
+              <button
+                onClick={async () => {
+                  if (confirm('ליצור חשבון שותף לכל המשתמשים שעדיין אין להם?')) {
+                    try {
+                      const { data } = await api.post('/admin/affiliate/create-all');
+                      alert(data.message);
+                      loadData();
+                    } catch (err) {
+                      alert(err.response?.data?.error || 'שגיאה');
+                    }
+                  }
+                }}
+                className="px-3 py-1.5 bg-purple-100 text-purple-700 rounded-lg text-sm hover:bg-purple-200 flex items-center gap-1"
+              >
+                <Users className="w-4 h-4" />
+                צור לכל המשתמשים
+              </button>
+            </div>
             {topAffiliates.length === 0 ? (
               <p className="text-gray-500 text-center py-4">אין שותפים עדיין</p>
             ) : (

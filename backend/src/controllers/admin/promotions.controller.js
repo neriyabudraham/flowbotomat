@@ -541,6 +541,36 @@ async function getAffiliateStats(req, res) {
   }
 }
 
+// Create affiliate accounts for all users who don't have one
+async function createAffiliatesForAllUsers(req, res) {
+  try {
+    // Get all users without affiliate accounts
+    const usersWithoutAffiliates = await db.query(`
+      SELECT u.id, u.email
+      FROM users u
+      LEFT JOIN affiliates a ON u.id = a.user_id
+      WHERE a.id IS NULL
+    `);
+    
+    let created = 0;
+    for (const user of usersWithoutAffiliates.rows) {
+      const refCode = generateRefCode();
+      await db.query(`
+        INSERT INTO affiliates (user_id, ref_code)
+        VALUES ($1, $2)
+        ON CONFLICT (user_id) DO NOTHING
+      `, [user.id, refCode]);
+      created++;
+    }
+    
+    console.log(`[Affiliate] Created ${created} affiliate accounts for existing users`);
+    res.json({ success: true, created, message: `נוצרו ${created} חשבונות שותפים חדשים` });
+  } catch (error) {
+    console.error('[Affiliate] Create affiliates for all error:', error);
+    res.status(500).json({ error: 'שגיאה ביצירת חשבונות שותפים' });
+  }
+}
+
 async function processPayoutRequest(req, res) {
   try {
     const { payoutId } = req.params;
@@ -1122,6 +1152,7 @@ module.exports = {
   getAffiliateStats,
   processPayoutRequest,
   updateAffiliate,
+  createAffiliatesForAllUsers,
   getAffiliateTerms,
   updateAffiliateTerms,
   // Affiliate User
