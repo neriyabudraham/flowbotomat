@@ -6,10 +6,10 @@ import {
   FileText, Coins, X
 } from 'lucide-react';
 import api from '../../services/api';
-import { useAuth } from '../../contexts/AuthContext';
+import useAuthStore from '../../store/authStore';
 
 export default function AffiliatePanel() {
-  const { user } = useAuth();
+  const { user } = useAuthStore();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
