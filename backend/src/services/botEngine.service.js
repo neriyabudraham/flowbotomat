@@ -232,6 +232,19 @@ class BotEngine {
       console.log('[BotEngine] ✅ Trigger matched! Starting flow for bot:', bot.name);
       console.log('[BotEngine] Flow data has', flowData.nodes.length, 'nodes and', flowData.edges.length, 'edges');
       
+      // Auto mark as seen if enabled in trigger
+      if (triggerNode.data.autoMarkSeen) {
+        try {
+          const connection = await this.getConnection(userId);
+          if (connection) {
+            await wahaService.sendSeen(connection, contact.phone);
+            console.log('[BotEngine] ✅ Auto marked as seen (trigger setting)');
+          }
+        } catch (err) {
+          console.log('[BotEngine] ⚠️ Failed to auto mark as seen:', err.message);
+        }
+      }
+      
       // Check subscription limit for bot runs
       const runsLimit = await checkLimit(userId, 'bot_runs');
       if (!runsLimit.allowed) {
@@ -329,6 +342,20 @@ class BotEngine {
     
     console.log('[BotEngine] ▶️ Continuing from node:', currentNode.type, currentNode.id);
     console.log('[BotEngine] Message type:', messageType, '| Selected row ID:', selectedRowId);
+    
+    // Auto mark as seen if enabled in trigger (for all messages in the flow)
+    const triggerNode = flowData.nodes.find(n => n.type === 'trigger');
+    if (triggerNode?.data?.autoMarkSeen) {
+      try {
+        const connection = await this.getConnection(userId);
+        if (connection) {
+          await wahaService.sendSeen(connection, contact.phone);
+          console.log('[BotEngine] ✅ Auto marked as seen (during flow)');
+        }
+      } catch (err) {
+        console.log('[BotEngine] ⚠️ Failed to auto mark as seen:', err.message);
+      }
+    }
     
     // Get node data
     const nodeData = currentNode.data || {};

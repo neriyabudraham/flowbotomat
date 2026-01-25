@@ -60,6 +60,16 @@ function TriggerNode({ data, selected }) {
     return label;
   };
   
+  // Build advanced settings summary
+  const advancedSettings = [];
+  if (data.autoMarkSeen) advancedSettings.push('📖 סמן כנקרא');
+  if (data.oncePerUser) advancedSettings.push('👤 פעם אחת ליוזר');
+  if (data.hasCooldown) {
+    const unit = { minutes: 'דקות', hours: 'שעות', days: 'ימים', weeks: 'שבועות' }[data.cooldownUnit] || data.cooldownUnit;
+    advancedSettings.push(`⏱️ השהיה ${data.cooldownValue || data.cooldownHours || ''} ${unit || ''}`);
+  }
+  if (data.hasActiveHours) advancedSettings.push(`🕐 ${data.activeFrom || ''}-${data.activeTo || ''}`);
+  
   return (
     <BaseNode
       data={data}
@@ -107,6 +117,19 @@ function TriggerNode({ data, selected }) {
               </div>
             </div>
           ))
+        )}
+        
+        {/* Advanced settings preview */}
+        {advancedSettings.length > 0 && (
+          <div className="border-t border-purple-100 pt-2 mt-2">
+            <div className="flex flex-wrap gap-1">
+              {advancedSettings.map((setting, idx) => (
+                <span key={idx} className="text-[10px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded">
+                  {setting}
+                </span>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </BaseNode>

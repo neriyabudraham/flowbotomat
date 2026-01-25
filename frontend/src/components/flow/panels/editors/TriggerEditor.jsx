@@ -41,6 +41,9 @@ export default function TriggerEditor({ data, onUpdate }) {
   const [expandedGroups, setExpandedGroups] = useState(new Set(groups[0]?.id ? [groups[0].id] : []));
   const [availableTags, setAvailableTags] = useState([]);
   const [loadingTags, setLoadingTags] = useState(false);
+  const [creatingTagFor, setCreatingTagFor] = useState(null); // { groupId, conditionIndex }
+  const [newTagName, setNewTagName] = useState('');
+  const [savingTag, setSavingTag] = useState(false);
 
   // Load available tags
   useEffect(() => {
@@ -61,6 +64,23 @@ export default function TriggerEditor({ data, onUpdate }) {
       setAvailableTags([]);
     }
     setLoadingTags(false);
+  };
+
+  const createAndSelectTag = async (groupId, conditionIndex) => {
+    if (!newTagName.trim()) return;
+    
+    setSavingTag(true);
+    try {
+      await api.post('/contacts/tags', { name: newTagName.trim() });
+      await loadTags();
+      updateCondition(groupId, conditionIndex, 'value', newTagName.trim());
+      setCreatingTagFor(null);
+      setNewTagName('');
+    } catch (err) {
+      console.error('Error creating tag:', err);
+      alert('שגיאה ביצירת התגית');
+    }
+    setSavingTag(false);
   };
 
   const toggleGroup = (groupId) => {
@@ -298,8 +318,18 @@ export default function TriggerEditor({ data, onUpdate }) {
                                         {typeof tag === 'string' ? tag : tag?.name || ''}
                                       </option>
                                     ))}
-                                    <option value="_new">+ צור תגית חדשה...</option>
                                   </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setCreatingTagFor({ groupId: group.id, conditionIndex });
+                                      setNewTagName('');
+                                    }}
+                                    className="px-3 py-2 text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 rounded-lg whitespace-nowrap"
+                                    title="צור תגית חדשה"
+                                  >
+                                    + חדש
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={loadTags}
@@ -310,17 +340,38 @@ export default function TriggerEditor({ data, onUpdate }) {
                                     <RefreshCw className={`w-4 h-4 ${loadingTags ? 'animate-spin' : ''}`} />
                                   </button>
                                 </div>
-                                {condition.value === '_new' && (
-                                  <input
-                                    type="text"
-                                    value={condition.customTagName || ''}
-                                    onChange={(e) => {
-                                      updateCondition(group.id, conditionIndex, 'customTagName', e.target.value);
-                                      updateCondition(group.id, conditionIndex, 'value', e.target.value);
-                                    }}
-                                    placeholder="שם התגית החדשה..."
-                                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
-                                  />
+                                {creatingTagFor?.groupId === group.id && creatingTagFor?.conditionIndex === conditionIndex && (
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <input
+                                      type="text"
+                                      value={newTagName}
+                                      onChange={(e) => setNewTagName(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          createAndSelectTag(group.id, conditionIndex);
+                                        }
+                                      }}
+                                      placeholder="שם התגית החדשה..."
+                                      className="flex-1 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                                      autoFocus
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => createAndSelectTag(group.id, conditionIndex)}
+                                      disabled={savingTag || !newTagName.trim()}
+                                      className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 disabled:opacity-50"
+                                    >
+                                      {savingTag ? '...' : 'הוסף'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setCreatingTagFor(null)}
+                                      className="p-2 text-gray-500 hover:text-gray-700"
+                                    >
+                                      <X className="w-4 h-4" />
+                                    </button>
+                                  </div>
                                 )}
                               </div>
                             ) : (
@@ -397,6 +448,20 @@ export default function TriggerEditor({ data, onUpdate }) {
         
         {showAdvanced && (
           <div className="mt-4 space-y-4">
+            {/* Auto mark as seen */}
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={data.autoMarkSeen || false}
+                onChange={(e) => onUpdate({ autoMarkSeen: e.target.checked })}
+                className="w-5 h-5 mt-0.5 rounded border-gray-300 text-purple-600"
+              />
+              <div>
+                <div className="font-medium text-gray-700">סמן כנקרא אוטומטית</div>
+                <div className="text-xs text-gray-500">כל הודעה במסגרת הבוט תסומן כנקראה</div>
+              </div>
+            </label>
+
             {/* Once per user */}
             <label className="flex items-start gap-3 cursor-pointer">
               <input
