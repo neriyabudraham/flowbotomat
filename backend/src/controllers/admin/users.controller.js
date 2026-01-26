@@ -50,12 +50,16 @@ async function getUsers(req, res) {
               us.expires_at,
               us.started_at,
               us.trial_ends_at,
+              us.referral_discount_percent as custom_discount_percent,
+              us.referral_discount_type as custom_discount_type,
+              us.referral_months_remaining as custom_discount_months,
               sp.name as plan_name,
               sp.name_he as plan_name_he,
               sp.price as plan_price,
               ref_user.name as referred_by_name,
               ref_user.email as referred_by_email,
-              ar.status as referral_status
+              ar.status as referral_status,
+              aff.id as referred_by_affiliate_id
        FROM users u
        LEFT JOIN user_subscriptions us ON us.user_id = u.id
        LEFT JOIN subscription_plans sp ON sp.id = us.plan_id
@@ -241,7 +245,13 @@ async function getStats(req, res) {
 async function updateUserSubscription(req, res) {
   try {
     const { id } = req.params;
-    const { planId, status, expiresAt, isManual, adminNotes } = req.body;
+    const { 
+      planId, status, expiresAt, isManual, adminNotes,
+      // Discount settings
+      customDiscountPercent, customDiscountType, customDiscountMonths,
+      // Referral settings
+      affiliateId
+    } = req.body;
     
     // Verify user exists
     const userCheck = await db.query('SELECT id FROM users WHERE id = $1', [id]);
@@ -259,10 +269,23 @@ async function updateUserSubscription(req, res) {
       // Create new subscription
       const result = await db.query(`
         INSERT INTO user_subscriptions (
-          user_id, plan_id, status, expires_at, is_manual, admin_notes
-        ) VALUES ($1, $2, $3, $4, $5, $6)
+          user_id, plan_id, status, expires_at, is_manual, admin_notes,
+          referral_discount_percent, referral_discount_type, referral_months_remaining
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING *
-      `, [id, planId, status || 'active', expiresAt || null, isManual !== false, adminNotes || null]);
+      `, [
+        id, planId, status || 'active', expiresAt || null, isManual !== false, adminNotes || null,
+        customDiscountPercent || null,
+        customDiscountType || null,
+        customDiscountType === 'custom_months' ? customDiscountMonths : 
+          customDiscountType === 'first_year' ? 12 :
+          customDiscountType === 'forever' ? -1 : 0
+      ]);
+      
+      // Handle affiliate assignment
+      if (affiliateId) {
+        await assignUserToAffiliate(id, affiliateId);
+      }
       
       return res.json({ subscription: result.rows[0] });
     }
@@ -295,23 +318,89 @@ async function updateUserSubscription(req, res) {
       values.push(adminNotes);
     }
     
-    if (updates.length === 0) {
+    // Discount settings
+    if (customDiscountPercent !== undefined) {
+      updates.push(`referral_discount_percent = $${paramIndex++}`);
+      values.push(customDiscountPercent);
+    }
+    if (customDiscountType !== undefined) {
+      updates.push(`referral_discount_type = $${paramIndex++}`);
+      values.push(customDiscountType);
+      
+      // Calculate months remaining
+      let monthsRemaining = 0;
+      if (customDiscountType === 'custom_months') {
+        monthsRemaining = customDiscountMonths || 1;
+      } else if (customDiscountType === 'first_year') {
+        monthsRemaining = 12;
+      } else if (customDiscountType === 'forever') {
+        monthsRemaining = -1; // -1 means forever
+      }
+      updates.push(`referral_months_remaining = $${paramIndex++}`);
+      values.push(monthsRemaining);
+    }
+    
+    if (updates.length === 0 && !affiliateId) {
       return res.status(400).json({ error: 'אין שדות לעדכון' });
     }
     
-    values.push(id);
+    let result;
+    if (updates.length > 0) {
+      values.push(id);
+      result = await db.query(`
+        UPDATE user_subscriptions 
+        SET ${updates.join(', ')}, updated_at = NOW()
+        WHERE user_id = $${paramIndex}
+        RETURNING *
+      `, values);
+    } else {
+      result = await db.query('SELECT * FROM user_subscriptions WHERE user_id = $1', [id]);
+    }
     
-    const result = await db.query(`
-      UPDATE user_subscriptions 
-      SET ${updates.join(', ')}, updated_at = NOW()
-      WHERE user_id = $${paramIndex}
-      RETURNING *
-    `, values);
+    // Handle affiliate assignment
+    if (affiliateId) {
+      await assignUserToAffiliate(id, affiliateId);
+    }
     
     res.json({ subscription: result.rows[0] });
   } catch (error) {
     console.error('[Admin] Update user subscription error:', error);
     res.status(500).json({ error: 'שגיאה בעדכון מנוי' });
+  }
+}
+
+/**
+ * Helper to assign a user to an affiliate
+ */
+async function assignUserToAffiliate(userId, affiliateId) {
+  try {
+    // Check if referral already exists
+    const existingRef = await db.query(
+      'SELECT id FROM affiliate_referrals WHERE referred_user_id = $1',
+      [userId]
+    );
+    
+    if (existingRef.rows.length > 0) {
+      // Update existing referral
+      await db.query(`
+        UPDATE affiliate_referrals 
+        SET affiliate_id = $1, updated_at = NOW()
+        WHERE referred_user_id = $2
+      `, [affiliateId, userId]);
+    } else {
+      // Create new referral
+      await db.query(`
+        INSERT INTO affiliate_referrals (affiliate_id, referred_user_id, status)
+        VALUES ($1, $2, 'registered')
+      `, [affiliateId, userId]);
+      
+      // Increment affiliate signup count
+      await db.query(`
+        UPDATE affiliates SET total_signups = total_signups + 1 WHERE id = $1
+      `, [affiliateId]);
+    }
+  } catch (error) {
+    console.error('[Admin] Assign user to affiliate error:', error);
   }
 }
 

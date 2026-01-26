@@ -56,6 +56,7 @@ router.get('/coupons/:couponId/stats', promotionsController.getCouponStats);
 router.get('/affiliate/settings', promotionsController.getAffiliateSettings);
 router.put('/affiliate/settings', superadminMiddleware, promotionsController.updateAffiliateSettings);
 router.get('/affiliate/stats', promotionsController.getAffiliateStats);
+router.get('/affiliates/list', promotionsController.listAffiliates);
 router.put('/affiliate/:affiliateId', superadminMiddleware, promotionsController.updateAffiliate);
 router.post('/affiliate/create-all', superadminMiddleware, promotionsController.createAffiliatesForAllUsers);
 router.post('/affiliate/payouts/:payoutId/process', superadminMiddleware, promotionsController.processPayoutRequest);

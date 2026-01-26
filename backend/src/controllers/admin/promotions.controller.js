@@ -1145,6 +1145,25 @@ function generateRefCode() {
   return code;
 }
 
+/**
+ * List all affiliates for dropdown selection
+ */
+async function listAffiliates(req, res) {
+  try {
+    const result = await db.query(`
+      SELECT a.id, a.ref_code, a.is_active, u.name as user_name, u.email as user_email
+      FROM affiliates a
+      JOIN users u ON a.user_id = u.id
+      WHERE a.is_active = true
+      ORDER BY u.name ASC, u.email ASC
+    `);
+    res.json({ affiliates: result.rows });
+  } catch (error) {
+    console.error('[Affiliate] List affiliates error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת שותפים' });
+  }
+}
+
 module.exports = {
   // Promotions
   getAllPromotions,
@@ -1168,6 +1187,7 @@ module.exports = {
   createAffiliatesForAllUsers,
   getAffiliateTerms,
   updateAffiliateTerms,
+  listAffiliates,
   // Affiliate User
   getMyAffiliate,
   requestPayout,

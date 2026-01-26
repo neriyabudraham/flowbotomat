@@ -481,8 +481,10 @@ function UserDetailsModal({ user, onClose }) {
 
 function EditSubscriptionModal({ user, onClose, onSuccess }) {
   const [plans, setPlans] = useState([]);
+  const [affiliates, setAffiliates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState('subscription'); // 'subscription' | 'discount' | 'referral'
   const [formData, setFormData] = useState({
     planId: '',
     status: user.subscription_status || 'active',
@@ -490,27 +492,39 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
     noExpiry: !user.expires_at && user.is_manual,
     isManual: user.is_manual || false,
     adminNotes: '',
+    // Discount settings
+    customDiscount: user.custom_discount_percent || 0,
+    discountType: user.custom_discount_type || 'none', // 'none', 'first_payment', 'custom_months', 'first_year', 'forever'
+    discountMonths: user.custom_discount_months || 1,
+    // Referral settings
+    affiliateId: user.referred_by_affiliate_id || '',
   });
 
   useEffect(() => {
-    loadPlans();
+    loadData();
   }, []);
 
-  const loadPlans = async () => {
+  const loadData = async () => {
     try {
-      const { data } = await api.get('/admin/plans');
-      setPlans(data.plans);
+      const [plansRes, affiliatesRes] = await Promise.all([
+        api.get('/admin/plans'),
+        api.get('/admin/affiliates/list')
+      ]);
+      
+      setPlans(plansRes.data.plans || []);
+      setAffiliates(affiliatesRes.data.affiliates || []);
+      
       // Set current plan if exists
-      if (data.plans.length > 0) {
-        const currentPlan = data.plans.find(p => p.name === user.plan_name || p.name_he === user.plan_name_he);
+      if (plansRes.data.plans?.length > 0) {
+        const currentPlan = plansRes.data.plans.find(p => p.name === user.plan_name || p.name_he === user.plan_name_he);
         if (currentPlan) {
           setFormData(f => ({ ...f, planId: currentPlan.id }));
         } else {
-          setFormData(f => ({ ...f, planId: data.plans[0].id }));
+          setFormData(f => ({ ...f, planId: plansRes.data.plans[0].id }));
         }
       }
     } catch (err) {
-      console.error('Failed to load plans:', err);
+      console.error('Failed to load data:', err);
     } finally {
       setLoading(false);
     }
@@ -525,6 +539,12 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
         expiresAt: formData.noExpiry ? null : (formData.expiresAt || null),
         isManual: formData.isManual,
         adminNotes: formData.adminNotes || null,
+        // Discount
+        customDiscountPercent: formData.discountType !== 'none' ? formData.customDiscount : null,
+        customDiscountType: formData.discountType !== 'none' ? formData.discountType : null,
+        customDiscountMonths: formData.discountType === 'custom_months' ? formData.discountMonths : null,
+        // Referral
+        affiliateId: formData.affiliateId || null,
       });
       onSuccess();
     } catch (err) {
@@ -536,7 +556,7 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold flex items-center gap-2">
             <CreditCard className="w-5 h-5 text-blue-600" />
@@ -547,101 +567,325 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
           </button>
         </div>
 
+        {/* Tabs */}
+        <div className="flex gap-1 mb-4 p-1 bg-gray-100 rounded-xl">
+          <button
+            onClick={() => setActiveTab('subscription')}
+            className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
+              activeTab === 'subscription' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-600 hover:text-gray-800'
+            }`}
+          >
+            מנוי
+          </button>
+          <button
+            onClick={() => setActiveTab('discount')}
+            className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
+              activeTab === 'discount' ? 'bg-white shadow text-green-600 font-medium' : 'text-gray-600 hover:text-gray-800'
+            }`}
+          >
+            הנחה
+          </button>
+          <button
+            onClick={() => setActiveTab('referral')}
+            className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
+              activeTab === 'referral' ? 'bg-white shadow text-purple-600 font-medium' : 'text-gray-600 hover:text-gray-800'
+            }`}
+          >
+            שותף
+          </button>
+        </div>
+
         {loading ? (
-          <div className="py-8 text-center text-gray-500">טוען תוכניות...</div>
+          <div className="py-8 text-center text-gray-500">טוען...</div>
         ) : (
           <div className="space-y-4">
-            {/* Manual Subscription Toggle */}
-            <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.isManual}
-                  onChange={(e) => setFormData(f => ({ ...f, isManual: e.target.checked }))}
-                  className="w-5 h-5 rounded border-purple-300 text-purple-600 focus:ring-purple-500"
-                />
-                <div>
-                  <span className="font-medium text-purple-800">מנוי ידני (ללא תשלום)</span>
-                  <p className="text-xs text-purple-600">המשתמש יקבל גישה מלאה ללא צורך בהזנת כרטיס אשראי</p>
+            {/* Subscription Tab */}
+            {activeTab === 'subscription' && (
+              <>
+                {/* Manual Subscription Toggle */}
+                <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.isManual}
+                      onChange={(e) => setFormData(f => ({ ...f, isManual: e.target.checked }))}
+                      className="w-5 h-5 rounded border-purple-300 text-purple-600 focus:ring-purple-500"
+                    />
+                    <div>
+                      <span className="font-medium text-purple-800">מנוי ידני (ללא תשלום)</span>
+                      <p className="text-xs text-purple-600">המשתמש יקבל גישה מלאה ללא צורך בהזנת כרטיס אשראי</p>
+                    </div>
+                  </label>
                 </div>
-              </label>
-            </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">תוכנית</label>
-              <select
-                value={formData.planId}
-                onChange={(e) => setFormData(f => ({ ...f, planId: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
-              >
-                {plans.map(plan => (
-                  <option key={plan.id} value={plan.id}>
-                    {plan.name_he} {plan.price > 0 ? `- ₪${plan.price}/חודש` : '(חינם)'}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">סטטוס</label>
-              <select
-                value={formData.status}
-                onChange={(e) => setFormData(f => ({ ...f, status: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="active">פעיל</option>
-                <option value="trial">ניסיון</option>
-                <option value="cancelled">בוטל</option>
-                <option value="expired">פג תוקף</option>
-              </select>
-            </div>
-
-            {/* No Expiry Toggle */}
-            <div className="p-3 bg-green-50 border border-green-200 rounded-xl">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.noExpiry}
-                  onChange={(e) => setFormData(f => ({ ...f, noExpiry: e.target.checked, expiresAt: '' }))}
-                  className="w-5 h-5 rounded border-green-300 text-green-600 focus:ring-green-500"
-                />
                 <div>
-                  <span className="font-medium text-green-800">ללא הגבלת זמן</span>
-                  <p className="text-xs text-green-600">המנוי יהיה פעיל לתמיד ללא תאריך תפוגה</p>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">תוכנית</label>
+                  <select
+                    value={formData.planId}
+                    onChange={(e) => setFormData(f => ({ ...f, planId: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
+                  >
+                    {plans.map(plan => (
+                      <option key={plan.id} value={plan.id}>
+                        {plan.name_he} {plan.price > 0 ? `- ₪${plan.price}/חודש` : '(חינם)'}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              </label>
-            </div>
 
-            {!formData.noExpiry && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
-                  <Calendar className="w-4 h-4" />
-                  תאריך סיום
-                </label>
-                <input
-                  type="date"
-                  value={formData.expiresAt}
-                  onChange={(e) => setFormData(f => ({ ...f, expiresAt: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  בתאריך זה המנוי יפוג (למנוי ידני) או יחודש (למנוי רגיל)
-                </p>
-              </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">סטטוס</label>
+                  <select
+                    value={formData.status}
+                    onChange={(e) => setFormData(f => ({ ...f, status: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="active">פעיל</option>
+                    <option value="trial">ניסיון</option>
+                    <option value="cancelled">בוטל</option>
+                    <option value="expired">פג תוקף</option>
+                  </select>
+                </div>
+
+                {/* No Expiry Toggle */}
+                <div className="p-3 bg-green-50 border border-green-200 rounded-xl">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.noExpiry}
+                      onChange={(e) => setFormData(f => ({ ...f, noExpiry: e.target.checked, expiresAt: '' }))}
+                      className="w-5 h-5 rounded border-green-300 text-green-600 focus:ring-green-500"
+                    />
+                    <div>
+                      <span className="font-medium text-green-800">ללא הגבלת זמן</span>
+                      <p className="text-xs text-green-600">המנוי יהיה פעיל לתמיד ללא תאריך תפוגה</p>
+                    </div>
+                  </label>
+                </div>
+
+                {!formData.noExpiry && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                      <Calendar className="w-4 h-4" />
+                      תאריך סיום
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.expiresAt}
+                      onChange={(e) => setFormData(f => ({ ...f, expiresAt: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">הערות אדמין</label>
+                  <textarea
+                    value={formData.adminNotes}
+                    onChange={(e) => setFormData(f => ({ ...f, adminNotes: e.target.value }))}
+                    rows={2}
+                    placeholder="הערות פנימיות (לא יוצגו למשתמש)"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 resize-none"
+                  />
+                </div>
+
+                {/* Quick Actions */}
+                {formData.isManual && (
+                  <div className="pt-2 border-t border-gray-200">
+                    <p className="text-xs text-gray-500 mb-2">פעולות מהירות:</p>
+                    <div className="flex gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const plan = plans.find(p => p.name === 'Pro' || p.name_he?.includes('מקצוע'));
+                          if (plan) setFormData(f => ({ ...f, planId: plan.id, status: 'active', noExpiry: true }));
+                        }}
+                        className="px-3 py-1.5 text-xs bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200"
+                      >
+                        Pro לתמיד
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const plan = plans.find(p => p.name === 'Enterprise' || p.name_he?.includes('ארגונ'));
+                          if (plan) setFormData(f => ({ ...f, planId: plan.id, status: 'active', noExpiry: true }));
+                        }}
+                        className="px-3 py-1.5 text-xs bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200"
+                      >
+                        Enterprise לתמיד
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextMonth = new Date();
+                          nextMonth.setMonth(nextMonth.getMonth() + 1);
+                          setFormData(f => ({ ...f, noExpiry: false, expiresAt: nextMonth.toISOString().split('T')[0] }));
+                        }}
+                        className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                      >
+                        חודש אחד
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextYear = new Date();
+                          nextYear.setFullYear(nextYear.getFullYear() + 1);
+                          setFormData(f => ({ ...f, noExpiry: false, expiresAt: nextYear.toISOString().split('T')[0] }));
+                        }}
+                        className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                      >
+                        שנה אחת
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">הערות אדמין</label>
-              <textarea
-                value={formData.adminNotes}
-                onChange={(e) => setFormData(f => ({ ...f, adminNotes: e.target.value }))}
-                rows={2}
-                placeholder="הערות פנימיות (לא יוצגו למשתמש)"
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 resize-none"
-              />
-            </div>
+            {/* Discount Tab */}
+            {activeTab === 'discount' && (
+              <>
+                <div className="p-3 bg-green-50 border border-green-200 rounded-xl">
+                  <p className="text-sm text-green-800 font-medium mb-2">הנחה מותאמת אישית</p>
+                  <p className="text-xs text-green-600">הגדר הנחה קבועה או זמנית למשתמש זה</p>
+                </div>
 
-            <div className="flex gap-3 pt-2">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">סוג הנחה</label>
+                  <select
+                    value={formData.discountType}
+                    onChange={(e) => setFormData(f => ({ ...f, discountType: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500"
+                  >
+                    <option value="none">ללא הנחה</option>
+                    <option value="first_payment">תשלום ראשון בלבד</option>
+                    <option value="custom_months">מספר חודשים מותאם</option>
+                    <option value="first_year">שנה ראשונה (12 חודשים)</option>
+                    <option value="forever">לתמיד</option>
+                  </select>
+                </div>
+
+                {formData.discountType !== 'none' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">אחוז הנחה</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          max="100"
+                          value={formData.customDiscount}
+                          onChange={(e) => setFormData(f => ({ ...f, customDiscount: parseInt(e.target.value) || 0 }))}
+                          className="w-24 px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500"
+                        />
+                        <span className="text-gray-500">%</span>
+                        <div className="flex gap-1 mr-2">
+                          {[10, 20, 30, 50].map(p => (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => setFormData(f => ({ ...f, customDiscount: p }))}
+                              className={`px-2 py-1 text-xs rounded ${formData.customDiscount === p ? 'bg-green-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
+                            >
+                              {p}%
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {formData.discountType === 'custom_months' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">מספר חודשים</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            max="36"
+                            value={formData.discountMonths}
+                            onChange={(e) => setFormData(f => ({ ...f, discountMonths: parseInt(e.target.value) || 1 }))}
+                            className="w-24 px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500"
+                          />
+                          <span className="text-gray-500">חודשים</span>
+                          <div className="flex gap-1 mr-2">
+                            {[3, 6, 12].map(m => (
+                              <button
+                                key={m}
+                                type="button"
+                                onClick={() => setFormData(f => ({ ...f, discountMonths: m }))}
+                                className={`px-2 py-1 text-xs rounded ${formData.discountMonths === m ? 'bg-green-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
+                              >
+                                {m}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-xl">
+                      <p className="text-sm text-yellow-800">
+                        <strong>תצוגה מקדימה:</strong>{' '}
+                        {formData.customDiscount}% הנחה{' '}
+                        {formData.discountType === 'first_payment' && 'לתשלום הראשון'}
+                        {formData.discountType === 'custom_months' && `ל-${formData.discountMonths} חודשים`}
+                        {formData.discountType === 'first_year' && 'לשנה הראשונה (12 חודשים)'}
+                        {formData.discountType === 'forever' && 'לתמיד'}
+                      </p>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {/* Referral Tab */}
+            {activeTab === 'referral' && (
+              <>
+                <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl">
+                  <p className="text-sm text-purple-800 font-medium mb-2">שיוך לשותף</p>
+                  <p className="text-xs text-purple-600">הגדר שהמשתמש הגיע דרך שותף מסוים</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">שותף מפנה</label>
+                  <select
+                    value={formData.affiliateId}
+                    onChange={(e) => setFormData(f => ({ ...f, affiliateId: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="">ללא שותף</option>
+                    {affiliates.map(aff => (
+                      <option key={aff.id} value={aff.id}>
+                        {aff.user_name || aff.user_email} ({aff.ref_code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {formData.affiliateId && (
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                    <p className="text-sm text-blue-800">
+                      המשתמש יסומן כהגיע דרך השותף שנבחר.
+                      <br />
+                      <span className="text-xs text-blue-600">השותף יקבל נקודות בהתאם להגדרותיו.</span>
+                    </p>
+                  </div>
+                )}
+
+                {user.referred_by_name && (
+                  <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                    <p className="text-sm text-gray-700">
+                      <strong>שותף נוכחי:</strong> {user.referred_by_name}
+                      <br />
+                      <span className="text-xs text-gray-500">{user.referred_by_email}</span>
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Save Button - Always visible */}
+            <div className="flex gap-3 pt-4 border-t border-gray-200">
               <button
                 onClick={onClose}
                 className="flex-1 px-4 py-2 border border-gray-200 rounded-xl hover:bg-gray-50"
@@ -656,57 +900,6 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
                 {saving ? 'שומר...' : 'שמירה'}
               </button>
             </div>
-
-            {/* Quick Actions */}
-            {formData.isManual && (
-              <div className="pt-2 border-t border-gray-200">
-                <p className="text-xs text-gray-500 mb-2">פעולות מהירות:</p>
-                <div className="flex gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const plan = plans.find(p => p.name === 'Pro' || p.name_he?.includes('מקצוע'));
-                      if (plan) setFormData(f => ({ ...f, planId: plan.id, status: 'active', noExpiry: true }));
-                    }}
-                    className="px-3 py-1.5 text-xs bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200"
-                  >
-                    Pro לתמיד
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const plan = plans.find(p => p.name === 'Enterprise' || p.name_he?.includes('ארגונ'));
-                      if (plan) setFormData(f => ({ ...f, planId: plan.id, status: 'active', noExpiry: true }));
-                    }}
-                    className="px-3 py-1.5 text-xs bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200"
-                  >
-                    Enterprise לתמיד
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextMonth = new Date();
-                      nextMonth.setMonth(nextMonth.getMonth() + 1);
-                      setFormData(f => ({ ...f, noExpiry: false, expiresAt: nextMonth.toISOString().split('T')[0] }));
-                    }}
-                    className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-                  >
-                    חודש אחד
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextYear = new Date();
-                      nextYear.setFullYear(nextYear.getFullYear() + 1);
-                      setFormData(f => ({ ...f, noExpiry: false, expiresAt: nextYear.toISOString().split('T')[0] }));
-                    }}
-                    className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-                  >
-                    שנה אחת
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>
