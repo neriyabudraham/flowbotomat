@@ -1383,9 +1383,18 @@ async function cancelSubscription(req, res) {
     
     let message = 'המנוי בוטל';
     
+    // Determine if this is a TRIAL (unpaid) or PAID subscription
+    // Trial = status is 'trial' OR is_trial is true OR no real payment was made
+    const isTrial = subscription.status === 'trial' || subscription.is_trial === true;
+    
+    // Check if user has actually paid (has a real expires_at from payment, not just trial_ends_at)
+    const hasPaidTime = subscription.expires_at && !subscription.is_trial && subscription.status !== 'trial';
+    
+    console.log(`[Payment] Cancel check - status: ${subscription.status}, is_trial: ${subscription.is_trial}, expires_at: ${subscription.expires_at}, trial_ends_at: ${subscription.trial_ends_at}`);
+    
     // TRIAL subscriptions: disconnect immediately (no payment was made)
     // PAID subscriptions: continue until expires_at
-    if (subscription.status === 'trial') {
+    if (isTrial && !hasPaidTime) {
       // Trial = no grace period, disconnect immediately
       await db.query(
         `UPDATE whatsapp_connections 
@@ -1403,7 +1412,7 @@ async function cancelSubscription(req, res) {
       
       message = 'המנוי בוטל. מכיוון שהיית בתקופת ניסיון, השירות הופסק מיידית.';
       console.log(`[Payment] Trial subscription cancelled - disconnected immediately for user ${userId}`);
-    } else {
+    } else if (hasPaidTime) {
       // Paid subscription - continue until end of paid period
       const endDate = subscription.expires_at;
       if (endDate) {
@@ -1411,6 +1420,24 @@ async function cancelSubscription(req, res) {
         message = `המנוי בוטל. השירות ימשיך לפעול עד ${formattedDate}`;
       }
       console.log(`[Payment] Paid subscription cancelled - service continues until ${subscription.expires_at} for user ${userId}`);
+    } else {
+      // Edge case: unknown state - disconnect to be safe
+      await db.query(
+        `UPDATE whatsapp_connections 
+         SET status = 'disconnected', updated_at = NOW()
+         WHERE user_id = $1 AND status = 'connected'`,
+        [userId]
+      );
+      
+      await db.query(
+        `UPDATE bots 
+         SET is_active = false, updated_at = NOW()
+         WHERE user_id = $1`,
+        [userId]
+      );
+      
+      message = 'המנוי בוטל והשירות הופסק.';
+      console.log(`[Payment] Unknown subscription state cancelled - disconnected for safety for user ${userId}`);
     }
     
     res.json({ 
@@ -1620,19 +1647,30 @@ async function removeAllPaymentMethods(req, res) {
         [userId]
       );
       
+      // Determine if this is a TRIAL (unpaid) or PAID subscription
+      const isTrial = subscription.status === 'trial' || subscription.is_trial === true;
+      const hasPaidTime = subscription.expires_at && !subscription.is_trial && subscription.status !== 'trial';
+      
+      console.log(`[Payment] Remove payment check - status: ${subscription.status}, is_trial: ${subscription.is_trial}, expires_at: ${subscription.expires_at}`);
+      
       // TRIAL subscriptions: removing payment method = immediate disconnect
       // Trial is only valid WITH a payment method on file
-      if (subscription.status === 'trial') {
+      if (isTrial && !hasPaidTime) {
         disconnectImmediately = true;
         message = 'פרטי האשראי הוסרו. מכיוון שאתה בתקופת ניסיון, השירות נותק מיידית.';
         console.log(`[Payment] Trial subscription - disconnecting immediately after payment removal`);
-      } else {
+      } else if (hasPaidTime) {
         // PAID subscriptions: service continues until end of paid period
         const endDate = subscription.expires_at;
         if (endDate) {
           const formattedDate = new Date(endDate).toLocaleDateString('he-IL');
           message = `המנוי בוטל. השירות ימשיך לפעול עד סוף תקופת החיוב (${formattedDate})`;
         }
+      } else {
+        // Edge case: unknown state - disconnect to be safe
+        disconnectImmediately = true;
+        message = 'פרטי האשראי הוסרו והשירות הופסק.';
+        console.log(`[Payment] Unknown subscription state - disconnecting for safety`);
       }
       
     } else if (connectionResult.rows.length > 0) {
