@@ -33,6 +33,9 @@ async function createCustomer({ name, phone, email, citizenId, companyNumber, ex
   try {
     validateCredentials(credentials);
     
+    // Debug: log credentials being used (mask API key)
+    console.log('[Sumit] Using credentials - CompanyID:', credentials.CompanyID, 'APIKey:', credentials.APIKey ? `${credentials.APIKey.substring(0, 8)}...` : 'MISSING');
+    
     const requestBody = {
       Credentials: {
         CompanyID: credentials.CompanyID,
