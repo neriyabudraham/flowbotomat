@@ -61,6 +61,11 @@ async function createCustomer({ name, phone, email, citizenId, companyNumber, ex
     
     console.log('[Sumit] Creating customer:', name);
     
+    // DEBUG: Log full request body
+    const safeRequestBody = JSON.parse(JSON.stringify(requestBody));
+    safeRequestBody.Credentials.APIKey = safeRequestBody.Credentials.APIKey?.substring(0, 8) + '...';
+    console.log('[Sumit] createCustomer REQUEST BODY:', JSON.stringify(safeRequestBody, null, 2));
+    
     const response = await axios.post(
       `${SUMIT_BASE_URL}/accounting/customers/create/`,
       requestBody,
@@ -398,6 +403,11 @@ async function chargeRecurring({
     const startDateText = formattedStartDate ? `, Start: ${formattedStartDate}` : '';
     console.log(`[Sumit] Creating recurring charge - Customer: ${customerId}, Amount: ${amount} ${periodText}, Duration: ${durationMonths} months${startDateText}`);
     
+    // DEBUG: Log full request body
+    const safeRequestBody = JSON.parse(JSON.stringify(requestBody));
+    safeRequestBody.Credentials.APIKey = safeRequestBody.Credentials.APIKey?.substring(0, 8) + '...';
+    console.log('[Sumit] chargeRecurring REQUEST BODY:', JSON.stringify(safeRequestBody, null, 2));
+    
     const response = await axios.post(
       `${SUMIT_BASE_URL}/billing/recurring/charge/`,
       requestBody,
@@ -633,6 +643,17 @@ async function setPaymentMethodWithCard({
     };
     
     console.log('[Sumit] Setting payment method with card for customer:', customerId || 'new customer');
+    
+    // DEBUG: Log full request body (mask card number)
+    const safeRequestBody = JSON.parse(JSON.stringify(requestBody));
+    safeRequestBody.Credentials.APIKey = safeRequestBody.Credentials.APIKey?.substring(0, 8) + '...';
+    if (safeRequestBody.PaymentMethod?.CreditCard_Number) {
+      safeRequestBody.PaymentMethod.CreditCard_Number = '****' + safeRequestBody.PaymentMethod.CreditCard_Number.slice(-4);
+    }
+    if (safeRequestBody.PaymentMethod?.CreditCard_CVV) {
+      safeRequestBody.PaymentMethod.CreditCard_CVV = '***';
+    }
+    console.log('[Sumit] setPaymentMethodWithCard REQUEST BODY:', JSON.stringify(safeRequestBody, null, 2));
     
     const response = await axios.post(
       `${SUMIT_BASE_URL}/billing/paymentmethods/setforcustomer/`,
