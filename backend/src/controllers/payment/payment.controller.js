@@ -1,7 +1,5 @@
 const db = require('../../config/database');
 const sumitService = require('../../services/payment/sumit.service');
-const { getWahaCredentials } = require('../../services/settings/system.service');
-const wahaSession = require('../../services/waha/session.service');
 
 /**
  * Save payment method
@@ -1382,15 +1380,42 @@ async function cancelSubscription(req, res) {
       RETURNING *
     `, [userId, sumitCancelled]);
     
-    const endDate = subscription.expires_at || subscription.trial_ends_at;
-    const formattedDate = endDate ? new Date(endDate).toLocaleDateString('he-IL') : null;
+    let message = 'המנוי בוטל';
+    
+    // TRIAL subscriptions: disconnect immediately (no payment was made)
+    // PAID subscriptions: continue until expires_at
+    if (subscription.status === 'trial') {
+      // Trial = no grace period, disconnect immediately
+      await db.query(
+        `UPDATE whatsapp_connections 
+         SET status = 'disconnected', updated_at = NOW()
+         WHERE user_id = $1 AND status = 'connected'`,
+        [userId]
+      );
+      
+      await db.query(
+        `UPDATE bots 
+         SET is_active = false, updated_at = NOW()
+         WHERE user_id = $1`,
+        [userId]
+      );
+      
+      message = 'המנוי בוטל. מכיוון שהיית בתקופת ניסיון, השירות הופסק מיידית.';
+      console.log(`[Payment] Trial subscription cancelled - disconnected immediately for user ${userId}`);
+    } else {
+      // Paid subscription - continue until end of paid period
+      const endDate = subscription.expires_at;
+      if (endDate) {
+        const formattedDate = new Date(endDate).toLocaleDateString('he-IL');
+        message = `המנוי בוטל. השירות ימשיך לפעול עד ${formattedDate}`;
+      }
+      console.log(`[Payment] Paid subscription cancelled - service continues until ${subscription.expires_at} for user ${userId}`);
+    }
     
     res.json({ 
       success: true, 
       subscription: result.rows[0],
-      message: formattedDate 
-        ? `המנוי בוטל. השירות ימשיך לפעול עד ${formattedDate}`
-        : 'המנוי בוטל'
+      message
     });
   } catch (error) {
     console.error('[Payment] Cancel subscription error:', error);
@@ -1615,30 +1640,9 @@ async function removeAllPaymentMethods(req, res) {
       message = 'פרטי האשראי הוסרו והשירות נותק';
     }
     
-    // Disconnect immediately if needed
+    // Disconnect immediately if needed (trial or no subscription)
+    // NOTE: We only mark as disconnected in DB, we do NOT delete the WAHA session
     if (disconnectImmediately) {
-      // Get connection details to properly disconnect WAHA
-      const connDetails = await db.query(
-        `SELECT id, connection_type, session_name FROM whatsapp_connections 
-         WHERE user_id = $1 AND status = 'connected'`,
-        [userId]
-      );
-      
-      // Delete WAHA session for managed connections
-      for (const conn of connDetails.rows) {
-        if (conn.connection_type === 'managed' && conn.session_name) {
-          try {
-            const { baseUrl, apiKey } = getWahaCredentials();
-            if (baseUrl && apiKey) {
-              await wahaSession.deleteSession(baseUrl, apiKey, conn.session_name);
-              console.log(`[Payment] Deleted WAHA session: ${conn.session_name}`);
-            }
-          } catch (wahaErr) {
-            console.error(`[Payment] Failed to delete WAHA session ${conn.session_name}:`, wahaErr.message);
-          }
-        }
-      }
-      
       // Mark connection as disconnected in DB
       await db.query(
         `UPDATE whatsapp_connections 
@@ -1654,6 +1658,8 @@ async function removeAllPaymentMethods(req, res) {
          WHERE user_id = $1`,
         [userId]
       );
+      
+      console.log(`[Payment] Marked WhatsApp as disconnected and disabled bots for user ${userId}`);
     }
     
     console.log(`[Payment] Removed payment methods for user ${userId}. Immediate disconnect: ${disconnectImmediately}`);
