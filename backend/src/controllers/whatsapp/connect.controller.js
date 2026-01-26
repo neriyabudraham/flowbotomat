@@ -29,13 +29,21 @@ async function createManaged(req, res) {
   try {
     const userId = req.user.id;
     
-    // Check if user has a payment method (required for WhatsApp connection)
+    // Check if user has a manual subscription (bypasses payment requirement)
+    const manualSubCheck = await pool.query(
+      `SELECT id FROM user_subscriptions WHERE user_id = $1 AND is_manual = true AND status = 'active'`,
+      [userId]
+    );
+    
+    const hasManualSubscription = manualSubCheck.rows.length > 0;
+    
+    // Check if user has a payment method (required for WhatsApp connection, unless manual subscription)
     const paymentCheck = await pool.query(
       'SELECT id FROM user_payment_methods WHERE user_id = $1 AND is_active = true LIMIT 1',
       [userId]
     );
     
-    if (paymentCheck.rows.length === 0) {
+    if (paymentCheck.rows.length === 0 && !hasManualSubscription) {
       return res.status(402).json({ 
         error: 'נדרש להזין פרטי כרטיס אשראי לפני חיבור WhatsApp. לא יבוצע חיוב בתקופת הניסיון.',
         code: 'PAYMENT_REQUIRED',
@@ -238,13 +246,21 @@ async function createExternal(req, res) {
       return res.status(400).json({ error: 'נדרשים כל השדות' });
     }
     
-    // Check if user has a payment method (required even for external)
+    // Check if user has a manual subscription (bypasses payment requirement)
+    const manualSubCheck = await pool.query(
+      `SELECT id FROM user_subscriptions WHERE user_id = $1 AND is_manual = true AND status = 'active'`,
+      [userId]
+    );
+    
+    const hasManualSubscription = manualSubCheck.rows.length > 0;
+    
+    // Check if user has a payment method (required even for external, unless manual subscription)
     const paymentCheck = await pool.query(
       'SELECT id FROM user_payment_methods WHERE user_id = $1 AND is_active = true LIMIT 1',
       [userId]
     );
     
-    if (paymentCheck.rows.length === 0) {
+    if (paymentCheck.rows.length === 0 && !hasManualSubscription) {
       return res.status(402).json({ 
         error: 'נדרש להזין פרטי כרטיס אשראי גם לחיבור WAHA חיצוני. ניתן להשתמש בתוכנית החינמית.',
         code: 'PAYMENT_REQUIRED'
