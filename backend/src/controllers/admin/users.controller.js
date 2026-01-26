@@ -50,7 +50,9 @@ async function getUsers(req, res) {
               us.expires_at,
               us.started_at,
               us.trial_ends_at,
+              us.custom_discount_mode,
               us.referral_discount_percent as custom_discount_percent,
+              us.custom_fixed_price,
               us.referral_discount_type as custom_discount_type,
               us.referral_months_remaining as custom_discount_months,
               sp.name as plan_name,
@@ -248,7 +250,7 @@ async function updateUserSubscription(req, res) {
     const { 
       planId, status, expiresAt, isManual, adminNotes,
       // Discount settings
-      customDiscountPercent, customDiscountType, customDiscountMonths,
+      customDiscountMode, customDiscountPercent, customFixedPrice, customDiscountType, customDiscountMonths,
       // Referral settings
       affiliateId
     } = req.body;
@@ -270,12 +272,15 @@ async function updateUserSubscription(req, res) {
       const result = await db.query(`
         INSERT INTO user_subscriptions (
           user_id, plan_id, status, expires_at, is_manual, admin_notes,
-          referral_discount_percent, referral_discount_type, referral_months_remaining
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          custom_discount_mode, referral_discount_percent, custom_fixed_price, 
+          referral_discount_type, referral_months_remaining
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         RETURNING *
       `, [
         id, planId, status || 'active', expiresAt || null, isManual !== false, adminNotes || null,
-        customDiscountPercent || null,
+        customDiscountMode || null,
+        customDiscountMode === 'percent' ? customDiscountPercent : null,
+        customDiscountMode === 'fixed_price' ? customFixedPrice : null,
         customDiscountType || null,
         customDiscountType === 'custom_months' ? customDiscountMonths : 
           customDiscountType === 'first_year' ? 12 :
@@ -319,9 +324,28 @@ async function updateUserSubscription(req, res) {
     }
     
     // Discount settings
-    if (customDiscountPercent !== undefined) {
-      updates.push(`referral_discount_percent = $${paramIndex++}`);
-      values.push(customDiscountPercent);
+    if (customDiscountMode !== undefined) {
+      updates.push(`custom_discount_mode = $${paramIndex++}`);
+      values.push(customDiscountMode);
+      
+      // Set the appropriate value based on mode
+      if (customDiscountMode === 'percent') {
+        updates.push(`referral_discount_percent = $${paramIndex++}`);
+        values.push(customDiscountPercent || 0);
+        updates.push(`custom_fixed_price = $${paramIndex++}`);
+        values.push(null);
+      } else if (customDiscountMode === 'fixed_price') {
+        updates.push(`custom_fixed_price = $${paramIndex++}`);
+        values.push(customFixedPrice || 0);
+        updates.push(`referral_discount_percent = $${paramIndex++}`);
+        values.push(null);
+      } else {
+        // Clear both if mode is null
+        updates.push(`referral_discount_percent = $${paramIndex++}`);
+        values.push(null);
+        updates.push(`custom_fixed_price = $${paramIndex++}`);
+        values.push(null);
+      }
     }
     if (customDiscountType !== undefined) {
       updates.push(`referral_discount_type = $${paramIndex++}`);

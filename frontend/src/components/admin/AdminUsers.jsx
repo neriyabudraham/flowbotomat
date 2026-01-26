@@ -493,7 +493,9 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
     isManual: user.is_manual || false,
     adminNotes: '',
     // Discount settings
+    discountMode: user.custom_discount_mode || 'percent', // 'percent' or 'fixed_price'
     customDiscount: user.custom_discount_percent || 0,
+    fixedPrice: user.custom_fixed_price || 0,
     discountType: user.custom_discount_type || 'none', // 'none', 'first_payment', 'custom_months', 'first_year', 'forever'
     discountMonths: user.custom_discount_months || 1,
     // Referral settings
@@ -540,7 +542,9 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
         isManual: formData.isManual,
         adminNotes: formData.adminNotes || null,
         // Discount
-        customDiscountPercent: formData.discountType !== 'none' ? formData.customDiscount : null,
+        customDiscountMode: formData.discountType !== 'none' ? formData.discountMode : null,
+        customDiscountPercent: formData.discountType !== 'none' && formData.discountMode === 'percent' ? formData.customDiscount : null,
+        customFixedPrice: formData.discountType !== 'none' && formData.discountMode === 'fixed_price' ? formData.fixedPrice : null,
         customDiscountType: formData.discountType !== 'none' ? formData.discountType : null,
         customDiscountMonths: formData.discountType === 'custom_months' ? formData.discountMonths : null,
         // Referral
@@ -747,11 +751,11 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
               <>
                 <div className="p-3 bg-green-50 border border-green-200 rounded-xl">
                   <p className="text-sm text-green-800 font-medium mb-2">הנחה מותאמת אישית</p>
-                  <p className="text-xs text-green-600">הגדר הנחה קבועה או זמנית למשתמש זה</p>
+                  <p className="text-xs text-green-600">הגדר הנחה קבועה או מחיר קבוע למשתמש זה</p>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">סוג הנחה</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">תקופת הנחה</label>
                   <select
                     value={formData.discountType}
                     onChange={(e) => setFormData(f => ({ ...f, discountType: e.target.value }))}
@@ -767,32 +771,88 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
 
                 {formData.discountType !== 'none' && (
                   <>
+                    {/* Discount Mode Toggle */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">אחוז הנחה</label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min="1"
-                          max="100"
-                          value={formData.customDiscount}
-                          onChange={(e) => setFormData(f => ({ ...f, customDiscount: parseInt(e.target.value) || 0 }))}
-                          className="w-24 px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500"
-                        />
-                        <span className="text-gray-500">%</span>
-                        <div className="flex gap-1 mr-2">
-                          {[10, 20, 30, 50].map(p => (
-                            <button
-                              key={p}
-                              type="button"
-                              onClick={() => setFormData(f => ({ ...f, customDiscount: p }))}
-                              className={`px-2 py-1 text-xs rounded ${formData.customDiscount === p ? 'bg-green-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
-                            >
-                              {p}%
-                            </button>
-                          ))}
-                        </div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">סוג הנחה</label>
+                      <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
+                        <button
+                          type="button"
+                          onClick={() => setFormData(f => ({ ...f, discountMode: 'percent' }))}
+                          className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
+                            formData.discountMode === 'percent' ? 'bg-white shadow text-green-600 font-medium' : 'text-gray-600'
+                          }`}
+                        >
+                          אחוז הנחה (%)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFormData(f => ({ ...f, discountMode: 'fixed_price' }))}
+                          className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
+                            formData.discountMode === 'fixed_price' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-600'
+                          }`}
+                        >
+                          מחיר קבוע (₪)
+                        </button>
                       </div>
                     </div>
+
+                    {formData.discountMode === 'percent' ? (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">אחוז הנחה</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            max="100"
+                            value={formData.customDiscount}
+                            onChange={(e) => setFormData(f => ({ ...f, customDiscount: parseInt(e.target.value) || 0 }))}
+                            className="w-24 px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500"
+                          />
+                          <span className="text-gray-500">%</span>
+                          <div className="flex gap-1 mr-2">
+                            {[10, 20, 30, 50].map(p => (
+                              <button
+                                key={p}
+                                type="button"
+                                onClick={() => setFormData(f => ({ ...f, customDiscount: p }))}
+                                className={`px-2 py-1 text-xs rounded ${formData.customDiscount === p ? 'bg-green-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
+                              >
+                                {p}%
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">מחיר קבוע לחודש</label>
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-500">₪</span>
+                          <input
+                            type="number"
+                            min="0"
+                            max="1000"
+                            value={formData.fixedPrice}
+                            onChange={(e) => setFormData(f => ({ ...f, fixedPrice: parseInt(e.target.value) || 0 }))}
+                            className="w-28 px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
+                          />
+                          <span className="text-gray-500">/חודש</span>
+                          <div className="flex gap-1 mr-2">
+                            {[0, 29, 49, 69].map(p => (
+                              <button
+                                key={p}
+                                type="button"
+                                onClick={() => setFormData(f => ({ ...f, fixedPrice: p }))}
+                                className={`px-2 py-1 text-xs rounded ${formData.fixedPrice === p ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
+                              >
+                                {p === 0 ? 'חינם' : `₪${p}`}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">המשתמש ישלם מחיר זה במקום המחיר הרגיל של התוכנית</p>
+                      </div>
+                    )}
 
                     {formData.discountType === 'custom_months' && (
                       <div>
@@ -826,7 +886,12 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
                     <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-xl">
                       <p className="text-sm text-yellow-800">
                         <strong>תצוגה מקדימה:</strong>{' '}
-                        {formData.customDiscount}% הנחה{' '}
+                        {formData.discountMode === 'percent' 
+                          ? `${formData.customDiscount}% הנחה`
+                          : formData.fixedPrice === 0 
+                            ? 'חינם (₪0)'
+                            : `מחיר קבוע ₪${formData.fixedPrice}/חודש`
+                        }{' '}
                         {formData.discountType === 'first_payment' && 'לתשלום הראשון'}
                         {formData.discountType === 'custom_months' && `ל-${formData.discountMonths} חודשים`}
                         {formData.discountType === 'first_year' && 'לשנה הראשונה (12 חודשים)'}
