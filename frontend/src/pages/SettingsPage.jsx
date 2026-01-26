@@ -59,7 +59,7 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, logout, fetchMe } = useAuthStore();
-  const [profile, setProfile] = useState({ name: '', language: 'he', avatar_url: null, google_id: null, has_password: true });
+  const [profile, setProfile] = useState({ name: '', language: 'he', avatar_url: null, google_id: null, has_password: true, receipt_email: '' });
   const [passwords, setPasswords] = useState({ current: '', new: '', confirm: '' });
   const [message, setMessage] = useState({ type: '', text: '' });
   const [isLoading, setIsLoading] = useState(false);
@@ -113,7 +113,8 @@ export default function SettingsPage() {
             language: data.profile.language || 'he',
             avatar_url: data.profile.avatar_url || null,
             google_id: data.profile.google_id || null,
-            has_password: data.profile.has_password !== false
+            has_password: data.profile.has_password !== false,
+            receipt_email: data.profile.receipt_email || ''
           });
     } catch (err) {
       console.error(err);
@@ -441,6 +442,21 @@ export default function SettingsPage() {
                           className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all"
                         />
                       </div>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <CreditCard className="w-4 h-4 inline ml-1 text-gray-400" />
+                        אימייל לקבלות
+                      </label>
+                      <input
+                        type="email"
+                        value={profile.receipt_email || ''}
+                        onChange={(e) => setProfile({ ...profile, receipt_email: e.target.value })}
+                        placeholder={user?.email || 'השאר ריק לשימוש באימייל הראשי'}
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">קבלות על תשלומים יישלחו לכתובת זו. השאר ריק לשימוש באימייל הראשי.</p>
                     </div>
                     
                     <div>

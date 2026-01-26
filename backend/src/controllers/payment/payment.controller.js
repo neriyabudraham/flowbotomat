@@ -44,9 +44,9 @@ async function savePaymentMethod(req, res) {
       });
     }
     
-    // Get user info
+    // Get user info including receipt_email
     const userResult = await db.query(
-      'SELECT id, name, email FROM users WHERE id = $1',
+      'SELECT id, name, email, receipt_email FROM users WHERE id = $1',
       [userId]
     );
     
@@ -54,6 +54,7 @@ async function savePaymentMethod(req, res) {
       return res.status(404).json({ error: 'משתמש לא נמצא' });
     }
     const user = userResult.rows[0];
+    const receiptEmail = user.receipt_email || user.email; // Use receipt_email if set, otherwise default email
     
     // Check if user already has a Sumit customer ID
     let existingSumitCustomerId = null;
@@ -68,10 +69,10 @@ async function savePaymentMethod(req, res) {
     
     // If no existing customer, create one first
     if (!existingSumitCustomerId) {
-      console.log(`[Payment] Creating new Sumit customer for user ${userId}`);
+      console.log(`[Payment] Creating new Sumit customer for user ${userId}, receipt email: ${receiptEmail}`);
       const customerResult = await sumitService.createCustomer({
         name: cardHolderName || user.name || user.email,
-        email: user.email,
+        email: receiptEmail, // Use receipt_email for receipts
         citizenId: citizenId,
         companyNumber: companyNumber,
         externalId: `user_${userId}`,
@@ -98,7 +99,7 @@ async function savePaymentMethod(req, res) {
         singleUseToken: singleUseToken,
         customerInfo: {
           name: cardHolderName || user.name || user.email,
-          email: user.email,
+          email: receiptEmail, // Use receipt_email for receipts
           companyNumber: companyNumber,
           externalId: `user_${userId}`,
         }
@@ -115,7 +116,7 @@ async function savePaymentMethod(req, res) {
         citizenId: citizenId,
         customerInfo: {
           name: cardHolderName || user.name || user.email,
-          email: user.email,
+          email: receiptEmail, // Use receipt_email for receipts
           companyNumber: companyNumber,
           externalId: `user_${userId}`,
         }

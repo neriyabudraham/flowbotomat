@@ -9,7 +9,7 @@ async function getProfile(req, res) {
     const userId = req.user.id;
     
     const result = await pool.query(
-      `SELECT id, email, name, language, created_at, avatar_url, google_id,
+      `SELECT id, email, name, language, created_at, avatar_url, google_id, receipt_email,
               CASE WHEN password_hash IS NOT NULL THEN true ELSE false END as has_password
        FROM users WHERE id = $1`,
       [userId]
@@ -32,16 +32,17 @@ async function getProfile(req, res) {
 async function updateProfile(req, res) {
   try {
     const userId = req.user.id;
-    const { name, language } = req.body;
+    const { name, language, receipt_email } = req.body;
     
     const result = await pool.query(
       `UPDATE users 
        SET name = COALESCE($1, name), 
            language = COALESCE($2, language),
+           receipt_email = $3,
            updated_at = NOW()
-       WHERE id = $3
-       RETURNING id, email, name, language`,
-      [name, language, userId]
+       WHERE id = $4
+       RETURNING id, email, name, language, receipt_email`,
+      [name, language, receipt_email || null, userId]
     );
     
     res.json({ profile: result.rows[0] });
