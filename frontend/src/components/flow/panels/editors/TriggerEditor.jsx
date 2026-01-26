@@ -6,12 +6,14 @@ const triggerTypes = [
   { id: 'any_message', label: 'כל הודעה נכנסת', icon: '💬', category: 'message' },
   { id: 'message_content', label: 'תוכן ההודעה', icon: '🔍', hasValue: true, hasOperator: true, category: 'message' },
   { id: 'first_message', label: 'הודעה ראשונה מאיש קשר', icon: '👋', category: 'message' },
+  { id: 'no_message_in', label: 'לא שלח הודעה ב-X זמן', icon: '🔕', hasTimeValue: true, category: 'message' },
   { id: 'contact_field', label: 'שדה באיש קשר', icon: '👤', hasValue: true, hasOperator: true, hasField: true, category: 'contact' },
   { id: 'has_tag', label: 'יש תגית', icon: '🏷️', hasValue: true, category: 'contact' },
   { id: 'no_tag', label: 'אין תגית', icon: '🏷️', hasValue: true, category: 'contact' },
   { id: 'contact_added', label: 'איש קשר נוסף', icon: '➕', category: 'event' },
   { id: 'tag_added', label: 'תגית נוספה', icon: '🏷️', hasValue: true, category: 'event' },
   { id: 'tag_removed', label: 'תגית הוסרה', icon: '🏷️', hasValue: true, category: 'event' },
+  { id: 'not_triggered_in', label: 'לא הופעל עבור המשתמש ב-X זמן', icon: '⏰', hasTimeValue: true, category: 'behavior' },
 ];
 
 const operators = [
@@ -37,7 +39,6 @@ const contactFields = [
 export default function TriggerEditor({ data, onUpdate }) {
   // Groups of conditions - each group is OR, conditions within group are AND
   const groups = data.triggerGroups || [];
-  const [showAdvanced, setShowAdvanced] = useState(true); // Show advanced settings by default
   const [expandedGroups, setExpandedGroups] = useState(new Set(groups[0]?.id ? [groups[0].id] : []));
   const [availableTags, setAvailableTags] = useState([]);
   const [loadingTags, setLoadingTags] = useState(false);
@@ -143,6 +144,16 @@ export default function TriggerEditor({ data, onUpdate }) {
             i === conditionIndex ? { ...c, [field]: value } : c
           )
         };
+      }
+      return g;
+    });
+    onUpdate({ triggerGroups: newGroups });
+  };
+
+  const updateGroupSetting = (groupId, field, value) => {
+    const newGroups = groups.map(g => {
+      if (g.id === groupId) {
+        return { ...g, [field]: value };
       }
       return g;
     });
@@ -263,7 +274,35 @@ export default function TriggerEditor({ data, onUpdate }) {
                                 <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
                               ))}
                             </optgroup>
+                            <optgroup label="התנהגות">
+                              {triggerTypes.filter(t => t.category === 'behavior').map(t => (
+                                <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
+                              ))}
+                            </optgroup>
                           </select>
+                          
+                          {/* Time value for inactivity conditions */}
+                          {triggerInfo.hasTimeValue && (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                value={condition.timeValue || 1}
+                                onChange={(e) => updateCondition(group.id, conditionIndex, 'timeValue', parseInt(e.target.value) || 1)}
+                                min={1}
+                                className="w-20 px-3 py-3 bg-white border border-gray-200 rounded-xl text-sm text-center focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                              />
+                              <select
+                                value={condition.timeUnit || 'days'}
+                                onChange={(e) => updateCondition(group.id, conditionIndex, 'timeUnit', e.target.value)}
+                                className="flex-1 px-3 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                              >
+                                <option value="minutes">דקות</option>
+                                <option value="hours">שעות</option>
+                                <option value="days">ימים</option>
+                                <option value="weeks">שבועות</option>
+                              </select>
+                            </div>
+                          )}
                           
                           {/* Field selector for contact_field */}
                           {triggerInfo.hasField && (
@@ -414,6 +453,102 @@ export default function TriggerEditor({ data, onUpdate }) {
                     <Plus className="w-4 h-4" />
                     הוסף תנאי (וגם)
                   </button>
+                  
+                  {/* Group-specific behavior settings */}
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-sm">⚙️</span>
+                      <span className="text-sm font-medium text-gray-700">הגדרות לקבוצה זו</span>
+                    </div>
+                    
+                    <div className="space-y-3 bg-white rounded-lg p-3 border border-gray-100">
+                      {/* Once per user */}
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={group.oncePerUser || false}
+                          onChange={(e) => updateGroupSetting(group.id, 'oncePerUser', e.target.checked)}
+                          className="w-4 h-4 rounded border-gray-300 text-purple-600"
+                        />
+                        <div>
+                          <div className="text-sm font-medium text-gray-700">פעם אחת ליוזר</div>
+                          <div className="text-xs text-gray-500">קבוצת תנאים זו תרוץ פעם אחת בלבד לכל איש קשר</div>
+                        </div>
+                      </label>
+
+                      {/* Cooldown */}
+                      <div>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={group.hasCooldown || false}
+                            onChange={(e) => updateGroupSetting(group.id, 'hasCooldown', e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-300 text-purple-600"
+                          />
+                          <div>
+                            <div className="text-sm font-medium text-gray-700">לא להפעיל שוב במשך...</div>
+                            <div className="text-xs text-gray-500">מונע הפעלה חוזרת לאותו משתמש</div>
+                          </div>
+                        </label>
+                        
+                        {group.hasCooldown && (
+                          <div className="mt-2 mr-7 flex items-center gap-2">
+                            <input
+                              type="number"
+                              value={group.cooldownValue || 1}
+                              onChange={(e) => updateGroupSetting(group.id, 'cooldownValue', parseInt(e.target.value) || 1)}
+                              min={1}
+                              className="w-16 px-2 py-1.5 border border-gray-200 rounded-lg text-sm text-center"
+                            />
+                            <select
+                              value={group.cooldownUnit || 'days'}
+                              onChange={(e) => updateGroupSetting(group.id, 'cooldownUnit', e.target.value)}
+                              className="px-2 py-1.5 border border-gray-200 rounded-lg text-sm"
+                            >
+                              <option value="minutes">דקות</option>
+                              <option value="hours">שעות</option>
+                              <option value="days">ימים</option>
+                              <option value="weeks">שבועות</option>
+                            </select>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Active hours */}
+                      <div>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={group.hasActiveHours || false}
+                            onChange={(e) => updateGroupSetting(group.id, 'hasActiveHours', e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-300 text-purple-600"
+                          />
+                          <div>
+                            <div className="text-sm font-medium text-gray-700">שעות פעילות</div>
+                            <div className="text-xs text-gray-500">קבוצה זו תפעל רק בשעות מסוימות</div>
+                          </div>
+                        </label>
+                        
+                        {group.hasActiveHours && (
+                          <div className="mt-2 mr-7 flex items-center gap-2">
+                            <input
+                              type="time"
+                              value={group.activeFrom || '09:00'}
+                              onChange={(e) => updateGroupSetting(group.id, 'activeFrom', e.target.value)}
+                              className="px-2 py-1.5 border border-gray-200 rounded-lg text-sm"
+                            />
+                            <span className="text-xs text-gray-500">עד</span>
+                            <input
+                              type="time"
+                              value={group.activeTo || '18:00'}
+                              onChange={(e) => updateGroupSetting(group.id, 'activeTo', e.target.value)}
+                              className="px-2 py-1.5 border border-gray-200 rounded-lg text-sm"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -436,25 +571,15 @@ export default function TriggerEditor({ data, onUpdate }) {
         </div>
       )}
 
-      {/* Advanced Settings - Always visible */}
-      <div className="border-t border-gray-200 pt-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
+      {/* Global Settings - Only mark as read */}
+      {groups.length > 0 && (
+        <div className="border-t border-gray-200 pt-4">
+          <div className="flex items-center gap-2 mb-3">
             <span className="text-lg">⚙️</span>
-            <span className="font-semibold text-gray-800">הגדרות התנהגות</span>
+            <span className="font-semibold text-gray-800">הגדרות כלליות</span>
           </div>
-          <button
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
-          >
-            {showAdvanced ? 'הסתר' : 'הצג'}
-            {showAdvanced ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          </button>
-        </div>
-        
-        {showAdvanced && (
-          <div className="space-y-4 bg-gray-50 rounded-xl p-4">
-            {/* Auto mark as seen */}
+          
+          <div className="bg-gray-50 rounded-xl p-4">
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -467,113 +592,9 @@ export default function TriggerEditor({ data, onUpdate }) {
                 <div className="text-xs text-gray-500">כל הודעה במסגרת הבוט תסומן כנקראה</div>
               </div>
             </label>
-
-            {/* Once per user */}
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={data.oncePerUser || false}
-                onChange={(e) => onUpdate({ oncePerUser: e.target.checked })}
-                className="w-5 h-5 mt-0.5 rounded border-gray-300 text-purple-600"
-              />
-              <div>
-                <div className="font-medium text-gray-700">פעם אחת ליוזר</div>
-                <div className="text-xs text-gray-500">הבוט ירוץ פעם אחת בלבד לכל איש קשר</div>
-              </div>
-            </label>
-
-            {/* Cooldown */}
-            <div>
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={data.hasCooldown || false}
-                  onChange={(e) => onUpdate({ 
-                    hasCooldown: e.target.checked, 
-                    cooldownValue: e.target.checked ? 1 : null,
-                    cooldownUnit: e.target.checked ? 'days' : null
-                  })}
-                  className="w-5 h-5 mt-0.5 rounded border-gray-300 text-purple-600"
-                />
-                <div>
-                  <div className="font-medium text-gray-700">לא להפעיל שוב במשך...</div>
-                  <div className="text-xs text-gray-500">מונע הפעלה חוזרת לאותו משתמש עד שיעבור הזמן</div>
-                </div>
-              </label>
-              
-              {data.hasCooldown && (
-                <div className="mt-2 mr-8 flex items-center gap-2">
-                  <input
-                    type="number"
-                    value={data.cooldownValue || 1}
-                    onChange={(e) => onUpdate({ cooldownValue: parseInt(e.target.value) || 1 })}
-                    min={1}
-                    className="w-20 px-3 py-2 border border-gray-200 rounded-lg text-sm text-center"
-                  />
-                  <select
-                    value={data.cooldownUnit || 'days'}
-                    onChange={(e) => onUpdate({ cooldownUnit: e.target.value })}
-                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                  >
-                    <option value="minutes">דקות</option>
-                    <option value="hours">שעות</option>
-                    <option value="days">ימים</option>
-                    <option value="weeks">שבועות</option>
-                  </select>
-                </div>
-              )}
-            </div>
-
-            {/* Active hours */}
-            <div>
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={data.hasActiveHours || false}
-                  onChange={(e) => onUpdate({ hasActiveHours: e.target.checked })}
-                  className="w-5 h-5 mt-0.5 rounded border-gray-300 text-purple-600"
-                />
-                <div>
-                  <div className="font-medium text-gray-700">שעות פעילות</div>
-                  <div className="text-xs text-gray-500">הבוט יפעל רק בשעות מסוימות</div>
-                </div>
-              </label>
-              
-              {data.hasActiveHours && (
-                <div className="mt-2 mr-8 flex items-center gap-2">
-                  <input
-                    type="time"
-                    value={data.activeFrom || '09:00'}
-                    onChange={(e) => onUpdate({ activeFrom: e.target.value })}
-                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                  />
-                  <span className="text-sm text-gray-500">עד</span>
-                  <input
-                    type="time"
-                    value={data.activeTo || '18:00'}
-                    onChange={(e) => onUpdate({ activeTo: e.target.value })}
-                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Mark all messages as read */}
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={data.markAllAsRead || false}
-                onChange={(e) => onUpdate({ markAllAsRead: e.target.checked })}
-                className="w-5 h-5 mt-0.5 rounded border-gray-300 text-purple-600"
-              />
-              <div>
-                <div className="font-medium text-gray-700">סמן כנקרא אוטומטית</div>
-                <div className="text-xs text-gray-500">כל הודעה נכנסת תסומן כנקראה במהלך הפלואו</div>
-              </div>
-            </label>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

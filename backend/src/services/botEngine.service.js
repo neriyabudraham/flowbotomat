@@ -237,6 +237,22 @@ class BotEngine {
         hasCooldown: triggerNode.data.hasCooldown
       }));
       
+      // Record trigger history for cooldown/once-per-user tracking
+      const matchedGroupId = triggerNode.data._matchedGroupId;
+      if (matchedGroupId) {
+        try {
+          await db.query(`
+            INSERT INTO bot_trigger_history (bot_id, contact_id, trigger_group_id, triggered_at)
+            VALUES ($1, $2, $3, NOW())
+          `, [bot.id, contact.id, matchedGroupId]);
+          console.log('[BotEngine] Recorded trigger history for group:', matchedGroupId);
+        } catch (historyErr) {
+          console.log('[BotEngine] Failed to record trigger history:', historyErr.message);
+        }
+        // Clean up the temporary field
+        delete triggerNode.data._matchedGroupId;
+      }
+      
       // Auto mark as seen if enabled in trigger
       if (triggerNode.data.autoMarkSeen) {
         try {
@@ -627,10 +643,109 @@ class BotEngine {
           }
         }
         
+        // If basic conditions match, check group-level behavior settings
+        if (groupMatches) {
+          // Check group-level active hours
+          if (group.hasActiveHours) {
+            const now = new Date();
+            const currentTime = now.getHours() * 60 + now.getMinutes();
+            const [fromHours, fromMins] = (group.activeFrom || '09:00').split(':').map(Number);
+            const [toHours, toMins] = (group.activeTo || '18:00').split(':').map(Number);
+            const fromTime = fromHours * 60 + fromMins;
+            const toTime = toHours * 60 + toMins;
+            
+            if (currentTime < fromTime || currentTime > toTime) {
+              console.log('[BotEngine] Group outside active hours, skipping');
+              groupMatches = false;
+            }
+          }
+          
+          // Check group-level cooldown (not triggered for this user in X time)
+          if (groupMatches && group.hasCooldown) {
+            const cooldownValue = group.cooldownValue || 1;
+            const cooldownUnit = group.cooldownUnit || 'days';
+            
+            const multiplier = {
+              'minutes': 1,
+              'hours': 60,
+              'days': 60 * 24,
+              'weeks': 60 * 24 * 7
+            };
+            
+            const minutesCooldown = cooldownValue * (multiplier[cooldownUnit] || multiplier.days);
+            const cutoffTime = new Date(Date.now() - minutesCooldown * 60 * 1000);
+            
+            // Check last trigger for this bot + contact + group
+            const lastTrigger = await db.query(
+              `SELECT triggered_at FROM bot_trigger_history 
+               WHERE bot_id = $1 AND contact_id = $2 AND trigger_group_id = $3
+               ORDER BY triggered_at DESC LIMIT 1`,
+              [botId, contact.id, group.id]
+            );
+            
+            if (lastTrigger.rows.length > 0) {
+              const lastTriggerTime = new Date(lastTrigger.rows[0].triggered_at);
+              if (lastTriggerTime > cutoffTime) {
+                console.log('[BotEngine] Group in cooldown period, skipping');
+                groupMatches = false;
+              }
+            }
+          }
+          
+          // Check group-level once per user
+          if (groupMatches && group.oncePerUser) {
+            const triggered = await db.query(
+              `SELECT id FROM bot_trigger_history 
+               WHERE bot_id = $1 AND contact_id = $2 AND trigger_group_id = $3 LIMIT 1`,
+              [botId, contact.id, group.id]
+            );
+            
+            if (triggered.rows.length > 0) {
+              console.log('[BotEngine] Group already triggered for this user, skipping');
+              groupMatches = false;
+            }
+          }
+          
+          // Check not_triggered_in conditions
+          for (const condition of conditions) {
+            if (condition.type === 'not_triggered_in' && groupMatches) {
+              const timeValue = condition.timeValue || 1;
+              const timeUnit = condition.timeUnit || 'days';
+              
+              const multiplier = {
+                'minutes': 1,
+                'hours': 60,
+                'days': 60 * 24,
+                'weeks': 60 * 24 * 7
+              };
+              
+              const minutesAgo = timeValue * (multiplier[timeUnit] || multiplier.days);
+              const cutoffTime = new Date(Date.now() - minutesAgo * 60 * 1000);
+              
+              const lastTrigger = await db.query(
+                `SELECT triggered_at FROM bot_trigger_history 
+                 WHERE bot_id = $1 AND contact_id = $2
+                 ORDER BY triggered_at DESC LIMIT 1`,
+                [botId, contact.id]
+              );
+              
+              if (lastTrigger.rows.length > 0) {
+                const lastTriggerTime = new Date(lastTrigger.rows[0].triggered_at);
+                if (lastTriggerTime > cutoffTime) {
+                  console.log('[BotEngine] Bot triggered within time window, condition not met');
+                  groupMatches = false;
+                }
+              }
+            }
+          }
+        }
+        
         // If this group matches, content matches (OR between groups)
         if (groupMatches) {
           console.log('[BotEngine] Trigger group matched!');
           contentMatches = true;
+          // Store the matched group for history tracking
+          triggerData._matchedGroupId = group.id;
           break;
         }
       }
@@ -809,6 +924,46 @@ class BotEngine {
     // tag_added / tag_removed - only matches when explicitly triggered
     if (type === 'tag_added' || type === 'tag_removed') {
       return false;
+    }
+    
+    // no_message_in - check if contact hasn't sent a message in X time
+    if (type === 'no_message_in') {
+      const timeValue = condition.timeValue || 1;
+      const timeUnit = condition.timeUnit || 'days';
+      
+      const multiplier = {
+        'minutes': 1,
+        'hours': 60,
+        'days': 60 * 24,
+        'weeks': 60 * 24 * 7
+      };
+      
+      const minutesAgo = timeValue * (multiplier[timeUnit] || multiplier.days);
+      const cutoffTime = new Date(Date.now() - minutesAgo * 60 * 1000);
+      
+      // Get last message from this contact
+      const lastMessage = await db.query(
+        `SELECT created_at FROM messages 
+         WHERE contact_id = $1 AND direction = 'inbound'
+         ORDER BY created_at DESC LIMIT 1`,
+        [contact.id]
+      );
+      
+      if (lastMessage.rows.length === 0) {
+        // Never sent a message - consider it as "no message in X time"
+        return true;
+      }
+      
+      const lastMessageTime = new Date(lastMessage.rows[0].created_at);
+      return lastMessageTime < cutoffTime;
+    }
+    
+    // not_triggered_in - check if this bot wasn't triggered for this user in X time
+    // Note: This needs botId context which we'll pass in the extra parameter
+    if (type === 'not_triggered_in') {
+      // This condition is checked at the group level, not here
+      // Returning true here as the actual check happens in matchesTrigger
+      return true;
     }
     
     return false;
