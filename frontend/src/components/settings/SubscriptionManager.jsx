@@ -202,7 +202,7 @@ export default function SubscriptionManager() {
                     <span className="font-semibold text-gray-900 dark:text-white">
                       {subscription.plan_name_he || subscription.plan_name || 'מנוי'}
                     </span>
-                    {isTrial && (
+                    {isTrial && subscription.plan_price > 0 && (
                       <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
                         תקופת ניסיון
                       </span>
@@ -221,8 +221,8 @@ export default function SubscriptionManager() {
               </div>
             </div>
 
-            {/* Trial with payment method - Show upcoming charge info (only if NOT cancelled) */}
-            {isTrial && paymentMethod && hasTimeRemaining && !isCancelled && (
+            {/* Trial with payment method - Show upcoming charge info (only if NOT cancelled and paid plan) */}
+            {isTrial && paymentMethod && hasTimeRemaining && !isCancelled && subscription.plan_price > 0 && (
               <div className="p-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500">
                 <div className="flex items-start gap-4">
                   <div className="w-12 h-12 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center flex-shrink-0">
@@ -248,8 +248,8 @@ export default function SubscriptionManager() {
               </div>
             )}
 
-            {/* Expiry Warning - Show for cancelled OR trial without payment */}
-            {shouldShowExpiry && (isCancelled || !(isTrial && paymentMethod)) && (
+            {/* Expiry Warning - Show for cancelled OR trial without payment (only for paid plans) */}
+            {shouldShowExpiry && subscription.plan_price > 0 && (isCancelled || !(isTrial && paymentMethod)) && (
               <div className={`p-4 rounded-xl ${
                 isCancelled 
                   ? 'bg-gradient-to-r from-amber-500 to-orange-500' 

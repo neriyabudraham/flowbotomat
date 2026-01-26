@@ -255,6 +255,17 @@ export default function CreditCardForm({
         </div>
       </div>
 
+      {/* Supported Cards Info */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+        <p className="text-sm text-blue-800 font-medium mb-2">כרטיסים נתמכים:</p>
+        <ul className="text-xs text-blue-700 space-y-1">
+          <li>✅ ויזה, מאסטרקארד, ישראכרט</li>
+          <li>✅ כרטיסי תייר</li>
+          <li>❌ אמריקן אקספרס - לא נתמך</li>
+          <li>❌ דיינרס - לא נתמך</li>
+        </ul>
+      </div>
+
       {/* Card Number */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
