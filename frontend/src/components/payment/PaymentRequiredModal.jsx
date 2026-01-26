@@ -29,10 +29,73 @@ export default function PaymentRequiredModal({
   const fetchPriceInfo = async () => {
     setLoadingPrice(true);
     try {
-      // Get Basic plan specifically
+      // First check if user has a custom discount from admin
+      let customDiscount = null;
+      try {
+        const { data: subData } = await api.get('/subscriptions/my');
+        const sub = subData?.subscription;
+        if (sub && (sub.custom_discount_mode || sub.referral_discount_percent || sub.custom_fixed_price)) {
+          customDiscount = {
+            mode: sub.custom_discount_mode || 'percent',
+            percent: sub.referral_discount_percent,
+            fixedPrice: sub.custom_fixed_price,
+            type: sub.referral_discount_type,
+            monthsRemaining: sub.referral_months_remaining,
+            planId: sub.custom_discount_plan_id || sub.plan_id,
+            planName: sub.plan_name_he || sub.plan_name,
+            planPrice: parseFloat(sub.plan_price || 0),
+            trialDays: sub.trial_days || 14
+          };
+        }
+      } catch (e) {
+        console.log('No subscription found');
+      }
+
+      // Get plans data
       const { data } = await api.get('/subscriptions/plans');
       console.log('[PaymentModal] Plans response:', data);
       const plansData = Array.isArray(data) ? data : (data.plans || []);
+      
+      // If user has custom discount, use that plan
+      if (customDiscount && customDiscount.planId) {
+        const discountPlan = plansData.find(p => p.id === customDiscount.planId);
+        if (discountPlan) {
+          const originalPrice = parseFloat(discountPlan.price || 0);
+          const finalPrice = customDiscount.mode === 'fixed_price'
+            ? parseFloat(customDiscount.fixedPrice || 0)
+            : Math.round(originalPrice * (1 - (customDiscount.percent || 0) / 100));
+          
+          const getDiscountDuration = () => {
+            switch (customDiscount.type) {
+              case 'forever': return 'לתמיד';
+              case 'first_year': return 'ל-12 חודשים הראשונים';
+              case 'custom_months': 
+                return customDiscount.monthsRemaining > 1 ? `ל-${customDiscount.monthsRemaining} חודשים הראשונים` : 'לחודש הראשון';
+              default: return 'לחודש הראשון';
+            }
+          };
+          
+          setPriceInfo({
+            firstMonthPrice: finalPrice,
+            regularPrice: originalPrice,
+            hasDiscount: finalPrice !== originalPrice,
+            discountNote: customDiscount.mode === 'fixed_price'
+              ? finalPrice === 0 ? 'חינם!' : `מחיר מיוחד ${getDiscountDuration()}`
+              : `${customDiscount.percent}% הנחה ${getDiscountDuration()}`,
+            referralDiscount: originalPrice - finalPrice,
+            referralDiscountPercent: customDiscount.percent || 0,
+            referralDiscountType: customDiscount.type,
+            referralDiscountMonths: customDiscount.monthsRemaining,
+            planName: discountPlan.name_he || discountPlan.name,
+            trialDays: discountPlan.trial_days || 14,
+            isCustomDiscount: true
+          });
+          setLoadingPrice(false);
+          return;
+        }
+      }
+      
+      // Fall back to Basic plan
       const basicPlan = plansData.find(p => p.name === 'Basic') || plansData.filter(p => parseFloat(p.price) > 0).sort((a, b) => parseFloat(a.price) - parseFloat(b.price))[0];
       
       console.log('[PaymentModal] Basic plan:', basicPlan);
