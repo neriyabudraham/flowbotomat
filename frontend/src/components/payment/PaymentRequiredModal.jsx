@@ -44,7 +44,8 @@ export default function PaymentRequiredModal({
             planId: sub.custom_discount_plan_id || sub.plan_id,
             planName: sub.plan_name_he || sub.plan_name,
             planPrice: parseFloat(sub.plan_price || 0),
-            trialDays: sub.trial_days || 14
+            trialDays: sub.trial_days || 14,
+            skipTrial: sub.skip_trial || false
           };
         }
       } catch (e) {
@@ -87,7 +88,8 @@ export default function PaymentRequiredModal({
             referralDiscountType: customDiscount.type,
             referralDiscountMonths: customDiscount.monthsRemaining,
             planName: discountPlan.name_he || discountPlan.name,
-            trialDays: discountPlan.trial_days || 14,
+            trialDays: customDiscount.skipTrial ? 0 : (discountPlan.trial_days || 14),
+            skipTrial: customDiscount.skipTrial,
             isCustomDiscount: true
           });
           setLoadingPrice(false);
@@ -256,8 +258,10 @@ export default function PaymentRequiredModal({
                   <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
                   <p className="text-sm text-blue-800">
                     {priceInfo ? 
-                      `הזן פרטי כרטיס אשראי כדי להתחיל ${priceInfo.trialDays} ימי ניסיון בחינם. לא תחויב עכשיו - לאחר תקופת הניסיון יתחיל המנוי ${priceInfo.planName}.` :
-                      'הזן פרטי כרטיס אשראי כדי להתחיל 14 ימי ניסיון בחינם.'
+                      priceInfo.skipTrial 
+                        ? `הזן פרטי כרטיס אשראי לתשלום מיידי. המנוי ${priceInfo.planName} יתחיל מיד.`
+                        : `הזן פרטי כרטיס אשראי כדי להתחיל ${priceInfo.trialDays} ימי ניסיון בחינם. לא תחויב עכשיו - לאחר תקופת הניסיון יתחיל המנוי ${priceInfo.planName}.`
+                      : 'הזן פרטי כרטיס אשראי כדי להתחיל 14 ימי ניסיון בחינם.'
                     }
                   </p>
                 </div>
@@ -295,16 +299,18 @@ export default function PaymentRequiredModal({
                     </div>
                   ) : priceInfo ? (
                     <div className="space-y-2 text-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-600">תקופת ניסיון:</span>
-                        <span className="font-bold text-purple-700">{priceInfo.trialDays} ימים בחינם</span>
-                      </div>
+                      {!priceInfo.skipTrial && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-600">תקופת ניסיון:</span>
+                          <span className="font-bold text-purple-700">{priceInfo.trialDays} ימים בחינם</span>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between">
                         <span className="text-gray-600">תוכנית:</span>
                         <span className="font-bold text-gray-900">{priceInfo.planName}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-gray-600">חיוב לאחר הניסיון:</span>
+                        <span className="text-gray-600">{priceInfo.skipTrial ? 'חיוב מיידי:' : 'חיוב לאחר הניסיון:'}</span>
                         <div className="text-left">
                           {priceInfo.referralDiscount > 0 ? (
                             <>
@@ -332,7 +338,10 @@ export default function PaymentRequiredModal({
                         </p>
                       )}
                       <div className="mt-3 pt-3 border-t border-purple-200 text-xs text-gray-500">
-                        ניתן לבטל בכל עת לפני סיום תקופת הניסיון ולא תחויב כלל
+                        {priceInfo.skipTrial 
+                          ? 'ניתן לבטל בכל עת. החיוב יתבצע מיד עם הזנת פרטי האשראי.'
+                          : 'ניתן לבטל בכל עת לפני סיום תקופת הניסיון ולא תחויב כלל'
+                        }
                       </div>
                     </div>
                   ) : (

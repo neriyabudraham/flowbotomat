@@ -499,6 +499,7 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
     discountType: user.custom_discount_type || 'none', // 'none', 'first_payment', 'custom_months', 'first_year', 'forever'
     discountMonths: user.custom_discount_months || 1,
     discountPlanId: user.custom_discount_plan_id || '', // Which plan the discount applies to
+    skipTrial: user.skip_trial || false, // Skip free trial - immediate payment
     // Referral settings
     affiliateId: user.referred_by_affiliate_id || '',
   });
@@ -549,6 +550,7 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
         customDiscountType: formData.discountType !== 'none' ? formData.discountType : null,
         customDiscountMonths: formData.discountType === 'custom_months' ? formData.discountMonths : null,
         customDiscountPlanId: formData.discountType !== 'none' && formData.discountPlanId ? formData.discountPlanId : null,
+        skipTrial: formData.skipTrial || false,
         // Referral
         affiliateId: formData.affiliateId || null,
       });
@@ -903,6 +905,20 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
                       </div>
                     )}
 
+                    {/* Skip Trial Option */}
+                    <label className="flex items-center gap-3 cursor-pointer p-3 bg-red-50 border border-red-200 rounded-xl">
+                      <input
+                        type="checkbox"
+                        checked={formData.skipTrial}
+                        onChange={(e) => setFormData(f => ({ ...f, skipTrial: e.target.checked }))}
+                        className="w-5 h-5 rounded border-red-300 text-red-600 focus:ring-red-500"
+                      />
+                      <div>
+                        <div className="font-medium text-red-700">ללא ניסיון חינם</div>
+                        <div className="text-xs text-red-600">הסליקה תהיה מיידית עם הזנת פרטי אשראי</div>
+                      </div>
+                    </label>
+
                     <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-xl">
                       <p className="text-sm text-yellow-800">
                         <strong>תצוגה מקדימה:</strong>{' '}
@@ -921,6 +937,7 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
                         {formData.discountType === 'custom_months' && `ל-${formData.discountMonths} חודשים`}
                         {formData.discountType === 'first_year' && 'לשנה הראשונה (12 חודשים)'}
                         {formData.discountType === 'forever' && 'לתמיד'}
+                        {formData.skipTrial && <span className="text-red-600 mr-2">• ללא ניסיון</span>}
                       </p>
                     </div>
                   </>
