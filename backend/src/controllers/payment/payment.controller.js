@@ -217,11 +217,74 @@ async function savePaymentMethod(req, res) {
       if (planId) {
         const paymentMethodId = result.rows[0].id;
         
+        // Get plan price for standing order
+        const planPriceResult = await db.query(
+          `SELECT price, name_he FROM subscription_plans WHERE id = $1`,
+          [planId]
+        );
+        
+        let standingOrderId = null;
+        let chargeAmount = parseFloat(planPriceResult.rows[0]?.price || 0);
+        const planNameHe = planPriceResult.rows[0]?.name_he || 'מנוי';
+        
+        // Check for custom discount
+        const existingCustomDiscount = await db.query(
+          `SELECT custom_discount_mode, referral_discount_percent, custom_fixed_price 
+           FROM user_subscriptions WHERE user_id = $1`,
+          [userId]
+        );
+        
+        if (existingCustomDiscount.rows.length > 0) {
+          const cd = existingCustomDiscount.rows[0];
+          if (cd.custom_discount_mode === 'fixed_price' && cd.custom_fixed_price) {
+            chargeAmount = parseFloat(cd.custom_fixed_price);
+          } else if (cd.custom_discount_mode === 'percent' && cd.referral_discount_percent) {
+            chargeAmount = chargeAmount * (1 - cd.referral_discount_percent / 100);
+          }
+        }
+        
+        // Create standing order in Sumit with future start date (trial end)
+        if (chargeAmount > 0 && sumitResult.customerId) {
+          try {
+            console.log(`[Payment] Creating standing order in Sumit for trial - amount: ${chargeAmount}, start: ${trialEndsAt.toISOString()}`);
+            
+            const standingOrderResult = await sumitService.chargeRecurring({
+              customerId: sumitResult.customerId,
+              amount: chargeAmount,
+              description: `מנוי חודשי - ${planNameHe}`,
+              durationMonths: 1,
+              recurrence: null, // unlimited
+              startDate: trialEndsAt, // First charge at trial end
+            });
+            
+            if (standingOrderResult.success) {
+              standingOrderId = standingOrderResult.standingOrderId;
+              console.log(`[Payment] ✅ Standing order created: ${standingOrderId}`);
+            } else {
+              console.error(`[Payment] ⚠️ Failed to create standing order: ${standingOrderResult.error}`);
+              // Continue anyway - subscription can still work, just no auto-charge
+              
+              // Notify admin
+              await db.query(`
+                INSERT INTO notifications (
+                  user_id, notification_type, title, message, metadata, is_admin_notification
+                ) VALUES ($1, 'payment_warning', 'הוראת קבע לא נוצרה', $2, $3, true)
+              `, [
+                userId,
+                `לא הצלחנו ליצור הוראת קבע בסומיט עבור משתמש חדש. החיוב בסוף הניסיון עלול לא להתבצע אוטומטית.`,
+                JSON.stringify({ userId, error: standingOrderResult.error })
+              ]);
+            }
+          } catch (soErr) {
+            console.error(`[Payment] Error creating standing order:`, soErr.message);
+          }
+        }
+        
         await db.query(`
           INSERT INTO user_subscriptions (
             user_id, plan_id, status, is_trial, trial_ends_at, 
-            payment_method_id, next_charge_date, started_at, sumit_customer_id
-          ) VALUES ($1, $2, 'trial', true, $3, $4, $3, NOW(), $5)
+            payment_method_id, next_charge_date, started_at, sumit_customer_id, sumit_standing_order_id
+          ) VALUES ($1, $2, 'trial', true, $3, $4, $3, NOW(), $5, $6)
           ON CONFLICT (user_id) 
           DO UPDATE SET 
             plan_id = COALESCE(user_subscriptions.custom_discount_plan_id, $2), 
@@ -232,11 +295,12 @@ async function savePaymentMethod(req, res) {
             next_charge_date = $3,
             started_at = COALESCE(user_subscriptions.started_at, NOW()),
             sumit_customer_id = $5,
+            sumit_standing_order_id = COALESCE($6, user_subscriptions.sumit_standing_order_id),
             updated_at = NOW()
-        `, [userId, planId, trialEndsAt, paymentMethodId, sumitResult.customerId]);
+        `, [userId, planId, trialEndsAt, paymentMethodId, sumitResult.customerId, standingOrderId]);
         
         subscriptionCreated = true;
-        console.log(`[Payment] ✅ Trial subscription created, ends at: ${trialEndsAt.toISOString()}`);
+        console.log(`[Payment] ✅ Trial subscription created, ends at: ${trialEndsAt.toISOString()}, standing order: ${standingOrderId || 'none'}`);
       }
     } else if (subCheck.rows[0].status === 'trial' || subCheck.rows[0].status === 'active') {
       // User already has a subscription, just update the payment method
@@ -871,13 +935,52 @@ async function subscribe(req, res) {
     
     if (!chargeResult.success) {
       console.error('[Payment] Charge failed:', chargeResult.error);
+      
+      // Log failed payment attempt
+      try {
+        await db.query(`
+          INSERT INTO payment_history (
+            user_id, amount, status, error_message, description
+          ) VALUES ($1, $2, 'failed', $3, $4)
+        `, [userId, actualChargeAmount, chargeResult.error, `ניסיון חיוב נכשל - ${description}`]);
+      } catch (logErr) {
+        console.error('[Payment] Failed to log payment failure:', logErr);
+      }
+      
+      // Notify admin about payment failure
+      try {
+        await db.query(`
+          INSERT INTO notifications (
+            user_id, notification_type, title, message, metadata, is_admin_notification
+          ) VALUES ($1, 'payment_failure', 'חיוב נכשל', $2, $3, true)
+        `, [
+          userId, 
+          `חיוב של ₪${actualChargeAmount} נכשל עבור ${plan.name_he}: ${chargeResult.error}`,
+          JSON.stringify({ userId, amount: actualChargeAmount, planId, error: chargeResult.error })
+        ]);
+        console.log('[Payment] Admin notified about payment failure');
+      } catch (notifyErr) {
+        console.error('[Payment] Failed to notify admin:', notifyErr);
+      }
+      
       return res.status(400).json({ 
         error: chargeResult.error || 'החיוב נכשל. אנא בדוק את פרטי האשראי.',
         code: 'CHARGE_FAILED'
       });
     }
     
-    console.log(`[Payment] Charge successful - Transaction: ${chargeResult.transactionId}`);
+    console.log(`[Payment] Charge successful - Transaction: ${chargeResult.transactionId}, StandingOrder: ${chargeResult.standingOrderId}`);
+    
+    // Log successful payment
+    try {
+      await db.query(`
+        INSERT INTO payment_history (
+          user_id, amount, status, sumit_transaction_id, sumit_document_number, description
+        ) VALUES ($1, $2, 'success', $3, $4, $5)
+      `, [userId, actualChargeAmount, chargeResult.transactionId, chargeResult.documentNumber, description]);
+    } catch (logErr) {
+      console.error('[Payment] Failed to log successful payment:', logErr);
+    }
     
     // Ensure referral discount columns exist
     await db.query(`
