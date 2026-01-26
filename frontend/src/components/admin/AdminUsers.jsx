@@ -318,7 +318,11 @@ function SubscriptionBadge({ user, onClick }) {
     
     if (user.is_manual) {
       badgeClass = 'bg-purple-100 text-purple-700';
-      subLabel = 'ידני';
+      if (!user.expires_at) {
+        subLabel = 'ידני ∞';
+      } else {
+        subLabel = 'ידני';
+      }
     }
     
     if (user.expires_at) {
@@ -326,7 +330,7 @@ function SubscriptionBadge({ user, onClick }) {
       const daysLeft = Math.ceil((expiresAt - new Date()) / (1000 * 60 * 60 * 24));
       if (daysLeft <= 7 && daysLeft > 0) {
         badgeClass = 'bg-yellow-100 text-yellow-700';
-        subLabel = `${daysLeft} ימים נותרו`;
+        subLabel = user.is_manual ? `ידני - ${daysLeft} ימים` : `${daysLeft} ימים נותרו`;
       } else if (daysLeft <= 0) {
         badgeClass = 'bg-red-100 text-red-700';
         subLabel = 'פג תוקף';
@@ -483,6 +487,8 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
     planId: '',
     status: user.subscription_status || 'active',
     expiresAt: user.expires_at ? new Date(user.expires_at).toISOString().split('T')[0] : '',
+    noExpiry: !user.expires_at && user.is_manual,
+    isManual: user.is_manual || false,
     adminNotes: '',
   });
 
@@ -516,8 +522,8 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
       await api.put(`/admin/users/${user.id}/subscription`, {
         planId: formData.planId,
         status: formData.status,
-        expiresAt: formData.expiresAt || null,
-        isManual: true,
+        expiresAt: formData.noExpiry ? null : (formData.expiresAt || null),
+        isManual: formData.isManual,
         adminNotes: formData.adminNotes || null,
       });
       onSuccess();
@@ -545,6 +551,22 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
           <div className="py-8 text-center text-gray-500">טוען תוכניות...</div>
         ) : (
           <div className="space-y-4">
+            {/* Manual Subscription Toggle */}
+            <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.isManual}
+                  onChange={(e) => setFormData(f => ({ ...f, isManual: e.target.checked }))}
+                  className="w-5 h-5 rounded border-purple-300 text-purple-600 focus:ring-purple-500"
+                />
+                <div>
+                  <span className="font-medium text-purple-800">מנוי ידני (ללא תשלום)</span>
+                  <p className="text-xs text-purple-600">המשתמש יקבל גישה מלאה ללא צורך בהזנת כרטיס אשראי</p>
+                </div>
+              </label>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">תוכנית</label>
               <select
@@ -554,7 +576,7 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
               >
                 {plans.map(plan => (
                   <option key={plan.id} value={plan.id}>
-                    {plan.name_he} - ₪{plan.price}/חודש
+                    {plan.name_he} {plan.price > 0 ? `- ₪${plan.price}/חודש` : '(חינם)'}
                   </option>
                 ))}
               </select>
@@ -574,21 +596,39 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
               </select>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
-                <Calendar className="w-4 h-4" />
-                תאריך סיום / חיוב הבא
+            {/* No Expiry Toggle */}
+            <div className="p-3 bg-green-50 border border-green-200 rounded-xl">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.noExpiry}
+                  onChange={(e) => setFormData(f => ({ ...f, noExpiry: e.target.checked, expiresAt: '' }))}
+                  className="w-5 h-5 rounded border-green-300 text-green-600 focus:ring-green-500"
+                />
+                <div>
+                  <span className="font-medium text-green-800">ללא הגבלת זמן</span>
+                  <p className="text-xs text-green-600">המנוי יהיה פעיל לתמיד ללא תאריך תפוגה</p>
+                </div>
               </label>
-              <input
-                type="date"
-                value={formData.expiresAt}
-                onChange={(e) => setFormData(f => ({ ...f, expiresAt: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                בתאריך זה המנוי יחודש (יחויב) או יפוג אם המשתמש ביטל
-              </p>
             </div>
+
+            {!formData.noExpiry && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                  <Calendar className="w-4 h-4" />
+                  תאריך סיום
+                </label>
+                <input
+                  type="date"
+                  value={formData.expiresAt}
+                  onChange={(e) => setFormData(f => ({ ...f, expiresAt: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  בתאריך זה המנוי יפוג (למנוי ידני) או יחודש (למנוי רגיל)
+                </p>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">הערות אדמין</label>
@@ -616,6 +656,57 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
                 {saving ? 'שומר...' : 'שמירה'}
               </button>
             </div>
+
+            {/* Quick Actions */}
+            {formData.isManual && (
+              <div className="pt-2 border-t border-gray-200">
+                <p className="text-xs text-gray-500 mb-2">פעולות מהירות:</p>
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const plan = plans.find(p => p.name === 'Pro' || p.name_he?.includes('מקצוע'));
+                      if (plan) setFormData(f => ({ ...f, planId: plan.id, status: 'active', noExpiry: true }));
+                    }}
+                    className="px-3 py-1.5 text-xs bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200"
+                  >
+                    Pro לתמיד
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const plan = plans.find(p => p.name === 'Enterprise' || p.name_he?.includes('ארגונ'));
+                      if (plan) setFormData(f => ({ ...f, planId: plan.id, status: 'active', noExpiry: true }));
+                    }}
+                    className="px-3 py-1.5 text-xs bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200"
+                  >
+                    Enterprise לתמיד
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextMonth = new Date();
+                      nextMonth.setMonth(nextMonth.getMonth() + 1);
+                      setFormData(f => ({ ...f, noExpiry: false, expiresAt: nextMonth.toISOString().split('T')[0] }));
+                    }}
+                    className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                  >
+                    חודש אחד
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextYear = new Date();
+                      nextYear.setFullYear(nextYear.getFullYear() + 1);
+                      setFormData(f => ({ ...f, noExpiry: false, expiresAt: nextYear.toISOString().split('T')[0] }));
+                    }}
+                    className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                  >
+                    שנה אחת
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
