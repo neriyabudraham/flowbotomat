@@ -179,7 +179,7 @@ async function savePaymentMethod(req, res) {
     const FREE_PLAN_ID = '00000000-0000-0000-0000-000000000001';
     
     const subCheck = await db.query(
-      `SELECT us.id, us.status, us.plan_id, sp.price 
+      `SELECT us.id, us.status, us.plan_id, sp.price, us.sumit_standing_order_id, us.sumit_customer_id 
        FROM user_subscriptions us
        LEFT JOIN subscription_plans sp ON us.plan_id = sp.id
        WHERE us.user_id = $1`,
@@ -367,9 +367,10 @@ async function savePaymentMethod(req, res) {
       `, [result.rows[0].id, sumitResult.customerId, userId]);
       console.log(`[Payment] Updated payment method on existing subscription (status: ${existingSub?.status})`);
       
-      // If user has cancelled subscription and no standing order, create one for reactivation
+      // If user has cancelled subscription and no standing order, charge immediately and reactivate
+      // This happens when user already used their trial and wants to resubscribe
       if (existingSub?.status === 'cancelled' && !existingSub?.sumit_standing_order_id) {
-        console.log(`[Payment] Cancelled subscription without standing order - creating one for reactivation`);
+        console.log(`[Payment] Cancelled subscription without standing order - charging IMMEDIATELY (trial already used)`);
         
         // Get plan price
         const planPriceResult = await db.query(
@@ -392,38 +393,54 @@ async function savePaymentMethod(req, res) {
           }
           
           if (chargeAmount > 0 && sumitResult.customerId) {
-            // For cancelled subscription, charge starts from now (no trial)
-            const chargeStartDate = new Date();
-            chargeStartDate.setDate(chargeStartDate.getDate() + 1); // Start tomorrow
+            // Calculate next charge date (1 month from now)
+            const nextChargeDate = new Date();
+            nextChargeDate.setMonth(nextChargeDate.getMonth() + 1);
             
             try {
-              const standingOrderResult = await sumitService.chargeRecurring({
+              // Charge IMMEDIATELY - no startDate means charge now
+              console.log(`[Payment] Charging immediately: ${chargeAmount} ILS`);
+              const chargeResult = await sumitService.chargeRecurring({
                 customerId: sumitResult.customerId,
                 amount: chargeAmount,
                 description: `מנוי חודשי - ${planData.name_he}`,
                 durationMonths: 1,
                 recurrence: null,
-                startDate: chargeStartDate,
+                // NO startDate = charge immediately
               });
               
-              if (standingOrderResult.success) {
+              if (chargeResult.success) {
                 // Update subscription with standing order and reactivate
                 await db.query(`
                   UPDATE user_subscriptions 
                   SET sumit_standing_order_id = $1, 
                       status = 'active',
+                      is_trial = false,
                       cancelled_at = NULL,
                       next_charge_date = $2,
+                      expires_at = $2,
+                      started_at = NOW(),
                       updated_at = NOW()
                   WHERE user_id = $3
-                `, [standingOrderResult.standingOrderId, chargeStartDate, userId]);
+                `, [chargeResult.standingOrderId, nextChargeDate, userId]);
                 
-                console.log(`[Payment] ✅ Reactivated subscription with standing order: ${standingOrderResult.standingOrderId}`);
+                subscriptionCreated = true;
+                console.log(`[Payment] ✅ Charged immediately and reactivated subscription with standing order: ${chargeResult.standingOrderId}`);
               } else {
-                console.error(`[Payment] Failed to create standing order for reactivation: ${standingOrderResult.error}`);
+                console.error(`[Payment] Failed to charge for reactivation: ${chargeResult.error}`);
+                // Return error to user - they need to know the charge failed
+                return res.status(400).json({
+                  error: chargeResult.error || 'החיוב נכשל. אנא בדוק את פרטי האשראי.',
+                  code: 'CHARGE_FAILED',
+                  trialNotAvailable: true
+                });
               }
             } catch (soErr) {
-              console.error(`[Payment] Error creating standing order for reactivation:`, soErr.message);
+              console.error(`[Payment] Error charging for reactivation:`, soErr.message);
+              return res.status(500).json({
+                error: 'שגיאה בביצוע החיוב. אנא נסה שנית.',
+                code: 'CHARGE_ERROR'
+              });
             }
           }
         }
@@ -438,14 +455,27 @@ async function savePaymentMethod(req, res) {
       WHERE us.user_id = $1
     `, [userId]);
     
+    // Determine the appropriate message
+    let responseMessage = 'הכרטיס נשמר בהצלחה!';
+    let wasChargedImmediately = false;
+    
+    if (subscriptionCreated) {
+      // Check if this was a trial or immediate charge (trial already used)
+      if (trialAlreadyUsed) {
+        responseMessage = 'מעולה! הכרטיס נשמר והמנוי הופעל. בוצע חיוב מיידי (תקופת הניסיון כבר נוצלה).';
+        wasChargedImmediately = true;
+      } else {
+        responseMessage = 'מעולה! הכרטיס נשמר ומנוי הניסיון שלך הופעל. אפשר להמשיך!';
+      }
+    }
+    
     res.json({ 
       success: true, 
       paymentMethod: result.rows[0],
-      message: subscriptionCreated 
-        ? 'מעולה! הכרטיס נשמר ומנוי הניסיון שלך הופעל. אפשר להמשיך!' 
-        : 'הכרטיס נשמר בהצלחה!',
+      message: responseMessage,
       subscription: updatedSub.rows[0] || null,
-      trialCreated: subscriptionCreated
+      trialCreated: subscriptionCreated && !trialAlreadyUsed,
+      chargedImmediately: wasChargedImmediately
     });
   } catch (error) {
     console.error('[Payment] Save payment method error:', error);
@@ -1265,6 +1295,7 @@ async function recordPromotionUse(userId, promotionId, subscriptionId, promoPric
 
 /**
  * Cancel subscription
+ * CRITICAL: Only marks as cancelled if Sumit cancellation succeeds (when standing order exists)
  */
 async function cancelSubscription(req, res) {
   try {
@@ -1282,7 +1313,10 @@ async function cancelSubscription(req, res) {
     
     const subscription = subResult.rows[0];
     
-    // Cancel recurring in Sumit
+    // Cancel recurring in Sumit - CRITICAL: Must succeed before marking cancelled in DB
+    let sumitCancelled = false;
+    let sumitError = null;
+    
     if (subscription.sumit_standing_order_id) {
       // Get customer ID - might be in subscription or payment method
       let customerId = subscription.sumit_customer_id;
@@ -1304,21 +1338,47 @@ async function cancelSubscription(req, res) {
         );
         if (!cancelResult.success) {
           console.error('[Payment] Failed to cancel Sumit recurring:', cancelResult.error);
+          sumitError = cancelResult.error;
+          
+          // Check if it's a credentials/connectivity issue vs actual business error
+          const isRetryableError = cancelResult.error?.includes('credentials') || 
+                                   cancelResult.error?.includes('המשתמש אינו מחובר') ||
+                                   cancelResult.error?.includes('timeout') ||
+                                   cancelResult.error?.includes('connection');
+          
+          if (isRetryableError) {
+            // Don't cancel subscription - Sumit has a temporary issue
+            console.error('[Payment] CRITICAL: Sumit has temporary issue, NOT marking subscription as cancelled');
+            return res.status(503).json({ 
+              error: 'שגיאה זמנית במערכת התשלומים. המנוי לא בוטל. אנא נסה שוב בעוד מספר דקות.',
+              code: 'SUMIT_TEMPORARY_ERROR',
+              retryable: true
+            });
+          }
+          // For other errors (like standing order already cancelled), continue
         } else {
           console.log(`[Payment] Successfully cancelled Sumit recurring ${subscription.sumit_standing_order_id}`);
+          sumitCancelled = true;
         }
       } else {
         console.error('[Payment] Cannot cancel Sumit - no customer ID found');
+        // Continue anyway - no customer ID means we can't charge anyway
       }
+    } else {
+      // No standing order to cancel
+      sumitCancelled = true;
     }
     
-    // Update subscription status
+    // Update subscription status - ALSO clear standing order ID since it's cancelled
     const result = await db.query(`
       UPDATE user_subscriptions 
-      SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
+      SET status = 'cancelled', 
+          cancelled_at = NOW(), 
+          sumit_standing_order_id = CASE WHEN $2 = true THEN NULL ELSE sumit_standing_order_id END,
+          updated_at = NOW()
       WHERE user_id = $1 AND status IN ('active', 'trial')
       RETURNING *
-    `, [userId]);
+    `, [userId, sumitCancelled]);
     
     const endDate = subscription.expires_at || subscription.trial_ends_at;
     const formattedDate = endDate ? new Date(endDate).toLocaleDateString('he-IL') : null;
