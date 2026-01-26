@@ -946,6 +946,7 @@ export default function PricingPage() {
         <CheckoutModal 
           plan={selectedPlan}
           billingPeriod={billingPeriod}
+          customDiscount={customDiscount}
           onClose={() => {
             setShowCheckoutModal(false);
             setSelectedPlan(null);
@@ -1303,7 +1304,7 @@ function ReactivateSubscriptionModal({ subscription, paymentMethod, daysLeft, on
   );
 }
 
-function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
+function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess }) {
   const [paymentMethod, setPaymentMethod] = useState(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
@@ -1326,31 +1327,36 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
   
   // Referral discount state
   const [referralInfo, setReferralInfo] = useState(null);
+  
+  // Admin custom discount (from props)
+  const hasCustomDiscount = customDiscount && (customDiscount.mode === 'fixed_price' || customDiscount.percent > 0);
 
   useEffect(() => {
     loadPaymentMethod();
     
-    // Load referral discount info
-    const referralCode = localStorage.getItem('referral_code');
-    const referralPercent = parseInt(localStorage.getItem('referral_discount_percent') || '0');
-    const referralType = localStorage.getItem('referral_discount_type') || 'first_payment';
-    const referralMonths = parseInt(localStorage.getItem('referral_discount_months') || '0');
-    const referralExpiry = localStorage.getItem('referral_expiry');
-    
-    if (referralCode && referralPercent > 0) {
-      // Check if not expired
-      const now = Date.now();
-      const expiry = parseInt(referralExpiry || '0');
-      if (!expiry || now < expiry) {
-        setReferralInfo({
-          code: referralCode,
-          percent: referralPercent,
-          type: referralType,
-          months: referralMonths
-        });
+    // Load referral discount info (only if no custom discount)
+    if (!hasCustomDiscount) {
+      const referralCode = localStorage.getItem('referral_code');
+      const referralPercent = parseInt(localStorage.getItem('referral_discount_percent') || '0');
+      const referralType = localStorage.getItem('referral_discount_type') || 'first_payment';
+      const referralMonths = parseInt(localStorage.getItem('referral_discount_months') || '0');
+      const referralExpiry = localStorage.getItem('referral_expiry');
+      
+      if (referralCode && referralPercent > 0) {
+        // Check if not expired
+        const now = Date.now();
+        const expiry = parseInt(referralExpiry || '0');
+        if (!expiry || now < expiry) {
+          setReferralInfo({
+            code: referralCode,
+            percent: referralPercent,
+            type: referralType,
+            months: referralMonths
+          });
+        }
       }
     }
-  }, []);
+  }, [hasCustomDiscount]);
 
   const loadPaymentMethod = async () => {
     try {
@@ -1415,6 +1421,38 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
     const monthlyBasePrice = Math.floor(plan.price);
     const yearlyTotalBeforeDiscount = monthlyBasePrice * 12;
     const yearlyTotalWithYearlyDiscount = Math.floor(yearlyTotalBeforeDiscount * 0.8); // 20% yearly discount
+    
+    // Apply admin custom discount FIRST (highest priority)
+    if (hasCustomDiscount) {
+      let customPrice;
+      if (customDiscount.mode === 'fixed_price') {
+        customPrice = customDiscount.fixedPrice;
+      } else {
+        customPrice = Math.floor(monthlyBasePrice * (1 - customDiscount.percent / 100));
+      }
+      
+      const yearlyCustomPrice = customPrice * 12;
+      const discount = monthlyBasePrice - customPrice;
+      
+      // Get discount duration text
+      let durationText = '';
+      switch (customDiscount.type) {
+        case 'forever': durationText = 'לתמיד'; break;
+        case 'first_year': durationText = 'לשנה הראשונה'; break;
+        case 'custom_months': durationText = `ל-${customDiscount.monthsRemaining} חודשים`; break;
+        default: durationText = 'לתשלום הראשון';
+      }
+      
+      return {
+        total: billingPeriod === 'yearly' ? yearlyCustomPrice : customPrice,
+        originalTotal: billingPeriod === 'yearly' ? yearlyTotalBeforeDiscount : monthlyBasePrice,
+        originalMonthly: monthlyBasePrice,
+        discount: billingPeriod === 'yearly' ? discount * 12 : discount,
+        isYearly: billingPeriod === 'yearly',
+        customDiscount: true,
+        customDiscountDuration: durationText
+      };
+    }
     
     let result;
     if (billingPeriod === 'yearly') {
@@ -1557,10 +1595,29 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
             </div>
             <div className="mr-auto text-left">
               <div className="text-3xl font-bold">₪{prices.total}</div>
-              <div className="text-white/80 text-sm">{billingPeriod === 'yearly' ? 'לשנה שלמה' : '/חודש'}</div>
+              <div className="text-white/80 text-sm">
+                {prices.discount > 0 && (
+                  <span className="line-through ml-2">₪{prices.originalTotal}</span>
+                )}
+                {billingPeriod === 'yearly' ? 'לשנה שלמה' : '/חודש'}
+              </div>
             </div>
           </div>
-          {isTrial && (
+          
+          {/* Custom Discount Badge */}
+          {prices.customDiscount && (
+            <div className="mt-4 p-3 bg-green-500/30 backdrop-blur rounded-xl text-center">
+              <div className="flex items-center justify-center gap-2">
+                <Gift className="w-5 h-5" />
+                <span className="font-medium">מחיר מיוחד עבורך! חיסכון של ₪{prices.discount}{prices.isYearly ? '' : '/חודש'}</span>
+              </div>
+              {prices.customDiscountDuration && (
+                <p className="text-white/80 text-xs mt-1">{prices.customDiscountDuration}</p>
+              )}
+            </div>
+          )}
+          
+          {isTrial && !prices.customDiscount && (
             <div className="mt-4 p-3 bg-white/20 backdrop-blur rounded-xl text-center">
               <div className="flex items-center justify-center gap-2">
                 <Gift className="w-5 h-5" />
@@ -1706,59 +1763,61 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
                 </div>
               </div>
 
-              {/* Coupon Code Section */}
-              <div className="border border-dashed border-gray-300 rounded-2xl p-4">
-                <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
-                  <Gift className="w-4 h-4 text-purple-500" />
-                  יש לך קוד קופון?
-                </h4>
-                
-                {couponData ? (
-                  <div className="bg-green-50 rounded-xl p-3 flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="w-5 h-5 text-green-600" />
-                        <span className="font-bold text-green-700">{couponCode}</span>
+              {/* Coupon Code Section - Hide when custom discount is active */}
+              {!hasCustomDiscount && (
+                <div className="border border-dashed border-gray-300 rounded-2xl p-4">
+                  <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+                    <Gift className="w-4 h-4 text-purple-500" />
+                    יש לך קוד קופון?
+                  </h4>
+                  
+                  {couponData ? (
+                    <div className="bg-green-50 rounded-xl p-3 flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="w-5 h-5 text-green-600" />
+                          <span className="font-bold text-green-700">{couponCode}</span>
+                        </div>
+                        <p className="text-sm text-green-600 mt-1">{couponData.message}</p>
                       </div>
-                      <p className="text-sm text-green-600 mt-1">{couponData.message}</p>
+                      <button 
+                        onClick={removeCoupon}
+                        className="p-1.5 hover:bg-green-100 rounded-lg transition-colors"
+                      >
+                        <X className="w-4 h-4 text-green-600" />
+                      </button>
                     </div>
-                    <button 
-                      onClick={removeCoupon}
-                      className="p-1.5 hover:bg-green-100 rounded-lg transition-colors"
-                    >
-                      <X className="w-4 h-4 text-green-600" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={couponCode}
-                      onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                      placeholder="הזן קוד קופון"
-                      className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all uppercase font-mono"
-                      dir="ltr"
-                    />
-                    <button
-                      onClick={validateCoupon}
-                      disabled={couponLoading || !couponCode.trim()}
-                      className="px-4 py-2.5 bg-purple-100 text-purple-700 rounded-xl font-medium hover:bg-purple-200 disabled:opacity-50 transition-all"
-                    >
-                      {couponLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'החל'}
-                    </button>
-                  </div>
-                )}
-                
-                {couponError && (
-                  <p className="text-sm text-red-600 mt-2 flex items-center gap-1">
-                    <AlertCircle className="w-4 h-4" />
-                    {couponError}
-                  </p>
-                )}
-              </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={couponCode}
+                        onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                        placeholder="הזן קוד קופון"
+                        className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all uppercase font-mono"
+                        dir="ltr"
+                      />
+                      <button
+                        onClick={validateCoupon}
+                        disabled={couponLoading || !couponCode.trim()}
+                        className="px-4 py-2.5 bg-purple-100 text-purple-700 rounded-xl font-medium hover:bg-purple-200 disabled:opacity-50 transition-all"
+                      >
+                        {couponLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'החל'}
+                      </button>
+                    </div>
+                  )}
+                  
+                  {couponError && (
+                    <p className="text-sm text-red-600 mt-2 flex items-center gap-1">
+                      <AlertCircle className="w-4 h-4" />
+                      {couponError}
+                    </p>
+                  )}
+                </div>
+              )}
 
-              {/* Price Summary with Discount (Coupon or Referral or Yearly) */}
-              {(couponData || prices.referralDiscount || prices.isYearly) && (
+              {/* Price Summary with Discount (Coupon or Referral or Yearly or Custom) */}
+              {(couponData || prices.referralDiscount || prices.isYearly || prices.customDiscount) && (
                 <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-4 border border-green-200">
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-gray-600">מחיר מקורי{prices.isYearly ? ' (שנתי)' : ''}</span>
@@ -1788,6 +1847,16 @@ function CheckoutModal({ plan, billingPeriod, onClose, onSuccess }) {
                       <span className="text-gray-900 font-bold">סה״כ לתשלום{prices.isYearly ? ' (לשנה)' : ''}</span>
                       <span className="text-2xl font-bold text-green-600">₪{prices.total}</span>
                     </div>
+                    {prices.customDiscount && prices.customDiscountDuration && (
+                      <p className="text-xs text-purple-600 mt-1 text-left">
+                        מחיר מיוחד {prices.customDiscountDuration}
+                      </p>
+                    )}
+                    {prices.customDiscount && customDiscount?.type !== 'forever' && billingPeriod === 'monthly' && (
+                      <p className="text-xs text-gray-500 mt-1 text-left">
+                        * לאחר תום ההנחה: ₪{prices.originalMonthly || Math.floor(plan.price)}/חודש
+                      </p>
+                    )}
                     {prices.referralDiscount && prices.referralDuration && (
                       <p className="text-xs text-purple-600 mt-1 text-left">
                         {prices.referralDuration}
