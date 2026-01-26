@@ -188,18 +188,19 @@ async function savePaymentMethod(req, res) {
     
     let subscriptionCreated = false;
     
-    // Check if admin set skip_trial for this user
+    // Check if admin set skip_trial for this user, or if trial was already used
     const skipTrialCheck = await db.query(
-      `SELECT skip_trial, is_manual FROM user_subscriptions WHERE user_id = $1`,
+      `SELECT skip_trial, is_manual, trial_used_at FROM user_subscriptions WHERE user_id = $1`,
       [userId]
     );
     const adminSetSkipTrial = skipTrialCheck.rows[0]?.skip_trial === true;
     const isManualSubscription = skipTrialCheck.rows[0]?.is_manual === true;
+    const trialAlreadyUsed = skipTrialCheck.rows[0]?.trial_used_at !== null;
     
     // Create trial if: no subscription, cancelled, or on Free plan
-    // BUT NOT if admin explicitly set skip_trial or is_manual
+    // BUT NOT if admin explicitly set skip_trial, is_manual, or trial already used
     const existingSub = subCheck.rows[0];
-    const shouldCreateTrial = !adminSetSkipTrial && !isManualSubscription && (
+    const shouldCreateTrial = !adminSetSkipTrial && !isManualSubscription && !trialAlreadyUsed && (
       !existingSub || 
       existingSub.status === 'cancelled' || 
       existingSub.plan_id === FREE_PLAN_ID ||
@@ -210,6 +211,8 @@ async function savePaymentMethod(req, res) {
       console.log(`[Payment] Skipping auto-trial for user ${userId} - admin set skip_trial`);
     } else if (isManualSubscription) {
       console.log(`[Payment] Skipping auto-trial for user ${userId} - has manual subscription`);
+    } else if (trialAlreadyUsed) {
+      console.log(`[Payment] Skipping auto-trial for user ${userId} - trial already used at ${skipTrialCheck.rows[0]?.trial_used_at}`);
     }
     
     if (shouldCreateTrial) {
@@ -258,15 +261,18 @@ async function savePaymentMethod(req, res) {
         
         // Check for custom discount from admin
         const existingCustomDiscount = await db.query(
-          `SELECT custom_discount_mode, custom_discount_percent, custom_fixed_price, 
-                  custom_discount_plan_id, custom_discount_type
+          `SELECT custom_discount_mode, 
+                  referral_discount_percent as custom_discount_percent, 
+                  custom_fixed_price, 
+                  custom_discount_plan_id, 
+                  referral_discount_type as custom_discount_type
            FROM user_subscriptions WHERE user_id = $1`,
           [userId]
         );
         
         if (existingCustomDiscount.rows.length > 0) {
           const cd = existingCustomDiscount.rows[0];
-          console.log(`[Payment] Custom discount found:`, cd);
+          console.log(`[Payment] Custom discount check:`, cd);
           
           if (cd.custom_discount_mode === 'fixed_price' && cd.custom_fixed_price) {
             chargeAmount = parseFloat(cd.custom_fixed_price);
@@ -331,8 +337,9 @@ async function savePaymentMethod(req, res) {
         await db.query(`
           INSERT INTO user_subscriptions (
             user_id, plan_id, status, is_trial, trial_ends_at, 
-            payment_method_id, next_charge_date, started_at, sumit_customer_id, sumit_standing_order_id
-          ) VALUES ($1, $2, 'trial', true, $3, $4, $3, NOW(), $5, $6)
+            payment_method_id, next_charge_date, started_at, sumit_customer_id, sumit_standing_order_id,
+            trial_used_at
+          ) VALUES ($1, $2, 'trial', true, $3, $4, $3, NOW(), $5, $6, NOW())
           ON CONFLICT (user_id) 
           DO UPDATE SET 
             plan_id = COALESCE(user_subscriptions.custom_discount_plan_id, $2), 
@@ -344,6 +351,7 @@ async function savePaymentMethod(req, res) {
             started_at = COALESCE(user_subscriptions.started_at, NOW()),
             sumit_customer_id = $5,
             sumit_standing_order_id = COALESCE($6, user_subscriptions.sumit_standing_order_id),
+            trial_used_at = COALESCE(user_subscriptions.trial_used_at, NOW()),
             updated_at = NOW()
         `, [userId, planId, trialEndsAt, paymentMethodId, sumitResult.customerId, standingOrderId]);
         
