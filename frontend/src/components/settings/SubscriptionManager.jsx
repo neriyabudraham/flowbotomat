@@ -249,7 +249,7 @@ export default function SubscriptionManager() {
             )}
 
             {/* Expiry Warning - Show for cancelled OR trial without payment */}
-            {shouldShowExpiry && !(isTrial && paymentMethod) && (
+            {shouldShowExpiry && (isCancelled || !(isTrial && paymentMethod)) && (
               <div className={`p-4 rounded-xl ${
                 isCancelled 
                   ? 'bg-gradient-to-r from-amber-500 to-orange-500' 

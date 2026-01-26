@@ -1239,9 +1239,10 @@ async function reactivateSubscription(req, res) {
   try {
     const userId = req.user.id;
     
-    // Get cancelled subscription
+    // Get cancelled subscription with custom discount info
     const subResult = await db.query(
-      `SELECT us.*, sp.name_he, sp.price
+      `SELECT us.*, sp.name_he, sp.price,
+              us.custom_discount_mode, us.custom_fixed_price, us.custom_discount_percent
        FROM user_subscriptions us
        JOIN subscription_plans sp ON sp.id = us.plan_id
        WHERE us.user_id = $1 AND us.status = 'cancelled'`,
@@ -1291,10 +1292,27 @@ async function reactivateSubscription(req, res) {
     const durationMonths = subscription.billing_period === 'yearly' ? 12 : 1;
     const periodLabel = subscription.billing_period === 'yearly' ? 'שנתי' : 'חודשי';
     
-    // Calculate proper amount for yearly (with discount)
+    // Calculate proper amount - check for custom discount first
     let amount = parseFloat(subscription.price);
-    if (subscription.billing_period === 'yearly') {
+    
+    // Check for custom discount from admin
+    if (subscription.custom_discount_mode === 'fixed_price' && subscription.custom_fixed_price) {
+      amount = parseFloat(subscription.custom_fixed_price);
+      console.log(`[Payment] Reactivate - using custom fixed price: ${amount}`);
+    } else if (subscription.custom_discount_mode === 'percent' && subscription.custom_discount_percent) {
+      amount = amount * (1 - subscription.custom_discount_percent / 100);
+      console.log(`[Payment] Reactivate - using custom percent discount (${subscription.custom_discount_percent}%): ${amount}`);
+    } else if (subscription.billing_period === 'yearly') {
+      // Apply yearly discount only if no custom discount
       amount = amount * 12 * 0.8; // 20% discount for yearly
+    }
+    
+    // For yearly without custom discount, multiply by 12
+    if (subscription.billing_period === 'yearly' && !subscription.custom_discount_mode) {
+      // Already handled above
+    } else if (subscription.billing_period === 'yearly' && subscription.custom_discount_mode) {
+      // Custom discount is monthly, multiply by 12 for yearly
+      amount = amount * 12;
     }
     
     // User already paid until currentEndDate, so schedule first charge for that date
