@@ -174,17 +174,29 @@ async function savePaymentMethod(req, res) {
     
     console.log(`[Payment] Successfully saved payment method for user ${userId}`);
     
-    // Auto-create trial subscription if user doesn't have one
+    // Auto-create trial subscription if user doesn't have a paid subscription
     const TRIAL_DAYS = 14;
+    const FREE_PLAN_ID = '00000000-0000-0000-0000-000000000001';
+    
     const subCheck = await db.query(
-      `SELECT id, status, plan_id FROM user_subscriptions WHERE user_id = $1`,
+      `SELECT us.id, us.status, us.plan_id, sp.price 
+       FROM user_subscriptions us
+       LEFT JOIN subscription_plans sp ON us.plan_id = sp.id
+       WHERE us.user_id = $1`,
       [userId]
     );
     
     let subscriptionCreated = false;
     
-    if (subCheck.rows.length === 0 || subCheck.rows[0].status === 'cancelled') {
-      console.log(`[Payment] Auto-creating trial subscription for user ${userId}`);
+    // Create trial if: no subscription, cancelled, or on Free plan
+    const existingSub = subCheck.rows[0];
+    const shouldCreateTrial = !existingSub || 
+      existingSub.status === 'cancelled' || 
+      existingSub.plan_id === FREE_PLAN_ID ||
+      (existingSub.price === 0 || existingSub.price === '0' || existingSub.price === null);
+    
+    if (shouldCreateTrial) {
+      console.log(`[Payment] Auto-creating trial subscription for user ${userId} (current: ${existingSub?.status || 'none'}, plan: ${existingSub?.plan_id || 'none'})`);
       
       const trialEndsAt = new Date();
       trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
@@ -302,14 +314,14 @@ async function savePaymentMethod(req, res) {
         subscriptionCreated = true;
         console.log(`[Payment] ✅ Trial subscription created, ends at: ${trialEndsAt.toISOString()}, standing order: ${standingOrderId || 'none'}`);
       }
-    } else if (subCheck.rows[0].status === 'trial' || subCheck.rows[0].status === 'active') {
-      // User already has a subscription, just update the payment method
+    } else {
+      // User already has a paid subscription (trial or active), just update the payment method
       await db.query(`
         UPDATE user_subscriptions 
         SET payment_method_id = $1, sumit_customer_id = $2, updated_at = NOW()
         WHERE user_id = $3
       `, [result.rows[0].id, sumitResult.customerId, userId]);
-      console.log(`[Payment] Updated payment method on existing subscription`);
+      console.log(`[Payment] Updated payment method on existing paid subscription (status: ${existingSub?.status})`);
     }
     
     // Get updated subscription info for response
@@ -324,8 +336,8 @@ async function savePaymentMethod(req, res) {
       success: true, 
       paymentMethod: result.rows[0],
       message: subscriptionCreated 
-        ? 'כרטיס אשראי נשמר ומנוי ניסיון הופעל!' 
-        : 'כרטיס אשראי נשמר בהצלחה',
+        ? 'מעולה! הכרטיס נשמר ומנוי הניסיון שלך הופעל. אפשר להמשיך!' 
+        : 'הכרטיס נשמר בהצלחה!',
       subscription: updatedSub.rows[0] || null,
       trialCreated: subscriptionCreated
     });
