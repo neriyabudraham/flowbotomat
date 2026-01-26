@@ -1242,7 +1242,8 @@ async function reactivateSubscription(req, res) {
     // Get cancelled subscription with custom discount info
     const subResult = await db.query(
       `SELECT us.*, sp.name_he, sp.price,
-              us.custom_discount_mode, us.custom_fixed_price, us.custom_discount_percent
+              us.custom_discount_mode, us.custom_fixed_price, 
+              us.referral_discount_percent as custom_discount_percent
        FROM user_subscriptions us
        JOIN subscription_plans sp ON sp.id = us.plan_id
        WHERE us.user_id = $1 AND us.status = 'cancelled'`,
