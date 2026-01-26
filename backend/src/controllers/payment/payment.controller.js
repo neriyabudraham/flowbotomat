@@ -1492,7 +1492,7 @@ async function removeAllPaymentMethods(req, res) {
     if (disconnectImmediately) {
       await db.query(
         `UPDATE whatsapp_connections 
-         SET status = 'disconnected', disconnected_at = NOW(), updated_at = NOW()
+         SET status = 'disconnected', updated_at = NOW()
          WHERE user_id = $1 AND status = 'connected'`,
         [userId]
       );

@@ -110,7 +110,7 @@ async function handleExpiredSubscriptions() {
             // Mark connection as disconnected in DB (only for managed)
             await db.query(`
               UPDATE whatsapp_connections 
-              SET status = 'disconnected', disconnected_at = NOW(), updated_at = NOW()
+              SET status = 'disconnected', updated_at = NOW()
               WHERE id = $1
             `, [sub.connection_id]);
           } else {
