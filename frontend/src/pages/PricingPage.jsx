@@ -1317,6 +1317,7 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
     expiryYear: '',
     cvv: '',
     citizenId: '',
+    phone: '',
   });
   
   // Coupon state
@@ -1333,6 +1334,7 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
 
   useEffect(() => {
     loadPaymentMethod();
+    loadPaymentDefaults();
     
     // Load referral discount info (only if no custom discount)
     if (!hasCustomDiscount) {
@@ -1357,6 +1359,22 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
       }
     }
   }, [hasCustomDiscount]);
+
+  // Load user defaults for payment form
+  const loadPaymentDefaults = async () => {
+    try {
+      const { data } = await api.get('/payment/defaults');
+      setCardForm(prev => ({
+        ...prev,
+        cardHolder: data.name || prev.cardHolder,
+        citizenId: data.citizenId || prev.citizenId,
+        phone: data.phone || prev.phone,
+      }));
+    } catch (err) {
+      // Silently fail - user can enter manually
+      console.log('[Payment] Could not load defaults:', err.message);
+    }
+  };
 
   const loadPaymentMethod = async () => {
     try {
@@ -1525,8 +1543,8 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
       setError(null);
       
       if (!cardForm.cardNumber || !cardForm.cardHolder || !cardForm.expiryMonth || 
-          !cardForm.expiryYear || !cardForm.cvv || !cardForm.citizenId) {
-        setError('נא למלא את כל השדות');
+          !cardForm.expiryYear || !cardForm.cvv || !cardForm.citizenId || !cardForm.phone) {
+        setError('נא למלא את כל השדות (כולל טלפון ות.ז.)');
         setProcessing(false);
         return;
       }
@@ -1538,6 +1556,7 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
         expiryYear: cardForm.expiryYear,
         cvv: cardForm.cvv,
         citizenId: cardForm.citizenId,
+        phone: cardForm.phone,
       });
       
       setPaymentMethod(data.paymentMethod);
@@ -1719,7 +1738,7 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">תעודת זהות</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">ת.ז. / ח.פ. <span className="text-red-500">*</span></label>
                 <input
                   type="text"
                   value={cardForm.citizenId}
@@ -1730,10 +1749,23 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
                   dir="ltr"
                 />
               </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">טלפון <span className="text-red-500">*</span></label>
+                <input
+                  type="tel"
+                  value={cardForm.phone}
+                  onChange={(e) => setCardForm({ ...cardForm, phone: e.target.value.replace(/[^\d-]/g, '').slice(0, 15) })}
+                  placeholder="050-1234567"
+                  maxLength={15}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all"
+                  dir="ltr"
+                />
+              </div>
 
               <button
                 onClick={handleSaveCard}
-                disabled={processing}
+                disabled={processing || !cardForm.citizenId || !cardForm.phone}
                 className={`w-full py-3.5 bg-gradient-to-r ${gradient} text-white rounded-xl hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 font-medium transition-all`}
               >
                 {processing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Shield className="w-5 h-5" />}

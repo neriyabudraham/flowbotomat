@@ -23,15 +23,32 @@ export default function CreditCardForm({
     cardHolderName: '',
     citizenId: '',
     companyNumber: '',
+    phone: '',
   });
   const [loading, setLoading] = useState(false);
   const [sdkLoaded, setSdkLoaded] = useState(false);
   const [error, setError] = useState('');
 
-  // Try to load Sumit SDK on component mount
+  // Try to load Sumit SDK and user defaults on component mount
   useEffect(() => {
     loadSumitSDK();
+    loadDefaults();
   }, []);
+
+  // Load user defaults for payment form
+  const loadDefaults = async () => {
+    try {
+      const { data } = await api.get('/payment/defaults');
+      setForm(prev => ({
+        ...prev,
+        cardHolderName: data.name || prev.cardHolderName,
+        citizenId: data.citizenId || prev.citizenId,
+        phone: data.phone || prev.phone,
+      }));
+    } catch (err) {
+      // Silently fail - user can enter manually
+    }
+  };
 
   /**
    * Load the Sumit tokenization SDK (optional - we have backend fallback)
@@ -183,6 +200,11 @@ export default function CreditCardForm({
       return;
     }
     
+    if (!form.phone || form.phone.length < 9) {
+      setError('נדרש מספר טלפון תקין');
+      return;
+    }
+    
     setLoading(true);
     
     try {
@@ -205,6 +227,7 @@ export default function CreditCardForm({
         cardHolderName: form.cardHolderName.trim(),
         citizenId: form.citizenId || null,
         companyNumber: form.companyNumber || null,
+        phone: form.phone || null,
         expiryMonth: parseInt(form.expiryMonth),
         expiryYear: parseInt(form.expiryYear),
         lastDigits: cardNum.slice(-4),
@@ -367,7 +390,7 @@ export default function CreditCardForm({
       {showCitizenId && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            תעודת זהות
+            ת.ז. / ח.פ. <span className="text-red-500">*</span>
           </label>
           <input
             type="text"
@@ -383,11 +406,29 @@ export default function CreditCardForm({
         </div>
       )}
 
+      {/* Phone */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          טלפון <span className="text-red-500">*</span>
+        </label>
+        <input
+          type="tel"
+          value={form.phone}
+          onChange={(e) => setForm({ ...form, phone: e.target.value.replace(/[^\d-]/g, '').slice(0, 15) })}
+          placeholder="050-1234567"
+          className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white text-left"
+          dir="ltr"
+          inputMode="tel"
+          maxLength={15}
+          disabled={loading}
+        />
+      </div>
+
       {/* Company Number (optional) */}
       {showCompanyNumber && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            ח.פ. / עוסק מורשה <span className="text-gray-400 font-normal">(אופציונלי)</span>
+            עוסק מורשה <span className="text-gray-400 font-normal">(אופציונלי)</span>
           </label>
           <input
             type="text"

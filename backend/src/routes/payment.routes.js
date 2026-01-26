@@ -16,6 +16,7 @@ router.use(authMiddleware);
 router.get('/methods', paymentController.getPaymentMethods);
 router.post('/methods', paymentController.savePaymentMethod);
 router.get('/methods/check', paymentController.checkPaymentMethod);
+router.get('/defaults', paymentController.getPaymentDefaults); // Get user defaults for payment form
 router.delete('/methods/remove-all', paymentController.removeAllPaymentMethods); // Must be before :methodId
 router.delete('/methods/:methodId', paymentController.deletePaymentMethod);
 

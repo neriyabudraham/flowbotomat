@@ -22,11 +22,12 @@ async function savePaymentMethod(req, res) {
       cardNumber,          // Card number for backend tokenization (optional if token provided)
       cvv,                 // CVV for backend tokenization
       cardHolderName,      // Card holder name
-      citizenId,           // Israeli ID
+      citizenId,           // Israeli ID (ת.ז. / ח.פ.)
       companyNumber,       // Company number (optional)
       lastDigits,          // Last 4 digits for display
       expiryMonth,         // Expiry month
       expiryYear,          // Expiry year
+      phone,               // Phone number for payment
     } = req.body;
     
     // Need either token or card details
@@ -44,9 +45,23 @@ async function savePaymentMethod(req, res) {
       });
     }
     
-    // Get user info including receipt_email
+    if (!phone?.trim()) {
+      return res.status(400).json({ 
+        error: 'נדרש מספר טלפון',
+        code: 'MISSING_PHONE'
+      });
+    }
+    
+    if (!citizenId?.trim()) {
+      return res.status(400).json({ 
+        error: 'נדרשת תעודת זהות / ח.פ.',
+        code: 'MISSING_CITIZEN_ID'
+      });
+    }
+    
+    // Get user info including receipt_email and phone
     const userResult = await db.query(
-      'SELECT id, name, email, receipt_email FROM users WHERE id = $1',
+      'SELECT id, name, email, receipt_email, phone, citizen_id FROM users WHERE id = $1',
       [userId]
     );
     
@@ -69,10 +84,11 @@ async function savePaymentMethod(req, res) {
     
     // If no existing customer, create one first
     if (!existingSumitCustomerId) {
-      console.log(`[Payment] Creating new Sumit customer for user ${userId}, receipt email: ${receiptEmail}`);
+      console.log(`[Payment] Creating new Sumit customer for user ${userId}, receipt email: ${receiptEmail}, phone: ${phone}`);
       const customerResult = await sumitService.createCustomer({
         name: cardHolderName || user.name || user.email,
         email: receiptEmail, // Use receipt_email for receipts
+        phone: phone,
         citizenId: citizenId,
         companyNumber: companyNumber,
         externalId: `user_${userId}`,
@@ -100,6 +116,7 @@ async function savePaymentMethod(req, res) {
         customerInfo: {
           name: cardHolderName || user.name || user.email,
           email: receiptEmail, // Use receipt_email for receipts
+          phone: phone,
           companyNumber: companyNumber,
           externalId: `user_${userId}`,
         }
@@ -114,9 +131,11 @@ async function savePaymentMethod(req, res) {
         expiryYear: expiryYear,
         cvv: cvv,
         citizenId: citizenId,
+        phone: phone,
         customerInfo: {
           name: cardHolderName || user.name || user.email,
           email: receiptEmail, // Use receipt_email for receipts
+          phone: phone,
           companyNumber: companyNumber,
           externalId: `user_${userId}`,
         }
@@ -397,20 +416,20 @@ async function savePaymentMethod(req, res) {
             const nextChargeDate = new Date();
             nextChargeDate.setMonth(nextChargeDate.getMonth() + 1);
             
-            try {
-              // Charge IMMEDIATELY - no startDate means charge now
-              console.log(`[Payment] Charging immediately: ${chargeAmount} ILS`);
-              const chargeResult = await sumitService.chargeRecurring({
-                customerId: sumitResult.customerId,
-                amount: chargeAmount,
-                description: `מנוי חודשי - ${planData.name_he}`,
-                durationMonths: 1,
-                recurrence: null,
-                // NO startDate = charge immediately
-              });
-              
-              if (chargeResult.success) {
-                // Update subscription with standing order and reactivate
+            // Charge IMMEDIATELY - no startDate means charge now
+            console.log(`[Payment] Charging immediately: ${chargeAmount} ILS`);
+            const chargeResult = await sumitService.chargeRecurring({
+              customerId: sumitResult.customerId,
+              amount: chargeAmount,
+              description: `מנוי חודשי - ${planData.name_he}`,
+              durationMonths: 1,
+              recurrence: null,
+              // NO startDate = charge immediately
+            });
+            
+            if (chargeResult.success) {
+              // Update subscription with standing order and reactivate
+              try {
                 await db.query(`
                   UPDATE user_subscriptions 
                   SET sumit_standing_order_id = $1, 
@@ -426,20 +445,36 @@ async function savePaymentMethod(req, res) {
                 
                 subscriptionCreated = true;
                 console.log(`[Payment] ✅ Charged immediately and reactivated subscription with standing order: ${chargeResult.standingOrderId}`);
-              } else {
-                console.error(`[Payment] Failed to charge for reactivation: ${chargeResult.error}`);
-                // Return error to user - they need to know the charge failed
-                return res.status(400).json({
-                  error: chargeResult.error || 'החיוב נכשל. אנא בדוק את פרטי האשראי.',
-                  code: 'CHARGE_FAILED',
-                  trialNotAvailable: true
-                });
+              } catch (dbErr) {
+                // CRITICAL: Charge succeeded but DB update failed
+                // Log this for manual fix, but tell user the charge worked
+                console.error(`[Payment] CRITICAL: Charge succeeded but DB update failed for user ${userId}:`, dbErr.message);
+                console.error(`[Payment] Standing order ID: ${chargeResult.standingOrderId}, Amount: ${chargeAmount}`);
+                
+                // Notify admin
+                try {
+                  await db.query(`
+                    INSERT INTO notifications (user_id, notification_type, title, message, metadata, is_admin_notification)
+                    VALUES ($1, 'payment_error', 'שגיאת DB אחרי חיוב מוצלח', $2, $3, true)
+                  `, [
+                    userId,
+                    `חיוב בוצע בהצלחה אך עדכון המסד נכשל. יש לעדכן ידנית.`,
+                    JSON.stringify({ userId, chargeResult, amount: chargeAmount, error: dbErr.message })
+                  ]);
+                } catch (notifyErr) {
+                  console.error('[Payment] Failed to notify admin:', notifyErr.message);
+                }
+                
+                // Still consider it a success for the user - they were charged
+                subscriptionCreated = true;
               }
-            } catch (soErr) {
-              console.error(`[Payment] Error charging for reactivation:`, soErr.message);
-              return res.status(500).json({
-                error: 'שגיאה בביצוע החיוב. אנא נסה שנית.',
-                code: 'CHARGE_ERROR'
+            } else {
+              console.error(`[Payment] Failed to charge for reactivation: ${chargeResult.error}`);
+              // Return error to user - charge actually failed
+              return res.status(400).json({
+                error: chargeResult.error || 'החיוב נכשל. אנא בדוק את פרטי האשראי.',
+                code: 'CHARGE_FAILED',
+                trialNotAvailable: true
               });
             }
           }
@@ -2344,6 +2379,43 @@ async function decrementReferralMonths() {
   }
 }
 
+/**
+ * Get user defaults for payment form (phone, citizenId)
+ */
+async function getPaymentDefaults(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    // Ensure columns exist
+    try {
+      await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20)`);
+      await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS citizen_id VARCHAR(20)`);
+    } catch (alterErr) {
+      // Ignore if columns already exist
+    }
+    
+    const result = await db.query(
+      `SELECT name, COALESCE(phone, '') as phone, COALESCE(citizen_id, '') as citizen_id FROM users WHERE id = $1`,
+      [userId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'משתמש לא נמצא' });
+    }
+    
+    const user = result.rows[0];
+    
+    res.json({
+      name: user.name || '',
+      phone: user.phone || '',
+      citizenId: user.citizen_id || '',
+    });
+  } catch (error) {
+    console.error('[Payment] Get payment defaults error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת ברירות מחדל' });
+  }
+}
+
 module.exports = {
   savePaymentMethod,
   getPaymentMethods,
@@ -2360,4 +2432,5 @@ module.exports = {
   decrementPromoMonths,
   processEndingReferralDiscounts,
   decrementReferralMonths,
+  getPaymentDefaults,
 };

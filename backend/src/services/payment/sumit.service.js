@@ -600,6 +600,7 @@ async function setPaymentMethodWithCard({
   expiryYear, 
   cvv, 
   citizenId,
+  phone,
   customerInfo 
 }) {
   const credentials = getCredentials();
@@ -625,8 +626,9 @@ async function setPaymentMethodWithCard({
         SearchMode: 0,
       } : {
         Name: customerInfo?.name || 'לקוח',
-        Phone: customerInfo?.phone || null,
+        Phone: phone || customerInfo?.phone || null,
         EmailAddress: customerInfo?.email || null,
+        Personal_ID: citizenId || null,
         CompanyNumber: customerInfo?.companyNumber || null,
         ExternalIdentifier: customerInfo?.externalId || null,
         SearchMode: 0,
