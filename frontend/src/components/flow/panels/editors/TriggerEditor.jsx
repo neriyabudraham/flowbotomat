@@ -37,7 +37,7 @@ const contactFields = [
 export default function TriggerEditor({ data, onUpdate }) {
   // Groups of conditions - each group is OR, conditions within group are AND
   const groups = data.triggerGroups || [];
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(true); // Show advanced settings by default
   const [expandedGroups, setExpandedGroups] = useState(new Set(groups[0]?.id ? [groups[0].id] : []));
   const [availableTags, setAvailableTags] = useState([]);
   const [loadingTags, setLoadingTags] = useState(false);
@@ -436,18 +436,24 @@ export default function TriggerEditor({ data, onUpdate }) {
         </div>
       )}
 
-      {/* Advanced Settings */}
+      {/* Advanced Settings - Always visible */}
       <div className="border-t border-gray-200 pt-4">
-        <button
-          onClick={() => setShowAdvanced(!showAdvanced)}
-          className="w-full flex items-center justify-between text-gray-700 hover:text-gray-900"
-        >
-          <span className="font-medium">הגדרות מתקדמות</span>
-          {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-        </button>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">⚙️</span>
+            <span className="font-semibold text-gray-800">הגדרות התנהגות</span>
+          </div>
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+          >
+            {showAdvanced ? 'הסתר' : 'הצג'}
+            {showAdvanced ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
+        </div>
         
         {showAdvanced && (
-          <div className="mt-4 space-y-4">
+          <div className="space-y-4 bg-gray-50 rounded-xl p-4">
             {/* Auto mark as seen */}
             <label className="flex items-start gap-3 cursor-pointer">
               <input
