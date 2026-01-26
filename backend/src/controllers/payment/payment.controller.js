@@ -188,12 +188,29 @@ async function savePaymentMethod(req, res) {
     
     let subscriptionCreated = false;
     
+    // Check if admin set skip_trial for this user
+    const skipTrialCheck = await db.query(
+      `SELECT skip_trial, is_manual FROM user_subscriptions WHERE user_id = $1`,
+      [userId]
+    );
+    const adminSetSkipTrial = skipTrialCheck.rows[0]?.skip_trial === true;
+    const isManualSubscription = skipTrialCheck.rows[0]?.is_manual === true;
+    
     // Create trial if: no subscription, cancelled, or on Free plan
+    // BUT NOT if admin explicitly set skip_trial or is_manual
     const existingSub = subCheck.rows[0];
-    const shouldCreateTrial = !existingSub || 
+    const shouldCreateTrial = !adminSetSkipTrial && !isManualSubscription && (
+      !existingSub || 
       existingSub.status === 'cancelled' || 
       existingSub.plan_id === FREE_PLAN_ID ||
-      (existingSub.price === 0 || existingSub.price === '0' || existingSub.price === null);
+      (existingSub.price === 0 || existingSub.price === '0' || existingSub.price === null)
+    );
+    
+    if (adminSetSkipTrial) {
+      console.log(`[Payment] Skipping auto-trial for user ${userId} - admin set skip_trial`);
+    } else if (isManualSubscription) {
+      console.log(`[Payment] Skipping auto-trial for user ${userId} - has manual subscription`);
+    }
     
     if (shouldCreateTrial) {
       console.log(`[Payment] Auto-creating trial subscription for user ${userId} (current: ${existingSub?.status || 'none'}, plan: ${existingSub?.plan_id || 'none'})`);
