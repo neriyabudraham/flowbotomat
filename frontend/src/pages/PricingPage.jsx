@@ -45,6 +45,9 @@ export default function PricingPage() {
   const [currentSubscription, setCurrentSubscription] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState(null);
   
+  // Custom discount from admin (takes priority over referral)
+  const [customDiscount, setCustomDiscount] = useState(null);
+  
   // Referral discount with timer
   const [referralDiscount, setReferralDiscount] = useState(0);
   const [referralDiscountType, setReferralDiscountType] = useState('first_payment');
@@ -151,6 +154,23 @@ export default function PricingPage() {
     try {
       const { data } = await api.get('/subscriptions/my');
       setCurrentSubscription(data.subscription);
+      
+      // Check for custom discount from admin
+      if (data.subscription) {
+        const sub = data.subscription;
+        if (sub.custom_discount_mode || sub.referral_discount_percent || sub.custom_fixed_price) {
+          setCustomDiscount({
+            mode: sub.custom_discount_mode || 'percent',
+            percent: sub.referral_discount_percent,
+            fixedPrice: sub.custom_fixed_price,
+            type: sub.referral_discount_type,
+            monthsRemaining: sub.referral_months_remaining,
+            planId: sub.plan_id,
+            planName: sub.plan_name_he || sub.plan_name,
+            planPrice: sub.plan_price
+          });
+        }
+      }
       
       // Also load payment method
       const paymentData = await api.get('/payment/methods');
@@ -391,7 +411,106 @@ export default function PricingPage() {
       {/* Plans Grid */}
       <section className="pb-20 px-6">
         <div className="max-w-7xl mx-auto">
-          {plans.length === 0 ? (
+          {/* Custom Discount View - Show only specific plan with custom price */}
+          {customDiscount && customDiscount.planId && (
+            <div className="max-w-md mx-auto">
+              <div className="mb-6 p-4 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-2xl text-white text-center">
+                <Gift className="w-8 h-8 mx-auto mb-2" />
+                <h3 className="text-xl font-bold mb-1">הצעה מיוחדת עבורך!</h3>
+                <p className="text-white/80 text-sm">
+                  {customDiscount.mode === 'fixed_price' 
+                    ? customDiscount.fixedPrice === 0 
+                      ? 'קיבלת גישה חינמית!'
+                      : `מחיר מיוחד: ₪${customDiscount.fixedPrice}/חודש`
+                    : `${customDiscount.percent}% הנחה`
+                  }
+                  {customDiscount.type === 'first_payment' && ' - לתשלום הראשון'}
+                  {customDiscount.type === 'custom_months' && ` - ל-${customDiscount.monthsRemaining} חודשים`}
+                  {customDiscount.type === 'first_year' && ' - לשנה הראשונה'}
+                  {customDiscount.type === 'forever' && ' - לתמיד'}
+                </p>
+              </div>
+              
+              {(() => {
+                const plan = plans.find(p => p.id === customDiscount.planId);
+                if (!plan) return null;
+                
+                const Icon = PLAN_ICONS[plan.name] || Star;
+                const gradient = PLAN_GRADIENTS[plan.name] || 'from-gray-500 to-slate-600';
+                const originalPrice = Math.floor(parseFloat(plan.price));
+                const finalPrice = customDiscount.mode === 'fixed_price'
+                  ? customDiscount.fixedPrice
+                  : Math.floor(originalPrice * (1 - customDiscount.percent / 100));
+                
+                return (
+                  <div className="bg-white rounded-3xl shadow-xl overflow-hidden ring-2 ring-purple-500">
+                    <div className={`p-6 bg-gradient-to-br ${gradient} text-white`}>
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="p-3 bg-white/20 rounded-2xl">
+                          <Icon className="w-8 h-8" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-2xl">{plan.name_he}</h3>
+                          <p className="text-white/80">{plan.name}</p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-5xl font-bold">₪{finalPrice}</span>
+                        <span className="text-white/80 text-lg">/חודש</span>
+                      </div>
+                      {finalPrice !== originalPrice && (
+                        <div className="mt-2">
+                          <span className="text-white/60 line-through text-lg">₪{originalPrice}/חודש</span>
+                          <span className="mr-2 px-2 py-1 bg-white/20 rounded-lg text-sm">
+                            חיסכון ₪{originalPrice - finalPrice}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="p-6">
+                      <p className="text-gray-600 mb-4">{plan.description_he}</p>
+                      
+                      <ul className="space-y-3 mb-6">
+                        <li className="flex items-center gap-2 text-gray-700">
+                          <Check className="w-5 h-5 text-green-500" />
+                          {plan.max_bots === -1 ? 'בוטים ללא הגבלה' : `עד ${plan.max_bots} בוטים`}
+                        </li>
+                        <li className="flex items-center gap-2 text-gray-700">
+                          <Check className="w-5 h-5 text-green-500" />
+                          {plan.max_contacts === -1 ? 'אנשי קשר ללא הגבלה' : `עד ${plan.max_contacts?.toLocaleString()} אנשי קשר`}
+                        </li>
+                        <li className="flex items-center gap-2 text-gray-700">
+                          <Check className="w-5 h-5 text-green-500" />
+                          {plan.max_bot_runs_per_month === -1 ? 'הרצות ללא הגבלה' : `עד ${plan.max_bot_runs_per_month?.toLocaleString()} הרצות/חודש`}
+                        </li>
+                      </ul>
+                      
+                      <button
+                        onClick={() => handleSelectPlan(plan)}
+                        className={`w-full py-4 bg-gradient-to-r ${gradient} text-white rounded-xl font-bold text-lg hover:shadow-lg transition-all`}
+                      >
+                        {finalPrice === 0 ? 'התחל בחינם' : 'התחל עכשיו'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+              
+              <p className="text-center text-gray-500 text-sm mt-6">
+                <button 
+                  onClick={() => setCustomDiscount(null)}
+                  className="text-purple-600 hover:underline"
+                >
+                  צפה בכל התוכניות →
+                </button>
+              </p>
+            </div>
+          )}
+          
+          {/* Regular Plans View */}
+          {!customDiscount && plans.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-gray-500 mb-4">אין תכניות זמינות כרגע</p>
               <button
@@ -404,7 +523,7 @@ export default function PricingPage() {
                 נסה שוב
               </button>
             </div>
-          ) : (
+          ) : !customDiscount && (
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
               {plans.map((plan, index) => {
                 const Icon = PLAN_ICONS[plan.name] || Star;
