@@ -421,8 +421,26 @@ async function subscribe(req, res) {
       }
     }
     
+    // Check for admin-set custom discount for this user
+    let adminCustomDiscount = null;
+    const customDiscountCheck = await db.query(`
+      SELECT custom_discount_mode, referral_discount_percent as custom_discount_percent, 
+             custom_fixed_price, referral_discount_type as custom_discount_type,
+             referral_months_remaining as custom_discount_months, custom_discount_plan_id, skip_trial
+      FROM user_subscriptions 
+      WHERE user_id = $1 
+      AND (custom_discount_mode IS NOT NULL OR custom_fixed_price IS NOT NULL OR referral_discount_percent IS NOT NULL)
+    `, [userId]);
+    
+    if (customDiscountCheck.rows.length > 0) {
+      adminCustomDiscount = customDiscountCheck.rows[0];
+      console.log(`[Payment] Found admin custom discount for user ${userId}:`, adminCustomDiscount);
+    }
+
     const now = new Date();
-    const hasTrial = plan.trial_days > 0;
+    // Check if trial should be skipped (admin setting)
+    const skipTrial = adminCustomDiscount?.skip_trial || false;
+    const hasTrial = !skipTrial && plan.trial_days > 0;
     const originalPrice = parseFloat(plan.price);
     
     // Calculate price (with coupon or promotion)
@@ -469,7 +487,47 @@ async function subscribe(req, res) {
       console.log(`[Payment] Applying promotion ${promotion.id}: ${chargeAmount} ILS for ${promoMonthsRemaining} months`);
     }
     
-    // Apply referral discount for new users only
+    // Apply admin custom discount (takes priority over referral, but not over coupon/promotion)
+    if (adminCustomDiscount && !coupon && !promotion) {
+      const mode = adminCustomDiscount.custom_discount_mode;
+      const customPercent = parseFloat(adminCustomDiscount.custom_discount_percent) || 0;
+      const fixedPrice = parseFloat(adminCustomDiscount.custom_fixed_price);
+      
+      if (mode === 'fixed_price' && !isNaN(fixedPrice)) {
+        // Fixed price from admin
+        const basePrice = billingPeriod === 'yearly' ? originalPrice * 12 * 0.8 : originalPrice;
+        chargeAmount = fixedPrice;
+        if (billingPeriod === 'yearly') {
+          chargeAmount = fixedPrice * 12; // Annual payment
+        }
+        console.log(`[Payment] Applying admin fixed price: ${chargeAmount} ILS (original: ${basePrice})`);
+      } else if (mode === 'percent' && customPercent > 0) {
+        // Percentage discount from admin
+        const basePrice = billingPeriod === 'yearly' ? originalPrice * 12 * 0.8 : originalPrice;
+        discountAmount = Math.floor(basePrice * (customPercent / 100));
+        chargeAmount = Math.max(0, basePrice - discountAmount);
+        console.log(`[Payment] Applying admin discount ${customPercent}%: ${chargeAmount} ILS (original: ${basePrice})`);
+      }
+      
+      // Set duration from admin settings
+      const discountType = adminCustomDiscount.custom_discount_type;
+      if (discountType === 'forever') {
+        regularPriceAfterPromo = null;
+        promoMonthsRemaining = -1;
+      } else if (discountType === 'first_year') {
+        regularPriceAfterPromo = billingPeriod === 'yearly' ? originalPrice * 12 * 0.8 : originalPrice;
+        promoMonthsRemaining = adminCustomDiscount.custom_discount_months || 12;
+      } else if (discountType === 'custom_months') {
+        regularPriceAfterPromo = billingPeriod === 'yearly' ? originalPrice * 12 * 0.8 : originalPrice;
+        promoMonthsRemaining = adminCustomDiscount.custom_discount_months || 1;
+      } else {
+        // first_payment
+        regularPriceAfterPromo = billingPeriod === 'yearly' ? originalPrice * 12 * 0.8 : originalPrice;
+        promoMonthsRemaining = 1;
+      }
+    }
+    
+    // Apply referral discount for new users only (only if no admin discount, coupon, or promotion)
     let referralDiscount = 0;
     let referralClickId = null;
     let referralDiscountType = null;
@@ -477,7 +535,7 @@ async function subscribe(req, res) {
     let referralMonthsRemaining = 0;
     let referralRegularPrice = null;
     
-    if (referralCode && isNewUser && !coupon && !promotion) {
+    if (referralCode && isNewUser && !coupon && !promotion && !adminCustomDiscount) {
       // First, get the affiliate to check for custom settings
       const affiliateResult = await db.query(
         `SELECT a.custom_discount_percent, a.custom_discount_type, a.custom_discount_months 
@@ -586,6 +644,9 @@ async function subscribe(req, res) {
       const trialEnds = new Date(now);
       trialEnds.setDate(trialEnds.getDate() + plan.trial_days);
       
+      // Determine promo price from admin discount, coupon, or promotion
+      const effectivePromoPrice = adminCustomDiscount ? chargeAmount : (promotion ? chargeAmount : null);
+      
       const subResult = await db.query(`
         INSERT INTO user_subscriptions (
           user_id, plan_id, status, is_trial, trial_ends_at, 
@@ -603,15 +664,20 @@ async function subscribe(req, res) {
           sumit_customer_id = $5,
           billing_period = $6,
           expires_at = $3,
-          active_promotion_id = $7,
-          promo_months_remaining = $8,
-          promo_price = $9,
-          regular_price_after_promo = $10,
+          active_promotion_id = COALESCE($7, user_subscriptions.active_promotion_id),
+          promo_months_remaining = CASE WHEN $8 > 0 THEN $8 ELSE user_subscriptions.promo_months_remaining END,
+          promo_price = COALESCE($9, user_subscriptions.promo_price),
+          regular_price_after_promo = COALESCE($10, user_subscriptions.regular_price_after_promo),
+          -- Preserve admin custom discount settings
+          custom_discount_mode = COALESCE(user_subscriptions.custom_discount_mode, custom_discount_mode),
+          custom_fixed_price = COALESCE(user_subscriptions.custom_fixed_price, custom_fixed_price),
+          custom_discount_plan_id = COALESCE(user_subscriptions.custom_discount_plan_id, custom_discount_plan_id),
+          skip_trial = COALESCE(user_subscriptions.skip_trial, skip_trial),
           updated_at = NOW()
         RETURNING *
       `, [
         userId, planId, trialEnds, paymentMethodId, paymentMethod.sumit_customer_id, billingPeriod,
-        promotion?.id || null, promoMonthsRemaining, promotion ? chargeAmount : null, regularPriceAfterPromo
+        promotion?.id || null, promoMonthsRemaining, effectivePromoPrice, regularPriceAfterPromo
       ]);
       
       // Record promotion or coupon use if applicable

@@ -261,7 +261,8 @@ export default function WhatsappSetupPage() {
                   </div>
                 </button>
 
-                {/* Advanced Options Toggle */}
+                {/* Advanced Options Toggle - Hidden for now */}
+                {false && (
                 <div className="pt-4">
                   <button
                     onClick={() => setShowAdvanced(!showAdvanced)}
@@ -301,6 +302,7 @@ export default function WhatsappSetupPage() {
                     </div>
                   )}
                 </div>
+                )}
               </div>
               
               {isCheckingExisting && (
