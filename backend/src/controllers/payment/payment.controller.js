@@ -1197,14 +1197,31 @@ async function cancelSubscription(req, res) {
     
     // Cancel recurring in Sumit
     if (subscription.sumit_standing_order_id) {
-      const cancelResult = await sumitService.cancelRecurring(
-        subscription.sumit_standing_order_id, 
-        subscription.sumit_customer_id
-      );
-      if (!cancelResult.success) {
-        console.error('[Payment] Failed to cancel Sumit recurring:', cancelResult.error);
+      // Get customer ID - might be in subscription or payment method
+      let customerId = subscription.sumit_customer_id;
+      
+      if (!customerId && subscription.payment_method_id) {
+        const pmResult = await db.query(
+          'SELECT sumit_customer_id FROM user_payment_methods WHERE id = $1',
+          [subscription.payment_method_id]
+        );
+        if (pmResult.rows.length > 0) {
+          customerId = pmResult.rows[0].sumit_customer_id;
+        }
+      }
+      
+      if (customerId) {
+        const cancelResult = await sumitService.cancelRecurring(
+          subscription.sumit_standing_order_id, 
+          customerId
+        );
+        if (!cancelResult.success) {
+          console.error('[Payment] Failed to cancel Sumit recurring:', cancelResult.error);
+        } else {
+          console.log(`[Payment] Successfully cancelled Sumit recurring ${subscription.sumit_standing_order_id}`);
+        }
       } else {
-        console.log(`[Payment] Successfully cancelled Sumit recurring ${subscription.sumit_standing_order_id}`);
+        console.error('[Payment] Cannot cancel Sumit - no customer ID found');
       }
     }
     

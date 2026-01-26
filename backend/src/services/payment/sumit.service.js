@@ -466,7 +466,7 @@ async function chargeRecurring({
  * @param {number} customerId - The Sumit Customer ID (optional, for additional verification)
  * @returns {Promise<{success: boolean, error?: string}>}
  */
-async function cancelRecurring(recurringCustomerItemId, customerId = null) {
+async function cancelRecurring(recurringCustomerItemId, customerId) {
   const credentials = getCredentials();
   
   try {
@@ -476,7 +476,11 @@ async function cancelRecurring(recurringCustomerItemId, customerId = null) {
       return { success: false, error: 'נדרש מזהה הוראת קבע' };
     }
     
-    console.log('[Sumit] Cancelling recurring payment:', recurringCustomerItemId);
+    if (!customerId) {
+      return { success: false, error: 'נדרש מזהה לקוח לביטול הוראת קבע' };
+    }
+    
+    console.log('[Sumit] Cancelling recurring payment:', recurringCustomerItemId, 'for customer:', customerId);
     
     const requestBody = {
       Credentials: {
@@ -484,15 +488,11 @@ async function cancelRecurring(recurringCustomerItemId, customerId = null) {
         APIKey: credentials.APIKey,
       },
       RecurringCustomerItemID: parseInt(recurringCustomerItemId),
-    };
-    
-    // Add customer if provided
-    if (customerId) {
-      requestBody.Customer = {
+      Customer: {
         ID: parseInt(customerId),
         SearchMode: 0,
-      };
-    }
+      },
+    };
     
     const response = await axios.post(
       `${SUMIT_BASE_URL}/billing/recurring/cancel/`,
