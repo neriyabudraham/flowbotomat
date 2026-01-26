@@ -359,13 +359,75 @@ async function savePaymentMethod(req, res) {
         console.log(`[Payment] ✅ Trial subscription created, ends at: ${trialEndsAt.toISOString()}, standing order: ${standingOrderId || 'none'}`);
       }
     } else {
-      // User already has a paid subscription (trial or active), just update the payment method
+      // User already has a subscription, just update the payment method
       await db.query(`
         UPDATE user_subscriptions 
         SET payment_method_id = $1, sumit_customer_id = $2, updated_at = NOW()
         WHERE user_id = $3
       `, [result.rows[0].id, sumitResult.customerId, userId]);
-      console.log(`[Payment] Updated payment method on existing paid subscription (status: ${existingSub?.status})`);
+      console.log(`[Payment] Updated payment method on existing subscription (status: ${existingSub?.status})`);
+      
+      // If user has cancelled subscription and no standing order, create one for reactivation
+      if (existingSub?.status === 'cancelled' && !existingSub?.sumit_standing_order_id) {
+        console.log(`[Payment] Cancelled subscription without standing order - creating one for reactivation`);
+        
+        // Get plan price
+        const planPriceResult = await db.query(
+          `SELECT sp.price, sp.name_he, us.custom_discount_mode, us.custom_fixed_price, us.referral_discount_percent
+           FROM user_subscriptions us
+           JOIN subscription_plans sp ON us.plan_id = sp.id
+           WHERE us.user_id = $1`,
+          [userId]
+        );
+        
+        if (planPriceResult.rows.length > 0) {
+          const planData = planPriceResult.rows[0];
+          let chargeAmount = parseFloat(planData.price || 0);
+          
+          // Apply custom discount
+          if (planData.custom_discount_mode === 'fixed_price' && planData.custom_fixed_price) {
+            chargeAmount = parseFloat(planData.custom_fixed_price);
+          } else if (planData.custom_discount_mode === 'percent' && planData.referral_discount_percent) {
+            chargeAmount = chargeAmount * (1 - planData.referral_discount_percent / 100);
+          }
+          
+          if (chargeAmount > 0 && sumitResult.customerId) {
+            // For cancelled subscription, charge starts from now (no trial)
+            const chargeStartDate = new Date();
+            chargeStartDate.setDate(chargeStartDate.getDate() + 1); // Start tomorrow
+            
+            try {
+              const standingOrderResult = await sumitService.chargeRecurring({
+                customerId: sumitResult.customerId,
+                amount: chargeAmount,
+                description: `מנוי חודשי - ${planData.name_he}`,
+                durationMonths: 1,
+                recurrence: null,
+                startDate: chargeStartDate,
+              });
+              
+              if (standingOrderResult.success) {
+                // Update subscription with standing order and reactivate
+                await db.query(`
+                  UPDATE user_subscriptions 
+                  SET sumit_standing_order_id = $1, 
+                      status = 'active',
+                      cancelled_at = NULL,
+                      next_charge_date = $2,
+                      updated_at = NOW()
+                  WHERE user_id = $3
+                `, [standingOrderResult.standingOrderId, chargeStartDate, userId]);
+                
+                console.log(`[Payment] ✅ Reactivated subscription with standing order: ${standingOrderResult.standingOrderId}`);
+              } else {
+                console.error(`[Payment] Failed to create standing order for reactivation: ${standingOrderResult.error}`);
+              }
+            } catch (soErr) {
+              console.error(`[Payment] Error creating standing order for reactivation:`, soErr.message);
+            }
+          }
+        }
+      }
     }
     
     // Get updated subscription info for response
