@@ -165,7 +165,7 @@ export default function PricingPage() {
             fixedPrice: sub.custom_fixed_price,
             type: sub.referral_discount_type,
             monthsRemaining: sub.referral_months_remaining,
-            planId: sub.plan_id,
+            planId: sub.custom_discount_plan_id || sub.plan_id, // Use discount plan if specified
             planName: sub.plan_name_he || sub.plan_name,
             planPrice: sub.plan_price
           });

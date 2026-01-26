@@ -55,6 +55,7 @@ async function getUsers(req, res) {
               us.custom_fixed_price,
               us.referral_discount_type as custom_discount_type,
               us.referral_months_remaining as custom_discount_months,
+              us.custom_discount_plan_id,
               sp.name as plan_name,
               sp.name_he as plan_name_he,
               sp.price as plan_price,
@@ -250,7 +251,7 @@ async function updateUserSubscription(req, res) {
     const { 
       planId, status, expiresAt, isManual, adminNotes,
       // Discount settings
-      customDiscountMode, customDiscountPercent, customFixedPrice, customDiscountType, customDiscountMonths,
+      customDiscountMode, customDiscountPercent, customFixedPrice, customDiscountType, customDiscountMonths, customDiscountPlanId,
       // Referral settings
       affiliateId
     } = req.body;
@@ -273,8 +274,8 @@ async function updateUserSubscription(req, res) {
         INSERT INTO user_subscriptions (
           user_id, plan_id, status, expires_at, is_manual, admin_notes,
           custom_discount_mode, referral_discount_percent, custom_fixed_price, 
-          referral_discount_type, referral_months_remaining
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          referral_discount_type, referral_months_remaining, custom_discount_plan_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING *
       `, [
         id, planId, status || 'active', expiresAt || null, isManual !== false, adminNotes || null,
@@ -284,7 +285,8 @@ async function updateUserSubscription(req, res) {
         customDiscountType || null,
         customDiscountType === 'custom_months' ? customDiscountMonths : 
           customDiscountType === 'first_year' ? 12 :
-          customDiscountType === 'forever' ? -1 : 0
+          customDiscountType === 'forever' ? -1 : 0,
+        customDiscountPlanId || null
       ]);
       
       // Handle affiliate assignment
@@ -362,6 +364,10 @@ async function updateUserSubscription(req, res) {
       }
       updates.push(`referral_months_remaining = $${paramIndex++}`);
       values.push(monthsRemaining);
+    }
+    if (customDiscountPlanId !== undefined) {
+      updates.push(`custom_discount_plan_id = $${paramIndex++}`);
+      values.push(customDiscountPlanId || null);
     }
     
     if (updates.length === 0 && !affiliateId) {

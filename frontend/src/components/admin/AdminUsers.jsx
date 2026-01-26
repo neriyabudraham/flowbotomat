@@ -498,6 +498,7 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
     fixedPrice: user.custom_fixed_price || 0,
     discountType: user.custom_discount_type || 'none', // 'none', 'first_payment', 'custom_months', 'first_year', 'forever'
     discountMonths: user.custom_discount_months || 1,
+    discountPlanId: user.custom_discount_plan_id || '', // Which plan the discount applies to
     // Referral settings
     affiliateId: user.referred_by_affiliate_id || '',
   });
@@ -547,6 +548,7 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
         customFixedPrice: formData.discountType !== 'none' && formData.discountMode === 'fixed_price' ? formData.fixedPrice : null,
         customDiscountType: formData.discountType !== 'none' ? formData.discountType : null,
         customDiscountMonths: formData.discountType === 'custom_months' ? formData.discountMonths : null,
+        customDiscountPlanId: formData.discountType !== 'none' && formData.discountPlanId ? formData.discountPlanId : null,
         // Referral
         affiliateId: formData.affiliateId || null,
       });
@@ -771,6 +773,24 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
 
                 {formData.discountType !== 'none' && (
                   <>
+                    {/* Plan Selection for Discount */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">תוכנית עבור ההנחה</label>
+                      <select
+                        value={formData.discountPlanId}
+                        onChange={(e) => setFormData(f => ({ ...f, discountPlanId: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500"
+                      >
+                        <option value="">בחר תוכנית...</option>
+                        {plans.filter(p => parseFloat(p.price) > 0).map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.name_he} ({p.name}) - ₪{p.price}/חודש
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">בחר את התוכנית שהמשתמש יקבל במחיר המותאם</p>
+                    </div>
+
                     {/* Discount Mode Toggle */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">סוג הנחה</label>
@@ -886,6 +906,11 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
                     <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-xl">
                       <p className="text-sm text-yellow-800">
                         <strong>תצוגה מקדימה:</strong>{' '}
+                        {formData.discountPlanId && (
+                          <span className="text-purple-700">
+                            תוכנית {plans.find(p => p.id == formData.discountPlanId)?.name_he || ''} ב
+                          </span>
+                        )}
                         {formData.discountMode === 'percent' 
                           ? `${formData.customDiscount}% הנחה`
                           : formData.fixedPrice === 0 
