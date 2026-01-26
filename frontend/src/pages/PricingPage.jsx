@@ -1482,8 +1482,9 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
     
     // Apply referral discount (if no coupon)
     if (referralInfo && referralInfo.percent > 0) {
-      const discountAmount = Math.floor(result.total * referralInfo.percent / 100);
-      const discountedTotal = result.total - discountAmount;
+      // Use consistent calculation: floor(price * (1 - percent/100))
+      const discountedTotal = Math.floor(result.total * (1 - referralInfo.percent / 100));
+      const discountAmount = result.total - discountedTotal;
       
       // Calculate yearly discount amount separately for display
       const yearlyDiscountAmount = billingPeriod === 'yearly' 

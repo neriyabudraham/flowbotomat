@@ -163,9 +163,9 @@ export default function PaymentRequiredModal({
       }
       
       if (referralCode && referralDiscountPercent > 0) {
-        // Apply referral discount
-        referralDiscount = Math.round(firstMonthPrice * referralDiscountPercent / 100);
-        const discountedPrice = firstMonthPrice - referralDiscount;
+        // Apply referral discount - use consistent calculation: floor(price * (1 - percent/100))
+        const discountedPrice = Math.floor(firstMonthPrice * (1 - referralDiscountPercent / 100));
+        referralDiscount = firstMonthPrice - discountedPrice;
         const durationText = getDiscountDuration();
         hasDiscount = true;
         discountNote = discountNote 
@@ -229,8 +229,9 @@ export default function PaymentRequiredModal({
     let referralDiscount = 0;
     
     if (referralCode && referralDiscountPercent > 0) {
-      referralDiscount = Math.round(regularPrice * referralDiscountPercent / 100);
-      firstMonthPrice = regularPrice - referralDiscount;
+      // Use consistent calculation: floor(price * (1 - percent/100))
+      firstMonthPrice = Math.floor(regularPrice * (1 - referralDiscountPercent / 100));
+      referralDiscount = regularPrice - firstMonthPrice;
       hasDiscount = true;
       
       const getDiscountDuration = () => {

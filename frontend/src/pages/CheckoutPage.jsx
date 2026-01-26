@@ -156,10 +156,12 @@ export default function CheckoutPage() {
     }
     
     // Apply referral discount on top of other discounts (only for new subscriptions)
+    // Use consistent calculation: floor(price * (1 - percent/100))
     let referralDiscount = 0;
     if (hasReferral) {
-      referralDiscount = Math.floor(total * (referralDiscountPercent / 100));
-      total = total - referralDiscount;
+      const discountedTotal = Math.floor(total * (1 - referralDiscountPercent / 100));
+      referralDiscount = total - discountedTotal;
+      total = discountedTotal;
     }
     
     // Calculate proration for upgrades

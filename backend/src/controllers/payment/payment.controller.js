@@ -385,11 +385,11 @@ async function savePaymentMethod(req, res) {
           const planData = planPriceResult.rows[0];
           let chargeAmount = parseFloat(planData.price || 0);
           
-          // Apply custom discount
+          // Apply custom discount - use consistent calculation: floor(price * (1 - percent/100))
           if (planData.custom_discount_mode === 'fixed_price' && planData.custom_fixed_price) {
             chargeAmount = parseFloat(planData.custom_fixed_price);
           } else if (planData.custom_discount_mode === 'percent' && planData.referral_discount_percent) {
-            chargeAmount = chargeAmount * (1 - planData.referral_discount_percent / 100);
+            chargeAmount = Math.floor(chargeAmount * (1 - planData.referral_discount_percent / 100));
           }
           
           if (chargeAmount > 0 && sumitResult.customerId) {
@@ -895,8 +895,9 @@ async function subscribe(req, res) {
           baseForReferral = originalPrice * 12 * 0.8;
         }
         
-        referralDiscount = Math.floor(baseForReferral * (referralDiscountPercent / 100));
-        chargeAmount = Math.max(0, baseForReferral - referralDiscount);
+        // Use consistent calculation: floor(price * (1 - percent/100))
+        chargeAmount = Math.floor(baseForReferral * (1 - referralDiscountPercent / 100));
+        referralDiscount = baseForReferral - chargeAmount;
         
         // Set referral duration tracking based on type
         if (referralDiscountType === 'custom_months' && discountMonths) {
