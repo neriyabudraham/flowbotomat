@@ -174,10 +174,96 @@ async function savePaymentMethod(req, res) {
     
     console.log(`[Payment] Successfully saved payment method for user ${userId}`);
     
+    // Auto-create trial subscription if user doesn't have one
+    const TRIAL_DAYS = 14;
+    const subCheck = await db.query(
+      `SELECT id, status, plan_id FROM user_subscriptions WHERE user_id = $1`,
+      [userId]
+    );
+    
+    let subscriptionCreated = false;
+    
+    if (subCheck.rows.length === 0 || subCheck.rows[0].status === 'cancelled') {
+      console.log(`[Payment] Auto-creating trial subscription for user ${userId}`);
+      
+      const trialEndsAt = new Date();
+      trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
+      
+      // Check for custom discount plan first
+      let planId = null;
+      const customDiscountCheck = await db.query(
+        `SELECT custom_discount_plan_id FROM user_subscriptions WHERE user_id = $1`,
+        [userId]
+      );
+      
+      if (customDiscountCheck.rows.length > 0 && customDiscountCheck.rows[0].custom_discount_plan_id) {
+        planId = customDiscountCheck.rows[0].custom_discount_plan_id;
+        console.log(`[Payment] Using custom discount plan: ${planId}`);
+      }
+      
+      // Otherwise get the cheapest paid plan with allow_waha_creation
+      if (!planId) {
+        const planResult = await db.query(
+          `SELECT id FROM subscription_plans 
+           WHERE is_active = true AND price > 0 AND allow_waha_creation = true 
+           ORDER BY price ASC LIMIT 1`
+        );
+        
+        if (planResult.rows.length > 0) {
+          planId = planResult.rows[0].id;
+        }
+      }
+      
+      if (planId) {
+        const paymentMethodId = result.rows[0].id;
+        
+        await db.query(`
+          INSERT INTO user_subscriptions (
+            user_id, plan_id, status, is_trial, trial_ends_at, 
+            payment_method_id, next_charge_date, started_at, sumit_customer_id
+          ) VALUES ($1, $2, 'trial', true, $3, $4, $3, NOW(), $5)
+          ON CONFLICT (user_id) 
+          DO UPDATE SET 
+            plan_id = COALESCE(user_subscriptions.custom_discount_plan_id, $2), 
+            status = 'trial',
+            is_trial = true,
+            trial_ends_at = $3,
+            payment_method_id = $4,
+            next_charge_date = $3,
+            started_at = COALESCE(user_subscriptions.started_at, NOW()),
+            sumit_customer_id = $5,
+            updated_at = NOW()
+        `, [userId, planId, trialEndsAt, paymentMethodId, sumitResult.customerId]);
+        
+        subscriptionCreated = true;
+        console.log(`[Payment] ✅ Trial subscription created, ends at: ${trialEndsAt.toISOString()}`);
+      }
+    } else if (subCheck.rows[0].status === 'trial' || subCheck.rows[0].status === 'active') {
+      // User already has a subscription, just update the payment method
+      await db.query(`
+        UPDATE user_subscriptions 
+        SET payment_method_id = $1, sumit_customer_id = $2, updated_at = NOW()
+        WHERE user_id = $3
+      `, [result.rows[0].id, sumitResult.customerId, userId]);
+      console.log(`[Payment] Updated payment method on existing subscription`);
+    }
+    
+    // Get updated subscription info for response
+    const updatedSub = await db.query(`
+      SELECT us.*, sp.name as plan_name, sp.name_he as plan_name_he
+      FROM user_subscriptions us
+      LEFT JOIN subscription_plans sp ON us.plan_id = sp.id
+      WHERE us.user_id = $1
+    `, [userId]);
+    
     res.json({ 
       success: true, 
       paymentMethod: result.rows[0],
-      message: 'כרטיס אשראי נשמר בהצלחה'
+      message: subscriptionCreated 
+        ? 'כרטיס אשראי נשמר ומנוי ניסיון הופעל!' 
+        : 'כרטיס אשראי נשמר בהצלחה',
+      subscription: updatedSub.rows[0] || null,
+      trialCreated: subscriptionCreated
     });
   } catch (error) {
     console.error('[Payment] Save payment method error:', error);
@@ -307,6 +393,40 @@ async function subscribe(req, res) {
   try {
     const userId = req.user.id;
     const { planId, paymentMethodId, billingPeriod = 'monthly', couponCode, promotionId, referralCode, isUpgrade, proratedAmount } = req.body;
+    
+    // Check existing subscription status
+    const existingSubCheck = await db.query(
+      `SELECT us.*, sp.name as plan_name, sp.price as plan_price
+       FROM user_subscriptions us
+       LEFT JOIN subscription_plans sp ON us.plan_id = sp.id
+       WHERE us.user_id = $1`,
+      [userId]
+    );
+    
+    const existingSub = existingSubCheck.rows[0];
+    
+    // PREVENT DOUBLE CHARGE - Check if user already has an active paid subscription on same plan
+    if (existingSub && existingSub.status === 'active' && existingSub.plan_id === planId && !isUpgrade) {
+      console.log(`[Payment] User ${userId} already has active subscription to plan ${planId}`);
+      return res.status(400).json({ 
+        error: 'כבר יש לך מנוי פעיל לתכנית זו',
+        code: 'ALREADY_SUBSCRIBED',
+        subscription: existingSub
+      });
+    }
+    
+    // If user has a trial on the SAME plan, just return success without charging
+    // They'll be charged when trial ends
+    if (existingSub && existingSub.status === 'trial' && existingSub.plan_id === planId && !isUpgrade) {
+      console.log(`[Payment] User ${userId} already has trial to plan ${planId} - no need to subscribe again`);
+      return res.json({ 
+        success: true, 
+        subscription: existingSub,
+        message: 'יש לך כבר מנוי ניסיון פעיל',
+        trial: true,
+        trialEndsAt: existingSub.trial_ends_at
+      });
+    }
     
     // Get plan info
     const planResult = await db.query(
