@@ -1091,8 +1091,8 @@ function SubscriptionWarningBanner({ subscription, hasPaymentMethod }) {
         ? `המנוי מסתיים מחר (${formattedDate}) - הבוטים יושבתו ותצטרך לבחור אחד לשמור`
         : `המנוי מסתיים בעוד ${daysLeft} ימים (${formattedDate}) - לאחר מכן הבוטים יושבתו`;
   } else if (isTrial) {
-    if (hasPaymentMethod) {
-      // Trial with payment method - show positive message
+    if (hasPaymentMethod && !isCancelled) {
+      // Trial with payment method (not cancelled) - show positive message
       bgGradient = 'from-green-500 to-emerald-500';
       iconBg = 'bg-white/20';
       title = 'תקופת ניסיון פעילה 🎉';

@@ -221,8 +221,8 @@ export default function SubscriptionManager() {
               </div>
             </div>
 
-            {/* Trial with payment method - Show upcoming charge info */}
-            {isTrial && paymentMethod && hasTimeRemaining && (
+            {/* Trial with payment method - Show upcoming charge info (only if NOT cancelled) */}
+            {isTrial && paymentMethod && hasTimeRemaining && !isCancelled && (
               <div className="p-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500">
                 <div className="flex items-start gap-4">
                   <div className="w-12 h-12 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center flex-shrink-0">
