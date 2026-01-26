@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, CreditCard, Shield, Check, Lock, Sparkles, AlertCircle, Gift, Tag } from 'lucide-react';
+import { X, CreditCard, Shield, Check, Lock, Sparkles, AlertCircle, Gift, Tag, ChevronDown, ArrowLeft } from 'lucide-react';
 import CreditCardForm from './CreditCardForm';
 import api from '../../services/api';
 
@@ -18,6 +18,9 @@ export default function PaymentRequiredModal({
   const [success, setSuccess] = useState(false);
   const [priceInfo, setPriceInfo] = useState(null);
   const [loadingPrice, setLoadingPrice] = useState(true);
+  const [showPlanSelector, setShowPlanSelector] = useState(false);
+  const [allPlans, setAllPlans] = useState([]);
+  const [selectedPlanId, setSelectedPlanId] = useState(null);
 
   // Fetch price info when modal opens
   useEffect(() => {
@@ -56,6 +59,10 @@ export default function PaymentRequiredModal({
       const { data } = await api.get('/subscriptions/plans');
       console.log('[PaymentModal] Plans response:', data);
       const plansData = Array.isArray(data) ? data : (data.plans || []);
+      
+      // Save paid plans for plan selector (exclude free plan)
+      const paidPlans = plansData.filter(p => parseFloat(p.price) > 0);
+      setAllPlans(paidPlans);
       
       // If user has custom discount, use that plan
       if (customDiscount && customDiscount.planId) {
@@ -206,6 +213,123 @@ export default function PaymentRequiredModal({
     }, 1500);
   };
 
+  const handlePlanSelect = (plan) => {
+    setSelectedPlanId(plan.id);
+    
+    // Update price info with selected plan
+    const regularPrice = parseFloat(plan.price || 0);
+    const referralCode = localStorage.getItem('referral_code');
+    const referralDiscountPercent = parseInt(localStorage.getItem('referral_discount_percent') || '0');
+    const referralDiscountType = localStorage.getItem('referral_discount_type') || 'first_payment';
+    const referralDiscountMonths = parseInt(localStorage.getItem('referral_discount_months') || '0');
+    
+    let firstMonthPrice = regularPrice;
+    let hasDiscount = false;
+    let discountNote = null;
+    let referralDiscount = 0;
+    
+    if (referralCode && referralDiscountPercent > 0) {
+      referralDiscount = Math.round(regularPrice * referralDiscountPercent / 100);
+      firstMonthPrice = regularPrice - referralDiscount;
+      hasDiscount = true;
+      
+      const getDiscountDuration = () => {
+        switch (referralDiscountType) {
+          case 'forever': return 'לתמיד';
+          case 'first_year': return 'ל-12 חודשים הראשונים';
+          case 'custom_months': 
+            return referralDiscountMonths > 1 ? `ל-${referralDiscountMonths} חודשים הראשונים` : 'לחודש הראשון';
+          default: return 'לחודש הראשון';
+        }
+      };
+      
+      discountNote = `${referralDiscountPercent}% הנחת הפניה ${getDiscountDuration()}`;
+    }
+    
+    setPriceInfo({
+      firstMonthPrice,
+      regularPrice,
+      hasDiscount,
+      discountNote,
+      referralDiscount,
+      referralDiscountPercent,
+      referralDiscountType,
+      referralDiscountMonths,
+      planName: plan.name_he || plan.name,
+      trialDays: plan.trial_days || 14
+    });
+    
+    setShowPlanSelector(false);
+  };
+
+  // Plan Selector Modal
+  if (showPlanSelector) {
+    return (
+      <div 
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" 
+        onClick={() => setShowPlanSelector(false)}
+        dir="rtl"
+      >
+        <div 
+          className="bg-white rounded-3xl w-full max-w-lg max-h-[90vh] overflow-auto shadow-2xl"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="bg-gradient-to-r from-purple-600 to-indigo-600 p-6 text-white rounded-t-3xl">
+            <button 
+              onClick={() => setShowPlanSelector(false)}
+              className="absolute top-4 left-4 p-2 hover:bg-white/20 rounded-xl transition-colors flex items-center gap-1"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span className="text-sm">חזור</span>
+            </button>
+            
+            <h2 className="text-xl font-bold text-center">בחר תוכנית</h2>
+            <p className="text-white/80 text-sm text-center mt-1">כל התוכניות כוללות 14 ימי ניסיון חינם</p>
+          </div>
+          
+          {/* Plans List */}
+          <div className="p-6 space-y-3">
+            {allPlans.map((plan) => {
+              const isSelected = selectedPlanId === plan.id || 
+                (!selectedPlanId && priceInfo?.planName === (plan.name_he || plan.name));
+              
+              return (
+                <button
+                  key={plan.id}
+                  onClick={() => handlePlanSelect(plan)}
+                  className={`w-full p-4 rounded-2xl border-2 transition-all text-right ${
+                    isSelected 
+                      ? 'border-purple-500 bg-purple-50' 
+                      : 'border-gray-200 hover:border-purple-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                        isSelected ? 'border-purple-500 bg-purple-500' : 'border-gray-300'
+                      }`}>
+                        {isSelected && <Check className="w-3 h-3 text-white" />}
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-gray-900">{plan.name_he || plan.name}</h3>
+                        <p className="text-sm text-gray-500">עד {plan.max_bots} בוטים</p>
+                      </div>
+                    </div>
+                    <div className="text-left">
+                      <div className="font-bold text-gray-900">₪{plan.price}</div>
+                      <div className="text-xs text-gray-500">לחודש</div>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div 
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" 
@@ -307,7 +431,18 @@ export default function PaymentRequiredModal({
                       )}
                       <div className="flex items-center justify-between">
                         <span className="text-gray-600">תוכנית:</span>
-                        <span className="font-bold text-gray-900">{priceInfo.planName}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-gray-900">{priceInfo.planName}</span>
+                          {!priceInfo.isCustomDiscount && allPlans.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => setShowPlanSelector(true)}
+                              className="text-xs text-purple-600 hover:text-purple-700 underline"
+                            >
+                              שנה תוכנית
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-gray-600">{priceInfo.skipTrial ? 'חיוב מיידי:' : 'חיוב לאחר הניסיון:'}</span>
