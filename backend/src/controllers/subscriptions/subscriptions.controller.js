@@ -22,7 +22,8 @@ async function getMySubscription(req, res) {
         sp.allow_export,
         sp.allow_api_access,
         sp.priority_support,
-        (SELECT MAX(created_at) FROM payment_history ph WHERE ph.user_id = us.user_id AND ph.status = 'success') as last_charge_date
+        (SELECT MAX(created_at) FROM payment_history ph WHERE ph.user_id = us.user_id AND ph.status = 'success') as last_charge_date,
+        (SELECT COUNT(*) > 0 FROM user_payment_methods pm WHERE pm.user_id = us.user_id AND pm.is_active = true) as has_payment_method
       FROM user_subscriptions us
       JOIN subscription_plans sp ON us.plan_id = sp.id
       WHERE us.user_id = $1 

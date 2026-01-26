@@ -721,7 +721,7 @@ export default function DashboardPage() {
         <AffiliateQuickLink />
 
         {/* Subscription Expiring/Cancelled Warning Banner */}
-        <SubscriptionWarningBanner subscription={user?.subscription} />
+        <SubscriptionWarningBanner subscription={user?.subscription} hasPaymentMethod={!!user?.subscription?.has_payment_method} />
 
         {/* Upgrade Banner - Only for users without paid subscription */}
         {user && (!user.subscription || user.subscription.plan?.price === 0 || user.subscription.plan?.price === '0') && (
@@ -1045,7 +1045,7 @@ function TipModal({ tip, onClose }) {
   );
 }
 
-function SubscriptionWarningBanner({ subscription }) {
+function SubscriptionWarningBanner({ subscription, hasPaymentMethod }) {
   const navigate = useNavigate();
   
   if (!subscription) return null;
@@ -1091,7 +1091,17 @@ function SubscriptionWarningBanner({ subscription }) {
         ? `המנוי מסתיים מחר (${formattedDate}) - הבוטים יושבתו ותצטרך לבחור אחד לשמור`
         : `המנוי מסתיים בעוד ${daysLeft} ימים (${formattedDate}) - לאחר מכן הבוטים יושבתו`;
   } else if (isTrial) {
-    if (daysLeft <= 3) {
+    if (hasPaymentMethod) {
+      // Trial with payment method - show positive message
+      bgGradient = 'from-green-500 to-emerald-500';
+      iconBg = 'bg-white/20';
+      title = 'תקופת ניסיון פעילה 🎉';
+      message = daysLeft === 0 
+        ? `החיוב הראשון יבוצע היום (${formattedDate})`
+        : daysLeft === 1
+          ? `החיוב הראשון יבוצע מחר (${formattedDate})`
+          : `החיוב הראשון יבוצע בעוד ${daysLeft} ימים (${formattedDate})`;
+    } else if (daysLeft <= 3) {
       bgGradient = 'from-red-500 to-rose-500';
       iconBg = 'bg-white/20';
       title = 'תקופת הניסיון עומדת להסתיים!';

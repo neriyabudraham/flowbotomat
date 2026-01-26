@@ -239,19 +239,38 @@ async function savePaymentMethod(req, res) {
         let chargeAmount = parseFloat(planPriceResult.rows[0]?.price || 0);
         const planNameHe = planPriceResult.rows[0]?.name_he || 'מנוי';
         
-        // Check for custom discount
+        // Check for custom discount from admin
         const existingCustomDiscount = await db.query(
-          `SELECT custom_discount_mode, referral_discount_percent, custom_fixed_price 
+          `SELECT custom_discount_mode, custom_discount_percent, custom_fixed_price, 
+                  custom_discount_plan_id, custom_discount_type
            FROM user_subscriptions WHERE user_id = $1`,
           [userId]
         );
         
         if (existingCustomDiscount.rows.length > 0) {
           const cd = existingCustomDiscount.rows[0];
+          console.log(`[Payment] Custom discount found:`, cd);
+          
           if (cd.custom_discount_mode === 'fixed_price' && cd.custom_fixed_price) {
             chargeAmount = parseFloat(cd.custom_fixed_price);
-          } else if (cd.custom_discount_mode === 'percent' && cd.referral_discount_percent) {
-            chargeAmount = chargeAmount * (1 - cd.referral_discount_percent / 100);
+            console.log(`[Payment] Using fixed price: ${chargeAmount}`);
+          } else if (cd.custom_discount_mode === 'percent' && cd.custom_discount_percent) {
+            chargeAmount = chargeAmount * (1 - cd.custom_discount_percent / 100);
+            console.log(`[Payment] Using percent discount (${cd.custom_discount_percent}%): ${chargeAmount}`);
+          }
+          
+          // Use custom discount plan if set
+          if (cd.custom_discount_plan_id) {
+            planId = cd.custom_discount_plan_id;
+            // Re-fetch plan name
+            const customPlanResult = await db.query(
+              `SELECT name_he FROM subscription_plans WHERE id = $1`,
+              [planId]
+            );
+            if (customPlanResult.rows.length > 0) {
+              planNameHe = customPlanResult.rows[0].name_he;
+            }
+            console.log(`[Payment] Using custom discount plan: ${planId} (${planNameHe})`);
           }
         }
         

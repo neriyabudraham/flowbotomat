@@ -221,8 +221,35 @@ export default function SubscriptionManager() {
               </div>
             </div>
 
-            {/* Expiry Warning - Show for cancelled OR within 30 days of expiry */}
-            {shouldShowExpiry && (
+            {/* Trial with payment method - Show upcoming charge info */}
+            {isTrial && paymentMethod && hasTimeRemaining && (
+              <div className="p-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center flex-shrink-0">
+                    <CreditCard className="w-6 h-6 text-white" />
+                  </div>
+                  <div className="flex-1 text-white">
+                    <h3 className="font-bold text-lg">
+                      תקופת ניסיון פעילה
+                    </h3>
+                    <p className="text-white/90 mt-1">
+                      {daysLeft === 0 
+                        ? `החיוב הראשון יבוצע היום (${formattedEndDate})`
+                        : daysLeft === 1 
+                          ? `החיוב הראשון יבוצע מחר (${formattedEndDate})`
+                          : `החיוב הראשון יבוצע בעוד ${daysLeft} ימים (${formattedEndDate})`
+                      }
+                    </p>
+                    <p className="text-white/70 text-sm mt-1">
+                      הכרטיס שמור במערכת והחיוב יתבצע אוטומטית
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Expiry Warning - Show for cancelled OR trial without payment */}
+            {shouldShowExpiry && !(isTrial && paymentMethod) && (
               <div className={`p-4 rounded-xl ${
                 isCancelled 
                   ? 'bg-gradient-to-r from-amber-500 to-orange-500' 
@@ -236,13 +263,13 @@ export default function SubscriptionManager() {
                   </div>
                   <div className="flex-1 text-white">
                     <h3 className="font-bold text-lg">
-                      {isCancelled ? 'המנוי מבוטל' : 'המנוי עומד להסתיים'}
+                      {isCancelled ? 'המנוי מבוטל' : isTrial ? 'תקופת הניסיון מסתיימת' : 'המנוי עומד להסתיים'}
                     </h3>
                     <p className="text-white/90 mt-1">
                       {daysLeft === 0 
-                        ? 'המנוי מסתיים היום!'
+                        ? (isTrial ? 'הניסיון מסתיים היום!' : 'המנוי מסתיים היום!')
                         : daysLeft === 1 
-                          ? 'המנוי מסתיים מחר!'
+                          ? (isTrial ? 'הניסיון מסתיים מחר!' : 'המנוי מסתיים מחר!')
                           : `עוד ${daysLeft} ימים (${formattedEndDate})`
                       }
                     </p>
