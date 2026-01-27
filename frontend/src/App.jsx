@@ -20,6 +20,7 @@ import CheckoutPage from './pages/CheckoutPage';
 import PrivacyPage from './pages/PrivacyPage';
 import ApiPage from './pages/ApiPage';
 import AffiliateTermsPage from './pages/AffiliateTermsPage';
+import GroupForwardsPage from './pages/GroupForwardsPage';
 import SystemAlertOverlay from './components/notifications/SystemAlertOverlay';
 import SocketProvider from './components/providers/SocketProvider';
 import useThemeStore from './store/themeStore';
@@ -139,6 +140,7 @@ function App() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/bots" element={<BotsPage />} />
           <Route path="/bots/:botId" element={<BotEditorPage />} />
+          <Route path="/group-forwards" element={<GroupForwardsPage />} />
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />

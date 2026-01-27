@@ -326,7 +326,10 @@ async function checkLimit(userId, limitType) {
     max_contacts: 100,
     allow_statistics: false,
     allow_waha_creation: false,
-    allow_export: false
+    allow_export: false,
+    allow_group_forwards: false,
+    max_group_forwards: 0,
+    max_forward_targets: 0
   };
   
   // -1 means unlimited
@@ -404,6 +407,37 @@ async function checkLimit(userId, limitType) {
   
   if (limitType === 'export') {
     return { allowed: limits.allow_export };
+  }
+  
+  // Group forwards feature check
+  if (limitType === 'allow_group_forwards') {
+    return { allowed: limits.allow_group_forwards || false };
+  }
+  
+  // Max group forwards limit
+  if (limitType === 'max_group_forwards') {
+    const maxForwards = limits.max_group_forwards ?? 0;
+    if (maxForwards === -1) return { allowed: true, limit: -1, used: 0 };
+    if (maxForwards === 0) return { allowed: false, limit: 0, used: 0 };
+    
+    const countResult = await db.query(
+      'SELECT COUNT(*) as count FROM group_forwards WHERE user_id = $1',
+      [userId]
+    );
+    
+    const used = parseInt(countResult.rows[0]?.count || 0);
+    return {
+      allowed: used < maxForwards,
+      limit: maxForwards,
+      used
+    };
+  }
+  
+  // Max forward targets per forward
+  if (limitType === 'max_forward_targets') {
+    const maxTargets = limits.max_forward_targets ?? 0;
+    if (maxTargets === -1) return { allowed: true, limit: -1, used: 0 };
+    return { allowed: true, limit: maxTargets, used: 0 };
   }
   
   return { allowed: true };

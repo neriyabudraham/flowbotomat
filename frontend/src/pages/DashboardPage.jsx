@@ -6,7 +6,7 @@ import {
   Plus, ArrowUpRight, Clock, CheckCircle, Crown, Bell,
   Sparkles, ArrowRight, BarChart3, Calendar, Phone, Star,
   Target, Rocket, Gift, AlertCircle, X, ExternalLink, Lightbulb,
-  Gauge, HardDrive, Code
+  Gauge, HardDrive, Code, Forward
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useWhatsappStore from '../store/whatsappStore';
@@ -552,6 +552,14 @@ export default function DashboardPage() {
               title="תבניות"
               description="גלריית בוטים מוכנים"
               gradient="from-purple-500 to-pink-600"
+              badge="חדש"
+            />
+            <QuickActionCard
+              to="/group-forwards"
+              icon={Forward}
+              title="העברת הודעות"
+              description="שליחה לקבוצות"
+              gradient="from-cyan-500 to-blue-600"
               badge="חדש"
             />
             <QuickActionCard

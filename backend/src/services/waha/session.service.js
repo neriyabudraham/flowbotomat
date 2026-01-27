@@ -645,6 +645,95 @@ async function updateGroupDescription(connection, groupId, description) {
   return response.data;
 }
 
+/**
+ * Get all groups for a session
+ */
+async function getGroups(sessionName) {
+  // sessionName can be a connection object or just the session name string
+  let connection = sessionName;
+  if (typeof sessionName === 'string') {
+    // Need to get connection details from DB
+    const db = require('../../config/database');
+    const result = await db.query(`
+      SELECT ws.*, wh.base_url, wh.api_key
+      FROM waha_sessions ws
+      JOIN waha_hosts wh ON ws.waha_host_id = wh.id
+      WHERE ws.session_id = $1 OR ws.waha_instance_name = $1
+      LIMIT 1
+    `, [sessionName]);
+    
+    if (result.rows.length === 0) {
+      throw new Error(`Session ${sessionName} not found`);
+    }
+    
+    connection = {
+      base_url: result.rows[0].base_url,
+      api_key: result.rows[0].api_key,
+      session_name: result.rows[0].waha_instance_name || result.rows[0].session_id
+    };
+  }
+  
+  const client = createClient(connection.base_url, connection.api_key);
+  
+  try {
+    // Try the groups endpoint
+    const response = await client.get(`/api/${connection.session_name}/groups`);
+    return response.data || [];
+  } catch (error) {
+    console.error(`[WAHA] Error getting groups:`, error.message);
+    
+    // Fallback: Try getting chats and filter for groups
+    try {
+      const chatsResponse = await client.get(`/api/${connection.session_name}/chats`);
+      const chats = chatsResponse.data || [];
+      return chats.filter(chat => chat.id?.endsWith('@g.us'));
+    } catch (chatError) {
+      console.error(`[WAHA] Error getting chats:`, chatError.message);
+      return [];
+    }
+  }
+}
+
+/**
+ * Delete a message
+ */
+async function deleteMessage(sessionName, chatId, messageId) {
+  let connection = sessionName;
+  if (typeof sessionName === 'string') {
+    const db = require('../../config/database');
+    const result = await db.query(`
+      SELECT ws.*, wh.base_url, wh.api_key
+      FROM waha_sessions ws
+      JOIN waha_hosts wh ON ws.waha_host_id = wh.id
+      WHERE ws.session_id = $1 OR ws.waha_instance_name = $1
+      LIMIT 1
+    `, [sessionName]);
+    
+    if (result.rows.length === 0) {
+      throw new Error(`Session ${sessionName} not found`);
+    }
+    
+    connection = {
+      base_url: result.rows[0].base_url,
+      api_key: result.rows[0].api_key,
+      session_name: result.rows[0].waha_instance_name || result.rows[0].session_id
+    };
+  }
+  
+  const client = createClient(connection.base_url, connection.api_key);
+  
+  const response = await client.delete(`/api/${connection.session_name}/messages`, {
+    data: {
+      chatId: chatId,
+      messageId: messageId,
+      forEveryone: true
+    }
+  });
+  
+  console.log(`[WAHA] Deleted message ${messageId} from ${chatId}`);
+  return response.data;
+}
+
 // ====================== LABELS (WhatsApp Business) ======================
 
 /**
@@ -717,6 +806,8 @@ module.exports = {
   setGroupAdminOnly,
   updateGroupSubject,
   updateGroupDescription,
+  getGroups,
+  deleteMessage,
   // Labels (WhatsApp Business)
   getLabels,
   setChatLabels,
