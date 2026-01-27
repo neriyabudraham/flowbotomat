@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   History, Clock, CheckCircle, XCircle, AlertTriangle, Trash2,
   Image as ImageIcon, Video, Mic, FileText, ChevronDown, ChevronUp,
-  User, Users, Phone, Send, Loader2, Eye, RefreshCw
+  User, Users, Phone, Send, Loader2, Eye, RefreshCw, TrendingUp,
+  BarChart3, Target, Zap
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -12,6 +13,7 @@ export default function JobHistoryTab() {
   const [expandedJob, setExpandedJob] = useState(null);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
+  const [stats, setStats] = useState(null);
   const limit = 20;
 
   useEffect(() => {
@@ -26,12 +28,51 @@ export default function JobHistoryTab() {
       });
       setJobs(data.jobs || []);
       setTotal(data.total || 0);
+      setStats(data.stats || null);
     } catch (e) {
       console.error('Failed to fetch history:', e);
     } finally {
       setLoading(false);
     }
   };
+
+  // Calculate stats from jobs if not provided by API
+  const calculatedStats = useMemo(() => {
+    if (stats) return stats;
+    if (jobs.length === 0) return null;
+    
+    let totalSent = 0;
+    let totalFailed = 0;
+    let totalTargets = 0;
+    const senderStats = {};
+    
+    jobs.forEach(job => {
+      totalSent += job.sent_count || 0;
+      totalFailed += job.failed_count || 0;
+      totalTargets += job.total_targets || 0;
+      
+      const sender = job.sender_name || job.sender_phone || 'לא ידוע';
+      if (!senderStats[sender]) {
+        senderStats[sender] = { sent: 0, jobs: 0, phone: job.sender_phone };
+      }
+      senderStats[sender].sent += job.sent_count || 0;
+      senderStats[sender].jobs += 1;
+    });
+    
+    const successRate = totalTargets > 0 ? Math.round((totalSent / totalTargets) * 100) : 0;
+    
+    return {
+      totalJobs: total,
+      totalSent,
+      totalFailed,
+      totalTargets,
+      successRate,
+      topSenders: Object.entries(senderStats)
+        .map(([name, data]) => ({ name, ...data }))
+        .sort((a, b) => b.sent - a.sent)
+        .slice(0, 3)
+    };
+  }, [jobs, stats, total]);
 
   const formatDate = (date) => {
     if (!date) return '-';
@@ -123,13 +164,97 @@ export default function JobHistoryTab() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      {/* Stats Cards */}
+      {calculatedStats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {/* Total Jobs */}
+          <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl p-4 border border-purple-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center shadow">
+                <BarChart3 className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{calculatedStats.totalJobs}</p>
+                <p className="text-xs text-gray-500">סה״כ שליחות</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Success Rate */}
+          <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-4 border border-green-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl flex items-center justify-center shadow">
+                <TrendingUp className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{calculatedStats.successRate}%</p>
+                <p className="text-xs text-gray-500">אחוז הצלחה</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Total Sent */}
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-4 border border-blue-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center shadow">
+                <CheckCircle className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{calculatedStats.totalSent}</p>
+                <p className="text-xs text-gray-500">הודעות נשלחו</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Failed */}
+          <div className="bg-gradient-to-br from-red-50 to-orange-50 rounded-2xl p-4 border border-red-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-orange-500 rounded-xl flex items-center justify-center shadow">
+                <XCircle className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{calculatedStats.totalFailed}</p>
+                <p className="text-xs text-gray-500">נכשלו</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Top Senders */}
+      {calculatedStats && calculatedStats.topSenders && calculatedStats.topSenders.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-200 p-4">
+          <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-500" />
+            שולחים מובילים
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {calculatedStats.topSenders.map((sender, idx) => (
+              <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white ${
+                  idx === 0 ? 'bg-gradient-to-br from-amber-400 to-orange-500' :
+                  idx === 1 ? 'bg-gradient-to-br from-gray-400 to-gray-500' :
+                  'bg-gradient-to-br from-amber-600 to-amber-700'
+                }`}>
+                  {idx + 1}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-gray-900 truncate">{sender.name}</p>
+                  <p className="text-xs text-gray-500">{sender.sent} הודעות • {sender.jobs} שליחות</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Refresh button */}
-      <div className="flex justify-end mb-4">
+      <div className="flex justify-end">
         <button
           onClick={fetchHistory}
           disabled={loading}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 hover:text-purple-600 hover:bg-purple-50 rounded-xl transition-colors border border-gray-200"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           רענן

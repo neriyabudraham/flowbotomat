@@ -723,15 +723,13 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                         <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl flex items-center justify-center shadow">
                           <Phone className="w-6 h-6 text-white" />
                         </div>
-                        <div className="flex-1 min-w-0">
-                          {sender.name ? (
-                            <>
-                              <p className="font-semibold text-gray-900 text-lg">{sender.name}</p>
-                              <p className="text-sm text-gray-500" dir="ltr">{formattedPhone}</p>
-                            </>
-                          ) : (
-                            <p className="font-semibold text-gray-900 text-lg" dir="ltr">{formattedPhone}</p>
+                        <div className="flex-1 min-w-0 text-right">
+                          {sender.name && (
+                            <p className="font-semibold text-gray-900 text-lg">{sender.name}</p>
                           )}
+                          <p className={`${sender.name ? 'text-sm text-gray-500' : 'font-semibold text-gray-900 text-lg'}`} dir="ltr" style={{ textAlign: 'right' }}>
+                            {formattedPhone}
+                          </p>
                         </div>
                         <button
                           onClick={() => removeSender(sender.phone_number)}
