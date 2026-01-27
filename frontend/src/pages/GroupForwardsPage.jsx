@@ -5,7 +5,7 @@ import {
   Search, MoreHorizontal, Copy, ChevronRight, MessageSquare, Send, Phone,
   CheckCircle, AlertCircle, Loader2, ChevronDown, Filter, RefreshCw,
   ArrowLeft, Zap, Target, Crown, UserCheck, Image, Video, Mic, FileText,
-  History, LayoutGrid
+  History, LayoutGrid, Sparkles
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Button from '../components/atoms/Button';
@@ -400,20 +400,23 @@ export default function GroupForwardsPage() {
           </div>
         ) : filteredForwards.length === 0 ? (
           <div className="text-center py-20">
-            <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-purple-100 to-blue-100 rounded-2xl flex items-center justify-center">
-              <Forward className="w-10 h-10 text-purple-500" />
+            <div className="w-24 h-24 bg-gradient-to-br from-purple-100 to-pink-100 rounded-3xl flex items-center justify-center mx-auto mb-6">
+              <Forward className="w-12 h-12 text-purple-400" />
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              {searchQuery ? 'לא נמצאו העברות' : 'אין העברות עדיין'}
+            <h3 className="text-xl font-bold text-gray-800 mb-2">
+              {searchQuery ? 'לא נמצאו תוצאות' : 'אין העברות עדיין'}
             </h3>
-            <p className="text-gray-600 mb-6">
-              {searchQuery ? 'נסה לחפש משהו אחר' : 'צור העברה חדשה כדי להתחיל לשלוח הודעות לקבוצות'}
+            <p className="text-gray-500 mb-8 max-w-sm mx-auto">
+              {searchQuery ? 'נסה לחפש במילים אחרות' : 'צור את ההעברה הראשונה שלך והתחל לשלוח הודעות לקבוצות בקליק'}
             </p>
             {!searchQuery && (
-              <Button onClick={() => setShowCreate(true)} className="gap-2">
-                <Plus className="w-4 h-4" />
-                צור העברה ראשונה
-              </Button>
+              <button
+                onClick={() => limit && !limit.allowed ? (setUpgradeError(limit.featureDisabled ? 'התוכנית שלך לא כוללת העברת הודעות לקבוצות. שדרג את החבילה.' : `הגעת למגבלת ${limit.limit} העברות.`), setShowUpgradeModal(true)) : setShowCreate(true)}
+                className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all hover:scale-105"
+              >
+                <Sparkles className="w-5 h-5" />
+                צור את ההעברה הראשונה
+              </button>
             )}
           </div>
         ) : (
