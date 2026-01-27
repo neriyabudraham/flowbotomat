@@ -15,6 +15,7 @@ export default function JobHistoryTab() {
   const [offset, setOffset] = useState(0);
   const [stats, setStats] = useState(null);
   const [selectedSender, setSelectedSender] = useState('');
+  const [deleting, setDeleting] = useState(null);
   const limit = 20;
 
   useEffect(() => {
@@ -34,6 +35,24 @@ export default function JobHistoryTab() {
       console.error('Failed to fetch history:', e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteJob = async (jobId, e) => {
+    e.stopPropagation();
+    if (!confirm('האם למחוק את האירוע הזה מההיסטוריה?')) return;
+    
+    try {
+      setDeleting(jobId);
+      await api.delete(`/group-forwards/jobs/${jobId}`);
+      setJobs(jobs.filter(j => j.id !== jobId));
+      setTotal(t => t - 1);
+      if (expandedJob === jobId) setExpandedJob(null);
+    } catch (e) {
+      console.error('Failed to delete job:', e);
+      alert('שגיאה במחיקת האירוע');
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -486,11 +505,29 @@ export default function JobHistoryTab() {
                   </div>
                 )}
 
-                {/* Timestamps */}
-                <div className="mt-4 flex flex-wrap gap-4 text-xs text-gray-500">
-                  <span>נוצר: {formatDate(job.created_at)}</span>
-                  {job.completed_at && <span>הסתיים: {formatDate(job.completed_at)}</span>}
-                  {job.sender_name && <span>שולח: {job.sender_name}</span>}
+                {/* Timestamps and Delete */}
+                <div className="mt-4 flex items-center justify-between">
+                  <div className="flex flex-wrap gap-4 text-xs text-gray-500">
+                    <span>נוצר: {formatDate(job.created_at)}</span>
+                    {job.completed_at && <span>הסתיים: {formatDate(job.completed_at)}</span>}
+                    {job.sender_name && <span>שולח: {job.sender_name}</span>}
+                  </div>
+                  
+                  {/* Delete button - only for completed jobs */}
+                  {!['sending', 'pending', 'confirmed'].includes(job.status) && (
+                    <button
+                      onClick={(e) => handleDeleteJob(job.id, e)}
+                      disabled={deleting === job.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 hover:text-white hover:bg-red-500 bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {deleting === job.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3.5 h-3.5" />
+                      )}
+                      מחק
+                    </button>
+                  )}
                 </div>
               </div>
             )}

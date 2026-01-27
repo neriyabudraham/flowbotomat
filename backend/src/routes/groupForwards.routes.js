@@ -42,5 +42,6 @@ router.get('/jobs/:jobId', jobsController.getJobStatus);
 router.post('/jobs/:jobId/confirm', jobsController.confirmForwardJob);
 router.post('/jobs/:jobId/stop', jobsController.stopForwardJob);
 router.post('/jobs/:jobId/cancel', jobsController.cancelForwardJob);
+router.delete('/jobs/:jobId', jobsController.deleteJob);
 
 module.exports = router;

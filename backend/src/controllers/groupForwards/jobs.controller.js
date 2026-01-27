@@ -727,6 +727,48 @@ async function deleteJobMessages(jobId) {
   }
 }
 
+/**
+ * Delete a job from history
+ */
+async function deleteJob(req, res) {
+  try {
+    const userId = req.user.id;
+    const { jobId } = req.params;
+    
+    // Verify ownership and that job is not currently running
+    const jobResult = await db.query(`
+      SELECT fj.* FROM forward_jobs fj
+      JOIN group_forwards gf ON fj.forward_id = gf.id
+      WHERE fj.id = $1 AND gf.user_id = $2
+    `, [jobId, userId]);
+    
+    if (jobResult.rows.length === 0) {
+      return res.status(404).json({ error: 'אירוע לא נמצא' });
+    }
+    
+    const job = jobResult.rows[0];
+    
+    // Don't allow deleting active jobs
+    if (job.status === 'sending' || job.status === 'pending' || job.status === 'confirmed') {
+      return res.status(400).json({ error: 'לא ניתן למחוק אירוע פעיל' });
+    }
+    
+    // Delete job messages first
+    await db.query('DELETE FROM forward_job_messages WHERE job_id = $1', [jobId]);
+    
+    // Delete the job
+    await db.query('DELETE FROM forward_jobs WHERE id = $1', [jobId]);
+    
+    console.log(`[GroupForwards] Deleted job ${jobId} for user ${userId}`);
+    
+    res.json({ success: true, message: 'האירוע נמחק בהצלחה' });
+    
+  } catch (error) {
+    console.error('[GroupForwards] Delete job error:', error);
+    res.status(500).json({ error: 'שגיאה במחיקת האירוע' });
+  }
+}
+
 module.exports = {
   createForwardJob,
   confirmForwardJob,
@@ -736,6 +778,7 @@ module.exports = {
   getActiveJobs,
   getForwardJobHistory,
   getAllJobHistory,
+  deleteJob,
   // Export for internal use
   startForwardJob,
   deleteJobMessages

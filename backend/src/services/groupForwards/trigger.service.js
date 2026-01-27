@@ -244,14 +244,13 @@ async function sendConfirmationList(userId, senderPhone, forward, job) {
     const chatId = `${senderPhone}@s.whatsapp.net`;
     const wahaService = require('../waha/session.service');
     
-    // Build list message
+    // Build list message - concise version
     const listData = {
-      title: `📋 העברת הודעות`,
-      body: `*${forward.name}*\n\nההודעה שלך מוכנה להישלח ל-*${forward.target_count}* קבוצות.\n\nסוג: ${getMessageTypeLabel(job.message_type)}\n\nבחר פעולה:`,
-      footer: `מזהה: ${job.id.slice(0, 8)}`,
+      title: `📤 ${forward.name}`,
+      body: `לשלוח ל-*${forward.target_count}* קבוצות?`,
       buttonText: 'בחר פעולה',
       buttons: [
-        { title: '✅ שלח לכל הקבוצות', rowId: `fwd_confirm_${job.id}` },
+        { title: '✅ שלח', rowId: `fwd_confirm_${job.id}` },
         { title: '❌ בטל', rowId: `fwd_cancel_${job.id}` }
       ]
     };
@@ -263,9 +262,7 @@ async function sendConfirmationList(userId, senderPhone, forward, job) {
     console.error('[GroupForwards] Send confirmation list error:', error.message);
     // Fallback to text
     await sendNotificationMessage(userId, senderPhone, 
-      `📋 *העברת הודעות: ${forward.name}*\n\n` +
-      `ההודעה שלך מוכנה להישלח ל-*${forward.target_count}* קבוצות.\n\n` +
-      `השב "שלח" לאישור או "בטל" לביטול.`
+      `📤 *${forward.name}*\n\nלשלוח ל-${forward.target_count} קבוצות?\n\nהשב "שלח" או "בטל"`
     );
   }
 }
