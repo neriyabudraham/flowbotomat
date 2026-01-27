@@ -651,14 +651,27 @@ class BotEngine {
             const israelTime = new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' });
             const now = new Date(israelTime);
             const currentTime = now.getHours() * 60 + now.getMinutes();
-            const [fromHours, fromMins] = (group.activeFrom || '09:00').split(':').map(Number);
-            const [toHours, toMins] = (group.activeTo || '18:00').split(':').map(Number);
+            
+            // Use defaults if values are missing
+            const activeFrom = group.activeFrom || '09:00';
+            const activeTo = group.activeTo || '18:00';
+            const [fromHours, fromMins] = activeFrom.split(':').map(Number);
+            const [toHours, toMins] = activeTo.split(':').map(Number);
             const fromTime = fromHours * 60 + fromMins;
             const toTime = toHours * 60 + toMins;
             
-            console.log(`[BotEngine] Active hours check: current=${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')} (Israel), range=${group.activeFrom}-${group.activeTo}`);
+            console.log(`[BotEngine] Active hours check: current=${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')} (Israel), range=${activeFrom}-${activeTo}`);
             
-            if (currentTime < fromTime || currentTime > toTime) {
+            let isWithinHours;
+            if (fromTime <= toTime) {
+              // Normal range (e.g., 09:00-18:00)
+              isWithinHours = currentTime >= fromTime && currentTime <= toTime;
+            } else {
+              // Overnight range (e.g., 22:00-06:00)
+              isWithinHours = currentTime >= fromTime || currentTime <= toTime;
+            }
+            
+            if (!isWithinHours) {
               console.log('[BotEngine] Group outside active hours, skipping');
               groupMatches = false;
             } else {

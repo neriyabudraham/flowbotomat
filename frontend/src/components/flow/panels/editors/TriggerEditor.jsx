@@ -520,7 +520,16 @@ export default function TriggerEditor({ data, onUpdate }) {
                           <input
                             type="checkbox"
                             checked={group.hasActiveHours || false}
-                            onChange={(e) => updateGroupSetting(group.id, 'hasActiveHours', e.target.checked)}
+                            onChange={(e) => {
+                              updateGroupSetting(group.id, 'hasActiveHours', e.target.checked);
+                              // Set default values when enabling
+                              if (e.target.checked && !group.activeFrom) {
+                                updateGroupSetting(group.id, 'activeFrom', '09:00');
+                              }
+                              if (e.target.checked && !group.activeTo) {
+                                updateGroupSetting(group.id, 'activeTo', '18:00');
+                              }
+                            }}
                             className="w-4 h-4 rounded border-gray-300 text-purple-600"
                           />
                           <div>
