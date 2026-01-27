@@ -266,9 +266,16 @@ async function processGoogleUser(email, name, picture, googleId, referralCode) {
       console.log(`[Google Auth] Existing user logged in: ${email}`);
     }
 
-    // Generate tokens
+    // Get user details for token (including role)
+    const userDetails = await db.query(
+      'SELECT id, email, role FROM users WHERE id = $1',
+      [userId]
+    );
+    const userData = userDetails.rows[0];
+
+    // Generate tokens (include role for admin access!)
     const accessToken = jwt.sign(
-      { userId },
+      { userId, email: userData.email, role: userData.role || 'user' },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -278,6 +285,8 @@ async function processGoogleUser(email, name, picture, googleId, referralCode) {
       process.env.JWT_SECRET,
       { expiresIn: '30d' }
     );
+    
+    console.log(`[Google Auth] Token generated with role: ${userData.role || 'user'}`);
 
     // Store refresh token
     await db.query(
