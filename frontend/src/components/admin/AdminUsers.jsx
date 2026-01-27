@@ -1068,18 +1068,22 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
                   </button>
                 )}
 
+                <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg mb-3">
+                  <p className="text-xs text-blue-700 text-center">💡 הזן <strong>-1</strong> לכמות ללא הגבלה</p>
+                </div>
+
                 <div className="space-y-3">
                   {/* Bots */}
                   <div className="p-3 bg-gray-50 rounded-xl">
                     <label className="block text-sm font-medium text-gray-700 mb-2">מכסת בוטים</label>
                     <input
                       type="number"
+                      min="-1"
                       placeholder="ברירת מחדל מהתוכנית"
                       value={featureOverrides?.max_bots ?? ''}
-                      onChange={(e) => updateFeatureOverride('max_bots', e.target.value ? parseInt(e.target.value) : null)}
+                      onChange={(e) => updateFeatureOverride('max_bots', e.target.value !== '' ? parseInt(e.target.value) : null)}
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
                     />
-                    <p className="text-xs text-gray-500 mt-1">-1 = ללא הגבלה</p>
                   </div>
 
                   {/* Bot runs */}
@@ -1087,9 +1091,10 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
                     <label className="block text-sm font-medium text-gray-700 mb-2">הרצות בוט בחודש</label>
                     <input
                       type="number"
+                      min="-1"
                       placeholder="ברירת מחדל מהתוכנית"
                       value={featureOverrides?.max_bot_runs_per_month ?? ''}
-                      onChange={(e) => updateFeatureOverride('max_bot_runs_per_month', e.target.value ? parseInt(e.target.value) : null)}
+                      onChange={(e) => updateFeatureOverride('max_bot_runs_per_month', e.target.value !== '' ? parseInt(e.target.value) : null)}
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
                     />
                   </div>
@@ -1099,9 +1104,10 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
                     <label className="block text-sm font-medium text-gray-700 mb-2">מכסת אנשי קשר</label>
                     <input
                       type="number"
+                      min="-1"
                       placeholder="ברירת מחדל מהתוכנית"
                       value={featureOverrides?.max_contacts ?? ''}
-                      onChange={(e) => updateFeatureOverride('max_contacts', e.target.value ? parseInt(e.target.value) : null)}
+                      onChange={(e) => updateFeatureOverride('max_contacts', e.target.value !== '' ? parseInt(e.target.value) : null)}
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
                     />
                   </div>
@@ -1122,9 +1128,10 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
                         <label className="text-xs text-gray-500">מקסימום העברות</label>
                         <input
                           type="number"
+                          min="-1"
                           placeholder="ברירת מחדל"
                           value={featureOverrides?.max_group_forwards ?? ''}
-                          onChange={(e) => updateFeatureOverride('max_group_forwards', e.target.value ? parseInt(e.target.value) : null)}
+                          onChange={(e) => updateFeatureOverride('max_group_forwards', e.target.value !== '' ? parseInt(e.target.value) : null)}
                           className="w-full px-2 py-1 border border-gray-200 rounded text-sm"
                         />
                       </div>
@@ -1132,9 +1139,10 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
                         <label className="text-xs text-gray-500">מקסימום יעדים</label>
                         <input
                           type="number"
+                          min="-1"
                           placeholder="ברירת מחדל"
                           value={featureOverrides?.max_forward_targets ?? ''}
-                          onChange={(e) => updateFeatureOverride('max_forward_targets', e.target.value ? parseInt(e.target.value) : null)}
+                          onChange={(e) => updateFeatureOverride('max_forward_targets', e.target.value !== '' ? parseInt(e.target.value) : null)}
                           className="w-full px-2 py-1 border border-gray-200 rounded text-sm"
                         />
                       </div>
