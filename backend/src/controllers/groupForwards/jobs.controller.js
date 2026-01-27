@@ -1,5 +1,5 @@
 const db = require('../../config/database');
-const { getIO } = require('../../socket');
+const { getIO } = require('../../services/socket/manager.service');
 
 /**
  * Create a new forward job (triggered by message or manual)
