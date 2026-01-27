@@ -279,13 +279,12 @@ async function sendStartList(userId, senderPhone, jobId, targetCount) {
     const wahaService = require('../waha/session.service');
     
     const listData = {
-      title: `📤 שליחה מתחילה`,
-      body: `מתחיל לשלוח את ההודעה ל-*${targetCount}* קבוצות.\n\nניתן לעצור בכל שלב:`,
-      footer: `מזהה: ${jobId.slice(0, 8)}`,
-      buttonText: 'פעולות',
+      title: `📤 שליחה ל-${targetCount} קבוצות`,
+      body: `ההודעה נשלחת כעת...`,
+      buttonText: 'עצירה',
       buttons: [
-        { title: '⏹️ עצור שליחה', rowId: `fwd_stop_${jobId}` },
-        { title: '🗑️ עצור ומחק הכל', rowId: `fwd_stopdelete_${jobId}` }
+        { title: '⏹️ עצור', rowId: `fwd_stop_${jobId}` },
+        { title: '🗑️ עצור ומחק', rowId: `fwd_stopdelete_${jobId}` }
       ]
     };
     
@@ -312,13 +311,12 @@ async function sendProgressList(userId, senderPhone, jobId, sent, total) {
     const wahaService = require('../waha/session.service');
     
     const listData = {
-      title: `📤 שליחה בתהליך`,
-      body: `נשלחו *${sent}* מתוך *${total}* קבוצות.\n\nלחץ על כפתור לעצירה:`,
-      footer: `מזהה: ${jobId.slice(0, 8)}`,
-      buttonText: 'פעולות',
+      title: `📤 נשלחו ${sent}/${total}`,
+      body: `השליחה בתהליך...`,
+      buttonText: 'עצירה',
       buttons: [
-        { title: '⏹️ עצור שליחה', rowId: `fwd_stop_${jobId}` },
-        { title: '🗑️ עצור ומחק הכל', rowId: `fwd_stopdelete_${jobId}` }
+        { title: '⏹️ עצור', rowId: `fwd_stop_${jobId}` },
+        { title: '🗑️ עצור ומחק', rowId: `fwd_stopdelete_${jobId}` }
       ]
     };
     
