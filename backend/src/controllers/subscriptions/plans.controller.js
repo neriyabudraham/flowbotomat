@@ -55,7 +55,8 @@ async function createPlan(req, res) {
       price, currency, billing_period,
       max_bots, max_bot_runs_per_month, max_contacts,
       allow_statistics, allow_waha_creation, allow_export,
-      allow_api_access, priority_support, sort_order
+      allow_api_access, priority_support, sort_order,
+      allow_group_forwards, max_group_forwards, max_forward_targets
     } = req.body;
     
     const result = await db.query(`
@@ -64,15 +65,17 @@ async function createPlan(req, res) {
         price, currency, billing_period,
         max_bots, max_bot_runs_per_month, max_contacts,
         allow_statistics, allow_waha_creation, allow_export,
-        allow_api_access, priority_support, sort_order
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        allow_api_access, priority_support, sort_order,
+        allow_group_forwards, max_group_forwards, max_forward_targets
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
       RETURNING *
     `, [
       name, name_he, description, description_he,
       price || 0, currency || 'ILS', billing_period || 'monthly',
       max_bots || 1, max_bot_runs_per_month || 500, max_contacts || 100,
       allow_statistics || false, allow_waha_creation || false, allow_export || false,
-      allow_api_access || false, priority_support || false, sort_order || 0
+      allow_api_access || false, priority_support || false, sort_order || 0,
+      allow_group_forwards || false, max_group_forwards || 0, max_forward_targets || 0
     ]);
     
     res.json({ plan: result.rows[0] });
@@ -104,7 +107,8 @@ async function updatePlan(req, res) {
       'price', 'currency', 'billing_period',
       'max_bots', 'max_bot_runs_per_month', 'max_contacts',
       'allow_statistics', 'allow_waha_creation', 'allow_export',
-      'allow_api_access', 'priority_support', 'is_active', 'sort_order'
+      'allow_api_access', 'priority_support', 'is_active', 'sort_order',
+      'allow_group_forwards', 'max_group_forwards', 'max_forward_targets'
     ];
     
     for (const field of allowedFields) {

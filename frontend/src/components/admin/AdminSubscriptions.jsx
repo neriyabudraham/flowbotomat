@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { 
   CreditCard, Users, Settings, Plus, Edit2, Trash2, Check, X, 
   Crown, Zap, Star, Building, RefreshCw, Search, Calendar, User,
-  Gift, Tag, Percent, Clock, BarChart
+  Gift, Tag, Percent, Clock, BarChart, Forward
 } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
@@ -483,6 +483,17 @@ export default function AdminSubscriptions() {
                       <span className="text-gray-500">גישת API</span>
                       {plan.allow_api_access ? <Check className="w-4 h-4 text-green-500" /> : <X className="w-4 h-4 text-gray-300" />}
                     </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">העברת הודעות</span>
+                      {plan.allow_group_forwards ? (
+                        <span className="text-xs text-green-600">
+                          {plan.max_group_forwards === -1 ? '∞' : plan.max_group_forwards} / 
+                          {plan.max_forward_targets === -1 ? '∞' : plan.max_forward_targets}
+                        </span>
+                      ) : (
+                        <X className="w-4 h-4 text-gray-300" />
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -672,6 +683,9 @@ function PlanEditModal({ plan, onSave, onClose }) {
     allow_waha_creation: plan.allow_waha_creation || false,
     allow_export: plan.allow_export || false,
     allow_api_access: plan.allow_api_access || false,
+    allow_group_forwards: plan.allow_group_forwards || false,
+    max_group_forwards: plan.max_group_forwards ?? 0,
+    max_forward_targets: plan.max_forward_targets ?? 0,
     is_active: plan.is_active ?? true,
     sort_order: plan.sort_order || 0,
   });
@@ -832,6 +846,51 @@ function PlanEditModal({ plan, onSave, onClose }) {
               />
               <span className="text-sm text-gray-700 dark:text-gray-300">תכנית פעילה</span>
             </label>
+          </div>
+
+          {/* Group Forwards Settings */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+            <h4 className="font-medium text-gray-800 dark:text-white mb-3 flex items-center gap-2">
+              <Forward className="w-4 h-4 text-purple-600" />
+              העברת הודעות לקבוצות
+            </h4>
+            
+            <label className="flex items-center gap-2 cursor-pointer mb-3">
+              <input
+                type="checkbox"
+                checked={form.allow_group_forwards}
+                onChange={e => setForm({...form, allow_group_forwards: e.target.checked})}
+                className="w-4 h-4 rounded"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">אפשר העברת הודעות לקבוצות</span>
+            </label>
+            
+            {form.allow_group_forwards && (
+              <div className="grid grid-cols-2 gap-4 mt-3 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מקס העברות</label>
+                  <input
+                    type="number"
+                    value={form.max_group_forwards}
+                    onChange={e => setForm({...form, max_group_forwards: parseInt(e.target.value)})}
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                    min="-1"
+                  />
+                  <span className="text-xs text-gray-500">-1 = ללא הגבלה</span>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מקס קבוצות יעד</label>
+                  <input
+                    type="number"
+                    value={form.max_forward_targets}
+                    onChange={e => setForm({...form, max_forward_targets: parseInt(e.target.value)})}
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                    min="-1"
+                  />
+                  <span className="text-xs text-gray-500">-1 = ללא הגבלה</span>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex gap-3 pt-4">
