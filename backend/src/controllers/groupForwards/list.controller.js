@@ -1,5 +1,8 @@
 const db = require('../../config/database');
 const { checkLimit } = require('../subscriptions/subscriptions.controller');
+const { decrypt } = require('../../services/crypto/encrypt.service');
+const { getWahaCredentials } = require('../../services/settings/system.service');
+const axios = require('axios');
 
 /**
  * List all group forwards for the current user
@@ -78,6 +81,7 @@ async function getGroupForward(req, res) {
 
 /**
  * Get all WhatsApp groups for the current user
+ * Using the same approach as whatsapp/groups.controller.js
  */
 async function getAvailableGroups(req, res) {
   try {
@@ -85,50 +89,86 @@ async function getAvailableGroups(req, res) {
     const { search } = req.query;
     
     // Get user's WhatsApp connection
-    const connectionResult = await db.query(`
-      SELECT * FROM whatsapp_connections
-      WHERE user_id = $1 AND status = 'connected'
-      LIMIT 1
-    `, [userId]);
+    const result = await db.query(
+      `SELECT * FROM whatsapp_connections 
+       WHERE user_id = $1 AND status = 'connected' 
+       ORDER BY connected_at DESC LIMIT 1`,
+      [userId]
+    );
     
-    if (connectionResult.rows.length === 0) {
+    if (result.rows.length === 0) {
       return res.status(400).json({ 
-        error: 'לא נמצא חיבור וואטסאפ פעיל',
-        code: 'NO_WHATSAPP_CONNECTION'
+        error: 'לא נמצא חיבור WhatsApp פעיל',
+        code: 'NO_WHATSAPP_CONNECTION',
+        groups: []
       });
     }
     
-    const connection = connectionResult.rows[0];
+    const connection = result.rows[0];
+    let baseUrl, apiKey, sessionName;
+    
+    if (connection.connection_type === 'external') {
+      // Decrypt external credentials
+      baseUrl = decrypt(connection.external_base_url);
+      apiKey = decrypt(connection.external_api_key);
+      sessionName = connection.session_name;
+    } else {
+      // Use system WAHA
+      const systemCreds = getWahaCredentials();
+      baseUrl = systemCreds.baseUrl;
+      apiKey = systemCreds.apiKey;
+      sessionName = connection.session_name;
+    }
     
     // Fetch groups from WAHA
-    const wahaService = require('../../services/waha/session.service');
-    const groups = await wahaService.getGroups(connection.session_name);
+    console.log('[GroupForwards] Fetching groups from:', `${baseUrl}/api/${sessionName}/groups`);
+    
+    const response = await axios.get(
+      `${baseUrl}/api/${sessionName}/groups`,
+      {
+        headers: {
+          'accept': 'application/json',
+          'X-Api-Key': apiKey
+        },
+        timeout: 10000
+      }
+    );
+    
+    // Format groups - handle WAHA response format
+    const rawGroups = Array.isArray(response.data) ? response.data : (response.data?.groups || response.data?.data || []);
+    
+    let groups = rawGroups.map(group => ({
+      id: group.JID || group.id || group.chatId || group.jid,
+      name: group.Name || group.name || group.subject || group.groupName || 'קבוצה ללא שם',
+      participants_count: group.Participants?.length || group.participants?.length || group.ParticipantCount || 0,
+      image_url: group.profilePicture || group.picture || null
+    }));
     
     // Filter by search if provided
-    let filteredGroups = groups;
     if (search) {
       const searchLower = search.toLowerCase();
-      filteredGroups = groups.filter(g => 
+      groups = groups.filter(g => 
         g.name?.toLowerCase().includes(searchLower) ||
         g.id?.includes(search)
       );
     }
     
-    // Sort alphabetically by name
-    filteredGroups.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'he'));
+    // Sort alphabetically by name in Hebrew
+    groups.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'he'));
+    
+    console.log('[GroupForwards] Found', groups.length, 'groups');
     
     res.json({
       success: true,
-      groups: filteredGroups.map(g => ({
-        id: g.id,
-        name: g.name || g.subject || 'קבוצה ללא שם',
-        image_url: g.profilePicUrl || g.picture,
-        participants_count: g.participants?.length || g.size || 0
-      }))
+      groups
     });
   } catch (error) {
-    console.error('[GroupForwards] Get groups error:', error);
-    res.status(500).json({ error: 'שגיאה בטעינת קבוצות' });
+    console.error('[GroupForwards] Get groups error:', error.message);
+    res.status(500).json({ 
+      error: 'שגיאה בטעינת קבוצות',
+      groups: [],
+      details: error.message
+    });
   }
 }
 
