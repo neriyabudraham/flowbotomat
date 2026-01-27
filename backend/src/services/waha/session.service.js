@@ -201,8 +201,8 @@ async function sendImage(connection, phone, imageUrl, caption = '') {
   
   console.log(`[WAHA] Sending image to ${chatId}, url: ${imageUrl?.substring(0, 80)}, caption: ${caption?.substring(0, 30)}`);
   
-  // Use session-in-path format for better compatibility
   const payload = {
+    session: connection.session_name,
     chatId: chatId,
     file: { url: imageUrl },
     caption: caption || '',
@@ -210,8 +210,7 @@ async function sendImage(connection, phone, imageUrl, caption = '') {
   
   console.log(`[WAHA] sendImage payload:`, JSON.stringify(payload));
   
-  // Try session-in-path format first (newer WAHA versions)
-  const response = await client.post(`/api/${connection.session_name}/sendImage`, payload);
+  const response = await client.post(`/api/sendImage`, payload);
   
   console.log(`[WAHA] sendImage response:`, JSON.stringify(response.data)?.substring(0, 300));
   
@@ -263,13 +262,13 @@ async function sendVideo(connection, phone, videoUrl, caption = '') {
   console.log(`[WAHA] Sending video to ${chatId}, url: ${videoUrl?.substring(0, 80)}`);
   
   const payload = {
+    session: connection.session_name,
     chatId: chatId,
     file: { url: videoUrl },
     caption: caption || '',
   };
   
-  // Use session-in-path format
-  const response = await client.post(`/api/${connection.session_name}/sendVideo`, payload);
+  const response = await client.post(`/api/sendVideo`, payload);
   
   console.log(`[WAHA] sendVideo response:`, JSON.stringify(response.data)?.substring(0, 200));
   
@@ -335,6 +334,7 @@ async function sendVoice(connection, phone, audioUrl, convert = true) {
   console.log(`[WAHA] Sending voice to ${chatId}, url: ${audioUrl?.substring(0, 80)}`);
   
   const payload = {
+    session: connection.session_name,
     chatId: chatId,
     file: {
       mimetype: 'audio/ogg; codecs=opus',
@@ -343,8 +343,7 @@ async function sendVoice(connection, phone, audioUrl, convert = true) {
     convert: convert,
   };
   
-  // Use session-in-path format
-  const response = await client.post(`/api/${connection.session_name}/sendVoice`, payload);
+  const response = await client.post(`/api/sendVoice`, payload);
   
   console.log(`[WAHA] Sent voice to ${phone}`);
   return response.data;
