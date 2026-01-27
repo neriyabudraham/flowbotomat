@@ -150,9 +150,13 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
     let mediaMimeType = null;
     let mediaFilename = null;
     
+    console.log(`[GroupForwards] Creating job - messageType: ${messageType}, content: ${messageText?.substring(0, 50)}`);
+    console.log(`[GroupForwards] Payload media info - mediaUrl: ${payload.mediaUrl}, mimetype: ${payload.mimetype}`);
+    console.log(`[GroupForwards] MessageData media info - mediaUrl: ${messageData.mediaUrl}, mimeType: ${messageData.mimeType}`);
+    
     // Handle different message types
     if (messageType === 'image' || messageType === 'video' || messageType === 'audio') {
-      // Get media URL from payload
+      // Get media URL from payload or messageData
       mediaUrl = payload.mediaUrl || messageData.mediaUrl;
       mediaMimeType = payload.mimetype || messageData.mimeType;
       mediaFilename = payload.filename || messageData.filename;

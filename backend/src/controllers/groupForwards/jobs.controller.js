@@ -348,13 +348,15 @@ async function startForwardJob(jobId) {
   try {
     // Get job with forward details and WhatsApp connection info
     const jobResult = await db.query(`
-      SELECT fj.*, gf.delay_min, gf.delay_max, gf.user_id,
+      SELECT fj.*, gf.delay_min, gf.delay_max, gf.user_id, gf.name as forward_name,
         wc.session_name, wc.connection_type, wc.external_base_url, wc.external_api_key
       FROM forward_jobs fj
       JOIN group_forwards gf ON fj.forward_id = gf.id
       JOIN whatsapp_connections wc ON wc.user_id = gf.user_id AND wc.status = 'connected'
       WHERE fj.id = $1
     `, [jobId]);
+    
+    console.log(`[GroupForwards] Starting job ${jobId} - type: ${jobResult.rows[0]?.message_type}, media_url: ${jobResult.rows[0]?.media_url?.substring(0, 50)}`);
     
     if (jobResult.rows.length === 0) {
       throw new Error('Job not found');
@@ -495,7 +497,7 @@ async function startForwardJob(jobId) {
       
       // Send batch update every 50 messages
       const newBatch = Math.floor((i + 1) / batchSize);
-      if (newBatch > currentBatch || i === messages.length - 1) {
+      if (newBatch > currentBatch && i < messages.length - 1) { // Don't send on last message
         currentBatch = newBatch;
         
         // Emit progress update via socket
@@ -506,6 +508,11 @@ async function startForwardJob(jobId) {
           total: totalTargets,
           current: i + 1
         });
+        
+        // Send WhatsApp progress message with stop buttons
+        if (job.sender_phone) {
+          await triggerService.sendProgressList(job.user_id, job.sender_phone, jobId, sentCount, totalTargets);
+        }
       }
       
       // Delay before next message (unless it's the last one)
