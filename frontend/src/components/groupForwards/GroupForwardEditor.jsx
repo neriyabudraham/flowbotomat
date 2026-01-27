@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import {
   ArrowRight, Save, Target, Zap, Clock, UserCheck, Settings, Search,
-  X, Plus, Trash2, GripVertical, Check, AlertCircle, Loader2, RefreshCw,
+  X, Plus, Trash2, Check, AlertCircle, Loader2, RefreshCw,
   MessageSquare, Users, ChevronDown, ChevronUp, Phone, Image as ImageIcon
 } from 'lucide-react';
-import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+// Using simple arrow buttons instead of drag-drop to avoid dependency issues
 import Button from '../atoms/Button';
 import api from '../../services/api';
 
@@ -167,13 +167,17 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
     }
   };
 
-  const onDragEnd = (result) => {
-    if (!result.destination) return;
-    
+  const moveTargetUp = (index) => {
+    if (index === 0) return;
     const items = Array.from(targets);
-    const [reorderedItem] = items.splice(result.source.index, 1);
-    items.splice(result.destination.index, 0, reorderedItem);
-    
+    [items[index - 1], items[index]] = [items[index], items[index - 1]];
+    setTargets(items);
+  };
+
+  const moveTargetDown = (index) => {
+    if (index === targets.length - 1) return;
+    const items = Array.from(targets);
+    [items[index], items[index + 1]] = [items[index + 1], items[index]];
     setTargets(items);
   };
 
@@ -289,56 +293,56 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                   <p className="text-sm text-gray-400">לחץ על "הוסף קבוצות" לבחור קבוצות יעד</p>
                 </div>
               ) : (
-                <DragDropContext onDragEnd={onDragEnd}>
-                  <Droppable droppableId="targets">
-                    {(provided) => (
-                      <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-2">
-                        {targets.map((target, index) => (
-                          <Draggable key={target.group_id} draggableId={target.group_id} index={index}>
-                            {(provided, snapshot) => (
-                              <div
-                                ref={provided.innerRef}
-                                {...provided.draggableProps}
-                                className={`flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200 ${
-                                  snapshot.isDragging ? 'shadow-lg' : ''
-                                }`}
-                              >
-                                <div {...provided.dragHandleProps} className="cursor-grab">
-                                  <GripVertical className="w-5 h-5 text-gray-400" />
-                                </div>
-                                <span className="w-6 h-6 bg-purple-100 text-purple-700 rounded-full flex items-center justify-center text-sm font-medium">
-                                  {index + 1}
-                                </span>
-                                {target.group_image_url ? (
-                                  <img src={target.group_image_url} alt="" className="w-10 h-10 rounded-full object-cover" />
-                                ) : (
-                                  <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
-                                    <Users className="w-5 h-5 text-gray-400" />
-                                  </div>
-                                )}
-                                <span className="flex-1 font-medium text-gray-900 truncate">
-                                  {target.group_name}
-                                </span>
-                                <button
-                                  onClick={() => setTargets(targets.filter(t => t.group_id !== target.group_id))}
-                                  className="p-1.5 hover:bg-red-100 rounded-lg text-gray-400 hover:text-red-600 transition-colors"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            )}
-                          </Draggable>
-                        ))}
-                        {provided.placeholder}
+                <div className="space-y-2">
+                  {targets.map((target, index) => (
+                    <div
+                      key={target.group_id}
+                      className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200"
+                    >
+                      {/* Move up/down buttons */}
+                      <div className="flex flex-col gap-0.5">
+                        <button
+                          onClick={() => moveTargetUp(index)}
+                          disabled={index === 0}
+                          className="p-0.5 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          <ChevronUp className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => moveTargetDown(index)}
+                          disabled={index === targets.length - 1}
+                          className="p-0.5 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          <ChevronDown className="w-4 h-4" />
+                        </button>
                       </div>
-                    )}
-                  </Droppable>
-                </DragDropContext>
+                      <span className="w-6 h-6 bg-purple-100 text-purple-700 rounded-full flex items-center justify-center text-sm font-medium">
+                        {index + 1}
+                      </span>
+                      {target.group_image_url ? (
+                        <img src={target.group_image_url} alt="" className="w-10 h-10 rounded-full object-cover" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                          <Users className="w-5 h-5 text-gray-400" />
+                        </div>
+                      )}
+                      <span className="flex-1 font-medium text-gray-900 truncate">
+                        {target.group_name}
+                      </span>
+                      <button
+                        onClick={() => setTargets(targets.filter(t => t.group_id !== target.group_id))}
+                        className="p-1.5 hover:bg-red-100 rounded-lg text-gray-400 hover:text-red-600 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
 
               <p className="mt-4 text-sm text-gray-500 flex items-center gap-1">
-                <GripVertical className="w-4 h-4" />
-                גרור כדי לשנות את סדר השליחה
+                <ChevronUp className="w-4 h-4" /><ChevronDown className="w-4 h-4" />
+                השתמש בחצים כדי לשנות את סדר השליחה
               </p>
             </div>
           )}
