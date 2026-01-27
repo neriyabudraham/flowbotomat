@@ -199,12 +199,24 @@ async function sendImage(connection, phone, imageUrl, caption = '') {
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
-  const response = await client.post(`/api/sendImage`, {
+  console.log(`[WAHA] Sending image to ${chatId}, url: ${imageUrl?.substring(0, 80)}, caption: ${caption?.substring(0, 30)}`);
+  
+  const payload = {
     session: connection.session_name,
     chatId: chatId,
     file: { url: imageUrl },
     caption: caption,
-  });
+  };
+  
+  const response = await client.post(`/api/sendImage`, payload);
+  
+  console.log(`[WAHA] sendImage response:`, JSON.stringify(response.data)?.substring(0, 200));
+  
+  // Check if response indicates success
+  if (response.data?.error) {
+    console.error(`[WAHA] sendImage error:`, response.data.error);
+    throw new Error(response.data.error);
+  }
   
   console.log(`[WAHA] Sent image to ${phone}`);
   return response.data;
@@ -245,12 +257,21 @@ async function sendVideo(connection, phone, videoUrl, caption = '') {
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
+  console.log(`[WAHA] Sending video to ${chatId}, url: ${videoUrl?.substring(0, 80)}`);
+  
   const response = await client.post(`/api/sendVideo`, {
     session: connection.session_name,
     chatId: chatId,
     file: { url: videoUrl },
     caption: caption,
   });
+  
+  console.log(`[WAHA] sendVideo response:`, JSON.stringify(response.data)?.substring(0, 200));
+  
+  if (response.data?.error) {
+    console.error(`[WAHA] sendVideo error:`, response.data.error);
+    throw new Error(response.data.error);
+  }
   
   console.log(`[WAHA] Sent video to ${phone}`);
   return response.data;
