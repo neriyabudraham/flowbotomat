@@ -4,7 +4,8 @@ import {
   Plus, Forward, Play, Pause, Trash2, Edit2, X, Users, Clock, Settings,
   Search, MoreHorizontal, Copy, ChevronRight, MessageSquare, Send, Phone,
   CheckCircle, AlertCircle, Loader2, ChevronDown, Filter, RefreshCw,
-  ArrowRight, Zap, Target, Crown, UserCheck, Image, Video, Mic, FileText
+  ArrowRight, Zap, Target, Crown, UserCheck, Image, Video, Mic, FileText,
+  History, LayoutGrid
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Button from '../components/atoms/Button';
@@ -12,6 +13,7 @@ import NotificationsDropdown from '../components/notifications/NotificationsDrop
 import Logo from '../components/atoms/Logo';
 import api from '../services/api';
 import GroupForwardEditor from '../components/groupForwards/GroupForwardEditor';
+import JobHistoryTab from '../components/groupForwards/JobHistoryTab';
 
 export default function GroupForwardsPage() {
   const navigate = useNavigate();
@@ -31,6 +33,7 @@ export default function GroupForwardsPage() {
   const [limit, setLimit] = useState(null);
   const [activeJobs, setActiveJobs] = useState([]);
   const [quickSendForward, setQuickSendForward] = useState(null);
+  const [activeTab, setActiveTab] = useState('forwards'); // 'forwards' | 'history'
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -246,8 +249,34 @@ export default function GroupForwardsPage() {
           </div>
         </div>
 
+        {/* Tabs */}
+        <div className="flex gap-1 p-1 bg-gray-100 rounded-xl mb-6 w-fit">
+          <button
+            onClick={() => setActiveTab('forwards')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              activeTab === 'forwards'
+                ? 'bg-white text-purple-600 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <LayoutGrid className="w-4 h-4" />
+            העברות
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              activeTab === 'history'
+                ? 'bg-white text-purple-600 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <History className="w-4 h-4" />
+            היסטוריית שליחות
+          </button>
+        </div>
+
         {/* Active Jobs Alert */}
-        {activeJobs.length > 0 && (
+        {activeJobs.length > 0 && activeTab === 'forwards' && (
           <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
             <div className="flex items-center gap-3">
               <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
@@ -261,19 +290,25 @@ export default function GroupForwardsPage() {
           </div>
         )}
 
-        {/* Search */}
-        <div className="mb-6">
-          <div className="relative max-w-md">
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="חיפוש העברות..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-4 pr-10 py-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 transition-all"
-            />
-          </div>
-        </div>
+        {/* History Tab */}
+        {activeTab === 'history' && <JobHistoryTab />}
+
+        {/* Forwards Tab Content */}
+        {activeTab === 'forwards' && (
+          <>
+            {/* Search */}
+            <div className="mb-6">
+              <div className="relative max-w-md">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="חיפוש העברות..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-4 pr-10 py-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 transition-all"
+                />
+              </div>
+            </div>
 
         {/* Forwards Grid */}
         {loading ? (
@@ -441,6 +476,8 @@ export default function GroupForwardsPage() {
               </div>
             ))}
           </div>
+        )}
+          </>
         )}
       </main>
 
