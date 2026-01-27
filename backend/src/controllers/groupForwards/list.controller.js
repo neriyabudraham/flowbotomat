@@ -86,16 +86,14 @@ async function getAvailableGroups(req, res) {
     
     // Get user's WhatsApp connection
     const connectionResult = await db.query(`
-      SELECT wc.*, ws.session_id, ws.waha_instance_name
-      FROM whatsapp_connections wc
-      LEFT JOIN waha_sessions ws ON wc.waha_session_id = ws.id
-      WHERE wc.user_id = $1 AND wc.status = 'connected'
+      SELECT * FROM whatsapp_connections
+      WHERE user_id = $1 AND status = 'connected'
       LIMIT 1
     `, [userId]);
     
     if (connectionResult.rows.length === 0) {
       return res.status(400).json({ 
-        error: 'לא נמצא חיבור וואצטאפ פעיל',
+        error: 'לא נמצא חיבור וואטסאפ פעיל',
         code: 'NO_WHATSAPP_CONNECTION'
       });
     }
@@ -103,8 +101,8 @@ async function getAvailableGroups(req, res) {
     const connection = connectionResult.rows[0];
     
     // Fetch groups from WAHA
-    const wahaService = require('../../services/whatsapp/waha.service');
-    const groups = await wahaService.getGroups(connection.waha_instance_name || connection.session_id);
+    const wahaService = require('../../services/waha/session.service');
+    const groups = await wahaService.getGroups(connection.session_name);
     
     // Filter by search if provided
     let filteredGroups = groups;

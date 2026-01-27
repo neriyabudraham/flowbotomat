@@ -342,18 +342,16 @@ async function getForwardJobHistory(req, res) {
  */
 async function startForwardJob(jobId) {
   const wahaService = require('../../services/waha/session.service');
+  const { getWahaCredentials } = require('../../services/settings/system.service');
   
   try {
-    // Get job with forward details and WAHA connection info
+    // Get job with forward details and WhatsApp connection info
     const jobResult = await db.query(`
       SELECT fj.*, gf.delay_min, gf.delay_max, gf.user_id,
-        wc.waha_session_id, ws.session_id as waha_session_name, ws.waha_instance_name,
-        wh.base_url, wh.api_key
+        wc.session_name, wc.connection_type, wc.external_base_url, wc.external_api_key
       FROM forward_jobs fj
       JOIN group_forwards gf ON fj.forward_id = gf.id
       JOIN whatsapp_connections wc ON wc.user_id = gf.user_id AND wc.status = 'connected'
-      LEFT JOIN waha_sessions ws ON wc.waha_session_id = ws.id
-      LEFT JOIN waha_hosts wh ON ws.waha_host_id = wh.id
       WHERE fj.id = $1
     `, [jobId]);
     
@@ -362,16 +360,19 @@ async function startForwardJob(jobId) {
     }
     
     const job = jobResult.rows[0];
-    const sessionName = job.waha_instance_name || job.waha_session_name;
+    const sessionName = job.session_name;
     
     if (!sessionName) {
       throw new Error('No WhatsApp session available');
     }
     
+    // Get WAHA credentials
+    const creds = getWahaCredentials();
+    
     // Create connection object for WAHA service
     const wahaConnection = {
-      base_url: job.base_url,
-      api_key: job.api_key,
+      base_url: creds.baseUrl,
+      api_key: creds.apiKey,
       session_name: sessionName
     };
     
@@ -568,15 +569,12 @@ async function deleteJobMessages(jobId) {
   const wahaService = require('../../services/waha/session.service');
   
   try {
-    // Get job details with WAHA connection info
+    // Get job details with WhatsApp connection info
     const jobResult = await db.query(`
-      SELECT fj.*, wc.waha_session_id, ws.session_id as waha_session_name, ws.waha_instance_name,
-        wh.base_url, wh.api_key
+      SELECT fj.*, wc.session_name
       FROM forward_jobs fj
       JOIN group_forwards gf ON fj.forward_id = gf.id
       JOIN whatsapp_connections wc ON wc.user_id = gf.user_id AND wc.status = 'connected'
-      LEFT JOIN waha_sessions ws ON wc.waha_session_id = ws.id
-      LEFT JOIN waha_hosts wh ON ws.waha_host_id = wh.id
       WHERE fj.id = $1
     `, [jobId]);
     
@@ -585,7 +583,7 @@ async function deleteJobMessages(jobId) {
     }
     
     const job = jobResult.rows[0];
-    const sessionName = job.waha_instance_name || job.waha_session_name;
+    const sessionName = job.session_name;
     
     // Get sent messages with WhatsApp IDs
     const messagesResult = await db.query(`
