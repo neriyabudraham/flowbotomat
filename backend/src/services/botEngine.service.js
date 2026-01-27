@@ -779,7 +779,12 @@ class BotEngine {
             }
             break;
           case 'first_message':
-            matches = contact.message_count <= 1;
+            // Query actual message count since contact.message_count isn't loaded
+            const firstMsgCount = await db.query(
+              `SELECT COUNT(*) as count FROM messages WHERE contact_id = $1 AND direction = 'inbound'`,
+              [contact.id]
+            );
+            matches = parseInt(firstMsgCount.rows[0]?.count || 0) === 1;
             break;
           default:
             matches = false;
@@ -877,8 +882,15 @@ class BotEngine {
     }
     
     // first_message - check if this is the contact's first message
+    // NOTE: The current message is already saved to DB, so we check if count is exactly 1
     if (type === 'first_message') {
-      return contact.message_count <= 1;
+      const countResult = await db.query(
+        `SELECT COUNT(*) as count FROM messages WHERE contact_id = $1 AND direction = 'inbound'`,
+        [contact.id]
+      );
+      const messageCount = parseInt(countResult.rows[0]?.count || 0);
+      console.log(`[BotEngine] first_message check: contact has ${messageCount} inbound messages`);
+      return messageCount === 1; // Exactly 1 means this is the first (current) message
     }
     
     // message_content - check the message content
@@ -927,6 +939,8 @@ class BotEngine {
     }
     
     // no_message_in - check if contact hasn't sent a message in X time
+    // NOTE: The current message is already saved to DB before bot engine processes it,
+    // so we need to check the SECOND most recent message (skip the current one)
     if (type === 'no_message_in') {
       const timeValue = condition.timeValue || 1;
       const timeUnit = condition.timeUnit || 'days';
@@ -941,21 +955,25 @@ class BotEngine {
       const minutesAgo = timeValue * (multiplier[timeUnit] || multiplier.days);
       const cutoffTime = new Date(Date.now() - minutesAgo * 60 * 1000);
       
-      // Get last message from this contact
-      const lastMessage = await db.query(
+      // Get the PREVIOUS message from this contact (skip the current one which was just saved)
+      // OFFSET 1 skips the most recent message (the current one being processed)
+      const previousMessage = await db.query(
         `SELECT created_at FROM messages 
          WHERE contact_id = $1 AND direction = 'inbound'
-         ORDER BY created_at DESC LIMIT 1`,
+         ORDER BY created_at DESC LIMIT 1 OFFSET 1`,
         [contact.id]
       );
       
-      if (lastMessage.rows.length === 0) {
-        // Never sent a message - consider it as "no message in X time"
+      if (previousMessage.rows.length === 0) {
+        // This is the first message ever from this contact - consider it as "no message in X time"
+        console.log('[BotEngine] no_message_in: First message from contact, condition met');
         return true;
       }
       
-      const lastMessageTime = new Date(lastMessage.rows[0].created_at);
-      return lastMessageTime < cutoffTime;
+      const previousMessageTime = new Date(previousMessage.rows[0].created_at);
+      const conditionMet = previousMessageTime < cutoffTime;
+      console.log(`[BotEngine] no_message_in: Previous message at ${previousMessageTime.toISOString()}, cutoff: ${cutoffTime.toISOString()}, met: ${conditionMet}`);
+      return conditionMet;
     }
     
     // not_triggered_in - check if this bot wasn't triggered for this user in X time
@@ -1395,7 +1413,12 @@ class BotEngine {
         checkValue = contact.phone || '';
         break;
       case 'is_first_contact':
-        checkValue = (contact.message_count || 0) <= 1 ? 'true' : 'false';
+        // Query actual message count
+        const firstContactCount = await db.query(
+          `SELECT COUNT(*) as count FROM messages WHERE contact_id = $1 AND direction = 'inbound'`,
+          [contact.id]
+        );
+        checkValue = parseInt(firstContactCount.rows[0]?.count || 0) === 1 ? 'true' : 'false';
         break;
       case 'message_type':
         checkValue = 'text'; // TODO: get actual message type
