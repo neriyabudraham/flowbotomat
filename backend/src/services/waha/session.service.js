@@ -266,7 +266,7 @@ async function sendList(connection, phone, listData) {
   const rows = (listData.buttons || []).map((btn, i) => {
     const row = {
       title: (btn.title || `אפשרות ${i + 1}`).substring(0, 24), // Max 24 chars
-      rowId: String(i), // Simple index to match frontend handles: "0", "1", "2"
+      rowId: btn.rowId || String(i), // Use custom rowId if provided, otherwise index
     };
     if (btn.description) {
       row.description = btn.description.substring(0, 72); // Max 72 chars

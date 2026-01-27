@@ -343,6 +343,7 @@ async function getForwardJobHistory(req, res) {
 async function startForwardJob(jobId) {
   const wahaService = require('../../services/waha/session.service');
   const { getWahaCredentials } = require('../../services/settings/system.service');
+  const triggerService = require('../../services/groupForwards/trigger.service');
   
   try {
     // Get job with forward details and WhatsApp connection info
@@ -514,8 +515,18 @@ async function startForwardJob(jobId) {
       }
     }
     
+    // Check if delete was requested
+    const finalCheck = await db.query(
+      'SELECT stop_requested, delete_sent_requested, sender_phone FROM forward_jobs WHERE id = $1',
+      [jobId]
+    );
+    
+    const wasStopped = finalCheck.rows[0]?.stop_requested;
+    const shouldDelete = finalCheck.rows[0]?.delete_sent_requested;
+    const senderPhone = finalCheck.rows[0]?.sender_phone;
+    
     // Finalize job
-    const finalStatus = sentCount === totalTargets ? 'completed' : (failedCount > 0 ? 'error' : 'stopped');
+    const finalStatus = wasStopped ? 'stopped' : (sentCount === totalTargets ? 'completed' : (failedCount > 0 ? 'partial' : 'stopped'));
     
     await db.query(`
       UPDATE forward_jobs 
@@ -530,7 +541,7 @@ async function startForwardJob(jobId) {
       WHERE id = $1
     `, [job.forward_id]);
     
-    // Emit completion
+    // Emit completion via socket
     io.to(`user:${job.user_id}`).emit('forward_job_complete', {
       jobId,
       status: finalStatus,
@@ -539,7 +550,23 @@ async function startForwardJob(jobId) {
       total: totalTargets
     });
     
-    console.log(`[GroupForwards] Job ${jobId} completed: ${sentCount}/${totalTargets} sent, ${failedCount} failed`);
+    // Send completion message via WhatsApp
+    if (senderPhone) {
+      if (wasStopped) {
+        await triggerService.sendStoppedMessage(job.user_id, senderPhone, sentCount, totalTargets, shouldDelete);
+        
+        // Delete sent messages if requested
+        if (shouldDelete && sentCount > 0) {
+          deleteJobMessages(jobId).catch(err => {
+            console.error(`[GroupForwards] Error deleting messages for job ${jobId}:`, err);
+          });
+        }
+      } else {
+        await triggerService.sendCompletionMessage(job.user_id, senderPhone, jobId, sentCount, failedCount, totalTargets);
+      }
+    }
+    
+    console.log(`[GroupForwards] Job ${jobId} ${finalStatus}: ${sentCount}/${totalTargets} sent, ${failedCount} failed`);
     
   } catch (error) {
     console.error(`[GroupForwards] Job ${jobId} error:`, error);

@@ -1,11 +1,11 @@
 const db = require('../../config/database');
 const { getWahaCredentials } = require('../settings/system.service');
+const { decrypt } = require('../crypto/encrypt.service');
 const axios = require('axios');
 
 /**
  * Normalize phone number for comparison
- * Handles Israeli numbers with or without country code
- * Examples: "0584254229" -> "584254229", "972584254229" -> "584254229", "+972584254229" -> "584254229"
+ * Handles Israeli numbers in various formats
  */
 function normalizePhoneNumber(phone) {
   if (!phone) return '';
@@ -25,21 +25,51 @@ function normalizePhoneNumber(phone) {
 }
 
 /**
+ * Get WAHA connection details for a user
+ */
+async function getWahaConnection(userId) {
+  const connectionResult = await db.query(`
+    SELECT * FROM whatsapp_connections 
+    WHERE user_id = $1 AND status = 'connected'
+    ORDER BY connected_at DESC LIMIT 1
+  `, [userId]);
+  
+  if (connectionResult.rows.length === 0) {
+    return null;
+  }
+  
+  const connection = connectionResult.rows[0];
+  let baseUrl, apiKey;
+  
+  if (connection.connection_type === 'external') {
+    baseUrl = decrypt(connection.external_base_url);
+    apiKey = decrypt(connection.external_api_key);
+  } else {
+    const systemCreds = getWahaCredentials();
+    baseUrl = systemCreds.baseUrl;
+    apiKey = systemCreds.apiKey;
+  }
+  
+  return {
+    ...connection,
+    base_url: baseUrl,
+    api_key: apiKey
+  };
+}
+
+/**
  * Process incoming message for group forwards trigger
- * Called from webhook after bot engine processing
  */
 async function processMessageForForwards(userId, senderPhone, messageData, chatId, payload) {
   try {
-    // Check if this is a group message or direct message
     const isGroupMessage = chatId?.includes('@g.us');
     
-    console.log(`[GroupForwards] Processing message - isGroup: ${isGroupMessage}, sender: ${senderPhone}, chat: ${chatId}`);
+    console.log(`[GroupForwards] Processing message - isGroup: ${isGroupMessage}, sender: ${senderPhone}, chat: ${chatId}, type: ${messageData.type}`);
     
     // Find active forwards that might be triggered
     let forwards;
     
     if (isGroupMessage) {
-      // Group message - find forwards listening to this group
       forwards = await db.query(`
         SELECT gf.*, 
           (SELECT COUNT(*) FROM group_forward_targets WHERE forward_id = gf.id AND is_active = true) as target_count
@@ -50,7 +80,6 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
           AND gf.trigger_group_id = $2
       `, [userId, chatId]);
     } else {
-      // Direct message - find forwards with direct trigger
       forwards = await db.query(`
         SELECT gf.*, 
           (SELECT COUNT(*) FROM group_forward_targets WHERE forward_id = gf.id AND is_active = true) as target_count
@@ -68,18 +97,14 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
     
     // Check if sender is authorized for each forward
     for (const forward of forwards.rows) {
-      // Normalize phone number for comparison (handle both with and without country code)
       const normalizedPhone = normalizePhoneNumber(senderPhone);
       
-      // Get all authorized senders for this forward
       const authSendersResult = await db.query(`
         SELECT phone_number FROM forward_authorized_senders WHERE forward_id = $1
       `, [forward.id]);
       
       const totalAuthSenders = authSendersResult.rows.length;
-      
-      // Check if sender matches any authorized number
-      let isAuthorized = totalAuthSenders === 0; // If no authorized senders defined, anyone can trigger
+      let isAuthorized = totalAuthSenders === 0;
       
       if (!isAuthorized) {
         for (const auth of authSendersResult.rows) {
@@ -105,7 +130,6 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
       
       console.log(`[GroupForwards] ✅ Triggering forward ${forward.id} (${forward.name}) for sender ${senderPhone}`);
       
-      // Create the forward job
       await createTriggerJob(userId, forward, senderPhone, messageData, payload);
     }
     
@@ -119,18 +143,29 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
  */
 async function createTriggerJob(userId, forward, senderPhone, messageData, payload) {
   try {
-    // Determine message type and extract media if needed
+    // Determine message type and extract media
     let messageType = messageData.type;
-    let messageText = messageData.content;
-    let mediaUrl = messageData.mediaUrl;
-    let mediaMimeType = messageData.mimeType;
-    let mediaFilename = messageData.filename;
+    let messageText = messageData.content || '';
+    let mediaUrl = null;
+    let mediaMimeType = null;
+    let mediaFilename = null;
     
-    // For media messages, download the media first
-    if (['image', 'video', 'audio'].includes(messageType) && payload.mediaUrl) {
-      mediaUrl = payload.mediaUrl;
-      mediaMimeType = payload.mimetype;
-      mediaFilename = payload.filename;
+    // Handle different message types
+    if (messageType === 'image' || messageType === 'video' || messageType === 'audio') {
+      // Get media URL from payload
+      mediaUrl = payload.mediaUrl || messageData.mediaUrl;
+      mediaMimeType = payload.mimetype || messageData.mimeType;
+      mediaFilename = payload.filename || messageData.filename;
+      
+      console.log(`[GroupForwards] Media message - type: ${messageType}, url: ${mediaUrl}, mime: ${mediaMimeType}`);
+      
+      if (!mediaUrl) {
+        console.log(`[GroupForwards] No media URL found, skipping`);
+        await sendNotificationMessage(userId, senderPhone, '❌ לא הצלחתי לקבל את המדיה. אנא נסה שוב.');
+        return;
+      }
+    } else if (messageType === 'list_response') {
+      messageType = 'text';
     }
     
     // Create job
@@ -145,7 +180,7 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
     `, [
       forward.id,
       userId,
-      messageType === 'list_response' ? 'text' : messageType,
+      messageType,
       messageText,
       mediaUrl,
       mediaMimeType,
@@ -172,20 +207,20 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
       `, [job.id, target.id]);
     }
     
-    console.log(`[GroupForwards] Created trigger job ${job.id} for forward ${forward.id} with ${forward.target_count} targets`);
+    console.log(`[GroupForwards] Created trigger job ${job.id} for forward ${forward.id} with ${forward.target_count} targets, type: ${messageType}`);
     
-    // Send confirmation message or start sending
+    // Send confirmation or start sending
     if (forward.require_confirmation) {
-      await sendConfirmationMessage(userId, senderPhone, forward, job);
+      await sendConfirmationList(userId, senderPhone, forward, job);
     } else {
-      // Start sending immediately
+      await sendNotificationMessage(userId, senderPhone, 
+        `📤 מתחיל לשלוח את ההודעה ל-${forward.target_count} קבוצות...`
+      );
+      
       const { startForwardJob } = require('../../controllers/groupForwards/jobs.controller');
       startForwardJob(job.id).catch(err => {
         console.error(`[GroupForwards] Error starting job ${job.id}:`, err);
       });
-      
-      // Notify sender that sending has started
-      await sendNotificationMessage(userId, senderPhone, `📤 מתחיל לשלוח את ההודעה ל-${forward.target_count} קבוצות...`);
     }
     
   } catch (error) {
@@ -194,71 +229,111 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
 }
 
 /**
- * Send confirmation message to sender via WhatsApp
+ * Send confirmation list message to sender
  */
-async function sendConfirmationMessage(userId, senderPhone, forward, job) {
+async function sendConfirmationList(userId, senderPhone, forward, job) {
   try {
-    // Get WhatsApp connection
-    const connectionResult = await db.query(`
-      SELECT * FROM whatsapp_connections 
-      WHERE user_id = $1 AND status = 'connected'
-      LIMIT 1
-    `, [userId]);
-    
-    if (connectionResult.rows.length === 0) {
-      console.log('[GroupForwards] No WhatsApp connection for confirmation message');
+    const wahaConnection = await getWahaConnection(userId);
+    if (!wahaConnection) {
+      console.log('[GroupForwards] No WhatsApp connection for confirmation');
       return;
     }
     
-    const connection = connectionResult.rows[0];
-    const creds = getWahaCredentials();
     const chatId = `${senderPhone}@s.whatsapp.net`;
+    const wahaService = require('../waha/session.service');
     
-    // Create confirmation message with list buttons
-    const messageText = `📋 *העברת הודעות: ${forward.name}*
-
-ההודעה שלך מוכנה להישלח ל-*${forward.target_count}* קבוצות.
-
-🆔 מזהה משימה: \`${job.id.slice(0, 8)}\`
-
-לחץ על אחת מהאפשרויות:`;
+    // Build list message
+    const listData = {
+      title: `📋 העברת הודעות`,
+      body: `*${forward.name}*\n\nההודעה שלך מוכנה להישלח ל-*${forward.target_count}* קבוצות.\n\nסוג: ${getMessageTypeLabel(job.message_type)}\n\nבחר פעולה:`,
+      footer: `מזהה: ${job.id.slice(0, 8)}`,
+      buttonText: 'בחר פעולה',
+      buttons: [
+        { title: '✅ שלח לכל הקבוצות', rowId: `fwd_confirm_${job.id}` },
+        { title: '❌ בטל', rowId: `fwd_cancel_${job.id}` }
+      ]
+    };
     
-    // Send message with buttons using WAHA
-    const response = await axios.post(
-      `${creds.baseUrl}/api/sendButtons`,
-      {
-        session: connection.session_name,
-        chatId: chatId,
-        text: messageText,
-        buttons: [
-          { id: `forward_confirm_${job.id}`, text: '✅ שלח' },
-          { id: `forward_cancel_${job.id}`, text: '❌ בטל' }
-        ]
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Api-Key': creds.apiKey
-        }
-      }
-    );
-    
-    console.log(`[GroupForwards] Sent confirmation message for job ${job.id}`);
+    await wahaService.sendList(wahaConnection, chatId, listData);
+    console.log(`[GroupForwards] Sent confirmation list for job ${job.id}`);
     
   } catch (error) {
-    console.error('[GroupForwards] Send confirmation error:', error.message);
+    console.error('[GroupForwards] Send confirmation list error:', error.message);
+    // Fallback to text
+    await sendNotificationMessage(userId, senderPhone, 
+      `📋 *העברת הודעות: ${forward.name}*\n\n` +
+      `ההודעה שלך מוכנה להישלח ל-*${forward.target_count}* קבוצות.\n\n` +
+      `השב "שלח" לאישור או "בטל" לביטול.`
+    );
+  }
+}
+
+/**
+ * Send progress list with stop options
+ */
+async function sendProgressList(userId, senderPhone, jobId, sent, total) {
+  try {
+    const wahaConnection = await getWahaConnection(userId);
+    if (!wahaConnection) return;
     
-    // Fallback to regular text message
-    try {
-      await sendNotificationMessage(userId, senderPhone, 
-        `📋 *העברת הודעות: ${forward.name}*\n\n` +
-        `ההודעה שלך מוכנה להישלח ל-*${forward.target_count}* קבוצות.\n\n` +
-        `🆔 מזהה משימה: ${job.id.slice(0, 8)}\n\n` +
-        `השב "שלח" לאישור או "בטל" לביטול.`
-      );
-    } catch (err) {
-      console.error('[GroupForwards] Fallback notification error:', err.message);
+    const chatId = `${senderPhone}@s.whatsapp.net`;
+    const wahaService = require('../waha/session.service');
+    
+    const listData = {
+      title: `📤 שליחה בתהליך`,
+      body: `נשלחו *${sent}* מתוך *${total}* קבוצות.\n\nלחץ על כפתור לעצירה:`,
+      footer: `מזהה: ${jobId.slice(0, 8)}`,
+      buttonText: 'פעולות',
+      buttons: [
+        { title: '⏹️ עצור שליחה', rowId: `fwd_stop_${jobId}` },
+        { title: '🗑️ עצור ומחק הכל', rowId: `fwd_stopdelete_${jobId}` }
+      ]
+    };
+    
+    await wahaService.sendList(wahaConnection, chatId, listData);
+    
+  } catch (error) {
+    console.error('[GroupForwards] Send progress list error:', error.message);
+  }
+}
+
+/**
+ * Send completion message
+ */
+async function sendCompletionMessage(userId, senderPhone, jobId, sent, failed, total) {
+  try {
+    let message;
+    
+    if (failed === 0 && sent === total) {
+      message = `✅ *השליחה הושלמה בהצלחה!*\n\nההודעה נשלחה ל-*${sent}* קבוצות.`;
+    } else if (sent === 0) {
+      message = `❌ *השליחה נכשלה*\n\nלא הצלחתי לשלוח לאף קבוצה.`;
+    } else {
+      message = `⚠️ *השליחה הסתיימה*\n\n✅ נשלח: *${sent}* קבוצות\n❌ נכשל: *${failed}* קבוצות`;
     }
+    
+    await sendNotificationMessage(userId, senderPhone, message);
+    
+  } catch (error) {
+    console.error('[GroupForwards] Send completion error:', error.message);
+  }
+}
+
+/**
+ * Send stopped message
+ */
+async function sendStoppedMessage(userId, senderPhone, sent, total, willDelete = false) {
+  try {
+    let message = `⏹️ *השליחה נעצרה*\n\nנשלחו *${sent}* מתוך *${total}* קבוצות.`;
+    
+    if (willDelete) {
+      message += `\n\n🗑️ מוחק את ההודעות שנשלחו...`;
+    }
+    
+    await sendNotificationMessage(userId, senderPhone, message);
+    
+  } catch (error) {
+    console.error('[GroupForwards] Send stopped error:', error.message);
   }
 }
 
@@ -267,29 +342,22 @@ async function sendConfirmationMessage(userId, senderPhone, forward, job) {
  */
 async function sendNotificationMessage(userId, phone, text) {
   try {
-    const connectionResult = await db.query(`
-      SELECT * FROM whatsapp_connections 
-      WHERE user_id = $1 AND status = 'connected'
-      LIMIT 1
-    `, [userId]);
+    const wahaConnection = await getWahaConnection(userId);
+    if (!wahaConnection) return;
     
-    if (connectionResult.rows.length === 0) return;
-    
-    const connection = connectionResult.rows[0];
-    const creds = getWahaCredentials();
     const chatId = `${phone}@s.whatsapp.net`;
     
     await axios.post(
-      `${creds.baseUrl}/api/sendText`,
+      `${wahaConnection.base_url}/api/sendText`,
       {
-        session: connection.session_name,
+        session: wahaConnection.session_name,
         chatId: chatId,
         text: text
       },
       {
         headers: {
           'Content-Type': 'application/json',
-          'X-Api-Key': creds.apiKey
+          'X-Api-Key': wahaConnection.api_key
         }
       }
     );
@@ -300,100 +368,56 @@ async function sendNotificationMessage(userId, phone, text) {
 }
 
 /**
- * Handle confirmation/cancellation response
- * Called when user replies to confirmation message
+ * Handle list response for forwards
  */
-async function handleConfirmationResponse(userId, senderPhone, messageContent, selectedButtonId) {
+async function handleConfirmationResponse(userId, senderPhone, messageContent, selectedRowId) {
   try {
-    // Check for button response or text response
-    let jobId = null;
-    let action = null;
-    
-    if (selectedButtonId) {
-      // Button click
-      if (selectedButtonId.startsWith('forward_confirm_')) {
-        jobId = selectedButtonId.replace('forward_confirm_', '');
-        action = 'confirm';
-      } else if (selectedButtonId.startsWith('forward_cancel_')) {
-        jobId = selectedButtonId.replace('forward_cancel_', '');
-        action = 'cancel';
-      }
-    } else {
-      // Text response - check for pending job and text
-      const lowerContent = messageContent?.toLowerCase()?.trim();
+    // Check for list response (button click)
+    if (selectedRowId) {
+      console.log(`[GroupForwards] Processing list response: ${selectedRowId}`);
       
-      if (lowerContent === 'שלח' || lowerContent === 'send') {
-        action = 'confirm';
-      } else if (lowerContent === 'בטל' || lowerContent === 'cancel') {
-        action = 'cancel';
+      // Parse the row ID
+      if (selectedRowId.startsWith('fwd_confirm_')) {
+        const jobId = selectedRowId.replace('fwd_confirm_', '');
+        return await handleConfirm(userId, senderPhone, jobId);
       }
       
-      if (action) {
-        // Find pending job for this user
-        const pendingJob = await db.query(`
-          SELECT fj.* FROM forward_jobs fj
-          WHERE fj.user_id = $1 
-            AND fj.sender_phone = $2
-            AND fj.status = 'pending'
-          ORDER BY fj.created_at DESC
-          LIMIT 1
-        `, [userId, senderPhone]);
-        
-        if (pendingJob.rows.length > 0) {
-          jobId = pendingJob.rows[0].id;
-        }
+      if (selectedRowId.startsWith('fwd_cancel_')) {
+        const jobId = selectedRowId.replace('fwd_cancel_', '');
+        return await handleCancel(userId, senderPhone, jobId);
+      }
+      
+      if (selectedRowId.startsWith('fwd_stop_')) {
+        const jobId = selectedRowId.replace('fwd_stop_', '');
+        return await handleStop(userId, senderPhone, jobId, false);
+      }
+      
+      if (selectedRowId.startsWith('fwd_stopdelete_')) {
+        const jobId = selectedRowId.replace('fwd_stopdelete_', '');
+        return await handleStop(userId, senderPhone, jobId, true);
       }
     }
     
-    if (!jobId || !action) {
-      return false; // Not a confirmation response
+    // Check for text response
+    const lowerContent = messageContent?.toLowerCase()?.trim();
+    
+    if (lowerContent === 'שלח' || lowerContent === 'send') {
+      return await handleTextConfirm(userId, senderPhone, 'confirm');
     }
     
-    console.log(`[GroupForwards] Handling ${action} for job ${jobId}`);
-    
-    // Get job
-    const jobResult = await db.query(`
-      SELECT fj.*, gf.name as forward_name
-      FROM forward_jobs fj
-      JOIN group_forwards gf ON fj.forward_id = gf.id
-      WHERE fj.id = $1 AND fj.user_id = $2 AND fj.status = 'pending'
-    `, [jobId, userId]);
-    
-    if (jobResult.rows.length === 0) {
-      await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
-      return true;
+    if (lowerContent === 'בטל' || lowerContent === 'cancel') {
+      return await handleTextConfirm(userId, senderPhone, 'cancel');
     }
     
-    const job = jobResult.rows[0];
-    
-    if (action === 'confirm') {
-      // Update status and start sending
-      await db.query(`
-        UPDATE forward_jobs SET status = 'confirmed', updated_at = NOW()
-        WHERE id = $1
-      `, [jobId]);
-      
-      await sendNotificationMessage(userId, senderPhone, 
-        `✅ מתחיל לשלוח את ההודעה ל-${job.total_targets} קבוצות...`
-      );
-      
-      // Start sending
-      const { startForwardJob } = require('../../controllers/groupForwards/jobs.controller');
-      startForwardJob(jobId).catch(err => {
-        console.error(`[GroupForwards] Error starting job ${jobId}:`, err);
-      });
-      
-    } else {
-      // Cancel job
-      await db.query(`
-        UPDATE forward_jobs SET status = 'cancelled', completed_at = NOW(), updated_at = NOW()
-        WHERE id = $1
-      `, [jobId]);
-      
-      await sendNotificationMessage(userId, senderPhone, '❌ המשימה בוטלה.');
+    if (lowerContent === 'עצור' || lowerContent === 'stop') {
+      return await handleTextStop(userId, senderPhone, false);
     }
     
-    return true;
+    if (lowerContent === 'מחק' || lowerContent === 'delete') {
+      return await handleTextStop(userId, senderPhone, true);
+    }
+    
+    return false;
     
   } catch (error) {
     console.error('[GroupForwards] Handle confirmation error:', error);
@@ -401,7 +425,150 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
   }
 }
 
+/**
+ * Handle confirm action
+ */
+async function handleConfirm(userId, senderPhone, jobId) {
+  const jobResult = await db.query(`
+    SELECT fj.*, gf.name as forward_name
+    FROM forward_jobs fj
+    JOIN group_forwards gf ON fj.forward_id = gf.id
+    WHERE fj.id = $1 AND fj.user_id = $2 AND fj.status = 'pending'
+  `, [jobId, userId]);
+  
+  if (jobResult.rows.length === 0) {
+    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
+    return true;
+  }
+  
+  const job = jobResult.rows[0];
+  
+  // Update status
+  await db.query(`
+    UPDATE forward_jobs SET status = 'confirmed', updated_at = NOW()
+    WHERE id = $1
+  `, [jobId]);
+  
+  await sendNotificationMessage(userId, senderPhone, 
+    `✅ מתחיל לשלוח את ההודעה ל-${job.total_targets} קבוצות...\n\nהשב "עצור" לעצירה או "מחק" לעצירה ומחיקה.`
+  );
+  
+  // Start sending
+  const { startForwardJob } = require('../../controllers/groupForwards/jobs.controller');
+  startForwardJob(jobId).catch(err => {
+    console.error(`[GroupForwards] Error starting job ${jobId}:`, err);
+  });
+  
+  return true;
+}
+
+/**
+ * Handle cancel action
+ */
+async function handleCancel(userId, senderPhone, jobId) {
+  await db.query(`
+    UPDATE forward_jobs SET status = 'cancelled', completed_at = NOW(), updated_at = NOW()
+    WHERE id = $1 AND user_id = $2
+  `, [jobId, userId]);
+  
+  await sendNotificationMessage(userId, senderPhone, '❌ המשימה בוטלה.');
+  return true;
+}
+
+/**
+ * Handle stop action
+ */
+async function handleStop(userId, senderPhone, jobId, shouldDelete) {
+  const jobResult = await db.query(`
+    SELECT * FROM forward_jobs 
+    WHERE id = $1 AND user_id = $2 AND status = 'sending'
+  `, [jobId, userId]);
+  
+  if (jobResult.rows.length === 0) {
+    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה פעילה.');
+    return true;
+  }
+  
+  const job = jobResult.rows[0];
+  
+  // Set stop flag
+  await db.query(`
+    UPDATE forward_jobs 
+    SET stop_requested = true, delete_sent_requested = $2, updated_at = NOW()
+    WHERE id = $1
+  `, [jobId, shouldDelete]);
+  
+  await sendStoppedMessage(userId, senderPhone, job.sent_count, job.total_targets, shouldDelete);
+  
+  return true;
+}
+
+/**
+ * Handle text-based confirm/cancel
+ */
+async function handleTextConfirm(userId, senderPhone, action) {
+  const pendingJob = await db.query(`
+    SELECT fj.*, gf.name as forward_name
+    FROM forward_jobs fj
+    JOIN group_forwards gf ON fj.forward_id = gf.id
+    WHERE fj.user_id = $1 
+      AND fj.sender_phone = $2
+      AND fj.status = 'pending'
+    ORDER BY fj.created_at DESC
+    LIMIT 1
+  `, [userId, senderPhone]);
+  
+  if (pendingJob.rows.length === 0) {
+    return false;
+  }
+  
+  const job = pendingJob.rows[0];
+  
+  if (action === 'confirm') {
+    return await handleConfirm(userId, senderPhone, job.id);
+  } else {
+    return await handleCancel(userId, senderPhone, job.id);
+  }
+}
+
+/**
+ * Handle text-based stop
+ */
+async function handleTextStop(userId, senderPhone, shouldDelete) {
+  const activeJob = await db.query(`
+    SELECT * FROM forward_jobs 
+    WHERE user_id = $1 
+      AND sender_phone = $2
+      AND status = 'sending'
+    ORDER BY created_at DESC
+    LIMIT 1
+  `, [userId, senderPhone]);
+  
+  if (activeJob.rows.length === 0) {
+    return false;
+  }
+  
+  return await handleStop(userId, senderPhone, activeJob.rows[0].id, shouldDelete);
+}
+
+/**
+ * Get message type label in Hebrew
+ */
+function getMessageTypeLabel(type) {
+  const labels = {
+    'text': '📝 טקסט',
+    'image': '🖼️ תמונה',
+    'video': '🎬 סרטון',
+    'audio': '🎤 הקלטה'
+  };
+  return labels[type] || type;
+}
+
 module.exports = {
   processMessageForForwards,
-  handleConfirmationResponse
+  handleConfirmationResponse,
+  sendCompletionMessage,
+  sendProgressList,
+  sendStoppedMessage,
+  normalizePhoneNumber
 };
