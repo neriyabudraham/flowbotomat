@@ -844,8 +844,20 @@ function QuickSendModal({ forward, onClose, onJobCreated }) {
       if (mediaFile) {
         const formData = new FormData();
         formData.append('file', mediaFile);
-        const uploadRes = await api.post('/upload', formData);
-        mediaUrl = uploadRes.data.url;
+        // Use fetch for file upload to avoid axios Content-Type issues
+        const token = localStorage.getItem('accessToken');
+        const uploadRes = await fetch('/api/upload', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData
+        });
+        const uploadData = await uploadRes.json();
+        if (!uploadRes.ok) {
+          throw new Error(uploadData.error || 'שגיאה בהעלאת הקובץ');
+        }
+        mediaUrl = uploadData.url;
       }
       
       // Create job
