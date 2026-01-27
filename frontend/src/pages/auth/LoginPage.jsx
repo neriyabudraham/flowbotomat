@@ -193,9 +193,17 @@ export default function LoginPage() {
 
             {/* Password Field */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                סיסמה
-              </label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  סיסמה
+                </label>
+                <Link 
+                  to="/forgot-password" 
+                  className="text-sm text-blue-600 hover:text-blue-700 hover:underline"
+                >
+                  שכחתי סיסמה
+                </Link>
+              </div>
               <div className={`relative rounded-xl transition-all ${
                 focusedField === 'password' 
                   ? 'ring-2 ring-blue-500 ring-offset-2' 
