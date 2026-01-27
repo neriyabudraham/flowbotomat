@@ -1,6 +1,7 @@
 const pool = require('../../config/database');
 const { getSocketManager } = require('../../services/socket/manager.service');
 const botEngine = require('../../services/botEngine.service');
+const groupForwardsTrigger = require('../../services/groupForwards/trigger.service');
 
 /**
  * Extract real phone number from payload
@@ -165,6 +166,31 @@ async function handleIncomingMessage(userId, event) {
     );
   } catch (botError) {
     console.error('[Webhook] Bot engine error:', botError);
+  }
+  
+  // Process group forwards trigger
+  try {
+    // First check if this is a confirmation response for pending job
+    const wasConfirmation = await groupForwardsTrigger.handleConfirmationResponse(
+      userId, 
+      phone, 
+      messageData.content,
+      messageData.selectedRowId // Button ID if clicked
+    );
+    
+    // If not a confirmation response, check for new triggers
+    if (!wasConfirmation) {
+      const chatId = payload.from || payload.chatId;
+      await groupForwardsTrigger.processMessageForForwards(
+        userId,
+        phone,
+        messageData,
+        chatId,
+        payload
+      );
+    }
+  } catch (forwardError) {
+    console.error('[Webhook] Group forwards trigger error:', forwardError);
   }
 }
 
