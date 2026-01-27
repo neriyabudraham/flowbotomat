@@ -221,6 +221,12 @@ export default function GroupForwardsPage() {
                   {(user?.name || user?.email || 'U')[0].toUpperCase()}
                 </div>
               )}
+              <button 
+                onClick={() => { localStorage.removeItem('accessToken'); navigate('/login'); }}
+                className="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl text-sm font-medium transition-colors"
+              >
+                התנתק
+              </button>
             </div>
           </div>
         </div>
@@ -403,147 +409,129 @@ export default function GroupForwardsPage() {
             )}
           </div>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredForwards.map(forward => (
               <div
                 key={forward.id}
-                className={`bg-white rounded-2xl border shadow-sm hover:shadow-md transition-all ${
-                  forward.is_active ? 'border-green-200' : 'border-gray-200'
-                }`}
+                onClick={() => setEditForward(forward)}
+                className="group relative bg-white rounded-2xl border border-gray-100 hover:border-purple-200 shadow-sm hover:shadow-xl transition-all cursor-pointer overflow-hidden"
               >
-                {/* Card Header */}
-                <div className="p-5 border-b border-gray-100">
-                  <div className="flex justify-between items-start">
+                {/* Status indicator */}
+                <div className={`absolute top-4 left-4 px-3 py-1 rounded-full text-xs font-medium ${
+                  forward.is_active 
+                    ? 'bg-green-100 text-green-700' 
+                    : 'bg-gray-100 text-gray-500'
+                }`}>
+                  {forward.is_active ? '● פעיל' : '○ מושהה'}
+                </div>
+                
+                {/* Header */}
+                <div className="p-6 pb-4">
+                  <div className="flex items-start gap-4">
+                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
+                      forward.is_active 
+                        ? 'bg-gradient-to-br from-purple-500 to-pink-600' 
+                        : 'bg-gray-100'
+                    }`}>
+                      <Forward className={`w-7 h-7 ${forward.is_active ? 'text-white' : 'text-gray-400'}`} />
+                    </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${
-                          forward.is_active ? 'bg-green-500' : 'bg-gray-300'
-                        }`} />
-                        <h3 className="font-semibold text-gray-900 truncate">
-                          {forward.name}
-                        </h3>
-                      </div>
-                      {forward.description && (
-                        <p className="text-sm text-gray-500 mt-1 truncate">
-                          {forward.description}
-                        </p>
-                      )}
-                    </div>
-                    
-                    {/* Actions Menu */}
-                    <div className="relative group">
-                      <button className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
-                        <MoreHorizontal className="w-5 h-5" />
-                      </button>
-                      <div className="absolute left-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[140px]">
-                        <button
-                          onClick={() => setEditForward(forward)}
-                          className="w-full px-3 py-2 text-right text-sm hover:bg-gray-50 flex items-center gap-2"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                          עריכה
-                        </button>
-                        <button
-                          onClick={() => handleDuplicate(forward)}
-                          className="w-full px-3 py-2 text-right text-sm hover:bg-gray-50 flex items-center gap-2"
-                        >
-                          <Copy className="w-4 h-4" />
-                          שכפול
-                        </button>
-                        <button
-                          onClick={() => handleToggle(forward)}
-                          className="w-full px-3 py-2 text-right text-sm hover:bg-gray-50 flex items-center gap-2"
-                        >
-                          {forward.is_active ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                          {forward.is_active ? 'השבת' : 'הפעל'}
-                        </button>
-                        <hr className="my-1" />
-                        <button
-                          onClick={() => {
-                            setDeleteTarget(forward);
-                            setShowDeleteConfirm(true);
-                          }}
-                          className="w-full px-3 py-2 text-right text-sm hover:bg-red-50 text-red-600 flex items-center gap-2"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          מחיקה
-                        </button>
-                      </div>
+                      <h3 className="font-bold text-gray-900 text-lg truncate">{forward.name}</h3>
+                      <p className="text-sm text-gray-500 truncate mt-1">
+                        {forward.description || (forward.trigger_type === 'direct' ? 'הודעה ישירה לבוט' : 'האזנה לקבוצה')}
+                      </p>
                     </div>
                   </div>
                 </div>
-
-                {/* Card Body */}
-                <div className="p-5 space-y-3">
-                  {/* Trigger Type */}
-                  <div className="flex items-center gap-2 text-sm">
-                    <Zap className="w-4 h-4 text-purple-500" />
-                    <span className="text-gray-600">טריגר:</span>
-                    <span className="font-medium text-gray-900">
-                      {forward.trigger_type === 'direct' ? 'הודעה ישירה לבוט' : 'האזנה לקבוצה'}
-                    </span>
-                  </div>
-                  
-                  {/* Target Count */}
-                  <div className="flex items-center gap-2 text-sm">
-                    <Target className="w-4 h-4 text-blue-500" />
-                    <span className="text-gray-600">קבוצות יעד:</span>
-                    <span className="font-medium text-gray-900">
-                      {forward.target_count || 0}
-                    </span>
-                  </div>
-
-                  {/* Delay */}
-                  <div className="flex items-center gap-2 text-sm">
-                    <Clock className="w-4 h-4 text-orange-500" />
-                    <span className="text-gray-600">השהייה:</span>
-                    <span className="font-medium text-gray-900">
-                      {forward.delay_min === forward.delay_max 
-                        ? `${forward.delay_min} שניות`
-                        : `${forward.delay_min}-${forward.delay_max} שניות`}
-                    </span>
-                  </div>
-
-                  {/* Authorized Senders */}
-                  <div className="flex items-center gap-2 text-sm">
-                    <UserCheck className="w-4 h-4 text-green-500" />
-                    <span className="text-gray-600">שולחים מורשים:</span>
-                    <span className="font-medium text-gray-900">
-                      {forward.sender_count || 0}
-                    </span>
-                  </div>
-
-                  {/* Stats */}
-                  <div className="pt-3 border-t border-gray-100 flex justify-between text-sm text-gray-500">
-                    <span>נשלחו: {forward.total_forwards || 0}</span>
-                    <span>
-                      {forward.last_forward_at 
-                        ? `אחרון: ${formatDate(forward.last_forward_at)}` 
-                        : 'עדיין לא נשלחו'}
-                    </span>
+                
+                {/* Stats */}
+                <div className="px-6 py-4 bg-gradient-to-b from-gray-50/50 to-gray-50 border-t border-gray-100">
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="text-center">
+                      <div className="flex items-center justify-center gap-1 text-gray-400 mb-1">
+                        <Users className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="font-bold text-gray-900">{forward.target_count || 0}</div>
+                      <div className="text-xs text-gray-400">קבוצות</div>
+                    </div>
+                    <div className="text-center border-x border-gray-200">
+                      <div className="flex items-center justify-center gap-1 text-gray-400 mb-1">
+                        <Send className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="font-bold text-gray-900">{forward.total_forwards || 0}</div>
+                      <div className="text-xs text-gray-400">נשלחו</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="flex items-center justify-center gap-1 text-gray-400 mb-1">
+                        <Clock className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="font-bold text-gray-900">
+                        {forward.delay_min === forward.delay_max ? forward.delay_min : `${forward.delay_min}-${forward.delay_max}`}
+                      </div>
+                      <div className="text-xs text-gray-400">שניות</div>
+                    </div>
                   </div>
                 </div>
-
-                {/* Card Footer - Quick Actions */}
-                <div className="px-5 py-3 bg-gray-50/50 rounded-b-2xl flex gap-2">
+                
+                {/* Actions - appear on hover */}
+                <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
-                    onClick={() => setEditForward(forward)}
-                    className="flex-1 py-2 text-sm font-medium text-purple-600 hover:bg-purple-50 rounded-lg transition-colors flex items-center justify-center gap-1"
+                    onClick={(e) => { e.stopPropagation(); handleToggle(forward); }}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      forward.is_active 
+                        ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' 
+                        : 'bg-green-100 text-green-700 hover:bg-green-200'
+                    }`}
                   >
-                    <Settings className="w-4 h-4" />
-                    הגדרות
+                    {forward.is_active ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                    {forward.is_active ? 'השהה' : 'הפעל'}
                   </button>
                   <button
-                    onClick={() => setQuickSendForward(forward)}
+                    onClick={(e) => { e.stopPropagation(); setEditForward(forward); }}
+                    className="p-2 bg-purple-100 text-purple-600 hover:bg-purple-200 rounded-lg transition-colors"
+                    title="עריכה"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDuplicate(forward); }}
+                    className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
+                    title="שכפול"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setQuickSendForward(forward); }}
                     disabled={!forward.is_active || forward.target_count === 0}
-                    className="flex-1 py-2 text-sm font-medium text-green-600 hover:bg-green-50 rounded-lg transition-colors flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="p-2 bg-green-100 text-green-600 hover:bg-green-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="שלח עכשיו"
                   >
                     <Send className="w-4 h-4" />
-                    שלח עכשיו
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(forward); setShowDeleteConfirm(true); }}
+                    className="p-2 bg-red-100 text-red-600 hover:bg-red-200 rounded-lg transition-colors"
+                    title="מחיקה"
+                  >
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               </div>
             ))}
+            
+            {/* Create New Card */}
+            <div
+              onClick={() => setShowCreate(true)}
+              className="group relative bg-gradient-to-br from-gray-50 to-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-purple-300 hover:bg-purple-50/30 transition-all cursor-pointer flex items-center justify-center min-h-[280px]"
+            >
+              <div className="text-center">
+                <div className="w-16 h-16 bg-gray-100 group-hover:bg-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-4 transition-colors">
+                  <Plus className="w-8 h-8 text-gray-400 group-hover:text-purple-500 transition-colors" />
+                </div>
+                <div className="font-semibold text-gray-600 group-hover:text-purple-600 transition-colors">צור העברה חדשה</div>
+                <div className="text-sm text-gray-400 mt-1">לחץ להתחלה</div>
+              </div>
+            </div>
           </div>
         )}
           </>
