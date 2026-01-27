@@ -41,6 +41,9 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
   const [senders, setSenders] = useState([]);
   const [newSenderPhone, setNewSenderPhone] = useState('');
   const [newSenderName, setNewSenderName] = useState('');
+  
+  // Error modal
+  const [errorMessage, setErrorMessage] = useState(null);
 
   useEffect(() => {
     loadForwardDetails();
@@ -89,7 +92,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
     } catch (e) {
       console.error('Error loading groups:', e);
       if (e.response?.data?.code === 'NO_WHATSAPP_CONNECTION') {
-        alert('אין חיבור וואטסאפ פעיל. אנא חבר את הוואטסאפ תחילה.');
+        setErrorMessage('אין חיבור וואטסאפ פעיל. אנא חבר את הוואטסאפ תחילה.');
       }
     } finally {
       setLoadingGroups(false);
@@ -115,7 +118,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
       onSave?.(data.forward);
       return true;
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בשמירה');
+      setErrorMessage(e.response?.data?.error || 'שגיאה בשמירה');
       return false;
     } finally {
       setSaving(false);
@@ -135,7 +138,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
       });
       return true;
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בשמירת קבוצות יעד');
+      setErrorMessage(e.response?.data?.error || 'שגיאה בשמירת קבוצות יעד');
       return false;
     } finally {
       setSaving(false);
@@ -153,7 +156,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
       });
       return true;
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בשמירת שולחים מורשים');
+      setErrorMessage(e.response?.data?.error || 'שגיאה בשמירת שולחים מורשים');
       return false;
     } finally {
       setSaving(false);
@@ -258,7 +261,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
     
     // Check if already exists
     if (senders.some(s => normalizePhoneNumber(s.phone_number) === normalizedPhone)) {
-      alert('מספר זה כבר קיים ברשימה');
+      setErrorMessage('מספר זה כבר קיים ברשימה');
       return;
     }
     
@@ -1138,6 +1141,28 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
               >
                 <Crown className="w-5 h-5" />
                 שדרג עכשיו
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Modal */}
+      {errorMessage && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4" onClick={() => setErrorMessage(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="p-6 text-center">
+              <div className="w-14 h-14 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
+                <AlertTriangle className="w-7 h-7 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">שגיאה</h3>
+              <p className="text-gray-600 mb-6">{errorMessage}</p>
+              
+              <button
+                onClick={() => setErrorMessage(null)}
+                className="w-full px-4 py-2.5 text-white bg-gray-800 hover:bg-gray-900 rounded-xl font-medium transition-colors"
+              >
+                סגור
               </button>
             </div>
           </div>

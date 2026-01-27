@@ -3,7 +3,7 @@ import {
   History, Clock, CheckCircle, XCircle, AlertTriangle, Trash2,
   Image as ImageIcon, Video, Mic, FileText, ChevronDown, ChevronUp,
   User, Users, Phone, Send, Loader2, Eye, RefreshCw, TrendingUp,
-  BarChart3
+  BarChart3, X
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -16,6 +16,8 @@ export default function JobHistoryTab() {
   const [stats, setStats] = useState(null);
   const [selectedSender, setSelectedSender] = useState('');
   const [deleting, setDeleting] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // job to delete
+  const [errorMessage, setErrorMessage] = useState(null);
   const limit = 20;
 
   useEffect(() => {
@@ -38,9 +40,14 @@ export default function JobHistoryTab() {
     }
   };
 
-  const handleDeleteJob = async (jobId, e) => {
+  const handleDeleteClick = (job, e) => {
     e.stopPropagation();
-    if (!confirm('האם למחוק את האירוע הזה מההיסטוריה?')) return;
+    setDeleteConfirm(job);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirm) return;
+    const jobId = deleteConfirm.id;
     
     try {
       setDeleting(jobId);
@@ -48,9 +55,11 @@ export default function JobHistoryTab() {
       setJobs(jobs.filter(j => j.id !== jobId));
       setTotal(t => t - 1);
       if (expandedJob === jobId) setExpandedJob(null);
+      setDeleteConfirm(null);
     } catch (e) {
       console.error('Failed to delete job:', e);
-      alert('שגיאה במחיקת האירוע');
+      setErrorMessage('שגיאה במחיקת האירוע');
+      setDeleteConfirm(null);
     } finally {
       setDeleting(null);
     }
@@ -516,7 +525,7 @@ export default function JobHistoryTab() {
                   {/* Delete button - only for completed jobs */}
                   {!['sending', 'pending', 'confirmed'].includes(job.status) && (
                     <button
-                      onClick={(e) => handleDeleteJob(job.id, e)}
+                      onClick={(e) => handleDeleteClick(job, e)}
                       disabled={deleting === job.id}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 hover:text-white hover:bg-red-500 bg-red-50 rounded-lg transition-colors disabled:opacity-50"
                     >
@@ -555,6 +564,67 @@ export default function JobHistoryTab() {
           >
             הבא
           </button>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setDeleteConfirm(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="p-6 text-center">
+              <div className="w-14 h-14 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
+                <Trash2 className="w-7 h-7 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">מחיקת אירוע</h3>
+              <p className="text-gray-600 mb-1">האם למחוק את האירוע?</p>
+              <p className="text-sm text-gray-500 mb-6">{deleteConfirm.forward_name}</p>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDeleteConfirm(null)}
+                  className="flex-1 px-4 py-2.5 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl font-medium transition-colors"
+                >
+                  ביטול
+                </button>
+                <button
+                  onClick={handleDeleteConfirm}
+                  disabled={deleting}
+                  className="flex-1 px-4 py-2.5 text-white bg-red-500 hover:bg-red-600 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {deleting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      מחק
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Modal */}
+      {errorMessage && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setErrorMessage(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="p-6 text-center">
+              <div className="w-14 h-14 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
+                <AlertTriangle className="w-7 h-7 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">שגיאה</h3>
+              <p className="text-gray-600 mb-6">{errorMessage}</p>
+              
+              <button
+                onClick={() => setErrorMessage(null)}
+                className="w-full px-4 py-2.5 text-white bg-gray-800 hover:bg-gray-900 rounded-xl font-medium transition-colors"
+              >
+                סגור
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

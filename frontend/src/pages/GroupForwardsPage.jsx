@@ -34,6 +34,7 @@ export default function GroupForwardsPage() {
   const [activeJobs, setActiveJobs] = useState([]);
   const [quickSendForward, setQuickSendForward] = useState(null);
   const [activeTab, setActiveTab] = useState('forwards'); // 'forwards' | 'history'
+  const [errorMessage, setErrorMessage] = useState(null);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -117,7 +118,7 @@ export default function GroupForwardsPage() {
         setUpgradeError(e.response.data.error);
         setShowUpgradeModal(true);
       } else {
-        alert(e.response?.data?.error || 'שגיאה ביצירת העברה');
+        setErrorMessage(e.response?.data?.error || 'שגיאה ביצירת העברה');
       }
     } finally {
       setCreating(false);
@@ -129,7 +130,7 @@ export default function GroupForwardsPage() {
       const { data } = await api.post(`/group-forwards/${forward.id}/toggle`);
       setForwards(forwards.map(f => f.id === forward.id ? data.forward : f));
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בשינוי סטטוס');
+      setErrorMessage(e.response?.data?.error || 'שגיאה בשינוי סטטוס');
     }
   };
 
@@ -143,7 +144,7 @@ export default function GroupForwardsPage() {
         setUpgradeError(e.response.data.error);
         setShowUpgradeModal(true);
       } else {
-        alert(e.response?.data?.error || 'שגיאה בשכפול');
+        setErrorMessage(e.response?.data?.error || 'שגיאה בשכפול');
       }
     }
   };
@@ -158,7 +159,7 @@ export default function GroupForwardsPage() {
       setDeleteTarget(null);
       fetchLimit();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה במחיקה');
+      setErrorMessage(e.response?.data?.error || 'שגיאה במחיקה');
     }
   };
 
@@ -752,42 +753,91 @@ export default function GroupForwardsPage() {
           onJobCreated={fetchActiveJobs}
         />
       )}
+
+      {/* Error Modal */}
+      {errorMessage && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setErrorMessage(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="p-6 text-center">
+              <div className="w-14 h-14 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
+                <AlertCircle className="w-7 h-7 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">שגיאה</h3>
+              <p className="text-gray-600 mb-6">{errorMessage}</p>
+              
+              <button
+                onClick={() => setErrorMessage(null)}
+                className="w-full px-4 py-2.5 text-white bg-gray-800 hover:bg-gray-900 rounded-xl font-medium transition-colors"
+              >
+                סגור
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// Quick Send Modal Component
+// Quick Send Modal Component - Redesigned
 function QuickSendModal({ forward, onClose, onJobCreated }) {
-  const [messageType, setMessageType] = useState('text');
   const [messageText, setMessageText] = useState('');
   const [mediaFile, setMediaFile] = useState(null);
   const [mediaPreview, setMediaPreview] = useState(null);
+  const [mediaType, setMediaType] = useState(null); // 'image' | 'video' | 'audio'
   const [sending, setSending] = useState(false);
   const [job, setJob] = useState(null);
+  const [error, setError] = useState(null);
+  const [confirming, setConfirming] = useState(false);
+  const fileInputRef = useState(null);
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
       setMediaFile(file);
-      const reader = new FileReader();
-      reader.onload = (e) => setMediaPreview(e.target.result);
-      reader.readAsDataURL(file);
+      setError(null);
+      
+      // Determine media type
+      if (file.type.startsWith('image/')) {
+        setMediaType('image');
+      } else if (file.type.startsWith('video/')) {
+        setMediaType('video');
+      } else if (file.type.startsWith('audio/')) {
+        setMediaType('audio');
+      }
+      
+      // Create preview for images
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (e) => setMediaPreview(e.target.result);
+        reader.readAsDataURL(file);
+      } else {
+        setMediaPreview(null);
+      }
     }
   };
 
+  const removeMedia = () => {
+    setMediaFile(null);
+    setMediaPreview(null);
+    setMediaType(null);
+  };
+
+  const getMessageType = () => {
+    if (mediaFile) return mediaType;
+    return 'text';
+  };
+
   const handleSend = async () => {
-    if (messageType === 'text' && !messageText.trim()) {
-      alert('יש להזין הודעה');
-      return;
-    }
-    
-    if (messageType !== 'text' && !mediaFile) {
-      alert('יש לבחור קובץ');
+    // Validation
+    if (!messageText.trim() && !mediaFile) {
+      setError('יש להזין הודעה או לצרף קובץ');
       return;
     }
     
     try {
       setSending(true);
+      setError(null);
       
       // Upload media if needed
       let mediaUrl = null;
@@ -800,7 +850,7 @@ function QuickSendModal({ forward, onClose, onJobCreated }) {
       
       // Create job
       const { data } = await api.post(`/group-forwards/${forward.id}/jobs`, {
-        message_type: messageType,
+        message_type: getMessageType(),
         message_text: messageText,
         media_url: mediaUrl,
         media_mime_type: mediaFile?.type,
@@ -810,84 +860,112 @@ function QuickSendModal({ forward, onClose, onJobCreated }) {
       setJob(data.job);
       onJobCreated?.();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בשליחה');
+      setError(e.response?.data?.error || 'שגיאה בשליחה');
       setSending(false);
     }
   };
 
   const handleConfirm = async () => {
     try {
+      setConfirming(true);
+      setError(null);
       await api.post(`/group-forwards/jobs/${job.id}/confirm`);
       onClose();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה באישור');
+      setError(e.response?.data?.error || 'שגיאה באישור');
+      setConfirming(false);
     }
   };
 
   const handleCancel = async () => {
     try {
+      setConfirming(true);
       await api.post(`/group-forwards/jobs/${job.id}/cancel`);
       onClose();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בביטול');
+      setError(e.response?.data?.error || 'שגיאה בביטול');
+      setConfirming(false);
     }
   };
 
   // Show confirmation screen after job created
   if (job) {
     return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
-          <div className="text-center">
-            <div className="w-16 h-16 mx-auto mb-4 bg-blue-100 rounded-full flex items-center justify-center">
-              <Send className="w-8 h-8 text-blue-600" />
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+        <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+          {/* Header */}
+          <div className="bg-gradient-to-r from-green-500 to-emerald-500 p-6 text-center">
+            <div className="w-16 h-16 mx-auto mb-3 bg-white/20 backdrop-blur rounded-2xl flex items-center justify-center">
+              <Send className="w-8 h-8 text-white" />
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              מוכן לשליחה
-            </h3>
-            <p className="text-gray-600 mb-6">
-              ההודעה תישלח ל-<strong>{job.total_targets}</strong> קבוצות
-              <br />
-              <span className="text-sm">עם השהייה משתנה בין קבוצה לקבוצה</span>
-            </p>
+            <h3 className="text-xl font-bold text-white">מוכן לשליחה</h3>
+            <p className="text-green-100 mt-1">ההודעה תישלח ל-{job.total_targets} קבוצות</p>
+          </div>
+          
+          <div className="p-6">
+            {/* Error */}
+            {error && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-red-700 text-sm">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                {error}
+              </div>
+            )}
             
             {/* Message Preview */}
-            <div className="bg-gray-50 rounded-xl p-4 mb-6 text-right">
-              <div className="flex items-center gap-2 mb-2 text-sm text-gray-500">
-                {messageType === 'text' && <FileText className="w-4 h-4" />}
-                {messageType === 'image' && <Image className="w-4 h-4" />}
-                {messageType === 'video' && <Video className="w-4 h-4" />}
-                {messageType === 'audio' && <Mic className="w-4 h-4" />}
+            <div className="bg-gray-50 rounded-2xl p-4 mb-6">
+              <div className="flex items-center gap-2 mb-3 text-sm text-gray-500">
+                {getMessageType() === 'text' && <FileText className="w-4 h-4" />}
+                {getMessageType() === 'image' && <Image className="w-4 h-4" />}
+                {getMessageType() === 'video' && <Video className="w-4 h-4" />}
+                {getMessageType() === 'audio' && <Mic className="w-4 h-4" />}
                 <span>
-                  {messageType === 'text' && 'הודעת טקסט'}
-                  {messageType === 'image' && 'תמונה'}
-                  {messageType === 'video' && 'סרטון'}
-                  {messageType === 'audio' && 'הקלטה'}
+                  {getMessageType() === 'text' && 'הודעת טקסט'}
+                  {getMessageType() === 'image' && 'תמונה'}
+                  {getMessageType() === 'video' && 'סרטון'}
+                  {getMessageType() === 'audio' && 'הקלטה'}
+                  {messageText && getMessageType() !== 'text' && ' + כיתוב'}
                 </span>
               </div>
-              {messageText && (
-                <p className="text-gray-700 text-sm line-clamp-3">{messageText}</p>
+              
+              {mediaPreview && (
+                <img src={mediaPreview} alt="Preview" className="w-full max-h-40 object-cover rounded-xl mb-3" />
               )}
-              {mediaPreview && messageType === 'image' && (
-                <img src={mediaPreview} alt="Preview" className="w-20 h-20 object-cover rounded-lg mt-2" />
+              
+              {mediaFile && !mediaPreview && (
+                <div className="flex items-center gap-2 p-3 bg-white rounded-xl mb-3">
+                  {mediaType === 'video' && <Video className="w-5 h-5 text-purple-500" />}
+                  {mediaType === 'audio' && <Mic className="w-5 h-5 text-green-500" />}
+                  <span className="text-sm text-gray-700 truncate">{mediaFile.name}</span>
+                </div>
+              )}
+              
+              {messageText && (
+                <p className="text-gray-700 text-sm whitespace-pre-wrap line-clamp-4">{messageText}</p>
               )}
             </div>
             
             <div className="flex gap-3">
-              <Button
-                variant="ghost"
+              <button
                 onClick={handleCancel}
-                className="flex-1"
+                disabled={confirming}
+                className="flex-1 px-4 py-3 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl font-medium transition-colors disabled:opacity-50"
               >
                 ביטול
-              </Button>
-              <Button
+              </button>
+              <button
                 onClick={handleConfirm}
-                className="flex-1 gap-2 bg-green-600 hover:bg-green-700"
+                disabled={confirming}
+                className="flex-1 px-4 py-3 text-white bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 rounded-xl font-medium transition-all shadow-lg shadow-green-500/25 flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                <Send className="w-4 h-4" />
-                שלח עכשיו
-              </Button>
+                {confirming ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <Send className="w-5 h-5" />
+                    שלח עכשיו
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>
@@ -896,107 +974,142 @@ function QuickSendModal({ forward, onClose, onJobCreated }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
-        <div className="p-6 border-b border-gray-100">
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg font-semibold text-gray-900">
-              שליחה מהירה - {forward.name}
-            </h3>
-            <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
-              <X className="w-5 h-5 text-gray-500" />
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="bg-gradient-to-r from-purple-600 to-pink-500 p-6">
+          <div className="flex justify-between items-start">
+            <div>
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <Send className="w-5 h-5" />
+                שליחה מהירה
+              </h3>
+              <p className="text-purple-200 mt-1">{forward.name}</p>
+            </div>
+            <button 
+              onClick={onClose} 
+              className="p-2 hover:bg-white/20 rounded-xl transition-colors"
+            >
+              <X className="w-5 h-5 text-white" />
             </button>
           </div>
         </div>
         
-        <div className="p-6 space-y-4">
-          {/* Message Type Selection */}
+        <div className="p-6 space-y-5">
+          {/* Error */}
+          {error && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-red-700 text-sm">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              {error}
+            </div>
+          )}
+          
+          {/* Text Input */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              סוג ההודעה
+              הודעה {mediaFile && <span className="text-gray-400 font-normal">(אופציונלי - ישמש ככיתוב)</span>}
             </label>
-            <div className="grid grid-cols-4 gap-2">
-              {[
-                { type: 'text', icon: FileText, label: 'טקסט' },
-                { type: 'image', icon: Image, label: 'תמונה' },
-                { type: 'video', icon: Video, label: 'סרטון' },
-                { type: 'audio', icon: Mic, label: 'הקלטה' },
-              ].map(item => (
-                <button
-                  key={item.type}
-                  onClick={() => setMessageType(item.type)}
-                  className={`p-3 rounded-xl border-2 transition-all ${
-                    messageType === item.type
-                      ? 'border-purple-500 bg-purple-50 text-purple-700'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <item.icon className="w-5 h-5 mx-auto mb-1" />
-                  <span className="text-xs">{item.label}</span>
-                </button>
-              ))}
-            </div>
+            <textarea
+              value={messageText}
+              onChange={(e) => { setMessageText(e.target.value); setError(null); }}
+              placeholder="הקלד את ההודעה כאן..."
+              rows={4}
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 focus:bg-white resize-none transition-all"
+            />
           </div>
           
-          {/* Media Upload */}
-          {messageType !== 'text' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                {messageType === 'image' && 'בחר תמונה'}
-                {messageType === 'video' && 'בחר סרטון'}
-                {messageType === 'audio' && 'בחר הקלטה'}
-              </label>
-              <input
-                type="file"
-                accept={
-                  messageType === 'image' ? 'image/*' :
-                  messageType === 'video' ? 'video/*' :
-                  'audio/*'
-                }
-                onChange={handleFileChange}
-                className="w-full p-3 border border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-purple-400"
-              />
-              {mediaPreview && messageType === 'image' && (
-                <img src={mediaPreview} alt="Preview" className="mt-2 w-24 h-24 object-cover rounded-lg" />
-              )}
-            </div>
-          )}
-          
-          {/* Text / Caption */}
-          {messageType !== 'audio' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                {messageType === 'text' ? 'הודעה' : 'כיתוב (אופציונלי)'}
-              </label>
-              <textarea
-                value={messageText}
-                onChange={(e) => setMessageText(e.target.value)}
-                placeholder="הקלד את ההודעה כאן..."
-                rows={4}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 resize-none"
-              />
-            </div>
-          )}
+          {/* File Attachment */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              צירוף קובץ <span className="text-gray-400 font-normal">(אופציונלי)</span>
+            </label>
+            
+            {!mediaFile ? (
+              <div className="relative">
+                <input
+                  type="file"
+                  accept="image/*,video/*,audio/*"
+                  onChange={handleFileChange}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                />
+                <div className="border-2 border-dashed border-gray-200 hover:border-purple-400 rounded-2xl p-6 text-center transition-colors">
+                  <div className="w-12 h-12 mx-auto mb-3 bg-purple-100 rounded-xl flex items-center justify-center">
+                    <Plus className="w-6 h-6 text-purple-600" />
+                  </div>
+                  <p className="text-sm text-gray-600">לחץ לבחירת קובץ</p>
+                  <p className="text-xs text-gray-400 mt-1">תמונה, סרטון או הקלטה</p>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-gray-50 rounded-2xl p-4">
+                <div className="flex items-center gap-3">
+                  {mediaPreview ? (
+                    <img src={mediaPreview} alt="Preview" className="w-16 h-16 object-cover rounded-xl" />
+                  ) : (
+                    <div className={`w-16 h-16 rounded-xl flex items-center justify-center ${
+                      mediaType === 'video' ? 'bg-purple-100' : 'bg-green-100'
+                    }`}>
+                      {mediaType === 'video' && <Video className="w-7 h-7 text-purple-600" />}
+                      {mediaType === 'audio' && <Mic className="w-7 h-7 text-green-600" />}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-900 truncate">{mediaFile.name}</p>
+                    <p className="text-sm text-gray-500">
+                      {mediaType === 'image' && 'תמונה'}
+                      {mediaType === 'video' && 'סרטון'}
+                      {mediaType === 'audio' && 'הקלטה'}
+                      {' • '}
+                      {(mediaFile.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+                  <button
+                    onClick={removeMedia}
+                    className="p-2 hover:bg-red-100 rounded-xl text-red-500 transition-colors"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
           
           {/* Info */}
-          <div className="p-3 bg-blue-50 rounded-xl text-sm text-blue-700">
-            <strong>{forward.target_count}</strong> קבוצות יקבלו את ההודעה
-            {forward.require_confirmation && ' (לאחר אישור שלך)'}
+          <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-2xl">
+            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center">
+              <Users className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <p className="font-medium text-gray-900">{forward.target_count} קבוצות</p>
+              <p className="text-sm text-gray-500">
+                {forward.require_confirmation ? 'יידרש אישור לפני השליחה' : 'יישלח אוטומטית'}
+              </p>
+            </div>
           </div>
         </div>
         
+        {/* Footer */}
         <div className="p-6 pt-0 flex gap-3">
-          <Button variant="ghost" onClick={onClose} className="flex-1">
-            ביטול
-          </Button>
-          <Button
-            onClick={handleSend}
-            disabled={sending || (messageType === 'text' && !messageText.trim()) || (messageType !== 'text' && !mediaFile)}
-            className="flex-1 gap-2"
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-3 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl font-medium transition-colors"
           >
-            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            {forward.require_confirmation ? 'המשך' : 'שלח'}
-          </Button>
+            ביטול
+          </button>
+          <button
+            onClick={handleSend}
+            disabled={sending || (!messageText.trim() && !mediaFile)}
+            className="flex-1 px-4 py-3 text-white bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 rounded-xl font-medium transition-all shadow-lg shadow-purple-500/25 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {sending ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <>
+                <Send className="w-5 h-5" />
+                {forward.require_confirmation ? 'המשך' : 'שלח'}
+              </>
+            )}
+          </button>
         </div>
       </div>
     </div>
