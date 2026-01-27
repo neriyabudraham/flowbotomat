@@ -305,11 +305,21 @@ async function updateUserSubscription(req, res) {
     let paramIndex = 1;
     
     if (planId !== undefined) {
+      // Check if plan actually changed before clearing overrides
+      const currentPlanResult = await db.query(
+        'SELECT plan_id FROM user_subscriptions WHERE user_id = $1',
+        [id]
+      );
+      const currentPlanId = currentPlanResult.rows[0]?.plan_id;
+      
       updates.push(`plan_id = $${paramIndex++}`);
       values.push(planId);
       
-      // Clear feature overrides when plan changes
-      await clearUserFeatureOverrides(id);
+      // Only clear feature overrides if plan actually changed
+      if (currentPlanId && currentPlanId !== planId) {
+        console.log(`[Admin] Plan changed from ${currentPlanId} to ${planId} - clearing feature overrides`);
+        await clearUserFeatureOverrides(id);
+      }
     }
     if (status !== undefined) {
       updates.push(`status = $${paramIndex++}`);
