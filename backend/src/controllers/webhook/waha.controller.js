@@ -260,6 +260,11 @@ async function getOrCreateContact(userId, phone, payload) {
 function parseMessage(payload) {
   const body = payload.body || '';
   
+  // Debug log for media messages
+  if (payload.hasMedia || payload.type !== 'chat') {
+    console.log(`[Webhook] parseMessage - type: ${payload.type}, hasMedia: ${payload.hasMedia}, mediaUrl: ${payload.mediaUrl}`);
+  }
+  
   // Check for list response (button click)
   const listResponse = payload._data?.Message?.listResponseMessage;
   if (listResponse) {
@@ -289,49 +294,66 @@ function parseMessage(payload) {
     };
   }
   
-  // Text message
-  if (payload.type === 'chat' || !payload.type) {
-    return { type: 'text', content: body };
-  }
+  // Check for media via hasMedia flag or media property (WAHA formats)
+  const hasMedia = payload.hasMedia || payload.media || payload._data?.Message?.imageMessage || 
+                   payload._data?.Message?.videoMessage || payload._data?.Message?.audioMessage;
   
-  // Image
-  if (payload.type === 'image') {
+  // Get media URL from various WAHA formats
+  const getMediaUrl = () => {
+    return payload.mediaUrl || payload.media?.url || payload.media?.link;
+  };
+  
+  // Image - check multiple indicators
+  if (payload.type === 'image' || payload._data?.Message?.imageMessage || 
+      (hasMedia && payload.mimetype?.startsWith('image/'))) {
+    const imageMsg = payload._data?.Message?.imageMessage;
     return {
       type: 'image',
-      content: payload.caption || '',
-      mediaUrl: payload.mediaUrl,
-      mimeType: payload.mimetype,
+      content: payload.caption || imageMsg?.caption || body || '',
+      mediaUrl: getMediaUrl(),
+      mimeType: payload.mimetype || imageMsg?.mimetype,
     };
   }
   
-  // Video
-  if (payload.type === 'video') {
+  // Video - check multiple indicators
+  if (payload.type === 'video' || payload._data?.Message?.videoMessage ||
+      (hasMedia && payload.mimetype?.startsWith('video/'))) {
+    const videoMsg = payload._data?.Message?.videoMessage;
     return {
       type: 'video',
-      content: payload.caption || '',
-      mediaUrl: payload.mediaUrl,
-      mimeType: payload.mimetype,
+      content: payload.caption || videoMsg?.caption || body || '',
+      mediaUrl: getMediaUrl(),
+      mimeType: payload.mimetype || videoMsg?.mimetype,
     };
   }
   
-  // Audio/Voice
-  if (payload.type === 'audio' || payload.type === 'ptt') {
+  // Audio/Voice - check multiple indicators
+  if (payload.type === 'audio' || payload.type === 'ptt' || 
+      payload._data?.Message?.audioMessage ||
+      (hasMedia && payload.mimetype?.startsWith('audio/'))) {
+    const audioMsg = payload._data?.Message?.audioMessage;
     return {
       type: 'audio',
-      mediaUrl: payload.mediaUrl,
-      mimeType: payload.mimetype,
+      mediaUrl: getMediaUrl(),
+      mimeType: payload.mimetype || audioMsg?.mimetype,
     };
   }
   
   // Document
-  if (payload.type === 'document') {
+  if (payload.type === 'document' || payload._data?.Message?.documentMessage) {
+    const docMsg = payload._data?.Message?.documentMessage;
     return {
       type: 'document',
-      content: payload.caption || '',
-      mediaUrl: payload.mediaUrl,
-      mimeType: payload.mimetype,
-      filename: payload.filename,
+      content: payload.caption || docMsg?.caption || body || '',
+      mediaUrl: getMediaUrl(),
+      mimeType: payload.mimetype || docMsg?.mimetype,
+      filename: payload.filename || docMsg?.fileName,
     };
+  }
+  
+  // Text message (default)
+  if (payload.type === 'chat' || !payload.type) {
+    return { type: 'text', content: body };
   }
   
   // Sticker
