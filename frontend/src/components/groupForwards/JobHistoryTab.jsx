@@ -3,7 +3,7 @@ import {
   History, Clock, CheckCircle, XCircle, AlertTriangle, Trash2,
   Image as ImageIcon, Video, Mic, FileText, ChevronDown, ChevronUp,
   User, Users, Phone, Send, Loader2, Eye, RefreshCw, TrendingUp,
-  BarChart3, Target, Zap
+  BarChart3
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -14,6 +14,7 @@ export default function JobHistoryTab() {
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [stats, setStats] = useState(null);
+  const [selectedSender, setSelectedSender] = useState('');
   const limit = 20;
 
   useEffect(() => {
@@ -51,12 +52,22 @@ export default function JobHistoryTab() {
       totalFailed += job.failed_count || 0;
       totalTargets += job.total_targets || 0;
       
-      const sender = job.sender_name || job.sender_phone || 'לא ידוע';
-      if (!senderStats[sender]) {
-        senderStats[sender] = { sent: 0, jobs: 0, phone: job.sender_phone };
+      const senderKey = job.sender_phone || 'unknown';
+      const senderName = job.sender_name || formatPhone(job.sender_phone) || 'לא ידוע';
+      if (!senderStats[senderKey]) {
+        senderStats[senderKey] = { 
+          name: senderName, 
+          phone: job.sender_phone,
+          sent: 0, 
+          failed: 0,
+          jobs: 0,
+          targets: 0
+        };
       }
-      senderStats[sender].sent += job.sent_count || 0;
-      senderStats[sender].jobs += 1;
+      senderStats[senderKey].sent += job.sent_count || 0;
+      senderStats[senderKey].failed += job.failed_count || 0;
+      senderStats[senderKey].jobs += 1;
+      senderStats[senderKey].targets += job.total_targets || 0;
     });
     
     const successRate = totalTargets > 0 ? Math.round((totalSent / totalTargets) * 100) : 0;
@@ -67,12 +78,17 @@ export default function JobHistoryTab() {
       totalFailed,
       totalTargets,
       successRate,
-      topSenders: Object.entries(senderStats)
-        .map(([name, data]) => ({ name, ...data }))
+      senders: Object.entries(senderStats)
+        .map(([key, data]) => ({ key, ...data }))
         .sort((a, b) => b.sent - a.sent)
-        .slice(0, 3)
     };
   }, [jobs, stats, total]);
+
+  // Get selected sender stats
+  const selectedSenderStats = useMemo(() => {
+    if (!selectedSender || !calculatedStats?.senders) return null;
+    return calculatedStats.senders.find(s => s.key === selectedSender);
+  }, [selectedSender, calculatedStats]);
 
   const formatDate = (date) => {
     if (!date) return '-';
@@ -222,30 +238,64 @@ export default function JobHistoryTab() {
         </div>
       )}
 
-      {/* Top Senders */}
-      {calculatedStats && calculatedStats.topSenders && calculatedStats.topSenders.length > 0 && (
+      {/* Sender Filter */}
+      {calculatedStats && calculatedStats.senders && calculatedStats.senders.length > 1 && (
         <div className="bg-white rounded-2xl border border-gray-200 p-4">
-          <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
-            <Zap className="w-4 h-4 text-amber-500" />
-            שולחים מובילים
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {calculatedStats.topSenders.map((sender, idx) => (
-              <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white ${
-                  idx === 0 ? 'bg-gradient-to-br from-amber-400 to-orange-500' :
-                  idx === 1 ? 'bg-gradient-to-br from-gray-400 to-gray-500' :
-                  'bg-gradient-to-br from-amber-600 to-amber-700'
-                }`}>
-                  {idx + 1}
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <User className="w-4 h-4 text-gray-500" />
+              <span className="text-sm font-medium text-gray-700">סינון לפי שולח:</span>
+            </div>
+            <select
+              value={selectedSender}
+              onChange={(e) => setSelectedSender(e.target.value)}
+              className="flex-1 max-w-xs px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400"
+            >
+              <option value="">כל השולחים</option>
+              {calculatedStats.senders.map((sender) => (
+                <option key={sender.key} value={sender.key}>
+                  {sender.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          
+          {/* Selected Sender Stats */}
+          {selectedSenderStats && (
+            <div className="mt-4 p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl border border-purple-100">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center shadow">
+                  <User className="w-5 h-5 text-white" />
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-900 truncate">{sender.name}</p>
-                  <p className="text-xs text-gray-500">{sender.sent} הודעות • {sender.jobs} שליחות</p>
+                <div>
+                  <p className="font-bold text-gray-900">{selectedSenderStats.name}</p>
+                  {selectedSenderStats.phone && (
+                    <p className="text-xs text-gray-500" dir="ltr">{formatPhone(selectedSenderStats.phone)}</p>
+                  )}
                 </div>
               </div>
-            ))}
-          </div>
+              <div className="grid grid-cols-4 gap-3">
+                <div className="text-center p-2 bg-white rounded-lg">
+                  <p className="text-lg font-bold text-purple-600">{selectedSenderStats.jobs}</p>
+                  <p className="text-xs text-gray-500">שליחות</p>
+                </div>
+                <div className="text-center p-2 bg-white rounded-lg">
+                  <p className="text-lg font-bold text-green-600">{selectedSenderStats.sent}</p>
+                  <p className="text-xs text-gray-500">נשלחו</p>
+                </div>
+                <div className="text-center p-2 bg-white rounded-lg">
+                  <p className="text-lg font-bold text-red-600">{selectedSenderStats.failed}</p>
+                  <p className="text-xs text-gray-500">נכשלו</p>
+                </div>
+                <div className="text-center p-2 bg-white rounded-lg">
+                  <p className="text-lg font-bold text-blue-600">
+                    {selectedSenderStats.targets > 0 ? Math.round((selectedSenderStats.sent / selectedSenderStats.targets) * 100) : 0}%
+                  </p>
+                  <p className="text-xs text-gray-500">הצלחה</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
