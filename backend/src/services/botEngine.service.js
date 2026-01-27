@@ -645,18 +645,24 @@ class BotEngine {
         
         // If basic conditions match, check group-level behavior settings
         if (groupMatches) {
-          // Check group-level active hours
+          // Check group-level active hours (Israel timezone)
           if (group.hasActiveHours) {
-            const now = new Date();
+            // Use Israel timezone for accurate local time
+            const israelTime = new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' });
+            const now = new Date(israelTime);
             const currentTime = now.getHours() * 60 + now.getMinutes();
             const [fromHours, fromMins] = (group.activeFrom || '09:00').split(':').map(Number);
             const [toHours, toMins] = (group.activeTo || '18:00').split(':').map(Number);
             const fromTime = fromHours * 60 + fromMins;
             const toTime = toHours * 60 + toMins;
             
+            console.log(`[BotEngine] Active hours check: current=${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')} (Israel), range=${group.activeFrom}-${group.activeTo}`);
+            
             if (currentTime < fromTime || currentTime > toTime) {
               console.log('[BotEngine] Group outside active hours, skipping');
               groupMatches = false;
+            } else {
+              console.log('[BotEngine] Group within active hours, continuing');
             }
           }
           
