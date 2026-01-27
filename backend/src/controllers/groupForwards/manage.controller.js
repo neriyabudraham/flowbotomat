@@ -13,14 +13,27 @@ async function createGroupForward(req, res) {
       return res.status(400).json({ error: 'נדרש שם להעברה' });
     }
     
-    // Check user's limit
+    // First check if user's plan allows group forwards at all
+    const featureCheck = await checkLimit(userId, 'allow_group_forwards');
+    if (!featureCheck.allowed) {
+      return res.status(403).json({
+        error: 'התוכנית שלך לא כוללת העברת הודעות לקבוצות. שדרג את התוכנית.',
+        code: 'FEATURE_NOT_ALLOWED',
+        upgrade: true
+      });
+    }
+    
+    // Check user's forwards limit
     const limitCheck = await checkLimit(userId, 'max_group_forwards');
     if (!limitCheck.allowed) {
       return res.status(403).json({
-        error: `הגעת למגבלת ההעברות בתוכנית שלך (${limitCheck.limit})`,
+        error: limitCheck.limit === 0 
+          ? 'התוכנית שלך לא כוללת העברת הודעות לקבוצות. שדרג את התוכנית.'
+          : `הגעת למגבלת ההעברות בתוכנית שלך (${limitCheck.limit})`,
         code: 'LIMIT_REACHED',
         limit: limitCheck.limit,
-        used: limitCheck.used
+        used: limitCheck.used,
+        upgrade: true
       });
     }
     
@@ -371,14 +384,27 @@ async function duplicateGroupForward(req, res) {
     const userId = req.user.id;
     const { forwardId } = req.params;
     
-    // Check limit first
+    // First check if feature is allowed
+    const featureCheck = await checkLimit(userId, 'allow_group_forwards');
+    if (!featureCheck.allowed) {
+      return res.status(403).json({
+        error: 'התוכנית שלך לא כוללת העברת הודעות לקבוצות. שדרג את התוכנית.',
+        code: 'FEATURE_NOT_ALLOWED',
+        upgrade: true
+      });
+    }
+    
+    // Check limit
     const limitCheck = await checkLimit(userId, 'max_group_forwards');
     if (!limitCheck.allowed) {
       return res.status(403).json({
-        error: `הגעת למגבלת ההעברות בתוכנית שלך (${limitCheck.limit})`,
+        error: limitCheck.limit === 0 
+          ? 'התוכנית שלך לא כוללת העברת הודעות לקבוצות. שדרג את התוכנית.'
+          : `הגעת למגבלת ההעברות בתוכנית שלך (${limitCheck.limit})`,
         code: 'LIMIT_REACHED',
         limit: limitCheck.limit,
-        used: limitCheck.used
+        used: limitCheck.used,
+        upgrade: true
       });
     }
     

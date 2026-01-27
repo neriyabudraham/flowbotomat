@@ -179,11 +179,29 @@ async function checkGroupForwardLimit(req, res) {
   try {
     const userId = req.user.id;
     
+    // First check if feature is allowed
+    const featureCheck = await checkLimit(userId, 'allow_group_forwards');
+    if (!featureCheck.allowed) {
+      return res.json({
+        success: true,
+        allowed: false,
+        featureDisabled: true,
+        limit: 0,
+        used: 0,
+        message: 'התוכנית שלך לא כוללת העברת הודעות לקבוצות'
+      });
+    }
+    
+    // Check the numeric limit
     const limitCheck = await checkLimit(userId, 'max_group_forwards');
+    
+    // Also get target limit for info
+    const targetLimit = await checkLimit(userId, 'max_forward_targets');
     
     res.json({
       success: true,
-      ...limitCheck
+      ...limitCheck,
+      targetLimit: targetLimit.limit
     });
   } catch (error) {
     console.error('[GroupForwards] Check limit error:', error);

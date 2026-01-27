@@ -90,7 +90,10 @@ export default function GroupForwardsPage() {
     
     // Check limit first
     if (limit && !limit.allowed) {
-      setUpgradeError(`הגעת למגבלת ${limit.limit} העברות. שדרג את החבילה כדי ליצור עוד.`);
+      const message = limit.featureDisabled 
+        ? 'התוכנית שלך לא כוללת העברת הודעות לקבוצות. שדרג את החבילה.'
+        : `הגעת למגבלת ${limit.limit} העברות. שדרג את החבילה כדי ליצור עוד.`;
+      setUpgradeError(message);
       setShowUpgradeModal(true);
       return;
     }
@@ -110,7 +113,7 @@ export default function GroupForwardsPage() {
       fetchForwards();
       fetchLimit();
     } catch (e) {
-      if (e.response?.data?.code === 'LIMIT_REACHED') {
+      if (e.response?.data?.code === 'LIMIT_REACHED' || e.response?.data?.code === 'FEATURE_NOT_ALLOWED' || e.response?.data?.upgrade) {
         setUpgradeError(e.response.data.error);
         setShowUpgradeModal(true);
       } else {
@@ -136,7 +139,7 @@ export default function GroupForwardsPage() {
       setForwards([data.forward, ...forwards]);
       fetchLimit();
     } catch (e) {
-      if (e.response?.data?.code === 'LIMIT_REACHED') {
+      if (e.response?.data?.code === 'LIMIT_REACHED' || e.response?.data?.code === 'FEATURE_NOT_ALLOWED' || e.response?.data?.upgrade) {
         setUpgradeError(e.response.data.error);
         setShowUpgradeModal(true);
       } else {
@@ -297,16 +300,21 @@ export default function GroupForwardsPage() {
               </div>
               
               <div className="flex gap-3">
-                {limit && (
+                {limit && !limit.featureDisabled && (
                   <div className="flex items-center gap-2 px-4 py-2 bg-white/20 backdrop-blur text-white rounded-xl text-sm">
                     <span>{limit.used}/{limit.limit === -1 ? '∞' : limit.limit}</span>
                     <span className="text-white/70">מותר</span>
                   </div>
                 )}
+                {limit?.featureDisabled && (
+                  <div className="flex items-center gap-2 px-4 py-2 bg-red-500/30 backdrop-blur text-white rounded-xl text-sm">
+                    <Crown className="w-4 h-4" />
+                    <span>לא כלול בתוכנית</span>
+                  </div>
+                )}
                 <button
-                  onClick={() => setShowCreate(true)}
-                  disabled={limit && !limit.allowed && limit.limit !== -1}
-                  className="flex items-center gap-2 px-6 py-3 bg-white text-purple-600 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
+                  onClick={() => limit && !limit.allowed ? (setUpgradeError(limit.featureDisabled ? 'התוכנית שלך לא כוללת העברת הודעות לקבוצות. שדרג את החבילה.' : `הגעת למגבלת ${limit.limit} העברות.`), setShowUpgradeModal(true)) : setShowCreate(true)}
+                  className="flex items-center gap-2 px-6 py-3 bg-white text-purple-600 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all hover:scale-105"
                 >
                   <Plus className="w-5 h-5" />
                   העברה חדשה
