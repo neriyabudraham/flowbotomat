@@ -2,13 +2,16 @@ import { useState, useEffect } from 'react';
 import {
   ArrowRight, Save, Target, Zap, Clock, UserCheck, Settings, Search,
   X, Plus, Trash2, Check, AlertCircle, Loader2, RefreshCw,
-  MessageSquare, Users, ChevronDown, ChevronUp, Phone, Image as ImageIcon
+  MessageSquare, Users, ChevronDown, ChevronUp, Phone, Image as ImageIcon,
+  Crown, AlertTriangle
 } from 'lucide-react';
 // Using simple arrow buttons instead of drag-drop to avoid dependency issues
 import Button from '../atoms/Button';
 import api from '../../services/api';
+import { useNavigate } from 'react-router-dom';
 
 export default function GroupForwardEditor({ forward, onClose, onSave }) {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('targets');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -30,6 +33,10 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [showGroupSelector, setShowGroupSelector] = useState(false);
   
+  // Target limit
+  const [targetLimit, setTargetLimit] = useState(50); // Default
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  
   // Authorized senders
   const [senders, setSenders] = useState([]);
   const [newSenderPhone, setNewSenderPhone] = useState('');
@@ -42,8 +49,14 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
   const loadForwardDetails = async () => {
     try {
       setLoading(true);
-      const { data } = await api.get(`/group-forwards/${forward.id}`);
-      const f = data.forward;
+      
+      // Load forward details and limit in parallel
+      const [forwardRes, limitRes] = await Promise.all([
+        api.get(`/group-forwards/${forward.id}`),
+        api.get('/group-forwards/limit')
+      ]);
+      
+      const f = forwardRes.data.forward;
       
       setName(f.name);
       setDescription(f.description || '');
@@ -55,6 +68,10 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
       setRequireConfirmation(f.require_confirmation !== false);
       setTargets(f.targets || []);
       setSenders(f.authorized_senders || []);
+      
+      // Set target limit (-1 means unlimited)
+      const limit = limitRes.data.targetLimit;
+      setTargetLimit(limit === -1 ? Infinity : (limit || 50));
     } catch (e) {
       console.error('Error loading forward:', e);
     } finally {
@@ -158,12 +175,38 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
     if (exists) {
       setTargets(targets.filter(t => t.group_id !== group.id));
     } else {
+      // Check limit before adding
+      if (targets.length >= targetLimit) {
+        setShowLimitModal(true);
+        return;
+      }
       setTargets([...targets, {
         group_id: group.id,
         group_name: group.name,
         group_image_url: group.image_url,
         sort_order: targets.length
       }]);
+    }
+  };
+
+  const selectAllGroups = () => {
+    const filteredGroups = availableGroups.filter(g => 
+      !groupSearch || g.name?.toLowerCase().includes(groupSearch.toLowerCase())
+    );
+    
+    // Only select up to the limit
+    const groupsToSelect = filteredGroups.slice(0, targetLimit);
+    
+    setTargets(groupsToSelect.map((g, i) => ({
+      group_id: g.id,
+      group_name: g.name,
+      group_image_url: g.image_url,
+      sort_order: i
+    })));
+    
+    // Show modal if there are more groups than allowed
+    if (filteredGroups.length > targetLimit) {
+      setShowLimitModal(true);
     }
   };
 
@@ -309,17 +352,48 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                   <h2 className="text-lg font-semibold text-gray-900">קבוצות יעד</h2>
                   <p className="text-sm text-gray-500">בחר את הקבוצות שאליהן תישלח ההודעה</p>
                 </div>
-                <Button
-                  onClick={() => {
-                    setShowGroupSelector(true);
-                    loadAvailableGroups();
-                  }}
-                  className="gap-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  הוסף קבוצות
-                </Button>
+                <div className="flex items-center gap-3">
+                  {targetLimit !== Infinity && (
+                    <div className={`px-3 py-1.5 rounded-full text-sm font-medium ${
+                      targets.length >= targetLimit 
+                        ? 'bg-amber-100 text-amber-700' 
+                        : 'bg-gray-100 text-gray-600'
+                    }`}>
+                      {targets.length}/{targetLimit}
+                    </div>
+                  )}
+                  <Button
+                    onClick={() => {
+                      setShowGroupSelector(true);
+                      loadAvailableGroups();
+                    }}
+                    disabled={targets.length >= targetLimit}
+                    className="gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    הוסף קבוצות
+                  </Button>
+                </div>
               </div>
+              
+              {/* Limit Warning */}
+              {targets.length >= targetLimit && targetLimit !== Infinity && (
+                <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3">
+                  <div className="p-2 bg-amber-100 rounded-lg">
+                    <AlertTriangle className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-medium text-amber-800">הגעת למגבלת הקבוצות ({targetLimit})</p>
+                    <p className="text-sm text-amber-600">שדרג את התוכנית להוספת קבוצות נוספות</p>
+                  </div>
+                  <button
+                    onClick={() => navigate('/pricing')}
+                    className="px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 transition-colors"
+                  >
+                    שדרג
+                  </button>
+                </div>
+              )}
 
               {targets.length === 0 ? (
                 <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
@@ -726,20 +800,33 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
               </div>
               
               <div className="flex justify-between items-center mt-3">
-                <span className="text-sm text-gray-500">
-                  {targets.length} קבוצות נבחרו
-                </span>
-                <button
-                  onClick={() => setTargets(availableGroups.map(g => ({
-                    group_id: g.id,
-                    group_name: g.name,
-                    group_image_url: g.image_url,
-                    sort_order: 0
-                  })))}
-                  className="text-sm text-purple-600 hover:text-purple-700"
-                >
-                  בחר הכל
-                </button>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-500">
+                    {targets.length} קבוצות נבחרו
+                  </span>
+                  {targets.length >= targetLimit && targetLimit !== Infinity && (
+                    <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" />
+                      מקסימום
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  {targets.length > 0 && (
+                    <button
+                      onClick={() => setTargets([])}
+                      className="text-sm text-gray-500 hover:text-gray-700"
+                    >
+                      נקה הכל
+                    </button>
+                  )}
+                  <button
+                    onClick={selectAllGroups}
+                    className="text-sm text-purple-600 hover:text-purple-700"
+                  >
+                    בחר הכל {targetLimit !== Infinity && `(עד ${targetLimit})`}
+                  </button>
+                </div>
               </div>
             </div>
             
@@ -798,6 +885,88 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
               <Button onClick={() => setShowGroupSelector(false)} className="w-full">
                 סיום ({targets.length} נבחרו)
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Limit Exceeded Modal */}
+      {showLimitModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4" onClick={() => setShowLimitModal(false)}>
+          <div className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-gradient-to-br from-amber-400 to-orange-500 rounded-2xl shadow-lg">
+                  <Crown className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">הגעת למגבלת הקבוצות</h2>
+                  <p className="text-sm text-gray-500">
+                    {targets.length} מתוך {targetLimit === Infinity ? '∞' : targetLimit} קבוצות
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setShowLimitModal(false)} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+            
+            {/* Illustration */}
+            <div className="p-6 bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl mb-6">
+              <div className="text-center">
+                <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-amber-400 to-orange-500 rounded-2xl flex items-center justify-center shadow-lg">
+                  <Target className="w-8 h-8 text-white" />
+                </div>
+                <p className="text-amber-800 font-medium mb-2">
+                  התוכנית שלך מאפשרת עד {targetLimit} קבוצות יעד להעברה
+                </p>
+                <p className="text-amber-600 text-sm">
+                  שדרג את החבילה שלך כדי להוסיף יותר קבוצות יעד
+                </p>
+              </div>
+            </div>
+            
+            {/* Benefits */}
+            <div className="space-y-3 mb-6">
+              <div className="flex items-center gap-3 p-3 bg-green-50 rounded-xl border border-green-100">
+                <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
+                  <Check className="w-4 h-4 text-white" />
+                </div>
+                <span className="text-green-800 text-sm font-medium">יותר קבוצות יעד להעברה</span>
+              </div>
+              <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
+                <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+                  <Zap className="w-4 h-4 text-white" />
+                </div>
+                <span className="text-blue-800 text-sm font-medium">יותר העברות פעילות</span>
+              </div>
+              <div className="flex items-center gap-3 p-3 bg-purple-50 rounded-xl border border-purple-100">
+                <div className="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center">
+                  <Users className="w-4 h-4 text-white" />
+                </div>
+                <span className="text-purple-800 text-sm font-medium">שליחה מהירה ללא הגבלות</span>
+              </div>
+            </div>
+            
+            {/* Actions */}
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setShowLimitModal(false)} 
+                className="flex-1 px-6 py-3.5 border border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-all"
+              >
+                הבנתי
+              </button>
+              <button 
+                onClick={() => {
+                  setShowLimitModal(false);
+                  navigate('/pricing');
+                }}
+                className="flex-1 px-6 py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
+              >
+                <Crown className="w-5 h-5" />
+                שדרג עכשיו
+              </button>
             </div>
           </div>
         </div>
