@@ -484,7 +484,9 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
   const [affiliates, setAffiliates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState('subscription'); // 'subscription' | 'discount' | 'referral'
+  const [activeTab, setActiveTab] = useState('subscription'); // 'subscription' | 'discount' | 'referral' | 'features'
+  const [featureOverrides, setFeatureOverrides] = useState(null);
+  const [savingFeatures, setSavingFeatures] = useState(false);
   const [formData, setFormData] = useState({
     planId: '',
     status: user.subscription_status || 'active',
@@ -510,13 +512,15 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
 
   const loadData = async () => {
     try {
-      const [plansRes, affiliatesRes] = await Promise.all([
+      const [plansRes, affiliatesRes, overridesRes] = await Promise.all([
         api.get('/admin/plans'),
-        api.get('/admin/affiliates/list')
+        api.get('/admin/affiliates/list'),
+        api.get(`/admin/users/${user.id}/feature-overrides`)
       ]);
       
       setPlans(plansRes.data.plans || []);
       setAffiliates(affiliatesRes.data.affiliates || []);
+      setFeatureOverrides(overridesRes.data.feature_overrides || null);
       
       // Set current plan if exists
       if (plansRes.data.plans?.length > 0) {
@@ -532,6 +536,49 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSaveFeatures = async () => {
+    setSavingFeatures(true);
+    try {
+      await api.put(`/admin/users/${user.id}/feature-overrides`, {
+        feature_overrides: featureOverrides
+      });
+      alert('הגדרות הפיצ\'רים עודכנו בהצלחה');
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בעדכון הגדרות');
+    } finally {
+      setSavingFeatures(false);
+    }
+  };
+
+  const clearFeatureOverrides = async () => {
+    if (!confirm('האם למחוק את כל ההגדרות המותאמות? המשתמש יקבל את הגדרות התוכנית שלו')) return;
+    setSavingFeatures(true);
+    try {
+      await api.put(`/admin/users/${user.id}/feature-overrides`, {
+        feature_overrides: null
+      });
+      setFeatureOverrides(null);
+      alert('ההגדרות המותאמות נמחקו');
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה במחיקת הגדרות');
+    } finally {
+      setSavingFeatures(false);
+    }
+  };
+
+  const updateFeatureOverride = (key, value) => {
+    setFeatureOverrides(prev => {
+      const newOverrides = { ...(prev || {}) };
+      if (value === null || value === undefined || value === '') {
+        delete newOverrides[key];
+      } else {
+        newOverrides[key] = value;
+      }
+      // If object is empty, set to null
+      return Object.keys(newOverrides).length === 0 ? null : newOverrides;
+    });
   };
 
   const handleSave = async () => {
@@ -579,7 +626,7 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
         <div className="flex gap-1 mb-4 p-1 bg-gray-100 rounded-xl">
           <button
             onClick={() => setActiveTab('subscription')}
-            className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
+            className={`flex-1 px-2 py-2 text-xs rounded-lg transition-colors ${
               activeTab === 'subscription' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-600 hover:text-gray-800'
             }`}
           >
@@ -587,7 +634,7 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
           </button>
           <button
             onClick={() => setActiveTab('discount')}
-            className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
+            className={`flex-1 px-2 py-2 text-xs rounded-lg transition-colors ${
               activeTab === 'discount' ? 'bg-white shadow text-green-600 font-medium' : 'text-gray-600 hover:text-gray-800'
             }`}
           >
@@ -595,11 +642,19 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
           </button>
           <button
             onClick={() => setActiveTab('referral')}
-            className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
+            className={`flex-1 px-2 py-2 text-xs rounded-lg transition-colors ${
               activeTab === 'referral' ? 'bg-white shadow text-purple-600 font-medium' : 'text-gray-600 hover:text-gray-800'
             }`}
           >
             שותף
+          </button>
+          <button
+            onClick={() => setActiveTab('features')}
+            className={`flex-1 px-2 py-2 text-xs rounded-lg transition-colors ${
+              activeTab === 'features' ? 'bg-white shadow text-orange-600 font-medium' : 'text-gray-600 hover:text-gray-800'
+            }`}
+          >
+            פיצ׳רים
           </button>
         </div>
 
@@ -988,6 +1043,168 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
                     </p>
                   </div>
                 )}
+              </>
+            )}
+
+            {/* Features Tab */}
+            {activeTab === 'features' && (
+              <>
+                <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl mb-4">
+                  <p className="text-sm text-orange-800">
+                    <strong>הגדרות מותאמות אישית</strong>
+                    <br />
+                    <span className="text-xs">הגדרות אלו ידרסו את הגדרות התוכנית. השאר ריק לשימוש בברירת המחדל של התוכנית.</span>
+                    <br />
+                    <span className="text-xs text-orange-600">⚠️ בעת שינוי תוכנית, ההגדרות המותאמות יימחקו אוטומטית.</span>
+                  </p>
+                </div>
+
+                {featureOverrides && (
+                  <button
+                    onClick={clearFeatureOverrides}
+                    className="w-full mb-4 px-3 py-2 text-sm text-red-600 border border-red-200 rounded-xl hover:bg-red-50"
+                  >
+                    נקה את כל ההגדרות המותאמות
+                  </button>
+                )}
+
+                <div className="space-y-3">
+                  {/* Bots */}
+                  <div className="p-3 bg-gray-50 rounded-xl">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">מכסת בוטים</label>
+                    <input
+                      type="number"
+                      placeholder="ברירת מחדל מהתוכנית"
+                      value={featureOverrides?.max_bots ?? ''}
+                      onChange={(e) => updateFeatureOverride('max_bots', e.target.value ? parseInt(e.target.value) : null)}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">-1 = ללא הגבלה</p>
+                  </div>
+
+                  {/* Bot runs */}
+                  <div className="p-3 bg-gray-50 rounded-xl">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">הרצות בוט בחודש</label>
+                    <input
+                      type="number"
+                      placeholder="ברירת מחדל מהתוכנית"
+                      value={featureOverrides?.max_bot_runs_per_month ?? ''}
+                      onChange={(e) => updateFeatureOverride('max_bot_runs_per_month', e.target.value ? parseInt(e.target.value) : null)}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    />
+                  </div>
+
+                  {/* Contacts */}
+                  <div className="p-3 bg-gray-50 rounded-xl">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">מכסת אנשי קשר</label>
+                    <input
+                      type="number"
+                      placeholder="ברירת מחדל מהתוכנית"
+                      value={featureOverrides?.max_contacts ?? ''}
+                      onChange={(e) => updateFeatureOverride('max_contacts', e.target.value ? parseInt(e.target.value) : null)}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    />
+                  </div>
+
+                  {/* Group Forwards */}
+                  <div className="p-3 bg-gray-50 rounded-xl">
+                    <label className="flex items-center gap-2 cursor-pointer mb-2">
+                      <input
+                        type="checkbox"
+                        checked={featureOverrides?.allow_group_forwards ?? false}
+                        onChange={(e) => updateFeatureOverride('allow_group_forwards', e.target.checked ? true : null)}
+                        className="w-4 h-4 rounded border-gray-300 text-orange-600"
+                      />
+                      <span className="text-sm font-medium text-gray-700">העברת הודעות לקבוצות</span>
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <div>
+                        <label className="text-xs text-gray-500">מקסימום העברות</label>
+                        <input
+                          type="number"
+                          placeholder="ברירת מחדל"
+                          value={featureOverrides?.max_group_forwards ?? ''}
+                          onChange={(e) => updateFeatureOverride('max_group_forwards', e.target.value ? parseInt(e.target.value) : null)}
+                          className="w-full px-2 py-1 border border-gray-200 rounded text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500">מקסימום יעדים</label>
+                        <input
+                          type="number"
+                          placeholder="ברירת מחדל"
+                          value={featureOverrides?.max_forward_targets ?? ''}
+                          onChange={(e) => updateFeatureOverride('max_forward_targets', e.target.value ? parseInt(e.target.value) : null)}
+                          className="w-full px-2 py-1 border border-gray-200 rounded text-sm"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Boolean Features */}
+                  <div className="p-3 bg-gray-50 rounded-xl space-y-2">
+                    <label className="text-sm font-medium text-gray-700">פיצ׳רים נוספים</label>
+                    
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={featureOverrides?.allow_statistics ?? false}
+                        onChange={(e) => updateFeatureOverride('allow_statistics', e.target.checked ? true : null)}
+                        className="w-4 h-4 rounded border-gray-300 text-orange-600"
+                      />
+                      <span className="text-sm text-gray-600">סטטיסטיקות</span>
+                    </label>
+                    
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={featureOverrides?.allow_waha_creation ?? false}
+                        onChange={(e) => updateFeatureOverride('allow_waha_creation', e.target.checked ? true : null)}
+                        className="w-4 h-4 rounded border-gray-300 text-orange-600"
+                      />
+                      <span className="text-sm text-gray-600">יצירת חיבור WAHA</span>
+                    </label>
+                    
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={featureOverrides?.allow_export ?? false}
+                        onChange={(e) => updateFeatureOverride('allow_export', e.target.checked ? true : null)}
+                        className="w-4 h-4 rounded border-gray-300 text-orange-600"
+                      />
+                      <span className="text-sm text-gray-600">ייצוא נתונים</span>
+                    </label>
+                    
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={featureOverrides?.allow_api_access ?? false}
+                        onChange={(e) => updateFeatureOverride('allow_api_access', e.target.checked ? true : null)}
+                        className="w-4 h-4 rounded border-gray-300 text-orange-600"
+                      />
+                      <span className="text-sm text-gray-600">גישת API</span>
+                    </label>
+                    
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={featureOverrides?.priority_support ?? false}
+                        onChange={(e) => updateFeatureOverride('priority_support', e.target.checked ? true : null)}
+                        className="w-4 h-4 rounded border-gray-300 text-orange-600"
+                      />
+                      <span className="text-sm text-gray-600">תמיכה מועדפת</span>
+                    </label>
+                  </div>
+
+                  {/* Save Features Button */}
+                  <button
+                    onClick={handleSaveFeatures}
+                    disabled={savingFeatures}
+                    className="w-full px-4 py-2 bg-orange-600 text-white rounded-xl hover:bg-orange-700 disabled:opacity-50"
+                  >
+                    {savingFeatures ? 'שומר...' : 'שמור הגדרות פיצ׳רים'}
+                  </button>
+                </div>
               </>
             )}
 

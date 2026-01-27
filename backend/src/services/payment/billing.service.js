@@ -1,5 +1,6 @@
 const db = require('../../config/database');
 const sumitService = require('./sumit.service');
+const { sendNewSubscriptionEmail, sendRenewalEmail } = require('../subscription/notification.service');
 
 /**
  * Process subscriptions that need to be charged
@@ -72,7 +73,10 @@ async function processSubscriptionCharges() {
           
           console.log(`[Billing] Successfully charged user ${sub.user_email}`);
           
-          // TODO: Send success email notification
+          // Send renewal email notification
+          sendRenewalEmail(sub.user_id, sub.name_he, yearlyPrice, nextCharge, {
+            documentNumber: chargeResult.documentNumber
+          }).catch(err => console.error('[Billing] Failed to send renewal email:', err));
           
         } else {
           // Log failed payment
@@ -190,7 +194,10 @@ async function processTrialEndings() {
           
           console.log(`[Billing] Trial converted to paid for user ${sub.user_email}`);
           
-          // TODO: Send "trial converted" email
+          // Send new subscription email (trial converted to paid)
+          sendNewSubscriptionEmail(sub.user_id, sub.name_he, chargeAmount, {
+            documentNumber: chargeResult.documentNumber
+          }).catch(err => console.error('[Billing] Failed to send subscription email:', err));
           
         } else {
           // Mark as expired (no valid payment)

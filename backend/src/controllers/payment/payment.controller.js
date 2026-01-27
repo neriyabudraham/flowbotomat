@@ -1,5 +1,6 @@
 const db = require('../../config/database');
 const sumitService = require('../../services/payment/sumit.service');
+const { sendNewSubscriptionEmail, sendRenewalEmail, sendCancellationEmail } = require('../../services/subscription/notification.service');
 
 /**
  * Save payment method
@@ -1337,9 +1338,12 @@ async function cancelSubscription(req, res) {
   try {
     const userId = req.user.id;
     
-    // Get current subscription
+    // Get current subscription with plan name
     const subResult = await db.query(
-      `SELECT * FROM user_subscriptions WHERE user_id = $1 AND status IN ('active', 'trial')`,
+      `SELECT us.*, sp.name_he as plan_name 
+       FROM user_subscriptions us 
+       JOIN subscription_plans sp ON us.plan_id = sp.id 
+       WHERE us.user_id = $1 AND us.status IN ('active', 'trial')`,
       [userId]
     );
     
@@ -1474,6 +1478,11 @@ async function cancelSubscription(req, res) {
       message = 'המנוי בוטל והשירות הופסק.';
       console.log(`[Payment] Unknown subscription state cancelled - disconnected for safety for user ${userId}`);
     }
+    
+    // Send cancellation emails to user and admin
+    sendCancellationEmail(userId, subscription.plan_name, subscription.expires_at).catch(err => {
+      console.error('[Payment] Failed to send cancellation emails:', err);
+    });
     
     res.json({ 
       success: true, 

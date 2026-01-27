@@ -297,11 +297,19 @@ async function incrementBotRuns(userId) {
 
 /**
  * Check if user has reached their limit
+ * First checks user feature_overrides, then falls back to subscription plan limits
  */
 async function checkLimit(userId, limitType) {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
+  
+  // Get user's feature overrides
+  const userResult = await db.query(
+    'SELECT feature_overrides FROM users WHERE id = $1',
+    [userId]
+  );
+  const featureOverrides = userResult.rows[0]?.feature_overrides || null;
   
   // Get subscription limits
   // Include: active, trial, AND cancelled with future end date
@@ -320,7 +328,7 @@ async function checkLimit(userId, limitType) {
   `, [userId]);
   
   // Default to free plan
-  const limits = subResult.rows[0] || {
+  const planLimits = subResult.rows[0] || {
     max_bots: 1,
     max_bot_runs_per_month: 500,
     max_contacts: 100,
@@ -329,8 +337,20 @@ async function checkLimit(userId, limitType) {
     allow_export: false,
     allow_group_forwards: false,
     max_group_forwards: 0,
-    max_forward_targets: 0
+    max_forward_targets: 0,
+    max_livechats: 0,
+    allow_livechat: false
   };
+  
+  // Merge: overrides take precedence over plan limits
+  const limits = { ...planLimits };
+  if (featureOverrides) {
+    for (const key of Object.keys(featureOverrides)) {
+      if (featureOverrides[key] !== null && featureOverrides[key] !== undefined) {
+        limits[key] = featureOverrides[key];
+      }
+    }
+  }
   
   // -1 means unlimited
   if (limitType === 'bot_runs') {

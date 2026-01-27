@@ -307,6 +307,9 @@ async function updateUserSubscription(req, res) {
     if (planId !== undefined) {
       updates.push(`plan_id = $${paramIndex++}`);
       values.push(planId);
+      
+      // Clear feature overrides when plan changes
+      await clearUserFeatureOverrides(id);
     }
     if (status !== undefined) {
       updates.push(`status = $${paramIndex++}`);
@@ -455,4 +458,90 @@ async function getPlans(req, res) {
   }
 }
 
-module.exports = { getUsers, getUser, updateUser, deleteUser, getStats, updateUserSubscription, getPlans };
+/**
+ * Get user's feature overrides
+ */
+async function getUserFeatureOverrides(req, res) {
+  try {
+    const { id } = req.params;
+    
+    const result = await db.query(
+      'SELECT feature_overrides FROM users WHERE id = $1',
+      [id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'משתמש לא נמצא' });
+    }
+    
+    res.json({ feature_overrides: result.rows[0].feature_overrides || null });
+  } catch (error) {
+    console.error('[Admin] Get feature overrides error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת הגדרות' });
+  }
+}
+
+/**
+ * Update user's feature overrides
+ * Pass null to clear overrides and use plan defaults
+ */
+async function updateUserFeatureOverrides(req, res) {
+  try {
+    const { id } = req.params;
+    const { feature_overrides } = req.body;
+    
+    // Validate feature_overrides structure if provided
+    if (feature_overrides !== null && typeof feature_overrides !== 'object') {
+      return res.status(400).json({ error: 'feature_overrides חייב להיות אובייקט או null' });
+    }
+    
+    // Update user's feature overrides
+    const result = await db.query(
+      `UPDATE users SET feature_overrides = $1, updated_at = NOW() WHERE id = $2 RETURNING id, feature_overrides`,
+      [feature_overrides, id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'משתמש לא נמצא' });
+    }
+    
+    console.log(`[Admin] Updated feature overrides for user ${id}:`, feature_overrides);
+    
+    res.json({ 
+      success: true, 
+      feature_overrides: result.rows[0].feature_overrides,
+      message: feature_overrides ? 'הגדרות מותאמות עודכנו' : 'הגדרות מותאמות נמחקו - המשתמש ישתמש בברירות המחדל של התוכנית'
+    });
+  } catch (error) {
+    console.error('[Admin] Update feature overrides error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון הגדרות' });
+  }
+}
+
+/**
+ * Clear user's feature overrides (when plan changes)
+ */
+async function clearUserFeatureOverrides(userId) {
+  try {
+    await db.query(
+      'UPDATE users SET feature_overrides = NULL, updated_at = NOW() WHERE id = $1',
+      [userId]
+    );
+    console.log(`[Admin] Cleared feature overrides for user ${userId}`);
+  } catch (error) {
+    console.error('[Admin] Clear feature overrides error:', error);
+  }
+}
+
+module.exports = { 
+  getUsers, 
+  getUser, 
+  updateUser, 
+  deleteUser, 
+  getStats, 
+  updateUserSubscription, 
+  getPlans,
+  getUserFeatureOverrides,
+  updateUserFeatureOverrides,
+  clearUserFeatureOverrides
+};
