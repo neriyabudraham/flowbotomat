@@ -781,7 +781,7 @@ class BotEngine {
           case 'first_message':
             // Query actual message count since contact.message_count isn't loaded
             const firstMsgCount = await db.query(
-              `SELECT COUNT(*) as count FROM messages WHERE contact_id = $1 AND direction = 'inbound'`,
+              `SELECT COUNT(*) as count FROM messages WHERE contact_id = $1 AND direction = 'incoming'`,
               [contact.id]
             );
             matches = parseInt(firstMsgCount.rows[0]?.count || 0) === 1;
@@ -885,11 +885,11 @@ class BotEngine {
     // NOTE: The current message is already saved to DB, so we check if count is exactly 1
     if (type === 'first_message') {
       const countResult = await db.query(
-        `SELECT COUNT(*) as count FROM messages WHERE contact_id = $1 AND direction = 'inbound'`,
+        `SELECT COUNT(*) as count FROM messages WHERE contact_id = $1 AND direction = 'incoming'`,
         [contact.id]
       );
       const messageCount = parseInt(countResult.rows[0]?.count || 0);
-      console.log(`[BotEngine] first_message check: contact has ${messageCount} inbound messages`);
+      console.log(`[BotEngine] first_message check: contact has ${messageCount} incoming messages`);
       return messageCount === 1; // Exactly 1 means this is the first (current) message
     }
     
@@ -959,7 +959,7 @@ class BotEngine {
       // OFFSET 1 skips the most recent message (the current one being processed)
       const previousMessage = await db.query(
         `SELECT created_at FROM messages 
-         WHERE contact_id = $1 AND direction = 'inbound'
+         WHERE contact_id = $1 AND direction = 'incoming'
          ORDER BY created_at DESC LIMIT 1 OFFSET 1`,
         [contact.id]
       );
