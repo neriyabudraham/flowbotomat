@@ -201,10 +201,28 @@ async function sendImage(connection, phone, imageUrl, caption = '') {
   
   console.log(`[WAHA] Sending image to ${chatId}, url: ${imageUrl?.substring(0, 80)}, caption: ${caption?.substring(0, 30)}`);
   
+  // Extract filename from URL or use default
+  const filename = imageUrl.split('/').pop() || 'image.jpg';
+  
+  // Determine mimetype from URL extension
+  const ext = filename.split('.').pop()?.toLowerCase();
+  const mimetypes = {
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'png': 'image/png',
+    'gif': 'image/gif',
+    'webp': 'image/webp'
+  };
+  const mimetype = mimetypes[ext] || 'image/jpeg';
+  
   const payload = {
     session: connection.session_name,
     chatId: chatId,
-    file: { url: imageUrl },
+    file: {
+      mimetype: mimetype,
+      filename: filename,
+      url: imageUrl
+    },
     caption: caption || '',
   };
   
@@ -261,11 +279,30 @@ async function sendVideo(connection, phone, videoUrl, caption = '') {
   
   console.log(`[WAHA] Sending video to ${chatId}, url: ${videoUrl?.substring(0, 80)}`);
   
+  // Extract filename from URL or use default
+  const filename = videoUrl.split('/').pop() || 'video.mp4';
+  
+  // Determine mimetype from URL extension
+  const ext = filename.split('.').pop()?.toLowerCase();
+  const mimetypes = {
+    'mp4': 'video/mp4',
+    'mov': 'video/quicktime',
+    'avi': 'video/x-msvideo',
+    'webm': 'video/webm',
+    '3gp': 'video/3gpp'
+  };
+  const mimetype = mimetypes[ext] || 'video/mp4';
+  
   const payload = {
     session: connection.session_name,
     chatId: chatId,
-    file: { url: videoUrl },
+    file: {
+      mimetype: mimetype,
+      filename: filename,
+      url: videoUrl
+    },
     caption: caption || '',
+    convert: true,
   };
   
   const response = await client.post(`/api/sendVideo`, payload);
@@ -333,15 +370,24 @@ async function sendVoice(connection, phone, audioUrl, convert = true) {
   
   console.log(`[WAHA] Sending voice to ${chatId}, url: ${audioUrl?.substring(0, 80)}`);
   
+  // Determine mimetype - prefer opus for voice messages
+  const ext = audioUrl.split('.').pop()?.toLowerCase();
+  let mimetype = 'audio/ogg; codecs=opus';
+  if (ext === 'mp3') mimetype = 'audio/mpeg';
+  if (ext === 'wav') mimetype = 'audio/wav';
+  if (ext === 'm4a') mimetype = 'audio/mp4';
+  
   const payload = {
     session: connection.session_name,
     chatId: chatId,
     file: {
-      mimetype: 'audio/ogg; codecs=opus',
+      mimetype: mimetype,
       url: audioUrl,
     },
-    convert: convert,
+    convert: true, // Always convert to voice format
   };
+  
+  console.log(`[WAHA] sendVoice payload:`, JSON.stringify(payload));
   
   const response = await client.post(`/api/sendVoice`, payload);
   
