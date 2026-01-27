@@ -399,6 +399,7 @@ async function startForwardJob(jobId) {
     // Get job with forward details and WhatsApp connection info
     const jobResult = await db.query(`
       SELECT fj.*, gf.delay_min, gf.delay_max, gf.user_id, gf.name as forward_name,
+        gf.trigger_type, gf.trigger_group_id,
         wc.session_name, wc.connection_type, wc.external_base_url, wc.external_api_key
       FROM forward_jobs fj
       JOIN group_forwards gf ON fj.forward_id = gf.id
@@ -621,6 +622,18 @@ async function startForwardJob(jobId) {
       } else {
         await triggerService.sendCompletionMessage(job.user_id, senderPhone, jobId, sentCount, failedCount, totalTargets);
       }
+    }
+    
+    // If trigger was from a group, send summary to the group as well
+    if (job.trigger_type === 'group' && job.trigger_group_id) {
+      await triggerService.sendGroupCompletionSummary(
+        job.user_id, 
+        job.trigger_group_id, 
+        sentCount, 
+        failedCount, 
+        totalTargets, 
+        wasStopped
+      );
     }
     
     console.log(`[GroupForwards] Job ${jobId} ${finalStatus}: ${sentCount}/${totalTargets} sent, ${failedCount} failed`);

@@ -373,6 +373,48 @@ async function sendStoppedMessage(userId, senderPhone, sent, total, willDelete =
 }
 
 /**
+ * Send completion summary to the trigger group
+ */
+async function sendGroupCompletionSummary(userId, groupId, sent, failed, total, wasStopped = false) {
+  try {
+    const wahaConnection = await getWahaConnection(userId);
+    if (!wahaConnection) return;
+    
+    let message;
+    
+    if (wasStopped) {
+      message = `⏹️ *העברת הודעות הופסקה*\nנשלחו ${sent}/${total} קבוצות`;
+    } else if (failed === 0 && sent === total) {
+      message = `✅ *העברת הודעות הושלמה*\nההודעה נשלחה ל-${sent} קבוצות`;
+    } else if (sent === 0) {
+      message = `❌ *העברת הודעות נכשלה*`;
+    } else {
+      message = `⚠️ *העברת הודעות הסתיימה*\n✅ ${sent} קבוצות | ❌ ${failed} נכשלו`;
+    }
+    
+    await axios.post(
+      `${wahaConnection.base_url}/api/sendText`,
+      {
+        session: wahaConnection.session_name,
+        chatId: groupId,
+        text: message
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Api-Key': wahaConnection.api_key
+        }
+      }
+    );
+    
+    console.log(`[GroupForwards] Sent completion summary to group ${groupId}`);
+    
+  } catch (error) {
+    console.error('[GroupForwards] Send group completion summary error:', error.message);
+  }
+}
+
+/**
  * Send a simple notification message
  */
 async function sendNotificationMessage(userId, phone, text) {
@@ -604,5 +646,6 @@ module.exports = {
   sendStartList,
   sendProgressList,
   sendStoppedMessage,
+  sendGroupCompletionSummary,
   normalizePhoneNumber
 };
