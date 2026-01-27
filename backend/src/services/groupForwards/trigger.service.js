@@ -217,9 +217,7 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
     if (forward.require_confirmation) {
       await sendConfirmationList(userId, senderPhone, forward, job);
     } else {
-      await sendNotificationMessage(userId, senderPhone, 
-        `📤 מתחיל לשלוח את ההודעה ל-${forward.target_count} קבוצות...`
-      );
+      await sendStartList(userId, senderPhone, job.id, forward.target_count);
       
       const { startForwardJob } = require('../../controllers/groupForwards/jobs.controller');
       startForwardJob(job.id).catch(err => {
@@ -268,6 +266,39 @@ async function sendConfirmationList(userId, senderPhone, forward, job) {
       `📋 *העברת הודעות: ${forward.name}*\n\n` +
       `ההודעה שלך מוכנה להישלח ל-*${forward.target_count}* קבוצות.\n\n` +
       `השב "שלח" לאישור או "בטל" לביטול.`
+    );
+  }
+}
+
+/**
+ * Send start message with stop options as list
+ */
+async function sendStartList(userId, senderPhone, jobId, targetCount) {
+  try {
+    const wahaConnection = await getWahaConnection(userId);
+    if (!wahaConnection) return;
+    
+    const chatId = `${senderPhone}@s.whatsapp.net`;
+    const wahaService = require('../waha/session.service');
+    
+    const listData = {
+      title: `📤 שליחה מתחילה`,
+      body: `מתחיל לשלוח את ההודעה ל-*${targetCount}* קבוצות.\n\nניתן לעצור בכל שלב:`,
+      footer: `מזהה: ${jobId.slice(0, 8)}`,
+      buttonText: 'פעולות',
+      buttons: [
+        { title: '⏹️ עצור שליחה', rowId: `fwd_stop_${jobId}` },
+        { title: '🗑️ עצור ומחק הכל', rowId: `fwd_stopdelete_${jobId}` }
+      ]
+    };
+    
+    await wahaService.sendList(wahaConnection, chatId, listData);
+    
+  } catch (error) {
+    console.error('[GroupForwards] Send start list error:', error.message);
+    // Fallback to text
+    await sendNotificationMessage(userId, senderPhone, 
+      `📤 מתחיל לשלוח את ההודעה ל-${targetCount} קבוצות...\n\nהשב "עצור" לעצירה או "מחק" לעצירה ומחיקה.`
     );
   }
 }
@@ -453,9 +484,7 @@ async function handleConfirm(userId, senderPhone, jobId) {
     WHERE id = $1
   `, [jobId]);
   
-  await sendNotificationMessage(userId, senderPhone, 
-    `✅ מתחיל לשלוח את ההודעה ל-${job.total_targets} קבוצות...\n\nהשב "עצור" לעצירה או "מחק" לעצירה ומחיקה.`
-  );
+  await sendStartList(userId, senderPhone, jobId, job.total_targets);
   
   // Start sending
   const { startForwardJob } = require('../../controllers/groupForwards/jobs.controller');
@@ -572,6 +601,7 @@ module.exports = {
   processMessageForForwards,
   handleConfirmationResponse,
   sendCompletionMessage,
+  sendStartList,
   sendProgressList,
   sendStoppedMessage,
   normalizePhoneNumber
