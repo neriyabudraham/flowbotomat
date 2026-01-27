@@ -333,6 +333,56 @@ async function getForwardJobHistory(req, res) {
   }
 }
 
+/**
+ * Get all job history for a user (across all forwards)
+ */
+async function getAllJobHistory(req, res) {
+  try {
+    const userId = req.user.id;
+    const { limit = 50, offset = 0 } = req.query;
+    
+    // Get jobs with forward name and message details
+    const result = await db.query(`
+      SELECT 
+        fj.*,
+        gf.name as forward_name,
+        (SELECT json_agg(json_build_object(
+          'id', fjm.id,
+          'target_id', fjm.target_id,
+          'group_id', gft.group_id,
+          'group_name', gft.group_name,
+          'status', fjm.status,
+          'sent_at', fjm.sent_at,
+          'deleted_at', fjm.deleted_at,
+          'error_message', fjm.error_message
+        ) ORDER BY gft.sort_order)
+        FROM forward_job_messages fjm
+        JOIN group_forward_targets gft ON fjm.target_id = gft.id
+        WHERE fjm.job_id = fj.id
+        ) as messages
+      FROM forward_jobs fj
+      JOIN group_forwards gf ON fj.forward_id = gf.id
+      WHERE fj.user_id = $1
+      ORDER BY fj.created_at DESC
+      LIMIT $2 OFFSET $3
+    `, [userId, parseInt(limit), parseInt(offset)]);
+    
+    const countResult = await db.query(
+      'SELECT COUNT(*) FROM forward_jobs WHERE user_id = $1',
+      [userId]
+    );
+    
+    res.json({
+      success: true,
+      jobs: result.rows,
+      total: parseInt(countResult.rows[0].count)
+    });
+  } catch (error) {
+    console.error('[GroupForwards] Get all job history error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת היסטוריית שליחות' });
+  }
+}
+
 // =============================================
 // Internal functions (not exposed as routes)
 // =============================================
@@ -672,6 +722,7 @@ module.exports = {
   getJobStatus,
   getActiveJobs,
   getForwardJobHistory,
+  getAllJobHistory,
   // Export for internal use
   startForwardJob,
   deleteJobMessages
