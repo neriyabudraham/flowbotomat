@@ -1413,12 +1413,9 @@ class BotEngine {
         checkValue = contact.phone || '';
         break;
       case 'is_first_contact':
-        // Query actual message count
-        const firstContactCount = await db.query(
-          `SELECT COUNT(*) as count FROM messages WHERE contact_id = $1 AND direction = 'inbound'`,
-          [contact.id]
-        );
-        checkValue = parseInt(firstContactCount.rows[0]?.count || 0) === 1 ? 'true' : 'false';
+        // Use message_count if available, otherwise assume not first contact
+        // Note: Proper check is done in trigger conditions where we can use async
+        checkValue = (contact.message_count === 1) ? 'true' : 'false';
         break;
       case 'message_type':
         checkValue = 'text'; // TODO: get actual message type
