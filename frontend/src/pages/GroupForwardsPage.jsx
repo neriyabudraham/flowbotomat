@@ -4,7 +4,7 @@ import {
   Plus, Forward, Play, Pause, Trash2, Edit2, X, Users, Clock, Settings,
   Search, MoreHorizontal, Copy, ChevronRight, MessageSquare, Send, Phone,
   CheckCircle, AlertCircle, Loader2, ChevronDown, Filter, RefreshCw,
-  ArrowRight, Zap, Target, Crown, UserCheck, Image, Video, Mic, FileText,
+  ArrowLeft, Zap, Target, Crown, UserCheck, Image, Video, Mic, FileText,
   History, LayoutGrid
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
@@ -190,89 +190,171 @@ export default function GroupForwardsPage() {
     );
   }
 
+  const activeForwards = forwards.filter(f => f.is_active).length;
+  const totalTargets = forwards.reduce((sum, f) => sum + (f.target_count || 0), 0);
+  const totalSent = forwards.reduce((sum, f) => sum + (f.total_forwards || 0), 0);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-purple-50/30">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-purple-50/30" dir="rtl">
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Logo size="small" />
-              <div className="h-6 w-px bg-gray-200 hidden md:block" />
-              <h1 className="text-lg font-semibold text-gray-800 hidden md:block">
-                העברת הודעות לקבוצות
-              </h1>
+              <button 
+                onClick={() => navigate('/dashboard')}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+              </button>
+              <div className="h-8 w-px bg-gray-200" />
+              <Logo />
             </div>
             
             <div className="flex items-center gap-3">
               <NotificationsDropdown />
-              <button
-                onClick={() => navigate('/dashboard')}
-                className="text-sm text-gray-600 hover:text-purple-600 transition-colors"
-              >
-                חזרה לדשבורד
-              </button>
+              <div className="h-8 w-px bg-gray-200" />
+              {user?.avatar_url ? (
+                <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-lg object-cover" />
+              ) : (
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white font-bold text-sm">
+                  {(user?.name || user?.email || 'U')[0].toUpperCase()}
+                </div>
+              )}
             </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats & Actions Bar */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">העברות הודעות</h2>
-            <p className="text-gray-600 mt-1">
-              שלח הודעות למספר קבוצות בו-זמנית עם דיליי מותאם אישית
-            </p>
-          </div>
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        {/* Hero Section */}
+        <div className="relative overflow-hidden bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 rounded-3xl p-8 mb-8">
+          <div className="absolute inset-0 bg-black/10" />
+          <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+          <div className="absolute bottom-0 left-0 w-64 h-64 bg-white/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
           
-          <div className="flex items-center gap-3">
-            {/* Limit indicator */}
-            {limit && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-50 rounded-lg text-sm">
-                <span className="text-gray-600">
-                  {limit.used}/{limit.limit === -1 ? '∞' : limit.limit}
-                </span>
-                <span className="text-purple-600 font-medium">העברות</span>
+          <div className="relative z-10">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-3 bg-white/20 backdrop-blur rounded-2xl">
+                    <Forward className="w-8 h-8 text-white" />
+                  </div>
+                  <div>
+                    <h1 className="text-3xl font-bold text-white">העברת הודעות לקבוצות</h1>
+                    <p className="text-white/70">שלח הודעות למספר קבוצות בו-זמנית</p>
+                  </div>
+                </div>
+                
+                {/* Quick Stats */}
+                <div className="flex items-center gap-6 mt-6">
+                  <div className="flex items-center gap-2 text-white/90">
+                    <div className="p-2 bg-white/20 rounded-lg">
+                      <Forward className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold">{forwards.length}</div>
+                      <div className="text-xs text-white/60">העברות</div>
+                    </div>
+                  </div>
+                  <div className="h-10 w-px bg-white/20" />
+                  <div className="flex items-center gap-2 text-white/90">
+                    <div className="p-2 bg-green-400/30 rounded-lg">
+                      <Play className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold">{activeForwards}</div>
+                      <div className="text-xs text-white/60">פעילות</div>
+                    </div>
+                  </div>
+                  <div className="h-10 w-px bg-white/20" />
+                  <div className="flex items-center gap-2 text-white/90">
+                    <div className="p-2 bg-white/20 rounded-lg">
+                      <Users className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold">{totalTargets}</div>
+                      <div className="text-xs text-white/60">קבוצות יעד</div>
+                    </div>
+                  </div>
+                  <div className="h-10 w-px bg-white/20" />
+                  <div className="flex items-center gap-2 text-white/90">
+                    <div className="p-2 bg-white/20 rounded-lg">
+                      <Send className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold">{totalSent}</div>
+                      <div className="text-xs text-white/60">נשלחו</div>
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
-            
-            <Button
-              onClick={() => setShowCreate(true)}
-              className="gap-2"
-              disabled={limit && !limit.allowed && limit.limit !== -1}
-            >
-              <Plus className="w-4 h-4" />
-              העברה חדשה
-            </Button>
+              
+              <div className="flex gap-3">
+                {limit && (
+                  <div className="flex items-center gap-2 px-4 py-2 bg-white/20 backdrop-blur text-white rounded-xl text-sm">
+                    <span>{limit.used}/{limit.limit === -1 ? '∞' : limit.limit}</span>
+                    <span className="text-white/70">מותר</span>
+                  </div>
+                )}
+                <button
+                  onClick={() => setShowCreate(true)}
+                  disabled={limit && !limit.allowed && limit.limit !== -1}
+                  className="flex items-center gap-2 px-6 py-3 bg-white text-purple-600 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
+                >
+                  <Plus className="w-5 h-5" />
+                  העברה חדשה
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 p-1 bg-gray-100 rounded-xl mb-6 w-fit">
-          <button
-            onClick={() => setActiveTab('forwards')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === 'forwards'
-                ? 'bg-white text-purple-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <LayoutGrid className="w-4 h-4" />
-            העברות
-          </button>
-          <button
-            onClick={() => setActiveTab('history')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === 'history'
-                ? 'bg-white text-purple-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <History className="w-4 h-4" />
-            היסטוריית שליחות
-          </button>
+        {/* Tabs & Search */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2 p-1.5 bg-gray-100 rounded-2xl">
+            <button
+              onClick={() => setActiveTab('forwards')}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all ${
+                activeTab === 'forwards'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <LayoutGrid className="w-4 h-4" />
+              העברות
+              <span className={`px-2 py-0.5 rounded-full text-xs ${
+                activeTab === 'forwards' ? 'bg-purple-100 text-purple-600' : 'bg-gray-200 text-gray-500'
+              }`}>
+                {forwards.length}
+              </span>
+            </button>
+            <button
+              onClick={() => setActiveTab('history')}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all ${
+                activeTab === 'history'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <History className="w-4 h-4" />
+              היסטוריה
+            </button>
+          </div>
+
+          {/* Search - only on forwards tab */}
+          {activeTab === 'forwards' && (
+            <div className="relative w-72">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="חיפוש העברות..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-4 pr-10 py-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 transition-all"
+              />
+            </div>
+          )}
         </div>
 
         {/* Active Jobs Alert */}
@@ -296,19 +378,6 @@ export default function GroupForwardsPage() {
         {/* Forwards Tab Content */}
         {activeTab === 'forwards' && (
           <>
-            {/* Search */}
-            <div className="mb-6">
-              <div className="relative max-w-md">
-                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="חיפוש העברות..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-4 pr-10 py-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 transition-all"
-                />
-              </div>
-            </div>
 
         {/* Forwards Grid */}
         {loading ? (
