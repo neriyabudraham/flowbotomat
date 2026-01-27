@@ -181,11 +181,46 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
     setTargets(items);
   };
 
+  // Normalize phone number to international format (972...)
+  const normalizePhoneNumber = (phone) => {
+    if (!phone) return '';
+    
+    // Remove all non-digits except leading +
+    let cleaned = phone.replace(/[^\d+]/g, '');
+    
+    // Remove leading +
+    if (cleaned.startsWith('+')) {
+      cleaned = cleaned.substring(1);
+    }
+    
+    // If starts with 0, replace with 972
+    if (cleaned.startsWith('0')) {
+      cleaned = '972' + cleaned.substring(1);
+    }
+    
+    // If doesn't start with 972 and is 9-10 digits, assume it's Israeli without prefix
+    if (!cleaned.startsWith('972') && cleaned.length >= 9 && cleaned.length <= 10) {
+      cleaned = '972' + cleaned;
+    }
+    
+    return cleaned;
+  };
+
   const addSender = () => {
-    if (!newSenderPhone.trim()) return;
+    const phone = newSenderPhone.trim();
+    if (!phone) return;
+    
+    // Normalize the phone number
+    const normalizedPhone = normalizePhoneNumber(phone);
+    
+    // Check if already exists
+    if (senders.some(s => normalizePhoneNumber(s.phone_number) === normalizedPhone)) {
+      alert('מספר זה כבר קיים ברשימה');
+      return;
+    }
     
     setSenders([...senders, {
-      phone_number: newSenderPhone.trim(),
+      phone_number: normalizedPhone,
       name: newSenderName.trim() || null
     }]);
     setNewSenderPhone('');
@@ -447,9 +482,10 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                     type="tel"
                     value={newSenderPhone}
                     onChange={(e) => setNewSenderPhone(e.target.value)}
-                    placeholder="מספר טלפון (972...)"
+                    placeholder="050-0000000"
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400"
                     dir="ltr"
+                    onKeyDown={(e) => e.key === 'Enter' && addSender()}
                   />
                 </div>
                 <div className="flex-1">
@@ -459,6 +495,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                     onChange={(e) => setNewSenderName(e.target.value)}
                     placeholder="שם (אופציונלי)"
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400"
+                    onKeyDown={(e) => e.key === 'Enter' && addSender()}
                   />
                 </div>
                 <Button onClick={addSender} disabled={!newSenderPhone.trim()}>
@@ -474,33 +511,52 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {senders.map((sender, index) => (
-                    <div key={sender.phone_number} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200">
-                      <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                        <Phone className="w-5 h-5 text-green-600" />
+                  {senders.map((sender, index) => {
+                    // Format phone for display
+                    const formatPhoneDisplay = (phone) => {
+                      if (!phone) return phone;
+                      // Remove 972 prefix for display
+                      let display = phone;
+                      if (display.startsWith('972')) {
+                        display = '0' + display.substring(3);
+                      }
+                      // Add dashes for readability (050-000-0000)
+                      if (display.length === 10 && display.startsWith('0')) {
+                        return `${display.slice(0, 3)}-${display.slice(3, 6)}-${display.slice(6)}`;
+                      }
+                      return display;
+                    };
+                    
+                    return (
+                      <div key={sender.phone_number} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200">
+                        <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                          <Phone className="w-5 h-5 text-green-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900" dir="ltr">{formatPhoneDisplay(sender.phone_number)}</p>
+                          {sender.name && <p className="text-sm text-gray-500">{sender.name}</p>}
+                        </div>
+                        <button
+                          onClick={() => removeSender(sender.phone_number)}
+                          className="p-1.5 hover:bg-red-100 rounded-lg text-gray-400 hover:text-red-600"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-900" dir="ltr">{sender.phone_number}</p>
-                        {sender.name && <p className="text-sm text-gray-500">{sender.name}</p>}
-                      </div>
-                      <button
-                        onClick={() => removeSender(sender.phone_number)}
-                        className="p-1.5 hover:bg-red-100 rounded-lg text-gray-400 hover:text-red-600"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
-              <div className="mt-6 p-4 bg-yellow-50 rounded-xl">
+              <div className="mt-6 p-4 bg-green-50 rounded-xl">
                 <div className="flex items-start gap-2">
-                  <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5" />
+                  <Check className="w-5 h-5 text-green-600 mt-0.5" />
                   <div>
-                    <h4 className="font-medium text-yellow-900">שים לב</h4>
-                    <p className="text-sm text-yellow-700">
-                      הזן מספרי טלפון בפורמט בינלאומי (לדוגמה: 972501234567)
+                    <h4 className="font-medium text-green-900">תומך בכל פורמט</h4>
+                    <p className="text-sm text-green-700">
+                      ניתן להזין מספר טלפון בכל פורמט והמערכת תזהה אותו:
+                      <br />
+                      <span className="font-mono text-xs">050-0000000 • 0500000000 • 972500000000 • +972-50-000-0000</span>
                     </p>
                   </div>
                 </div>
