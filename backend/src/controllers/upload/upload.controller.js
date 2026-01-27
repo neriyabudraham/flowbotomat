@@ -84,7 +84,15 @@ const uploadFile = async (req, res) => {
     
     // Build URL using the type determined during upload
     const type = req.uploadType || 'misc';
-    const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 3000}`;
+    // Use BASE_URL (without /api) for static files, or derive from API_URL
+    let baseUrl = process.env.BASE_URL;
+    if (!baseUrl && process.env.API_URL) {
+      // Remove /api suffix if present
+      baseUrl = process.env.API_URL.replace(/\/api\/?$/, '');
+    }
+    if (!baseUrl) {
+      baseUrl = `http://localhost:${process.env.PORT || 3000}`;
+    }
     const fileUrl = `${baseUrl}/uploads/${type}/${req.file.filename}`;
     
     console.log(`[Upload] File uploaded: ${req.file.filename} (${req.file.size} bytes) type: ${type}`);
