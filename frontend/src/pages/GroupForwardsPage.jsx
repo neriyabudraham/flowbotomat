@@ -653,34 +653,89 @@ export default function GroupForwardsPage() {
 
       {/* Upgrade Modal */}
       {showUpgradeModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
-            <div className="text-center">
-              <div className="w-12 h-12 mx-auto mb-4 bg-purple-100 rounded-full flex items-center justify-center">
-                <Crown className="w-6 h-6 text-purple-600" />
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowUpgradeModal(false)}>
+          <div className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl shadow-lg">
+                  <Crown className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">
+                    {limit?.featureDisabled ? 'הפיצ\'ר לא זמין בתוכנית שלך' : 'הגעת למגבלת ההעברות'}
+                  </h2>
+                  <p className="text-sm text-gray-500">
+                    {limit?.featureDisabled 
+                      ? 'שדרג את התוכנית כדי להפעיל' 
+                      : `${limit?.used || 0} מתוך ${limit?.limit === -1 ? '∞' : (limit?.limit || 0)} העברות`}
+                  </p>
+                </div>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                שדרג את החבילה שלך
-              </h3>
-              <p className="text-gray-600 mb-6">
-                {upgradeError || 'שדרג לחבילה מתקדמת יותר כדי ליצור עוד העברות'}
-              </p>
-              <div className="flex gap-3">
-                <Button
-                  variant="ghost"
-                  onClick={() => setShowUpgradeModal(false)}
-                  className="flex-1"
-                >
-                  אחר כך
-                </Button>
-                <Button
-                  onClick={() => navigate('/pricing')}
-                  className="flex-1 gap-2"
-                >
-                  <Crown className="w-4 h-4" />
-                  לדף התמחור
-                </Button>
+              <button onClick={() => setShowUpgradeModal(false)} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+            
+            {/* Illustration */}
+            <div className="p-6 bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl mb-6">
+              <div className="text-center">
+                <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center shadow-lg">
+                  <Forward className="w-8 h-8 text-white" />
+                </div>
+                <p className="text-purple-800 font-medium mb-2">
+                  {limit?.featureDisabled 
+                    ? 'העברת הודעות לקבוצות לא כלולה בתוכנית שלך'
+                    : `החבילה שלך מאפשרת עד ${limit?.limit || 0} העברות`}
+                </p>
+                <p className="text-purple-600 text-sm">
+                  {limit?.featureDisabled 
+                    ? 'שדרג לתוכנית שכוללת העברת הודעות לקבוצות'
+                    : 'שדרג את החבילה שלך כדי ליצור העברות נוספות ולפתוח יכולות מתקדמות'}
+                </p>
               </div>
+            </div>
+            
+            {/* Benefits */}
+            <div className="space-y-3 mb-6">
+              <div className="flex items-center gap-3 p-3 bg-green-50 rounded-xl border border-green-100">
+                <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
+                  <CheckCircle className="w-4 h-4 text-white" />
+                </div>
+                <span className="text-green-800 text-sm font-medium">יותר העברות פעילות</span>
+              </div>
+              <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
+                <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+                  <Users className="w-4 h-4 text-white" />
+                </div>
+                <span className="text-blue-800 text-sm font-medium">יותר קבוצות יעד להעברה</span>
+              </div>
+              <div className="flex items-center gap-3 p-3 bg-purple-50 rounded-xl border border-purple-100">
+                <div className="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center">
+                  <Zap className="w-4 h-4 text-white" />
+                </div>
+                <span className="text-purple-800 text-sm font-medium">שליחה מהירה ללא הגבלות</span>
+              </div>
+            </div>
+            
+            {/* Actions */}
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setShowUpgradeModal(false)} 
+                className="flex-1 px-6 py-3.5 border border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-all"
+              >
+                אחר כך
+              </button>
+              <button 
+                onClick={() => {
+                  setShowUpgradeModal(false);
+                  navigate('/pricing');
+                }}
+                className="flex-1 px-6 py-3.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
+              >
+                <Crown className="w-5 h-5" />
+                שדרג עכשיו
+              </button>
             </div>
           </div>
         </div>
