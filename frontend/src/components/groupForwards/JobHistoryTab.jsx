@@ -3,7 +3,7 @@ import {
   History, Clock, CheckCircle, XCircle, AlertTriangle, Trash2,
   Image as ImageIcon, Video, Mic, FileText, ChevronDown, ChevronUp,
   User, Users, Phone, Send, Loader2, Eye, RefreshCw, TrendingUp,
-  BarChart3, X
+  BarChart3, X, Globe
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -68,6 +68,7 @@ export default function JobHistoryTab() {
   // Format phone for display - defined before useMemo that uses it
   const formatPhone = (phone) => {
     if (!phone) return phone;
+    if (phone === 'website') return 'דרך האתר';
     let display = phone;
     if (display.includes('@')) {
       display = display.split('@')[0];
@@ -388,7 +389,11 @@ export default function JobHistoryTab() {
                       </span>
                       {job.sender_phone && (
                         <span className="flex items-center gap-1">
-                          <Phone className="w-3.5 h-3.5" />
+                          {job.sender_phone === 'website' ? (
+                            <Globe className="w-3.5 h-3.5" />
+                          ) : (
+                            <Phone className="w-3.5 h-3.5" />
+                          )}
                           {formatPhone(job.sender_phone)}
                         </span>
                       )}

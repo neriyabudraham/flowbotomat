@@ -866,7 +866,9 @@ function QuickSendModal({ forward, onClose, onJobCreated }) {
         message_text: messageText,
         media_url: mediaUrl,
         media_mime_type: mediaFile?.type,
-        media_filename: mediaFile?.name
+        media_filename: mediaFile?.name,
+        sender_name: 'שליחה דרך האתר',
+        sender_phone: 'website'
       });
       
       setJob(data.job);
