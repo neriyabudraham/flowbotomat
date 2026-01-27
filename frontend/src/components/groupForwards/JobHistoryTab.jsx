@@ -37,6 +37,26 @@ export default function JobHistoryTab() {
     }
   };
 
+  // Format phone for display - defined before useMemo that uses it
+  const formatPhone = (phone) => {
+    if (!phone) return phone;
+    let display = phone;
+    if (display.includes('@')) {
+      display = display.split('@')[0];
+    }
+    if (display.startsWith('972')) {
+      display = '0' + display.substring(3);
+    }
+    if (display.length === 10 && display.startsWith('0')) {
+      return `${display.slice(0, 3)}-${display.slice(3, 6)}-${display.slice(6)}`;
+    }
+    if (display.length === 9 && display.startsWith('5')) {
+      display = '0' + display;
+      return `${display.slice(0, 3)}-${display.slice(3, 6)}-${display.slice(6)}`;
+    }
+    return display;
+  };
+
   // Calculate stats from jobs if not provided by API
   const calculatedStats = useMemo(() => {
     if (stats) return stats;
@@ -99,18 +119,6 @@ export default function JobHistoryTab() {
       hour: '2-digit',
       minute: '2-digit'
     });
-  };
-
-  const formatPhone = (phone) => {
-    if (!phone) return phone;
-    let display = phone;
-    if (display.startsWith('972')) {
-      display = '0' + display.substring(3);
-    }
-    if (display.length === 10 && display.startsWith('0')) {
-      return `${display.slice(0, 3)}-${display.slice(3, 6)}-${display.slice(6)}`;
-    }
-    return display;
   };
 
   const getStatusBadge = (status) => {
