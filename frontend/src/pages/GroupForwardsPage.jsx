@@ -551,65 +551,65 @@ export default function GroupForwardsPage() {
 
       {/* Create Modal */}
       {showCreate && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
-            <div className="p-6 border-b border-gray-100">
-              <div className="flex justify-between items-center">
-                <h3 className="text-lg font-semibold text-gray-900">יצירת העברה חדשה</h3>
-                <button
-                  onClick={() => setShowCreate(false)}
-                  className="p-1.5 hover:bg-gray-100 rounded-lg"
-                >
-                  <X className="w-5 h-5 text-gray-500" />
-                </button>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowCreate(false)}>
+          <div className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl shadow-lg">
+                  <Forward className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">יצירת העברה חדשה</h2>
+                  <p className="text-sm text-gray-500">שלח הודעות לקבוצות בקלות</p>
+                </div>
               </div>
+              <button onClick={() => setShowCreate(false)} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
             </div>
             
-            <div className="p-6 space-y-4">
+            {/* Form */}
+            <div className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  שם ההעברה
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">שם ההעברה</label>
                 <input
                   type="text"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="למשל: עדכון יומי לקבוצות"
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400"
+                  placeholder="לדוגמה: עדכון יומי לקבוצות, הודעות שיווק..."
+                  className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none transition-all text-lg"
                   autoFocus
                 />
               </div>
-              
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  תיאור (אופציונלי)
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">תיאור (אופציונלי)</label>
                 <textarea
                   value={newDesc}
                   onChange={(e) => setNewDesc(e.target.value)}
-                  placeholder="תיאור קצר של ההעברה..."
+                  placeholder="מה ההעברה עושה? לאיזה קבוצות?"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl resize-none focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none transition-all"
                   rows={3}
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 resize-none"
                 />
               </div>
             </div>
             
-            <div className="p-6 pt-0 flex gap-3">
-              <Button
-                variant="ghost"
-                onClick={() => setShowCreate(false)}
-                className="flex-1"
+            {/* Actions */}
+            <div className="flex gap-3 mt-8">
+              <button 
+                onClick={() => setShowCreate(false)} 
+                className="flex-1 px-6 py-3.5 border border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors"
               >
                 ביטול
-              </Button>
-              <Button
-                onClick={handleCreate}
+              </button>
+              <button 
+                onClick={handleCreate} 
                 disabled={!newName.trim() || creating}
-                className="flex-1 gap-2"
+                className="flex-1 px-6 py-3.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
               >
-                {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                צור והגדר
-              </Button>
+                {creating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                צור העברה
+              </button>
             </div>
           </div>
         </div>
