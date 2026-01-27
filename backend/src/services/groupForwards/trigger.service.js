@@ -3,6 +3,28 @@ const { getWahaCredentials } = require('../settings/system.service');
 const axios = require('axios');
 
 /**
+ * Normalize phone number for comparison
+ * Handles Israeli numbers with or without country code
+ * Examples: "0584254229" -> "584254229", "972584254229" -> "584254229", "+972584254229" -> "584254229"
+ */
+function normalizePhoneNumber(phone) {
+  if (!phone) return '';
+  
+  // Remove all non-digits
+  let normalized = phone.replace(/\D/g, '');
+  
+  // Remove leading zeros
+  normalized = normalized.replace(/^0+/, '');
+  
+  // Remove Israel country code (972)
+  if (normalized.startsWith('972')) {
+    normalized = normalized.substring(3);
+  }
+  
+  return normalized;
+}
+
+/**
  * Process incoming message for group forwards trigger
  * Called from webhook after bot engine processing
  */
@@ -46,18 +68,30 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
     
     // Check if sender is authorized for each forward
     for (const forward of forwards.rows) {
-      // Check authorized senders
-      const authCheck = await db.query(`
-        SELECT * FROM forward_authorized_senders 
-        WHERE forward_id = $1 AND phone_number = $2
-      `, [forward.id, senderPhone]);
+      // Normalize phone number for comparison (handle both with and without country code)
+      const normalizedPhone = normalizePhoneNumber(senderPhone);
       
-      // Also check if there are no authorized senders (means anyone can trigger)
-      const totalAuthSenders = await db.query(`
-        SELECT COUNT(*) as count FROM forward_authorized_senders WHERE forward_id = $1
+      // Get all authorized senders for this forward
+      const authSendersResult = await db.query(`
+        SELECT phone_number FROM forward_authorized_senders WHERE forward_id = $1
       `, [forward.id]);
       
-      const isAuthorized = totalAuthSenders.rows[0].count === 0 || authCheck.rows.length > 0;
+      const totalAuthSenders = authSendersResult.rows.length;
+      
+      // Check if sender matches any authorized number
+      let isAuthorized = totalAuthSenders === 0; // If no authorized senders defined, anyone can trigger
+      
+      if (!isAuthorized) {
+        for (const auth of authSendersResult.rows) {
+          const normalizedAuth = normalizePhoneNumber(auth.phone_number);
+          if (normalizedPhone === normalizedAuth) {
+            isAuthorized = true;
+            break;
+          }
+        }
+      }
+      
+      console.log(`[GroupForwards] Auth check - sender: ${senderPhone} (normalized: ${normalizedPhone}), authorized senders: ${totalAuthSenders}, isAuthorized: ${isAuthorized}`);
       
       if (!isAuthorized) {
         console.log(`[GroupForwards] Sender ${senderPhone} not authorized for forward ${forward.id}`);
