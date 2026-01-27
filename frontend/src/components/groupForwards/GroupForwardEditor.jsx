@@ -687,17 +687,36 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                     // Format phone for display
                     const formatPhoneDisplay = (phone) => {
                       if (!phone) return phone;
-                      // Remove 972 prefix for display
                       let display = phone;
+                      
+                      // Remove WhatsApp suffix (@s.whatsapp.net, @c.us, etc.)
+                      if (display.includes('@')) {
+                        display = display.split('@')[0];
+                      }
+                      
+                      // Remove 972 prefix for display
                       if (display.startsWith('972')) {
                         display = '0' + display.substring(3);
                       }
+                      
+                      // If starts with 0 but missing the second 0, add it (e.g., 0584... -> 058-4...)
+                      // Actually just format as is
+                      
                       // Add dashes for readability (050-000-0000)
                       if (display.length === 10 && display.startsWith('0')) {
                         return `${display.slice(0, 3)}-${display.slice(3, 6)}-${display.slice(6)}`;
                       }
+                      
+                      // If it's 9 digits starting with 5, add 0 prefix
+                      if (display.length === 9 && display.startsWith('5')) {
+                        display = '0' + display;
+                        return `${display.slice(0, 3)}-${display.slice(3, 6)}-${display.slice(6)}`;
+                      }
+                      
                       return display;
                     };
+                    
+                    const formattedPhone = formatPhoneDisplay(sender.phone_number);
                     
                     return (
                       <div key={sender.phone_number} className="group flex items-center gap-4 p-4 bg-gradient-to-r from-gray-50 to-white rounded-xl border border-gray-100 hover:border-green-200 hover:shadow-md transition-all">
@@ -705,8 +724,14 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                           <Phone className="w-6 h-6 text-white" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-gray-900 text-lg" dir="ltr">{formatPhoneDisplay(sender.phone_number)}</p>
-                          {sender.name && <p className="text-sm text-gray-500">{sender.name}</p>}
+                          {sender.name ? (
+                            <>
+                              <p className="font-semibold text-gray-900 text-lg">{sender.name}</p>
+                              <p className="text-sm text-gray-500" dir="ltr">{formattedPhone}</p>
+                            </>
+                          ) : (
+                            <p className="font-semibold text-gray-900 text-lg" dir="ltr">{formattedPhone}</p>
+                          )}
                         </div>
                         <button
                           onClick={() => removeSender(sender.phone_number)}
