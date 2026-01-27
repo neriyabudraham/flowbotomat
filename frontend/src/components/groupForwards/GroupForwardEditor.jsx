@@ -4,7 +4,7 @@ import {
   X, Plus, Trash2, GripVertical, Check, AlertCircle, Loader2, RefreshCw,
   MessageSquare, Users, ChevronDown, ChevronUp, Phone, Image as ImageIcon
 } from 'lucide-react';
-import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import Button from '../atoms/Button';
 import api from '../../services/api';
 
