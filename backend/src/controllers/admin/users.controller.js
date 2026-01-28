@@ -338,8 +338,11 @@ async function updateUserSubscription(req, res) {
     if (expiresAt !== undefined) {
       updates.push(`expires_at = $${paramIndex++}`);
       values.push(expiresAt);
-      updates.push(`next_charge_date = $${paramIndex++}`);
-      values.push(expiresAt);
+      // Only set next_charge_date from expiresAt if NOT manual subscription
+      if (isManual !== true) {
+        updates.push(`next_charge_date = $${paramIndex++}`);
+        values.push(expiresAt);
+      }
     }
     if (isManual !== undefined) {
       updates.push(`is_manual = $${paramIndex++}`);
@@ -350,7 +353,6 @@ async function updateUserSubscription(req, res) {
         updates.push(`is_trial = false`);
         updates.push(`trial_ends_at = NULL`);
         updates.push(`next_charge_date = NULL`);
-        // Note: Don't clear sumit_standing_order_id here - that should be done via cancel
       }
     }
     if (adminNotes !== undefined) {
