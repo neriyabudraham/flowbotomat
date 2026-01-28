@@ -93,8 +93,8 @@ export default function AccountSwitcher() {
     setIsOpen(false);
     try {
       const { data } = await api.post('/experts/generate-link-code');
-      // Open registration page in new tab with the link code
-      window.open(`${window.location.origin}/register?link=${data.code}`, '_blank');
+      // Open signup page in new tab with the link code
+      window.open(`${window.location.origin}/signup?link=${data.code}`, '_blank');
     } catch (e) {
       alert(e.response?.data?.error || 'שגיאה ביצירת קישור');
     } finally {
