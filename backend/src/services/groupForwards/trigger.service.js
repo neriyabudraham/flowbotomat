@@ -549,26 +549,54 @@ async function handleCancel(userId, senderPhone, jobId) {
  * Handle stop action
  */
 async function handleStop(userId, senderPhone, jobId, shouldDelete) {
+  // First check if job exists and belongs to user (any status)
   const jobResult = await db.query(`
     SELECT * FROM forward_jobs 
-    WHERE id = $1 AND user_id = $2 AND status = 'sending'
+    WHERE id = $1 AND user_id = $2
   `, [jobId, userId]);
   
   if (jobResult.rows.length === 0) {
-    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה פעילה.');
+    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה.');
     return true;
   }
   
   const job = jobResult.rows[0];
   
-  // Set stop flag
-  await db.query(`
-    UPDATE forward_jobs 
-    SET stop_requested = true, delete_sent_requested = $2, updated_at = NOW()
-    WHERE id = $1
-  `, [jobId, shouldDelete]);
+  // If job is still running, stop it
+  if (job.status === 'sending') {
+    // Set stop flag
+    await db.query(`
+      UPDATE forward_jobs 
+      SET stop_requested = true, delete_sent_requested = $2, updated_at = NOW()
+      WHERE id = $1
+    `, [jobId, shouldDelete]);
+    
+    await sendStoppedMessage(userId, senderPhone, job.sent_count, job.total_targets, shouldDelete);
+    return true;
+  }
   
-  await sendStoppedMessage(userId, senderPhone, job.sent_count, job.total_targets, shouldDelete);
+  // If job is completed/stopped and delete requested, delete the sent messages
+  if (shouldDelete && ['completed', 'stopped', 'partial'].includes(job.status)) {
+    if (job.sent_count > 0) {
+      await sendNotificationMessage(userId, senderPhone, `🗑️ מוחק ${job.sent_count} הודעות שנשלחו...`);
+      
+      // Import and call delete function
+      const { deleteJobMessages } = require('../../controllers/groupForwards/jobs.controller');
+      deleteJobMessages(jobId).catch(err => {
+        console.error(`[GroupForwards] Error deleting messages for completed job ${jobId}:`, err);
+      });
+    } else {
+      await sendNotificationMessage(userId, senderPhone, '❌ אין הודעות למחיקה.');
+    }
+    return true;
+  }
+  
+  // Job exists but not in a deletable state
+  if (!shouldDelete) {
+    await sendNotificationMessage(userId, senderPhone, '❌ המשימה כבר הסתיימה.');
+  } else {
+    await sendNotificationMessage(userId, senderPhone, '❌ לא ניתן למחוק - המשימה בסטטוס לא מתאים.');
+  }
   
   return true;
 }
