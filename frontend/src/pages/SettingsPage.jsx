@@ -66,6 +66,7 @@ export default function SettingsPage() {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'profile');
+  const [viewingAs, setViewingAs] = useState(null);
   
   // Notification preferences
   const [notifPrefs, setNotifPrefs] = useState(null);
@@ -87,6 +88,18 @@ export default function SettingsPage() {
       navigate('/login');
       return;
     }
+    
+    // Check if viewing as another account
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      if (payload.viewingAs) {
+        setViewingAs({
+          originalUserId: payload.viewingAs,
+          originalUserName: payload.originalUserName,
+        });
+      }
+    } catch (e) {}
+    
     loadProfile();
     
     // Check URL param for tab
@@ -773,6 +786,17 @@ export default function SettingsPage() {
 
             {/* Security Tab */}
             {activeTab === 'security' && (
+              viewingAs ? (
+                <div className="bg-orange-50 border border-orange-200 rounded-2xl p-6 text-center">
+                  <div className="w-14 h-14 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Shield className="w-7 h-7 text-orange-600" />
+                  </div>
+                  <h3 className="font-semibold text-gray-800 mb-2">אינך יכול לשנות סיסמה בעת צפייה בחשבון אחר</h3>
+                  <p className="text-sm text-gray-600">
+                    שינוי סיסמה זמין רק כשאתה מחובר לחשבון שלך.
+                  </p>
+                </div>
+              ) : (
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-4">
                   <h2 className="text-lg font-bold text-white flex items-center gap-2">
@@ -887,13 +911,28 @@ export default function SettingsPage() {
                   </div>
                 </form>
               </div>
+              )
             )}
 
             {/* Experts Tab */}
             {activeTab === 'experts' && (
               <div className="space-y-6">
-                <ExpertAccessManager />
-                <MyClientsManager />
+                {viewingAs ? (
+                  <div className="bg-orange-50 border border-orange-200 rounded-2xl p-6 text-center">
+                    <div className="w-14 h-14 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Shield className="w-7 h-7 text-orange-600" />
+                    </div>
+                    <h3 className="font-semibold text-gray-800 mb-2">אינך יכול לערוך גישות בעת צפייה בחשבון אחר</h3>
+                    <p className="text-sm text-gray-600">
+                      ניהול גישות זמין רק כשאתה מחובר לחשבון שלך.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <ExpertAccessManager />
+                    <MyClientsManager />
+                  </>
+                )}
               </div>
             )}
           </div>

@@ -50,6 +50,18 @@ export default function ReferralBonusBanner() {
   }, [timeLeft, show]);
   
   const checkShowBanner = async () => {
+    // Don't show if viewing as another account
+    const token = localStorage.getItem('accessToken');
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.viewingAs) {
+          setShow(false);
+          return;
+        }
+      } catch (e) {}
+    }
+
     // Check if user arrived via referral
     const referralCode = localStorage.getItem('referral_code');
     if (!referralCode) {
