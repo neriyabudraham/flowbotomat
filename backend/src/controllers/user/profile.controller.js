@@ -118,6 +118,8 @@ async function getSubscription(req, res) {
   try {
     const userId = req.user.id;
     
+    // Get the most recent subscription for user
+    // Include 'cancelled' status if it still has future expires_at or next_charge_date
     const result = await pool.query(`
       SELECT 
         us.*,
@@ -132,7 +134,14 @@ async function getSubscription(req, res) {
         sp.allow_export
       FROM user_subscriptions us
       LEFT JOIN subscription_plans sp ON sp.id = us.plan_id
-      WHERE us.user_id = $1 AND us.status = 'active'
+      WHERE us.user_id = $1 
+        AND (
+          us.status = 'active' 
+          OR (us.status = 'cancelled' AND (us.expires_at > NOW() OR us.next_charge_date > NOW()))
+          OR us.status = 'trial'
+        )
+      ORDER BY us.started_at DESC
+      LIMIT 1
     `, [userId]);
     
     if (result.rows.length === 0) {

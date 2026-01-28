@@ -24,12 +24,25 @@ async function getUsers(req, res) {
       paramIndex++;
     }
     
-    if (status === 'active') {
+    // User account status filters
+    if (status === 'user_active') {
       whereClause += ` AND u.is_active = true`;
-    } else if (status === 'inactive') {
+    } else if (status === 'user_inactive') {
       whereClause += ` AND u.is_active = false`;
     } else if (status === 'unverified') {
       whereClause += ` AND u.is_verified = false`;
+    }
+    // Subscription status filters
+    else if (status === 'active') {
+      whereClause += ` AND us.status = 'active' AND us.is_manual = false`;
+    } else if (status === 'trial') {
+      whereClause += ` AND (us.is_trial = true OR us.status = 'trial')`;
+    } else if (status === 'manual') {
+      whereClause += ` AND us.is_manual = true`;
+    } else if (status === 'cancelled') {
+      whereClause += ` AND us.status = 'cancelled'`;
+    } else if (status === 'free') {
+      whereClause += ` AND (us.id IS NULL OR sp.price = 0 OR sp.name = 'Free')`;
     }
     
     // Get total count

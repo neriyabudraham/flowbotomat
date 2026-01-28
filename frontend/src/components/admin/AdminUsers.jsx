@@ -21,7 +21,7 @@ export default function AdminUsers() {
   const [toast, setToast] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
 
-  const loadUsers = async (page = pagination.page) => {
+  const loadUsers = async (page = 1) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -30,13 +30,15 @@ export default function AdminUsers() {
       });
       if (search) params.append('search', search);
       if (roleFilter) params.append('role', roleFilter);
+      if (statusFilter) params.append('status', statusFilter);
       
       const { data } = await api.get(`/admin/users?${params}`);
       setUsers(data.users || []);
-      setPagination(prev => ({
-        ...prev,
-        ...data.pagination,
-      }));
+      setPagination({
+        page: data.pagination?.page || 1,
+        pages: data.pagination?.pages || 1,
+        total: data.pagination?.total || 0,
+      });
     } catch (err) {
       console.error('Failed to load users:', err);
       setUsers([]);
@@ -49,7 +51,7 @@ export default function AdminUsers() {
     if (currentUser) {
       loadUsers(1);
     }
-  }, [search, roleFilter, currentUser]);
+  }, [search, roleFilter, statusFilter, currentUser]);
   
   // Safety check - if no user, don't render
   if (!currentUser) {
@@ -204,9 +206,11 @@ export default function AdminUsers() {
           className="px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500"
         >
           <option value="">כל הסטטוסים</option>
-          <option value="active">פעיל</option>
+          <option value="active">מנוי פעיל</option>
           <option value="trial">תקופת ניסיון</option>
-          <option value="cancelled">מבוטל</option>
+          <option value="manual">מנוי ידני</option>
+          <option value="cancelled">מנוי מבוטל</option>
+          <option value="free">חינם</option>
         </select>
       </div>
 
@@ -359,7 +363,7 @@ export default function AdminUsers() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => loadUsers(pagination.page - 1)}
-                disabled={pagination.page <= 1}
+                disabled={pagination.page <= 1 || loading}
                 className="p-1.5 hover:bg-white rounded border border-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <ChevronRight className="w-4 h-4" />
@@ -369,7 +373,7 @@ export default function AdminUsers() {
               </span>
               <button
                 onClick={() => loadUsers(pagination.page + 1)}
-                disabled={pagination.page >= pagination.pages}
+                disabled={pagination.page >= pagination.pages || loading}
                 className="p-1.5 hover:bg-white rounded border border-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <ChevronLeft className="w-4 h-4" />
