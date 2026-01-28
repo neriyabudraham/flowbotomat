@@ -51,9 +51,10 @@ export default function MyClientsManager() {
       // Request new token for target account
       const { data } = await api.post(`/experts/switch/${clientId}`);
       
-      if (data.accessToken) {
-        setTokens(data.accessToken, data.refreshToken);
-        // Navigate to dashboard
+      if (data.token) {
+        // Set the new token (keep the same refresh token)
+        localStorage.setItem('accessToken', data.token);
+        // Navigate to dashboard with full page reload
         window.location.href = '/dashboard';
       }
     } catch (err) {
