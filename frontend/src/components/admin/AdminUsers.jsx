@@ -17,7 +17,6 @@ export default function AdminUsers() {
   const [statusFilter, setStatusFilter] = useState('');
   const [editingUser, setEditingUser] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
-  const [editSubscriptionUser, setEditSubscriptionUser] = useState(null);
   const [switching, setSwitching] = useState(null);
   const [toast, setToast] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
@@ -286,7 +285,7 @@ export default function AdminUsers() {
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <SubscriptionBadge user={u} onClick={() => setEditSubscriptionUser(u)} />
+                  <SubscriptionBadge user={u} onClick={(e) => { e.stopPropagation(); setSelectedUser(u); }} />
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-600">{u.bots_count || 0}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{u.contacts_count || 0}</td>
@@ -380,20 +379,17 @@ export default function AdminUsers() {
         )}
       </div>
 
-      {/* User Details Modal */}
+      {/* Unified User Card Modal */}
       {selectedUser && (
-        <UserDetailsModal user={selectedUser} onClose={() => setSelectedUser(null)} />
-      )}
-
-      {/* Edit Subscription Modal */}
-      {editSubscriptionUser && (
-        <EditSubscriptionModal 
-          user={editSubscriptionUser} 
-          onClose={() => setEditSubscriptionUser(null)}
+        <UnifiedUserModal 
+          user={selectedUser} 
+          onClose={() => setSelectedUser(null)}
           onSuccess={() => {
             loadUsers();
-            setEditSubscriptionUser(null);
+            setSelectedUser(null);
           }}
+          onSwitchAccount={(userId, userName) => handleSwitchToAccount(userId, userName)}
+          currentUserId={currentUser?.id}
         />
       )}
     </div>
@@ -512,98 +508,7 @@ function SubscriptionBadge({ user, onClick }) {
   );
 }
 
-function UserDetailsModal({ user, onClose }) {
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-2xl p-6 max-w-lg w-full mx-4" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold">פרטי משתמש</h3>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm text-gray-500">שם</label>
-              <div className="font-medium">{user.name || 'לא צוין'}</div>
-            </div>
-            <div>
-              <label className="text-sm text-gray-500">מייל</label>
-              <div className="font-medium">{user.email}</div>
-            </div>
-            <div>
-              <label className="text-sm text-gray-500">תפקיד</label>
-              <div><RoleBadge role={user.role} /></div>
-            </div>
-            <div>
-              <label className="text-sm text-gray-500">תוכנית</label>
-              <div>
-                {user.plan_name_he || user.plan_name || 'חינמי'}
-                {user.is_manual && <span className="text-xs text-purple-600 mr-1">(ידני)</span>}
-              </div>
-            </div>
-            <div>
-              <label className="text-sm text-gray-500">בוטים</label>
-              <div className="font-medium">{user.bots_count || 0}</div>
-            </div>
-            <div>
-              <label className="text-sm text-gray-500">אנשי קשר</label>
-              <div className="font-medium">{user.contacts_count || 0}</div>
-            </div>
-            <div>
-              <label className="text-sm text-gray-500">נוצר</label>
-              <div className="font-medium">{new Date(user.created_at).toLocaleString('he-IL')}</div>
-            </div>
-            <div>
-              <label className="text-sm text-gray-500">סטטוס</label>
-              <div className="flex gap-1">
-                {user.is_verified ? (
-                  <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">מאומת</span>
-                ) : (
-                  <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs">לא מאומת</span>
-                )}
-                {user.is_active ? (
-                  <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">פעיל</span>
-                ) : (
-                  <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs">מושבת</span>
-                )}
-              </div>
-            </div>
-            {user.expires_at && (
-              <div className="col-span-2">
-                <label className="text-sm text-gray-500">תאריך תפוגה</label>
-                <div className="font-medium">{new Date(user.expires_at).toLocaleDateString('he-IL')}</div>
-              </div>
-            )}
-            {user.started_at && (
-              <div className="col-span-2">
-                <label className="text-sm text-gray-500">תחילת מנוי</label>
-                <div className="font-medium">{new Date(user.started_at).toLocaleDateString('he-IL')}</div>
-              </div>
-            )}
-            {user.referred_by_name && (
-              <div className="col-span-2">
-                <label className="text-sm text-gray-500">הגיע דרך</label>
-                <div className="font-medium flex items-center gap-2">
-                  <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">שותף</span>
-                  {user.referred_by_name}
-                  <span className="text-gray-500 text-sm">({user.referred_by_email})</span>
-                  {user.referral_status === 'converted' && (
-                    <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">הומר</span>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function EditSubscriptionModal({ user, onClose, onSuccess }) {
+function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUserId }) {
   const [plans, setPlans] = useState([]);
   const [affiliates, setAffiliates] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -772,7 +677,7 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-2xl p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         
         {/* Toast Notification */}
         {toast && (
@@ -816,184 +721,199 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
           </div>
         )}
 
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold flex items-center gap-2">
-            <CreditCard className="w-5 h-5 text-blue-600" />
-            עריכת מנוי - {user.name || user.email}
-          </h3>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
-            <X className="w-5 h-5" />
+        {/* User Profile Header */}
+        <div className="relative mb-6">
+          {/* Close Button */}
+          <button 
+            onClick={onClose} 
+            className="absolute top-0 left-0 p-2 hover:bg-gray-100 rounded-full z-10"
+          >
+            <X className="w-5 h-5 text-gray-500" />
           </button>
-        </div>
-
-        {/* Current Status Panel */}
-        <div className="mb-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
-          <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-            <Eye className="w-4 h-4" />
-            מצב נוכחי
-          </h4>
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            {/* Subscription Type */}
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500">סוג:</span>
-              <span className={`px-2 py-0.5 rounded-full font-medium ${
-                user.is_manual 
-                  ? 'bg-purple-100 text-purple-700' 
-                  : user.subscription_status === 'trial' || user.is_trial
-                    ? 'bg-cyan-100 text-cyan-700'
-                    : user.subscription_status === 'active'
-                      ? 'bg-green-100 text-green-700'
-                      : user.subscription_status === 'cancelled'
-                        ? 'bg-orange-100 text-orange-700'
-                        : 'bg-gray-100 text-gray-700'
-              }`}>
-                {user.is_manual 
-                  ? 'ידני' 
-                  : user.subscription_status === 'trial' || user.is_trial
-                    ? 'ניסיון'
-                    : user.subscription_status === 'active'
-                      ? 'פעיל'
-                      : user.subscription_status === 'cancelled'
-                        ? 'מבוטל'
-                        : user.subscription_status === 'expired'
-                          ? 'פג תוקף'
-                          : 'חינם'
-                }
-              </span>
-            </div>
-            
-            {/* Plan */}
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500">תוכנית:</span>
-              <span className="font-medium text-gray-800">{user.plan_name_he || user.plan_name || 'חינם'}</span>
-            </div>
-            
-            {/* Payment Method */}
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500">כרטיס:</span>
-              {user.has_payment_method ? (
-                <span className="flex items-center gap-1 text-green-600">
-                  <Check className="w-3 h-3" />
-                  ****{user.card_last_digits || '????'}
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-red-500">
-                  <X className="w-3 h-3" />
-                  אין כרטיס
-                </span>
+          
+          {/* Profile Card */}
+          <div className="bg-gradient-to-br from-purple-500 to-indigo-600 rounded-2xl p-6 text-white">
+            <div className="flex items-start gap-4">
+              {/* Avatar */}
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold ${
+                user.subscription_status === 'active' && !user.is_manual ? 'bg-green-400' :
+                user.is_manual ? 'bg-purple-300' :
+                user.subscription_status === 'trial' ? 'bg-cyan-400' :
+                'bg-gray-300'
+              } text-white shadow-lg`}>
+                {(user.name || user.email || '?')[0].toUpperCase()}
+              </div>
+              
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <h2 className="text-xl font-bold truncate">{user.name || 'ללא שם'}</h2>
+                <p className="text-purple-100 text-sm truncate">{user.email}</p>
+                
+                {/* Badges */}
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                    user.is_manual ? 'bg-purple-300/30 text-white' :
+                    user.subscription_status === 'active' ? 'bg-green-400/30 text-white' :
+                    user.subscription_status === 'trial' ? 'bg-cyan-400/30 text-white' :
+                    user.subscription_status === 'cancelled' ? 'bg-orange-400/30 text-white' :
+                    'bg-white/20 text-white'
+                  }`}>
+                    {user.is_manual ? 'ידני' :
+                     user.subscription_status === 'active' ? 'פעיל' :
+                     user.subscription_status === 'trial' ? 'ניסיון' :
+                     user.subscription_status === 'cancelled' ? 'מבוטל' : 'חינם'}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-white/20 text-white">
+                    {user.plan_name_he || user.plan_name || 'Free'}
+                  </span>
+                  <RoleBadge role={user.role} />
+                </div>
+              </div>
+              
+              {/* Switch Account Button */}
+              {currentUserId !== user.id && (
+                <button
+                  onClick={() => onSwitchAccount(user.id, user.name || user.email)}
+                  className="px-3 py-2 bg-white/20 hover:bg-white/30 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  עבור לחשבון
+                </button>
               )}
-            </div>
-            
-            {/* Standing Order */}
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500">הוראת קבע:</span>
-              {user.sumit_standing_order_id ? (
-                <span className="flex items-center gap-1 text-green-600">
-                  <Check className="w-3 h-3" />
-                  פעיל
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-gray-400">
-                  <X className="w-3 h-3" />
-                  אין
-                </span>
-              )}
-            </div>
-            
-            {/* Expiry / Next Charge */}
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500">
-                {user.is_manual ? 'תפוגה:' : (user.is_trial || user.subscription_status === 'trial') ? 'סיום ניסיון:' : 'חיוב הבא:'}
-              </span>
-              <span className={`font-medium ${
-                user.expires_at || user.trial_ends_at || user.next_charge_date
-                  ? new Date(user.expires_at || user.trial_ends_at || user.next_charge_date) < new Date()
-                    ? 'text-red-600'
-                    : 'text-gray-800'
-                  : 'text-gray-400'
-              }`}>
-                {user.is_manual && !user.expires_at
-                  ? 'ללא הגבלה ∞'
-                  : user.expires_at 
-                    ? new Date(user.expires_at).toLocaleDateString('he-IL')
-                    : user.trial_ends_at
-                      ? new Date(user.trial_ends_at).toLocaleDateString('he-IL')
-                      : user.next_charge_date
-                        ? new Date(user.next_charge_date).toLocaleDateString('he-IL')
-                        : 'לא הוגדר'
-                }
-              </span>
-            </div>
-            
-            {/* Price */}
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500">מחיר:</span>
-              <span className="font-medium text-gray-800">
-                {user.is_manual 
-                  ? 'ללא תשלום'
-                  : user.custom_fixed_price
-                    ? `₪${user.custom_fixed_price} (מותאם)`
-                    : user.custom_discount_percent
-                      ? `₪${Math.round(user.plan_price * (1 - user.custom_discount_percent / 100))} (${user.custom_discount_percent}% הנחה)`
-                      : user.plan_price
-                        ? `₪${user.plan_price}/${user.billing_period === 'yearly' ? 'שנה' : 'חודש'}`
-                        : 'חינם'
-                }
-              </span>
             </div>
           </div>
           
-          {/* Admin Notes */}
+          {/* Quick Stats */}
+          <div className="grid grid-cols-4 gap-3 -mt-4 mx-4">
+            <div className="bg-white rounded-xl shadow-md p-3 text-center">
+              <div className="text-lg font-bold text-gray-800">{user.bots_count || 0}</div>
+              <div className="text-xs text-gray-500">בוטים</div>
+            </div>
+            <div className="bg-white rounded-xl shadow-md p-3 text-center">
+              <div className="text-lg font-bold text-gray-800">{user.contacts_count || 0}</div>
+              <div className="text-xs text-gray-500">אנשי קשר</div>
+            </div>
+            <div className="bg-white rounded-xl shadow-md p-3 text-center">
+              {user.has_payment_method ? (
+                <div className="text-lg font-bold text-green-600">✓</div>
+              ) : (
+                <div className="text-lg font-bold text-gray-400">✗</div>
+              )}
+              <div className="text-xs text-gray-500">כרטיס</div>
+            </div>
+            <div className="bg-white rounded-xl shadow-md p-3 text-center">
+              {user.sumit_standing_order_id ? (
+                <div className="text-lg font-bold text-green-600">✓</div>
+              ) : (
+                <div className="text-lg font-bold text-gray-400">✗</div>
+              )}
+              <div className="text-xs text-gray-500">הו״ק</div>
+            </div>
+          </div>
+        </div>
+
+        {/* User Details Grid */}
+        <div className="grid grid-cols-2 gap-3 mb-6 p-4 bg-gray-50 rounded-xl text-sm">
+          <div>
+            <span className="text-gray-500">נרשם:</span>
+            <span className="font-medium text-gray-800 mr-1">{new Date(user.created_at).toLocaleDateString('he-IL')}</span>
+          </div>
+          <div>
+            <span className="text-gray-500">סטטוס:</span>
+            <span className="mr-1">
+              {user.is_verified ? (
+                <span className="text-green-600">מאומת ✓</span>
+              ) : (
+                <span className="text-yellow-600">לא מאומת</span>
+              )}
+            </span>
+          </div>
+          <div>
+            <span className="text-gray-500">מחיר:</span>
+            <span className="font-medium text-gray-800 mr-1">
+              {user.is_manual ? 'ללא תשלום' :
+               user.custom_fixed_price ? `₪${user.custom_fixed_price}` :
+               user.plan_price ? `₪${user.plan_price}` : 'חינם'}
+            </span>
+          </div>
+          <div>
+            <span className="text-gray-500">
+              {user.is_manual ? 'תפוגה:' : 'חיוב הבא:'}
+            </span>
+            <span className={`font-medium mr-1 ${
+              (user.expires_at || user.next_charge_date) && 
+              new Date(user.expires_at || user.next_charge_date) < new Date()
+                ? 'text-red-600' : 'text-gray-800'
+            }`}>
+              {user.is_manual && !user.expires_at ? '∞' :
+               user.expires_at ? new Date(user.expires_at).toLocaleDateString('he-IL') :
+               user.next_charge_date ? new Date(user.next_charge_date).toLocaleDateString('he-IL') : 
+               '-'}
+            </span>
+          </div>
+          {user.referred_by_name && (
+            <div className="col-span-2">
+              <span className="text-gray-500">הגיע דרך שותף:</span>
+              <span className="font-medium text-purple-600 mr-1">{user.referred_by_name}</span>
+            </div>
+          )}
           {user.admin_notes && (
-            <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <p className="text-xs text-yellow-800">
-                <strong>הערת מנהל:</strong> {user.admin_notes}
-              </p>
+            <div className="col-span-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <span className="text-yellow-800 text-xs">
+                <strong>הערה:</strong> {user.admin_notes}
+              </span>
             </div>
           )}
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 mb-4 p-1 bg-gray-100 rounded-xl">
-          <button
-            onClick={() => setActiveTab('subscription')}
-            className={`flex-1 px-2 py-2 text-xs rounded-lg transition-colors ${
-              activeTab === 'subscription' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-600 hover:text-gray-800'
-            }`}
-          >
-            מנוי
-          </button>
-          <button
-            onClick={() => setActiveTab('payments')}
-            className={`flex-1 px-2 py-2 text-xs rounded-lg transition-colors ${
-              activeTab === 'payments' ? 'bg-white shadow text-cyan-600 font-medium' : 'text-gray-600 hover:text-gray-800'
-            }`}
-          >
-            תשלומים
-          </button>
-          <button
-            onClick={() => setActiveTab('discount')}
-            className={`flex-1 px-2 py-2 text-xs rounded-lg transition-colors ${
-              activeTab === 'discount' ? 'bg-white shadow text-green-600 font-medium' : 'text-gray-600 hover:text-gray-800'
-            }`}
-          >
-            הנחה
-          </button>
-          <button
-            onClick={() => setActiveTab('referral')}
-            className={`flex-1 px-2 py-2 text-xs rounded-lg transition-colors ${
-              activeTab === 'referral' ? 'bg-white shadow text-purple-600 font-medium' : 'text-gray-600 hover:text-gray-800'
-            }`}
-          >
-            שותף
-          </button>
-          <button
-            onClick={() => setActiveTab('features')}
-            className={`flex-1 px-2 py-2 text-xs rounded-lg transition-colors ${
-              activeTab === 'features' ? 'bg-white shadow text-orange-600 font-medium' : 'text-gray-600 hover:text-gray-800'
-            }`}
-          >
-            פיצ׳רים
+        {/* Edit Section */}
+        <div className="px-6 pb-6">
+          <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+            <Edit className="w-5 h-5 text-purple-600" />
+            עריכת הגדרות
+          </h3>
+          
+          {/* Tabs */}
+          <div className="flex gap-1 mb-4 p-1 bg-gray-100 rounded-xl">
+            <button
+              onClick={() => setActiveTab('subscription')}
+              className={`flex-1 px-3 py-2.5 text-sm rounded-lg transition-colors ${
+                activeTab === 'subscription' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              מנוי
+            </button>
+            <button
+              onClick={() => setActiveTab('payments')}
+              className={`flex-1 px-3 py-2.5 text-sm rounded-lg transition-colors ${
+                activeTab === 'payments' ? 'bg-white shadow text-cyan-600 font-medium' : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              תשלומים
+            </button>
+            <button
+              onClick={() => setActiveTab('discount')}
+              className={`flex-1 px-3 py-2.5 text-sm rounded-lg transition-colors ${
+                activeTab === 'discount' ? 'bg-white shadow text-green-600 font-medium' : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              הנחה
+            </button>
+            <button
+              onClick={() => setActiveTab('referral')}
+              className={`flex-1 px-3 py-2.5 text-sm rounded-lg transition-colors ${
+                activeTab === 'referral' ? 'bg-white shadow text-purple-600 font-medium' : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              שותף
+            </button>
+            <button
+              onClick={() => setActiveTab('features')}
+              className={`flex-1 px-3 py-2.5 text-sm rounded-lg transition-colors ${
+                activeTab === 'features' ? 'bg-white shadow text-orange-600 font-medium' : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              פיצ׳רים
           </button>
         </div>
 
@@ -1853,20 +1773,21 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
             <div className="flex gap-3 pt-4 border-t border-gray-200">
               <button
                 onClick={onClose}
-                className="flex-1 px-4 py-2 border border-gray-200 rounded-xl hover:bg-gray-50"
+                className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 font-medium"
               >
-                ביטול
+                סגור
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving || !formData.planId}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50"
+                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 font-medium"
               >
-                {saving ? 'שומר...' : 'שמירה'}
+                {saving ? 'שומר...' : 'שמור שינויים'}
               </button>
             </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
