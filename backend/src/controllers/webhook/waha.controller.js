@@ -156,13 +156,17 @@ async function handleIncomingMessage(userId, event) {
   
   // Process with bot engine
   try {
+    const chatId = payload.from || payload.chatId;
+    const isGroupMessage = chatId?.includes('@g.us') || false;
+    
     await botEngine.processMessage(
       userId, 
       phone, 
       messageData.content, 
       messageData.type, 
       messageData.selectedRowId,
-      messageData.quotedListTitle // Pass the original list title for verification
+      messageData.quotedListTitle, // Pass the original list title for verification
+      isGroupMessage // Pass whether this is a group message
     );
   } catch (botError) {
     console.error('[Webhook] Bot engine error:', botError);

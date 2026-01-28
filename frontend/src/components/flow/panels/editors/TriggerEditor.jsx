@@ -588,7 +588,7 @@ export default function TriggerEditor({ data, onUpdate }) {
             <span className="font-semibold text-gray-800">הגדרות כלליות</span>
           </div>
           
-          <div className="bg-gray-50 rounded-xl p-4">
+          <div className="bg-gray-50 rounded-xl p-4 space-y-4">
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -601,6 +601,21 @@ export default function TriggerEditor({ data, onUpdate }) {
                 <div className="text-xs text-gray-500">כל הודעה במסגרת הבוט תסומן כנקראה</div>
               </div>
             </label>
+
+            <div className="border-t border-gray-200 pt-4">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={data.allowGroupMessages || false}
+                  onChange={(e) => onUpdate({ allowGroupMessages: e.target.checked })}
+                  className="w-5 h-5 mt-0.5 rounded border-gray-300 text-purple-600"
+                />
+                <div>
+                  <div className="font-medium text-gray-700">הפעל גם בקבוצות</div>
+                  <div className="text-xs text-gray-500">כברירת מחדל הבוט מגיב רק להודעות ישירות. סמן כדי להגיב גם להודעות בקבוצות</div>
+                </div>
+              </label>
+            </div>
           </div>
         </div>
       )}

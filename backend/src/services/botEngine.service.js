@@ -68,13 +68,14 @@ class BotEngine {
   }
   
   // Process incoming message
-  async processMessage(userId, contactPhone, message, messageType = 'text', selectedRowId = null, quotedListTitle = null) {
+  async processMessage(userId, contactPhone, message, messageType = 'text', selectedRowId = null, quotedListTitle = null, isGroupMessage = false) {
     console.log('[BotEngine] ========================================');
     console.log('[BotEngine] Processing message from:', contactPhone);
     console.log('[BotEngine] Message:', message);
     console.log('[BotEngine] Message type:', messageType);
     console.log('[BotEngine] Selected row ID:', selectedRowId);
     console.log('[BotEngine] Quoted list title:', quotedListTitle);
+    console.log('[BotEngine] Is group message:', isGroupMessage);
     console.log('[BotEngine] User ID:', userId);
     
     try {
@@ -219,6 +220,14 @@ class BotEngine {
       const triggerNode = flowData.nodes.find(n => n.type === 'trigger');
       if (!triggerNode) {
         console.log('[BotEngine] No trigger node in bot:', bot.id);
+        return;
+      }
+      
+      // Check if bot should respond to group messages
+      // By default, bots only respond to direct messages
+      const allowGroupMessages = triggerNode.data.allowGroupMessages || false;
+      if (isGroupMessage && !allowGroupMessages) {
+        console.log('[BotEngine] Ignoring group message - allowGroupMessages is disabled for bot:', bot.name);
         return;
       }
       
