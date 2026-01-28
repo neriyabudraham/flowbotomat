@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Bot, LogOut, ChevronLeft, Eye, Edit, BarChart3, X, AlertTriangle } from 'lucide-react';
+import { Users, Bot, LogOut, ChevronLeft, Eye, Edit, BarChart3, X, AlertTriangle, ArrowLeftRight } from 'lucide-react';
 import api from '../../services/api';
+import useAuthStore from '../../store/authStore';
 
 export default function MyClientsManager() {
   const navigate = useNavigate();
+  const { setTokens } = useAuthStore();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [switching, setSwitching] = useState(null);
   const [leaveModal, setLeaveModal] = useState(null); // { clientId, clientName }
 
   useEffect(() => {
@@ -33,6 +36,29 @@ export default function MyClientsManager() {
       setLeaveModal(null);
     } catch (err) {
       alert(err.response?.data?.error || 'שגיאה ביציאה');
+    }
+  };
+
+  const handleSwitchAccount = async (clientId) => {
+    setSwitching(clientId);
+    try {
+      // Store current token as original
+      const currentToken = localStorage.getItem('accessToken');
+      if (currentToken && !localStorage.getItem('originalAccessToken')) {
+        localStorage.setItem('originalAccessToken', currentToken);
+      }
+      
+      // Request new token for target account
+      const { data } = await api.post(`/experts/switch/${clientId}`);
+      
+      if (data.accessToken) {
+        setTokens(data.accessToken, data.refreshToken);
+        // Navigate to dashboard
+        window.location.href = '/dashboard';
+      }
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה במעבר לחשבון');
+      setSwitching(null);
     }
   };
 
@@ -102,11 +128,12 @@ export default function MyClientsManager() {
               
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => navigate(`/clients/${client.client_id}/bots`)}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                  onClick={() => handleSwitchAccount(client.client_id)}
+                  disabled={switching === client.client_id}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
                 >
-                  <Bot className="w-4 h-4" />
-                  נהל בוטים
+                  <ArrowLeftRight className="w-4 h-4" />
+                  {switching === client.client_id ? 'עובר...' : 'עבור לחשבון'}
                   <ChevronLeft className="w-4 h-4" />
                 </button>
                 <button
