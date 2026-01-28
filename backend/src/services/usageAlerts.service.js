@@ -84,10 +84,17 @@ async function checkUserUsage(userId) {
       
       const percentage = Math.round((data.used / data.limit) * 100);
       
+      // Find the highest applicable threshold (to avoid sending multiple emails)
+      let highestThreshold = null;
       for (const threshold of ALERT_THRESHOLDS) {
         if (percentage >= threshold) {
-          await createAlertIfNeeded(user, data, threshold, percentage, limits.plan_name);
+          highestThreshold = threshold;
         }
+      }
+      
+      // Only create alert for the highest threshold reached
+      if (highestThreshold !== null) {
+        await createAlertIfNeeded(user, data, highestThreshold, percentage, limits.plan_name);
       }
     }
     
