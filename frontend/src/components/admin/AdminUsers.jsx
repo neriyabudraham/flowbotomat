@@ -487,6 +487,8 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
   const [activeTab, setActiveTab] = useState('subscription'); // 'subscription' | 'discount' | 'referral' | 'features'
   const [featureOverrides, setFeatureOverrides] = useState(null);
   const [savingFeatures, setSavingFeatures] = useState(false);
+  const [toast, setToast] = useState(null); // { type: 'success' | 'error', message: string }
+  const [confirmModal, setConfirmModal] = useState(null); // { message: string, onConfirm: function }
   const [formData, setFormData] = useState({
     planId: '',
     status: user.subscription_status || 'active',
@@ -538,37 +540,54 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
     }
   };
 
+  const showToast = (type, message) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 3000);
+  };
+
   const handleSaveFeatures = async () => {
     setSavingFeatures(true);
     try {
-      await api.put(`/admin/users/${user.id}/feature-overrides`, {
+      console.log('[Admin] Saving feature overrides:', featureOverrides);
+      const response = await api.put(`/admin/users/${user.id}/feature-overrides`, {
         feature_overrides: featureOverrides
       });
-      alert('הגדרות הפיצ\'רים עודכנו בהצלחה');
+      console.log('[Admin] Save response:', response.data);
+      showToast('success', 'הגדרות הפיצ\'רים עודכנו בהצלחה');
+      // Reload to verify saved correctly
+      const overridesRes = await api.get(`/admin/users/${user.id}/feature-overrides`);
+      console.log('[Admin] Reloaded overrides:', overridesRes.data.feature_overrides);
+      setFeatureOverrides(overridesRes.data.feature_overrides || null);
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בעדכון הגדרות');
+      showToast('error', err.response?.data?.error || 'שגיאה בעדכון הגדרות');
     } finally {
       setSavingFeatures(false);
     }
   };
 
   const clearFeatureOverrides = async () => {
-    if (!confirm('האם למחוק את כל ההגדרות המותאמות? המשתמש יקבל את הגדרות התוכנית שלו')) return;
-    setSavingFeatures(true);
-    try {
-      await api.put(`/admin/users/${user.id}/feature-overrides`, {
-        feature_overrides: null
-      });
-      setFeatureOverrides(null);
-      alert('ההגדרות המותאמות נמחקו');
-    } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה במחיקת הגדרות');
-    } finally {
-      setSavingFeatures(false);
-    }
+    setConfirmModal({
+      message: 'האם למחוק את כל ההגדרות המותאמות? המשתמש יקבל את הגדרות התוכנית שלו',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        setSavingFeatures(true);
+        try {
+          await api.put(`/admin/users/${user.id}/feature-overrides`, {
+            feature_overrides: null
+          });
+          setFeatureOverrides(null);
+          showToast('success', 'ההגדרות נמחקו');
+        } catch (err) {
+          showToast('error', err.response?.data?.error || 'שגיאה במחיקת הגדרות');
+        } finally {
+          setSavingFeatures(false);
+        }
+      }
+    });
   };
 
   const updateFeatureOverride = (key, value) => {
+    console.log('[Admin] updateFeatureOverride:', key, '=', value, 'type:', typeof value);
     setFeatureOverrides(prev => {
       const newOverrides = { ...(prev || {}) };
       if (value === null || value === undefined || value === '') {
@@ -576,6 +595,7 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
       } else {
         newOverrides[key] = value;
       }
+      console.log('[Admin] New overrides:', newOverrides);
       // If object is empty, set to null
       return Object.keys(newOverrides).length === 0 ? null : newOverrides;
     });
@@ -603,7 +623,7 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
       });
       onSuccess();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בעדכון מנוי');
+      showToast('error', err.response?.data?.error || 'שגיאה בעדכון מנוי');
     } finally {
       setSaving(false);
     }
@@ -612,6 +632,49 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
       <div className="bg-white rounded-2xl p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        
+        {/* Toast Notification */}
+        {toast && (
+          <div className={`fixed top-4 left-1/2 -translate-x-1/2 px-4 py-3 rounded-xl shadow-lg z-[60] flex items-center gap-2 ${
+            toast.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+          }`}>
+            {toast.type === 'success' ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            )}
+            <span>{toast.message}</span>
+          </div>
+        )}
+
+        {/* Confirm Modal */}
+        {confirmModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]" onClick={() => setConfirmModal(null)}>
+            <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
+              <h3 className="text-lg font-semibold mb-4">אישור</h3>
+              <p className="text-gray-600 mb-6">{confirmModal.message}</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmModal(null)}
+                  className="flex-1 px-4 py-2 border border-gray-200 rounded-xl hover:bg-gray-50"
+                >
+                  ביטול
+                </button>
+                <button
+                  onClick={confirmModal.onConfirm}
+                  className="flex-1 px-4 py-2 bg-red-500 text-white rounded-xl hover:bg-red-600"
+                >
+                  אישור
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold flex items-center gap-2">
             <CreditCard className="w-5 h-5 text-blue-600" />
