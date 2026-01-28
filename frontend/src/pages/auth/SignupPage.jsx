@@ -1,10 +1,11 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   Bot, Sparkles, Shield, Zap, ChevronLeft, Mail, Lock, Eye, EyeOff, User,
-  MessageCircle, Users, TrendingUp, ArrowRight, CheckCircle, Check, Gift, Clock
+  MessageCircle, Users, TrendingUp, ArrowRight, CheckCircle, Check, Gift, Clock, Link2
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
+import api from '../../services/api';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
@@ -20,6 +21,7 @@ const GoogleIcon = () => (
 
 export default function SignupPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { signup, isLoading, error, clearError, setTokens } = useAuthStore();
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [acceptPrivacy, setAcceptPrivacy] = useState(false);
@@ -27,6 +29,30 @@ export default function SignupPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [focusedField, setFocusedField] = useState(null);
   const [googleLoading, setGoogleLoading] = useState(false);
+  
+  // Account linking
+  const [linkCode, setLinkCode] = useState(null);
+  const [linkParentName, setLinkParentName] = useState(null);
+  const [linkValidating, setLinkValidating] = useState(false);
+
+  // Validate link code on mount
+  useEffect(() => {
+    const code = searchParams.get('link');
+    if (code) {
+      setLinkValidating(true);
+      api.get(`/experts/validate-link/${code}`)
+        .then(({ data }) => {
+          if (data.valid) {
+            setLinkCode(code);
+            setLinkParentName(data.parentName);
+          }
+        })
+        .catch(() => {
+          // Invalid or expired code - just ignore
+        })
+        .finally(() => setLinkValidating(false));
+    }
+  }, [searchParams]);
 
   const handleGoogleSignup = () => {
     if (!GOOGLE_CLIENT_ID) {
@@ -50,8 +76,11 @@ export default function SignupPage() {
     
     console.log('[Signup] Referral check:', { referralCode, isValidByExpiry, isValidByTimestamp, isValidReferral });
     
-    // Build state with referral code
-    const state = isValidReferral ? JSON.stringify({ referral: referralCode }) : '';
+    // Build state with referral code and link code
+    const stateObj = {};
+    if (isValidReferral) stateObj.referral = referralCode;
+    if (linkCode) stateObj.linkCode = linkCode;
+    const state = Object.keys(stateObj).length > 0 ? JSON.stringify(stateObj) : '';
     
     // Build Google OAuth URL - redirect directly (no popup)
     const redirectUri = `${window.location.origin}/api/auth/google/callback`;
@@ -97,7 +126,7 @@ export default function SignupPage() {
         isValidReferral 
       });
       
-      await signup(form.email, form.password, form.name, isValidReferral ? referralCode : null);
+      await signup(form.email, form.password, form.name, isValidReferral ? referralCode : null, linkCode);
       navigate('/verify', { state: { email: form.email } });
     } catch {}
   };
@@ -170,6 +199,23 @@ export default function SignupPage() {
               הצטרף לאלפי עסקים שכבר משתמשים ב-FlowBotomat
             </p>
           </div>
+
+          {/* Linked Account Banner */}
+          {linkCode && linkParentName && (
+            <div className="mb-6 p-4 bg-purple-50 border border-purple-200 rounded-2xl">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <Link2 className="w-5 h-5 text-purple-600" />
+                </div>
+                <div>
+                  <p className="text-purple-800 font-medium text-sm">חשבון מקושר</p>
+                  <p className="text-purple-600 text-sm">
+                    החשבון יקושר אוטומטית ל-<strong>{linkParentName}</strong>
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Error Alerts */}
           {error && (

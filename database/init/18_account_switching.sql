@@ -32,6 +32,21 @@ CREATE TABLE IF NOT EXISTS linked_accounts (
 CREATE INDEX IF NOT EXISTS idx_linked_accounts_parent ON linked_accounts(parent_user_id);
 CREATE INDEX IF NOT EXISTS idx_linked_accounts_child ON linked_accounts(child_user_id);
 
+-- Account link codes table - for generating registration links
+CREATE TABLE IF NOT EXISTS account_link_codes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    code VARCHAR(32) NOT NULL UNIQUE,
+    parent_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    used_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    expires_at TIMESTAMP NOT NULL,
+    used_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_link_codes_code ON account_link_codes(code);
+CREATE INDEX IF NOT EXISTS idx_account_link_codes_parent ON account_link_codes(parent_user_id);
+
 -- Comments
 COMMENT ON COLUMN expert_clients.status IS 'Access request status: pending, approved, rejected';
 COMMENT ON TABLE linked_accounts IS 'Tracks accounts created by other accounts - the child is a separate account but linked to parent';
+COMMENT ON TABLE account_link_codes IS 'Temporary codes for linking new accounts during registration';

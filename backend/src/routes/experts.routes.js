@@ -19,15 +19,19 @@ const {
   rejectRequest,
   getAccessibleAccounts,
   switchAccount,
-  createLinkedAccount,
+  generateLinkCode,
+  validateLinkCode,
 } = require('../controllers/experts/experts.controller');
+
+// Public route - validate link code (no auth required)
+router.get('/validate-link/:code', validateLinkCode);
 
 router.use(authMiddleware);
 
 // Account switcher
 router.get('/accessible-accounts', getAccessibleAccounts);
 router.post('/switch/:targetUserId', switchAccount);
-router.post('/create-linked-account', createLinkedAccount);
+router.post('/generate-link-code', generateLinkCode);
 
 // As client - manage who has access to my account
 router.get('/my-experts', getMyExperts);

@@ -809,86 +809,117 @@ async function switchAccount(req, res) {
 }
 
 /**
- * Create a new linked account
+ * Generate a link code for creating linked accounts
  */
-async function createLinkedAccount(req, res) {
+async function generateLinkCode(req, res) {
   try {
     const parentUserId = req.user.id;
-    const { email, name, password } = req.body;
     
-    if (!email || !password) {
-      return res.status(400).json({ error: 'נדרש אימייל וסיסמה' });
-    }
+    // Generate a random 16-character code
+    const code = crypto.randomBytes(8).toString('hex');
     
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'הסיסמה חייבת להכיל לפחות 6 תווים' });
-    }
+    // Code expires in 24 hours
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     
-    // Check if email already exists
-    const existingUser = await db.query(
-      'SELECT id FROM users WHERE email = $1',
-      [email.toLowerCase()]
+    // Save to database
+    await db.query(
+      `INSERT INTO account_link_codes (code, parent_user_id, expires_at)
+       VALUES ($1, $2, $3)`,
+      [code, parentUserId, expiresAt]
     );
     
-    if (existingUser.rows.length > 0) {
-      return res.status(400).json({ error: 'אימייל זה כבר רשום במערכת' });
-    }
+    console.log(`[Experts] ${parentUserId} generated link code: ${code}`);
     
-    // Create password hash
-    const passwordHash = await bcrypt.hash(password, 10);
+    res.json({
+      success: true,
+      code,
+      expiresAt
+    });
+  } catch (error) {
+    console.error('[Experts] Generate link code error:', error);
+    res.status(500).json({ error: 'שגיאה ביצירת קוד' });
+  }
+}
+
+/**
+ * Validate a link code (called during registration)
+ */
+async function validateLinkCode(req, res) {
+  try {
+    const { code } = req.params;
     
-    // Create new user
-    const newUserResult = await db.query(
-      `INSERT INTO users (email, name, password_hash, is_verified, verified_at)
-       VALUES ($1, $2, $3, true, NOW())
-       RETURNING id, email, name`,
-      [email.toLowerCase(), name || '', passwordHash]
+    const result = await db.query(
+      `SELECT alc.*, u.name as parent_name, u.email as parent_email
+       FROM account_link_codes alc
+       JOIN users u ON alc.parent_user_id = u.id
+       WHERE alc.code = $1 AND alc.expires_at > NOW() AND alc.used_at IS NULL`,
+      [code]
     );
     
-    const newUser = newUserResult.rows[0];
-    
-    // Create free subscription for new user
-    try {
-      const planResult = await db.query(
-        `SELECT id FROM subscription_plans WHERE name = 'Free' AND is_active = true LIMIT 1`
-      );
-      
-      if (planResult.rows.length > 0) {
-        await db.query(
-          `INSERT INTO user_subscriptions (user_id, plan_id, status, is_trial, billing_period)
-           VALUES ($1, $2, 'active', false, 'monthly')`,
-          [newUser.id, planResult.rows[0].id]
-        );
-      }
-    } catch (subErr) {
-      console.error('[Experts] Failed to create subscription for linked account:', subErr);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'קוד לא תקף או פג תוקף' });
     }
+    
+    const linkCode = result.rows[0];
+    
+    res.json({
+      valid: true,
+      parentName: linkCode.parent_name || linkCode.parent_email
+    });
+  } catch (error) {
+    console.error('[Experts] Validate link code error:', error);
+    res.status(500).json({ error: 'שגיאה באימות קוד' });
+  }
+}
+
+/**
+ * Complete account linking after registration (called from auth controller)
+ */
+async function completeLinking(userId, linkCode) {
+  try {
+    // Get the link code
+    const codeResult = await db.query(
+      `SELECT * FROM account_link_codes 
+       WHERE code = $1 AND expires_at > NOW() AND used_at IS NULL`,
+      [linkCode]
+    );
+    
+    if (codeResult.rows.length === 0) {
+      console.log(`[Experts] Link code not found or expired: ${linkCode}`);
+      return false;
+    }
+    
+    const linkData = codeResult.rows[0];
+    
+    // Mark code as used
+    await db.query(
+      `UPDATE account_link_codes SET used_at = NOW(), used_by_user_id = $1 WHERE code = $2`,
+      [userId, linkCode]
+    );
     
     // Create linked account relationship
     await db.query(
       `INSERT INTO linked_accounts (parent_user_id, child_user_id)
-       VALUES ($1, $2)`,
-      [parentUserId, newUser.id]
+       VALUES ($1, $2)
+       ON CONFLICT (parent_user_id, child_user_id) DO NOTHING`,
+      [linkData.parent_user_id, userId]
     );
     
     // Also create expert access automatically (full permissions)
     await db.query(
       `INSERT INTO expert_clients 
        (expert_id, client_id, can_view_bots, can_edit_bots, can_manage_contacts, can_view_analytics, is_active, status, approved_at)
-       VALUES ($1, $2, true, true, true, true, true, 'approved', NOW())`,
-      [parentUserId, newUser.id]
+       VALUES ($1, $2, true, true, true, true, true, 'approved', NOW())
+       ON CONFLICT (expert_id, client_id) DO UPDATE SET is_active = true, status = 'approved', approved_at = NOW()`,
+      [linkData.parent_user_id, userId]
     );
     
-    console.log(`[Experts] ${parentUserId} created linked account ${newUser.id}`);
+    console.log(`[Experts] Linked new account ${userId} to parent ${linkData.parent_user_id}`);
     
-    res.json({
-      success: true,
-      message: 'החשבון נוצר בהצלחה',
-      user: newUser
-    });
+    return true;
   } catch (error) {
-    console.error('[Experts] Create linked account error:', error);
-    res.status(500).json({ error: 'שגיאה ביצירת חשבון' });
+    console.error('[Experts] Complete linking error:', error);
+    return false;
   }
 }
 
@@ -942,5 +973,7 @@ module.exports = {
   rejectRequest,
   getAccessibleAccounts,
   switchAccount,
-  createLinkedAccount,
+  generateLinkCode,
+  validateLinkCode,
+  completeLinking,
 };

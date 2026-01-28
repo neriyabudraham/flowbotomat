@@ -1,18 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { 
-  ChevronDown, User, Plus, Search, Check, Users, LogOut, 
-  Building, UserPlus, ArrowLeftRight, X, Mail, Lock, Eye, EyeOff
+  ChevronDown, User, Plus, Check, Users,
+  UserPlus, ArrowLeftRight, X, Mail, Link2, Copy, ExternalLink
 } from 'lucide-react';
 import api from '../services/api';
 import useAuthStore from '../store/authStore';
 
 export default function AccountSwitcher() {
-  const { user, setTokens, logout } = useAuthStore();
+  const navigate = useNavigate();
+  const { user, setTokens } = useAuthStore();
   const [isOpen, setIsOpen] = useState(false);
   const [accounts, setAccounts] = useState({ current: null, clients: [], linked: [] });
   const [loading, setLoading] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showLinkModal, setShowLinkModal] = useState(false);
   const [viewingAs, setViewingAs] = useState(null);
   const dropdownRef = useRef(null);
 
@@ -198,33 +201,34 @@ export default function AccountSwitcher() {
               </button>
               
               <button
-                onClick={() => { setShowCreateModal(true); setIsOpen(false); }}
+                onClick={() => { setShowLinkModal(true); setIsOpen(false); }}
                 className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 text-gray-700 transition-colors"
               >
                 <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
                   <Plus className="w-4 h-4 text-purple-600" />
                 </div>
-                <span className="text-sm">צור חשבון חדש</span>
+                <span className="text-sm">צור חשבון מקושר</span>
               </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Request Access Modal */}
-      {showRequestModal && (
+      {/* Modals - Rendered via Portal */}
+      {showRequestModal && createPortal(
         <RequestAccessModal 
           onClose={() => setShowRequestModal(false)} 
           onSuccess={() => { setShowRequestModal(false); loadAccounts(); }}
-        />
+        />,
+        document.body
       )}
 
-      {/* Create Linked Account Modal */}
-      {showCreateModal && (
+      {showLinkModal && createPortal(
         <CreateLinkedAccountModal 
-          onClose={() => setShowCreateModal(false)} 
-          onSuccess={() => { setShowCreateModal(false); loadAccounts(); }}
-        />
+          onClose={() => setShowLinkModal(false)} 
+          onSuccess={() => { setShowLinkModal(false); loadAccounts(); }}
+        />,
+        document.body
       )}
     </>
   );
@@ -253,8 +257,8 @@ function RequestAccessModal({ onClose, onSuccess }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4 overflow-y-auto" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-md my-8" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
         <div className="bg-gradient-to-r from-blue-500 to-indigo-600 p-6 rounded-t-2xl">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-white">בקש גישה לחשבון</h2>
@@ -280,6 +284,7 @@ function RequestAccessModal({ onClose, onSuccess }) {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="email@example.com"
                 required
+                dir="ltr"
                 className="w-full pr-10 pl-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -318,31 +323,40 @@ function RequestAccessModal({ onClose, onSuccess }) {
   );
 }
 
-// Create Linked Account Modal
+// Create Linked Account Modal - Generates a link code
 function CreateLinkedAccountModal({ onClose, onSuccess }) {
-  const [form, setForm] = useState({ email: '', name: '', password: '' });
-  const [showPassword, setShowPassword] = useState(false);
+  const [linkCode, setLinkCode] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const generateLinkCode = async () => {
     setLoading(true);
     setError('');
-
     try {
-      await api.post('/experts/create-linked-account', form);
-      onSuccess();
+      const { data } = await api.post('/experts/generate-link-code');
+      setLinkCode(data.code);
     } catch (err) {
-      setError(err.response?.data?.error || 'שגיאה ביצירת חשבון');
+      setError(err.response?.data?.error || 'שגיאה ביצירת קוד');
     } finally {
       setLoading(false);
     }
   };
 
+  const copyLink = () => {
+    const link = `${window.location.origin}/register?link=${linkCode}`;
+    navigator.clipboard.writeText(link);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const openRegister = () => {
+    window.open(`${window.location.origin}/register?link=${linkCode}`, '_blank');
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4 overflow-y-auto" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-md my-8" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
         <div className="bg-gradient-to-r from-purple-500 to-pink-600 p-6 rounded-t-2xl">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-white">צור חשבון מקושר</h2>
@@ -350,83 +364,88 @@ function CreateLinkedAccountModal({ onClose, onSuccess }) {
               <X className="w-6 h-6" />
             </button>
           </div>
-          <p className="text-white/80 text-sm mt-1">החשבון יהיה מקושר אליך אוטומטית</p>
+          <p className="text-white/80 text-sm mt-1">צור קישור הרשמה שיקשר את החשבון החדש אליך</p>
         </div>
         
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <div className="p-6 space-y-4">
           {error && (
             <div className="p-3 bg-red-50 text-red-700 rounded-xl text-sm">{error}</div>
           )}
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
-            <div className="relative">
-              <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="email"
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-                placeholder="email@example.com"
-                required
-                className="w-full pr-10 pl-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-              />
-            </div>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">שם (אופציונלי)</label>
-            <div className="relative">
-              <User className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="text"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="שם החשבון"
-                className="w-full pr-10 pl-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-              />
-            </div>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">סיסמה</label>
-            <div className="relative">
-              <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                placeholder="לפחות 6 תווים"
-                required
-                minLength={6}
-                className="w-full pr-10 pl-10 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-              />
+
+          {!linkCode ? (
+            <>
+              <div className="text-center py-4">
+                <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Link2 className="w-8 h-8 text-purple-600" />
+                </div>
+                <h3 className="font-semibold text-gray-800 mb-2">איך זה עובד?</h3>
+                <p className="text-sm text-gray-600">
+                  לחץ על הכפתור למטה ליצירת קישור הרשמה מיוחד.
+                  <br />
+                  כל מי שיירשם דרך הקישור יקושר אוטומטית לחשבון שלך.
+                </p>
+              </div>
+              
               <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                onClick={generateLinkCode}
+                disabled={loading}
+                className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-xl font-medium disabled:opacity-50"
               >
-                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                {loading ? 'יוצר קישור...' : 'צור קישור הרשמה'}
               </button>
-            </div>
-          </div>
-          
-          <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-3 border border-gray-200 rounded-xl hover:bg-gray-50"
-            >
-              ביטול
-            </button>
-            <button
-              type="submit"
-              disabled={loading || !form.email || !form.password}
-              className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-xl font-medium disabled:opacity-50"
-            >
-              {loading ? 'יוצר...' : 'צור חשבון'}
-            </button>
-          </div>
-        </form>
+            </>
+          ) : (
+            <>
+              <div className="text-center py-2">
+                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Check className="w-6 h-6 text-green-600" />
+                </div>
+                <h3 className="font-semibold text-gray-800 mb-1">הקישור נוצר!</h3>
+                <p className="text-sm text-gray-500">שתף את הקישור או פתח בחלון חדש</p>
+              </div>
+
+              <div className="bg-gray-50 rounded-xl p-3">
+                <p className="text-xs text-gray-500 mb-2">קישור הרשמה:</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={`${window.location.origin}/register?link=${linkCode}`}
+                    readOnly
+                    dir="ltr"
+                    className="flex-1 text-sm bg-white border border-gray-200 rounded-lg px-3 py-2 text-gray-600"
+                  />
+                  <button
+                    onClick={copyLink}
+                    className={`p-2 rounded-lg transition-colors ${copied ? 'bg-green-100 text-green-600' : 'bg-gray-200 hover:bg-gray-300 text-gray-600'}`}
+                    title="העתק"
+                  >
+                    {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={openRegister}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-purple-500 text-white rounded-xl hover:bg-purple-600"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  פתח הרשמה
+                </button>
+                <button
+                  onClick={onClose}
+                  className="flex-1 px-4 py-3 border border-gray-200 rounded-xl hover:bg-gray-50"
+                >
+                  סיום
+                </button>
+              </div>
+
+              <p className="text-xs text-gray-400 text-center">
+                הקישור תקף ל-24 שעות
+              </p>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -9,7 +9,7 @@ const { getVerificationEmail } = require('../../services/mail/templates.service'
  */
 const signup = async (req, res) => {
   try {
-    const { email, password, name, referralCode } = req.body;
+    const { email, password, name, referralCode, linkCode } = req.body;
 
     // Validation
     if (!email || !password) {
@@ -48,6 +48,20 @@ const signup = async (req, res) => {
       } catch (refError) {
         console.error('[Signup] Referral registration failed:', refError);
         // Continue with signup even if referral fails
+      }
+    }
+
+    // Process account linking if linkCode provided
+    if (linkCode) {
+      try {
+        const { completeLinking } = require('../experts/experts.controller');
+        const linkResult = await completeLinking(userId, linkCode);
+        if (linkResult) {
+          console.log(`[Signup] User ${userId} linked to parent account via code ${linkCode}`);
+        }
+      } catch (linkError) {
+        console.error('[Signup] Account linking failed:', linkError);
+        // Continue with signup even if linking fails
       }
     }
 

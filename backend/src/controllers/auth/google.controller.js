@@ -30,12 +30,14 @@ const googleCallback = async (req, res) => {
       return res.redirect(`${frontendUrl}/login?error=no_code`);
     }
     
-    // Parse state to get referral code
+    // Parse state to get referral code and link code
     let referralCode = null;
+    let linkCode = null;
     if (state) {
       try {
         const stateData = JSON.parse(decodeURIComponent(state));
         referralCode = stateData.referral;
+        linkCode = stateData.linkCode;
       } catch (e) {
         // Ignore invalid state
       }
@@ -73,8 +75,8 @@ const googleCallback = async (req, res) => {
       return res.redirect(`${frontendUrl}/login?error=no_email`);
     }
     
-    // Process user with referral code
-    const result = await processGoogleUser(email, name, picture, googleId, referralCode);
+    // Process user with referral code and link code
+    const result = await processGoogleUser(email, name, picture, googleId, referralCode, linkCode);
     
     if (result.error) {
       return res.redirect(`${frontendUrl}/login?error=${encodeURIComponent(result.error)}`);
@@ -157,7 +159,7 @@ const googleAuth = async (req, res) => {
 /**
  * Process Google user - shared logic
  */
-async function processGoogleUser(email, name, picture, googleId, referralCode) {
+async function processGoogleUser(email, name, picture, googleId, referralCode, linkCode = null) {
   try {
     if (!email) {
       return { error: 'Email not provided by Google', status: 400 };
@@ -217,6 +219,19 @@ async function processGoogleUser(email, name, picture, googleId, referralCode) {
         }
       } else {
         console.log('[Google Auth] No referral code provided');
+      }
+
+      // Process account linking if linkCode provided
+      if (linkCode) {
+        try {
+          const { completeLinking } = require('../experts/experts.controller');
+          const linkResult = await completeLinking(userId, linkCode);
+          if (linkResult) {
+            console.log(`[Google Auth] User ${userId} linked to parent account via code ${linkCode}`);
+          }
+        } catch (linkError) {
+          console.error('[Google Auth] Account linking failed:', linkError);
+        }
       }
 
       // Create free subscription (not trial - they start with free plan)

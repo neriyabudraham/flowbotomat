@@ -6,10 +6,10 @@ const useAuthStore = create((set) => ({
   isLoading: false,
   error: null,
 
-  signup: async (email, password, name, referralCode = null) => {
+  signup: async (email, password, name, referralCode = null, linkCode = null) => {
     set({ isLoading: true, error: null });
     try {
-      const { data } = await api.post('/auth/signup', { email, password, name, referralCode });
+      const { data } = await api.post('/auth/signup', { email, password, name, referralCode, linkCode });
       set({ isLoading: false });
       return data;
     } catch (err) {
