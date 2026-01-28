@@ -615,7 +615,8 @@ async function startForwardJob(jobId) {
         
         // Delete sent messages if requested
         if (shouldDelete && sentCount > 0) {
-          deleteJobMessages(jobId).catch(err => {
+          // Pass senderPhone so completion notification will be sent
+          deleteJobMessages(jobId, senderPhone).catch(err => {
             console.error(`[GroupForwards] Error deleting messages for job ${jobId}:`, err);
           });
         }
@@ -659,16 +660,23 @@ async function startForwardJob(jobId) {
   }
 }
 
+// Track active deletions per user to prevent concurrent deletions
+const activeUserDeletions = new Map();
+
 /**
  * Delete already sent messages from a stopped job
+ * @param {string} jobId - The job ID
+ * @param {string} senderPhone - Phone to send notification to (optional)
+ * @returns {Promise<{success: boolean, deleted: number, failed: number, alreadyDeleted: boolean}>}
  */
-async function deleteJobMessages(jobId) {
+async function deleteJobMessages(jobId, senderPhone = null) {
   const wahaService = require('../../services/waha/session.service');
+  const triggerService = require('../../services/groupForwards/trigger.service');
   
   try {
     // Get job details with user_id for connection lookup
     const jobResult = await db.query(`
-      SELECT fj.*, gf.user_id
+      SELECT fj.*, gf.user_id, gf.name as forward_name
       FROM forward_jobs fj
       JOIN group_forwards gf ON fj.forward_id = gf.id
       WHERE fj.id = $1
@@ -676,56 +684,120 @@ async function deleteJobMessages(jobId) {
     
     if (jobResult.rows.length === 0) {
       console.log(`[GroupForwards] Job ${jobId} not found for message deletion`);
-      return;
+      return { success: false, deleted: 0, failed: 0, alreadyDeleted: false };
     }
     
     const job = jobResult.rows[0];
     const userId = job.user_id;
     
-    // Get sent messages with WhatsApp IDs
-    const messagesResult = await db.query(`
-      SELECT fjm.*, gft.group_id
-      FROM forward_job_messages fjm
-      JOIN group_forward_targets gft ON fjm.target_id = gft.id
-      WHERE fjm.job_id = $1 AND fjm.status = 'sent' AND fjm.whatsapp_message_id IS NOT NULL
-    `, [jobId]);
-    
-    console.log(`[GroupForwards] Deleting ${messagesResult.rows.length} messages for job ${jobId}, user ${userId}`);
-    
-    let deletedCount = 0;
-    
-    for (const message of messagesResult.rows) {
-      try {
-        await wahaService.deleteMessage(userId, message.group_id, message.whatsapp_message_id);
-        
-        await db.query(`
-          UPDATE forward_job_messages 
-          SET status = 'deleted', deleted_at = NOW()
-          WHERE id = $1
-        `, [message.id]);
-        
-        deletedCount++;
-        
-        // Small delay between deletions
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-      } catch (deleteError) {
-        console.error(`[GroupForwards] Error deleting message ${message.whatsapp_message_id}:`, deleteError.message);
-      }
+    // Check if deletion is already in progress for this user
+    if (activeUserDeletions.get(userId)) {
+      console.log(`[GroupForwards] Deletion already in progress for user ${userId}, queuing...`);
+      // Wait for current deletion to finish
+      await new Promise(resolve => {
+        const checkInterval = setInterval(() => {
+          if (!activeUserDeletions.get(userId)) {
+            clearInterval(checkInterval);
+            resolve();
+          }
+        }, 1000);
+      });
     }
     
-    console.log(`[GroupForwards] Deleted ${deletedCount}/${messagesResult.rows.length} messages for job ${jobId}`);
+    // Mark deletion as active
+    activeUserDeletions.set(userId, jobId);
     
-    // Emit update
-    const io = getIO();
-    io.to(`user:${job.user_id}`).emit('forward_job_messages_deleted', {
-      jobId,
-      deleted: deletedCount,
-      total: messagesResult.rows.length
-    });
+    try {
+      // Get messages that haven't been deleted yet
+      const messagesResult = await db.query(`
+        SELECT fjm.*, gft.group_id, gft.group_name
+        FROM forward_job_messages fjm
+        JOIN group_forward_targets gft ON fjm.target_id = gft.id
+        WHERE fjm.job_id = $1 
+          AND fjm.status = 'sent' 
+          AND fjm.whatsapp_message_id IS NOT NULL
+      `, [jobId]);
+      
+      // Check if all messages already deleted
+      if (messagesResult.rows.length === 0) {
+        console.log(`[GroupForwards] All messages already deleted for job ${jobId}`);
+        
+        // Notify user
+        if (senderPhone) {
+          await triggerService.sendNotificationMessage(userId, senderPhone, 
+            '✅ כל ההודעות משליחה זו כבר נמחקו.'
+          );
+        }
+        
+        return { success: true, deleted: 0, failed: 0, alreadyDeleted: true };
+      }
+      
+      console.log(`[GroupForwards] Deleting ${messagesResult.rows.length} messages for job ${jobId}, user ${userId}`);
+      
+      let deletedCount = 0;
+      const deletedGroups = [];
+      const failedGroups = [];
+      
+      for (const message of messagesResult.rows) {
+        try {
+          await wahaService.deleteMessage(userId, message.group_id, message.whatsapp_message_id);
+          
+          await db.query(`
+            UPDATE forward_job_messages 
+            SET status = 'deleted', deleted_at = NOW()
+            WHERE id = $1
+          `, [message.id]);
+          
+          deletedCount++;
+          deletedGroups.push(message.group_name || message.group_id);
+          
+          // Small delay between deletions to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+        } catch (deleteError) {
+          console.error(`[GroupForwards] Error deleting message ${message.whatsapp_message_id}:`, deleteError.message);
+          failedGroups.push(message.group_name || message.group_id);
+        }
+      }
+      
+      console.log(`[GroupForwards] Deleted ${deletedCount}/${messagesResult.rows.length} messages for job ${jobId}`);
+      
+      // Send completion notification via WhatsApp
+      if (senderPhone) {
+        let notificationMessage;
+        
+        if (failedGroups.length === 0) {
+          notificationMessage = `✅ *כל ההודעות נמחקו בהצלחה!*\n\nנמחקו ${deletedCount} הודעות מהקבוצות.`;
+        } else {
+          notificationMessage = `⚠️ *המחיקה הסתיימה*\n\n✅ נמחקו: ${deletedCount} הודעות\n❌ נכשלו: ${failedGroups.length} הודעות`;
+          
+          if (failedGroups.length <= 5) {
+            notificationMessage += `\n\n*קבוצות שנכשלו:*\n${failedGroups.map(g => `• ${g}`).join('\n')}`;
+          }
+        }
+        
+        await triggerService.sendNotificationMessage(userId, senderPhone, notificationMessage);
+      }
+      
+      // Emit update via socket
+      const io = getIO();
+      io.to(`user:${userId}`).emit('forward_job_messages_deleted', {
+        jobId,
+        deleted: deletedCount,
+        failed: failedGroups.length,
+        total: messagesResult.rows.length
+      });
+      
+      return { success: true, deleted: deletedCount, failed: failedGroups.length, alreadyDeleted: false };
+      
+    } finally {
+      // Mark deletion as complete
+      activeUserDeletions.delete(userId);
+    }
     
   } catch (error) {
     console.error(`[GroupForwards] Error deleting messages for job ${jobId}:`, error);
+    return { success: false, deleted: 0, failed: 0, alreadyDeleted: false };
   }
 }
 

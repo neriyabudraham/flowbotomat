@@ -577,17 +577,27 @@ async function handleStop(userId, senderPhone, jobId, shouldDelete) {
   
   // If job is completed/stopped and delete requested, delete the sent messages
   if (shouldDelete && ['completed', 'stopped', 'partial'].includes(job.status)) {
-    if (job.sent_count > 0) {
-      await sendNotificationMessage(userId, senderPhone, `🗑️ מוחק ${job.sent_count} הודעות שנשלחו...`);
-      
-      // Import and call delete function
-      const { deleteJobMessages } = require('../../controllers/groupForwards/jobs.controller');
-      deleteJobMessages(jobId).catch(err => {
-        console.error(`[GroupForwards] Error deleting messages for completed job ${jobId}:`, err);
-      });
-    } else {
-      await sendNotificationMessage(userId, senderPhone, '❌ אין הודעות למחיקה.');
+    // Check how many messages are left to delete
+    const remainingMessages = await db.query(`
+      SELECT COUNT(*) as count FROM forward_job_messages 
+      WHERE job_id = $1 AND status = 'sent' AND whatsapp_message_id IS NOT NULL
+    `, [jobId]);
+    
+    const remainingCount = parseInt(remainingMessages.rows[0]?.count || 0);
+    
+    if (remainingCount === 0) {
+      await sendNotificationMessage(userId, senderPhone, '✅ כל ההודעות משליחה זו כבר נמחקו.');
+      return true;
     }
+    
+    await sendNotificationMessage(userId, senderPhone, `🗑️ מוחק ${remainingCount} הודעות שנשארו...`);
+    
+    // Import and call delete function with senderPhone for completion notification
+    const { deleteJobMessages } = require('../../controllers/groupForwards/jobs.controller');
+    deleteJobMessages(jobId, senderPhone).catch(err => {
+      console.error(`[GroupForwards] Error deleting messages for completed job ${jobId}:`, err);
+    });
+    
     return true;
   }
   
@@ -670,5 +680,6 @@ module.exports = {
   sendProgressList,
   sendStoppedMessage,
   sendGroupCompletionSummary,
+  sendNotificationMessage,
   normalizePhoneNumber
 };
