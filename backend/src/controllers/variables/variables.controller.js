@@ -4,6 +4,9 @@ const db = require('../../config/database');
 const SYSTEM_VARIABLES = [
   { name: 'name', label: 'שם איש קשר (מ-WhatsApp)', description: 'שם איש הקשר כפי שנשמר ב-WhatsApp', var_type: 'text', is_system: true },
   { name: 'contact_phone', label: 'טלפון איש קשר', description: 'מספר הטלפון של איש הקשר שאיתו מתנהלת השיחה', var_type: 'text', is_system: true },
+  { name: 'sender_phone', label: 'טלפון השולח (בקבוצה)', description: 'מספר הטלפון של מי ששלח את ההודעה בקבוצה', var_type: 'text', is_system: true },
+  { name: 'group_id', label: 'מזהה קבוצה', description: 'מזהה הקבוצה (רק אם ההודעה נשלחה בקבוצה)', var_type: 'text', is_system: true },
+  { name: 'is_group', label: 'האם קבוצה', description: 'true/false - האם ההודעה נשלחה בקבוצה', var_type: 'text', is_system: true },
   { name: 'last_message', label: 'ההודעה האחרונה', description: 'ההודעה האחרונה שהתקבלה מאיש הקשר', var_type: 'text', is_system: true },
   { name: 'date', label: 'תאריך', description: 'תאריך נוכחי בפורמט DD.MM.YYYY', var_type: 'text', is_system: true },
   { name: 'time', label: 'שעה', description: 'שעה נוכחית בפורמט HH:MM', var_type: 'text', is_system: true },

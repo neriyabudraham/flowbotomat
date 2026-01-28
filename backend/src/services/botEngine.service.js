@@ -68,7 +68,7 @@ class BotEngine {
   }
   
   // Process incoming message
-  async processMessage(userId, contactPhone, message, messageType = 'text', selectedRowId = null, quotedListTitle = null, isGroupMessage = false) {
+  async processMessage(userId, contactPhone, message, messageType = 'text', selectedRowId = null, quotedListTitle = null, isGroupMessage = false, groupId = null) {
     console.log('[BotEngine] ========================================');
     console.log('[BotEngine] Processing message from:', contactPhone);
     console.log('[BotEngine] Message:', message);
@@ -76,6 +76,7 @@ class BotEngine {
     console.log('[BotEngine] Selected row ID:', selectedRowId);
     console.log('[BotEngine] Quoted list title:', quotedListTitle);
     console.log('[BotEngine] Is group message:', isGroupMessage);
+    console.log('[BotEngine] Group ID:', groupId);
     console.log('[BotEngine] User ID:', userId);
     
     try {
@@ -118,9 +119,14 @@ class BotEngine {
         }
       }
       
+      // Add group context to contact for variable replacement
+      contact._isGroupMessage = isGroupMessage;
+      contact._groupId = groupId;
+      contact._senderPhone = contactPhone;
+      
       // Process each active bot
       for (const bot of botsResult.rows) {
-        await this.processBot(bot, contact, message, messageType, userId, selectedRowId, quotedListTitle);
+        await this.processBot(bot, contact, message, messageType, userId, selectedRowId, quotedListTitle, isGroupMessage);
       }
       
     } catch (error) {
@@ -129,7 +135,7 @@ class BotEngine {
   }
   
   // Process single bot
-  async processBot(bot, contact, message, messageType, userId, selectedRowId = null, quotedListTitle = null) {
+  async processBot(bot, contact, message, messageType, userId, selectedRowId = null, quotedListTitle = null, isGroupMessage = false) {
     try {
       const flowData = bot.flow_data;
       if (!flowData || !flowData.nodes || flowData.nodes.length === 0) {
@@ -2602,10 +2608,18 @@ class BotEngine {
     
     const days = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
     
+    // Group context variables (if available from _groupId property)
+    const groupId = contact._groupId || '';
+    const senderPhone = contact._senderPhone || contact.phone || '';
+    const isGroup = contact._isGroupMessage ? 'true' : 'false';
+    
     // Basic replacements (system variables)
     let result = text
       .replace(/\{\{name\}\}/gi, contact.display_name || '')
       .replace(/\{\{contact_phone\}\}/gi, contact.phone || '')
+      .replace(/\{\{sender_phone\}\}/gi, senderPhone)
+      .replace(/\{\{group_id\}\}/gi, groupId)
+      .replace(/\{\{is_group\}\}/gi, isGroup)
       .replace(/\{\{last_message\}\}/gi, message || '')
       .replace(/\{\{bot_name\}\}/gi, botName || '')
       .replace(/\{\{date\}\}/gi, now.toLocaleDateString('he-IL'))

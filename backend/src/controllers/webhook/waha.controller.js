@@ -158,6 +158,7 @@ async function handleIncomingMessage(userId, event) {
   try {
     const chatId = payload.from || payload.chatId;
     const isGroupMessage = chatId?.includes('@g.us') || false;
+    const groupId = isGroupMessage ? chatId : null;
     
     await botEngine.processMessage(
       userId, 
@@ -166,7 +167,8 @@ async function handleIncomingMessage(userId, event) {
       messageData.type, 
       messageData.selectedRowId,
       messageData.quotedListTitle, // Pass the original list title for verification
-      isGroupMessage // Pass whether this is a group message
+      isGroupMessage, // Pass whether this is a group message
+      groupId // Pass the group ID if it's a group message
     );
   } catch (botError) {
     console.error('[Webhook] Bot engine error:', botError);
