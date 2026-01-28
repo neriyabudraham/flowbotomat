@@ -522,7 +522,7 @@ async function requestAccess(req, res) {
       'access_request',
       'בקשת גישה לחשבון שלך',
       `${expert.name || expert.email} מבקש/ת גישה לנהל את החשבון שלך`,
-      { relatedUserId: expertId, actionUrl: '/settings' }
+      { relatedUserId: expertId, actionUrl: '/settings?tab=experts' }
     );
     
     // Send email to client
@@ -975,7 +975,7 @@ function getAccessRequestEmail(expertName, expertEmail, message) {
         <p style="color: #6b7280;">
           היכנס להגדרות החשבון שלך כדי לאשר או לדחות את הבקשה.
         </p>
-        <a href="${process.env.APP_URL || 'https://flow.botomat.co.il'}/settings" 
+        <a href="${process.env.APP_URL || 'https://flow.botomat.co.il'}/settings?tab=experts" 
            style="display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; margin-top: 15px;">
           צפה בבקשה
         </a>
