@@ -1994,6 +1994,8 @@ class BotEngine {
         groupId = this.replaceVariables(`{{${recipient.variableName}}}`, contact, '', '');
       } else {
         groupId = recipient.groupId || '';
+        // Also replace variables in case user entered {{group_id}} directly
+        groupId = this.replaceVariables(groupId, contact, '', '');
       }
       
       // Normalize group ID - add @g.us if not present
@@ -2012,6 +2014,8 @@ class BotEngine {
         phone = this.replaceVariables(`{{${recipient.variableName}}}`, contact, '', '');
       } else {
         phone = recipient.phone || '';
+        // Also replace variables in case user entered {{sender_phone}} directly
+        phone = this.replaceVariables(phone, contact, '', '');
       }
       
       // Normalize phone number
