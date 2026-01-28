@@ -347,30 +347,31 @@ async function updateUserSubscription(req, res) {
     if (isManual !== undefined) {
       updates.push(`is_manual = $${paramIndex++}`);
       values.push(isManual);
-      
-      // If setting to manual, clear payment-related fields
-      if (isManual === true) {
-        updates.push(`is_trial = false`);
-        updates.push(`trial_ends_at = NULL`);
-        updates.push(`next_charge_date = NULL`);
-      }
     }
     if (adminNotes !== undefined) {
       updates.push(`admin_notes = $${paramIndex++}`);
       values.push(adminNotes);
     }
     
-    // Payment date settings (only if not manual)
-    if (nextChargeDate !== undefined && isManual !== true) {
-      updates.push(`next_charge_date = $${paramIndex++}`);
-      values.push(nextChargeDate || null);
-    }
-    if (trialEndsAt !== undefined) {
-      updates.push(`trial_ends_at = $${paramIndex++}`);
-      values.push(trialEndsAt || null);
-      // If setting trial end date, mark as trial
-      if (trialEndsAt) {
-        updates.push(`is_trial = true`);
+    // Handle manual subscription - clear payment-related fields
+    // This must come BEFORE other trial/payment settings to avoid duplicate assignments
+    if (isManual === true) {
+      updates.push(`is_trial = false`);
+      updates.push(`trial_ends_at = NULL`);
+      updates.push(`next_charge_date = NULL`);
+    } else {
+      // Payment date settings (only if not manual)
+      if (nextChargeDate !== undefined) {
+        updates.push(`next_charge_date = $${paramIndex++}`);
+        values.push(nextChargeDate || null);
+      }
+      if (trialEndsAt !== undefined) {
+        updates.push(`trial_ends_at = $${paramIndex++}`);
+        values.push(trialEndsAt || null);
+        // If setting trial end date, mark as trial
+        if (trialEndsAt) {
+          updates.push(`is_trial = true`);
+        }
       }
     }
     
