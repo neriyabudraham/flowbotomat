@@ -750,28 +750,43 @@ async function getAccessibleAccounts(req, res) {
 async function switchAccount(req, res) {
   try {
     const userId = req.user.id;
+    const userRole = req.user.role;
     const { targetUserId } = req.params;
     
-    // Check if user has access to target account
-    const accessResult = await db.query(
-      `SELECT ec.*, 'expert' as access_type 
-       FROM expert_clients ec
-       WHERE ec.expert_id = $1 AND ec.client_id = $2 AND ec.is_active = true AND ec.status = 'approved'
-       UNION
-       SELECT NULL as id, $1 as expert_id, $2 as client_id, true as can_view_bots, true as can_edit_bots, 
-              true as can_manage_contacts, true as can_view_analytics, true as is_active, 
-              NULL as created_at, NULL as approved_at, NULL as status, NULL as request_message, 
-              NULL as requested_at, NULL as rejected_at, NULL as rejection_reason, 'linked' as access_type
-       FROM linked_accounts la
-       WHERE la.parent_user_id = $1 AND la.child_user_id = $2`,
-      [userId, targetUserId]
-    );
+    let access = null;
     
-    if (accessResult.rows.length === 0) {
-      return res.status(403).json({ error: 'אין לך גישה לחשבון זה' });
+    // Admins can switch to any account
+    if (userRole === 'superadmin' || userRole === 'admin') {
+      access = {
+        access_type: 'admin',
+        can_view_bots: true,
+        can_edit_bots: true,
+        can_manage_contacts: true,
+        can_view_analytics: true
+      };
+      console.log(`[Experts] Admin ${userId} switching to account ${targetUserId}`);
+    } else {
+      // Check if user has access to target account
+      const accessResult = await db.query(
+        `SELECT ec.*, 'expert' as access_type 
+         FROM expert_clients ec
+         WHERE ec.expert_id = $1 AND ec.client_id = $2 AND ec.is_active = true AND ec.status = 'approved'
+         UNION
+         SELECT NULL as id, $1 as expert_id, $2 as client_id, true as can_view_bots, true as can_edit_bots, 
+                true as can_manage_contacts, true as can_view_analytics, true as is_active, 
+                NULL as created_at, NULL as approved_at, NULL as status, NULL as request_message, 
+                NULL as requested_at, NULL as rejected_at, NULL as rejection_reason, 'linked' as access_type
+         FROM linked_accounts la
+         WHERE la.parent_user_id = $1 AND la.child_user_id = $2`,
+        [userId, targetUserId]
+      );
+      
+      if (accessResult.rows.length === 0) {
+        return res.status(403).json({ error: 'אין לך גישה לחשבון זה' });
+      }
+      
+      access = accessResult.rows[0];
     }
-    
-    const access = accessResult.rows[0];
     
     // Get target user info
     const targetResult = await db.query(

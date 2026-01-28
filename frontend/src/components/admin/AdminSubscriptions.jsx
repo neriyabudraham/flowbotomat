@@ -131,13 +131,21 @@ export default function AdminSubscriptions() {
     }
   };
 
-  const handleCancelSubscription = async (subId) => {
-    if (!confirm('לבטל את המנוי?')) return;
+  const [cancelConfirm, setCancelConfirm] = useState(null);
+
+  const handleCancelSubscription = (subId) => {
+    setCancelConfirm(subId);
+  };
+  
+  const confirmCancelSubscription = async () => {
+    if (!cancelConfirm) return;
     try {
-      await api.delete(`/subscriptions/${subId}`);
+      await api.delete(`/subscriptions/${cancelConfirm}`);
+      setCancelConfirm(null);
       loadData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בביטול');
+      console.error('Cancel error:', err);
+      setCancelConfirm(null);
     }
   };
 
@@ -582,6 +590,17 @@ export default function AdminSubscriptions() {
         title="מחיקת קופון"
         message="האם למחוק את הקופון? לא ניתן לשחזר פעולה זו."
         confirmText="מחק"
+        variant="danger"
+      />
+
+      {/* Confirm Cancel Subscription Modal */}
+      <ConfirmModal
+        isOpen={!!cancelConfirm}
+        onClose={() => setCancelConfirm(null)}
+        onConfirm={confirmCancelSubscription}
+        title="ביטול מנוי"
+        message="האם לבטל את המנוי?"
+        confirmText="בטל מנוי"
         variant="danger"
       />
     </div>
@@ -1494,34 +1513,77 @@ function SubscriptionsTab({ subscriptions, searchTerm, setSearchTerm, onShowAssi
   const [selectedSub, setSelectedSub] = useState(null);
   const [switching, setSwitching] = useState(null);
   const [viewMode, setViewMode] = useState('table'); // 'table' or 'cards'
+  const [toast, setToast] = useState(null);
+  const [confirmModal, setConfirmModal] = useState(null);
+
+  const showToast = (type, message) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   const handleSwitchToAccount = async (userId, userName) => {
-    if (!confirm(`לעבור לחשבון של ${userName}?`)) return;
-    
-    setSwitching(userId);
-    try {
-      // Store original token
-      const currentToken = localStorage.getItem('accessToken');
-      localStorage.setItem('originalAccessToken', currentToken);
-      
-      // Get new token for viewing as this user
-      const { data } = await api.post(`/experts/switch/${userId}`);
-      
-      if (data.token) {
-        setAccessToken(data.token);
-        localStorage.setItem('accessToken', data.token);
-        window.location.href = '/dashboard';
+    setConfirmModal({
+      title: 'מעבר לחשבון',
+      message: `לעבור לחשבון של ${userName}?`,
+      onConfirm: async () => {
+        setConfirmModal(null);
+        setSwitching(userId);
+        try {
+          // Store original token
+          const currentToken = localStorage.getItem('accessToken');
+          localStorage.setItem('originalAccessToken', currentToken);
+          
+          // Get new token for viewing as this user
+          const { data } = await api.post(`/experts/switch/${userId}`);
+          
+          if (data.token) {
+            setAccessToken(data.token);
+            localStorage.setItem('accessToken', data.token);
+            window.location.href = '/dashboard';
+          }
+        } catch (err) {
+          console.error('Switch error:', err);
+          showToast('error', err.response?.data?.error || 'שגיאה במעבר לחשבון');
+        } finally {
+          setSwitching(null);
+        }
       }
-    } catch (err) {
-      console.error('Switch error:', err);
-      alert(err.response?.data?.error || 'שגיאה במעבר לחשבון');
-    } finally {
-      setSwitching(null);
-    }
+    });
   };
 
   return (
     <div className="space-y-4">
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 px-4 py-3 rounded-xl shadow-lg z-[60] flex items-center gap-2 ${
+          toast.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+        }`}>
+          {toast.type === 'success' ? (
+            <Check className="w-5 h-5" />
+          ) : (
+            <X className="w-5 h-5" />
+          )}
+          <span>{toast.message}</span>
+        </div>
+      )}
+
+      {/* Confirm Modal */}
+      {confirmModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmModal(null)}>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-2">{confirmModal.title}</h3>
+            <p className="text-gray-600 dark:text-gray-300 mb-6">{confirmModal.message}</p>
+            <div className="flex gap-3">
+              <Button variant="ghost" onClick={() => setConfirmModal(null)} className="flex-1">
+                ביטול
+              </Button>
+              <Button onClick={confirmModal.onConfirm} className="flex-1">
+                אישור
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Header with search and actions */}
       <div className="flex flex-wrap gap-4 items-center">
         <div className="flex-1 min-w-[200px] relative">
