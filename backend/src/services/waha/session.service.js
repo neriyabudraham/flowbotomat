@@ -781,7 +781,7 @@ async function deleteMessage(connectionOrUserId, chatId, messageId) {
   // If string passed, look up connection by user_id or session_name
   if (typeof connectionOrUserId === 'string') {
     const db = require('../../config/database');
-    const { decrypt } = require('../../utils/encryption');
+    const { decrypt } = require('../crypto/encrypt.service');
     const { getWahaCredentials } = require('../../config/waha');
     
     const result = await db.query(`
@@ -815,13 +815,13 @@ async function deleteMessage(connectionOrUserId, chatId, messageId) {
   
   const client = createClient(connection.base_url, connection.api_key);
   
-  const response = await client.delete(`/api/${connection.session_name}/messages`, {
-    data: {
-      chatId: chatId,
-      messageId: messageId,
-      forEveryone: true
-    }
-  });
+  // DELETE /api/{session}/chats/{chatId}/messages/{messageId}
+  const encodedChatId = encodeURIComponent(chatId);
+  const encodedMessageId = encodeURIComponent(messageId);
+  
+  const response = await client.delete(
+    `/api/${connection.session_name}/chats/${encodedChatId}/messages/${encodedMessageId}`
+  );
   
   console.log(`[WAHA] Deleted message ${messageId} from ${chatId}`);
   return response.data;
