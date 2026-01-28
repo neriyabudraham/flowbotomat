@@ -2,13 +2,11 @@ import { useState, useEffect } from 'react';
 import { 
   CreditCard, Users, Settings, Plus, Edit2, Trash2, Check, X, 
   Crown, Zap, Star, Building, RefreshCw, Search, Calendar, User,
-  Gift, Tag, Percent, Clock, BarChart, Forward, ExternalLink, Eye,
-  AlertCircle, ArrowLeftRight
+  Gift, Tag, Percent, Clock, Forward
 } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
 import ConfirmModal from '../organisms/ConfirmModal';
-import useAuthStore from '../../store/authStore';
 
 const PLAN_ICONS = {
   'Free': Star,
@@ -20,7 +18,6 @@ const PLAN_ICONS = {
 export default function AdminSubscriptions() {
   const [activeTab, setActiveTab] = useState('plans');
   const [plans, setPlans] = useState([]);
-  const [subscriptions, setSubscriptions] = useState([]);
   const [promotions, setPromotions] = useState([]);
   const [coupons, setCoupons] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,7 +28,6 @@ export default function AdminSubscriptions() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmDeletePromo, setConfirmDeletePromo] = useState(null);
   const [confirmDeleteCoupon, setConfirmDeleteCoupon] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     loadData();
@@ -39,14 +35,12 @@ export default function AdminSubscriptions() {
 
   const loadData = async () => {
     try {
-      const [plansRes, subsRes, promosRes, couponsRes] = await Promise.all([
+      const [plansRes, promosRes, couponsRes] = await Promise.all([
         api.get('/subscriptions/plans'),
-        api.get('/subscriptions/all'),
         api.get('/admin/promotions').catch(() => ({ data: { promotions: [] } })),
         api.get('/admin/coupons').catch(() => ({ data: { coupons: [] } })),
       ]);
       setPlans(plansRes.data.plans || []);
-      setSubscriptions(subsRes.data.subscriptions || []);
       setPromotions(promosRes.data.promotions || []);
       setCoupons(couponsRes.data.coupons || []);
     } catch (err) {
@@ -131,28 +125,6 @@ export default function AdminSubscriptions() {
     }
   };
 
-  const [cancelConfirm, setCancelConfirm] = useState(null);
-
-  const handleCancelSubscription = (subId) => {
-    setCancelConfirm(subId);
-  };
-  
-  const confirmCancelSubscription = async () => {
-    if (!cancelConfirm) return;
-    try {
-      await api.delete(`/subscriptions/${cancelConfirm}`);
-      setCancelConfirm(null);
-      loadData();
-    } catch (err) {
-      console.error('Cancel error:', err);
-      setCancelConfirm(null);
-    }
-  };
-
-  const filteredSubscriptions = subscriptions.filter(sub => 
-    sub.user_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    sub.user_email?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   return (
     <div className="space-y-6">
@@ -202,17 +174,6 @@ export default function AdminSubscriptions() {
         >
           <Tag className="w-4 h-4 inline ml-2" />
           קופונים
-        </button>
-        <button
-          onClick={() => setActiveTab('subscriptions')}
-          className={`px-4 py-2 font-medium transition-colors whitespace-nowrap ${
-            activeTab === 'subscriptions'
-              ? 'text-purple-600 border-b-2 border-purple-600'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          <Users className="w-4 h-4 inline ml-2" />
-          מנויים פעילים
         </button>
       </div>
 
@@ -510,17 +471,7 @@ export default function AdminSubscriptions() {
             })}
           </div>
         </div>
-      ) : (
-        /* Subscriptions Tab */
-        <SubscriptionsTab 
-          subscriptions={filteredSubscriptions}
-          searchTerm={searchTerm}
-          setSearchTerm={setSearchTerm}
-          onShowAssignModal={() => setShowAssignModal(true)}
-          onCancelSubscription={handleCancelSubscription}
-          onRefresh={loadData}
-        />
-      )}
+      ) : null}
 
       {/* Edit Plan Modal */}
       {editingPlan && (
@@ -593,16 +544,6 @@ export default function AdminSubscriptions() {
         variant="danger"
       />
 
-      {/* Confirm Cancel Subscription Modal */}
-      <ConfirmModal
-        isOpen={!!cancelConfirm}
-        onClose={() => setCancelConfirm(null)}
-        onConfirm={confirmCancelSubscription}
-        title="ביטול מנוי"
-        message="האם לבטל את המנוי?"
-        confirmText="בטל מנוי"
-        variant="danger"
-      />
     </div>
   );
 }
@@ -1503,418 +1444,6 @@ function CouponEditModal({ coupon, plans, onSave, onClose }) {
           </div>
         </form>
       </div>
-    </div>
-  );
-}
-
-// Enhanced Subscriptions Tab with full details and account switching
-function SubscriptionsTab({ subscriptions, searchTerm, setSearchTerm, onShowAssignModal, onCancelSubscription, onRefresh }) {
-  const { setAccessToken } = useAuthStore();
-  const [selectedSub, setSelectedSub] = useState(null);
-  const [switching, setSwitching] = useState(null);
-  const [viewMode, setViewMode] = useState('table'); // 'table' or 'cards'
-  const [toast, setToast] = useState(null);
-  const [confirmModal, setConfirmModal] = useState(null);
-
-  const showToast = (type, message) => {
-    setToast({ type, message });
-    setTimeout(() => setToast(null), 3000);
-  };
-
-  const handleSwitchToAccount = async (userId, userName) => {
-    setConfirmModal({
-      title: 'מעבר לחשבון',
-      message: `לעבור לחשבון של ${userName}?`,
-      onConfirm: async () => {
-        setConfirmModal(null);
-        setSwitching(userId);
-        try {
-          console.log('Attempting to switch to:', userId);
-          
-          // Store original token
-          const currentToken = localStorage.getItem('accessToken');
-          if (currentToken) {
-            localStorage.setItem('originalAccessToken', currentToken);
-          }
-          
-          // Get new token for viewing as this user
-          const response = await api.post(`/experts/switch/${userId}`);
-          console.log('Switch response status:', response.status);
-          console.log('Switch response data:', response.data);
-          
-          const { data } = response;
-          
-          if (data && data.token) {
-            console.log('Token received, setting...');
-            setAccessToken(data.token);
-            localStorage.setItem('accessToken', data.token);
-            console.log('Redirecting to dashboard...');
-            // Redirect to dashboard
-            window.location.href = '/dashboard';
-          } else {
-            console.error('No token in response:', data);
-            showToast('error', 'לא התקבל טוקן מהשרת');
-            setSwitching(null);
-          }
-        } catch (err) {
-          console.error('Switch error full:', err);
-          console.error('Switch error response:', err.response);
-          const errorMessage = err.response?.data?.error || err.message || 'שגיאה במעבר לחשבון';
-          showToast('error', errorMessage);
-          setSwitching(null);
-        }
-      }
-    });
-  };
-
-  return (
-    <div className="space-y-4">
-      {/* Toast Notification */}
-      {toast && (
-        <div className={`fixed top-4 left-1/2 -translate-x-1/2 px-4 py-3 rounded-xl shadow-lg z-[60] flex items-center gap-2 ${
-          toast.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
-        }`}>
-          {toast.type === 'success' ? (
-            <Check className="w-5 h-5" />
-          ) : (
-            <X className="w-5 h-5" />
-          )}
-          <span>{toast.message}</span>
-        </div>
-      )}
-
-      {/* Confirm Modal */}
-      {confirmModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmModal(null)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-2">{confirmModal.title}</h3>
-            <p className="text-gray-600 dark:text-gray-300 mb-6">{confirmModal.message}</p>
-            <div className="flex gap-3">
-              <Button variant="ghost" onClick={() => setConfirmModal(null)} className="flex-1">
-                ביטול
-              </Button>
-              <Button onClick={confirmModal.onConfirm} className="flex-1">
-                אישור
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Header with search and actions */}
-      <div className="flex flex-wrap gap-4 items-center">
-        <div className="flex-1 min-w-[200px] relative">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="חפש לפי שם או מייל..."
-            className="w-full pr-10 pl-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800"
-          />
-        </div>
-        
-        <div className="flex gap-2">
-          <button
-            onClick={() => setViewMode('table')}
-            className={`p-2 rounded-lg ${viewMode === 'table' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}`}
-          >
-            <BarChart className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => setViewMode('cards')}
-            className={`p-2 rounded-lg ${viewMode === 'cards' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}`}
-          >
-            <Users className="w-5 h-5" />
-          </button>
-        </div>
-        
-        <Button onClick={onShowAssignModal}>
-          <Plus className="w-4 h-4 ml-2" />
-          הקצה מנוי
-        </Button>
-      </div>
-
-      {/* Stats summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-4">
-          <div className="text-2xl font-bold text-green-700">{subscriptions.filter(s => s.status === 'active' && !s.is_manual).length}</div>
-          <div className="text-sm text-green-600">מנויים משלמים</div>
-        </div>
-        <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-4">
-          <div className="text-2xl font-bold text-purple-700">{subscriptions.filter(s => s.is_manual).length}</div>
-          <div className="text-sm text-purple-600">מנויים ידניים</div>
-        </div>
-        <div className="bg-cyan-50 dark:bg-cyan-900/20 rounded-xl p-4">
-          <div className="text-2xl font-bold text-cyan-700">{subscriptions.filter(s => s.status === 'trial').length}</div>
-          <div className="text-sm text-cyan-600">בתקופת ניסיון</div>
-        </div>
-        <div className="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4">
-          <div className="text-2xl font-bold text-orange-700">{subscriptions.filter(s => s.status === 'cancelled').length}</div>
-          <div className="text-sm text-orange-600">מבוטלים</div>
-        </div>
-      </div>
-
-      {subscriptions.length === 0 ? (
-        <div className="text-center py-12 text-gray-500">
-          <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
-          <p>אין מנויים</p>
-        </div>
-      ) : viewMode === 'cards' ? (
-        /* Cards View */
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {subscriptions.map(sub => (
-            <div 
-              key={sub.id}
-              className={`bg-white dark:bg-gray-800 rounded-xl border p-4 hover:shadow-lg transition-shadow ${
-                sub.status === 'cancelled' ? 'border-orange-200 bg-orange-50/50' :
-                sub.is_manual ? 'border-purple-200' :
-                sub.status === 'trial' ? 'border-cyan-200' :
-                'border-gray-200'
-              }`}
-            >
-              {/* User Info */}
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    sub.is_manual ? 'bg-purple-100' :
-                    sub.status === 'active' ? 'bg-green-100' :
-                    sub.status === 'trial' ? 'bg-cyan-100' :
-                    'bg-orange-100'
-                  }`}>
-                    <User className={`w-5 h-5 ${
-                      sub.is_manual ? 'text-purple-600' :
-                      sub.status === 'active' ? 'text-green-600' :
-                      sub.status === 'trial' ? 'text-cyan-600' :
-                      'text-orange-600'
-                    }`} />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-gray-800 dark:text-white">{sub.user_name || 'ללא שם'}</h3>
-                    <p className="text-xs text-gray-500">{sub.user_email}</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => handleSwitchToAccount(sub.user_id, sub.user_name)}
-                  disabled={switching === sub.user_id}
-                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                  title="עבור לחשבון"
-                >
-                  {switching === sub.user_id ? (
-                    <RefreshCw className="w-4 h-4 animate-spin text-purple-600" />
-                  ) : (
-                    <ArrowLeftRight className="w-4 h-4 text-gray-500" />
-                  )}
-                </button>
-              </div>
-
-              {/* Status Badges */}
-              <div className="flex flex-wrap gap-2 mb-3">
-                <span className={`px-2 py-1 text-xs rounded-full font-medium ${
-                  sub.status === 'active' ? 'bg-green-100 text-green-700' :
-                  sub.status === 'trial' ? 'bg-cyan-100 text-cyan-700' :
-                  sub.status === 'cancelled' ? 'bg-orange-100 text-orange-700' :
-                  'bg-gray-100 text-gray-700'
-                }`}>
-                  {sub.status === 'active' ? 'פעיל' : 
-                   sub.status === 'trial' ? 'ניסיון' : 
-                   sub.status === 'cancelled' ? 'מבוטל' : sub.status}
-                </span>
-                {sub.is_manual && (
-                  <span className="px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded-full">ידני</span>
-                )}
-                <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full">{sub.plan_name || sub.plan_name_he}</span>
-              </div>
-
-              {/* Details */}
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">מחיר:</span>
-                  <span className="font-medium">{sub.is_manual ? 'ידני' : sub.plan_price ? `₪${sub.plan_price}` : 'חינם'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">חיוב הבא:</span>
-                  <span className={`font-medium ${!sub.next_charge_date && !sub.expires_at ? 'text-gray-400' : ''}`}>
-                    {sub.next_charge_date 
-                      ? new Date(sub.next_charge_date).toLocaleDateString('he-IL')
-                      : sub.expires_at 
-                        ? new Date(sub.expires_at).toLocaleDateString('he-IL')
-                        : 'לא הוגדר'
-                    }
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">הוראת קבע:</span>
-                  {sub.sumit_standing_order_id ? (
-                    <span className="text-green-600 flex items-center gap-1">
-                      <Check className="w-3 h-3" /> פעיל
-                    </span>
-                  ) : (
-                    <span className="text-gray-400 flex items-center gap-1">
-                      <X className="w-3 h-3" /> אין
-                    </span>
-                  )}
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">כרטיס:</span>
-                  {sub.has_payment_method ? (
-                    <span className="text-green-600">****{sub.card_last_digits || '????'}</span>
-                  ) : (
-                    <span className="text-gray-400">אין</span>
-                  )}
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-2 mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
-                <button
-                  onClick={() => handleSwitchToAccount(sub.user_id, sub.user_name)}
-                  disabled={switching === sub.user_id}
-                  className="flex-1 py-2 text-sm bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-colors flex items-center justify-center gap-1"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  עבור לחשבון
-                </button>
-                {sub.status === 'active' && !sub.is_manual && (
-                  <button
-                    onClick={() => onCancelSubscription(sub.id)}
-                    className="py-2 px-3 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    בטל
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        /* Table View */
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden overflow-x-auto">
-          <table className="w-full min-w-[800px]">
-            <thead className="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700">
-              <tr>
-                <th className="px-4 py-3 text-right text-sm font-medium text-gray-700 dark:text-gray-300">משתמש</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-gray-700 dark:text-gray-300">תכנית</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-gray-700 dark:text-gray-300">סטטוס</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-gray-700 dark:text-gray-300">תשלום</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-gray-700 dark:text-gray-300">חיוב הבא</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-gray-700 dark:text-gray-300">הוראת קבע</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-gray-700 dark:text-gray-300">פעולות</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {subscriptions.map(sub => (
-                <tr key={sub.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        sub.is_manual ? 'bg-purple-100' :
-                        sub.status === 'active' ? 'bg-green-100' :
-                        'bg-gray-100'
-                      }`}>
-                        <User className={`w-4 h-4 ${
-                          sub.is_manual ? 'text-purple-600' :
-                          sub.status === 'active' ? 'text-green-600' :
-                          'text-gray-600'
-                        }`} />
-                      </div>
-                      <div>
-                        <div className="font-medium text-gray-800 dark:text-white">{sub.user_name || 'ללא שם'}</div>
-                        <div className="text-xs text-gray-500">{sub.user_email}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-sm font-medium text-gray-700">{sub.plan_name || sub.plan_name_he}</span>
-                    {sub.plan_price > 0 && (
-                      <div className="text-xs text-gray-500">₪{sub.plan_price}/חודש</div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      <span className={`px-2 py-1 text-xs rounded-full ${
-                        sub.status === 'active' 
-                          ? 'bg-green-100 text-green-700'
-                          : sub.status === 'trial'
-                          ? 'bg-cyan-100 text-cyan-700'
-                          : sub.status === 'cancelled'
-                          ? 'bg-orange-100 text-orange-700'
-                          : 'bg-gray-100 text-gray-700'
-                      }`}>
-                        {sub.status === 'active' ? 'פעיל' : 
-                         sub.status === 'trial' ? 'ניסיון' :
-                         sub.status === 'cancelled' ? 'מבוטל' : sub.status}
-                      </span>
-                      {sub.is_manual && (
-                        <span className="px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded-full">ידני</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {sub.has_payment_method ? (
-                      <span className="text-green-600 flex items-center gap-1">
-                        <CreditCard className="w-3 h-3" />
-                        ****{sub.card_last_digits || '????'}
-                      </span>
-                    ) : (
-                      <span className="text-gray-400">אין כרטיס</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {sub.next_charge_date ? (
-                      <div className="flex items-center gap-1">
-                        <Calendar className="w-3 h-3" />
-                        {new Date(sub.next_charge_date).toLocaleDateString('he-IL')}
-                      </div>
-                    ) : sub.expires_at ? (
-                      <div className="flex items-center gap-1 text-orange-600">
-                        <AlertCircle className="w-3 h-3" />
-                        {new Date(sub.expires_at).toLocaleDateString('he-IL')}
-                      </div>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {sub.sumit_standing_order_id ? (
-                      <span className="text-green-600 flex items-center gap-1 text-xs">
-                        <Check className="w-3 h-3" />
-                        {sub.sumit_standing_order_id}
-                      </span>
-                    ) : (
-                      <span className="text-gray-400 text-xs">אין</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => handleSwitchToAccount(sub.user_id, sub.user_name)}
-                        disabled={switching === sub.user_id}
-                        className="p-1.5 hover:bg-purple-100 dark:hover:bg-purple-900/30 rounded text-purple-600"
-                        title="עבור לחשבון"
-                      >
-                        {switching === sub.user_id ? (
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <ExternalLink className="w-4 h-4" />
-                        )}
-                      </button>
-                      {sub.status === 'active' && !sub.is_manual && (
-                        <button
-                          onClick={() => onCancelSubscription(sub.id)}
-                          className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
-                          title="בטל מנוי"
-                        >
-                          <Trash2 className="w-4 h-4 text-red-500" />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   );
 }
