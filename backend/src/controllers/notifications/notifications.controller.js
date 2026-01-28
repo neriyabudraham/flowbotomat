@@ -9,6 +9,23 @@ const {
   getNotificationPreferences,
   updateNotificationPreferences
 } = require('../../services/usageAlerts.service');
+const db = require('../../config/database');
+
+/**
+ * Create a notification for a user
+ */
+async function createNotification(userId, type, title, message, metadata = {}) {
+  try {
+    await db.query(
+      `INSERT INTO notifications (user_id, notification_type, title, message, metadata)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [userId, type, title, message, JSON.stringify(metadata)]
+    );
+    console.log(`[Notifications] Created notification for user ${userId}: ${type}`);
+  } catch (error) {
+    console.error('[Notifications] Create notification error:', error);
+  }
+}
 
 /**
  * Get user notifications
@@ -174,5 +191,6 @@ module.exports = {
   getUnread,
   checkUsage,
   getPreferences,
-  updatePreferences
+  updatePreferences,
+  createNotification
 };

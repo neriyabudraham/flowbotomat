@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { 
   UserCog, Plus, Trash2, Shield, Eye, Edit, Users, BarChart3, X, 
   Check, Mail, Clock, UserPlus, AlertCircle, ChevronDown, ChevronUp,
-  ArrowRight, XCircle
+  ArrowRight, XCircle, AlertTriangle
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -31,6 +31,7 @@ export default function ExpertAccessManager() {
   const [message, setMessage] = useState(null);
   const [approving, setApproving] = useState(null);
   const [showApproveModal, setShowApproveModal] = useState(null);
+  const [confirmModal, setConfirmModal] = useState(null); // { type, id, name }
 
   useEffect(() => {
     loadData();
@@ -109,12 +110,11 @@ export default function ExpertAccessManager() {
   };
 
   const handleReject = async (requestId) => {
-    if (!confirm('האם לדחות את הבקשה?')) return;
-    
     setApproving(requestId);
     try {
       await api.post(`/experts/reject/${requestId}`);
       setMessage({ type: 'success', text: 'הבקשה נדחתה' });
+      setConfirmModal(null);
       loadData();
     } catch (err) {
       setMessage({ type: 'error', text: err.response?.data?.error || 'שגיאה בדחיית בקשה' });
@@ -124,13 +124,13 @@ export default function ExpertAccessManager() {
   };
 
   const handleRemove = async (expertId) => {
-    if (!confirm('האם להסיר את הגישה של מומחה זה?')) return;
-    
     try {
       await api.delete(`/experts/expert/${expertId}`);
+      setMessage({ type: 'success', text: 'הגישה הוסרה בהצלחה' });
+      setConfirmModal(null);
       loadData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בהסרה');
+      setMessage({ type: 'error', text: err.response?.data?.error || 'שגיאה בהסרה' });
     }
   };
 
@@ -239,7 +239,7 @@ export default function ExpertAccessManager() {
                       אשר
                     </button>
                     <button
-                      onClick={() => handleReject(request.id)}
+                      onClick={() => setConfirmModal({ type: 'reject', id: request.id, name: request.expert_name || request.expert_email })}
                       disabled={approving === request.id}
                       className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm disabled:opacity-50"
                     >
@@ -307,7 +307,7 @@ export default function ExpertAccessManager() {
                   </div>
                   
                   <button
-                    onClick={() => handleRemove(expert.expert_id)}
+                    onClick={() => setConfirmModal({ type: 'remove', id: expert.expert_id, name: expert.expert_name || expert.expert_email })}
                     className="p-2 hover:bg-red-50 rounded-lg text-red-500"
                     title="הסר גישה"
                   >
@@ -525,6 +525,48 @@ export default function ExpertAccessManager() {
                   className="flex-1 px-4 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 disabled:opacity-50"
                 >
                   {approving ? 'מאשר...' : 'אשר גישה'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Modal */}
+      {confirmModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setConfirmModal(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <div className="p-6 text-center">
+              <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="w-7 h-7 text-red-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                {confirmModal.type === 'remove' ? 'הסרת גישה' : 'דחיית בקשה'}
+              </h3>
+              <p className="text-gray-600 mb-6">
+                {confirmModal.type === 'remove' 
+                  ? `האם להסיר את הגישה של ${confirmModal.name}?`
+                  : `האם לדחות את הבקשה של ${confirmModal.name}?`}
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmModal(null)}
+                  className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50"
+                >
+                  ביטול
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirmModal.type === 'remove') {
+                      handleRemove(confirmModal.id);
+                    } else {
+                      handleReject(confirmModal.id);
+                    }
+                  }}
+                  disabled={approving}
+                  className="flex-1 px-4 py-3 bg-red-500 text-white rounded-xl hover:bg-red-600 disabled:opacity-50"
+                >
+                  {approving ? 'מעבד...' : (confirmModal.type === 'remove' ? 'הסר' : 'דחה')}
                 </button>
               </div>
             </div>
