@@ -340,11 +340,9 @@ async function updateUserSubscription(req, res) {
     if (expiresAt !== undefined) {
       updates.push(`expires_at = $${paramIndex++}`);
       values.push(expiresAt);
-      // Only set next_charge_date from expiresAt if NOT manual subscription
-      if (isManual !== true) {
-        updates.push(`next_charge_date = $${paramIndex++}`);
-        values.push(expiresAt);
-      }
+      // Note: expires_at and next_charge_date are now independent
+      // expires_at = when subscription ends (for cancelled/manual)
+      // next_charge_date = when next payment occurs (for active recurring)
     }
     if (isManual !== undefined) {
       updates.push(`is_manual = $${paramIndex++}`);
