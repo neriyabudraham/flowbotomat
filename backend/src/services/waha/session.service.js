@@ -771,27 +771,45 @@ async function getGroups(sessionName) {
 
 /**
  * Delete a message
+ * @param {Object|string} connectionOrUserId - Either connection object with base_url, api_key, session_name or user ID
+ * @param {string} chatId - Chat/group ID to delete message from
+ * @param {string} messageId - WhatsApp message ID to delete
  */
-async function deleteMessage(sessionName, chatId, messageId) {
-  let connection = sessionName;
-  if (typeof sessionName === 'string') {
+async function deleteMessage(connectionOrUserId, chatId, messageId) {
+  let connection = connectionOrUserId;
+  
+  // If string passed, look up connection by user_id or session_name
+  if (typeof connectionOrUserId === 'string') {
     const db = require('../../config/database');
+    const { decrypt } = require('../../utils/encryption');
+    const { getWahaCredentials } = require('../../config/waha');
+    
     const result = await db.query(`
-      SELECT ws.*, wh.base_url, wh.api_key
-      FROM waha_sessions ws
-      JOIN waha_hosts wh ON ws.waha_host_id = wh.id
-      WHERE ws.session_id = $1 OR ws.waha_instance_name = $1
-      LIMIT 1
-    `, [sessionName]);
+      SELECT * FROM whatsapp_connections 
+      WHERE (user_id::text = $1 OR session_name = $1) AND status = 'connected'
+      ORDER BY connected_at DESC LIMIT 1
+    `, [connectionOrUserId]);
     
     if (result.rows.length === 0) {
-      throw new Error(`Session ${sessionName} not found`);
+      throw new Error(`Connection not found for ${connectionOrUserId}`);
+    }
+    
+    const conn = result.rows[0];
+    let baseUrl, apiKey;
+    
+    if (conn.connection_type === 'external') {
+      baseUrl = decrypt(conn.external_base_url);
+      apiKey = decrypt(conn.external_api_key);
+    } else {
+      const systemCreds = getWahaCredentials();
+      baseUrl = systemCreds.baseUrl;
+      apiKey = systemCreds.apiKey;
     }
     
     connection = {
-      base_url: result.rows[0].base_url,
-      api_key: result.rows[0].api_key,
-      session_name: result.rows[0].waha_instance_name || result.rows[0].session_id
+      base_url: baseUrl,
+      api_key: apiKey,
+      session_name: conn.session_name
     };
   }
   

@@ -666,21 +666,21 @@ async function deleteJobMessages(jobId) {
   const wahaService = require('../../services/waha/session.service');
   
   try {
-    // Get job details with WhatsApp connection info
+    // Get job details with user_id for connection lookup
     const jobResult = await db.query(`
-      SELECT fj.*, wc.session_name
+      SELECT fj.*, gf.user_id
       FROM forward_jobs fj
       JOIN group_forwards gf ON fj.forward_id = gf.id
-      JOIN whatsapp_connections wc ON wc.user_id = gf.user_id AND wc.status = 'connected'
       WHERE fj.id = $1
     `, [jobId]);
     
     if (jobResult.rows.length === 0) {
+      console.log(`[GroupForwards] Job ${jobId} not found for message deletion`);
       return;
     }
     
     const job = jobResult.rows[0];
-    const sessionName = job.session_name;
+    const userId = job.user_id;
     
     // Get sent messages with WhatsApp IDs
     const messagesResult = await db.query(`
@@ -690,11 +690,13 @@ async function deleteJobMessages(jobId) {
       WHERE fjm.job_id = $1 AND fjm.status = 'sent' AND fjm.whatsapp_message_id IS NOT NULL
     `, [jobId]);
     
+    console.log(`[GroupForwards] Deleting ${messagesResult.rows.length} messages for job ${jobId}, user ${userId}`);
+    
     let deletedCount = 0;
     
     for (const message of messagesResult.rows) {
       try {
-        await wahaService.deleteMessage(sessionName, message.group_id, message.whatsapp_message_id);
+        await wahaService.deleteMessage(userId, message.group_id, message.whatsapp_message_id);
         
         await db.query(`
           UPDATE forward_job_messages 
