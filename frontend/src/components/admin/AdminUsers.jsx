@@ -1069,47 +1069,86 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
                 )}
 
                 <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg mb-3">
-                  <p className="text-xs text-blue-700 text-center">💡 הזן <strong>-1</strong> לכמות ללא הגבלה</p>
+                  <p className="text-xs text-blue-700 text-center">💡 לחץ על <strong>∞</strong> או הזן <strong>-1</strong> לכמות ללא הגבלה</p>
                 </div>
 
                 <div className="space-y-3">
                   {/* Bots */}
                   <div className="p-3 bg-gray-50 rounded-xl">
                     <label className="block text-sm font-medium text-gray-700 mb-2">מכסת בוטים</label>
-                    <input
-                      type="number"
-                      min="-1"
-                      placeholder="ברירת מחדל מהתוכנית"
-                      value={featureOverrides?.max_bots ?? ''}
-                      onChange={(e) => updateFeatureOverride('max_bots', e.target.value !== '' ? parseInt(e.target.value) : null)}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min="-1"
+                        placeholder="ברירת מחדל מהתוכנית"
+                        value={featureOverrides?.max_bots ?? ''}
+                        onChange={(e) => updateFeatureOverride('max_bots', e.target.value !== '' ? parseInt(e.target.value) : null)}
+                        className={`flex-1 px-3 py-2 border rounded-lg text-sm ${featureOverrides?.max_bots === -1 ? 'border-green-400 bg-green-50' : 'border-gray-200'}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => updateFeatureOverride('max_bots', featureOverrides?.max_bots === -1 ? null : -1)}
+                        className={`px-3 py-2 text-sm rounded-lg font-bold ${featureOverrides?.max_bots === -1 ? 'bg-green-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}
+                        title="ללא הגבלה"
+                      >
+                        ∞
+                      </button>
+                    </div>
+                    {featureOverrides?.max_bots === -1 && (
+                      <span className="text-xs text-green-600 mt-1 block">✓ ללא הגבלה</span>
+                    )}
                   </div>
 
                   {/* Bot runs */}
                   <div className="p-3 bg-gray-50 rounded-xl">
                     <label className="block text-sm font-medium text-gray-700 mb-2">הרצות בוט בחודש</label>
-                    <input
-                      type="number"
-                      min="-1"
-                      placeholder="ברירת מחדל מהתוכנית"
-                      value={featureOverrides?.max_bot_runs_per_month ?? ''}
-                      onChange={(e) => updateFeatureOverride('max_bot_runs_per_month', e.target.value !== '' ? parseInt(e.target.value) : null)}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min="-1"
+                        placeholder="ברירת מחדל מהתוכנית"
+                        value={featureOverrides?.max_bot_runs_per_month ?? ''}
+                        onChange={(e) => updateFeatureOverride('max_bot_runs_per_month', e.target.value !== '' ? parseInt(e.target.value) : null)}
+                        className={`flex-1 px-3 py-2 border rounded-lg text-sm ${featureOverrides?.max_bot_runs_per_month === -1 ? 'border-green-400 bg-green-50' : 'border-gray-200'}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => updateFeatureOverride('max_bot_runs_per_month', featureOverrides?.max_bot_runs_per_month === -1 ? null : -1)}
+                        className={`px-3 py-2 text-sm rounded-lg font-bold ${featureOverrides?.max_bot_runs_per_month === -1 ? 'bg-green-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}
+                        title="ללא הגבלה"
+                      >
+                        ∞
+                      </button>
+                    </div>
+                    {featureOverrides?.max_bot_runs_per_month === -1 && (
+                      <span className="text-xs text-green-600 mt-1 block">✓ ללא הגבלה</span>
+                    )}
                   </div>
 
                   {/* Contacts */}
                   <div className="p-3 bg-gray-50 rounded-xl">
                     <label className="block text-sm font-medium text-gray-700 mb-2">מכסת אנשי קשר</label>
-                    <input
-                      type="number"
-                      min="-1"
-                      placeholder="ברירת מחדל מהתוכנית"
-                      value={featureOverrides?.max_contacts ?? ''}
-                      onChange={(e) => updateFeatureOverride('max_contacts', e.target.value !== '' ? parseInt(e.target.value) : null)}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min="-1"
+                        placeholder="ברירת מחדל מהתוכנית"
+                        value={featureOverrides?.max_contacts ?? ''}
+                        onChange={(e) => updateFeatureOverride('max_contacts', e.target.value !== '' ? parseInt(e.target.value) : null)}
+                        className={`flex-1 px-3 py-2 border rounded-lg text-sm ${featureOverrides?.max_contacts === -1 ? 'border-green-400 bg-green-50' : 'border-gray-200'}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => updateFeatureOverride('max_contacts', featureOverrides?.max_contacts === -1 ? null : -1)}
+                        className={`px-3 py-2 text-sm rounded-lg font-bold ${featureOverrides?.max_contacts === -1 ? 'bg-green-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}
+                        title="ללא הגבלה"
+                      >
+                        ∞
+                      </button>
+                    </div>
+                    {featureOverrides?.max_contacts === -1 && (
+                      <span className="text-xs text-green-600 mt-1 block">✓ ללא הגבלה</span>
+                    )}
                   </div>
 
                   {/* Group Forwards */}
@@ -1126,25 +1165,51 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
                     <div className="grid grid-cols-2 gap-2 mt-2">
                       <div>
                         <label className="text-xs text-gray-500">מקסימום העברות</label>
-                        <input
-                          type="number"
-                          min="-1"
-                          placeholder="ברירת מחדל"
-                          value={featureOverrides?.max_group_forwards ?? ''}
-                          onChange={(e) => updateFeatureOverride('max_group_forwards', e.target.value !== '' ? parseInt(e.target.value) : null)}
-                          className="w-full px-2 py-1 border border-gray-200 rounded text-sm"
-                        />
+                        <div className="flex gap-1">
+                          <input
+                            type="number"
+                            min="-1"
+                            placeholder="ברירת מחדל"
+                            value={featureOverrides?.max_group_forwards ?? ''}
+                            onChange={(e) => updateFeatureOverride('max_group_forwards', e.target.value !== '' ? parseInt(e.target.value) : null)}
+                            className={`flex-1 px-2 py-1 border rounded text-sm ${featureOverrides?.max_group_forwards === -1 ? 'border-green-400 bg-green-50' : 'border-gray-200'}`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => updateFeatureOverride('max_group_forwards', featureOverrides?.max_group_forwards === -1 ? null : -1)}
+                            className={`px-2 py-1 text-xs rounded ${featureOverrides?.max_group_forwards === -1 ? 'bg-green-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}
+                            title="ללא הגבלה"
+                          >
+                            ∞
+                          </button>
+                        </div>
+                        {featureOverrides?.max_group_forwards === -1 && (
+                          <span className="text-xs text-green-600">ללא הגבלה</span>
+                        )}
                       </div>
                       <div>
                         <label className="text-xs text-gray-500">מקסימום יעדים</label>
-                        <input
-                          type="number"
-                          min="-1"
-                          placeholder="ברירת מחדל"
-                          value={featureOverrides?.max_forward_targets ?? ''}
-                          onChange={(e) => updateFeatureOverride('max_forward_targets', e.target.value !== '' ? parseInt(e.target.value) : null)}
-                          className="w-full px-2 py-1 border border-gray-200 rounded text-sm"
-                        />
+                        <div className="flex gap-1">
+                          <input
+                            type="number"
+                            min="-1"
+                            placeholder="ברירת מחדל"
+                            value={featureOverrides?.max_forward_targets ?? ''}
+                            onChange={(e) => updateFeatureOverride('max_forward_targets', e.target.value !== '' ? parseInt(e.target.value) : null)}
+                            className={`flex-1 px-2 py-1 border rounded text-sm ${featureOverrides?.max_forward_targets === -1 ? 'border-green-400 bg-green-50' : 'border-gray-200'}`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => updateFeatureOverride('max_forward_targets', featureOverrides?.max_forward_targets === -1 ? null : -1)}
+                            className={`px-2 py-1 text-xs rounded ${featureOverrides?.max_forward_targets === -1 ? 'bg-green-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}
+                            title="ללא הגבלה"
+                          >
+                            ∞
+                          </button>
+                        </div>
+                        {featureOverrides?.max_forward_targets === -1 && (
+                          <span className="text-xs text-green-600">ללא הגבלה</span>
+                        )}
                       </div>
                     </div>
                   </div>
