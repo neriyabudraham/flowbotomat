@@ -28,14 +28,19 @@ function SendOtherNode({ data, selected }) {
   
   // Get recipient display
   const getRecipientDisplay = () => {
+    // Helper to strip curly braces if user included them
+    const cleanVarName = (name) => (name || '').replace(/^\{\{/, '').replace(/\}\}$/, '');
+    
     if (recipient.type === 'phone') {
       if (recipient.useVariable) {
-        return `{{${recipient.variableName || 'phone'}}}`;
+        const varName = cleanVarName(recipient.variableName) || 'phone';
+        return `{{${varName}}}`;
       }
       return recipient.phone || '(לא הוגדר)';
     } else if (recipient.type === 'group') {
       if (recipient.useVariable) {
-        return `{{${recipient.variableName || 'group'}}}`;
+        const varName = cleanVarName(recipient.variableName) || 'group';
+        return `{{${varName}}}`;
       }
       return recipient.groupName || recipient.groupId || '(לא הוגדר)';
     }
