@@ -1529,22 +1529,38 @@ function SubscriptionsTab({ subscriptions, searchTerm, setSearchTerm, onShowAssi
         setConfirmModal(null);
         setSwitching(userId);
         try {
+          console.log('Attempting to switch to:', userId);
+          
           // Store original token
           const currentToken = localStorage.getItem('accessToken');
-          localStorage.setItem('originalAccessToken', currentToken);
+          if (currentToken) {
+            localStorage.setItem('originalAccessToken', currentToken);
+          }
           
           // Get new token for viewing as this user
-          const { data } = await api.post(`/experts/switch/${userId}`);
+          const response = await api.post(`/experts/switch/${userId}`);
+          console.log('Switch response status:', response.status);
+          console.log('Switch response data:', response.data);
           
-          if (data.token) {
+          const { data } = response;
+          
+          if (data && data.token) {
+            console.log('Token received, setting...');
             setAccessToken(data.token);
             localStorage.setItem('accessToken', data.token);
+            console.log('Redirecting to dashboard...');
+            // Redirect to dashboard
             window.location.href = '/dashboard';
+          } else {
+            console.error('No token in response:', data);
+            showToast('error', 'לא התקבל טוקן מהשרת');
+            setSwitching(null);
           }
         } catch (err) {
-          console.error('Switch error:', err);
-          showToast('error', err.response?.data?.error || 'שגיאה במעבר לחשבון');
-        } finally {
+          console.error('Switch error full:', err);
+          console.error('Switch error response:', err.response);
+          const errorMessage = err.response?.data?.error || err.message || 'שגיאה במעבר לחשבון';
+          showToast('error', errorMessage);
           setSwitching(null);
         }
       }
