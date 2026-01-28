@@ -1,6 +1,9 @@
 const db = require('../../config/database');
 const { createNotification } = require('../notifications/notifications.controller');
 const crypto = require('crypto');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const { sendMail } = require('../../services/mail/transport.service');
 
 /**
  * Get my experts (people who manage my account)
@@ -13,7 +16,7 @@ async function getMyExperts(req, res) {
       `SELECT ec.*, u.email as expert_email, u.name as expert_name
        FROM expert_clients ec
        JOIN users u ON ec.expert_id = u.id
-       WHERE ec.client_id = $1
+       WHERE ec.client_id = $1 AND (ec.status = 'approved' OR ec.status IS NULL)
        ORDER BY ec.created_at DESC`,
       [userId]
     );
@@ -36,7 +39,7 @@ async function getMyClients(req, res) {
       `SELECT ec.*, u.email as client_email, u.name as client_name
        FROM expert_clients ec
        JOIN users u ON ec.client_id = u.id
-       WHERE ec.expert_id = $1 AND ec.is_active = true
+       WHERE ec.expert_id = $1 AND ec.is_active = true AND (ec.status = 'approved' OR ec.status IS NULL)
        ORDER BY ec.created_at DESC`,
       [userId]
     );
@@ -441,12 +444,483 @@ async function duplicateClientBot(req, res) {
 async function checkExpertAccess(expertId, clientId, permission = 'can_view_bots') {
   const result = await db.query(
     `SELECT * FROM expert_clients 
-     WHERE expert_id = $1 AND client_id = $2 AND is_active = true`,
+     WHERE expert_id = $1 AND client_id = $2 AND is_active = true AND status = 'approved'`,
     [expertId, clientId]
   );
   
   if (result.rows.length === 0) return false;
   return result.rows[0][permission] === true;
+}
+
+/**
+ * Request access to a client's account (as expert)
+ */
+async function requestAccess(req, res) {
+  try {
+    const expertId = req.user.id;
+    const { email, message } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ error: 'נדרש אימייל' });
+    }
+    
+    // Find client by email
+    const clientResult = await db.query(
+      'SELECT id, email, name FROM users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+    
+    if (clientResult.rows.length === 0) {
+      return res.status(404).json({ error: 'משתמש לא נמצא במערכת' });
+    }
+    
+    const client = clientResult.rows[0];
+    
+    // Can't request access to yourself
+    if (client.id === expertId) {
+      return res.status(400).json({ error: 'לא ניתן לבקש גישה לחשבון שלך' });
+    }
+    
+    // Check if already exists
+    const existing = await db.query(
+      'SELECT id, status, is_active FROM expert_clients WHERE expert_id = $1 AND client_id = $2',
+      [expertId, client.id]
+    );
+    
+    if (existing.rows.length > 0) {
+      const row = existing.rows[0];
+      if (row.status === 'pending') {
+        return res.status(400).json({ error: 'כבר יש בקשה ממתינה לחשבון זה' });
+      }
+      if (row.status === 'approved' && row.is_active) {
+        return res.status(400).json({ error: 'כבר יש לך גישה לחשבון זה' });
+      }
+      // Reactivate as pending
+      await db.query(
+        `UPDATE expert_clients 
+         SET status = 'pending', is_active = false, request_message = $3, requested_at = NOW(), rejected_at = NULL, rejection_reason = NULL
+         WHERE id = $1`,
+        [existing.rows[0].id, message || null]
+      );
+    } else {
+      // Create new pending request
+      await db.query(
+        `INSERT INTO expert_clients 
+         (expert_id, client_id, status, is_active, request_message, requested_at)
+         VALUES ($1, $2, 'pending', false, $3, NOW())`,
+        [expertId, client.id, message || null]
+      );
+    }
+    
+    // Get expert info for notification
+    const expertResult = await db.query('SELECT name, email FROM users WHERE id = $1', [expertId]);
+    const expert = expertResult.rows[0];
+    
+    // Send notification to client
+    await createNotification(
+      client.id,
+      'access_request',
+      'בקשת גישה לחשבון שלך',
+      `${expert.name || expert.email} מבקש/ת גישה לנהל את החשבון שלך`,
+      { relatedUserId: expertId, actionUrl: '/settings' }
+    );
+    
+    // Send email to client
+    try {
+      const emailHtml = getAccessRequestEmail(expert.name || expert.email, expert.email, message);
+      await sendMail(client.email, 'בקשת גישה לחשבון שלך - FlowBotomat', emailHtml);
+    } catch (emailErr) {
+      console.error('[Experts] Failed to send access request email:', emailErr);
+    }
+    
+    console.log(`[Experts] ${expertId} requested access to ${client.id}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'בקשת הגישה נשלחה בהצלחה'
+    });
+  } catch (error) {
+    console.error('[Experts] Request access error:', error);
+    res.status(500).json({ error: 'שגיאה בשליחת בקשה' });
+  }
+}
+
+/**
+ * Get pending access requests (as client)
+ */
+async function getPendingRequests(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    const result = await db.query(
+      `SELECT ec.*, u.email as expert_email, u.name as expert_name
+       FROM expert_clients ec
+       JOIN users u ON ec.expert_id = u.id
+       WHERE ec.client_id = $1 AND ec.status = 'pending'
+       ORDER BY ec.requested_at DESC`,
+      [userId]
+    );
+    
+    res.json({ requests: result.rows });
+  } catch (error) {
+    console.error('[Experts] Get pending requests error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת בקשות' });
+  }
+}
+
+/**
+ * Approve access request (as client)
+ */
+async function approveRequest(req, res) {
+  try {
+    const userId = req.user.id;
+    const { requestId } = req.params;
+    const { permissions } = req.body;
+    
+    // Get the request
+    const requestResult = await db.query(
+      'SELECT * FROM expert_clients WHERE id = $1 AND client_id = $2 AND status = \'pending\'',
+      [requestId, userId]
+    );
+    
+    if (requestResult.rows.length === 0) {
+      return res.status(404).json({ error: 'בקשה לא נמצאה' });
+    }
+    
+    const request = requestResult.rows[0];
+    
+    // Approve
+    await db.query(
+      `UPDATE expert_clients 
+       SET status = 'approved', is_active = true, approved_at = NOW(),
+           can_view_bots = $3, can_edit_bots = $4, can_manage_contacts = $5, can_view_analytics = $6
+       WHERE id = $1`,
+      [
+        requestId,
+        permissions?.can_view_bots ?? true,
+        permissions?.can_edit_bots ?? true,
+        permissions?.can_manage_contacts ?? true,
+        permissions?.can_view_analytics ?? true
+      ]
+    );
+    
+    // Get client info for notification
+    const clientResult = await db.query('SELECT name, email FROM users WHERE id = $1', [userId]);
+    const client = clientResult.rows[0];
+    
+    // Notify expert
+    await createNotification(
+      request.expert_id,
+      'access_approved',
+      'בקשת הגישה אושרה',
+      `${client.name || client.email} אישר/ה את בקשת הגישה שלך לחשבון`,
+      { relatedUserId: userId, actionUrl: '/settings' }
+    );
+    
+    console.log(`[Experts] ${userId} approved access request from ${request.expert_id}`);
+    
+    res.json({ success: true, message: 'הבקשה אושרה' });
+  } catch (error) {
+    console.error('[Experts] Approve request error:', error);
+    res.status(500).json({ error: 'שגיאה באישור בקשה' });
+  }
+}
+
+/**
+ * Reject access request (as client)
+ */
+async function rejectRequest(req, res) {
+  try {
+    const userId = req.user.id;
+    const { requestId } = req.params;
+    const { reason } = req.body;
+    
+    // Get the request
+    const requestResult = await db.query(
+      'SELECT * FROM expert_clients WHERE id = $1 AND client_id = $2 AND status = \'pending\'',
+      [requestId, userId]
+    );
+    
+    if (requestResult.rows.length === 0) {
+      return res.status(404).json({ error: 'בקשה לא נמצאה' });
+    }
+    
+    const request = requestResult.rows[0];
+    
+    // Reject
+    await db.query(
+      `UPDATE expert_clients 
+       SET status = 'rejected', rejected_at = NOW(), rejection_reason = $2
+       WHERE id = $1`,
+      [requestId, reason || null]
+    );
+    
+    // Get client info for notification
+    const clientResult = await db.query('SELECT name, email FROM users WHERE id = $1', [userId]);
+    const client = clientResult.rows[0];
+    
+    // Notify expert
+    await createNotification(
+      request.expert_id,
+      'access_rejected',
+      'בקשת הגישה נדחתה',
+      `${client.name || client.email} דחה/תה את בקשת הגישה שלך`,
+      { relatedUserId: userId }
+    );
+    
+    console.log(`[Experts] ${userId} rejected access request from ${request.expert_id}`);
+    
+    res.json({ success: true, message: 'הבקשה נדחתה' });
+  } catch (error) {
+    console.error('[Experts] Reject request error:', error);
+    res.status(500).json({ error: 'שגיאה בדחיית בקשה' });
+  }
+}
+
+/**
+ * Get all accessible accounts (for account switcher)
+ */
+async function getAccessibleAccounts(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    // Get current user info
+    const userResult = await db.query(
+      'SELECT id, email, name, avatar_url FROM users WHERE id = $1',
+      [userId]
+    );
+    const currentUser = userResult.rows[0];
+    
+    // Get clients I have access to (as expert)
+    const clientsResult = await db.query(
+      `SELECT u.id, u.email, u.name, u.avatar_url, ec.can_view_bots, ec.can_edit_bots
+       FROM expert_clients ec
+       JOIN users u ON ec.client_id = u.id
+       WHERE ec.expert_id = $1 AND ec.is_active = true AND ec.status = 'approved'
+       ORDER BY u.name, u.email`,
+      [userId]
+    );
+    
+    // Get linked accounts (accounts I created)
+    const linkedResult = await db.query(
+      `SELECT u.id, u.email, u.name, u.avatar_url, 'linked' as access_type
+       FROM linked_accounts la
+       JOIN users u ON la.child_user_id = u.id
+       WHERE la.parent_user_id = $1
+       ORDER BY u.name, u.email`,
+      [userId]
+    );
+    
+    res.json({
+      current: currentUser,
+      clients: clientsResult.rows.map(c => ({ ...c, access_type: 'expert' })),
+      linked: linkedResult.rows
+    });
+  } catch (error) {
+    console.error('[Experts] Get accessible accounts error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת חשבונות' });
+  }
+}
+
+/**
+ * Switch to another account (generate token for the target account)
+ */
+async function switchAccount(req, res) {
+  try {
+    const userId = req.user.id;
+    const { targetUserId } = req.params;
+    
+    // Check if user has access to target account
+    const accessResult = await db.query(
+      `SELECT ec.*, 'expert' as access_type 
+       FROM expert_clients ec
+       WHERE ec.expert_id = $1 AND ec.client_id = $2 AND ec.is_active = true AND ec.status = 'approved'
+       UNION
+       SELECT NULL as id, $1 as expert_id, $2 as client_id, true as can_view_bots, true as can_edit_bots, 
+              true as can_manage_contacts, true as can_view_analytics, true as is_active, 
+              NULL as created_at, NULL as approved_at, NULL as status, NULL as request_message, 
+              NULL as requested_at, NULL as rejected_at, NULL as rejection_reason, 'linked' as access_type
+       FROM linked_accounts la
+       WHERE la.parent_user_id = $1 AND la.child_user_id = $2`,
+      [userId, targetUserId]
+    );
+    
+    if (accessResult.rows.length === 0) {
+      return res.status(403).json({ error: 'אין לך גישה לחשבון זה' });
+    }
+    
+    const access = accessResult.rows[0];
+    
+    // Get target user info
+    const targetResult = await db.query(
+      'SELECT id, email, name, role FROM users WHERE id = $1',
+      [targetUserId]
+    );
+    
+    if (targetResult.rows.length === 0) {
+      return res.status(404).json({ error: 'חשבון לא נמצא' });
+    }
+    
+    const targetUser = targetResult.rows[0];
+    
+    // Generate a special token for viewing the target account
+    // This token includes the original user and the viewing context
+    const viewToken = jwt.sign(
+      { 
+        userId: targetUserId, 
+        email: targetUser.email, 
+        role: targetUser.role,
+        viewingAs: userId, // Original user ID
+        accessType: access.access_type,
+        permissions: {
+          can_view_bots: access.can_view_bots,
+          can_edit_bots: access.can_edit_bots,
+          can_manage_contacts: access.can_manage_contacts,
+          can_view_analytics: access.can_view_analytics
+        }
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    
+    console.log(`[Experts] ${userId} switched to account ${targetUserId}`);
+    
+    res.json({
+      success: true,
+      token: viewToken,
+      user: {
+        id: targetUser.id,
+        email: targetUser.email,
+        name: targetUser.name,
+        role: targetUser.role
+      },
+      accessType: access.access_type,
+      permissions: {
+        can_view_bots: access.can_view_bots,
+        can_edit_bots: access.can_edit_bots,
+        can_manage_contacts: access.can_manage_contacts,
+        can_view_analytics: access.can_view_analytics
+      }
+    });
+  } catch (error) {
+    console.error('[Experts] Switch account error:', error);
+    res.status(500).json({ error: 'שגיאה במעבר חשבון' });
+  }
+}
+
+/**
+ * Create a new linked account
+ */
+async function createLinkedAccount(req, res) {
+  try {
+    const parentUserId = req.user.id;
+    const { email, name, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: 'נדרש אימייל וסיסמה' });
+    }
+    
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'הסיסמה חייבת להכיל לפחות 6 תווים' });
+    }
+    
+    // Check if email already exists
+    const existingUser = await db.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+    
+    if (existingUser.rows.length > 0) {
+      return res.status(400).json({ error: 'אימייל זה כבר רשום במערכת' });
+    }
+    
+    // Create password hash
+    const passwordHash = await bcrypt.hash(password, 10);
+    
+    // Create new user
+    const newUserResult = await db.query(
+      `INSERT INTO users (email, name, password_hash, is_verified, verified_at)
+       VALUES ($1, $2, $3, true, NOW())
+       RETURNING id, email, name`,
+      [email.toLowerCase(), name || '', passwordHash]
+    );
+    
+    const newUser = newUserResult.rows[0];
+    
+    // Create free subscription for new user
+    try {
+      const planResult = await db.query(
+        `SELECT id FROM subscription_plans WHERE name = 'Free' AND is_active = true LIMIT 1`
+      );
+      
+      if (planResult.rows.length > 0) {
+        await db.query(
+          `INSERT INTO user_subscriptions (user_id, plan_id, status, is_trial, billing_period)
+           VALUES ($1, $2, 'active', false, 'monthly')`,
+          [newUser.id, planResult.rows[0].id]
+        );
+      }
+    } catch (subErr) {
+      console.error('[Experts] Failed to create subscription for linked account:', subErr);
+    }
+    
+    // Create linked account relationship
+    await db.query(
+      `INSERT INTO linked_accounts (parent_user_id, child_user_id)
+       VALUES ($1, $2)`,
+      [parentUserId, newUser.id]
+    );
+    
+    // Also create expert access automatically (full permissions)
+    await db.query(
+      `INSERT INTO expert_clients 
+       (expert_id, client_id, can_view_bots, can_edit_bots, can_manage_contacts, can_view_analytics, is_active, status, approved_at)
+       VALUES ($1, $2, true, true, true, true, true, 'approved', NOW())`,
+      [parentUserId, newUser.id]
+    );
+    
+    console.log(`[Experts] ${parentUserId} created linked account ${newUser.id}`);
+    
+    res.json({
+      success: true,
+      message: 'החשבון נוצר בהצלחה',
+      user: newUser
+    });
+  } catch (error) {
+    console.error('[Experts] Create linked account error:', error);
+    res.status(500).json({ error: 'שגיאה ביצירת חשבון' });
+  }
+}
+
+/**
+ * Email template for access request
+ */
+function getAccessRequestEmail(expertName, expertEmail, message) {
+  return `
+    <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
+        <h1 style="color: white; margin: 0;">בקשת גישה לחשבון</h1>
+      </div>
+      <div style="background: #f9fafb; padding: 30px; border-radius: 0 0 12px 12px;">
+        <p style="font-size: 16px; color: #111827;">
+          <strong>${expertName}</strong> (${expertEmail}) מבקש/ת גישה לנהל את החשבון שלך ב-FlowBotomat.
+        </p>
+        ${message ? `
+        <div style="background: white; padding: 15px; border-radius: 8px; margin: 20px 0; border-right: 4px solid #6366f1;">
+          <p style="color: #374151; margin: 0;"><strong>הודעה:</strong></p>
+          <p style="color: #6b7280; margin: 10px 0 0 0;">${message}</p>
+        </div>
+        ` : ''}
+        <p style="color: #6b7280;">
+          היכנס להגדרות החשבון שלך כדי לאשר או לדחות את הבקשה.
+        </p>
+        <a href="${process.env.APP_URL || 'https://flow.botomat.co.il'}/settings" 
+           style="display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; margin-top: 15px;">
+          צפה בבקשה
+        </a>
+      </div>
+    </div>
+  `;
 }
 
 module.exports = {
@@ -461,4 +935,12 @@ module.exports = {
   importClientBot,
   duplicateClientBot,
   checkExpertAccess,
+  // New functions
+  requestAccess,
+  getPendingRequests,
+  approveRequest,
+  rejectRequest,
+  getAccessibleAccounts,
+  switchAccount,
+  createLinkedAccount,
 };

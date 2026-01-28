@@ -13,6 +13,7 @@ import useWhatsappStore from '../store/whatsappStore';
 import useStatsStore from '../store/statsStore';
 import Logo from '../components/atoms/Logo';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
+import AccountSwitcher from '../components/AccountSwitcher';
 import { Copy, Share2 } from 'lucide-react';
 import ReferralBonusBanner from '../components/ReferralBonusBanner';
 import api from '../services/api';
@@ -160,6 +161,7 @@ export default function DashboardPage() {
   const [showMessage, setShowMessage] = useState(location.state?.message || null);
   const [selectedTip, setSelectedTip] = useState(null);
   const [usage, setUsage] = useState(null);
+  const [viewingAs, setViewingAs] = useState(null);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -167,6 +169,18 @@ export default function DashboardPage() {
       navigate('/login');
       return;
     }
+    
+    // Check if viewing another account
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      if (payload.viewingAs) {
+        setViewingAs({
+          originalUserId: payload.viewingAs,
+          accessType: payload.accessType
+        });
+      }
+    } catch (e) {}
+    
     fetchMe();
     fetchStatus();
     fetchDashboardStats();
@@ -224,6 +238,28 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50" dir="rtl">
+      {/* Viewing As Banner */}
+      {viewingAs && (
+        <div className="bg-gradient-to-r from-orange-500 to-amber-500 text-white py-2 px-4 text-center text-sm">
+          <div className="max-w-7xl mx-auto flex items-center justify-center gap-3">
+            <span>אתה צופה בחשבון של {user?.name || user?.email}</span>
+            <button
+              onClick={() => {
+                const originalToken = localStorage.getItem('originalAccessToken');
+                if (originalToken) {
+                  localStorage.setItem('accessToken', originalToken);
+                  localStorage.removeItem('originalAccessToken');
+                  window.location.reload();
+                }
+              }}
+              className="px-3 py-1 bg-white/20 hover:bg-white/30 rounded-lg font-medium"
+            >
+              חזור לחשבון שלי
+            </button>
+          </div>
+        </div>
+      )}
+      
       {/* Referral Bonus Banner */}
       <ReferralBonusBanner />
       
@@ -266,19 +302,7 @@ export default function DashboardPage() {
               
               <div className="h-8 w-px bg-gray-200" />
               
-              <div className="flex items-center gap-3">
-                <div className="hidden sm:block text-left">
-                  <p className="text-sm font-medium text-gray-900">{user?.name || 'משתמש'}</p>
-                  <p className="text-xs text-gray-500">{user?.email}</p>
-                </div>
-                {user?.avatar_url ? (
-                  <img src={user.avatar_url} alt="" className="w-10 h-10 rounded-xl object-cover" />
-                ) : (
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold">
-                    {(user?.name || user?.email || 'U')[0].toUpperCase()}
-                  </div>
-                )}
-              </div>
+              <AccountSwitcher />
               
               <button 
                 onClick={handleLogout}
