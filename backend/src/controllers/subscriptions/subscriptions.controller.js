@@ -202,13 +202,27 @@ async function getAllSubscriptions(req, res) {
     const result = await db.query(`
       SELECT 
         us.*,
+        u.id as user_id,
         u.name as user_name,
         u.email as user_email,
-        sp.name_he as plan_name
+        sp.name as plan_name,
+        sp.name_he as plan_name_he,
+        sp.price as plan_price,
+        sp.billing_period as plan_billing_period,
+        EXISTS(SELECT 1 FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_default = true) as has_payment_method,
+        (SELECT pm.card_last_digits FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_default = true LIMIT 1) as card_last_digits
       FROM user_subscriptions us
       JOIN users u ON us.user_id = u.id
       JOIN subscription_plans sp ON us.plan_id = sp.id
-      ORDER BY us.created_at DESC
+      ORDER BY 
+        CASE 
+          WHEN us.status = 'active' AND us.is_manual = false THEN 1
+          WHEN us.status = 'active' AND us.is_manual = true THEN 2
+          WHEN us.status = 'trial' THEN 3
+          WHEN us.status = 'cancelled' THEN 4
+          ELSE 5
+        END,
+        us.created_at DESC
     `);
     
     res.json({ subscriptions: result.rows });
