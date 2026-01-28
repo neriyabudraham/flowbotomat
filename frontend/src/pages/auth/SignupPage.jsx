@@ -5,7 +5,6 @@ import {
   MessageCircle, Users, TrendingUp, ArrowRight, CheckCircle, Check, Gift, Clock, Link2
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
-import api from '../../services/api';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
@@ -40,10 +39,13 @@ export default function SignupPage() {
     const code = searchParams.get('link');
     if (code) {
       setLinkValidating(true);
-      api.get(`/experts/validate-link/${code}`)
-        .then(({ data }) => {
-          if (data.valid) {
-            setLinkCode(code);
+      setLinkCode(code); // Set code immediately for form submission
+      
+      // Validate in background
+      fetch(`/api/experts/validate-link/${code}`)
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data?.valid) {
             setLinkParentName(data.parentName);
           }
         })
