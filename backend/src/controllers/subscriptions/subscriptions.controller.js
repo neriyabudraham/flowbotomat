@@ -88,6 +88,13 @@ async function getMyUsage(req, res) {
       `, [userId, year, month]);
     }
     
+    // Get user's feature overrides
+    const userResult = await db.query(
+      'SELECT feature_overrides FROM users WHERE id = $1',
+      [userId]
+    );
+    const featureOverrides = userResult.rows[0]?.feature_overrides || null;
+    
     // Get subscription limits (including cancelled with future end date)
     const subResult = await db.query(`
       SELECT sp.max_bot_runs_per_month, sp.max_contacts, sp.max_bots
@@ -104,11 +111,25 @@ async function getMyUsage(req, res) {
     `, [userId]);
     
     // Default to free plan limits if no subscription
-    const limits = subResult.rows[0] || {
+    const planLimits = subResult.rows[0] || {
       max_bot_runs_per_month: 500,
       max_contacts: 100,
       max_bots: 1
     };
+    
+    // Merge: feature overrides take precedence over plan limits
+    const limits = { ...planLimits };
+    if (featureOverrides) {
+      if (featureOverrides.max_bot_runs_per_month !== null && featureOverrides.max_bot_runs_per_month !== undefined) {
+        limits.max_bot_runs_per_month = featureOverrides.max_bot_runs_per_month;
+      }
+      if (featureOverrides.max_contacts !== null && featureOverrides.max_contacts !== undefined) {
+        limits.max_contacts = featureOverrides.max_contacts;
+      }
+      if (featureOverrides.max_bots !== null && featureOverrides.max_bots !== undefined) {
+        limits.max_bots = featureOverrides.max_bots;
+      }
+    }
     
     // Get actual counts
     // Own bots

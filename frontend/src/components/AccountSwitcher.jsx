@@ -10,7 +10,7 @@ import useAuthStore from '../store/authStore';
 export default function AccountSwitcher() {
   const { user, setTokens } = useAuthStore();
   const [isOpen, setIsOpen] = useState(false);
-  const [accounts, setAccounts] = useState({ current: null, clients: [], linked: [] });
+  const [accounts, setAccounts] = useState({ current: null, original: null, clients: [], linked: [], isViewingAs: false });
   const [loading, setLoading] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -120,7 +120,8 @@ export default function AccountSwitcher() {
     }
   };
 
-  const allAccounts = [...accounts.clients, ...accounts.linked];
+  // Build all accounts list, excluding the current one
+  const allAccounts = [...accounts.clients, ...accounts.linked].filter(a => a.id !== accounts.current?.id);
 
   return (
     <>
@@ -171,29 +172,46 @@ export default function AccountSwitcher() {
                 </div>
                 <Check className="w-5 h-5 text-green-500" />
               </div>
-              
-              {viewingAs && (
-                <button
-                  onClick={handleReturnToMyAccount}
-                  className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 bg-orange-50 text-orange-700 rounded-xl hover:bg-orange-100 text-sm font-medium"
-                >
-                  <ArrowLeftRight className="w-4 h-4" />
-                  חזור לחשבון שלי
-                </button>
-              )}
             </div>
 
-            {/* Other Accounts */}
-            {allAccounts.length > 0 && (
+            {/* All Accessible Accounts */}
+            {(allAccounts.length > 0 || accounts.original) && (
               <div className="px-4 py-3 border-b border-gray-100">
                 <p className="text-xs text-gray-500 mb-2">חשבונות נגישים</p>
                 <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {/* Show original (my account) when viewing as another */}
+                  {accounts.original && accounts.isViewingAs && (
+                    <button
+                      onClick={handleReturnToMyAccount}
+                      className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-orange-50 bg-orange-50/50 transition-colors border border-orange-200"
+                    >
+                      {accounts.original.avatar_url ? (
+                        <img src={accounts.original.avatar_url} alt="" className="w-8 h-8 rounded-lg object-cover" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-sm font-medium">
+                          {(accounts.original.name || accounts.original.email || 'U')[0].toUpperCase()}
+                        </div>
+                      )}
+                      <div className="flex-1 text-right">
+                        <p className="text-sm font-medium text-gray-900">{accounts.original.name || 'ללא שם'}</p>
+                        <p className="text-xs text-gray-500">{accounts.original.email}</p>
+                      </div>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium">
+                        החשבון שלי
+                      </span>
+                    </button>
+                  )}
+                  
                   {allAccounts.map((account) => (
                     <button
                       key={account.id}
                       onClick={() => handleSwitchAccount(account.id)}
-                      disabled={loading}
-                      className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
+                      disabled={loading || account.isCurrentlyViewing}
+                      className={`w-full flex items-center gap-3 p-2 rounded-xl transition-colors disabled:opacity-50 ${
+                        account.isCurrentlyViewing 
+                          ? 'bg-green-50 border border-green-200' 
+                          : 'hover:bg-gray-50'
+                      }`}
                     >
                       {account.avatar_url ? (
                         <img src={account.avatar_url} alt="" className="w-8 h-8 rounded-lg object-cover" />
@@ -206,13 +224,17 @@ export default function AccountSwitcher() {
                         <p className="text-sm font-medium text-gray-900">{account.name || 'ללא שם'}</p>
                         <p className="text-xs text-gray-500">{account.email}</p>
                       </div>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        account.access_type === 'linked' 
-                          ? 'bg-purple-100 text-purple-700' 
-                          : 'bg-blue-100 text-blue-700'
-                      }`}>
-                        {account.access_type === 'linked' ? 'מקושר' : 'גישה'}
-                      </span>
+                      {account.isCurrentlyViewing ? (
+                        <Check className="w-5 h-5 text-green-500" />
+                      ) : (
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          account.access_type === 'linked' 
+                            ? 'bg-purple-100 text-purple-700' 
+                            : 'bg-blue-100 text-blue-700'
+                        }`}>
+                          {account.access_type === 'linked' ? 'מקושר' : 'גישה'}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>

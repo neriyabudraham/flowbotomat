@@ -682,39 +682,60 @@ async function rejectRequest(req, res) {
  */
 async function getAccessibleAccounts(req, res) {
   try {
-    const userId = req.user.id;
+    // Use original user ID if in viewingAs mode, otherwise current user
+    const originalUserId = req.user.viewingAs ? req.user.viewingAs.originalUserId : req.user.id;
+    const currentUserId = req.user.id;
     
-    // Get current user info
-    const userResult = await db.query(
+    // Get current viewed user info
+    const currentUserResult = await db.query(
       'SELECT id, email, name, avatar_url FROM users WHERE id = $1',
-      [userId]
+      [currentUserId]
     );
-    const currentUser = userResult.rows[0];
+    const currentUser = currentUserResult.rows[0];
     
-    // Get clients I have access to (as expert)
+    // Get original user info (the expert's account)
+    const originalUserResult = await db.query(
+      'SELECT id, email, name, avatar_url FROM users WHERE id = $1',
+      [originalUserId]
+    );
+    const originalUser = originalUserResult.rows[0];
+    
+    // Get clients the ORIGINAL user has access to (as expert)
     const clientsResult = await db.query(
       `SELECT u.id, u.email, u.name, u.avatar_url, ec.can_view_bots, ec.can_edit_bots
        FROM expert_clients ec
        JOIN users u ON ec.client_id = u.id
        WHERE ec.expert_id = $1 AND ec.is_active = true AND ec.status = 'approved'
        ORDER BY u.name, u.email`,
-      [userId]
+      [originalUserId]
     );
     
-    // Get linked accounts (accounts I created)
+    // Get linked accounts (accounts the ORIGINAL user created)
     const linkedResult = await db.query(
       `SELECT u.id, u.email, u.name, u.avatar_url, 'linked' as access_type
        FROM linked_accounts la
        JOIN users u ON la.child_user_id = u.id
        WHERE la.parent_user_id = $1
        ORDER BY u.name, u.email`,
-      [userId]
+      [originalUserId]
     );
+    
+    // Build response - always show original account in the list when viewing as another
+    const isViewingAs = req.user.viewingAs !== undefined;
     
     res.json({
       current: currentUser,
-      clients: clientsResult.rows.map(c => ({ ...c, access_type: 'expert' })),
-      linked: linkedResult.rows
+      original: isViewingAs ? originalUser : null, // The expert's own account
+      clients: clientsResult.rows.map(c => ({ 
+        ...c, 
+        access_type: 'expert',
+        isCurrentlyViewing: c.id === currentUserId // Mark if this is the currently viewed account
+      })),
+      linked: linkedResult.rows.map(l => ({
+        ...l,
+        isCurrentlyViewing: l.id === currentUserId
+      })),
+      isViewingAs
     });
   } catch (error) {
     console.error('[Experts] Get accessible accounts error:', error);
