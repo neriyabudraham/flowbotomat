@@ -236,11 +236,25 @@ export default function AdminUsers() {
                 <td colSpan={8} className="px-4 py-8 text-center text-gray-500">לא נמצאו משתמשים</td>
               </tr>
             ) : users.map(u => (
-              <tr key={u.id} className="hover:bg-gray-50">
+              <tr 
+                key={u.id} 
+                className="hover:bg-purple-50 cursor-pointer transition-colors"
+                onClick={() => setSelectedUser(u)}
+              >
                 <td className="px-4 py-3">
-                  <div>
-                    <div className="font-medium text-gray-800">{u.name || 'ללא שם'}</div>
-                    <div className="text-sm text-gray-500">{u.email}</div>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold ${
+                      u.subscription_status === 'active' && !u.is_manual ? 'bg-green-500' :
+                      u.is_manual ? 'bg-purple-500' :
+                      u.subscription_status === 'trial' ? 'bg-cyan-500' :
+                      'bg-gray-400'
+                    }`}>
+                      {(u.name || u.email || '?')[0].toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="font-medium text-gray-800">{u.name || 'ללא שם'}</div>
+                      <div className="text-sm text-gray-500">{u.email}</div>
+                    </div>
                   </div>
                 </td>
                 <td className="px-4 py-3">
@@ -279,7 +293,7 @@ export default function AdminUsers() {
                 <td className="px-4 py-3 text-sm text-gray-500">
                   {new Date(u.created_at).toLocaleDateString('he-IL')}
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => handleSwitchToAccount(u.id, u.name || u.email)}
@@ -296,13 +310,6 @@ export default function AdminUsers() {
                       ) : (
                         <ExternalLink className="w-4 h-4" />
                       )}
-                    </button>
-                    <button
-                      onClick={() => setSelectedUser(u)}
-                      className="p-1.5 hover:bg-gray-100 rounded text-gray-500"
-                      title="צפייה"
-                    >
-                      <Eye className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => setEditingUser(editingUser === u.id ? null : u.id)}

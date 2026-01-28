@@ -19,7 +19,7 @@ import AdminNotifications from '../components/admin/AdminNotifications';
 const TABS = [
   { id: 'dashboard', label: 'דשבורד', icon: BarChart3 },
   { id: 'users', label: 'משתמשים', icon: Users },
-  { id: 'subscriptions', label: 'מנויים ותמחור', icon: CreditCard },
+  { id: 'subscriptions', label: 'תמחור', icon: CreditCard },
   { id: 'affiliate', label: 'תוכנית שותפים', icon: Share2 },
   { id: 'notifications', label: 'התראות', icon: Bell },
   { id: 'templates', label: 'תבניות', icon: Grid },
