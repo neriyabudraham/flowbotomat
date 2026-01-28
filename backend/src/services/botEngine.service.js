@@ -1990,8 +1990,11 @@ class BotEngine {
       // Group recipient
       let groupId;
       if (recipient.useVariable && recipient.variableName) {
-        // Get group ID from variable
-        groupId = this.replaceVariables(`{{${recipient.variableName}}}`, contact, '', '');
+        // Get group ID from variable - handle both "group_id" and "{{group_id}}" formats
+        let varName = recipient.variableName;
+        // Strip curly braces if user included them
+        varName = varName.replace(/^\{\{/, '').replace(/\}\}$/, '');
+        groupId = this.replaceVariables(`{{${varName}}}`, contact, '', '');
       } else {
         groupId = recipient.groupId || '';
         // Also replace variables in case user entered {{group_id}} directly
@@ -2010,8 +2013,11 @@ class BotEngine {
       // Phone recipient
       let phone;
       if (recipient.useVariable && recipient.variableName) {
-        // Get phone from variable
-        phone = this.replaceVariables(`{{${recipient.variableName}}}`, contact, '', '');
+        // Get phone from variable - handle both "sender_phone" and "{{sender_phone}}" formats
+        let varName = recipient.variableName;
+        // Strip curly braces if user included them
+        varName = varName.replace(/^\{\{/, '').replace(/\}\}$/, '');
+        phone = this.replaceVariables(`{{${varName}}}`, contact, '', '');
       } else {
         phone = recipient.phone || '';
         // Also replace variables in case user entered {{sender_phone}} directly
