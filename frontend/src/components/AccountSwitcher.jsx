@@ -1,22 +1,20 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
 import { 
-  ChevronDown, User, Plus, Check, Users,
-  UserPlus, ArrowLeftRight, X, Mail, Link2, Copy, ExternalLink
+  ChevronDown, Plus, Check,
+  UserPlus, ArrowLeftRight, X, Mail
 } from 'lucide-react';
 import api from '../services/api';
 import useAuthStore from '../store/authStore';
 
 export default function AccountSwitcher() {
-  const navigate = useNavigate();
   const { user, setTokens } = useAuthStore();
   const [isOpen, setIsOpen] = useState(false);
   const [accounts, setAccounts] = useState({ current: null, clients: [], linked: [] });
   const [loading, setLoading] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
-  const [showLinkModal, setShowLinkModal] = useState(false);
   const [viewingAs, setViewingAs] = useState(null);
+  const [creatingLink, setCreatingLink] = useState(false);
   const dropdownRef = useRef(null);
 
   // Load accessible accounts
@@ -86,6 +84,21 @@ export default function AccountSwitcher() {
       localStorage.setItem('accessToken', originalToken);
       localStorage.removeItem('originalAccessToken');
       window.location.reload();
+    }
+  };
+
+  // Create linked account - generate code and open registration
+  const handleCreateLinkedAccount = async () => {
+    setCreatingLink(true);
+    setIsOpen(false);
+    try {
+      const { data } = await api.post('/experts/generate-link-code');
+      // Open registration page in new tab with the link code
+      window.open(`${window.location.origin}/register?link=${data.code}`, '_blank');
+    } catch (e) {
+      alert(e.response?.data?.error || 'שגיאה ביצירת קישור');
+    } finally {
+      setCreatingLink(false);
     }
   };
 
@@ -201,32 +214,25 @@ export default function AccountSwitcher() {
               </button>
               
               <button
-                onClick={() => { setShowLinkModal(true); setIsOpen(false); }}
-                className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 text-gray-700 transition-colors"
+                onClick={handleCreateLinkedAccount}
+                disabled={creatingLink}
+                className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 text-gray-700 transition-colors disabled:opacity-50"
               >
                 <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
                   <Plus className="w-4 h-4 text-purple-600" />
                 </div>
-                <span className="text-sm">צור חשבון מקושר</span>
+                <span className="text-sm">{creatingLink ? 'פותח...' : 'צור חשבון מקושר'}</span>
               </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Modals - Rendered via Portal */}
+      {/* Request Access Modal - Rendered via Portal */}
       {showRequestModal && createPortal(
         <RequestAccessModal 
           onClose={() => setShowRequestModal(false)} 
           onSuccess={() => { setShowRequestModal(false); loadAccounts(); }}
-        />,
-        document.body
-      )}
-
-      {showLinkModal && createPortal(
-        <CreateLinkedAccountModal 
-          onClose={() => setShowLinkModal(false)} 
-          onSuccess={() => { setShowLinkModal(false); loadAccounts(); }}
         />,
         document.body
       )}
@@ -318,134 +324,6 @@ function RequestAccessModal({ onClose, onSuccess }) {
             </button>
           </div>
         </form>
-      </div>
-    </div>
-  );
-}
-
-// Create Linked Account Modal - Generates a link code
-function CreateLinkedAccountModal({ onClose, onSuccess }) {
-  const [linkCode, setLinkCode] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
-
-  const generateLinkCode = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const { data } = await api.post('/experts/generate-link-code');
-      setLinkCode(data.code);
-    } catch (err) {
-      setError(err.response?.data?.error || 'שגיאה ביצירת קוד');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const copyLink = () => {
-    const link = `${window.location.origin}/register?link=${linkCode}`;
-    navigator.clipboard.writeText(link);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const openRegister = () => {
-    window.open(`${window.location.origin}/register?link=${linkCode}`, '_blank');
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
-        <div className="bg-gradient-to-r from-purple-500 to-pink-600 p-6 rounded-t-2xl">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-white">צור חשבון מקושר</h2>
-            <button onClick={onClose} className="text-white/80 hover:text-white">
-              <X className="w-6 h-6" />
-            </button>
-          </div>
-          <p className="text-white/80 text-sm mt-1">צור קישור הרשמה שיקשר את החשבון החדש אליך</p>
-        </div>
-        
-        <div className="p-6 space-y-4">
-          {error && (
-            <div className="p-3 bg-red-50 text-red-700 rounded-xl text-sm">{error}</div>
-          )}
-
-          {!linkCode ? (
-            <>
-              <div className="text-center py-4">
-                <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Link2 className="w-8 h-8 text-purple-600" />
-                </div>
-                <h3 className="font-semibold text-gray-800 mb-2">איך זה עובד?</h3>
-                <p className="text-sm text-gray-600">
-                  לחץ על הכפתור למטה ליצירת קישור הרשמה מיוחד.
-                  <br />
-                  כל מי שיירשם דרך הקישור יקושר אוטומטית לחשבון שלך.
-                </p>
-              </div>
-              
-              <button
-                onClick={generateLinkCode}
-                disabled={loading}
-                className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-xl font-medium disabled:opacity-50"
-              >
-                {loading ? 'יוצר קישור...' : 'צור קישור הרשמה'}
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="text-center py-2">
-                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <Check className="w-6 h-6 text-green-600" />
-                </div>
-                <h3 className="font-semibold text-gray-800 mb-1">הקישור נוצר!</h3>
-                <p className="text-sm text-gray-500">שתף את הקישור או פתח בחלון חדש</p>
-              </div>
-
-              <div className="bg-gray-50 rounded-xl p-3">
-                <p className="text-xs text-gray-500 mb-2">קישור הרשמה:</p>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={`${window.location.origin}/register?link=${linkCode}`}
-                    readOnly
-                    dir="ltr"
-                    className="flex-1 text-sm bg-white border border-gray-200 rounded-lg px-3 py-2 text-gray-600"
-                  />
-                  <button
-                    onClick={copyLink}
-                    className={`p-2 rounded-lg transition-colors ${copied ? 'bg-green-100 text-green-600' : 'bg-gray-200 hover:bg-gray-300 text-gray-600'}`}
-                    title="העתק"
-                  >
-                    {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={openRegister}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-purple-500 text-white rounded-xl hover:bg-purple-600"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  פתח הרשמה
-                </button>
-                <button
-                  onClick={onClose}
-                  className="flex-1 px-4 py-3 border border-gray-200 rounded-xl hover:bg-gray-50"
-                >
-                  סיום
-                </button>
-              </div>
-
-              <p className="text-xs text-gray-400 text-center">
-                הקישור תקף ל-24 שעות
-              </p>
-            </>
-          )}
-        </div>
       </div>
     </div>
   );

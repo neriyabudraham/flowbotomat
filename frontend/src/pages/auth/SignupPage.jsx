@@ -208,12 +208,20 @@ export default function SignupPage() {
                   <Link2 className="w-5 h-5 text-purple-600" />
                 </div>
                 <div>
-                  <p className="text-purple-800 font-medium text-sm">חשבון מקושר</p>
+                  <p className="text-purple-800 font-medium text-sm">הוזמנת ליצור חשבון</p>
                   <p className="text-purple-600 text-sm">
-                    החשבון יקושר אוטומטית ל-<strong>{linkParentName}</strong>
+                    לאחר ההרשמה, {linkParentName} יקבל/ת גישה לניהול החשבון שלך
                   </p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Loading Link Validation */}
+          {linkValidating && (
+            <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-2xl flex items-center justify-center">
+              <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+              <span className="mr-3 text-gray-600 text-sm">טוען...</span>
             </div>
           )}
 

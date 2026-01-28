@@ -593,7 +593,7 @@ async function approveRequest(req, res) {
     await db.query(
       `UPDATE expert_clients 
        SET status = 'approved', is_active = true, approved_at = NOW(),
-           can_view_bots = $3, can_edit_bots = $4, can_manage_contacts = $5, can_view_analytics = $6
+           can_view_bots = $2, can_edit_bots = $3, can_manage_contacts = $4, can_view_analytics = $5
        WHERE id = $1`,
       [
         requestId,
