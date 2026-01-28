@@ -639,14 +639,20 @@ class BotEngine {
         console.log('[BotEngine] Group:', group.id, '- conditions:', conditions.length, '- allowGroupMessages:', group.allowGroupMessages);
         if (conditions.length === 0) continue;
         
-        // Check if this group allows group messages
-        // By default, only direct messages are allowed (for group messages only)
-        const allowGroupMessages = group.allowGroupMessages || false;
+        // Check message source settings
+        // By default: direct messages allowed, group messages not allowed
+        const allowDirectMessages = group.allowDirectMessages !== false; // default true
+        const allowGroupMessages = group.allowGroupMessages || false; // default false
+        
         if (isGroupMessage && !allowGroupMessages) {
-          console.log('[BotEngine] Skipping trigger group - group messages not allowed for this group');
+          console.log('[BotEngine] Skipping trigger group - group messages not allowed');
           continue; // Try next group
         }
-        console.log('[BotEngine] isGroupMessage:', isGroupMessage, '- passing group message check');
+        if (!isGroupMessage && !allowDirectMessages) {
+          console.log('[BotEngine] Skipping trigger group - direct messages not allowed');
+          continue; // Try next group
+        }
+        console.log('[BotEngine] Message source check passed - isGroup:', isGroupMessage, 'allowDirect:', allowDirectMessages, 'allowGroup:', allowGroupMessages);
         
         // All conditions in this group must match (AND)
         let groupMatches = true;

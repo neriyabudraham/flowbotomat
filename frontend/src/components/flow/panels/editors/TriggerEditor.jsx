@@ -462,19 +462,38 @@ export default function TriggerEditor({ data, onUpdate }) {
                     </div>
                     
                     <div className="space-y-3 bg-white rounded-lg p-3 border border-gray-100">
-                      {/* Allow group messages */}
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={group.allowGroupMessages || false}
-                          onChange={(e) => updateGroupSetting(group.id, 'allowGroupMessages', e.target.checked)}
-                          className="w-4 h-4 rounded border-gray-300 text-purple-600"
-                        />
-                        <div>
-                          <div className="text-sm font-medium text-gray-700">הפעל גם בקבוצות</div>
-                          <div className="text-xs text-gray-500">כברירת מחדל מגיב רק להודעות ישירות. סמן כדי להפעיל גם בקבוצות</div>
-                        </div>
-                      </label>
+                      {/* Message source settings */}
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium text-gray-500 mb-2">מקור ההודעות:</div>
+                        
+                        {/* Allow direct messages (chats) */}
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={group.allowDirectMessages !== false}
+                            onChange={(e) => updateGroupSetting(group.id, 'allowDirectMessages', e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-300 text-purple-600"
+                          />
+                          <div>
+                            <div className="text-sm font-medium text-gray-700">💬 הפעלה בצ'אטים</div>
+                            <div className="text-xs text-gray-500">הפעל את הטריגר בהודעות ישירות (פרטיות)</div>
+                          </div>
+                        </label>
+
+                        {/* Allow group messages */}
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={group.allowGroupMessages || false}
+                            onChange={(e) => updateGroupSetting(group.id, 'allowGroupMessages', e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-300 text-purple-600"
+                          />
+                          <div>
+                            <div className="text-sm font-medium text-gray-700">👥 הפעלה בקבוצות</div>
+                            <div className="text-xs text-gray-500">הפעל את הטריגר בהודעות מקבוצות</div>
+                          </div>
+                        </label>
+                      </div>
 
                       {/* Once per user */}
                       <label className="flex items-center gap-3 cursor-pointer">
