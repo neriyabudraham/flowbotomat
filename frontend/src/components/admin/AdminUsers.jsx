@@ -790,15 +790,13 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
               <span className="font-medium text-gray-800">
                 {user.is_manual 
                   ? 'ללא תשלום'
-                  : user.promo_price 
-                    ? `₪${user.promo_price} (מבצע)`
-                    : user.custom_fixed_price
-                      ? `₪${user.custom_fixed_price} (מותאם)`
-                      : user.custom_discount_percent
-                        ? `₪${Math.round(user.plan_price * (1 - user.custom_discount_percent / 100))} (${user.custom_discount_percent}% הנחה)`
-                        : user.plan_price
-                          ? `₪${user.plan_price}/${user.billing_period === 'yearly' ? 'שנה' : 'חודש'}`
-                          : 'חינם'
+                  : user.custom_fixed_price
+                    ? `₪${user.custom_fixed_price} (מותאם)`
+                    : user.custom_discount_percent
+                      ? `₪${Math.round(user.plan_price * (1 - user.custom_discount_percent / 100))} (${user.custom_discount_percent}% הנחה)`
+                      : user.plan_price
+                        ? `₪${user.plan_price}/${user.billing_period === 'yearly' ? 'שנה' : 'חודש'}`
+                        : 'חינם'
                 }
               </span>
             </div>
