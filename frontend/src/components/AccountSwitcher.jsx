@@ -244,7 +244,6 @@ function RequestAccessModal({ onClose, onSuccess }) {
 
     try {
       await api.post('/experts/request-access', { email, message });
-      alert('בקשת הגישה נשלחה בהצלחה');
       onSuccess();
     } catch (err) {
       setError(err.response?.data?.error || 'שגיאה בשליחת בקשה');
@@ -254,8 +253,8 @@ function RequestAccessModal({ onClose, onSuccess }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4 overflow-y-auto" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-md my-8" onClick={e => e.stopPropagation()}>
         <div className="bg-gradient-to-r from-blue-500 to-indigo-600 p-6 rounded-t-2xl">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-white">בקש גישה לחשבון</h2>
@@ -333,7 +332,6 @@ function CreateLinkedAccountModal({ onClose, onSuccess }) {
 
     try {
       await api.post('/experts/create-linked-account', form);
-      alert('החשבון נוצר בהצלחה');
       onSuccess();
     } catch (err) {
       setError(err.response?.data?.error || 'שגיאה ביצירת חשבון');
@@ -343,8 +341,8 @@ function CreateLinkedAccountModal({ onClose, onSuccess }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4 overflow-y-auto" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-md my-8" onClick={e => e.stopPropagation()}>
         <div className="bg-gradient-to-r from-purple-500 to-pink-600 p-6 rounded-t-2xl">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-white">צור חשבון מקושר</h2>
