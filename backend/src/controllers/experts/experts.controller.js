@@ -683,7 +683,8 @@ async function rejectRequest(req, res) {
 async function getAccessibleAccounts(req, res) {
   try {
     // Use original user ID if in viewingAs mode, otherwise current user
-    const originalUserId = req.user.viewingAs ? req.user.viewingAs.originalUserId : req.user.id;
+    // viewingAs is the original user's ID (string), not an object
+    const originalUserId = req.user.viewingAs || req.user.id;
     const currentUserId = req.user.id;
     
     // Get current viewed user info
