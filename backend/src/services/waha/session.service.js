@@ -782,7 +782,7 @@ async function deleteMessage(connectionOrUserId, chatId, messageId) {
   if (typeof connectionOrUserId === 'string') {
     const db = require('../../config/database');
     const { decrypt } = require('../crypto/encrypt.service');
-    const { getWahaCredentials } = require('../../config/waha');
+    const { getWahaCredentials } = require('../settings/system.service');
     
     const result = await db.query(`
       SELECT * FROM whatsapp_connections 
