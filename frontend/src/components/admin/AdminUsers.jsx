@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { 
   Search, ChevronLeft, ChevronRight, Edit, Trash2,
   Check, X, RefreshCw, Eye, CreditCard, Calendar, AlertCircle,
-  ExternalLink, Users
+  ExternalLink, Users, Phone
 } from 'lucide-react';
 import api from '../../services/api';
 import useAuthStore from '../../store/authStore';
@@ -216,6 +216,7 @@ export default function AdminUsers() {
               <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">תפקיד</th>
               <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">סטטוס</th>
               <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">תוכנית</th>
+              <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">WhatsApp</th>
               <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">בוטים</th>
               <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">אנשי קשר</th>
               <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">נוצר</th>
@@ -283,6 +284,16 @@ export default function AdminUsers() {
                 </td>
                 <td className="px-4 py-3">
                   <SubscriptionBadge user={u} onClick={(e) => { e.stopPropagation(); setSelectedUser(u); }} />
+                </td>
+                <td className="px-4 py-3 text-sm">
+                  {u.whatsapp_status === 'connected' ? (
+                    <span className="flex items-center gap-1 text-green-600">
+                      <Phone className="w-3.5 h-3.5" />
+                      <span className="font-mono text-xs">{u.whatsapp_phone || '---'}</span>
+                    </span>
+                  ) : (
+                    <span className="text-gray-400 text-xs">לא מחובר</span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-600">{u.bots_count || 0}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{u.contacts_count || 0}</td>
@@ -822,6 +833,16 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
                 <span className="text-green-600">מאומת ✓</span>
               ) : (
                 <span className="text-yellow-600">לא מאומת</span>
+              )}
+            </span>
+          </div>
+          <div>
+            <span className="text-gray-500">WhatsApp:</span>
+            <span className="mr-1">
+              {user.whatsapp_status === 'connected' ? (
+                <span className="text-green-600 font-mono">{user.whatsapp_phone || 'מחובר'}</span>
+              ) : (
+                <span className="text-gray-400">לא מחובר</span>
               )}
             </span>
           </div>

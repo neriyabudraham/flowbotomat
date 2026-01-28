@@ -86,13 +86,16 @@ async function getUsers(req, res) {
               ar.status as referral_status,
               aff.id as referred_by_affiliate_id,
               EXISTS(SELECT 1 FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_default = true) as has_payment_method,
-              (SELECT pm.card_last_digits FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_default = true LIMIT 1) as card_last_digits
+              (SELECT pm.card_last_digits FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_default = true LIMIT 1) as card_last_digits,
+              wc.status as whatsapp_status,
+              wc.phone_number as whatsapp_phone
        FROM users u
        LEFT JOIN user_subscriptions us ON us.user_id = u.id
        LEFT JOIN subscription_plans sp ON sp.id = us.plan_id
        LEFT JOIN affiliate_referrals ar ON ar.referred_user_id = u.id
        LEFT JOIN affiliates aff ON aff.id = ar.affiliate_id
        LEFT JOIN users ref_user ON ref_user.id = aff.user_id
+       LEFT JOIN whatsapp_connections wc ON wc.user_id = u.id
        WHERE ${whereClause}
        ORDER BY u.created_at DESC
        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,

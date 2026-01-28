@@ -34,9 +34,20 @@ async function getStatus(req, res) {
       
       // Update status if changed
       const newStatus = mapWahaStatus(wahaStatus.status);
-      if (newStatus !== connection.status) {
+      const statusChanged = newStatus !== connection.status;
+      
+      // Also update if connected but missing phone number
+      const needsPhoneUpdate = newStatus === 'connected' && !connection.phone_number && wahaStatus.me?.id;
+      
+      if (statusChanged || needsPhoneUpdate) {
         await updateConnectionStatus(connection.id, newStatus, wahaStatus);
         connection.status = newStatus;
+        
+        // Update local connection object with new data
+        if (newStatus === 'connected' && wahaStatus.me) {
+          connection.phone_number = wahaStatus.me.id?.split('@')[0] || connection.phone_number;
+          connection.display_name = wahaStatus.me.pushName || connection.display_name;
+        }
       }
     } catch (err) {
       console.error('WAHA status check failed:', err.message);
