@@ -636,15 +636,17 @@ class BotEngine {
       
       for (const group of triggerGroups) {
         const conditions = group.conditions || [];
+        console.log('[BotEngine] Group:', group.id, '- conditions:', conditions.length, '- allowGroupMessages:', group.allowGroupMessages);
         if (conditions.length === 0) continue;
         
         // Check if this group allows group messages
-        // By default, only direct messages are allowed
+        // By default, only direct messages are allowed (for group messages only)
         const allowGroupMessages = group.allowGroupMessages || false;
         if (isGroupMessage && !allowGroupMessages) {
           console.log('[BotEngine] Skipping trigger group - group messages not allowed for this group');
           continue; // Try next group
         }
+        console.log('[BotEngine] isGroupMessage:', isGroupMessage, '- passing group message check');
         
         // All conditions in this group must match (AND)
         let groupMatches = true;
