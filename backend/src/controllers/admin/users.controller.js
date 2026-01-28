@@ -72,8 +72,8 @@ async function getUsers(req, res) {
               ref_user.email as referred_by_email,
               ar.status as referral_status,
               aff.id as referred_by_affiliate_id,
-              (SELECT COUNT(*) > 0 FROM user_payment_methods WHERE user_id = u.id AND is_default = true) as has_payment_method,
-              (SELECT card_last_digits FROM user_payment_methods WHERE user_id = u.id AND is_default = true LIMIT 1) as card_last_digits
+              EXISTS(SELECT 1 FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_default = true) as has_payment_method,
+              (SELECT pm.card_last_digits FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_default = true LIMIT 1) as card_last_digits
        FROM users u
        LEFT JOIN user_subscriptions us ON us.user_id = u.id
        LEFT JOIN subscription_plans sp ON sp.id = us.plan_id
