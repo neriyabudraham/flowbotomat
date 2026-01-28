@@ -92,34 +92,27 @@ export default function AdminUsers() {
   };
 
   const handleSwitchToAccount = async (userId, userName) => {
-    setConfirmModal({
-      title: 'מעבר לחשבון',
-      message: `לעבור לחשבון של ${userName}?`,
-      onConfirm: async () => {
-        setConfirmModal(null);
-        setSwitching(userId);
-        try {
-          const currentToken = localStorage.getItem('accessToken');
-          if (currentToken) {
-            localStorage.setItem('originalAccessToken', currentToken);
-          }
-          
-          const { data } = await api.post(`/experts/switch/${userId}`);
-          
-          if (data && data.token) {
-            localStorage.setItem('accessToken', data.token);
-            window.location.href = '/dashboard';
-          } else {
-            showToast('error', 'לא התקבל טוקן מהשרת');
-            setSwitching(null);
-          }
-        } catch (err) {
-          console.error('Switch error:', err);
-          showToast('error', err.response?.data?.error || 'שגיאה במעבר לחשבון');
-          setSwitching(null);
-        }
+    setSwitching(userId);
+    try {
+      const currentToken = localStorage.getItem('accessToken');
+      if (currentToken) {
+        localStorage.setItem('originalAccessToken', currentToken);
       }
-    });
+      
+      const { data } = await api.post(`/experts/switch/${userId}`);
+      
+      if (data && data.token) {
+        localStorage.setItem('accessToken', data.token);
+        window.location.href = '/dashboard';
+      } else {
+        showToast('error', 'לא התקבל טוקן מהשרת');
+        setSwitching(null);
+      }
+    } catch (err) {
+      console.error('Switch error:', err);
+      showToast('error', err.response?.data?.error || 'שגיאה במעבר לחשבון');
+      setSwitching(null);
+    }
   };
 
   return (
