@@ -1109,18 +1109,26 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
 
                 {/* Standing Order / Next Charge */}
                 <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                  <h4 className="text-sm font-semibold text-blue-800 mb-3">📅 הוראת קבע</h4>
-                  {user.sumit_standing_order_id ? (
+                  <h4 className="text-sm font-semibold text-blue-800 mb-3">📅 מנוי ותשלומים</h4>
+                  {/* Show as active if: has standing order ID OR (active subscription with payment method) */}
+                  {(user.sumit_standing_order_id || (user.subscription_status === 'active' && user.has_payment_method && !user.is_manual)) ? (
                     <>
                       <div className="grid grid-cols-2 gap-3 text-sm mb-3">
                         <div>
-                          <span className="text-blue-600">מזהה:</span>
-                          <span className="font-mono text-blue-800 mr-1 text-xs">{user.sumit_standing_order_id}</span>
-                        </div>
-                        <div>
-                          <span className="text-blue-600">מצב:</span>
+                          <span className="text-blue-600">מצב מנוי:</span>
                           <span className="text-green-600 font-medium mr-1">פעיל ✓</span>
                         </div>
+                        {user.sumit_standing_order_id && (
+                          <div>
+                            <span className="text-blue-600">מזהה Sumit:</span>
+                            <span className="font-mono text-blue-800 mr-1 text-xs">{user.sumit_standing_order_id}</span>
+                          </div>
+                        )}
+                        {!user.sumit_standing_order_id && (
+                          <div>
+                            <span className="text-orange-600 text-xs">⚠️ חסר מזהה הוראת קבע</span>
+                          </div>
+                        )}
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-blue-700 mb-1">תאריך חיוב הבא</label>
@@ -1162,11 +1170,18 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
                         </button>
                       </div>
                     </>
+                  ) : user.is_manual ? (
+                    <div className="text-center py-3">
+                      <p className="text-purple-600 text-sm font-medium">מנוי ידני - ללא תשלום</p>
+                      <p className="text-xs text-purple-500 mt-1">המנוי מנוהל ידנית על ידי מנהל</p>
+                    </div>
                   ) : (
                     <div className="text-center py-3">
-                      <p className="text-gray-500 text-sm">אין הוראת קבע פעילה</p>
-                      {user.has_payment_method && (
+                      <p className="text-gray-500 text-sm">אין מנוי פעיל</p>
+                      {user.has_payment_method ? (
                         <p className="text-xs text-blue-600 mt-1">יש כרטיס - ניתן ליצור מנוי</p>
+                      ) : (
+                        <p className="text-xs text-gray-400 mt-1">אין כרטיס אשראי רשום</p>
                       )}
                     </div>
                   )}
