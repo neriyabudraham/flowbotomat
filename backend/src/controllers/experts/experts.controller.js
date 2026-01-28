@@ -498,7 +498,7 @@ async function requestAccess(req, res) {
       // Reactivate as pending
       await db.query(
         `UPDATE expert_clients 
-         SET status = 'pending', is_active = false, request_message = $3, requested_at = NOW(), rejected_at = NULL, rejection_reason = NULL
+         SET status = 'pending', is_active = false, request_message = $2, requested_at = NOW(), rejected_at = NULL, rejection_reason = NULL
          WHERE id = $1`,
         [existing.rows[0].id, message || null]
       );
