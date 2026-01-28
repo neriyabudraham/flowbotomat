@@ -50,6 +50,13 @@ async function getUsers(req, res) {
               us.expires_at,
               us.started_at,
               us.trial_ends_at,
+              us.is_trial,
+              us.next_charge_date,
+              us.billing_period,
+              us.sumit_standing_order_id,
+              us.sumit_customer_id,
+              us.payment_method_id,
+              us.admin_notes,
               us.custom_discount_mode,
               us.referral_discount_percent as custom_discount_percent,
               us.custom_fixed_price,
@@ -57,13 +64,19 @@ async function getUsers(req, res) {
               us.referral_months_remaining as custom_discount_months,
               us.custom_discount_plan_id,
               us.skip_trial,
+              us.promo_price,
+              us.regular_price_after_promo,
+              us.promo_months_remaining,
               sp.name as plan_name,
               sp.name_he as plan_name_he,
               sp.price as plan_price,
+              sp.billing_period as plan_billing_period,
               ref_user.name as referred_by_name,
               ref_user.email as referred_by_email,
               ar.status as referral_status,
-              aff.id as referred_by_affiliate_id
+              aff.id as referred_by_affiliate_id,
+              (SELECT COUNT(*) > 0 FROM user_payment_methods WHERE user_id = u.id AND is_default = true) as has_payment_method,
+              (SELECT card_last_digits FROM user_payment_methods WHERE user_id = u.id AND is_default = true LIMIT 1) as card_last_digits
        FROM users u
        LEFT JOIN user_subscriptions us ON us.user_id = u.id
        LEFT JOIN subscription_plans sp ON sp.id = us.plan_id
@@ -334,6 +347,14 @@ async function updateUserSubscription(req, res) {
     if (isManual !== undefined) {
       updates.push(`is_manual = $${paramIndex++}`);
       values.push(isManual);
+      
+      // If setting to manual, clear payment-related fields
+      if (isManual === true) {
+        updates.push(`is_trial = false`);
+        updates.push(`trial_ends_at = NULL`);
+        updates.push(`next_charge_date = NULL`);
+        // Note: Don't clear sumit_standing_order_id here - that should be done via cancel
+      }
     }
     if (adminNotes !== undefined) {
       updates.push(`admin_notes = $${paramIndex++}`);

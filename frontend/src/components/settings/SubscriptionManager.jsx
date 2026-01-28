@@ -132,11 +132,14 @@ export default function SubscriptionManager() {
   const isTrial = subscription?.is_trial || status === 'trial';
   const isActive = status === 'active';
   const isCancelled = status === 'cancelled';
+  const isManual = subscription?.is_manual === true;
   
-  // Get end date
-  const endDateRaw = isTrial 
-    ? subscription?.trial_ends_at 
-    : (subscription?.expires_at || subscription?.next_charge_date);
+  // Get end date (for manual subscriptions, only use expires_at, not next_charge_date)
+  const endDateRaw = isManual
+    ? subscription?.expires_at
+    : isTrial 
+      ? subscription?.trial_ends_at 
+      : (subscription?.expires_at || subscription?.next_charge_date);
   
   const endDate = endDateRaw ? new Date(endDateRaw) : null;
   const now = new Date();
@@ -202,12 +205,17 @@ export default function SubscriptionManager() {
                     <span className="font-semibold text-gray-900 dark:text-white">
                       {subscription.plan_name_he || subscription.plan_name || 'מנוי'}
                     </span>
-                    {isTrial && subscription.plan_price > 0 && (
+                    {isTrial && subscription.plan_price > 0 && !isManual && (
                       <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
                         תקופת ניסיון
                       </span>
                     )}
-                    {isCancelled && (
+                    {isManual && (
+                      <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">
+                        מנוי ידני
+                      </span>
+                    )}
+                    {isCancelled && !isManual && (
                       <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full">
                         מבוטל
                       </span>
@@ -221,8 +229,31 @@ export default function SubscriptionManager() {
               </div>
             </div>
 
-            {/* Trial with payment method - Show upcoming charge info (only if NOT cancelled and paid plan) */}
-            {isTrial && paymentMethod && hasTimeRemaining && !isCancelled && subscription.plan_price > 0 && (
+            {/* Manual subscription info - show expiry if exists */}
+            {isManual && (
+              <div className="p-4 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Crown className="w-6 h-6 text-white" />
+                  </div>
+                  <div className="flex-1 text-white">
+                    <h3 className="font-bold text-lg">מנוי מנוהל ידנית</h3>
+                    <p className="text-white/90 mt-1">
+                      {subscription.expires_at 
+                        ? `המנוי פעיל עד ${formattedEndDate}`
+                        : 'מנוי ללא הגבלת זמן'
+                      }
+                    </p>
+                    <p className="text-white/70 text-sm mt-1">
+                      המנוי שלך מנוהל ידנית ואינו דורש תשלום אוטומטי
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Trial with payment method - Show upcoming charge info (only if NOT cancelled, NOT manual, and paid plan) */}
+            {isTrial && paymentMethod && hasTimeRemaining && !isCancelled && !isManual && subscription.plan_price > 0 && (
               <div className="p-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500">
                 <div className="flex items-start gap-4">
                   <div className="w-12 h-12 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center flex-shrink-0">
@@ -248,8 +279,8 @@ export default function SubscriptionManager() {
               </div>
             )}
 
-            {/* Expiry Warning - Show for cancelled OR trial without payment (only for paid plans) */}
-            {shouldShowExpiry && subscription.plan_price > 0 && (isCancelled || !(isTrial && paymentMethod)) && (
+            {/* Expiry Warning - Show for cancelled OR trial without payment (only for paid plans, NOT manual) */}
+            {shouldShowExpiry && subscription.plan_price > 0 && !isManual && (isCancelled || !(isTrial && paymentMethod)) && (
               <div className={`p-4 rounded-xl ${
                 isCancelled 
                   ? 'bg-gradient-to-r from-amber-500 to-orange-500' 
@@ -335,7 +366,7 @@ export default function SubscriptionManager() {
             )}
 
             {/* Next charge info - Only for active (not cancelled) */}
-            {!isCancelled && !shouldShowExpiry && endDate && (
+            {!isCancelled && !shouldShowExpiry && endDate && !isManual && (
               <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
                 <Calendar className="w-5 h-5 text-gray-400" />
                 <div className="text-sm">
@@ -405,7 +436,7 @@ export default function SubscriptionManager() {
               <Button variant="secondary" onClick={() => navigate('/pricing')}>
                 שנה תוכנית
               </Button>
-              {(isActive || isTrial) && !isCancelled && (
+              {(isActive || isTrial) && !isCancelled && !isManual && (
                 <Button 
                   variant="ghost" 
                   onClick={() => setShowCancelModal(true)}

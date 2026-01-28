@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
   Search, ChevronLeft, ChevronRight, Edit, Trash2,
-  Check, X, RefreshCw, Eye, CreditCard, Calendar
+  Check, X, RefreshCw, Eye, CreditCard, Calendar, AlertCircle
 } from 'lucide-react';
 import api from '../../services/api';
 import useAuthStore from '../../store/authStore';
@@ -683,6 +683,135 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Current Status Panel */}
+        <div className="mb-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
+          <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+            <Eye className="w-4 h-4" />
+            מצב נוכחי
+          </h4>
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            {/* Subscription Type */}
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500">סוג:</span>
+              <span className={`px-2 py-0.5 rounded-full font-medium ${
+                user.is_manual 
+                  ? 'bg-purple-100 text-purple-700' 
+                  : user.subscription_status === 'trial' || user.is_trial
+                    ? 'bg-cyan-100 text-cyan-700'
+                    : user.subscription_status === 'active'
+                      ? 'bg-green-100 text-green-700'
+                      : user.subscription_status === 'cancelled'
+                        ? 'bg-orange-100 text-orange-700'
+                        : 'bg-gray-100 text-gray-700'
+              }`}>
+                {user.is_manual 
+                  ? 'ידני' 
+                  : user.subscription_status === 'trial' || user.is_trial
+                    ? 'ניסיון'
+                    : user.subscription_status === 'active'
+                      ? 'פעיל'
+                      : user.subscription_status === 'cancelled'
+                        ? 'מבוטל'
+                        : user.subscription_status === 'expired'
+                          ? 'פג תוקף'
+                          : 'חינם'
+                }
+              </span>
+            </div>
+            
+            {/* Plan */}
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500">תוכנית:</span>
+              <span className="font-medium text-gray-800">{user.plan_name_he || user.plan_name || 'חינם'}</span>
+            </div>
+            
+            {/* Payment Method */}
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500">כרטיס:</span>
+              {user.has_payment_method ? (
+                <span className="flex items-center gap-1 text-green-600">
+                  <Check className="w-3 h-3" />
+                  ****{user.card_last_digits || '????'}
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-red-500">
+                  <X className="w-3 h-3" />
+                  אין כרטיס
+                </span>
+              )}
+            </div>
+            
+            {/* Standing Order */}
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500">הוראת קבע:</span>
+              {user.sumit_standing_order_id ? (
+                <span className="flex items-center gap-1 text-green-600">
+                  <Check className="w-3 h-3" />
+                  פעיל
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-gray-400">
+                  <X className="w-3 h-3" />
+                  אין
+                </span>
+              )}
+            </div>
+            
+            {/* Expiry / Next Charge */}
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500">
+                {user.is_manual ? 'תפוגה:' : (user.is_trial || user.subscription_status === 'trial') ? 'סיום ניסיון:' : 'חיוב הבא:'}
+              </span>
+              <span className={`font-medium ${
+                user.expires_at || user.trial_ends_at || user.next_charge_date
+                  ? new Date(user.expires_at || user.trial_ends_at || user.next_charge_date) < new Date()
+                    ? 'text-red-600'
+                    : 'text-gray-800'
+                  : 'text-gray-400'
+              }`}>
+                {user.is_manual && !user.expires_at
+                  ? 'ללא הגבלה ∞'
+                  : user.expires_at 
+                    ? new Date(user.expires_at).toLocaleDateString('he-IL')
+                    : user.trial_ends_at
+                      ? new Date(user.trial_ends_at).toLocaleDateString('he-IL')
+                      : user.next_charge_date
+                        ? new Date(user.next_charge_date).toLocaleDateString('he-IL')
+                        : 'לא הוגדר'
+                }
+              </span>
+            </div>
+            
+            {/* Price */}
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500">מחיר:</span>
+              <span className="font-medium text-gray-800">
+                {user.is_manual 
+                  ? 'ללא תשלום'
+                  : user.promo_price 
+                    ? `₪${user.promo_price} (מבצע)`
+                    : user.custom_fixed_price
+                      ? `₪${user.custom_fixed_price} (מותאם)`
+                      : user.custom_discount_percent
+                        ? `₪${Math.round(user.plan_price * (1 - user.custom_discount_percent / 100))} (${user.custom_discount_percent}% הנחה)`
+                        : user.plan_price
+                          ? `₪${user.plan_price}/${user.billing_period === 'yearly' ? 'שנה' : 'חודש'}`
+                          : 'חינם'
+                }
+              </span>
+            </div>
+          </div>
+          
+          {/* Admin Notes */}
+          {user.admin_notes && (
+            <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <p className="text-xs text-yellow-800">
+                <strong>הערת מנהל:</strong> {user.admin_notes}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Tabs */}
