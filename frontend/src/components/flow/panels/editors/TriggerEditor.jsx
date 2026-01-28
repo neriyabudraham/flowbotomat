@@ -462,6 +462,20 @@ export default function TriggerEditor({ data, onUpdate }) {
                     </div>
                     
                     <div className="space-y-3 bg-white rounded-lg p-3 border border-gray-100">
+                      {/* Allow group messages */}
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={group.allowGroupMessages || false}
+                          onChange={(e) => updateGroupSetting(group.id, 'allowGroupMessages', e.target.checked)}
+                          className="w-4 h-4 rounded border-gray-300 text-purple-600"
+                        />
+                        <div>
+                          <div className="text-sm font-medium text-gray-700">הפעל גם בקבוצות</div>
+                          <div className="text-xs text-gray-500">כברירת מחדל מגיב רק להודעות ישירות. סמן כדי להפעיל גם בקבוצות</div>
+                        </div>
+                      </label>
+
                       {/* Once per user */}
                       <label className="flex items-center gap-3 cursor-pointer">
                         <input
@@ -588,7 +602,7 @@ export default function TriggerEditor({ data, onUpdate }) {
             <span className="font-semibold text-gray-800">הגדרות כלליות</span>
           </div>
           
-          <div className="bg-gray-50 rounded-xl p-4 space-y-4">
+          <div className="bg-gray-50 rounded-xl p-4">
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -601,21 +615,6 @@ export default function TriggerEditor({ data, onUpdate }) {
                 <div className="text-xs text-gray-500">כל הודעה במסגרת הבוט תסומן כנקראה</div>
               </div>
             </label>
-
-            <div className="border-t border-gray-200 pt-4">
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={data.allowGroupMessages || false}
-                  onChange={(e) => onUpdate({ allowGroupMessages: e.target.checked })}
-                  className="w-5 h-5 mt-0.5 rounded border-gray-300 text-purple-600"
-                />
-                <div>
-                  <div className="font-medium text-gray-700">הפעל גם בקבוצות</div>
-                  <div className="text-xs text-gray-500">כברירת מחדל הבוט מגיב רק להודעות ישירות. סמן כדי להגיב גם להודעות בקבוצות</div>
-                </div>
-              </label>
-            </div>
           </div>
         </div>
       )}

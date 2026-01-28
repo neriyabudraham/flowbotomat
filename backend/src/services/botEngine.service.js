@@ -223,16 +223,8 @@ class BotEngine {
         return;
       }
       
-      // Check if bot should respond to group messages
-      // By default, bots only respond to direct messages
-      const allowGroupMessages = triggerNode.data.allowGroupMessages || false;
-      if (isGroupMessage && !allowGroupMessages) {
-        console.log('[BotEngine] Ignoring group message - allowGroupMessages is disabled for bot:', bot.name);
-        return;
-      }
-      
-      // Check if trigger matches
-      const triggerMatches = await this.checkTrigger(triggerNode.data, message, messageType, contact, bot.id);
+      // Check if trigger matches (pass isGroupMessage for per-group filtering)
+      const triggerMatches = await this.checkTrigger(triggerNode.data, message, messageType, contact, bot.id, isGroupMessage);
       if (!triggerMatches) {
         console.log('[BotEngine] Trigger does not match for bot:', bot.id);
         return;
@@ -610,10 +602,11 @@ class BotEngine {
   }
   
   // Check if trigger matches (with advanced settings)
-  async checkTrigger(triggerData, message, messageType, contact, botId) {
+  async checkTrigger(triggerData, message, messageType, contact, botId, isGroupMessage = false) {
     console.log('[BotEngine] checkTrigger called with:');
     console.log('[BotEngine] - Message:', message);
     console.log('[BotEngine] - MessageType:', messageType);
+    console.log('[BotEngine] - Is group message:', isGroupMessage);
     
     // Support both new triggerGroups format and old triggers format
     const triggerGroups = triggerData.triggerGroups || [];
@@ -638,6 +631,14 @@ class BotEngine {
       for (const group of triggerGroups) {
         const conditions = group.conditions || [];
         if (conditions.length === 0) continue;
+        
+        // Check if this group allows group messages
+        // By default, only direct messages are allowed
+        const allowGroupMessages = group.allowGroupMessages || false;
+        if (isGroupMessage && !allowGroupMessages) {
+          console.log('[BotEngine] Skipping trigger group - group messages not allowed for this group');
+          continue; // Try next group
+        }
         
         // All conditions in this group must match (AND)
         let groupMatches = true;
