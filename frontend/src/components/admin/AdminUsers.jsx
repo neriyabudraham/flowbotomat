@@ -495,7 +495,10 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
     expiresAt: user.expires_at ? new Date(user.expires_at).toISOString().split('T')[0] : '',
     noExpiry: !user.expires_at && user.is_manual,
     isManual: user.is_manual || false,
-    adminNotes: '',
+    adminNotes: user.admin_notes || '',
+    // Payment settings
+    nextChargeDate: user.next_charge_date ? new Date(user.next_charge_date).toISOString().split('T')[0] : '',
+    trialEndsAt: user.trial_ends_at ? new Date(user.trial_ends_at).toISOString().split('T')[0] : '',
     // Discount settings
     discountMode: user.custom_discount_mode || 'percent', // 'percent' or 'fixed_price'
     customDiscount: user.custom_discount_percent || 0,
@@ -507,6 +510,17 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
     // Referral settings
     affiliateId: user.referred_by_affiliate_id || '',
   });
+  
+  // Calculate trial days used
+  const trialDaysTotal = 14;
+  const trialStartDate = user.started_at ? new Date(user.started_at) : null;
+  const trialEndDate = user.trial_ends_at ? new Date(user.trial_ends_at) : null;
+  const trialDaysUsed = trialStartDate && trialEndDate 
+    ? Math.max(0, Math.ceil((new Date() - trialStartDate) / (1000 * 60 * 60 * 24)))
+    : 0;
+  const trialDaysRemaining = trialEndDate 
+    ? Math.max(0, Math.ceil((trialEndDate - new Date()) / (1000 * 60 * 60 * 24)))
+    : 0;
 
   useEffect(() => {
     loadData();
@@ -610,6 +624,9 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
         expiresAt: formData.noExpiry ? null : (formData.expiresAt || null),
         isManual: formData.isManual,
         adminNotes: formData.adminNotes || null,
+        // Payment dates
+        nextChargeDate: formData.isManual ? null : (formData.nextChargeDate || null),
+        trialEndsAt: formData.trialEndsAt || null,
         // Discount
         customDiscountMode: formData.discountType !== 'none' ? formData.discountMode : null,
         customDiscountPercent: formData.discountType !== 'none' && formData.discountMode === 'percent' ? formData.customDiscount : null,
@@ -823,6 +840,14 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
             מנוי
           </button>
           <button
+            onClick={() => setActiveTab('payments')}
+            className={`flex-1 px-2 py-2 text-xs rounded-lg transition-colors ${
+              activeTab === 'payments' ? 'bg-white shadow text-cyan-600 font-medium' : 'text-gray-600 hover:text-gray-800'
+            }`}
+          >
+            תשלומים
+          </button>
+          <button
             onClick={() => setActiveTab('discount')}
             className={`flex-1 px-2 py-2 text-xs rounded-lg transition-colors ${
               activeTab === 'discount' ? 'bg-white shadow text-green-600 font-medium' : 'text-gray-600 hover:text-gray-800'
@@ -992,6 +1017,220 @@ function EditSubscriptionModal({ user, onClose, onSuccess }) {
                     </div>
                   </div>
                 )}
+              </>
+            )}
+
+            {/* Payments Tab */}
+            {activeTab === 'payments' && (
+              <>
+                {/* Trial Info */}
+                {(user.is_trial || user.subscription_status === 'trial' || user.trial_ends_at) && (
+                  <div className="p-4 bg-cyan-50 border border-cyan-200 rounded-xl">
+                    <h4 className="text-sm font-semibold text-cyan-800 mb-3">🎁 תקופת ניסיון</h4>
+                    <div className="grid grid-cols-2 gap-3 text-sm mb-3">
+                      <div>
+                        <span className="text-cyan-600">נוצלו:</span>
+                        <span className="font-medium text-cyan-800 mr-1">{trialDaysUsed} ימים</span>
+                      </div>
+                      <div>
+                        <span className="text-cyan-600">נותרו:</span>
+                        <span className="font-medium text-cyan-800 mr-1">{trialDaysRemaining} ימים</span>
+                      </div>
+                    </div>
+                    <div className="w-full bg-cyan-200 rounded-full h-2 mb-3">
+                      <div 
+                        className="bg-cyan-600 h-2 rounded-full transition-all"
+                        style={{ width: `${Math.min(100, (trialDaysUsed / trialDaysTotal) * 100)}%` }}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-cyan-700 mb-1">תאריך סיום ניסיון</label>
+                      <input
+                        type="date"
+                        value={formData.trialEndsAt}
+                        onChange={(e) => setFormData(f => ({ ...f, trialEndsAt: e.target.value }))}
+                        className="w-full px-3 py-2 border border-cyan-300 rounded-lg focus:ring-2 focus:ring-cyan-500 text-sm"
+                      />
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newDate = new Date();
+                          newDate.setDate(newDate.getDate() + 7);
+                          setFormData(f => ({ ...f, trialEndsAt: newDate.toISOString().split('T')[0] }));
+                        }}
+                        className="px-2 py-1 text-xs bg-cyan-100 text-cyan-700 rounded hover:bg-cyan-200"
+                      >
+                        +7 ימים
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newDate = new Date();
+                          newDate.setDate(newDate.getDate() + 14);
+                          setFormData(f => ({ ...f, trialEndsAt: newDate.toISOString().split('T')[0] }));
+                        }}
+                        className="px-2 py-1 text-xs bg-cyan-100 text-cyan-700 rounded hover:bg-cyan-200"
+                      >
+                        +14 ימים
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormData(f => ({ ...f, trialEndsAt: '' }))}
+                        className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                      >
+                        בטל ניסיון
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Payment Method Info */}
+                <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-3">💳 אמצעי תשלום</h4>
+                  {user.has_payment_method ? (
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-6 bg-gradient-to-r from-blue-600 to-blue-800 rounded flex items-center justify-center">
+                        <span className="text-white text-xs font-bold">VISA</span>
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-800">****{user.card_last_digits || '????'}</p>
+                        <p className="text-xs text-gray-500">כרטיס פעיל</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-3">
+                      <p className="text-gray-500 text-sm">אין כרטיס אשראי רשום</p>
+                      <p className="text-xs text-gray-400">המשתמש צריך להוסיף אמצעי תשלום</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Standing Order / Next Charge */}
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                  <h4 className="text-sm font-semibold text-blue-800 mb-3">📅 הוראת קבע</h4>
+                  {user.sumit_standing_order_id ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-3 text-sm mb-3">
+                        <div>
+                          <span className="text-blue-600">מזהה:</span>
+                          <span className="font-mono text-blue-800 mr-1 text-xs">{user.sumit_standing_order_id}</span>
+                        </div>
+                        <div>
+                          <span className="text-blue-600">מצב:</span>
+                          <span className="text-green-600 font-medium mr-1">פעיל ✓</span>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-blue-700 mb-1">תאריך חיוב הבא</label>
+                        <input
+                          type="date"
+                          value={formData.nextChargeDate}
+                          onChange={(e) => setFormData(f => ({ ...f, nextChargeDate: e.target.value }))}
+                          disabled={formData.isManual}
+                          className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
+                        />
+                        {formData.isManual && (
+                          <p className="text-xs text-orange-600 mt-1">⚠️ מנוי ידני - אין חיובים אוטומטיים</p>
+                        )}
+                      </div>
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newDate = new Date();
+                            newDate.setMonth(newDate.getMonth() + 1);
+                            setFormData(f => ({ ...f, nextChargeDate: newDate.toISOString().split('T')[0] }));
+                          }}
+                          disabled={formData.isManual}
+                          className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50"
+                        >
+                          עוד חודש
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newDate = new Date();
+                            newDate.setFullYear(newDate.getFullYear() + 1);
+                            setFormData(f => ({ ...f, nextChargeDate: newDate.toISOString().split('T')[0] }));
+                          }}
+                          disabled={formData.isManual}
+                          className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50"
+                        >
+                          עוד שנה
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-3">
+                      <p className="text-gray-500 text-sm">אין הוראת קבע פעילה</p>
+                      {user.has_payment_method && (
+                        <p className="text-xs text-blue-600 mt-1">יש כרטיס - ניתן ליצור מנוי</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Cancellation Info */}
+                {user.subscription_status === 'cancelled' && (
+                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl">
+                    <h4 className="text-sm font-semibold text-orange-800 mb-2">⚠️ מנוי מבוטל</h4>
+                    <div className="text-sm text-orange-700 space-y-1">
+                      <p>
+                        <span className="text-orange-600">תוכנית:</span>
+                        <span className="font-medium mr-1">{user.plan_name_he || user.plan_name || 'לא ידוע'}</span>
+                      </p>
+                      {user.expires_at && (
+                        <p>
+                          <span className="text-orange-600">תפוגה:</span>
+                          <span className="font-medium mr-1">{new Date(user.expires_at).toLocaleDateString('he-IL')}</span>
+                        </p>
+                      )}
+                      <p className="text-xs text-orange-600 mt-2">
+                        המשתמש יכול להמשיך להשתמש בשירות עד תאריך התפוגה
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Price Summary */}
+                <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+                  <h4 className="text-sm font-semibold text-green-800 mb-3">💰 סיכום מחיר</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-green-600">מחיר תוכנית:</span>
+                      <span className="font-medium">{user.plan_price ? `₪${user.plan_price}` : 'חינם'}</span>
+                    </div>
+                    {user.custom_discount_percent > 0 && (
+                      <div className="flex justify-between text-green-700">
+                        <span>הנחה ({user.custom_discount_percent}%):</span>
+                        <span>-₪{Math.round(user.plan_price * user.custom_discount_percent / 100)}</span>
+                      </div>
+                    )}
+                    {user.custom_fixed_price > 0 && (
+                      <div className="flex justify-between text-green-700">
+                        <span>מחיר מותאם:</span>
+                        <span>₪{user.custom_fixed_price}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between pt-2 border-t border-green-300 font-bold text-green-800">
+                      <span>לתשלום:</span>
+                      <span>
+                        {user.is_manual 
+                          ? 'ללא תשלום (ידני)'
+                          : user.custom_fixed_price
+                            ? `₪${user.custom_fixed_price}`
+                            : user.custom_discount_percent
+                              ? `₪${Math.round(user.plan_price * (1 - user.custom_discount_percent / 100))}`
+                              : user.plan_price
+                                ? `₪${user.plan_price}`
+                                : 'חינם'
+                        }
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </>
             )}
 

@@ -261,6 +261,8 @@ async function updateUserSubscription(req, res) {
     const { id } = req.params;
     const { 
       planId, status, expiresAt, isManual, adminNotes,
+      // Payment settings
+      nextChargeDate, trialEndsAt,
       // Discount settings
       customDiscountMode, customDiscountPercent, customFixedPrice, customDiscountType, customDiscountMonths, customDiscountPlanId, skipTrial,
       // Referral settings
@@ -358,6 +360,20 @@ async function updateUserSubscription(req, res) {
     if (adminNotes !== undefined) {
       updates.push(`admin_notes = $${paramIndex++}`);
       values.push(adminNotes);
+    }
+    
+    // Payment date settings (only if not manual)
+    if (nextChargeDate !== undefined && isManual !== true) {
+      updates.push(`next_charge_date = $${paramIndex++}`);
+      values.push(nextChargeDate || null);
+    }
+    if (trialEndsAt !== undefined) {
+      updates.push(`trial_ends_at = $${paramIndex++}`);
+      values.push(trialEndsAt || null);
+      // If setting trial end date, mark as trial
+      if (trialEndsAt) {
+        updates.push(`is_trial = true`);
+      }
     }
     
     // Discount settings
