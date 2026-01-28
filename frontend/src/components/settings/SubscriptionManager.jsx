@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CreditCard, Calendar, AlertCircle, Crown, CheckCircle, XCircle, RotateCcw, Trash2, ShieldAlert, Clock, Info, HelpCircle, ArrowRight } from 'lucide-react';
+import { CreditCard, Calendar, AlertCircle, Crown, CheckCircle, XCircle, RotateCcw, Trash2, ShieldAlert, Clock, Info, HelpCircle, ArrowRight, RefreshCw } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
 
@@ -133,6 +133,7 @@ export default function SubscriptionManager() {
   const isActive = status === 'active';
   const isCancelled = status === 'cancelled';
   const isManual = subscription?.is_manual === true;
+  const hasStandingOrder = !!subscription?.sumit_standing_order_id;
   
   // Get end date (for manual subscriptions, only use expires_at, not next_charge_date)
   const endDateRaw = isManual
@@ -149,8 +150,15 @@ export default function SubscriptionManager() {
   const hasTimeRemaining = endDate && daysLeft > 0;
   const hasValidSubscription = (isActive || isTrial || (isCancelled && hasTimeRemaining)) && subscription?.plan_name_he;
   
-  // Should show expiry warning? (show for cancelled, or within 30 days for others)
-  const shouldShowExpiry = hasTimeRemaining && (isCancelled || daysLeft <= 30);
+  // Should show expiry warning?
+  // - For cancelled: always show if time remaining
+  // - For trial without payment method: show within 30 days
+  // - For active WITHOUT standing order: show within 30 days (needs manual renewal)
+  // - For active WITH standing order: DON'T show (will auto-renew)
+  const shouldShowExpiry = hasTimeRemaining && (
+    isCancelled || 
+    (daysLeft <= 30 && !isManual && !hasStandingOrder && !(isTrial && paymentMethod))
+  );
 
   const formattedEndDate = endDate?.toLocaleDateString('he-IL', { 
     weekday: 'long', 
@@ -279,8 +287,35 @@ export default function SubscriptionManager() {
               </div>
             )}
 
-            {/* Expiry Warning - Show for cancelled OR trial without payment (only for paid plans, NOT manual) */}
-            {shouldShowExpiry && subscription.plan_price > 0 && !isManual && (isCancelled || !(isTrial && paymentMethod)) && (
+            {/* Active subscription with standing order - Show next charge date (auto-renewal) */}
+            {isActive && hasStandingOrder && !isTrial && !isManual && subscription.plan_price > 0 && subscription.next_charge_date && (
+              <div className="p-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center flex-shrink-0">
+                    <RefreshCw className="w-6 h-6 text-white" />
+                  </div>
+                  <div className="flex-1 text-white">
+                    <h3 className="font-bold text-lg">
+                      מנוי פעיל - יתחדש אוטומטית
+                    </h3>
+                    <p className="text-white/90 mt-1">
+                      {daysLeft === 0 
+                        ? `החיוב הבא יבוצע היום (${formattedEndDate})`
+                        : daysLeft === 1 
+                          ? `החיוב הבא יבוצע מחר (${formattedEndDate})`
+                          : `החיוב הבא יבוצע בעוד ${daysLeft} ימים (${formattedEndDate})`
+                      }
+                    </p>
+                    <p className="text-white/70 text-sm mt-1">
+                      הוראת הקבע פעילה והמנוי יתחדש אוטומטית
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Expiry Warning - Show for cancelled OR trial without payment OR active without standing order */}
+            {shouldShowExpiry && subscription.plan_price > 0 && !isManual && (
               <div className={`p-4 rounded-xl ${
                 isCancelled 
                   ? 'bg-gradient-to-r from-amber-500 to-orange-500' 
