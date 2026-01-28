@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   ChevronDown, Plus, Check,
-  UserPlus, ArrowLeftRight, X, Mail
+  UserPlus, ArrowLeftRight, X, Mail, Copy, ExternalLink, Link2
 } from 'lucide-react';
 import api from '../services/api';
 import useAuthStore from '../store/authStore';
@@ -13,8 +13,11 @@ export default function AccountSwitcher() {
   const [accounts, setAccounts] = useState({ current: null, clients: [], linked: [] });
   const [loading, setLoading] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [generatedLink, setGeneratedLink] = useState(null);
   const [viewingAs, setViewingAs] = useState(null);
   const [creatingLink, setCreatingLink] = useState(false);
+  const [copied, setCopied] = useState(false);
   const dropdownRef = useRef(null);
 
   // Load accessible accounts
@@ -87,18 +90,33 @@ export default function AccountSwitcher() {
     }
   };
 
-  // Create linked account - generate code and open registration
+  // Create linked account - generate code and show modal
   const handleCreateLinkedAccount = async () => {
     setCreatingLink(true);
     setIsOpen(false);
     try {
       const { data } = await api.post('/experts/generate-link-code');
-      // Open signup page in new tab with the link code
-      window.open(`${window.location.origin}/signup?link=${data.code}`, '_blank');
+      const link = `${window.location.origin}/signup?link=${data.code}`;
+      setGeneratedLink(link);
+      setShowLinkModal(true);
     } catch (e) {
       alert(e.response?.data?.error || 'שגיאה ביצירת קישור');
     } finally {
       setCreatingLink(false);
+    }
+  };
+
+  const handleCopyLink = () => {
+    if (generatedLink) {
+      navigator.clipboard.writeText(generatedLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleOpenLink = () => {
+    if (generatedLink) {
+      window.open(generatedLink, '_blank');
     }
   };
 
@@ -234,6 +252,74 @@ export default function AccountSwitcher() {
           onClose={() => setShowRequestModal(false)} 
           onSuccess={() => { setShowRequestModal(false); loadAccounts(); }}
         />,
+        document.body
+      )}
+
+      {/* Link Modal - Rendered via Portal */}
+      {showLinkModal && createPortal(
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4" onClick={() => setShowLinkModal(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-purple-500 to-pink-600 p-6 rounded-t-2xl">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-white">קישור להרשמה</h2>
+                <button onClick={() => setShowLinkModal(false)} className="text-white/80 hover:text-white">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <p className="text-white/80 text-sm mt-1">שתף את הקישור ליצירת חשבון מקושר</p>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div className="text-center">
+                <div className="w-14 h-14 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Link2 className="w-7 h-7 text-purple-600" />
+                </div>
+                <p className="text-gray-600 text-sm">
+                  מי שיירשם דרך הקישור יקושר אוטומטית לחשבון שלך
+                </p>
+              </div>
+
+              <div className="bg-gray-50 rounded-xl p-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={generatedLink || ''}
+                    readOnly
+                    dir="ltr"
+                    className="flex-1 text-sm bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-gray-600"
+                  />
+                  <button
+                    onClick={handleCopyLink}
+                    className={`p-2.5 rounded-lg transition-colors ${copied ? 'bg-green-100 text-green-600' : 'bg-gray-200 hover:bg-gray-300 text-gray-600'}`}
+                    title="העתק"
+                  >
+                    {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={handleOpenLink}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-purple-500 text-white rounded-xl hover:bg-purple-600 font-medium"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  פתח הרשמה
+                </button>
+                <button
+                  onClick={() => setShowLinkModal(false)}
+                  className="flex-1 px-4 py-3 border border-gray-200 rounded-xl hover:bg-gray-50"
+                >
+                  סגור
+                </button>
+              </div>
+
+              <p className="text-xs text-gray-400 text-center">
+                הקישור תקף ל-24 שעות
+              </p>
+            </div>
+          </div>
+        </div>,
         document.body
       )}
     </>

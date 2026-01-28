@@ -47,6 +47,12 @@ export default function SignupPage() {
         .then(data => {
           if (data?.valid) {
             setLinkParentName(data.parentName);
+            // Store referral code if exists (so registration counts as referral)
+            if (data.refCode) {
+              localStorage.setItem('referral_code', data.refCode);
+              localStorage.setItem('referral_timestamp', Date.now().toString());
+              localStorage.setItem('referral_expiry', (Date.now() + 30 * 24 * 60 * 60 * 1000).toString());
+            }
           }
         })
         .catch(() => {

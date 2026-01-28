@@ -821,6 +821,20 @@ async function generateLinkCode(req, res) {
     // Code expires in 24 hours
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     
+    // Get parent's referral code if they have one (to count as referral)
+    let refCode = null;
+    try {
+      const affiliateResult = await db.query(
+        'SELECT ref_code FROM affiliates WHERE user_id = $1 AND is_active = true',
+        [parentUserId]
+      );
+      if (affiliateResult.rows.length > 0) {
+        refCode = affiliateResult.rows[0].ref_code;
+      }
+    } catch (e) {
+      // Ignore - affiliate system might not exist
+    }
+    
     // Save to database
     await db.query(
       `INSERT INTO account_link_codes (code, parent_user_id, expires_at)
@@ -828,11 +842,12 @@ async function generateLinkCode(req, res) {
       [code, parentUserId, expiresAt]
     );
     
-    console.log(`[Experts] ${parentUserId} generated link code: ${code}`);
+    console.log(`[Experts] ${parentUserId} generated link code: ${code}, refCode: ${refCode}`);
     
     res.json({
       success: true,
       code,
+      refCode, // Include referral code if exists
       expiresAt
     });
   } catch (error) {
@@ -860,11 +875,26 @@ async function validateLinkCode(req, res) {
       return res.status(404).json({ error: 'קוד לא תקף או פג תוקף' });
     }
     
-    const linkCode = result.rows[0];
+    const linkData = result.rows[0];
+    
+    // Get parent's referral code
+    let refCode = null;
+    try {
+      const affiliateResult = await db.query(
+        'SELECT ref_code FROM affiliates WHERE user_id = $1 AND is_active = true',
+        [linkData.parent_user_id]
+      );
+      if (affiliateResult.rows.length > 0) {
+        refCode = affiliateResult.rows[0].ref_code;
+      }
+    } catch (e) {
+      // Ignore - affiliate system might not exist
+    }
     
     res.json({
       valid: true,
-      parentName: linkCode.parent_name || linkCode.parent_email
+      parentName: linkData.parent_name || linkData.parent_email,
+      refCode // Include referral code to store in localStorage
     });
   } catch (error) {
     console.error('[Experts] Validate link code error:', error);
