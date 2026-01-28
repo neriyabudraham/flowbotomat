@@ -61,7 +61,7 @@ async function handleWebhook(req, res) {
     const { userId } = req.params;
     const event = req.body;
     
-    // Only log truly important events (not frequent ones like messages and acks)
+    // Quick check if user exists (skip for frequent events to reduce DB load)
     const silentEvents = ['message', 'message.ack', 'message.any', 'poll.vote', 'poll.vote.failed'];
     if (!silentEvents.includes(event.event)) {
       console.log(`[Webhook] User: ${userId}, Event: ${event.event}`);
@@ -96,6 +96,14 @@ async function handleWebhook(req, res) {
  */
 async function handleIncomingMessage(userId, event) {
   const { payload } = event;
+  
+  // Verify user exists before processing
+  const userCheck = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
+  if (userCheck.rows.length === 0) {
+    console.log(`[Webhook] Skipping message - user ${userId} not found (possibly deleted)`);
+    // TODO: Consider cleaning up orphaned WhatsApp connections
+    return;
+  }
   
   // Debug log disabled to reduce noise
   // console.log('[Webhook] Incoming message payload:', JSON.stringify(payload, null, 2));
