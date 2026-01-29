@@ -341,27 +341,30 @@ async function getAllJobHistory(req, res) {
     const userId = req.user.id;
     const { limit = 50, offset = 0 } = req.query;
     
+    console.log(`[GroupForwards] Getting job history for user ${userId}, limit: ${limit}, offset: ${offset}`);
+    
     // Get jobs with forward name and message details
+    // Use LEFT JOIN so jobs appear even if forward was deleted
     const result = await db.query(`
       SELECT 
         fj.*,
-        gf.name as forward_name,
+        COALESCE(gf.name, 'העברה שנמחקה') as forward_name,
         (SELECT json_agg(json_build_object(
           'id', fjm.id,
           'target_id', fjm.target_id,
           'group_id', gft.group_id,
-          'group_name', gft.group_name,
+          'group_name', COALESCE(gft.group_name, 'קבוצה'),
           'status', fjm.status,
           'sent_at', fjm.sent_at,
           'deleted_at', fjm.deleted_at,
           'error_message', fjm.error_message
         ) ORDER BY gft.sort_order)
         FROM forward_job_messages fjm
-        JOIN group_forward_targets gft ON fjm.target_id = gft.id
+        LEFT JOIN group_forward_targets gft ON fjm.target_id = gft.id
         WHERE fjm.job_id = fj.id
         ) as messages
       FROM forward_jobs fj
-      JOIN group_forwards gf ON fj.forward_id = gf.id
+      LEFT JOIN group_forwards gf ON fj.forward_id = gf.id
       WHERE fj.user_id = $1
       ORDER BY fj.created_at DESC
       LIMIT $2 OFFSET $3
@@ -371,6 +374,8 @@ async function getAllJobHistory(req, res) {
       'SELECT COUNT(*) FROM forward_jobs WHERE user_id = $1',
       [userId]
     );
+    
+    console.log(`[GroupForwards] Found ${result.rows.length} jobs (total: ${countResult.rows[0].count}) for user ${userId}`);
     
     res.json({
       success: true,
