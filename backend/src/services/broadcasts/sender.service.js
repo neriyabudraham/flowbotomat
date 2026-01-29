@@ -2,6 +2,7 @@ const db = require('../../config/database');
 const wahaService = require('../waha/session.service');
 const { getWahaCredentials } = require('../settings/system.service');
 const { decrypt } = require('../crypto/encrypt.service');
+const { emitToUser } = require('../socket/manager.service');
 
 // Track active campaign processes with detailed progress
 const activeCampaigns = new Map();
@@ -76,6 +77,9 @@ async function saveMessageToDatabase(userId, contactId, waMessageId, messageType
       RETURNING *
     `, [userId, contactId, waMessageId, messageType, content, mediaUrl, filename]);
     
+    const message = result.rows[0];
+    const lastMessageText = content?.substring(0, 100) || (mediaUrl ? `[${messageType}]` : '');
+    
     // Update contact's last_message_at to move chat to top
     await db.query(`
       UPDATE contacts 
@@ -83,9 +87,31 @@ async function saveMessageToDatabase(userId, contactId, waMessageId, messageType
           last_message = $1,
           updated_at = NOW() 
       WHERE id = $2
-    `, [content?.substring(0, 100) || (mediaUrl ? `[${messageType}]` : ''), contactId]);
+    `, [lastMessageText, contactId]);
     
-    return result.rows[0];
+    // Get contact info for socket emission
+    const contactResult = await db.query(
+      'SELECT id, phone, display_name, profile_picture_url, is_bot_active FROM contacts WHERE id = $1',
+      [contactId]
+    );
+    
+    // Emit socket event for real-time update in live chat
+    if (message && contactResult.rows.length > 0) {
+      const contact = contactResult.rows[0];
+      emitToUser(userId, 'outgoing_message', {
+        message: {
+          ...message,
+          sent_at: message.sent_at || new Date().toISOString()
+        },
+        contact: {
+          ...contact,
+          last_message: lastMessageText,
+          last_message_at: new Date().toISOString()
+        }
+      });
+    }
+    
+    return message;
   } catch (error) {
     console.error('[Broadcast Sender] Error saving message to DB:', error);
     return null;
