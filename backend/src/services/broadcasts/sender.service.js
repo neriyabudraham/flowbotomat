@@ -204,7 +204,25 @@ async function startCampaignSending(campaignId, userId) {
                 break;
               case 'document':
                 if (msg.media_url) {
-                  result = await wahaService.sendFile(connection, chatId, msg.media_url, 'document');
+                  // Extract filename and mimetype properly (like botEngine)
+                  const filename = msg.media_url.split('/').pop()?.split('?')[0] || 'file';
+                  const ext = filename.split('.').pop()?.toLowerCase();
+                  const mimetypes = {
+                    'pdf': 'application/pdf',
+                    'doc': 'application/msword',
+                    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'xls': 'application/vnd.ms-excel',
+                    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'ppt': 'application/vnd.ms-powerpoint',
+                    'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                    'txt': 'text/plain',
+                    'zip': 'application/zip',
+                    'rar': 'application/x-rar-compressed',
+                    'csv': 'text/csv',
+                  };
+                  const mimetype = mimetypes[ext] || 'application/octet-stream';
+                  console.log(`[Broadcast Sender] Sending file: ${filename}, mimetype: ${mimetype}`);
+                  result = await wahaService.sendFile(connection, chatId, msg.media_url, filename, mimetype);
                 }
                 break;
               default: // text
