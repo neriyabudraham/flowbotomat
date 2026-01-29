@@ -1,4 +1,5 @@
 const db = require('../../config/database');
+const broadcastSender = require('../../services/broadcasts/sender.service');
 
 /**
  * Get all campaigns for user
@@ -375,15 +376,17 @@ async function startCampaign(req, res) {
       client.release();
     }
     
-    // TODO: Trigger actual sending via broadcast service
-    // For now, just update status
+    // Start sending in background (don't await)
+    broadcastSender.startCampaignSending(id, userId).catch(err => {
+      console.error(`[Broadcasts] Background sending error for campaign ${id}:`, err);
+    });
     
     const updatedCampaign = await db.query(
       'SELECT * FROM broadcast_campaigns WHERE id = $1',
       [id]
     );
     
-    res.json({ campaign: updatedCampaign.rows[0], message: 'הקמפיין הופעל' });
+    res.json({ campaign: updatedCampaign.rows[0], message: 'הקמפיין הופעל והודעות נשלחות' });
   } catch (error) {
     console.error('[Broadcasts] Start campaign error:', error);
     res.status(500).json({ error: 'שגיאה בהפעלת קמפיין' });
@@ -408,6 +411,9 @@ async function pauseCampaign(req, res) {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'קמפיין לא נמצא או לא ניתן להשהייה' });
     }
+    
+    // Signal the sender to pause
+    broadcastSender.pauseCampaign(id);
     
     res.json({ campaign: result.rows[0] });
   } catch (error) {
@@ -435,6 +441,11 @@ async function resumeCampaign(req, res) {
       return res.status(404).json({ error: 'קמפיין לא נמצא או לא ניתן להמשך' });
     }
     
+    // Restart sending in background
+    broadcastSender.startCampaignSending(id, userId).catch(err => {
+      console.error(`[Broadcasts] Background resume error for campaign ${id}:`, err);
+    });
+    
     res.json({ campaign: result.rows[0] });
   } catch (error) {
     console.error('[Broadcasts] Resume campaign error:', error);
@@ -460,6 +471,9 @@ async function cancelCampaign(req, res) {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'קמפיין לא נמצא או לא ניתן לביטול' });
     }
+    
+    // Signal the sender to cancel
+    broadcastSender.cancelCampaign(id);
     
     res.json({ campaign: result.rows[0] });
   } catch (error) {
@@ -586,10 +600,10 @@ async function getCampaignReport(req, res) {
     const result = await db.query(`
       SELECT 
         r.phone,
-        r.display_name,
+        r.contact_name as display_name,
         r.status,
         r.sent_at,
-        r.error,
+        r.error_message as error,
         r.queued_at
       FROM broadcast_campaign_recipients r
       WHERE r.campaign_id = $1
