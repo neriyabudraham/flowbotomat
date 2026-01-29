@@ -254,9 +254,9 @@ export default function AudiencesTab({ onRefresh }) {
 }
 
 // =============================================
-// Audience Editor Modal (Create/Edit)
+// Audience Editor Modal (Create/Edit) - exported for use in CampaignsTab
 // =============================================
-function AudienceEditorModal({ audience, onClose, onCreated }) {
+export function AudienceEditorModal({ audience, onClose, onCreated }) {
   const [step, setStep] = useState(audience ? 2 : 1);
   const [isStatic, setIsStatic] = useState(audience?.is_static ?? true);
   const [name, setName] = useState(audience?.name || '');

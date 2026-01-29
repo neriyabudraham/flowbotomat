@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import api from '../../services/api';
 import { TemplateEditorModal } from './TemplatesTab';
+import { AudienceEditorModal } from './AudiencesTab';
 
 const STATUS_CONFIG = {
   draft: { label: 'טיוטה', color: 'gray', bgColor: 'bg-gray-100', textColor: 'text-gray-700', icon: Edit2 },
@@ -927,8 +928,12 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
   const [showSettings, setShowSettings] = useState(false);
   const [showAdvancedActions, setShowAdvancedActions] = useState(false);
   const [showTemplateCreate, setShowTemplateCreate] = useState(false);
+  const [showAudienceCreate, setShowAudienceCreate] = useState(false);
   const [localTemplates, setLocalTemplates] = useState(templates);
+  const [localAudiences, setLocalAudiences] = useState(audiences);
   const [tagInput, setTagInput] = useState('');
+  const [existingTags, setExistingTags] = useState([]);
+  const [showTagSuggestions, setShowTagSuggestions] = useState(false);
   const [enabledVariables, setEnabledVariables] = useState(() => {
     // Initialize enabled variables from existing mappings
     const enabled = {};
@@ -937,6 +942,19 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
     });
     return enabled;
   });
+
+  // Fetch existing tags on mount
+  useEffect(() => {
+    const fetchTags = async () => {
+      try {
+        const { data } = await api.get('/contacts/tags');
+        setExistingTags(data.tags || []);
+      } catch (e) {
+        console.error('Failed to fetch tags:', e);
+      }
+    };
+    fetchTags();
+  }, []);
 
   const handleSave = async () => {
     if (!formData.name.trim() || !formData.audience_id) {
@@ -989,20 +1007,41 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
     }
   };
 
-  const handleAddTag = (e) => {
+  const handleAddTag = async (tagName) => {
+    const newTag = tagName.trim();
+    if (!newTag || formData.settings.success_tags.includes(newTag)) return;
+    
+    // Add to form
+    setFormData({
+      ...formData,
+      settings: {
+        ...formData.settings,
+        success_tags: [...formData.settings.success_tags, newTag]
+      }
+    });
+    setTagInput('');
+    setShowTagSuggestions(false);
+    
+    // Create tag in system if it doesn't exist
+    const tagExists = existingTags.some(t => 
+      (typeof t === 'string' ? t : t.name)?.toLowerCase() === newTag.toLowerCase()
+    );
+    if (!tagExists) {
+      try {
+        await api.post('/contacts/tags', { name: newTag });
+        // Refresh tags list
+        const { data } = await api.get('/contacts/tags');
+        setExistingTags(data.tags || []);
+      } catch (e) {
+        console.error('Failed to create tag:', e);
+      }
+    }
+  };
+
+  const handleTagKeyDown = (e) => {
     if (e.key === 'Enter' && tagInput.trim()) {
       e.preventDefault();
-      const newTag = tagInput.trim();
-      if (!formData.settings.success_tags.includes(newTag)) {
-        setFormData({
-          ...formData,
-          settings: {
-            ...formData.settings,
-            success_tags: [...formData.settings.success_tags, newTag]
-          }
-        });
-      }
-      setTagInput('');
+      handleAddTag(tagInput);
     }
   };
 
@@ -1015,6 +1054,15 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
       }
     });
   };
+
+  // Filter tag suggestions based on input
+  const filteredTagSuggestions = existingTags
+    .map(t => typeof t === 'string' ? t : t.name)
+    .filter(name => 
+      name && 
+      name.toLowerCase().includes(tagInput.toLowerCase()) &&
+      !formData.settings.success_tags.includes(name)
+    );
 
   const toggleVariable = (key) => {
     const newEnabled = { ...enabledVariables, [key]: !enabledVariables[key] };
@@ -1049,7 +1097,18 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
     }
   };
 
-  const selectedAudience = audiences.find(a => a.id === formData.audience_id);
+  const handleAudienceCreated = async () => {
+    setShowAudienceCreate(false);
+    // Refresh audiences list
+    try {
+      const { data } = await api.get('/broadcasts/audiences');
+      setLocalAudiences(data.audiences || []);
+    } catch (e) {
+      console.error('Failed to refresh audiences:', e);
+    }
+  };
+
+  const selectedAudience = localAudiences.find(a => a.id === formData.audience_id);
 
   // Show template creation modal
   if (showTemplateCreate) {
@@ -1058,6 +1117,17 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
         template={null}
         onClose={() => setShowTemplateCreate(false)}
         onSave={handleTemplateCreated}
+      />
+    );
+  }
+
+  // Show audience creation modal
+  if (showAudienceCreate) {
+    return (
+      <AudienceEditorModal
+        audience={null}
+        onClose={() => setShowAudienceCreate(false)}
+        onCreated={handleAudienceCreated}
       />
     );
   }
@@ -1112,18 +1182,31 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
             
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">קהל יעד *</label>
-              <select
-                value={formData.audience_id}
-                onChange={(e) => { setFormData({ ...formData, audience_id: e.target.value }); setError(null); }}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 focus:bg-white transition-all"
-              >
-                <option value="">בחר קהל...</option>
-                {audiences.map(a => (
-                  <option key={a.id} value={a.id}>
-                    {a.name} ({(a.contacts_count || 0).toLocaleString()} אנשי קשר)
-                  </option>
-                ))}
-              </select>
+              <div className="flex gap-2">
+                <select
+                  value={formData.audience_id}
+                  onChange={(e) => { setFormData({ ...formData, audience_id: e.target.value }); setError(null); }}
+                  className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 focus:bg-white transition-all"
+                >
+                  <option value="">בחר קהל...</option>
+                  {localAudiences.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} ({(a.contacts_count || 0).toLocaleString()} אנשי קשר)
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setShowAudienceCreate(true)}
+                  className="px-3 py-3 bg-purple-100 text-purple-700 rounded-xl hover:bg-purple-200 transition-colors flex items-center gap-1 font-medium text-sm"
+                  title="צור קהל חדש"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+              {localAudiences.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">אין קהלים זמינים. לחץ על + ליצירת קהל.</p>
+              )}
             </div>
           </div>
           
@@ -1303,15 +1386,50 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
                     </div>
                   )}
                   
-                  <input
-                    type="text"
-                    value={tagInput}
-                    onChange={(e) => setTagInput(e.target.value)}
-                    onKeyDown={handleAddTag}
-                    placeholder="הקלד שם תגית ולחץ Enter להוספה"
-                    className="w-full px-3 py-2 border border-green-200 rounded-lg text-sm bg-white"
-                  />
-                  <p className="text-xs text-green-600 mt-1">התגיות יתווספו רק לאנשי קשר שההודעה נשלחה אליהם בהצלחה</p>
+                  {/* Tag input with suggestions */}
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={tagInput}
+                      onChange={(e) => {
+                        setTagInput(e.target.value);
+                        setShowTagSuggestions(true);
+                      }}
+                      onFocus={() => setShowTagSuggestions(true)}
+                      onBlur={() => setTimeout(() => setShowTagSuggestions(false), 200)}
+                      onKeyDown={handleTagKeyDown}
+                      placeholder="הקלד שם תגית ולחץ Enter להוספה"
+                      className="w-full px-3 py-2 border border-green-200 rounded-lg text-sm bg-white"
+                    />
+                    
+                    {/* Suggestions dropdown */}
+                    {showTagSuggestions && (filteredTagSuggestions.length > 0 || (tagInput && !existingTags.some(t => (typeof t === 'string' ? t : t.name) === tagInput))) && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                        {filteredTagSuggestions.map((tagName, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => handleAddTag(tagName)}
+                            className="w-full px-3 py-2 text-right text-sm hover:bg-green-50 flex items-center gap-2"
+                          >
+                            <Tag className="w-3 h-3 text-gray-400" />
+                            {tagName}
+                          </button>
+                        ))}
+                        {tagInput && !existingTags.some(t => (typeof t === 'string' ? t : t.name)?.toLowerCase() === tagInput.toLowerCase()) && (
+                          <button
+                            type="button"
+                            onClick={() => handleAddTag(tagInput)}
+                            className="w-full px-3 py-2 text-right text-sm hover:bg-green-50 flex items-center gap-2 text-green-600 border-t border-gray-100"
+                          >
+                            <Plus className="w-3 h-3" />
+                            צור תגית חדשה: "{tagInput}"
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-green-600 mt-1">התגיות יתווספו רק לאנשי קשר שההודעה נשלחה אליהם בהצלחה. תגיות חדשות יווצרו אוטומטית.</p>
                 </div>
                 
                 {/* Variable Mappings */}
