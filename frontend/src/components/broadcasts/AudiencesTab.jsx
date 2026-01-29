@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { 
   Plus, Users, Trash2, Edit2, Search, RefreshCw, Loader2, X, Eye,
   Target, UserPlus, Check, ChevronDown, Tag, Filter, Phone, User,
-  CheckCircle, Circle, AlertCircle
+  CheckCircle, Circle, AlertCircle, Sparkles, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -90,7 +90,7 @@ export default function AudiencesTab({ onRefresh }) {
         
         <button
           onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl hover:from-purple-700 hover:to-purple-800 transition-all shadow-lg shadow-purple-500/25"
+          className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl hover:from-purple-600 hover:to-purple-700 transition-all shadow-lg shadow-purple-500/25 font-medium"
         >
           <Plus className="w-4 h-4" />
           צור קהל חדש
@@ -99,40 +99,111 @@ export default function AudiencesTab({ onRefresh }) {
 
       {/* Audiences Grid */}
       {filteredAudiences.length === 0 ? (
-        <div className="text-center py-20 bg-gradient-to-b from-gray-50 to-white rounded-2xl border border-gray-100">
-          <div className="w-20 h-20 rounded-full bg-purple-100 flex items-center justify-center mx-auto mb-6">
-            <Users className="w-10 h-10 text-purple-600" />
+        <div className="text-center py-16">
+          <div className="w-20 h-20 bg-gradient-to-br from-purple-100 to-pink-100 rounded-3xl flex items-center justify-center mx-auto mb-4">
+            <Users className="w-10 h-10 text-purple-400" />
           </div>
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">אין קהלים עדיין</h3>
-          <p className="text-gray-500 mb-6 max-w-md mx-auto">
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">אין קהלים עדיין</h3>
+          <p className="text-gray-500 mb-6 max-w-sm mx-auto">
             קהלים מאפשרים לך לקבץ אנשי קשר ולשלוח להם הודעות תפוצה בקלות.
-            צור קהל ראשון כדי להתחיל.
           </p>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors shadow-lg shadow-purple-500/25"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl hover:from-purple-600 hover:to-purple-700 font-medium shadow-lg shadow-purple-500/25"
           >
-            <Plus className="w-5 h-5" />
+            <Sparkles className="w-5 h-5" />
             צור קהל ראשון
           </button>
         </div>
       ) : (
         <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
           {filteredAudiences.map(audience => (
-            <AudienceCard
+            <div 
               key={audience.id}
-              audience={audience}
-              onView={() => setShowViewModal(audience)}
-              onEdit={() => { setEditAudience(audience); setShowCreateModal(true); }}
-              onDelete={() => setDeleteConfirm(audience)}
-            />
+              className="group bg-white border border-gray-200 rounded-2xl overflow-hidden hover:shadow-xl hover:border-purple-200 transition-all cursor-pointer"
+              onClick={() => setShowViewModal(audience)}
+            >
+              <div className="p-5">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
+                      audience.is_static 
+                        ? 'bg-gradient-to-br from-purple-500 to-pink-500 shadow-purple-500/20' 
+                        : 'bg-gradient-to-br from-blue-500 to-cyan-500 shadow-blue-500/20'
+                    }`}>
+                      {audience.is_static ? (
+                        <Users className="w-6 h-6 text-white" />
+                      ) : (
+                        <Target className="w-6 h-6 text-white" />
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900">{audience.name}</h3>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        audience.is_static 
+                          ? 'bg-purple-100 text-purple-700' 
+                          : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {audience.is_static ? 'סטטי' : 'דינמי'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                
+                {audience.description && (
+                  <p className="text-sm text-gray-500 mb-3 line-clamp-2">{audience.description}</p>
+                )}
+
+                <div className="flex items-center gap-2 text-gray-600 bg-gray-50 rounded-lg px-3 py-2">
+                  <Users className="w-4 h-4" />
+                  <span className="font-bold">{(audience.contacts_count || 0).toLocaleString()}</span>
+                  <span className="text-sm text-gray-500">אנשי קשר</span>
+                </div>
+              </div>
+              
+              {/* Actions - appear on hover */}
+              <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowViewModal(audience); }}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-purple-100 text-purple-700 hover:bg-purple-200 rounded-lg text-sm font-medium transition-colors"
+                >
+                  <Eye className="w-4 h-4" />
+                  צפייה
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setEditAudience(audience); setShowCreateModal(true); }}
+                  className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  <Edit2 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setDeleteConfirm(audience); }}
+                  className="p-2 bg-red-100 text-red-600 hover:bg-red-200 rounded-lg transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
           ))}
+          
+          {/* Create New Card */}
+          <div
+            onClick={() => setShowCreateModal(true)}
+            className="group relative bg-gradient-to-br from-gray-50 to-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-purple-300 hover:bg-purple-50/30 transition-all cursor-pointer flex items-center justify-center min-h-[200px]"
+          >
+            <div className="text-center">
+              <div className="w-14 h-14 bg-gray-100 group-hover:bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-3 transition-colors">
+                <Plus className="w-7 h-7 text-gray-400 group-hover:text-purple-500 transition-colors" />
+              </div>
+              <div className="font-medium text-gray-600 group-hover:text-purple-600 transition-colors">צור קהל חדש</div>
+            </div>
+          </div>
         </div>
       )}
 
       {/* Create/Edit Modal */}
       {showCreateModal && (
-        <AudienceCreateModal
+        <AudienceEditorModal
           audience={editAudience}
           onClose={() => { setShowCreateModal(false); setEditAudience(null); }}
           onCreated={handleCreated}
@@ -149,30 +220,30 @@ export default function AudiencesTab({ onRefresh }) {
 
       {/* Delete Confirm */}
       {deleteConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setDeleteConfirm(null)}>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setDeleteConfirm(null)}>
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
-              <Trash2 className="w-6 h-6 text-red-600" />
-            </div>
-            <h3 className="text-lg font-semibold text-center mb-2">מחיקת קהל</h3>
-            <p className="text-gray-500 text-center mb-6">
-              האם למחוק את הקהל "{deleteConfirm.name}"?
-              <br />
-              <span className="text-sm">פעולה זו לא ניתנת לביטול.</span>
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setDeleteConfirm(null)}
-                className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 font-medium"
-              >
-                ביטול
-              </button>
-              <button
-                onClick={() => handleDelete(deleteConfirm.id)}
-                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 font-medium"
-              >
-                מחק
-              </button>
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-2xl bg-red-100 flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="w-7 h-7 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">מחיקת קהל</h3>
+              <p className="text-gray-600 mb-6">
+                האם למחוק את הקהל "{deleteConfirm.name}"?
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDeleteConfirm(null)}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl font-medium hover:bg-gray-50 transition-colors"
+                >
+                  ביטול
+                </button>
+                <button
+                  onClick={() => handleDelete(deleteConfirm.id)}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl font-medium hover:bg-red-700 transition-colors"
+                >
+                  מחק
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -182,83 +253,10 @@ export default function AudiencesTab({ onRefresh }) {
 }
 
 // =============================================
-// Audience Card Component
+// Audience Editor Modal (Create/Edit)
 // =============================================
-function AudienceCard({ audience, onView, onEdit, onDelete }) {
-  return (
-    <div className="bg-white border border-gray-200 rounded-2xl p-5 hover:shadow-lg hover:border-gray-300 transition-all group">
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-            audience.is_static 
-              ? 'bg-gradient-to-br from-purple-500 to-purple-600' 
-              : 'bg-gradient-to-br from-blue-500 to-blue-600'
-          } shadow-lg`}>
-            {audience.is_static ? (
-              <Users className="w-6 h-6 text-white" />
-            ) : (
-              <Target className="w-6 h-6 text-white" />
-            )}
-          </div>
-          <div>
-            <h3 className="font-semibold text-gray-900 text-lg">{audience.name}</h3>
-            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-              audience.is_static 
-                ? 'bg-purple-100 text-purple-700' 
-                : 'bg-blue-100 text-blue-700'
-            }`}>
-              {audience.is_static ? 'קהל סטטי' : 'קהל דינמי'}
-            </span>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={onEdit}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            title="עריכה"
-          >
-            <Edit2 className="w-4 h-4 text-gray-500" />
-          </button>
-          <button
-            onClick={onDelete}
-            className="p-2 hover:bg-red-50 rounded-lg transition-colors"
-            title="מחיקה"
-          >
-            <Trash2 className="w-4 h-4 text-red-500" />
-          </button>
-        </div>
-      </div>
-      
-      {audience.description && (
-        <p className="text-sm text-gray-500 mb-4 line-clamp-2">{audience.description}</p>
-      )}
-      
-      <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 text-gray-600">
-            <Users className="w-4 h-4" />
-            <span className="font-semibold">{audience.contacts_count || 0}</span>
-            <span className="text-sm text-gray-500">אנשי קשר</span>
-          </div>
-        </div>
-        <button 
-          onClick={onView}
-          className="flex items-center gap-1.5 text-sm font-medium text-purple-600 hover:text-purple-700 transition-colors"
-        >
-          <Eye className="w-4 h-4" />
-          צפה בקהל
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// =============================================
-// Audience Create/Edit Modal
-// =============================================
-function AudienceCreateModal({ audience, onClose, onCreated }) {
-  const [step, setStep] = useState(audience ? 2 : 1); // 1: type, 2: details/contacts
+function AudienceEditorModal({ audience, onClose, onCreated }) {
+  const [step, setStep] = useState(audience ? 2 : 1);
   const [isStatic, setIsStatic] = useState(audience?.is_static ?? true);
   const [name, setName] = useState(audience?.name || '');
   const [description, setDescription] = useState(audience?.description || '');
@@ -266,8 +264,8 @@ function AudienceCreateModal({ audience, onClose, onCreated }) {
   const [filterCriteria, setFilterCriteria] = useState(audience?.filter_criteria || {});
   const [saving, setSaving] = useState(false);
   const [loadingContacts, setLoadingContacts] = useState(false);
+  const [error, setError] = useState(null);
 
-  // Load existing audience contacts if editing
   useEffect(() => {
     if (audience?.is_static && audience?.id) {
       loadAudienceContacts();
@@ -277,7 +275,7 @@ function AudienceCreateModal({ audience, onClose, onCreated }) {
   const loadAudienceContacts = async () => {
     try {
       setLoadingContacts(true);
-      const { data } = await api.get(`/broadcasts/audiences/${audience.id}/contacts?limit=1000`);
+      const { data } = await api.get(`/broadcasts/audiences/${audience.id}/contacts?limit=100000`);
       setSelectedContacts(data.contacts?.map(c => c.id) || []);
     } catch (e) {
       console.error('Failed to load audience contacts:', e);
@@ -287,39 +285,42 @@ function AudienceCreateModal({ audience, onClose, onCreated }) {
   };
 
   const handleSave = async () => {
-    if (!name.trim()) return;
+    if (!name.trim()) {
+      setError('יש להזין שם לקהל');
+      return;
+    }
+    
+    if (isStatic && selectedContacts.length === 0) {
+      setError('יש לבחור לפחות איש קשר אחד');
+      return;
+    }
     
     try {
       setSaving(true);
+      setError(null);
       
       if (audience) {
-        // Update existing
         await api.put(`/broadcasts/audiences/${audience.id}`, {
           name,
           description,
           filter_criteria: isStatic ? {} : filterCriteria
         });
         
-        // For static audience, update contacts
         if (isStatic) {
-          // Remove all and add selected
-          const currentRes = await api.get(`/broadcasts/audiences/${audience.id}/contacts?limit=1000`);
+          const currentRes = await api.get(`/broadcasts/audiences/${audience.id}/contacts?limit=100000`);
           const currentIds = currentRes.data.contacts?.map(c => c.id) || [];
           
-          // Remove contacts not in selectedContacts
           const toRemove = currentIds.filter(id => !selectedContacts.includes(id));
           if (toRemove.length > 0) {
             await api.delete(`/broadcasts/audiences/${audience.id}/contacts`, { data: { contact_ids: toRemove } });
           }
           
-          // Add new contacts
           const toAdd = selectedContacts.filter(id => !currentIds.includes(id));
           if (toAdd.length > 0) {
             await api.post(`/broadcasts/audiences/${audience.id}/contacts`, { contact_ids: toAdd });
           }
         }
       } else {
-        // Create new
         const { data } = await api.post('/broadcasts/audiences', {
           name,
           description,
@@ -327,7 +328,6 @@ function AudienceCreateModal({ audience, onClose, onCreated }) {
           filter_criteria: isStatic ? {} : filterCriteria
         });
         
-        // For static audience, add contacts
         if (isStatic && selectedContacts.length > 0) {
           await api.post(`/broadcasts/audiences/${data.audience.id}/contacts`, {
             contact_ids: selectedContacts
@@ -337,62 +337,122 @@ function AudienceCreateModal({ audience, onClose, onCreated }) {
       
       onCreated();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בשמירת קהל');
+      setError(e.response?.data?.error || 'שגיאה בשמירת קהל');
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">
-              {audience ? 'עריכת קהל' : 'יצירת קהל חדש'}
-            </h3>
-            <p className="text-sm text-gray-500">
-              {step === 1 ? 'בחר סוג קהל' : (isStatic ? 'בחר אנשי קשר' : 'הגדר פילטרים')}
-            </p>
+        <div className={`p-6 flex-shrink-0 ${
+          step === 1 
+            ? 'bg-gradient-to-r from-purple-500 to-pink-500' 
+            : isStatic 
+              ? 'bg-gradient-to-r from-purple-500 to-pink-500' 
+              : 'bg-gradient-to-r from-blue-500 to-cyan-500'
+        }`}>
+          <div className="flex justify-between items-start">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-white/20 backdrop-blur rounded-2xl">
+                {isStatic ? (
+                  <Users className="w-6 h-6 text-white" />
+                ) : (
+                  <Target className="w-6 h-6 text-white" />
+                )}
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">
+                  {audience ? 'עריכת קהל' : 'יצירת קהל חדש'}
+                </h3>
+                <p className="text-white/80 text-sm">
+                  {step === 1 ? 'בחר סוג קהל' : (isStatic ? 'בחר אנשי קשר' : 'הגדר פילטרים')}
+                </p>
+              </div>
+            </div>
+            <button 
+              onClick={onClose}
+              className="p-2 hover:bg-white/20 rounded-xl transition-colors"
+            >
+              <X className="w-5 h-5 text-white" />
+            </button>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-lg transition-colors">
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-red-700 text-sm">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              {error}
+            </div>
+          )}
+
           {step === 1 && (
-            <TypeSelection
-              isStatic={isStatic}
-              onSelect={(type) => { setIsStatic(type); setStep(2); }}
-            />
+            <div className="grid md:grid-cols-2 gap-6">
+              <button
+                onClick={() => { setIsStatic(true); setStep(2); }}
+                className="group p-6 border-2 rounded-2xl text-right transition-all hover:shadow-xl hover:border-purple-400 border-gray-200"
+              >
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform">
+                  <Users className="w-8 h-8 text-white" />
+                </div>
+                <h4 className="text-xl font-bold text-gray-900 mb-2">קהל סטטי</h4>
+                <p className="text-gray-500 leading-relaxed mb-4">
+                  בחר ידנית אנשי קשר מהרשימה שלך.
+                  מתאים כשיש לך רשימה ספציפית של אנשים.
+                </p>
+                <div className="flex items-center gap-2 text-purple-600 font-medium">
+                  <UserPlus className="w-5 h-5" />
+                  בחירה ידנית עד 100,000
+                </div>
+              </button>
+              
+              <button
+                onClick={() => { setIsStatic(false); setStep(2); }}
+                className="group p-6 border-2 rounded-2xl text-right transition-all hover:shadow-xl hover:border-blue-400 border-gray-200"
+              >
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform">
+                  <Target className="w-8 h-8 text-white" />
+                </div>
+                <h4 className="text-xl font-bold text-gray-900 mb-2">קהל דינמי</h4>
+                <p className="text-gray-500 leading-relaxed mb-4">
+                  הגדר פילטרים (תגיות, משתנים) והקהל יתעדכן אוטומטית.
+                  מתאים לקהלים שמשתנים.
+                </p>
+                <div className="flex items-center gap-2 text-blue-600 font-medium">
+                  <Filter className="w-5 h-5" />
+                  לפי פילטרים אוטומטיים
+                </div>
+              </button>
+            </div>
           )}
           
           {step === 2 && (
             <div className="space-y-6">
               {/* Name & Description */}
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">שם הקהל *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">שם הקהל *</label>
                   <input
                     type="text"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => { setName(e.target.value); setError(null); }}
                     placeholder="לדוגמה: לקוחות VIP"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 focus:bg-white transition-all"
                     autoFocus
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">תיאור (אופציונלי)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">תיאור (אופציונלי)</label>
                   <input
                     type="text"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     placeholder="תיאור קצר..."
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 focus:bg-white transition-all"
                   />
                 </div>
               </div>
@@ -418,21 +478,22 @@ function AudienceCreateModal({ audience, onClose, onCreated }) {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-gray-50">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 bg-gray-50 flex-shrink-0">
           <div>
             {step === 2 && !audience && (
               <button
                 onClick={() => setStep(1)}
-                className="text-sm text-gray-600 hover:text-gray-900"
+                className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 font-medium"
               >
-                ← חזור לבחירת סוג
+                <ChevronRight className="w-4 h-4" />
+                חזור לבחירת סוג
               </button>
             )}
           </div>
           <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="px-5 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 font-medium"
+              className="px-5 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 font-medium transition-colors"
             >
               ביטול
             </button>
@@ -440,9 +501,17 @@ function AudienceCreateModal({ audience, onClose, onCreated }) {
               <button
                 onClick={handleSave}
                 disabled={!name.trim() || saving || (isStatic && selectedContacts.length === 0)}
-                className="px-5 py-2.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className={`px-5 py-2.5 text-white rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg transition-all ${
+                  isStatic 
+                    ? 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 shadow-purple-500/25'
+                    : 'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 shadow-blue-500/25'
+                }`}
               >
-                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                {saving ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4" />
+                )}
                 {audience ? 'שמור שינויים' : 'צור קהל'}
               </button>
             )}
@@ -454,60 +523,7 @@ function AudienceCreateModal({ audience, onClose, onCreated }) {
 }
 
 // =============================================
-// Type Selection Component
-// =============================================
-function TypeSelection({ isStatic, onSelect }) {
-  return (
-    <div className="grid md:grid-cols-2 gap-6">
-      <button
-        onClick={() => onSelect(true)}
-        className={`p-6 border-2 rounded-2xl text-right transition-all hover:shadow-lg ${
-          isStatic ? 'border-purple-500 bg-purple-50 shadow-lg' : 'border-gray-200 hover:border-purple-300'
-        }`}
-      >
-        <div className={`w-14 h-14 rounded-xl flex items-center justify-center mb-4 ${
-          isStatic ? 'bg-purple-600' : 'bg-gray-100'
-        }`}>
-          <Users className={`w-7 h-7 ${isStatic ? 'text-white' : 'text-gray-400'}`} />
-        </div>
-        <h4 className="text-lg font-semibold text-gray-900 mb-2">קהל סטטי</h4>
-        <p className="text-sm text-gray-500 leading-relaxed">
-          בחר ידנית אנשי קשר מהרשימה שלך.
-          מתאים כשיש לך רשימה ספציפית של אנשים.
-        </p>
-        <div className="mt-4 flex items-center gap-2 text-sm text-purple-600">
-          <UserPlus className="w-4 h-4" />
-          בחירה ידנית
-        </div>
-      </button>
-      
-      <button
-        onClick={() => onSelect(false)}
-        className={`p-6 border-2 rounded-2xl text-right transition-all hover:shadow-lg ${
-          !isStatic ? 'border-blue-500 bg-blue-50 shadow-lg' : 'border-gray-200 hover:border-blue-300'
-        }`}
-      >
-        <div className={`w-14 h-14 rounded-xl flex items-center justify-center mb-4 ${
-          !isStatic ? 'bg-blue-600' : 'bg-gray-100'
-        }`}>
-          <Target className={`w-7 h-7 ${!isStatic ? 'text-white' : 'text-gray-400'}`} />
-        </div>
-        <h4 className="text-lg font-semibold text-gray-900 mb-2">קהל דינמי</h4>
-        <p className="text-sm text-gray-500 leading-relaxed">
-          הגדר פילטרים (תגיות, משתנים) והקהל יתעדכן אוטומטית.
-          מתאים לקהלים שמשתנים.
-        </p>
-        <div className="mt-4 flex items-center gap-2 text-sm text-blue-600">
-          <Filter className="w-4 h-4" />
-          לפי פילטרים
-        </div>
-      </button>
-    </div>
-  );
-}
-
-// =============================================
-// Contact Picker Component
+// Contact Picker Component (Up to 100,000)
 // =============================================
 function ContactPicker({ selectedIds, onChange, loading }) {
   const [contacts, setContacts] = useState([]);
@@ -542,11 +558,14 @@ function ContactPicker({ selectedIds, onChange, loading }) {
 
   const loadAllContactIds = async () => {
     try {
-      // Get all contact IDs for "select all" functionality
-      const { data } = await api.get('/contacts', { params: { limit: 10000 } });
+      setLoadingAll(true);
+      // Load up to 100,000 contact IDs for "select all" functionality
+      const { data } = await api.get('/contacts', { params: { limit: 100000, fields: 'id' } });
       setAllContactIds((data.contacts || []).map(c => c.id));
     } catch (e) {
       console.error('Failed to load all contact IDs:', e);
+    } finally {
+      setLoadingAll(false);
     }
   };
 
@@ -598,47 +617,65 @@ function ContactPicker({ selectedIds, onChange, loading }) {
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             placeholder="חיפוש לפי שם או טלפון..."
-            className="w-full pl-4 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-500"
+            className="w-full pl-4 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 focus:bg-white transition-all"
           />
         </div>
         <button
           onClick={handleSearch}
-          className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 text-sm font-medium"
+          className="px-5 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 text-sm font-medium transition-colors"
         >
           חפש
         </button>
       </div>
 
       {/* Selection Summary */}
-      <div className="flex items-center justify-between bg-purple-50 border border-purple-200 rounded-xl p-3">
-        <div className="flex items-center gap-2 text-sm">
-          <CheckCircle className="w-4 h-4 text-purple-600" />
-          <span className="font-medium text-purple-900">
-            {selectedIds.length.toLocaleString()} אנשי קשר נבחרו
-            {totalContacts > 0 && <span className="text-purple-600"> (מתוך {totalContacts.toLocaleString()})</span>}
-          </span>
+      <div className="flex items-center justify-between bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-xl p-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+            <CheckCircle className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <div className="font-bold text-purple-900">
+              {selectedIds.length.toLocaleString()} אנשי קשר נבחרו
+            </div>
+            {totalContacts > 0 && (
+              <div className="text-sm text-purple-600">מתוך {totalContacts.toLocaleString()} זמינים</div>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2 text-xs">
-          <button onClick={selectAll} className="text-purple-600 hover:text-purple-700 font-medium">
-            בחר הכל ({allContactIds.length.toLocaleString()})
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={selectAll} 
+            disabled={loadingAll}
+            className="px-3 py-1.5 text-sm bg-purple-100 text-purple-700 hover:bg-purple-200 rounded-lg font-medium transition-colors disabled:opacity-50"
+          >
+            {loadingAll ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              `בחר הכל (${allContactIds.length.toLocaleString()})`
+            )}
           </button>
-          <span className="text-gray-300">|</span>
-          <button onClick={selectVisible} className="text-purple-600 hover:text-purple-700 font-medium">
+          <button 
+            onClick={selectVisible} 
+            className="px-3 py-1.5 text-sm bg-purple-100 text-purple-700 hover:bg-purple-200 rounded-lg font-medium transition-colors"
+          >
             בחר עמוד
           </button>
-          <span className="text-gray-300">|</span>
-          <button onClick={deselectAll} className="text-purple-600 hover:text-purple-700 font-medium">
-            נקה בחירה
+          <button 
+            onClick={deselectAll} 
+            className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg font-medium transition-colors"
+          >
+            נקה
           </button>
         </div>
       </div>
 
       {/* Contacts List */}
       <div className="border border-gray-200 rounded-xl overflow-hidden">
-        <div className="max-h-[300px] overflow-y-auto">
+        <div className="max-h-[350px] overflow-y-auto">
           {loadingContacts ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+              <Loader2 className="w-6 h-6 animate-spin text-purple-500" />
             </div>
           ) : contacts.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
@@ -650,19 +687,19 @@ function ContactPicker({ selectedIds, onChange, loading }) {
               {contacts.map(contact => (
                 <label
                   key={contact.id}
-                  className="flex items-center gap-4 p-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                  className="flex items-center gap-4 p-4 hover:bg-purple-50/50 cursor-pointer transition-colors"
                 >
-                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                  <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
                     selectedIds.includes(contact.id)
-                      ? 'bg-purple-600 border-purple-600'
-                      : 'border-gray-300'
+                      ? 'bg-gradient-to-br from-purple-500 to-pink-500 border-purple-500'
+                      : 'border-gray-300 hover:border-purple-400'
                   }`}>
                     {selectedIds.includes(contact.id) && (
-                      <Check className="w-3 h-3 text-white" />
+                      <Check className="w-4 h-4 text-white" />
                     )}
                   </div>
                   
-                  <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center overflow-hidden">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden">
                     {contact.profile_picture_url ? (
                       <img src={contact.profile_picture_url} alt="" className="w-full h-full object-cover" />
                     ) : (
@@ -674,7 +711,7 @@ function ContactPicker({ selectedIds, onChange, loading }) {
                     <div className="font-medium text-gray-900 truncate">
                       {contact.display_name || 'ללא שם'}
                     </div>
-                    <div className="text-sm text-gray-500 flex items-center gap-1">
+                    <div className="text-sm text-gray-500 flex items-center gap-1 font-mono">
                       <Phone className="w-3 h-3" />
                       {contact.phone}
                     </div>
@@ -695,23 +732,25 @@ function ContactPicker({ selectedIds, onChange, loading }) {
         {/* Pagination */}
         {totalPages > 1 && (
           <div className="bg-gray-50 px-4 py-3 border-t border-gray-200 flex items-center justify-between">
-            <span className="text-xs text-gray-500">
-              עמוד {currentPage} מתוך {totalPages}
+            <span className="text-sm text-gray-500">
+              עמוד {currentPage} מתוך {totalPages.toLocaleString()}
             </span>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => loadContacts(Math.max(1, currentPage - 1), searchQuery)}
                 disabled={currentPage === 1 || loadingContacts}
-                className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+                className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-50 transition-colors"
               >
+                <ChevronRight className="w-4 h-4" />
                 הקודם
               </button>
               <button
                 onClick={() => loadContacts(Math.min(totalPages, currentPage + 1), searchQuery)}
                 disabled={currentPage === totalPages || loadingContacts}
-                className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+                className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-50 transition-colors"
               >
                 הבא
+                <ChevronLeft className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -758,8 +797,8 @@ function FilterBuilder({ criteria, onChange }) {
     <div className="space-y-6">
       {/* Tags Filter */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-3">
-          <Tag className="w-4 h-4 inline ml-1" />
+        <label className="block text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+          <Tag className="w-4 h-4 text-blue-500" />
           סינון לפי תגיות
         </label>
         
@@ -769,25 +808,27 @@ function FilterBuilder({ criteria, onChange }) {
             <span className="text-sm">טוען תגיות...</span>
           </div>
         ) : tags.length === 0 ? (
-          <div className="text-sm text-gray-500 bg-gray-50 rounded-xl p-4 text-center">
-            <Tag className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-            <p>אין תגיות עדיין. צור תגיות בדף אנשי הקשר.</p>
+          <div className="text-sm text-gray-500 bg-gray-50 rounded-xl p-6 text-center">
+            <Tag className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+            <p className="font-medium">אין תגיות עדיין</p>
+            <p className="text-xs mt-1">צור תגיות בדף אנשי הקשר</p>
           </div>
         ) : (
           <div className="flex flex-wrap gap-2">
             {tags.map(tag => (
               <button
-                key={tag.id}
-                onClick={() => toggleTag(tag.name)}
+                key={tag.id || tag}
+                onClick={() => toggleTag(typeof tag === 'string' ? tag : tag.name)}
                 className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                  selectedTags.includes(tag.name)
-                    ? 'bg-blue-600 text-white shadow-lg'
+                  selectedTags.includes(typeof tag === 'string' ? tag : tag.name)
+                    ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-lg'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
-                style={selectedTags.includes(tag.name) ? {} : { borderRightWidth: 4, borderRightColor: tag.color }}
               >
-                {selectedTags.includes(tag.name) && <Check className="w-3 h-3 inline ml-1" />}
-                {tag.name}
+                {selectedTags.includes(typeof tag === 'string' ? tag : tag.name) && (
+                  <Check className="w-3 h-3 inline ml-1" />
+                )}
+                {typeof tag === 'string' ? tag : tag.name}
               </button>
             ))}
           </div>
@@ -796,13 +837,15 @@ function FilterBuilder({ criteria, onChange }) {
 
       {/* Other Filters */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-3">
-          <Filter className="w-4 h-4 inline ml-1" />
+        <label className="block text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+          <Filter className="w-4 h-4 text-blue-500" />
           פילטרים נוספים
         </label>
         
         <div className="grid md:grid-cols-2 gap-4">
-          <label className="flex items-center gap-3 p-4 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50">
+          <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-all ${
+            criteria.is_blocked === false ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'
+          }`}>
             <input
               type="checkbox"
               checked={criteria.is_blocked === false}
@@ -810,15 +853,22 @@ function FilterBuilder({ criteria, onChange }) {
                 ...criteria, 
                 is_blocked: e.target.checked ? false : undefined 
               })}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="sr-only"
             />
+            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center ${
+              criteria.is_blocked === false ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
+            }`}>
+              {criteria.is_blocked === false && <Check className="w-3 h-3 text-white" />}
+            </div>
             <div>
               <div className="font-medium text-gray-900">ללא חסומים</div>
-              <div className="text-xs text-gray-500">הצג רק אנשי קשר שאינם חסומים</div>
+              <div className="text-xs text-gray-500">רק אנשי קשר שאינם חסומים</div>
             </div>
           </label>
           
-          <label className="flex items-center gap-3 p-4 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50">
+          <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-all ${
+            criteria.is_bot_active === true ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'
+          }`}>
             <input
               type="checkbox"
               checked={criteria.is_bot_active === true}
@@ -826,8 +876,13 @@ function FilterBuilder({ criteria, onChange }) {
                 ...criteria, 
                 is_bot_active: e.target.checked ? true : undefined 
               })}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="sr-only"
             />
+            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center ${
+              criteria.is_bot_active === true ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
+            }`}>
+              {criteria.is_bot_active === true && <Check className="w-3 h-3 text-white" />}
+            </div>
             <div>
               <div className="font-medium text-gray-900">בוט פעיל</div>
               <div className="text-xs text-gray-500">רק אנשי קשר עם בוט פעיל</div>
@@ -838,7 +893,7 @@ function FilterBuilder({ criteria, onChange }) {
 
       {/* Summary */}
       {(selectedTags.length > 0 || criteria.is_blocked !== undefined || criteria.is_bot_active !== undefined) && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+        <div className="bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200 rounded-xl p-4">
           <div className="flex items-center gap-2 text-sm text-blue-900">
             <AlertCircle className="w-4 h-4" />
             <span>הקהל יכלול את כל אנשי הקשר שעונים לתנאים שהגדרת. הרשימה מתעדכנת אוטומטית.</span>
@@ -866,7 +921,7 @@ function AudienceViewModal({ audience, onClose }) {
     try {
       setLoading(true);
       const { data } = await api.get(`/broadcasts/audiences/${audience.id}/contacts`, {
-        params: { page, limit: 20 }
+        params: { page, limit: 50 }
       });
       setContacts(data.contacts || []);
       setPagination(data.pagination);
@@ -878,32 +933,38 @@ function AudienceViewModal({ audience, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[85vh] overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-              audience.is_static ? 'bg-purple-600' : 'bg-blue-600'
-            }`}>
-              {audience.is_static ? (
-                <Users className="w-5 h-5 text-white" />
-              ) : (
-                <Target className="w-5 h-5 text-white" />
-              )}
+        <div className={`p-6 ${
+          audience.is_static 
+            ? 'bg-gradient-to-r from-purple-500 to-pink-500' 
+            : 'bg-gradient-to-r from-blue-500 to-cyan-500'
+        }`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-white/20 backdrop-blur rounded-2xl">
+                {audience.is_static ? (
+                  <Users className="w-6 h-6 text-white" />
+                ) : (
+                  <Target className="w-6 h-6 text-white" />
+                )}
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">{audience.name}</h3>
+                <p className="text-white/80 text-sm">
+                  {(audience.contacts_count || 0).toLocaleString()} אנשי קשר
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-semibold text-gray-900">{audience.name}</h3>
-              <p className="text-sm text-gray-500">{audience.contacts_count || 0} אנשי קשר</p>
-            </div>
+            <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-xl transition-colors">
+              <X className="w-5 h-5 text-white" />
+            </button>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-lg">
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
         </div>
 
         {/* Content */}
-        <div className="overflow-y-auto max-h-[calc(80vh-140px)]">
+        <div className="overflow-y-auto max-h-[calc(85vh-180px)]">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
@@ -916,8 +977,8 @@ function AudienceViewModal({ audience, onClose }) {
           ) : (
             <div className="divide-y divide-gray-100">
               {contacts.map(contact => (
-                <div key={contact.id} className="flex items-center gap-4 p-4">
-                  <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center overflow-hidden">
+                <div key={contact.id} className="flex items-center gap-4 p-4 hover:bg-gray-50">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden">
                     {contact.profile_picture_url ? (
                       <img src={contact.profile_picture_url} alt="" className="w-full h-full object-cover" />
                     ) : (
@@ -926,7 +987,7 @@ function AudienceViewModal({ audience, onClose }) {
                   </div>
                   <div className="flex-1">
                     <div className="font-medium text-gray-900">{contact.display_name || 'ללא שם'}</div>
-                    <div className="text-sm text-gray-500">{contact.phone}</div>
+                    <div className="text-sm text-gray-500 font-mono">{contact.phone}</div>
                   </div>
                 </div>
               ))}
@@ -936,12 +997,13 @@ function AudienceViewModal({ audience, onClose }) {
 
         {/* Pagination */}
         {pagination && pagination.pages > 1 && (
-          <div className="flex items-center justify-center gap-2 p-4 border-t border-gray-200 bg-gray-50">
+          <div className="flex items-center justify-center gap-3 p-4 border-t border-gray-100 bg-gray-50">
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg disabled:opacity-50"
+              className="flex items-center gap-1 px-4 py-2 text-sm border border-gray-200 rounded-lg disabled:opacity-50 hover:bg-gray-100 transition-colors"
             >
+              <ChevronRight className="w-4 h-4" />
               הקודם
             </button>
             <span className="text-sm text-gray-600">
@@ -950,9 +1012,10 @@ function AudienceViewModal({ audience, onClose }) {
             <button
               onClick={() => setPage(p => Math.min(pagination.pages, p + 1))}
               disabled={page === pagination.pages}
-              className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg disabled:opacity-50"
+              className="flex items-center gap-1 px-4 py-2 text-sm border border-gray-200 rounded-lg disabled:opacity-50 hover:bg-gray-100 transition-colors"
             >
               הבא
+              <ChevronLeft className="w-4 h-4" />
             </button>
           </div>
         )}
