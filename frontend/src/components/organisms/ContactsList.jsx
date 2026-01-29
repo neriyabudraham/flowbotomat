@@ -18,7 +18,8 @@ export default function ContactsList({
 }) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all'); // all, active, bot
-  const [selectedContacts, setSelectedContacts] = useState([]);
+  const [selectedContacts, setSelectedContacts] = useState([]); // Used when NOT in selectAllMode
+  const [excludedContacts, setExcludedContacts] = useState([]); // Used when IN selectAllMode - tracks who is NOT selected
   const [selectAllMode, setSelectAllMode] = useState(false); // true = select ALL contacts including unloaded
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [showActions, setShowActions] = useState(false);
@@ -54,12 +55,21 @@ export default function ContactsList({
   });
 
   const toggleSelectContact = (contactId) => {
-    setSelectAllMode(false); // Exit select all mode when manually toggling
-    setSelectedContacts(prev => 
-      prev.includes(contactId) 
-        ? prev.filter(id => id !== contactId)
-        : [...prev, contactId]
-    );
+    if (selectAllMode) {
+      // In selectAllMode: toggle exclusion
+      setExcludedContacts(prev => 
+        prev.includes(contactId)
+          ? prev.filter(id => id !== contactId) // Re-include
+          : [...prev, contactId] // Exclude
+      );
+    } else {
+      // Normal mode: toggle selection
+      setSelectedContacts(prev => 
+        prev.includes(contactId) 
+          ? prev.filter(id => id !== contactId)
+          : [...prev, contactId]
+      );
+    }
   };
 
   const selectAllLoaded = () => {
@@ -67,6 +77,7 @@ export default function ContactsList({
     if (selectAllMode) {
       setSelectAllMode(false);
       setSelectedContacts([]);
+      setExcludedContacts([]);
       return;
     }
     
@@ -80,17 +91,36 @@ export default function ContactsList({
 
   const selectAllContacts = () => {
     setSelectAllMode(true);
-    // Mark all loaded contacts as selected for visual feedback
-    setSelectedContacts(filteredContacts.map(c => c.id));
+    setSelectedContacts([]); // Clear normal selection
+    setExcludedContacts([]); // No exclusions - all selected
   };
   
-  // Check if all loaded contacts are selected (either manually or via selectAllMode)
-  const allLoadedSelected = selectAllMode || 
-    (selectedContacts.length === filteredContacts.length && filteredContacts.length > 0);
+  // Check if a specific contact is selected
+  const isContactSelected = (contactId) => {
+    if (selectAllMode) {
+      return !excludedContacts.includes(contactId);
+    }
+    return selectedContacts.includes(contactId);
+  };
+  
+  // Check if all loaded contacts are selected
+  const allLoadedSelected = selectAllMode 
+    ? excludedContacts.length === 0
+    : (selectedContacts.length === filteredContacts.length && filteredContacts.length > 0);
+  
+  // Get actual selected count
+  const getSelectedCount = () => {
+    if (selectAllMode) {
+      const total = totalContacts || stats?.total || filteredContacts.length;
+      return total - excludedContacts.length;
+    }
+    return selectedContacts.length;
+  };
 
   const cancelSelection = () => {
     setIsSelectionMode(false);
     setSelectedContacts([]);
+    setExcludedContacts([]);
     setSelectAllMode(false);
   };
 
@@ -103,12 +133,17 @@ export default function ContactsList({
     setDeleting(true);
     try {
       if (selectAllMode) {
-        // Delete ALL contacts (server-side)
-        await api.post('/contacts/bulk-delete', { deleteAll: true, search: search || undefined });
+        // Delete ALL contacts except excluded ones
+        await api.post('/contacts/bulk-delete', { 
+          deleteAll: true, 
+          search: search || undefined,
+          excludeIds: excludedContacts.length > 0 ? excludedContacts : undefined
+        });
       } else {
         await api.post('/contacts/bulk-delete', { contactIds: selectedContacts });
       }
       setSelectedContacts([]);
+      setExcludedContacts([]);
       setSelectAllMode(false);
       setIsSelectionMode(false);
       setShowDeleteModal(false);
@@ -128,6 +163,9 @@ export default function ContactsList({
           // Export ALL (server-side handles it)
           params.append('exportAll', 'true');
           if (search) params.append('search', search);
+          if (excludedContacts.length > 0) {
+            params.append('excludeIds', excludedContacts.join(','));
+          }
         } else if (selectedContacts.length > 0) {
           params.append('contactIds', selectedContacts.join(','));
         }
@@ -153,14 +191,6 @@ export default function ContactsList({
       alert('שגיאה בייצוא אנשי קשר');
     }
     setExporting(false);
-  };
-
-  // Get the actual count for display
-  const getSelectedCount = () => {
-    if (selectAllMode) {
-      return totalContacts || stats?.total || contacts.length;
-    }
-    return selectedContacts.length;
   };
 
   return (
@@ -231,10 +261,10 @@ export default function ContactsList({
                 <span className="text-sm font-medium text-blue-800">
                   {selectAllMode ? (
                     <span className="text-indigo-600 font-bold">
-                      כל {(totalContacts || stats?.total || 0).toLocaleString()} נבחרו
+                      {getSelectedCount().toLocaleString()} נבחרו (מתוך {(totalContacts || stats?.total || 0).toLocaleString()})
                     </span>
                   ) : (
-                    `${selectedContacts.length} נבחרו`
+                    `${getSelectedCount()} נבחרו`
                   )}
                 </span>
               </div>
@@ -364,7 +394,7 @@ export default function ContactsList({
                     onClick={() => toggleSelectContact(contact.id)}
                     className="p-3 flex-shrink-0"
                   >
-                    {(selectAllMode || selectedContacts.includes(contact.id)) ? (
+                    {isContactSelected(contact.id) ? (
                       <CheckSquare className="w-5 h-5 text-blue-600" />
                     ) : (
                       <Square className="w-5 h-5 text-gray-400" />
