@@ -15,7 +15,10 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + '-' + file.originalname);
+    // Fix Hebrew filename encoding
+    const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    const ext = path.extname(originalName);
+    cb(null, uniqueSuffix + ext);
   }
 });
 
@@ -68,9 +71,12 @@ async function uploadFile(req, res) {
       // Return up to 100 rows for preview (more rows can be shown with scrolling)
       const sampleRows = data.slice(1, 101);
       
+      // Fix Hebrew filename encoding
+      const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+      
       res.json({
         file_path: req.file.path,
-        file_name: req.file.originalname,
+        file_name: originalName,
         columns: headers,
         sample_data: sampleRows,
         total_rows: data.length - 1

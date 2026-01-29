@@ -2,20 +2,14 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   Upload, FileText, Loader2, CheckCircle, AlertCircle, X,
   ArrowRight, RefreshCw, Plus, Trash2, ChevronDown, Database,
-  User, MapPin
+  User, MapPin, Settings
 } from 'lucide-react';
 import api from '../../services/api';
 
-// System fields that always exist
-const SYSTEM_FIELDS = [
-  { field_key: 'phone', field_name: 'מספר טלפון', field_type: 'phone', is_system: true },
-  { field_key: 'name', field_name: 'שם', field_type: 'text', is_system: true },
-  { field_key: 'email', field_name: 'אימייל', field_type: 'email', is_system: true },
-];
-
 export default function ImportTab({ onRefresh }) {
   const [jobs, setJobs] = useState([]);
-  const [userFields, setUserFields] = useState([]);
+  const [systemVariables, setSystemVariables] = useState([]);
+  const [userVariables, setUserVariables] = useState([]);
   const [audiences, setAudiences] = useState([]);
   const [loading, setLoading] = useState(true);
   
@@ -30,8 +24,9 @@ export default function ImportTab({ onRefresh }) {
   // Modals
   const [showNewFieldModal, setShowNewFieldModal] = useState(false);
   const [activeColumn, setActiveColumn] = useState(null);
-  const [newFieldData, setNewFieldData] = useState({ field_key: '', field_name: '' });
+  const [newFieldData, setNewFieldData] = useState({ name: '', label: '' });
   const [dropdownOpen, setDropdownOpen] = useState(null);
+  const [creatingField, setCreatingField] = useState(false);
   
   const fileInputRef = useRef(null);
 
@@ -42,14 +37,17 @@ export default function ImportTab({ onRefresh }) {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [jobsRes, fieldsRes, audiencesRes] = await Promise.all([
+      const [jobsRes, variablesRes, audiencesRes] = await Promise.all([
         api.get('/broadcasts/import/jobs'),
-        api.get('/broadcasts/fields'),
+        api.get('/variables'), // Use existing variables API
         api.get('/broadcasts/audiences')
       ]);
       setJobs(jobsRes.data.jobs || []);
-      // Filter to only user-created fields (not system)
-      setUserFields(fieldsRes.data.fields?.filter(f => !f.is_system) || []);
+      
+      // Variables from the bot system
+      setSystemVariables(variablesRes.data.systemVariables || []);
+      setUserVariables(variablesRes.data.userVariables || []);
+      
       setAudiences(audiencesRes.data.audiences?.filter(a => a.is_static) || []);
     } catch (e) {
       console.error('Failed to fetch data:', e);
@@ -58,8 +56,17 @@ export default function ImportTab({ onRefresh }) {
     }
   };
 
-  // All available fields (system + user)
-  const allFields = [...SYSTEM_FIELDS, ...userFields];
+  // Fields relevant for contact import (filter from system variables)
+  const contactFields = [
+    { name: 'contact_phone', label: 'טלפון איש קשר', is_system: true, required: true },
+    { name: 'name', label: 'שם איש קשר', is_system: true },
+  ];
+
+  // All available fields for mapping
+  const allFields = [
+    ...contactFields,
+    ...userVariables.map(v => ({ name: v.name, label: v.label, is_system: false }))
+  ];
 
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -81,12 +88,10 @@ export default function ImportTab({ onRefresh }) {
       const autoMapping = {};
       data.columns.forEach(col => {
         const colLower = col.toLowerCase();
-        if (colLower.includes('phone') || colLower.includes('טלפון') || colLower.includes('נייד') || colLower.includes('פלאפון')) {
-          autoMapping[col] = 'phone';
+        if (colLower.includes('phone') || colLower.includes('טלפון') || colLower.includes('נייד') || colLower.includes('פלאפון') || colLower.includes('סלולרי')) {
+          autoMapping[col] = 'contact_phone';
         } else if (colLower.includes('name') || colLower === 'שם' || colLower.includes('שם מלא') || colLower.includes('שם פרטי')) {
           autoMapping[col] = 'name';
-        } else if (colLower.includes('email') || colLower.includes('מייל') || colLower.includes('דוא')) {
-          autoMapping[col] = 'email';
         }
       });
       setMapping(autoMapping);
@@ -101,64 +106,79 @@ export default function ImportTab({ onRefresh }) {
     }
   };
 
-  const handleMapColumn = (column, fieldKey) => {
-    if (fieldKey === '__new__') {
+  const handleMapColumn = (column, fieldName) => {
+    if (fieldName === '__new__') {
       setActiveColumn(column);
       setShowNewFieldModal(true);
-      setNewFieldData({ field_key: '', field_name: column });
-    } else if (fieldKey === '__none__') {
+      setNewFieldData({ name: '', label: column });
+    } else if (fieldName === '__none__') {
       const newMapping = { ...mapping };
       delete newMapping[column];
       setMapping(newMapping);
     } else {
-      setMapping({ ...mapping, [column]: fieldKey });
+      setMapping({ ...mapping, [column]: fieldName });
     }
     setDropdownOpen(null);
   };
 
   const handleCreateField = async () => {
-    if (!newFieldData.field_key || !newFieldData.field_name) {
+    if (!newFieldData.name || !newFieldData.label) {
       alert('יש למלא את כל השדות');
       return;
     }
     
     try {
-      const { data } = await api.post('/broadcasts/fields', {
-        field_key: newFieldData.field_key,
-        field_name: newFieldData.field_name,
-        field_type: 'text'
+      setCreatingField(true);
+      // Use existing variables API to create variable
+      const { data } = await api.post('/variables', {
+        name: newFieldData.name,
+        label: newFieldData.label,
+        description: `משתנה שנוצר מייבוא אנשי קשר`,
+        var_type: 'text'
       });
       
-      // Add to user fields
-      setUserFields([...userFields, data.field]);
+      // Add to user variables
+      setUserVariables([...userVariables, data]);
       
       // Map the column to new field
       if (activeColumn) {
-        setMapping({ ...mapping, [activeColumn]: data.field.field_key });
+        setMapping({ ...mapping, [activeColumn]: data.name });
       }
       
       setShowNewFieldModal(false);
-      setNewFieldData({ field_key: '', field_name: '' });
+      setNewFieldData({ name: '', label: '' });
       setActiveColumn(null);
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה ביצירת שדה');
+      alert(e.response?.data?.error || 'שגיאה ביצירת משתנה');
+    } finally {
+      setCreatingField(false);
     }
   };
 
   const handleImport = async () => {
-    if (!mapping.phone) {
+    if (!mapping.contact_phone) {
       alert('חובה למפות את עמודת מספר הטלפון');
       return;
     }
+    
+    // Convert mapping to use 'phone' for contact_phone (backend expects 'phone')
+    const backendMapping = {};
+    Object.entries(mapping).forEach(([col, field]) => {
+      if (field === 'contact_phone') {
+        backendMapping[col] = 'phone';
+      } else {
+        backendMapping[col] = field;
+      }
+    });
     
     try {
       setImporting(true);
       const { data } = await api.post('/broadcasts/import/execute', {
         file_path: uploadData.file_path,
         file_name: uploadData.file_name,
-        field_mapping: mapping,
+        field_mapping: backendMapping,
         target_audience_id: targetAudienceId || null,
-        create_new_fields: true
+        create_new_fields: false
       });
       
       setImportResult(data.job);
@@ -179,11 +199,11 @@ export default function ImportTab({ onRefresh }) {
     setImportResult(null);
   };
 
-  const getMappedFieldName = (column) => {
-    const fieldKey = mapping[column];
-    if (!fieldKey) return null;
-    const field = allFields.find(f => f.field_key === fieldKey);
-    return field?.field_name || fieldKey;
+  const getMappedFieldLabel = (column) => {
+    const fieldName = mapping[column];
+    if (!fieldName) return null;
+    const field = allFields.find(f => f.name === fieldName);
+    return field?.label || fieldName;
   };
 
   if (loading && !uploadData) {
@@ -236,36 +256,36 @@ export default function ImportTab({ onRefresh }) {
             <p className="text-sm text-gray-400">נתמכים: Excel (.xlsx, .xls) ו-CSV</p>
           </div>
           
-          {/* Available Fields */}
+          {/* Available Variables */}
           <div className="bg-gray-50 rounded-xl p-4">
             <h4 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
               <Database className="w-4 h-4" />
               משתנים זמינים למיפוי
             </h4>
             <div className="flex flex-wrap gap-2">
-              {SYSTEM_FIELDS.map(f => (
+              {contactFields.map(f => (
                 <span 
-                  key={f.field_key} 
+                  key={f.name} 
                   className="px-3 py-1.5 rounded-lg text-sm bg-blue-100 text-blue-700 flex items-center gap-1"
                 >
                   <Database className="w-3 h-3" />
-                  {f.field_name}
-                  {f.field_key === 'phone' && <span className="text-red-500">*</span>}
+                  {f.label}
+                  {f.required && <span className="text-red-500">*</span>}
                 </span>
               ))}
-              {userFields.map(f => (
+              {userVariables.map(v => (
                 <span 
-                  key={f.field_key} 
+                  key={v.name} 
                   className="px-3 py-1.5 rounded-lg text-sm bg-purple-100 text-purple-700 flex items-center gap-1"
                 >
                   <User className="w-3 h-3" />
-                  {f.field_name}
+                  {v.label}
                 </span>
               ))}
             </div>
             <p className="text-xs text-gray-500 mt-2">
               <span className="text-blue-600">כחול</span> = שדות מערכת | 
-              <span className="text-purple-600 mr-1">סגול</span> = שדות מותאמים אישית
+              <span className="text-purple-600 mr-1">סגול</span> = משתנים שיצרת בבוטים
             </p>
           </div>
         </>
@@ -315,7 +335,7 @@ export default function ImportTab({ onRefresh }) {
                                   {mapping[col] ? (
                                     <>
                                       <MapPin className="w-3 h-3" />
-                                      {getMappedFieldName(col)}
+                                      {getMappedFieldLabel(col)}
                                     </>
                                   ) : (
                                     'בחר משתנה...'
@@ -325,7 +345,7 @@ export default function ImportTab({ onRefresh }) {
                               </button>
                               
                               {dropdownOpen === col && (
-                                <div className="absolute top-full right-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-60 overflow-y-auto">
+                                <div className="absolute top-full right-0 mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-60 overflow-y-auto">
                                   {/* None option */}
                                   <button
                                     onClick={() => handleMapColumn(col, '__none__')}
@@ -336,38 +356,38 @@ export default function ImportTab({ onRefresh }) {
                                   
                                   <div className="border-t border-gray-100" />
                                   
-                                  {/* System fields */}
-                                  <div className="px-3 py-1.5 text-xs text-gray-400 bg-gray-50">שדות מערכת</div>
-                                  {SYSTEM_FIELDS.map(f => (
+                                  {/* Contact fields */}
+                                  <div className="px-3 py-1.5 text-xs text-gray-400 bg-gray-50">שדות איש קשר</div>
+                                  {contactFields.map(f => (
                                     <button
-                                      key={f.field_key}
-                                      onClick={() => handleMapColumn(col, f.field_key)}
+                                      key={f.name}
+                                      onClick={() => handleMapColumn(col, f.name)}
                                       className={`w-full text-right px-3 py-2 text-sm hover:bg-blue-50 flex items-center justify-between ${
-                                        mapping[col] === f.field_key ? 'bg-blue-50 text-blue-700' : ''
+                                        mapping[col] === f.name ? 'bg-blue-50 text-blue-700' : ''
                                       }`}
                                     >
                                       <span className="flex items-center gap-1">
                                         <Database className="w-3 h-3 text-blue-500" />
-                                        {f.field_name}
+                                        {f.label}
                                       </span>
-                                      {f.field_key === 'phone' && <span className="text-red-500 text-xs">חובה</span>}
+                                      {f.required && <span className="text-red-500 text-xs">חובה</span>}
                                     </button>
                                   ))}
                                   
-                                  {/* User fields */}
-                                  {userFields.length > 0 && (
+                                  {/* User variables */}
+                                  {userVariables.length > 0 && (
                                     <>
-                                      <div className="px-3 py-1.5 text-xs text-gray-400 bg-gray-50">שדות מותאמים</div>
-                                      {userFields.map(f => (
+                                      <div className="px-3 py-1.5 text-xs text-gray-400 bg-gray-50">משתנים מהבוטים</div>
+                                      {userVariables.map(v => (
                                         <button
-                                          key={f.field_key}
-                                          onClick={() => handleMapColumn(col, f.field_key)}
+                                          key={v.name}
+                                          onClick={() => handleMapColumn(col, v.name)}
                                           className={`w-full text-right px-3 py-2 text-sm hover:bg-purple-50 flex items-center gap-1 ${
-                                            mapping[col] === f.field_key ? 'bg-purple-50 text-purple-700' : ''
+                                            mapping[col] === v.name ? 'bg-purple-50 text-purple-700' : ''
                                           }`}
                                         >
                                           <User className="w-3 h-3 text-purple-500" />
-                                          {f.field_name}
+                                          {v.label}
                                         </button>
                                       ))}
                                     </>
@@ -412,14 +432,14 @@ export default function ImportTab({ onRefresh }) {
           <div className="bg-gray-50 rounded-xl p-4">
             <h4 className="font-medium text-gray-900 mb-3">סיכום מיפוי</h4>
             <div className="flex flex-wrap gap-2">
-              {Object.entries(mapping).map(([col, fieldKey]) => {
-                const field = allFields.find(f => f.field_key === fieldKey);
+              {Object.entries(mapping).map(([col, fieldName]) => {
+                const field = allFields.find(f => f.name === fieldName);
                 return (
                   <div key={col} className="flex items-center gap-1 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm">
                     <span className="text-gray-600">{col}</span>
                     <ArrowRight className="w-3 h-3 text-gray-400" />
                     <span className={field?.is_system ? 'text-blue-600' : 'text-purple-600'}>
-                      {field?.field_name || fieldKey}
+                      {field?.label || fieldName}
                     </span>
                   </div>
                 );
@@ -429,7 +449,7 @@ export default function ImportTab({ onRefresh }) {
               )}
             </div>
             
-            {!mapping.phone && (
+            {!mapping.contact_phone && (
               <div className="mt-3 flex items-center gap-2 text-red-600 text-sm">
                 <AlertCircle className="w-4 h-4" />
                 חובה למפות את עמודת מספר הטלפון
@@ -462,7 +482,7 @@ export default function ImportTab({ onRefresh }) {
             </button>
             <button
               onClick={handleImport}
-              disabled={!mapping.phone || importing}
+              disabled={!mapping.contact_phone || importing}
               className="flex-1 px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 font-medium flex items-center justify-center gap-2"
             >
               {importing ? (
@@ -517,7 +537,7 @@ export default function ImportTab({ onRefresh }) {
         </div>
       )}
 
-      {/* New Field Modal */}
+      {/* New Variable Modal - Uses existing variables API */}
       {showNewFieldModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowNewFieldModal(false)}>
           <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
@@ -528,13 +548,17 @@ export default function ImportTab({ onRefresh }) {
               </button>
             </div>
             
+            <p className="text-sm text-gray-500 mb-4">
+              המשתנה יתווסף לרשימת המשתנים שלך ויהיה זמין גם בבוטים.
+            </p>
+            
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">שם לתצוגה (עברית)</label>
                 <input
                   type="text"
-                  value={newFieldData.field_name}
-                  onChange={(e) => setNewFieldData({ ...newFieldData, field_name: e.target.value })}
+                  value={newFieldData.label}
+                  onChange={(e) => setNewFieldData({ ...newFieldData, label: e.target.value })}
                   placeholder="לדוגמה: עיר מגורים"
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500"
                   autoFocus
@@ -542,19 +566,21 @@ export default function ImportTab({ onRefresh }) {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">מזהה (אנגלית)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">שם משתנה (אנגלית)</label>
                 <input
                   type="text"
-                  value={newFieldData.field_key}
+                  value={newFieldData.name}
                   onChange={(e) => setNewFieldData({ 
                     ...newFieldData, 
-                    field_key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') 
+                    name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^[0-9]/, '_')
                   })}
                   placeholder="לדוגמה: city"
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 font-mono"
                   dir="ltr"
                 />
-                <p className="text-xs text-gray-500 mt-1">רק אותיות קטנות באנגלית, מספרים וקו תחתון</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  ישמש בבוטים כ: <code className="bg-gray-100 px-1 rounded">{`{{${newFieldData.name || 'variable_name'}}}`}</code>
+                </p>
               </div>
             </div>
             
@@ -567,10 +593,10 @@ export default function ImportTab({ onRefresh }) {
               </button>
               <button
                 onClick={handleCreateField}
-                disabled={!newFieldData.field_key || !newFieldData.field_name}
-                className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50"
+                disabled={!newFieldData.name || !newFieldData.label || creatingField}
+                className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                צור משתנה
+                {creatingField ? <Loader2 className="w-4 h-4 animate-spin" /> : 'צור משתנה'}
               </button>
             </div>
           </div>
