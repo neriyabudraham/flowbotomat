@@ -298,9 +298,10 @@ export default function ContactsTab({ onRefresh }) {
           className="px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500"
         >
           <option value="">כל התגיות</option>
-          {tags.map(tag => (
-            <option key={tag} value={tag}>{tag}</option>
-          ))}
+          {tags.map(tag => {
+            const tagName = typeof tag === 'string' ? tag : tag.name;
+            return <option key={tagName} value={tagName}>{tagName}</option>;
+          })}
         </select>
       </div>
 
@@ -646,15 +647,18 @@ export default function ContactsTab({ onRefresh }) {
                 <div>
                   <p className="text-xs text-gray-500 mb-2">תגיות קיימות:</p>
                   <div className="flex flex-wrap gap-2">
-                    {tags.map(tag => (
-                      <button
-                        key={tag}
-                        onClick={() => setNewTag(tag)}
-                        className="px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-sm"
-                      >
-                        {tag}
-                      </button>
-                    ))}
+                    {tags.map(tag => {
+                      const tagName = typeof tag === 'string' ? tag : tag.name;
+                      return (
+                        <button
+                          key={tagName}
+                          onClick={() => setNewTag(tagName)}
+                          className="px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-sm"
+                        >
+                          {tagName}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}

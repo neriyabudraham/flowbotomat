@@ -1,18 +1,18 @@
 const pool = require('../../config/database');
 
 /**
- * Get all tags for user (return just names for simpler usage)
+ * Get all tags for user (return full tag objects with id and name)
  */
 async function getAllTags(req, res) {
   try {
     const userId = req.user.id;
     
     const result = await pool.query(
-      'SELECT DISTINCT name FROM contact_tags WHERE user_id = $1 ORDER BY name',
+      'SELECT id, name, color FROM contact_tags WHERE user_id = $1 ORDER BY name',
       [userId]
     );
     
-    res.json({ tags: result.rows.map(r => r.name) });
+    res.json({ tags: result.rows });
   } catch (error) {
     console.error('Get tags error:', error);
     res.status(500).json({ error: 'שגיאה' });
