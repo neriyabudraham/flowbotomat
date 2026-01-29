@@ -259,13 +259,7 @@ export default function ContactsList({
                 )}
               </button>
                 <span className="text-sm font-medium text-blue-800">
-                  {selectAllMode ? (
-                    <span className="text-indigo-600 font-bold">
-                      {getSelectedCount().toLocaleString()} נבחרו (מתוך {(totalContacts || stats?.total || 0).toLocaleString()})
-                    </span>
-                  ) : (
-                    `${getSelectedCount()} נבחרו`
-                  )}
+                  {getSelectedCount().toLocaleString()} נבחרו
                 </span>
               </div>
               
@@ -434,7 +428,7 @@ export default function ContactsList({
         isOpen={showDeleteModal}
         onClose={() => setShowDeleteModal(false)}
         onConfirm={confirmBulkDelete}
-        contactCount={selectedContacts.length}
+        contactCount={getSelectedCount()}
         isLoading={deleting}
       />
     </div>
