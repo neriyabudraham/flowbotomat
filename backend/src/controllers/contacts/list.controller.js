@@ -6,19 +6,20 @@ const pool = require('../../config/database');
 async function listContacts(req, res) {
   try {
     const userId = req.user.id;
-    const { page = 1, limit = 50, search, tag } = req.query;
+    const { page = 1, limit = 200, search, tag } = req.query; // Increased default limit to 200
     const offset = (page - 1) * limit;
     
     let query = `
       SELECT c.*, 
              (SELECT COUNT(*) FROM messages m WHERE m.contact_id = c.id) as message_count,
-             (SELECT content FROM messages m WHERE m.contact_id = c.id ORDER BY sent_at DESC LIMIT 1) as last_message,
+             COALESCE(c.last_message, (SELECT content FROM messages m WHERE m.contact_id = c.id ORDER BY sent_at DESC LIMIT 1)) as last_message,
              COALESCE(
                (SELECT array_agg(t.name) FROM contact_tags t 
                 JOIN contact_tag_assignments cta ON t.id = cta.tag_id 
                 WHERE cta.contact_id = c.id), 
                ARRAY[]::text[]
-             ) as tags
+             ) as tags,
+             (SELECT value FROM contact_variables cv WHERE cv.contact_id = c.id AND cv.key = 'full_name' LIMIT 1) as full_name
       FROM contacts c
       WHERE c.user_id = $1
     `;

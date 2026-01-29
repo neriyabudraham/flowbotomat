@@ -1,9 +1,24 @@
 import { User, Bot, XCircle, Clock, Check, CheckCheck } from 'lucide-react';
 
 export default function ContactItem({ contact, isSelected, onClick }) {
-  const name = contact.display_name && contact.display_name !== contact.phone 
-    ? contact.display_name 
-    : null;
+  // Get display name: display_name > full_name variable > phone
+  const getDisplayName = () => {
+    if (contact.display_name && contact.display_name !== contact.phone) {
+      return contact.display_name;
+    }
+    // Check for full_name in variables
+    if (contact.variables?.full_name) {
+      return contact.variables.full_name;
+    }
+    // Check if full_name was passed directly
+    if (contact.full_name) {
+      return contact.full_name;
+    }
+    return null;
+  };
+  
+  const name = getDisplayName();
+  const displayText = name || contact.phone;
   const initials = name?.charAt(0)?.toUpperCase() || '👤';
   
   // Calculate time ago
@@ -70,10 +85,17 @@ export default function ContactItem({ contact, isSelected, onClick }) {
         </div>
       </div>
       
-      {/* Content */}
+      {/* Content - Name on RIGHT, Time on LEFT */}
       <div className="flex-1 min-w-0 text-right">
         <div className="flex items-center justify-between gap-2">
-          <span className={`text-xs flex items-center gap-1 ${
+          {/* Name - aligned to right */}
+          <span className={`font-semibold truncate flex-1 text-right ${
+            isSelected ? 'text-blue-900' : 'text-gray-800'
+          }`}>
+            {displayText}
+          </span>
+          {/* Time - aligned to left */}
+          <span className={`text-xs flex items-center gap-1 flex-shrink-0 ${
             isActive ? 'text-green-500' : 'text-gray-400'
           }`}>
             {contact.last_message_at && (
@@ -83,26 +105,22 @@ export default function ContactItem({ contact, isSelected, onClick }) {
               </>
             )}
           </span>
-          <span className={`font-semibold truncate ${
-            isSelected ? 'text-blue-900' : 'text-gray-800'
-          }`}>
-            {contact.display_name || contact.phone}
-          </span>
         </div>
         
         <div className="flex items-center justify-between gap-2 mt-1">
-          {/* Unread badge - if we have unread count */}
-          {contact.unread_count > 0 && (
-            <span className="min-w-[20px] h-5 px-1.5 bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
-              {contact.unread_count > 99 ? '99+' : contact.unread_count}
-            </span>
-          )}
-          
+          {/* Last message - right side */}
           <p className={`text-sm truncate flex-1 text-right ${
             isSelected ? 'text-blue-700/70' : 'text-gray-500'
           }`}>
             {contact.last_message || 'אין הודעות'}
           </p>
+          
+          {/* Unread badge - left side */}
+          {contact.unread_count > 0 && (
+            <span className="min-w-[20px] h-5 px-1.5 bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-xs font-bold rounded-full flex items-center justify-center flex-shrink-0">
+              {contact.unread_count > 99 ? '99+' : contact.unread_count}
+            </span>
+          )}
         </div>
       </div>
     </button>
