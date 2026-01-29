@@ -79,7 +79,7 @@ async function uploadFile(req, res) {
         file_path: req.file.path,
         file_name: originalName,
         columns: headers,
-        rows: rows.slice(0, 100), // First 100 rows for preview
+        rows: rows, // ALL rows
         total_rows: rows.length
       });
     } catch (error) {
