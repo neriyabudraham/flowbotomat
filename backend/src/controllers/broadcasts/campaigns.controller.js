@@ -1,4 +1,4 @@
-const pool = require('../../config/database');
+const db = require('../../config/database');
 
 /**
  * Get all campaigns for user
@@ -20,14 +20,14 @@ async function getCampaigns(req, res) {
     }
     
     // Get total count
-    const countResult = await pool.query(
+    const countResult = await db.query(
       `SELECT COUNT(*) FROM broadcast_campaigns c ${whereClause}`,
       params
     );
     const total = parseInt(countResult.rows[0].count);
     
     // Get campaigns
-    const result = await pool.query(`
+    const result = await db.query(`
       SELECT 
         c.*,
         t.name as template_name,
@@ -70,7 +70,7 @@ async function getCampaign(req, res) {
     const userId = req.user.id;
     const { id } = req.params;
     
-    const result = await pool.query(`
+    const result = await db.query(`
       SELECT 
         c.*,
         t.name as template_name,
@@ -126,7 +126,7 @@ async function createCampaign(req, res) {
     }
     
     // Verify audience belongs to user
-    const audienceResult = await pool.query(
+    const audienceResult = await db.query(
       'SELECT * FROM broadcast_audiences WHERE id = $1 AND user_id = $2',
       [audienceIdValue, userId]
     );
@@ -137,7 +137,7 @@ async function createCampaign(req, res) {
     
     // Verify template belongs to user (if provided)
     if (templateIdValue) {
-      const templateResult = await pool.query(
+      const templateResult = await db.query(
         'SELECT * FROM broadcast_templates WHERE id = $1 AND user_id = $2',
         [templateIdValue, userId]
       );
@@ -158,7 +158,7 @@ async function createCampaign(req, res) {
     const campaignSettings = { ...defaultSettings, ...settings };
     const status = scheduled_at ? 'scheduled' : 'draft';
     
-    const result = await pool.query(`
+    const result = await db.query(`
       INSERT INTO broadcast_campaigns 
       (user_id, name, description, template_id, audience_id, direct_message, direct_media_url, scheduled_at, settings, status)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -182,7 +182,7 @@ async function updateCampaign(req, res) {
     const { name, description, template_id, audience_id, direct_message, direct_media_url, scheduled_at, settings } = req.body;
     
     // Verify campaign exists and is in editable state
-    const campaignResult = await pool.query(
+    const campaignResult = await db.query(
       'SELECT * FROM broadcast_campaigns WHERE id = $1 AND user_id = $2',
       [id, userId]
     );
@@ -239,7 +239,7 @@ async function updateCampaign(req, res) {
     
     params.push(id, userId);
     
-    const result = await pool.query(`
+    const result = await db.query(`
       UPDATE broadcast_campaigns 
       SET ${updates.join(', ')}
       WHERE id = $${paramIndex++} AND user_id = $${paramIndex}
@@ -262,7 +262,7 @@ async function deleteCampaign(req, res) {
     const { id } = req.params;
     
     // Only allow deleting draft/scheduled/cancelled campaigns
-    const result = await pool.query(`
+    const result = await db.query(`
       DELETE FROM broadcast_campaigns 
       WHERE id = $1 AND user_id = $2 AND status IN ('draft', 'scheduled', 'cancelled', 'completed', 'failed')
       RETURNING id
@@ -287,7 +287,7 @@ async function startCampaign(req, res) {
     const userId = req.user.id;
     const { id } = req.params;
     
-    const campaignResult = await pool.query(
+    const campaignResult = await db.query(
       'SELECT * FROM broadcast_campaigns WHERE id = $1 AND user_id = $2',
       [id, userId]
     );
@@ -303,7 +303,7 @@ async function startCampaign(req, res) {
     }
     
     // Get audience contacts
-    const audienceResult = await pool.query(
+    const audienceResult = await db.query(
       'SELECT * FROM broadcast_audiences WHERE id = $1',
       [campaign.audience_id]
     );
@@ -317,7 +317,7 @@ async function startCampaign(req, res) {
     // Build recipients list
     let contacts;
     if (audience.is_static) {
-      const contactsResult = await pool.query(`
+      const contactsResult = await db.query(`
         SELECT c.id, c.phone, c.display_name FROM contacts c
         JOIN broadcast_audience_contacts bac ON bac.contact_id = c.id
         WHERE bac.audience_id = $1 AND c.is_blocked = false
@@ -325,7 +325,7 @@ async function startCampaign(req, res) {
       contacts = contactsResult.rows;
     } else {
       // Dynamic audience - use filter
-      const contactsResult = await pool.query(`
+      const contactsResult = await db.query(`
         SELECT c.id, c.phone, c.display_name FROM contacts c
         WHERE c.user_id = $1 AND c.is_blocked = false
       `, [userId]);
@@ -337,7 +337,7 @@ async function startCampaign(req, res) {
     }
     
     // Insert recipients (only if not already exists)
-    const client = await pool.connect();
+    const client = await db.pool.connect();
     try {
       await client.query('BEGIN');
       
@@ -378,7 +378,7 @@ async function startCampaign(req, res) {
     // TODO: Trigger actual sending via broadcast service
     // For now, just update status
     
-    const updatedCampaign = await pool.query(
+    const updatedCampaign = await db.query(
       'SELECT * FROM broadcast_campaigns WHERE id = $1',
       [id]
     );
@@ -398,7 +398,7 @@ async function pauseCampaign(req, res) {
     const userId = req.user.id;
     const { id } = req.params;
     
-    const result = await pool.query(`
+    const result = await db.query(`
       UPDATE broadcast_campaigns 
       SET status = 'paused', updated_at = NOW()
       WHERE id = $1 AND user_id = $2 AND status = 'running'
@@ -424,7 +424,7 @@ async function resumeCampaign(req, res) {
     const userId = req.user.id;
     const { id } = req.params;
     
-    const result = await pool.query(`
+    const result = await db.query(`
       UPDATE broadcast_campaigns 
       SET status = 'running', updated_at = NOW()
       WHERE id = $1 AND user_id = $2 AND status = 'paused'
@@ -450,7 +450,7 @@ async function cancelCampaign(req, res) {
     const userId = req.user.id;
     const { id } = req.params;
     
-    const result = await pool.query(`
+    const result = await db.query(`
       UPDATE broadcast_campaigns 
       SET status = 'cancelled', updated_at = NOW()
       WHERE id = $1 AND user_id = $2 AND status IN ('running', 'paused', 'scheduled')
@@ -479,7 +479,7 @@ async function getCampaignRecipients(req, res) {
     const offset = (page - 1) * limit;
     
     // Verify campaign belongs to user
-    const campaignResult = await pool.query(
+    const campaignResult = await db.query(
       'SELECT * FROM broadcast_campaigns WHERE id = $1 AND user_id = $2',
       [id, userId]
     );
@@ -498,13 +498,13 @@ async function getCampaignRecipients(req, res) {
       paramIndex++;
     }
     
-    const countResult = await pool.query(
+    const countResult = await db.query(
       `SELECT COUNT(*) FROM broadcast_campaign_recipients r ${whereClause}`,
       params
     );
     const total = parseInt(countResult.rows[0].count);
     
-    const result = await pool.query(`
+    const result = await db.query(`
       SELECT r.* FROM broadcast_campaign_recipients r
       ${whereClause}
       ORDER BY r.queued_at DESC
@@ -535,7 +535,7 @@ async function getCampaignStats(req, res) {
     const { id } = req.params;
     
     // Verify campaign belongs to user
-    const campaignResult = await pool.query(
+    const campaignResult = await db.query(
       'SELECT * FROM broadcast_campaigns WHERE id = $1 AND user_id = $2',
       [id, userId]
     );
@@ -544,7 +544,7 @@ async function getCampaignStats(req, res) {
       return res.status(404).json({ error: 'קמפיין לא נמצא' });
     }
     
-    const statsResult = await pool.query(`
+    const statsResult = await db.query(`
       SELECT 
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE status = 'pending') as pending,
