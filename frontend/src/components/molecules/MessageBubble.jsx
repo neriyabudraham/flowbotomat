@@ -198,45 +198,54 @@ export default function MessageBubble({ message }) {
       
       case 'document':
         return (
-          <a 
-            href={message.media_url} 
-            download={message.media_filename || 'file'}
-            onClick={(e) => {
-              // Force download instead of opening
-              e.preventDefault();
-              fetch(message.media_url)
-                .then(res => res.blob())
-                .then(blob => {
-                  const url = window.URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = message.media_filename || 'file';
-                  document.body.appendChild(a);
-                  a.click();
-                  window.URL.revokeObjectURL(url);
-                  a.remove();
-                })
-                .catch(() => window.open(message.media_url, '_blank'));
-            }}
-            className={`flex items-center gap-3 p-3 rounded-xl transition-colors cursor-pointer ${
-              isOutgoing 
-                ? 'bg-white/10 hover:bg-white/20' 
-                : 'bg-gray-100 hover:bg-gray-200'
-            }`}
-          >
-            <div className={`p-2 rounded-lg ${isOutgoing ? 'bg-white/20' : 'bg-blue-100'}`}>
-              <FileText className={`w-5 h-5 ${isOutgoing ? 'text-white' : 'text-blue-600'}`} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-sm truncate">
-                {message.media_filename || 'קובץ'}
+          <div className="space-y-2">
+            {/* Caption/Content above the file */}
+            {message.content && (
+              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                {message.content}
               </p>
-              <p className={`text-xs ${isOutgoing ? 'text-white/60' : 'text-gray-500'}`}>
-                לחץ להורדה
-              </p>
-            </div>
-            <Download className={`w-4 h-4 ${isOutgoing ? 'text-white/60' : 'text-gray-400'}`} />
-          </a>
+            )}
+            {/* File download card */}
+            <a 
+              href={message.media_url} 
+              download={message.media_filename || 'file'}
+              onClick={(e) => {
+                // Force download instead of opening
+                e.preventDefault();
+                fetch(message.media_url)
+                  .then(res => res.blob())
+                  .then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = message.media_filename || 'file';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    a.remove();
+                  })
+                  .catch(() => window.open(message.media_url, '_blank'));
+              }}
+              className={`flex items-center gap-3 p-3 rounded-xl transition-colors cursor-pointer ${
+                isOutgoing 
+                  ? 'bg-white/10 hover:bg-white/20' 
+                  : 'bg-gray-100 hover:bg-gray-200'
+              }`}
+            >
+              <div className={`p-2 rounded-lg ${isOutgoing ? 'bg-white/20' : 'bg-blue-100'}`}>
+                <FileText className={`w-5 h-5 ${isOutgoing ? 'text-white' : 'text-blue-600'}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm truncate">
+                  {message.media_filename || 'קובץ'}
+                </p>
+                <p className={`text-xs ${isOutgoing ? 'text-white/60' : 'text-gray-500'}`}>
+                  לחץ להורדה
+                </p>
+              </div>
+              <Download className={`w-4 h-4 ${isOutgoing ? 'text-white/60' : 'text-gray-400'}`} />
+            </a>
+          </div>
         );
       
       case 'location':
