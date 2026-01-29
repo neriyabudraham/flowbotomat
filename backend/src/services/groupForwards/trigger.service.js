@@ -104,22 +104,27 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
       `, [forward.id]);
       
       const totalAuthSenders = authSendersResult.rows.length;
-      let isAuthorized = totalAuthSenders === 0;
       
-      if (!isAuthorized) {
-        for (const auth of authSendersResult.rows) {
-          const normalizedAuth = normalizePhoneNumber(auth.phone_number);
-          if (normalizedPhone === normalizedAuth) {
-            isAuthorized = true;
-            break;
-          }
+      // Only authorized if explicitly in the list - if no senders defined, no one can trigger
+      if (totalAuthSenders === 0) {
+        console.log(`[GroupForwards] Forward ${forward.id} has no authorized senders defined - skipping`);
+        continue;
+      }
+      
+      let isAuthorized = false;
+      for (const auth of authSendersResult.rows) {
+        const normalizedAuth = normalizePhoneNumber(auth.phone_number);
+        if (normalizedPhone === normalizedAuth) {
+          isAuthorized = true;
+          break;
         }
       }
       
       console.log(`[GroupForwards] Auth check - sender: ${senderPhone} (normalized: ${normalizedPhone}), authorized senders: ${totalAuthSenders}, isAuthorized: ${isAuthorized}`);
       
       if (!isAuthorized) {
-        console.log(`[GroupForwards] Sender ${senderPhone} not authorized for forward ${forward.id}`);
+        // Silently ignore - don't respond to unauthorized senders
+        console.log(`[GroupForwards] Sender ${senderPhone} not authorized for forward ${forward.id} - ignoring silently`);
         continue;
       }
       
