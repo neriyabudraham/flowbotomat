@@ -63,17 +63,9 @@ router.get('/campaigns/:id/stats', campaignsController.getCampaignStats);
 // Contact Import
 // ============================================
 router.post('/import/upload', importController.uploadFile);
-router.post('/import/preview', importController.previewImport);
+router.get('/import/variables', importController.getVariables);
+router.post('/import/variables', importController.createVariable);
 router.post('/import/execute', importController.executeImport);
-router.get('/import/jobs', importController.getImportJobs);
-router.get('/import/jobs/:id', importController.getImportJob);
-
-// ============================================
-// Contact Fields
-// ============================================
-router.get('/fields', importController.getFieldDefinitions);
-router.post('/fields', importController.createFieldDefinition);
-router.put('/fields/:id', importController.updateFieldDefinition);
-router.delete('/fields/:id', importController.deleteFieldDefinition);
+router.post('/import/cancel', importController.cancelImport);
 
 module.exports = router;
