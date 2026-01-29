@@ -177,14 +177,14 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
       messageType = 'text';
     }
     
-    // Create job
+    // Create job - save forward_name so it persists even if forward is deleted
     const jobResult = await db.query(`
       INSERT INTO forward_jobs (
         forward_id, user_id, message_type, message_text, 
         media_url, media_mime_type, media_filename,
-        sender_phone, sender_name, total_targets, status
+        sender_phone, sender_name, total_targets, status, forward_name
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *
     `, [
       forward.id,
@@ -197,7 +197,8 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
       senderPhone,
       payload._data?.Info?.PushName || senderPhone,
       forward.target_count,
-      forward.require_confirmation ? 'pending' : 'confirmed'
+      forward.require_confirmation ? 'pending' : 'confirmed',
+      forward.name
     ]);
     
     const job = jobResult.rows[0];

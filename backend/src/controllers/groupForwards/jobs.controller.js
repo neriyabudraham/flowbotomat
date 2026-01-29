@@ -36,14 +36,14 @@ async function createForwardJob(req, res) {
       return res.status(400).json({ error: 'אין קבוצות יעד מוגדרות להעברה זו' });
     }
     
-    // Create job
+    // Create job - save forward_name so it persists even if forward is deleted
     const jobResult = await db.query(`
       INSERT INTO forward_jobs (
         forward_id, user_id, message_type, message_text, 
         media_url, media_mime_type, media_filename,
-        sender_phone, sender_name, total_targets, status
+        sender_phone, sender_name, total_targets, status, forward_name
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *
     `, [
       forwardId,
@@ -56,7 +56,8 @@ async function createForwardJob(req, res) {
       sender_phone,
       sender_name,
       forward.target_count,
-      forward.require_confirmation ? 'pending' : 'confirmed'
+      forward.require_confirmation ? 'pending' : 'confirmed',
+      forward.name
     ]);
     
     const job = jobResult.rows[0];
@@ -345,10 +346,11 @@ async function getAllJobHistory(req, res) {
     
     // Get jobs with forward name and message details
     // Use LEFT JOIN so jobs appear even if forward was deleted
+    // Prefer fj.forward_name (saved at creation) over gf.name
     const result = await db.query(`
       SELECT 
         fj.*,
-        COALESCE(gf.name, 'העברה שנמחקה') as forward_name,
+        COALESCE(fj.forward_name, gf.name, 'העברה שנמחקה') as forward_name,
         (SELECT json_agg(json_build_object(
           'id', fjm.id,
           'target_id', fjm.target_id,
