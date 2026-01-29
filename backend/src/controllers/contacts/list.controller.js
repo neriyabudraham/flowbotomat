@@ -6,7 +6,7 @@ const pool = require('../../config/database');
 async function listContacts(req, res) {
   try {
     const userId = req.user.id;
-    const { page = 1, limit = 200, search, tag } = req.query; // Increased default limit to 200
+    const { page = 1, limit = 100000, search, tag } = req.query; // No practical limit
     const offset = (page - 1) * limit;
     
     let query = `
