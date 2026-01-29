@@ -126,21 +126,48 @@ async function deleteContact(req, res) {
 async function bulkDeleteContacts(req, res) {
   try {
     const userId = req.user.id;
-    const { contactIds } = req.body;
+    const { contactIds, deleteAll, search, excludeIds } = req.body;
     
-    if (!contactIds || !Array.isArray(contactIds) || contactIds.length === 0) {
-      return res.status(400).json({ error: 'נדרשת רשימת אנשי קשר למחיקה' });
+    let result;
+    
+    if (deleteAll) {
+      // Delete ALL contacts (with optional search filter and exclusions)
+      let query = `DELETE FROM contacts WHERE user_id = $1`;
+      const params = [userId];
+      let paramIndex = 2;
+      
+      // Apply search filter if provided
+      if (search) {
+        query += ` AND (display_name ILIKE $${paramIndex} OR phone ILIKE $${paramIndex})`;
+        params.push(`%${search}%`);
+        paramIndex++;
+      }
+      
+      // Exclude specific contacts if provided
+      if (excludeIds && Array.isArray(excludeIds) && excludeIds.length > 0) {
+        query += ` AND id != ALL($${paramIndex})`;
+        params.push(excludeIds);
+      }
+      
+      query += ` RETURNING id`;
+      result = await pool.query(query, params);
+      
+      console.log(`[Contacts] Bulk deleted ALL (${result.rows.length}) contacts for user ${userId}${excludeIds?.length ? ` (excluding ${excludeIds.length})` : ''}`);
+    } else {
+      // Delete specific contacts
+      if (!contactIds || !Array.isArray(contactIds) || contactIds.length === 0) {
+        return res.status(400).json({ error: 'נדרשת רשימת אנשי קשר למחיקה' });
+      }
+      
+      result = await pool.query(
+        `DELETE FROM contacts 
+         WHERE id = ANY($1) AND user_id = $2
+         RETURNING id`,
+        [contactIds, userId]
+      );
+      
+      console.log(`[Contacts] Bulk deleted ${result.rows.length} contacts for user ${userId}`);
     }
-    
-    // Delete contacts that belong to this user
-    const result = await pool.query(
-      `DELETE FROM contacts 
-       WHERE id = ANY($1) AND user_id = $2
-       RETURNING id`,
-      [contactIds, userId]
-    );
-    
-    console.log(`[Contacts] Bulk deleted ${result.rows.length} contacts for user ${userId}`);
     
     res.json({ 
       success: true, 
@@ -158,7 +185,7 @@ async function bulkDeleteContacts(req, res) {
 async function exportContacts(req, res) {
   try {
     const userId = req.user.id;
-    const { format = 'csv', contactIds } = req.query;
+    const { format = 'csv', contactIds, exportAll, search, excludeIds } = req.query;
     
     // Build query
     let query = `
@@ -177,12 +204,29 @@ async function exportContacts(req, res) {
     `;
     
     const params = [userId];
+    let paramIndex = 2;
     
     // If specific contacts requested
-    if (contactIds) {
+    if (contactIds && !exportAll) {
       const ids = contactIds.split(',');
-      query += ` AND c.id = ANY($2)`;
+      query += ` AND c.id = ANY($${paramIndex})`;
       params.push(ids);
+      paramIndex++;
+    }
+    
+    // Apply search filter if provided (for exportAll)
+    if (exportAll && search) {
+      query += ` AND (c.display_name ILIKE $${paramIndex} OR c.phone ILIKE $${paramIndex})`;
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+    
+    // Exclude specific contacts if provided (for exportAll)
+    if (exportAll && excludeIds) {
+      const ids = excludeIds.split(',');
+      query += ` AND c.id != ALL($${paramIndex})`;
+      params.push(ids);
+      paramIndex++;
     }
     
     query += ` ORDER BY c.created_at DESC`;
