@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { authenticate, requireAdmin } = require('../middlewares/auth.middleware');
+const { authenticate } = require('../middlewares/auth.middleware');
+const { checkLimit } = require('../controllers/subscriptions/subscriptions.controller');
 
 const audiencesController = require('../controllers/broadcasts/audiences.controller');
 const templatesController = require('../controllers/broadcasts/templates.controller');
@@ -10,8 +11,45 @@ const importController = require('../controllers/broadcasts/import.controller');
 // All routes require authentication
 router.use(authenticate);
 
-// For now, all broadcast features require admin (will be opened later)
-router.use(requireAdmin);
+// Check if user has broadcasts feature
+const requireBroadcasts = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const featureCheck = await checkLimit(userId, 'allow_broadcasts');
+    
+    if (!featureCheck.allowed) {
+      return res.status(403).json({ 
+        error: 'התוכנית שלך לא כוללת שליחת הודעות תפוצה. שדרג את החבילה כדי להשתמש בתכונה זו.',
+        code: 'FEATURE_NOT_ALLOWED',
+        upgrade: true
+      });
+    }
+    
+    next();
+  } catch (error) {
+    console.error('[Broadcasts] Feature check error:', error);
+    res.status(500).json({ error: 'שגיאה בבדיקת הרשאות' });
+  }
+};
+
+// Feature check endpoint (before requireBroadcasts middleware)
+router.get('/access', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const featureCheck = await checkLimit(userId, 'allow_broadcasts');
+    
+    res.json({ 
+      allowed: featureCheck.allowed,
+      message: featureCheck.allowed ? 'יש לך גישה לשליחת הודעות תפוצה' : 'התוכנית שלך לא כוללת שליחת הודעות תפוצה'
+    });
+  } catch (error) {
+    console.error('[Broadcasts] Access check error:', error);
+    res.status(500).json({ error: 'שגיאה בבדיקת גישה' });
+  }
+});
+
+// Apply feature check to all other routes
+router.use(requireBroadcasts);
 
 // ============================================
 // Audiences

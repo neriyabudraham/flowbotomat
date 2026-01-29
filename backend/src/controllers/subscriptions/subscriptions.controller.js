@@ -374,7 +374,8 @@ async function checkLimit(userId, limitType) {
     max_group_forwards: 0,
     max_forward_targets: 0,
     max_livechats: 0,
-    allow_livechat: false
+    allow_livechat: false,
+    allow_broadcasts: false
   };
   
   // Merge: overrides take precedence over plan limits
@@ -467,6 +468,11 @@ async function checkLimit(userId, limitType) {
   // Group forwards feature check
   if (limitType === 'allow_group_forwards') {
     return { allowed: limits.allow_group_forwards || false };
+  }
+  
+  // Broadcasts feature check
+  if (limitType === 'allow_broadcasts') {
+    return { allowed: limits.allow_broadcasts || false };
   }
   
   // Max group forwards limit

@@ -5,7 +5,7 @@ import {
   Trash2, Edit2, X, Search, MoreHorizontal, CheckCircle, 
   Loader2, RefreshCw, ArrowLeft, Target, FileText, Settings,
   LayoutGrid, History, Zap, Copy, Filter, ChevronDown, Eye, Sparkles,
-  TrendingUp, BarChart3
+  TrendingUp, BarChart3, Crown, Lock
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
@@ -24,6 +24,7 @@ export default function BroadcastsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('campaigns');
   const [stats, setStats] = useState(null);
+  const [hasAccess, setHasAccess] = useState(null); // null = loading, true/false = checked
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -32,8 +33,26 @@ export default function BroadcastsPage() {
       return;
     }
     fetchMe();
-    fetchStats(true);
+    checkAccess();
   }, []);
+
+  const checkAccess = async () => {
+    try {
+      const { data } = await api.get('/broadcasts/access');
+      setHasAccess(data.allowed);
+      
+      if (data.allowed) {
+        fetchStats(true);
+      } else {
+        setLoading(false);
+      }
+    } catch (e) {
+      console.error('Failed to check access:', e);
+      // If error, assume no access
+      setHasAccess(false);
+      setLoading(false);
+    }
+  };
 
   const fetchStats = async (showLoading = false) => {
     try {
@@ -65,6 +84,125 @@ export default function BroadcastsPage() {
       if (showLoading) setLoading(false);
     }
   };
+
+  // Show upgrade page if no access
+  if (hasAccess === false) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-orange-50/30" dir="rtl">
+        {/* Header */}
+        <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
+          <div className="max-w-7xl mx-auto px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => navigate('/dashboard')}
+                  className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+                >
+                  <ArrowLeft className="w-5 h-5 text-gray-600" />
+                </button>
+                <div className="h-8 w-px bg-gray-200" />
+                <Logo />
+              </div>
+              
+              <div className="flex items-center gap-3">
+                <NotificationsDropdown />
+                <div className="h-8 w-px bg-gray-200" />
+                {user?.avatar_url ? (
+                  <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-lg object-cover" />
+                ) : (
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-white font-bold text-sm">
+                    {(user?.name || user?.email || 'U')[0].toUpperCase()}
+                  </div>
+                )}
+                <button 
+                  onClick={() => { localStorage.removeItem('accessToken'); navigate('/login'); }}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl text-sm font-medium transition-colors"
+                >
+                  התנתק
+                </button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="max-w-4xl mx-auto px-6 py-16">
+          <div className="text-center">
+            {/* Icon */}
+            <div className="w-24 h-24 mx-auto mb-8 bg-gradient-to-br from-orange-500 to-red-600 rounded-3xl flex items-center justify-center shadow-xl shadow-orange-500/30">
+              <Lock className="w-12 h-12 text-white" />
+            </div>
+            
+            {/* Title */}
+            <h1 className="text-4xl font-bold text-gray-900 mb-4">
+              שליחת הודעות תפוצה
+            </h1>
+            <p className="text-xl text-gray-600 mb-8 max-w-lg mx-auto">
+              התכונה הזו לא כלולה בתוכנית הנוכחית שלך.
+              שדרג את החבילה כדי לשלוח הודעות תפוצה לכל אנשי הקשר שלך.
+            </p>
+            
+            {/* Features List */}
+            <div className="bg-white rounded-3xl border border-gray-200 shadow-lg p-8 mb-8 text-right">
+              <h3 className="text-lg font-bold text-gray-900 mb-6 text-center">מה תקבל עם שדרוג?</h3>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="flex items-center gap-3 p-4 bg-orange-50 rounded-2xl">
+                  <div className="p-2 bg-orange-500 rounded-xl">
+                    <Send className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">קמפיינים ללא הגבלה</p>
+                    <p className="text-sm text-gray-500">שלח כמה קמפיינים שתרצה</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-orange-50 rounded-2xl">
+                  <div className="p-2 bg-orange-500 rounded-xl">
+                    <Users className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">קהלים דינאמיים</p>
+                    <p className="text-sm text-gray-500">סנן לפי תגיות ומאפיינים</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-orange-50 rounded-2xl">
+                  <div className="p-2 bg-orange-500 rounded-xl">
+                    <MessageSquare className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">תבניות הודעה</p>
+                    <p className="text-sm text-gray-500">צור תבניות לשימוש חוזר</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-orange-50 rounded-2xl">
+                  <div className="p-2 bg-orange-500 rounded-xl">
+                    <Clock className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">תזמון שליחה</p>
+                    <p className="text-sm text-gray-500">תזמן קמפיינים מראש</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* CTA */}
+            <button
+              onClick={() => navigate('/pricing')}
+              className="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-2xl font-bold text-lg hover:shadow-xl hover:shadow-orange-500/30 transition-all hover:scale-105"
+            >
+              <Crown className="w-6 h-6" />
+              שדרג עכשיו
+            </button>
+            
+            <p className="text-sm text-gray-500 mt-4">
+              <button onClick={() => navigate('/dashboard')} className="text-orange-600 hover:underline">
+                חזרה לדשבורד
+              </button>
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   const tabs = [
     { id: 'campaigns', label: 'קמפיינים', icon: Send, count: stats?.campaigns },

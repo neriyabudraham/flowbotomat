@@ -840,6 +840,11 @@ export default function PricingPage() {
                           included={plan.allow_api_access}
                         />
                         <Feature 
+                          icon={Send}
+                          label="הודעות תפוצה"
+                          included={plan.allow_broadcasts}
+                        />
+                        <Feature 
                           icon={Shield}
                           label="תמיכה מועדפת"
                           included={plan.priority_support}
