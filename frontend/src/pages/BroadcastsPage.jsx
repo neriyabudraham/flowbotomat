@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Plus, Send, Users, MessageSquare, Clock, Calendar, Play, Pause, 
   Trash2, Edit2, X, Search, MoreHorizontal, CheckCircle, AlertCircle, 
-  Loader2, RefreshCw, ArrowLeft, Target, Upload, FileText, Settings,
+  Loader2, RefreshCw, ArrowLeft, Target, FileText, Settings,
   LayoutGrid, History, Zap, Copy, Filter, ChevronDown, Eye
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
@@ -16,7 +16,6 @@ import api from '../services/api';
 import AudiencesTab from '../components/broadcasts/AudiencesTab';
 import TemplatesTab from '../components/broadcasts/TemplatesTab';
 import CampaignsTab from '../components/broadcasts/CampaignsTab';
-import ImportTab from '../components/broadcasts/ImportTab';
 import ContactsTab from '../components/broadcasts/ContactsTab';
 
 export default function BroadcastsPage() {
@@ -79,7 +78,6 @@ export default function BroadcastsPage() {
     { id: 'campaigns', label: 'קמפיינים', icon: Send, color: 'blue' },
     { id: 'audiences', label: 'קהלים', icon: Users, color: 'purple' },
     { id: 'templates', label: 'תבניות', icon: MessageSquare, color: 'green' },
-    { id: 'import', label: 'ייבוא אנשי קשר', icon: Upload, color: 'orange' },
     { id: 'contacts', label: 'אנשי קשר', icon: Target, color: 'pink' },
   ];
 
@@ -125,7 +123,7 @@ export default function BroadcastsPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Stats Cards */}
         {stats && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-3 gap-4 mb-6">
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
@@ -167,18 +165,6 @@ export default function BroadcastsPage() {
                 </div>
               </div>
             </div>
-            
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
-                  <Upload className="w-5 h-5 text-orange-600" />
-                </div>
-                <div>
-                  <div className="text-sm font-medium text-gray-900">ייבוא אנשי קשר</div>
-                  <div className="text-xs text-gray-500">העלה קובץ Excel/CSV</div>
-                </div>
-              </div>
-            </div>
           </div>
         )}
 
@@ -213,7 +199,6 @@ export default function BroadcastsPage() {
                 {activeTab === 'campaigns' && <CampaignsTab onRefresh={fetchStats} />}
                 {activeTab === 'audiences' && <AudiencesTab onRefresh={fetchStats} />}
                 {activeTab === 'templates' && <TemplatesTab onRefresh={fetchStats} />}
-                {activeTab === 'import' && <ImportTab onRefresh={fetchStats} />}
                 {activeTab === 'contacts' && <ContactsTab onRefresh={fetchStats} />}
               </>
             )}

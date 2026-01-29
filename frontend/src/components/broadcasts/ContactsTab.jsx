@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { 
   Search, Plus, Edit2, Trash2, Users, Phone, User, Tag,
   ChevronLeft, ChevronRight, Loader2, X, Check, Filter,
-  MoreHorizontal, Download, RefreshCw, Mail, AlertCircle, Variable
+  MoreHorizontal, Download, RefreshCw, Mail, AlertCircle, Variable, Upload
 } from 'lucide-react';
 import api from '../../services/api';
+import ImportTab from './ImportTab';
 
 export default function ContactsTab({ onRefresh }) {
   const [contacts, setContacts] = useState([]);
@@ -32,6 +33,9 @@ export default function ContactsTab({ onRefresh }) {
   const [showTagsModal, setShowTagsModal] = useState(false);
   const [selectedForTags, setSelectedForTags] = useState([]);
   const [newTag, setNewTag] = useState('');
+  
+  // Import modal
+  const [showImportModal, setShowImportModal] = useState(false);
   
   const pageSize = 50;
 
@@ -271,12 +275,21 @@ export default function ContactsTab({ onRefresh }) {
           <h2 className="text-lg font-semibold text-gray-900">אנשי קשר</h2>
           <p className="text-sm text-gray-500">{totalContacts.toLocaleString()} אנשי קשר במערכת</p>
         </div>
-        <button
-          onClick={loadContacts}
-          className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
-        >
-          <RefreshCw className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-xl hover:from-orange-600 hover:to-orange-700 font-medium shadow-lg shadow-orange-500/25"
+          >
+            <Upload className="w-4 h-4" />
+            ייבוא אנשי קשר
+          </button>
+          <button
+            onClick={loadContacts}
+            className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
+          >
+            <RefreshCw className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Search & Filters */}
@@ -678,6 +691,42 @@ export default function ContactsTab({ onRefresh }) {
               >
                 הוסף תגית
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowImportModal(false)}>
+          <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-white/20 backdrop-blur rounded-2xl">
+                  <Upload className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white">ייבוא אנשי קשר</h3>
+                  <p className="text-orange-100 text-sm">העלה קובץ Excel או CSV</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowImportModal(false)}
+                className="p-2 hover:bg-white/20 rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5 text-white" />
+              </button>
+            </div>
+            
+            {/* Content */}
+            <div className="p-6 max-h-[70vh] overflow-y-auto">
+              <ImportTab 
+                onRefresh={() => {
+                  loadContacts();
+                  onRefresh?.();
+                }} 
+              />
             </div>
           </div>
         </div>

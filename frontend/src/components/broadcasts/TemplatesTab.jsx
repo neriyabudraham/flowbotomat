@@ -149,8 +149,8 @@ export default function TemplatesTab({ onRefresh }) {
                 )}
               </div>
               
-              {/* Actions - appear on hover */}
-              <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+              {/* Actions - always visible */}
+              <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center gap-2">
                 <button
                   onClick={(e) => { e.stopPropagation(); openEdit(template); }}
                   className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-100 text-orange-700 hover:bg-orange-200 rounded-lg text-sm font-medium transition-colors"
