@@ -75,7 +75,12 @@ export default function ContactsTab({ onRefresh }) {
   const loadAllVariables = async () => {
     try {
       const { data } = await api.get('/variables');
-      setAllVariables(data.variables || []);
+      // Combine user variables - these are the ones we can set on contacts
+      const vars = [
+        ...(data.userVariables || []).map(v => ({ key: v.name, label: v.label || v.name })),
+        ...(data.customSystemVariables || []).map(v => ({ key: v.name, label: v.label || v.name }))
+      ];
+      setAllVariables(vars);
     } catch (e) {
       console.error('Failed to load variables:', e);
     }
@@ -96,7 +101,12 @@ export default function ContactsTab({ onRefresh }) {
       ]);
       
       const contactVars = varsRes.data.variables || [];
-      const allVars = allVarsRes.data.variables || [];
+      
+      // Parse all available user variables
+      const allVars = [
+        ...(allVarsRes.data.userVariables || []).map(v => ({ key: v.name, label: v.label || v.name })),
+        ...(allVarsRes.data.customSystemVariables || []).map(v => ({ key: v.name, label: v.label || v.name }))
+      ];
       
       // Merge: all variables with contact's values
       const mergedVars = allVars.map(v => {

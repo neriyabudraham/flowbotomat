@@ -117,14 +117,18 @@ async function createCampaign(req, res) {
       return res.status(400).json({ error: 'יש לבחור קהל יעד' });
     }
     
-    if (!template_id && !direct_message) {
+    // Convert empty strings to null for UUIDs
+    const templateIdValue = template_id && template_id.trim() !== '' ? template_id : null;
+    const audienceIdValue = audience_id && audience_id.trim() !== '' ? audience_id : null;
+    
+    if (!templateIdValue && !direct_message) {
       return res.status(400).json({ error: 'יש לבחור תבנית או לכתוב הודעה ישירה' });
     }
     
     // Verify audience belongs to user
     const audienceResult = await pool.query(
       'SELECT * FROM broadcast_audiences WHERE id = $1 AND user_id = $2',
-      [audience_id, userId]
+      [audienceIdValue, userId]
     );
     
     if (audienceResult.rows.length === 0) {
@@ -132,10 +136,10 @@ async function createCampaign(req, res) {
     }
     
     // Verify template belongs to user (if provided)
-    if (template_id) {
+    if (templateIdValue) {
       const templateResult = await pool.query(
         'SELECT * FROM broadcast_templates WHERE id = $1 AND user_id = $2',
-        [template_id, userId]
+        [templateIdValue, userId]
       );
       
       if (templateResult.rows.length === 0) {
@@ -159,7 +163,7 @@ async function createCampaign(req, res) {
       (user_id, name, description, template_id, audience_id, direct_message, direct_media_url, scheduled_at, settings, status)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *
-    `, [userId, name, description, template_id, audience_id, direct_message, direct_media_url, scheduled_at, campaignSettings, status]);
+    `, [userId, name, description || null, templateIdValue, audienceIdValue, direct_message || null, direct_media_url || null, scheduled_at || null, campaignSettings, status]);
     
     res.status(201).json({ campaign: result.rows[0] });
   } catch (error) {
