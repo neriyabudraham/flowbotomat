@@ -139,15 +139,36 @@ async function addTagToContact(req, res) {
 
 /**
  * Remove tag from contact
+ * tagId can be a UUID (tag ID) or a tag name (string)
  */
 async function removeTagFromContact(req, res) {
   try {
+    const userId = req.user.id;
     const { contactId, tagId } = req.params;
     
-    await pool.query(
-      'DELETE FROM contact_tag_assignments WHERE contact_id = $1 AND tag_id = $2',
-      [contactId, tagId]
-    );
+    // Check if tagId is a UUID or a tag name
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tagId);
+    
+    if (isUUID) {
+      // Delete by tag ID
+      await pool.query(
+        'DELETE FROM contact_tag_assignments WHERE contact_id = $1 AND tag_id = $2',
+        [contactId, tagId]
+      );
+    } else {
+      // Delete by tag name - first find the tag ID
+      const tagResult = await pool.query(
+        'SELECT id FROM contact_tags WHERE user_id = $1 AND name = $2',
+        [userId, decodeURIComponent(tagId)]
+      );
+      
+      if (tagResult.rows.length > 0) {
+        await pool.query(
+          'DELETE FROM contact_tag_assignments WHERE contact_id = $1 AND tag_id = $2',
+          [contactId, tagResult.rows[0].id]
+        );
+      }
+    }
     
     res.json({ success: true });
   } catch (error) {

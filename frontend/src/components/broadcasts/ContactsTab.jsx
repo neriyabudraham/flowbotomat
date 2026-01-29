@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { 
   Search, Plus, Edit2, Trash2, Users, Phone, User, Tag,
   ChevronLeft, ChevronRight, Loader2, X, Check, Filter,
-  MoreHorizontal, Download, RefreshCw, Mail, AlertCircle, Variable, Upload
+  MoreHorizontal, Download, RefreshCw, Mail, AlertCircle, Variable, Upload,
+  Calendar, MessageSquare, Eye, Clock, Hash, ExternalLink
 } from 'lucide-react';
 import api from '../../services/api';
 import ImportTab from './ImportTab';
@@ -16,6 +17,11 @@ export default function ContactsTab({ onRefresh }) {
   const [selectedContacts, setSelectedContacts] = useState([]);
   const [tags, setTags] = useState([]);
   const [filterTag, setFilterTag] = useState('');
+  
+  // View modal
+  const [viewingContact, setViewingContact] = useState(null);
+  const [viewContactVariables, setViewContactVariables] = useState([]);
+  const [loadingView, setLoadingView] = useState(false);
   
   // Edit modal
   const [editingContact, setEditingContact] = useState(null);
@@ -33,6 +39,10 @@ export default function ContactsTab({ onRefresh }) {
   const [showTagsModal, setShowTagsModal] = useState(false);
   const [selectedForTags, setSelectedForTags] = useState([]);
   const [newTag, setNewTag] = useState('');
+  
+  // Single contact tag modal
+  const [showSingleTagModal, setShowSingleTagModal] = useState(null);
+  const [singleTagInput, setSingleTagInput] = useState('');
   
   // Import modal
   const [showImportModal, setShowImportModal] = useState(false);
@@ -77,7 +87,6 @@ export default function ContactsTab({ onRefresh }) {
   const loadAllVariables = async () => {
     try {
       const { data } = await api.get('/variables');
-      // Combine user variables - these are the ones we can set on contacts
       const vars = [
         ...(data.userVariables || []).map(v => ({ key: v.name, label: v.label || v.name })),
         ...(data.customSystemVariables || []).map(v => ({ key: v.name, label: v.label || v.name }))
@@ -90,16 +99,32 @@ export default function ContactsTab({ onRefresh }) {
 
   const [loadingVars, setLoadingVars] = useState(false);
 
+  // View Contact
+  const handleViewContact = async (contact) => {
+    setViewingContact(contact);
+    setLoadingView(true);
+    
+    try {
+      const { data } = await api.get(`/contacts/${contact.id}/variables`);
+      setViewContactVariables(data.variables || []);
+    } catch (e) {
+      console.error('Failed to load contact variables:', e);
+      setViewContactVariables([]);
+    } finally {
+      setLoadingView(false);
+    }
+  };
+
   const handleEditContact = async (contact) => {
+    setViewingContact(null); // Close view modal if open
     setEditingContact(contact);
     setEditForm({
       display_name: contact.display_name || '',
       phone: contact.phone || ''
     });
-    setContactVariables([]); // Clear previous
+    setContactVariables([]);
     setLoadingVars(true);
     
-    // Load contact variables and merge with all available variables
     try {
       const [varsRes, allVarsRes] = await Promise.all([
         api.get(`/contacts/${contact.id}/variables`),
@@ -107,17 +132,11 @@ export default function ContactsTab({ onRefresh }) {
       ]);
       
       const contactVars = varsRes.data.variables || [];
-      console.log('[ContactsTab] Contact vars:', contactVars);
-      console.log('[ContactsTab] All vars response:', allVarsRes.data);
-      
-      // Parse all available user variables
       const allVars = [
         ...(allVarsRes.data.userVariables || []).map(v => ({ key: v.name, label: v.label || v.name })),
         ...(allVarsRes.data.customSystemVariables || []).map(v => ({ key: v.name, label: v.label || v.name }))
       ];
-      console.log('[ContactsTab] Parsed allVars:', allVars);
       
-      // Merge: show ALL variables with contact's values (empty if no value)
       const mergedVars = allVars.map(v => {
         const contactVar = contactVars.find(cv => cv.key === v.key);
         return {
@@ -127,7 +146,6 @@ export default function ContactsTab({ onRefresh }) {
         };
       });
       
-      // Add any contact variables that aren't in allVars (shouldn't happen, but just in case)
       contactVars.forEach(cv => {
         if (!mergedVars.find(v => v.key === cv.key)) {
           mergedVars.push({
@@ -149,7 +167,6 @@ export default function ContactsTab({ onRefresh }) {
   };
 
   const handleAddVariable = () => {
-    // Create new variable
     if (!newVarKey.trim()) return;
     
     const newVar = {
@@ -159,7 +176,6 @@ export default function ContactsTab({ onRefresh }) {
       isNew: true
     };
     
-    // Check if already exists in contactVariables
     if (contactVariables.find(v => v.key === newVar.key)) {
       alert('משתנה זה כבר קיים');
       return;
@@ -171,10 +187,6 @@ export default function ContactsTab({ onRefresh }) {
     setNewVarLabel('');
   };
 
-  const handleRemoveVariable = (key) => {
-    setContactVariables(contactVariables.filter(v => v.key !== key));
-  };
-
   const handleSaveContact = async () => {
     if (!editingContact) return;
     
@@ -182,18 +194,14 @@ export default function ContactsTab({ onRefresh }) {
       setSaving(true);
       await api.put(`/contacts/${editingContact.id}`, editForm);
       
-      // Create new variables if needed
       for (const v of contactVariables) {
         if (v.isNew) {
           try {
             await api.post('/variables', { key: v.key, label: v.label || v.key });
-          } catch (e) {
-            // Variable might already exist, continue
-          }
+          } catch (e) {}
         }
       }
       
-      // Save variables
       for (const v of contactVariables) {
         if (v.value !== undefined && v.value !== null) {
           await api.post(`/contacts/${editingContact.id}/variables`, { key: v.key, value: v.value });
@@ -202,7 +210,7 @@ export default function ContactsTab({ onRefresh }) {
       
       setEditingContact(null);
       loadContacts();
-      loadAllVariables(); // Refresh variables list
+      loadAllVariables();
     } catch (e) {
       alert(e.response?.data?.error || 'שגיאה בשמירה');
     } finally {
@@ -215,6 +223,7 @@ export default function ContactsTab({ onRefresh }) {
     
     try {
       await api.delete(`/contacts/${contact.id}`);
+      setViewingContact(null);
       loadContacts();
     } catch (e) {
       alert(e.response?.data?.error || 'שגיאה במחיקה');
@@ -251,6 +260,53 @@ export default function ContactsTab({ onRefresh }) {
     }
   };
 
+  // Add tag to single contact
+  const handleAddSingleTag = async (contactId) => {
+    if (!singleTagInput.trim()) return;
+    
+    try {
+      await api.post('/contacts/bulk-tag', { 
+        contact_ids: [contactId],
+        tag: singleTagInput.trim() 
+      });
+      setSingleTagInput('');
+      setShowSingleTagModal(null);
+      loadContacts();
+      loadTags();
+      
+      // Refresh viewing contact if open
+      if (viewingContact?.id === contactId) {
+        const contact = contacts.find(c => c.id === contactId);
+        if (contact) {
+          setViewingContact({
+            ...contact,
+            tags: [...(contact.tags || []), singleTagInput.trim()]
+          });
+        }
+      }
+    } catch (e) {
+      alert(e.response?.data?.error || 'שגיאה בהוספת תגית');
+    }
+  };
+
+  // Remove tag from contact
+  const handleRemoveTag = async (contactId, tagToRemove) => {
+    try {
+      await api.delete(`/contacts/${contactId}/tags/${encodeURIComponent(tagToRemove)}`);
+      loadContacts();
+      
+      // Refresh viewing contact if open
+      if (viewingContact?.id === contactId) {
+        setViewingContact({
+          ...viewingContact,
+          tags: (viewingContact.tags || []).filter(t => t !== tagToRemove)
+        });
+      }
+    } catch (e) {
+      alert(e.response?.data?.error || 'שגיאה בהסרת תגית');
+    }
+  };
+
   const toggleSelectAll = () => {
     if (selectedContacts.length === contacts.length) {
       setSelectedContacts([]);
@@ -278,7 +334,7 @@ export default function ContactsTab({ onRefresh }) {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowImportModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-xl hover:from-orange-600 hover:to-orange-700 font-medium shadow-lg shadow-orange-500/25"
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-xl hover:from-orange-600 hover:to-red-700 font-medium shadow-lg shadow-orange-500/25"
           >
             <Upload className="w-4 h-4" />
             ייבוא אנשי קשר
@@ -370,13 +426,17 @@ export default function ContactsTab({ onRefresh }) {
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500">טלפון</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500">תגיות</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500">נוצר</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 w-24">פעולות</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 w-32">פעולות</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {contacts.map(contact => (
-                  <tr key={contact.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
+                  <tr 
+                    key={contact.id} 
+                    className="hover:bg-gray-50 cursor-pointer transition-colors"
+                    onClick={() => handleViewContact(contact)}
+                  >
+                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={selectedContacts.includes(contact.id)}
@@ -386,8 +446,10 @@ export default function ContactsTab({ onRefresh }) {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center">
-                          <User className="w-4 h-4 text-orange-600" />
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center">
+                          <span className="text-white font-medium text-sm">
+                            {(contact.display_name || contact.phone || '?')[0].toUpperCase()}
+                          </span>
                         </div>
                         <span className="font-medium text-gray-900">
                           {contact.display_name || 'ללא שם'}
@@ -397,34 +459,50 @@ export default function ContactsTab({ onRefresh }) {
                     <td className="px-4 py-3">
                       <span className="text-gray-600 font-mono text-sm">{contact.phone}</span>
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {(contact.tags || []).slice(0, 3).map(tag => (
-                          <span key={tag} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
+                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                      <div className="flex flex-wrap gap-1 items-center">
+                        {(contact.tags || []).slice(0, 2).map(tag => (
+                          <span key={tag} className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs">
                             {tag}
                           </span>
                         ))}
-                        {(contact.tags || []).length > 3 && (
+                        {(contact.tags || []).length > 2 && (
                           <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-xs">
-                            +{contact.tags.length - 3}
+                            +{contact.tags.length - 2}
                           </span>
                         )}
+                        <button
+                          onClick={() => setShowSingleTagModal(contact.id)}
+                          className="p-1 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded"
+                          title="הוסף תגית"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-500">
                       {new Date(contact.created_at).toLocaleDateString('he-IL')}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                       <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleViewContact(contact)}
+                          className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                          title="צפה"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={() => handleEditContact(contact)}
                           className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded"
+                          title="ערוך"
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDeleteContact(contact)}
                           className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                          title="מחק"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -465,6 +543,211 @@ export default function ContactsTab({ onRefresh }) {
           </div>
         )}
       </div>
+
+      {/* View Contact Modal */}
+      {viewingContact && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setViewingContact(null)}>
+          <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="bg-gradient-to-r from-orange-500 to-red-600 p-6">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center">
+                    <span className="text-3xl font-bold text-white">
+                      {(viewingContact.display_name || viewingContact.phone || '?')[0].toUpperCase()}
+                    </span>
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-bold text-white">
+                      {viewingContact.display_name || 'ללא שם'}
+                    </h3>
+                    <p className="text-white/80 font-mono text-lg" dir="ltr">{viewingContact.phone}</p>
+                  </div>
+                </div>
+                <button onClick={() => setViewingContact(null)} className="p-2 hover:bg-white/20 rounded-xl transition-colors">
+                  <X className="w-5 h-5 text-white" />
+                </button>
+              </div>
+            </div>
+            
+            {/* Content */}
+            <div className="p-6 max-h-[60vh] overflow-y-auto space-y-6">
+              {/* Quick Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-50 rounded-2xl p-4">
+                  <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
+                    <Calendar className="w-4 h-4" />
+                    נוצר
+                  </div>
+                  <p className="font-medium text-gray-900">
+                    {new Date(viewingContact.created_at).toLocaleDateString('he-IL', {
+                      day: 'numeric', month: 'long', year: 'numeric'
+                    })}
+                  </p>
+                </div>
+                <div className="bg-gray-50 rounded-2xl p-4">
+                  <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
+                    <Clock className="w-4 h-4" />
+                    הודעה אחרונה
+                  </div>
+                  <p className="font-medium text-gray-900">
+                    {viewingContact.last_message_at 
+                      ? new Date(viewingContact.last_message_at).toLocaleDateString('he-IL', {
+                          day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+                        })
+                      : 'אין'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Tags Section */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-semibold text-gray-900 flex items-center gap-2">
+                    <Tag className="w-4 h-4 text-orange-600" />
+                    תגיות
+                  </h4>
+                  <button
+                    onClick={() => setShowSingleTagModal(viewingContact.id)}
+                    className="text-sm text-orange-600 hover:text-orange-700 flex items-center gap-1"
+                  >
+                    <Plus className="w-4 h-4" />
+                    הוסף תגית
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(viewingContact.tags || []).length > 0 ? (
+                    viewingContact.tags.map(tag => (
+                      <span 
+                        key={tag} 
+                        className="group px-3 py-1.5 bg-orange-100 text-orange-700 rounded-full text-sm flex items-center gap-2"
+                      >
+                        {tag}
+                        <button
+                          onClick={() => handleRemoveTag(viewingContact.id, tag)}
+                          className="opacity-0 group-hover:opacity-100 hover:text-red-600 transition-opacity"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </span>
+                    ))
+                  ) : (
+                    <p className="text-sm text-gray-400">אין תגיות</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Variables Section */}
+              <div>
+                <h4 className="font-semibold text-gray-900 flex items-center gap-2 mb-3">
+                  <Variable className="w-4 h-4 text-orange-600" />
+                  משתנים
+                </h4>
+                {loadingView ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
+                  </div>
+                ) : viewContactVariables.length > 0 ? (
+                  <div className="grid gap-3">
+                    {viewContactVariables.map(v => (
+                      <div key={v.key} className="bg-gray-50 rounded-xl p-3 flex items-center justify-between">
+                        <span className="text-sm text-gray-500">{v.label || v.key}</span>
+                        <span className="font-medium text-gray-900">{v.value || '-'}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400 text-center py-4">אין משתנים מוגדרים</p>
+                )}
+              </div>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="border-t border-gray-100 p-4 flex gap-3">
+              <button
+                onClick={() => setViewingContact(null)}
+                className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 font-medium"
+              >
+                סגור
+              </button>
+              <button
+                onClick={() => handleEditContact(viewingContact)}
+                className="flex-1 px-4 py-2.5 bg-orange-600 text-white rounded-xl hover:bg-orange-700 font-medium flex items-center justify-center gap-2"
+              >
+                <Edit2 className="w-4 h-4" />
+                ערוך
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Single Contact Tag Modal */}
+      {showSingleTagModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={() => setShowSingleTagModal(null)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold mb-4">הוספת תגית</h3>
+            
+            <div className="space-y-4">
+              <input
+                type="text"
+                value={singleTagInput}
+                onChange={(e) => setSingleTagInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddSingleTag(showSingleTagModal)}
+                placeholder="שם התגית..."
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500"
+                autoFocus
+              />
+              
+              {tags.length > 0 && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-2">תגיות קיימות:</p>
+                  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+                    {tags.map(tag => {
+                      const tagName = typeof tag === 'string' ? tag : tag.name;
+                      return (
+                        <button
+                          key={tagName}
+                          onClick={() => {
+                            setSingleTagInput(tagName);
+                          }}
+                          onDoubleClick={() => {
+                            setSingleTagInput(tagName);
+                            handleAddSingleTag(showSingleTagModal);
+                          }}
+                          className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                            singleTagInput === tagName
+                              ? 'bg-orange-500 text-white'
+                              : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                          }`}
+                        >
+                          {tagName}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => { setShowSingleTagModal(null); setSingleTagInput(''); }}
+                className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 font-medium"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={() => handleAddSingleTag(showSingleTagModal)}
+                disabled={!singleTagInput.trim()}
+                className="flex-1 px-4 py-2.5 bg-orange-600 text-white rounded-xl hover:bg-orange-700 font-medium disabled:opacity-50"
+              >
+                הוסף תגית
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit Contact Modal */}
       {editingContact && (
@@ -579,7 +862,7 @@ export default function ContactsTab({ onRefresh }) {
         </div>
       )}
 
-      {/* Add Variable Modal - For creating NEW variables */}
+      {/* Add Variable Modal */}
       {showAddVariableModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={() => setShowAddVariableModal(false)}>
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -637,7 +920,7 @@ export default function ContactsTab({ onRefresh }) {
         </div>
       )}
 
-      {/* Tags Modal */}
+      {/* Tags Modal (Bulk) */}
       {showTagsModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowTagsModal(false)}>
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -700,8 +983,7 @@ export default function ContactsTab({ onRefresh }) {
       {showImportModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowImportModal(false)}>
           <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
-            {/* Header */}
-            <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6 flex justify-between items-center">
+            <div className="bg-gradient-to-r from-orange-500 to-red-600 p-6 flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <div className="p-3 bg-white/20 backdrop-blur rounded-2xl">
                   <Upload className="w-6 h-6 text-white" />
@@ -719,7 +1001,6 @@ export default function ContactsTab({ onRefresh }) {
               </button>
             </div>
             
-            {/* Content */}
             <div className="p-6 max-h-[70vh] overflow-y-auto">
               <ImportTab 
                 onRefresh={() => {

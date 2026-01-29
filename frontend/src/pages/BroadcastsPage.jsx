@@ -111,7 +111,7 @@ export default function BroadcastsPage() {
               {user?.avatar_url ? (
                 <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-lg object-cover" />
               ) : (
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-white font-bold text-sm">
                   {(user?.name || user?.email || 'U')[0].toUpperCase()}
                 </div>
               )}
@@ -128,7 +128,7 @@ export default function BroadcastsPage() {
 
       <main className="max-w-7xl mx-auto px-6 py-8">
         {/* Hero Section */}
-        <div className="relative overflow-hidden bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-3xl p-8 mb-8">
+        <div className="relative overflow-hidden bg-gradient-to-r from-orange-500 via-red-500 to-red-600 rounded-3xl p-8 mb-8">
           <div className="absolute inset-0 bg-black/10" />
           <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
           <div className="absolute bottom-0 left-0 w-64 h-64 bg-white/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
@@ -219,7 +219,7 @@ export default function BroadcastsPage() {
                 {tab.label}
                 {tab.count !== undefined && (
                   <span className={`px-2 py-0.5 rounded-full text-xs ${
-                    activeTab === tab.id ? 'bg-blue-100 text-blue-600' : 'bg-gray-200 text-gray-500'
+                    activeTab === tab.id ? 'bg-orange-100 text-orange-600' : 'bg-gray-200 text-gray-500'
                   }`}>
                     {tab.count}
                   </span>
@@ -235,7 +235,7 @@ export default function BroadcastsPage() {
             {loading ? (
               <div className="flex items-center justify-center py-20">
                 <div className="text-center">
-                  <Loader2 className="w-10 h-10 animate-spin text-blue-600 mx-auto mb-4" />
+                  <Loader2 className="w-10 h-10 animate-spin text-orange-600 mx-auto mb-4" />
                   <p className="text-gray-500">טוען נתונים...</p>
                 </div>
               </div>
