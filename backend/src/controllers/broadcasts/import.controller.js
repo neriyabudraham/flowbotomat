@@ -1,4 +1,4 @@
-const pool = require('../../config/database');
+const db = require('../../config/database');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const path = require('path');
@@ -96,7 +96,7 @@ async function uploadFile(req, res) {
  * Execute the import
  */
 async function executeImport(req, res) {
-  const client = await pool.connect();
+  const client = await db.pool.connect();
   
   try {
     const userId = req.user.id;
@@ -214,7 +214,7 @@ async function executeImport(req, res) {
     
     // Update audience contacts count if added to audience
     if (audience_id) {
-      await pool.query(`
+      await db.query(`
         UPDATE broadcast_audiences 
         SET contacts_count = (
           SELECT COUNT(*) FROM broadcast_audience_contacts WHERE audience_id = $1

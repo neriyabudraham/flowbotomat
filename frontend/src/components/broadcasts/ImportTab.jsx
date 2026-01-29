@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Upload, FileText, Loader2, CheckCircle, AlertCircle, X,
   ArrowLeft, ArrowRight, Plus, Database, User, Phone,
-  ChevronDown, Check, FileSpreadsheet, Users, Edit2,
-  ChevronLeft, ChevronRight, Globe, AlertTriangle, Save
+  ChevronDown, Check, FileSpreadsheet, Users,
+  ChevronLeft, ChevronRight, Globe, AlertTriangle
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -17,7 +17,7 @@ const COUNTRY_CODES = [
 ];
 
 export default function ImportTab({ onRefresh }) {
-  // Steps: 1=upload, 2=mapping, 3=review, 4=importing, 5=done
+  // Steps: 1=upload, 2=mapping, 3=importing, 4=done
   const [step, setStep] = useState(1);
   
   // Upload state
@@ -53,10 +53,6 @@ export default function ImportTab({ onRefresh }) {
   // Import state
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
-  
-  // Invalid rows for editing
-  const [invalidRows, setInvalidRows] = useState([]);
-  const [editingInvalid, setEditingInvalid] = useState(null);
   
   const fileInputRef = useRef(null);
 
@@ -147,13 +143,11 @@ export default function ImportTab({ onRefresh }) {
         label: newVarLabel
       });
       
-      // Add to variables list
       setVariables(prev => ({
         ...prev,
         userVariables: [...prev.userVariables, data]
       }));
       
-      // Map the column
       if (newVarColumn) {
         setMapping(prev => ({ ...prev, [newVarColumn]: newVarKey }));
       }
@@ -193,64 +187,45 @@ export default function ImportTab({ onRefresh }) {
   // Format phone number with country code support
   const formatPhoneNumber = (phone, countryCode = defaultCountryCode) => {
     if (!phone) return null;
-    
-    // Convert to string and remove all non-digits except +
     let clean = String(phone).replace(/[^\d+]/g, '');
-    
-    // Remove + prefix if exists
-    if (clean.startsWith('+')) {
-      clean = clean.substring(1);
+    if (clean.startsWith('+')) clean = clean.substring(1);
+    if (clean.startsWith('0')) clean = countryCode + clean.substring(1);
+    else if (clean.length >= 9 && clean.length <= 10) {
+      const startsWithCode = ['972', '1', '44', '49', '33', '7', '86', '91'].some(code => clean.startsWith(code));
+      if (!startsWithCode) clean = countryCode + clean;
     }
-    
-    // If starts with 0, replace with country code
-    if (clean.startsWith('0')) {
-      clean = countryCode + clean.substring(1);
-    }
-    // If doesn't start with country code and is 9-10 digits (local number), add country code
-    else if (!clean.startsWith(countryCode) && clean.length >= 9 && clean.length <= 10) {
-      clean = countryCode + clean;
-    }
-    
     return clean;
   };
 
   const isValidPhoneNumber = (phone) => {
     if (!phone) return false;
-    // 10-15 digits
     return /^\d{10,15}$/.test(phone);
   };
 
-  // Pre-validate all rows
-  const getValidationResults = () => {
-    if (!fileData || !mapping) return { valid: [], invalid: [] };
+  // Validate ALL rows (memoized)
+  const validationResults = useMemo(() => {
+    if (!fileData || !mapping) return { validCount: 0, invalidCount: 0 };
     
     const phoneColumn = Object.keys(mapping).find(col => mapping[col] === 'phone');
-    if (!phoneColumn) return { valid: [], invalid: [] };
+    if (!phoneColumn) return { validCount: 0, invalidCount: 0 };
     
     const phoneColIndex = fileData.columns.indexOf(phoneColumn);
-    const valid = [];
-    const invalid = [];
+    let validCount = 0;
+    let invalidCount = 0;
     
-    fileData.rows.forEach((row, idx) => {
+    // Check ALL rows
+    fileData.rows.forEach((row) => {
       const rawPhone = row[phoneColIndex];
       const formatted = formatPhoneNumber(rawPhone);
-      const isValid = isValidPhoneNumber(formatted);
-      
-      if (isValid) {
-        valid.push({ idx, row, phone: formatted });
+      if (isValidPhoneNumber(formatted)) {
+        validCount++;
       } else {
-        invalid.push({ 
-          idx, 
-          row, 
-          rawPhone,
-          formatted,
-          error: !rawPhone ? 'ריק' : 'לא תקין'
-        });
+        invalidCount++;
       }
     });
     
-    return { valid, invalid };
-  };
+    return { validCount, invalidCount };
+  }, [fileData, mapping, defaultCountryCode]);
 
   const handleImport = async () => {
     const phoneColumn = Object.keys(mapping).find(col => mapping[col] === 'phone');
@@ -259,17 +234,14 @@ export default function ImportTab({ onRefresh }) {
       return;
     }
     
-    const { valid, invalid } = getValidationResults();
-    setInvalidRows(invalid);
-    
-    if (valid.length === 0) {
+    if (validationResults.validCount === 0) {
       alert('אין שורות תקינות לייבוא');
       return;
     }
     
     try {
       setImporting(true);
-      setStep(4);
+      setStep(3);
       
       const { data } = await api.post('/broadcasts/import/execute', {
         file_path: fileData.file_path,
@@ -279,7 +251,7 @@ export default function ImportTab({ onRefresh }) {
       });
       
       setImportResult(data);
-      setStep(5);
+      setStep(4);
       onRefresh?.();
     } catch (e) {
       alert(e.response?.data?.error || 'שגיאה בייבוא');
@@ -301,30 +273,21 @@ export default function ImportTab({ onRefresh }) {
     setMapping({});
     setTargetAudience('');
     setImportResult(null);
-    setInvalidRows([]);
     setCurrentPage(1);
   };
 
   const isPhoneMapped = Object.values(mapping).includes('phone');
   
   // Get all available variables for mapping
-  const getAvailableVariables = () => {
-    const contactFields = [
-      { key: 'phone', label: 'מספר טלפון', required: true, isSystem: true },
-      { key: 'name', label: 'שם איש קשר', required: false, isSystem: true },
-    ];
-    
-    const userVars = (variables.userVariables || []).map(v => ({
-      key: v.name,
-      label: v.label || v.name,
-      isSystem: false
-    }));
-    
-    return { contactFields, userVars };
-  };
-
-  const { contactFields, userVars } = getAvailableVariables();
-  const { valid: validRows, invalid: invalidRowsPreview } = getValidationResults();
+  const contactFields = [
+    { key: 'phone', label: 'מספר טלפון', required: true },
+    { key: 'name', label: 'שם איש קשר', required: false },
+  ];
+  
+  const userVars = (variables.userVariables || []).map(v => ({
+    key: v.name,
+    label: v.label || v.name
+  }));
   
   // Pagination
   const totalPages = fileData ? Math.ceil(fileData.rows.length / rowsPerPage) : 0;
@@ -337,9 +300,8 @@ export default function ImportTab({ onRefresh }) {
         {[
           { num: 1, label: 'העלאה' },
           { num: 2, label: 'מיפוי' },
-          { num: 3, label: 'אישור' },
-          { num: 4, label: 'ייבוא' },
-          { num: 5, label: 'סיום' }
+          { num: 3, label: 'ייבוא' },
+          { num: 4, label: 'סיום' }
         ].map((s, i) => (
           <div key={s.num} className="flex items-center">
             <div className={`flex items-center gap-2 px-3 py-2 rounded-full transition-all ${
@@ -356,7 +318,7 @@ export default function ImportTab({ onRefresh }) {
               )}
               <span className="text-xs font-medium hidden sm:inline">{s.label}</span>
             </div>
-            {i < 4 && <div className={`w-6 h-0.5 mx-1 ${step > s.num ? 'bg-green-300' : 'bg-gray-200'}`} />}
+            {i < 3 && <div className={`w-6 h-0.5 mx-1 ${step > s.num ? 'bg-green-300' : 'bg-gray-200'}`} />}
           </div>
         ))}
       </div>
@@ -419,7 +381,6 @@ export default function ImportTab({ onRefresh }) {
             )}
           </div>
 
-          {/* Info Box */}
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
             <h4 className="font-medium text-blue-900 mb-2 flex items-center gap-2">
               <AlertCircle className="w-4 h-4" />
@@ -454,86 +415,102 @@ export default function ImportTab({ onRefresh }) {
             <button
               onClick={handleReset}
               className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-              title="בחר קובץ אחר"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          {/* Country Code Selector */}
-          <div className="bg-white border border-gray-200 rounded-xl p-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              <Globe className="w-4 h-4 inline ml-1" />
-              קידומת מדינה (למספרים ללא קידומת)
-            </label>
-            <select
-              value={defaultCountryCode}
-              onChange={(e) => setDefaultCountryCode(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-            >
-              {COUNTRY_CODES.map(c => (
-                <option key={c.code} value={c.code}>{c.flag} {c.label}</option>
-              ))}
-            </select>
-          </div>
+          {/* Country Code + Status Row */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Country Code */}
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                <Globe className="w-4 h-4 inline ml-1" />
+                קידומת ברירת מחדל
+              </label>
+              <select
+                value={defaultCountryCode}
+                onChange={(e) => setDefaultCountryCode(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+              >
+                {COUNTRY_CODES.map(c => (
+                  <option key={c.code} value={c.code}>{c.flag} {c.label}</option>
+                ))}
+              </select>
+            </div>
 
-          {/* Mapping Status */}
-          <div className={`flex items-center gap-3 p-4 rounded-xl border ${
-            isPhoneMapped 
-              ? 'bg-green-50 border-green-200' 
-              : 'bg-red-50 border-red-200'
-          }`}>
-            {isPhoneMapped ? (
-              <>
-                <CheckCircle className="w-5 h-5 text-green-600" />
-                <span className="text-green-800 font-medium">
-                  עמודת טלפון ממופה • {validRows.length} תקינים מתוך {fileData.total_rows}
-                </span>
-              </>
-            ) : (
-              <>
-                <AlertCircle className="w-5 h-5 text-red-600" />
-                <span className="text-red-800 font-medium">חובה למפות עמודת מספר טלפון</span>
-              </>
-            )}
-          </div>
-
-          {/* Column Mapping Cards - ABOVE the table */}
-          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-            <h4 className="text-sm font-medium text-gray-700 mb-3">מיפוי עמודות למשתנים</h4>
-            <div className="flex flex-wrap gap-3">
-              {fileData.columns.map((col, i) => (
-                <div key={i} className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg p-2 shadow-sm">
-                  <span className="text-sm font-medium text-gray-700 min-w-[80px] truncate max-w-[150px]" title={col}>
-                    {col}
-                  </span>
-                  <span className="text-gray-300">→</span>
-                  <MappingSelect
-                    column={col}
-                    value={mapping[col] || ''}
-                    contactFields={contactFields}
-                    userVars={userVars}
-                    onChange={(val) => handleMapColumn(col, val)}
-                  />
-                </div>
-              ))}
+            {/* Status */}
+            <div className={`flex items-center gap-3 p-4 rounded-xl border ${
+              isPhoneMapped && validationResults.validCount > 0
+                ? 'bg-green-50 border-green-200' 
+                : 'bg-red-50 border-red-200'
+            }`}>
+              {isPhoneMapped ? (
+                <>
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  <div>
+                    <span className="text-green-800 font-medium">
+                      {validationResults.validCount} תקינים
+                    </span>
+                    {validationResults.invalidCount > 0 && (
+                      <span className="text-red-600 mr-2">
+                        • {validationResults.invalidCount} לא תקינים
+                      </span>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-5 h-5 text-red-600" />
+                  <span className="text-red-800 font-medium">חובה למפות עמודת טלפון</span>
+                </>
+              )}
             </div>
           </div>
 
-          {/* Data Table Preview */}
+          {/* Data Table with Mapping in Header */}
           <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 w-12">#</th>
+                  {/* Mapping Row */}
+                  <tr className="bg-gray-100 border-b border-gray-200">
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 w-12">#</th>
                     {fileData.columns.map((col, i) => (
-                      <th key={i} className="px-3 py-2.5 text-right text-xs font-semibold text-gray-700 min-w-[120px]">
-                        <div className="flex items-center gap-1">
-                          {mapping[col] === 'phone' && <Phone className="w-3.5 h-3.5 text-green-600" />}
-                          {mapping[col] === 'name' && <User className="w-3.5 h-3.5 text-blue-600" />}
-                          {col}
-                        </div>
+                      <th key={i} className="px-2 py-2 min-w-[150px]">
+                        <select
+                          value={mapping[col] || ''}
+                          onChange={(e) => handleMapColumn(col, e.target.value)}
+                          className={`w-full px-2 py-1.5 text-xs rounded-lg border transition-all ${
+                            mapping[col] 
+                              ? 'bg-green-50 border-green-300 text-green-800 font-medium' 
+                              : 'bg-white border-gray-200 text-gray-500'
+                          }`}
+                        >
+                          <option value="">לא למפות</option>
+                          <optgroup label="שדות איש קשר">
+                            {contactFields.map(f => (
+                              <option key={f.key} value={f.key}>{f.label} {f.required && '*'}</option>
+                            ))}
+                          </optgroup>
+                          {userVars.length > 0 && (
+                            <optgroup label="משתנים שלי">
+                              {userVars.map(v => (
+                                <option key={v.key} value={v.key}>{v.label}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                          <option value="__new__">+ צור משתנה חדש</option>
+                        </select>
+                      </th>
+                    ))}
+                  </tr>
+                  {/* Headers Row */}
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="px-3 py-2 text-center text-xs font-medium text-gray-400"></th>
+                    {fileData.columns.map((col, i) => (
+                      <th key={i} className="px-3 py-2 text-right text-xs font-semibold text-gray-700">
+                        {col}
                       </th>
                     ))}
                   </tr>
@@ -549,14 +526,11 @@ export default function ImportTab({ onRefresh }) {
                     return (
                       <tr key={rowIdx} className={`border-b border-gray-50 hover:bg-gray-50 ${!isValid && isPhoneMapped ? 'bg-red-50/50' : ''}`}>
                         <td className="px-3 py-2 text-center text-xs text-gray-400">{actualIdx + 1}</td>
-                        {fileData.columns.map((col, colIdx) => {
-                          const isMapped = !!mapping[col];
-                          return (
-                            <td key={colIdx} className={`px-3 py-2 text-sm ${isMapped ? 'text-gray-900' : 'text-gray-400'}`}>
-                              {row[colIdx] || <span className="text-gray-300">-</span>}
-                            </td>
-                          );
-                        })}
+                        {fileData.columns.map((col, colIdx) => (
+                          <td key={colIdx} className={`px-3 py-2 text-sm ${mapping[col] ? 'text-gray-900' : 'text-gray-400'}`}>
+                            {row[colIdx] || <span className="text-gray-300">-</span>}
+                          </td>
+                        ))}
                       </tr>
                     );
                   })}
@@ -568,7 +542,7 @@ export default function ImportTab({ onRefresh }) {
             {totalPages > 1 && (
               <div className="bg-gray-50 px-4 py-3 border-t border-gray-200 flex items-center justify-between">
                 <span className="text-sm text-gray-500">
-                  עמוד {currentPage} מתוך {totalPages} ({fileData.total_rows} שורות)
+                  עמוד {currentPage} מתוך {totalPages}
                 </span>
                 <div className="flex items-center gap-2">
                   <button
@@ -600,7 +574,7 @@ export default function ImportTab({ onRefresh }) {
               <select
                 value={targetAudience}
                 onChange={(e) => setTargetAudience(e.target.value)}
-                className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
               >
                 <option value="">ללא - ייבוא כאנשי קשר בלבד</option>
                 {audiences.map(a => (
@@ -609,7 +583,7 @@ export default function ImportTab({ onRefresh }) {
               </select>
               <button
                 onClick={() => setShowCreateAudience(true)}
-                className="px-4 py-2.5 bg-orange-100 text-orange-700 rounded-xl hover:bg-orange-200 font-medium flex items-center gap-2"
+                className="px-4 py-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 font-medium flex items-center gap-2"
               >
                 <Plus className="w-4 h-4" />
                 חדש
@@ -628,31 +602,28 @@ export default function ImportTab({ onRefresh }) {
             </button>
             <button
               onClick={handleImport}
-              disabled={!isPhoneMapped || validRows.length === 0}
+              disabled={!isPhoneMapped || validationResults.validCount === 0}
               className="flex-1 px-6 py-3 bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-xl hover:from-orange-700 hover:to-orange-800 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-orange-500/25"
             >
-              ייבא {validRows.length} אנשי קשר
+              ייבא {validationResults.validCount} אנשי קשר
               <ArrowLeft className="w-4 h-4" />
             </button>
           </div>
 
-          {/* Warning about invalid rows */}
-          {isPhoneMapped && invalidRowsPreview.length > 0 && (
+          {/* Warning */}
+          {isPhoneMapped && validationResults.invalidCount > 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-              <div className="flex items-center gap-2 text-amber-800 font-medium mb-2">
+              <div className="flex items-center gap-2 text-amber-800 font-medium">
                 <AlertTriangle className="w-5 h-5" />
-                {invalidRowsPreview.length} שורות עם מספר טלפון לא תקין (יידלגו)
+                {validationResults.invalidCount} שורות עם טלפון לא תקין יידלגו
               </div>
-              <p className="text-sm text-amber-700">
-                לאחר הייבוא תוכל לערוך את השורות הלא תקינות ולהוסיף אותן ידנית.
-              </p>
             </div>
           )}
         </div>
       )}
 
-      {/* Step 4: Importing */}
-      {step === 4 && (
+      {/* Step 3: Importing */}
+      {step === 3 && (
         <div className="text-center py-16">
           <div className="w-20 h-20 rounded-full bg-orange-100 flex items-center justify-center mx-auto mb-6">
             <Loader2 className="w-10 h-10 text-orange-600 animate-spin" />
@@ -662,8 +633,8 @@ export default function ImportTab({ onRefresh }) {
         </div>
       )}
 
-      {/* Step 5: Done */}
-      {step === 5 && importResult && (
+      {/* Step 4: Done */}
+      {step === 4 && importResult && (
         <div className="space-y-6">
           <div className="text-center py-8">
             <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6">
@@ -674,7 +645,7 @@ export default function ImportTab({ onRefresh }) {
             <div className="grid grid-cols-3 gap-4 max-w-md mx-auto my-8">
               <div className="bg-green-50 rounded-xl p-4">
                 <div className="text-3xl font-bold text-green-600">{importResult.stats.imported}</div>
-                <div className="text-sm text-green-700">נוספו חדשים</div>
+                <div className="text-sm text-green-700">נוספו</div>
               </div>
               <div className="bg-blue-50 rounded-xl p-4">
                 <div className="text-3xl font-bold text-blue-600">{importResult.stats.updated}</div>
@@ -687,21 +658,18 @@ export default function ImportTab({ onRefresh }) {
             </div>
           </div>
 
-          {/* Errors List */}
           {importResult.errors?.length > 0 && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-4">
               <h4 className="font-medium text-red-900 mb-3 flex items-center gap-2">
                 <AlertCircle className="w-5 h-5" />
-                שורות שלא יובאו ({importResult.errors.length})
+                שגיאות ({importResult.errors.length})
               </h4>
-              <div className="max-h-48 overflow-y-auto space-y-2">
+              <div className="max-h-48 overflow-y-auto space-y-2 text-sm">
                 {importResult.errors.map((err, i) => (
-                  <div key={i} className="flex items-center justify-between bg-white rounded-lg p-3 text-sm">
-                    <div>
-                      <span className="text-gray-500">שורה {err.row}:</span>
-                      <span className="text-red-700 mr-2">{err.error}</span>
-                      {err.phone && <code className="bg-gray-100 px-2 py-0.5 rounded text-xs">{err.phone}</code>}
-                    </div>
+                  <div key={i} className="flex items-center gap-2 bg-white rounded-lg p-2">
+                    <span className="text-gray-500">שורה {err.row}:</span>
+                    <span className="text-red-700">{err.error}</span>
+                    {err.phone && <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">{err.phone}</code>}
                   </div>
                 ))}
               </div>
@@ -724,13 +692,11 @@ export default function ImportTab({ onRefresh }) {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowNewVariable(false)}>
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-semibold mb-4">יצירת משתנה חדש</h3>
-            <p className="text-sm text-gray-500 mb-4">
-              המשתנה יתווסף לרשימת המשתנים שלך ויהיה זמין גם בבוטים.
-            </p>
+            <p className="text-sm text-gray-500 mb-4">המשתנה יהיה זמין גם בבוטים.</p>
             
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">שם לתצוגה (עברית)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">שם לתצוגה</label>
                 <input
                   type="text"
                   value={newVarLabel}
@@ -751,9 +717,6 @@ export default function ImportTab({ onRefresh }) {
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 font-mono"
                   dir="ltr"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  ישמש בבוטים כ: <code className="bg-gray-100 px-1.5 py-0.5 rounded">{`{{${newVarKey || 'variable'}}}`}</code>
-                </p>
               </div>
             </div>
             
@@ -808,8 +771,8 @@ export default function ImportTab({ onRefresh }) {
                 <textarea
                   value={newAudienceDesc}
                   onChange={(e) => setNewAudienceDesc(e.target.value)}
-                  placeholder="תיאור קצר של הקהל..."
-                  rows={3}
+                  placeholder="תיאור קצר..."
+                  rows={2}
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 resize-none"
                 />
               </div>
@@ -827,53 +790,13 @@ export default function ImportTab({ onRefresh }) {
                 disabled={!newAudienceName.trim() || creatingAudience}
                 className="flex-1 px-4 py-2.5 bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-xl hover:from-orange-700 hover:to-orange-800 font-medium disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {creatingAudience ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <>
-                    <Plus className="w-4 h-4" />
-                    צור קהל
-                  </>
-                )}
+                {creatingAudience ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                צור קהל
               </button>
             </div>
           </div>
         </div>
       )}
     </div>
-  );
-}
-
-// =============================================
-// Mapping Select Component (Simple dropdown)
-// =============================================
-function MappingSelect({ column, value, contactFields, userVars, onChange }) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className={`px-3 py-1.5 text-sm rounded-lg border transition-all min-w-[140px] ${
-        value 
-          ? 'bg-green-50 border-green-300 text-green-800' 
-          : 'bg-white border-gray-200 text-gray-500'
-      }`}
-    >
-      <option value="">לא למפות</option>
-      <optgroup label="שדות אנשי קשר">
-        {contactFields.map(f => (
-          <option key={f.key} value={f.key}>
-            {f.label} {f.required && '*'}
-          </option>
-        ))}
-      </optgroup>
-      {userVars.length > 0 && (
-        <optgroup label="משתנים שלי">
-          {userVars.map(v => (
-            <option key={v.key} value={v.key}>{v.label}</option>
-          ))}
-        </optgroup>
-      )}
-      <option value="__new__">+ צור משתנה חדש</option>
-    </select>
   );
 }
