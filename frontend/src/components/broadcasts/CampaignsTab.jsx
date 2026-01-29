@@ -487,9 +487,88 @@ function CampaignCard({ campaign, onView, onEdit, onDelete, onAction, onReschedu
   const [showMenu, setShowMenu] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [liveProgress, setLiveProgress] = useState(null);
+  const [countdown, setCountdown] = useState(null);
   const menuButtonRef = useRef(null);
   const status = STATUS_CONFIG[campaign.status] || STATUS_CONFIG.draft;
   const StatusIcon = status.icon;
+  
+  // Countdown timer for scheduled campaigns
+  useEffect(() => {
+    let interval;
+    if (campaign.status === 'scheduled' && campaign.scheduled_at) {
+      const updateCountdown = () => {
+        const now = new Date().getTime();
+        const scheduledTime = new Date(campaign.scheduled_at).getTime();
+        const diff = scheduledTime - now;
+        
+        if (diff <= 0) {
+          setCountdown({ expired: true, text: 'מתחיל עכשיו...' });
+          // Poll for status change when time has passed
+          return true; // Signal to start polling
+        }
+        
+        const hours = Math.floor(diff / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+        
+        let text = '';
+        if (hours > 0) {
+          text = `${hours} שעות ${minutes} דקות`;
+        } else if (minutes > 0) {
+          text = `${minutes} דקות ${seconds} שניות`;
+        } else {
+          text = `${seconds} שניות`;
+        }
+        
+        setCountdown({ expired: false, text, hours, minutes, seconds });
+        return false;
+      };
+      
+      // Initial update
+      const shouldPoll = updateCountdown();
+      
+      if (shouldPoll) {
+        // Start polling for status change
+        const pollInterval = setInterval(async () => {
+          try {
+            const { data } = await api.get(`/broadcasts/campaigns/${campaign.id}`);
+            if (data.campaign?.status !== 'scheduled') {
+              onRefresh?.();
+              clearInterval(pollInterval);
+            }
+          } catch (e) {
+            console.error('Error polling campaign status:', e);
+          }
+        }, 3000);
+        
+        return () => clearInterval(pollInterval);
+      } else {
+        // Update countdown every second
+        interval = setInterval(() => {
+          const shouldStartPolling = updateCountdown();
+          if (shouldStartPolling) {
+            clearInterval(interval);
+            // Start polling
+            const pollInterval = setInterval(async () => {
+              try {
+                const { data } = await api.get(`/broadcasts/campaigns/${campaign.id}`);
+                if (data.campaign?.status !== 'scheduled') {
+                  onRefresh?.();
+                  clearInterval(pollInterval);
+                }
+              } catch (e) {
+                console.error('Error polling campaign status:', e);
+              }
+            }, 3000);
+          }
+        }, 1000);
+      }
+    } else {
+      setCountdown(null);
+    }
+    
+    return () => clearInterval(interval);
+  }, [campaign.id, campaign.status, campaign.scheduled_at, onRefresh]);
   
   // Poll for progress when campaign is running
   useEffect(() => {
@@ -555,9 +634,26 @@ function CampaignCard({ campaign, onView, onEdit, onDelete, onAction, onReschedu
               </div>
               
               {campaign.scheduled_at && campaign.status === 'scheduled' && (
-                <div className="flex items-center gap-1 text-sm text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg w-fit">
-                  <Calendar className="w-4 h-4" />
-                  מתוזמן ל-{new Date(campaign.scheduled_at).toLocaleString('he-IL')}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1 text-sm text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg w-fit">
+                    <Calendar className="w-4 h-4" />
+                    מתוזמן ל-{new Date(campaign.scheduled_at).toLocaleString('he-IL')}
+                  </div>
+                  
+                  {/* Countdown display */}
+                  {countdown && (
+                    countdown.expired ? (
+                      <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 px-3 py-2 rounded-lg animate-pulse">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span className="font-medium">{countdown.text}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
+                        <Timer className="w-4 h-4" />
+                        <span>נשלח בעוד: <strong>{countdown.text}</strong></span>
+                      </div>
+                    )
+                  )}
                 </div>
               )}
               
