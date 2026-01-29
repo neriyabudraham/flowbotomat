@@ -5,7 +5,7 @@ import {
   XCircle, AlertTriangle, User, ChevronDown, ChevronUp
 } from 'lucide-react';
 import api from '../../services/api';
-import socket from '../../services/socket';
+import { getSocket } from '../../services/socket';
 
 export default function AdminTemplates() {
   const [templates, setTemplates] = useState([]);
@@ -32,10 +32,16 @@ export default function AdminTemplates() {
       loadData();
     };
     
-    socket.on('template_pending', handleNewPending);
+    const socket = getSocket();
+    if (socket) {
+      socket.on('template_pending', handleNewPending);
+    }
     
     return () => {
-      socket.off('template_pending', handleNewPending);
+      const socket = getSocket();
+      if (socket) {
+        socket.off('template_pending', handleNewPending);
+      }
     };
   }, []);
 
