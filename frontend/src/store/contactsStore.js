@@ -100,14 +100,20 @@ const useContactsStore = create((set, get) => ({
     }
     
     // Update contact in list - move to top and update last message
+    const messageTime = message.sent_at || new Date().toISOString();
     const updatedContacts = contacts.map(c => 
       c.id === message.contact_id 
-        ? { ...c, last_message: message.content?.substring(0, 100) || message.media_filename || '', last_message_at: message.sent_at || new Date().toISOString() }
+        ? { 
+            ...c, 
+            last_message: message.content?.substring(0, 100) || message.media_filename || '', 
+            last_message_at: messageTime,
+            actual_last_message_at: messageTime // Update both fields
+          }
         : c
     ).sort((a, b) => {
-      // Sort by last_message_at descending (most recent first)
-      const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
-      const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+      // Sort by actual_last_message_at or last_message_at descending (most recent first)
+      const aTime = new Date(a.actual_last_message_at || a.last_message_at || 0).getTime();
+      const bTime = new Date(b.actual_last_message_at || b.last_message_at || 0).getTime();
       return bTime - aTime;
     });
     set({ contacts: updatedContacts });

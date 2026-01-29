@@ -14,6 +14,10 @@ async function listContacts(req, res) {
              (SELECT COUNT(*) FROM messages m WHERE m.contact_id = c.id) as message_count,
              (SELECT content FROM messages m WHERE m.contact_id = c.id ORDER BY sent_at DESC LIMIT 1) as last_message,
              COALESCE(
+               (SELECT MAX(sent_at) FROM messages m WHERE m.contact_id = c.id),
+               c.last_message_at
+             ) as actual_last_message_at,
+             COALESCE(
                (SELECT array_agg(t.name) FROM contact_tags t 
                 JOIN contact_tag_assignments cta ON t.id = cta.tag_id 
                 WHERE cta.contact_id = c.id), 
@@ -62,7 +66,7 @@ async function listContacts(req, res) {
       countParams.push(tag);
     }
     
-    query += ` ORDER BY c.last_message_at DESC NULLS LAST LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    query += ` ORDER BY COALESCE((SELECT MAX(sent_at) FROM messages m WHERE m.contact_id = c.id), c.last_message_at) DESC NULLS LAST LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     params.push(parseInt(limit), offset);
     
     const [result, countResult] = await Promise.all([

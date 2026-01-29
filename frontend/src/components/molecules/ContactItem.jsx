@@ -38,9 +38,12 @@ export default function ContactItem({ contact, isSelected, onClick }) {
     return messageDate.toLocaleDateString('he-IL', { day: 'numeric', month: 'short' });
   };
 
+  // Use actual_last_message_at if available (calculated from messages table), otherwise fall back to last_message_at
+  const lastActivityTime = contact.actual_last_message_at || contact.last_message_at;
+  
   // Check if active (messaged in last hour)
-  const isActive = contact.last_message_at && 
-    new Date(contact.last_message_at) > new Date(Date.now() - 60 * 60 * 1000);
+  const isActive = lastActivityTime && 
+    new Date(lastActivityTime) > new Date(Date.now() - 60 * 60 * 1000);
 
   return (
     <button
@@ -98,10 +101,10 @@ export default function ContactItem({ contact, isSelected, onClick }) {
           <span className={`text-xs flex items-center gap-1 flex-shrink-0 ${
             isActive ? 'text-green-500' : 'text-gray-400'
           }`}>
-            {contact.last_message_at && (
+            {lastActivityTime && (
               <>
                 <Clock className="w-3 h-3" />
-                {getTimeAgo(contact.last_message_at)}
+                {getTimeAgo(lastActivityTime)}
               </>
             )}
           </span>
