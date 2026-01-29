@@ -1,4 +1,5 @@
 const db = require('../../config/database');
+const { getIO } = require('../../services/socket/manager.service');
 
 /**
  * Get all published templates (for users)
@@ -188,6 +189,10 @@ async function submitTemplate(req, res) {
     
     const bot = botResult.rows[0];
     
+    // Get user info for notification
+    const userResult = await db.query('SELECT name, email FROM users WHERE id = $1', [userId]);
+    const userName = userResult.rows[0]?.name || userResult.rows[0]?.email || 'משתמש';
+    
     // Create template with pending status
     const result = await db.query(`
       INSERT INTO bot_templates (
@@ -207,8 +212,42 @@ async function submitTemplate(req, res) {
       userId
     ]);
     
+    const template = result.rows[0];
+    
+    // Notify all admins about the new template submission
+    const adminsResult = await db.query(
+      "SELECT id FROM users WHERE role IN ('admin', 'superadmin')"
+    );
+    
+    const io = getIO();
+    for (const admin of adminsResult.rows) {
+      // Save notification to database
+      await db.query(`
+        INSERT INTO system_notifications (user_id, notification_type, title, message, metadata)
+        VALUES ($1, 'template_pending', $2, $3, $4)
+      `, [
+        admin.id,
+        '📝 תבנית חדשה ממתינה לאישור',
+        `${userName} הגיש תבנית "${template.name || template.name_he}" לאישור`,
+        JSON.stringify({ templateId: template.id, submittedBy: userId, userName })
+      ]);
+      
+      // Send real-time notification
+      if (io) {
+        io.to(`user:${admin.id}`).emit('template_pending', {
+          templateId: template.id,
+          templateName: template.name || template.name_he,
+          submittedBy: userId,
+          userName,
+          message: `${userName} הגיש תבנית "${template.name || template.name_he}" לאישור`
+        });
+      }
+    }
+    
+    console.log(`[Templates] Template ${template.id} submitted by user ${userId}, notified ${adminsResult.rows.length} admins`);
+    
     res.json({ 
-      template: result.rows[0],
+      template,
       message: 'התבנית הוגשה לאישור. תקבל הודעה כשהיא תאושר.'
     });
   } catch (error) {
@@ -360,22 +399,66 @@ async function adminGetTemplates(req, res) {
 async function approveTemplate(req, res) {
   try {
     const { id } = req.params;
+    const { category } = req.body; // Admin can override category
     
-    const result = await db.query(`
-      UPDATE bot_templates 
-      SET status = 'approved', is_published = true, updated_at = NOW()
-      WHERE id = $1
-      RETURNING *
-    `, [id]);
+    // Get current template to get submitter info
+    const currentTemplate = await db.query(
+      'SELECT * FROM bot_templates WHERE id = $1',
+      [id]
+    );
     
-    if (result.rows.length === 0) {
+    if (currentTemplate.rows.length === 0) {
       return res.status(404).json({ error: 'תבנית לא נמצאה' });
     }
     
-    // TODO: Send notification to submitter
+    const submitterId = currentTemplate.rows[0].submitted_by;
+    
+    // Update template - set approved and optionally update category
+    let updateQuery = `
+      UPDATE bot_templates 
+      SET status = 'approved', is_published = true, updated_at = NOW()
+    `;
+    const params = [id];
+    
+    if (category) {
+      updateQuery += `, category = $2 WHERE id = $1`;
+      params.push(category);
+    } else {
+      updateQuery += ` WHERE id = $1`;
+    }
+    updateQuery += ' RETURNING *';
+    
+    const result = await db.query(updateQuery, params);
+    const template = result.rows[0];
+    
+    // Notify the submitter
+    if (submitterId) {
+      // Save notification to database
+      await db.query(`
+        INSERT INTO system_notifications (user_id, notification_type, title, message, metadata)
+        VALUES ($1, 'template_approved', $2, $3, $4)
+      `, [
+        submitterId,
+        '✅ התבנית שלך אושרה!',
+        `התבנית "${template.name || template.name_he}" אושרה ופורסמה בחנות התבניות`,
+        JSON.stringify({ templateId: template.id })
+      ]);
+      
+      // Send real-time notification
+      const io = getIO();
+      if (io) {
+        io.to(`user:${submitterId}`).emit('template_approved', {
+          templateId: template.id,
+          templateName: template.name || template.name_he,
+          message: `התבנית "${template.name || template.name_he}" אושרה ופורסמה!`
+        });
+      }
+      
+      console.log(`[Templates] Template ${template.id} approved, notified user ${submitterId}`);
+    }
     
     res.json({ 
-      template: result.rows[0],
+      template,
       message: 'התבנית אושרה ופורסמה'
     });
   } catch (error) {
@@ -392,6 +475,18 @@ async function rejectTemplate(req, res) {
     const { id } = req.params;
     const { reason } = req.body;
     
+    // Get current template to get submitter info
+    const currentTemplate = await db.query(
+      'SELECT * FROM bot_templates WHERE id = $1',
+      [id]
+    );
+    
+    if (currentTemplate.rows.length === 0) {
+      return res.status(404).json({ error: 'תבנית לא נמצאה' });
+    }
+    
+    const submitterId = currentTemplate.rows[0].submitted_by;
+    
     const result = await db.query(`
       UPDATE bot_templates 
       SET status = 'rejected', rejection_reason = $1, updated_at = NOW()
@@ -399,14 +494,39 @@ async function rejectTemplate(req, res) {
       RETURNING *
     `, [reason || null, id]);
     
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'תבנית לא נמצאה' });
+    const template = result.rows[0];
+    
+    // Notify the submitter
+    if (submitterId) {
+      const reasonText = reason ? `\nסיבה: ${reason}` : '';
+      
+      // Save notification to database
+      await db.query(`
+        INSERT INTO system_notifications (user_id, notification_type, title, message, metadata)
+        VALUES ($1, 'template_rejected', $2, $3, $4)
+      `, [
+        submitterId,
+        '❌ התבנית שלך נדחתה',
+        `התבנית "${template.name || template.name_he}" לא אושרה לפרסום${reasonText}`,
+        JSON.stringify({ templateId: template.id, reason })
+      ]);
+      
+      // Send real-time notification
+      const io = getIO();
+      if (io) {
+        io.to(`user:${submitterId}`).emit('template_rejected', {
+          templateId: template.id,
+          templateName: template.name || template.name_he,
+          reason,
+          message: `התבנית "${template.name || template.name_he}" נדחתה${reasonText}`
+        });
+      }
+      
+      console.log(`[Templates] Template ${template.id} rejected, notified user ${submitterId}`);
     }
     
-    // TODO: Send notification to submitter
-    
     res.json({ 
-      template: result.rows[0],
+      template,
       message: 'התבנית נדחתה'
     });
   } catch (error) {
