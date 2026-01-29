@@ -63,8 +63,6 @@ router.get('/campaigns/:id/stats', campaignsController.getCampaignStats);
 // Contact Import
 // ============================================
 router.post('/import/upload', importController.uploadFile);
-router.get('/import/variables', importController.getVariables);
-router.post('/import/variables', importController.createVariable);
 router.post('/import/execute', importController.executeImport);
 router.post('/import/cancel', importController.cancelImport);
 

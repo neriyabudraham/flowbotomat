@@ -2,22 +2,47 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   Upload, FileText, Loader2, CheckCircle, AlertCircle, X,
   ArrowLeft, ArrowRight, Plus, Database, User, Phone,
-  ChevronDown, Check, FileSpreadsheet, Users, Trash2
+  ChevronDown, Check, FileSpreadsheet, Users, Edit2,
+  ChevronLeft, ChevronRight, Globe, AlertTriangle, Save
 } from 'lucide-react';
 import api from '../../services/api';
 
+// Country codes for phone prefix
+const COUNTRY_CODES = [
+  { code: '972', label: 'ישראל (+972)', flag: '🇮🇱' },
+  { code: '1', label: 'ארה"ב (+1)', flag: '🇺🇸' },
+  { code: '44', label: 'בריטניה (+44)', flag: '🇬🇧' },
+  { code: '49', label: 'גרמניה (+49)', flag: '🇩🇪' },
+  { code: '33', label: 'צרפת (+33)', flag: '🇫🇷' },
+];
+
 export default function ImportTab({ onRefresh }) {
-  // Steps: 1=upload, 2=mapping, 3=importing, 4=done
+  // Steps: 1=upload, 2=mapping, 3=review, 4=importing, 5=done
   const [step, setStep] = useState(1);
+  
+  // Upload state
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   
   // File data
   const [fileData, setFileData] = useState(null);
   
-  // Mapping
+  // Mapping state
   const [mapping, setMapping] = useState({});
-  const [variables, setVariables] = useState({ systemFields: [], userVariables: [] });
+  const [variables, setVariables] = useState({ systemVariables: [], userVariables: [] });
+  const [defaultCountryCode, setDefaultCountryCode] = useState('972');
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const rowsPerPage = 20;
+  
+  // Audiences
   const [audiences, setAudiences] = useState([]);
   const [targetAudience, setTargetAudience] = useState('');
+  const [showCreateAudience, setShowCreateAudience] = useState(false);
+  const [newAudienceName, setNewAudienceName] = useState('');
+  const [newAudienceDesc, setNewAudienceDesc] = useState('');
+  const [creatingAudience, setCreatingAudience] = useState(false);
   
   // New variable modal
   const [showNewVariable, setShowNewVariable] = useState(false);
@@ -29,6 +54,10 @@ export default function ImportTab({ onRefresh }) {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   
+  // Invalid rows for editing
+  const [invalidRows, setInvalidRows] = useState([]);
+  const [editingInvalid, setEditingInvalid] = useState(null);
+  
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -38,8 +67,8 @@ export default function ImportTab({ onRefresh }) {
   const loadData = async () => {
     try {
       const [varsRes, audRes] = await Promise.all([
-        api.get('/broadcasts/import/variables'),
-        api.get('/broadcasts/audiences')
+        api.get('/variables'),
+        api.get('/broadcasts/audiences').catch(() => ({ data: { audiences: [] } }))
       ]);
       setVariables(varsRes.data);
       setAudiences(audRes.data.audiences?.filter(a => a.is_static) || []);
@@ -56,8 +85,15 @@ export default function ImportTab({ onRefresh }) {
     formData.append('file', file);
     
     try {
+      setUploading(true);
+      setUploadProgress(0);
+      
       const { data } = await api.post('/broadcasts/import/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (progressEvent) => {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setUploadProgress(percent);
+        }
       });
       
       setFileData(data);
@@ -66,17 +102,20 @@ export default function ImportTab({ onRefresh }) {
       const autoMapping = {};
       data.columns.forEach(col => {
         const colLower = col.toLowerCase().trim();
-        if (colLower.includes('טלפון') || colLower.includes('phone') || colLower.includes('נייד') || colLower.includes('סלולרי') || colLower === 'פלאפון') {
+        if (colLower.includes('טלפון') || colLower.includes('phone') || colLower.includes('נייד') || colLower.includes('סלולרי') || colLower === 'פלאפון' || colLower === 'מספר') {
           autoMapping[col] = 'phone';
-        } else if (colLower === 'שם' || colLower.includes('name') || colLower === 'שם מלא' || colLower === 'שם פרטי') {
+        } else if (colLower === 'שם' || colLower.includes('name') || colLower === 'שם מלא' || colLower === 'שם פרטי' || colLower === 'full_name') {
           autoMapping[col] = 'name';
         }
       });
       setMapping(autoMapping);
-      
+      setCurrentPage(1);
       setStep(2);
     } catch (e) {
       alert(e.response?.data?.error || 'שגיאה בהעלאת הקובץ');
+    } finally {
+      setUploading(false);
+      setUploadProgress(0);
     }
     
     if (fileInputRef.current) {
@@ -103,20 +142,20 @@ export default function ImportTab({ onRefresh }) {
     if (!newVarKey || !newVarLabel) return;
     
     try {
-      const { data } = await api.post('/broadcasts/import/variables', {
-        key: newVarKey,
+      const { data } = await api.post('/variables', {
+        name: newVarKey,
         label: newVarLabel
       });
       
       // Add to variables list
       setVariables(prev => ({
         ...prev,
-        userVariables: [...prev.userVariables, data.variable]
+        userVariables: [...prev.userVariables, data]
       }));
       
       // Map the column
       if (newVarColumn) {
-        setMapping(prev => ({ ...prev, [newVarColumn]: data.variable.key }));
+        setMapping(prev => ({ ...prev, [newVarColumn]: newVarKey }));
       }
       
       setShowNewVariable(false);
@@ -128,36 +167,119 @@ export default function ImportTab({ onRefresh }) {
     }
   };
 
+  const handleCreateAudience = async () => {
+    if (!newAudienceName.trim()) return;
+    
+    try {
+      setCreatingAudience(true);
+      const { data } = await api.post('/broadcasts/audiences', {
+        name: newAudienceName.trim(),
+        description: newAudienceDesc.trim(),
+        is_static: true
+      });
+      
+      setAudiences(prev => [...prev, data.audience]);
+      setTargetAudience(data.audience.id);
+      setShowCreateAudience(false);
+      setNewAudienceName('');
+      setNewAudienceDesc('');
+    } catch (e) {
+      alert(e.response?.data?.error || 'שגיאה ביצירת קהל');
+    } finally {
+      setCreatingAudience(false);
+    }
+  };
+
+  // Format phone number with country code support
+  const formatPhoneNumber = (phone, countryCode = defaultCountryCode) => {
+    if (!phone) return null;
+    
+    // Convert to string and remove all non-digits except +
+    let clean = String(phone).replace(/[^\d+]/g, '');
+    
+    // Remove + prefix if exists
+    if (clean.startsWith('+')) {
+      clean = clean.substring(1);
+    }
+    
+    // If starts with 0, replace with country code
+    if (clean.startsWith('0')) {
+      clean = countryCode + clean.substring(1);
+    }
+    // If doesn't start with country code and is 9-10 digits (local number), add country code
+    else if (!clean.startsWith(countryCode) && clean.length >= 9 && clean.length <= 10) {
+      clean = countryCode + clean;
+    }
+    
+    return clean;
+  };
+
+  const isValidPhoneNumber = (phone) => {
+    if (!phone) return false;
+    // 10-15 digits
+    return /^\d{10,15}$/.test(phone);
+  };
+
+  // Pre-validate all rows
+  const getValidationResults = () => {
+    if (!fileData || !mapping) return { valid: [], invalid: [] };
+    
+    const phoneColumn = Object.keys(mapping).find(col => mapping[col] === 'phone');
+    if (!phoneColumn) return { valid: [], invalid: [] };
+    
+    const phoneColIndex = fileData.columns.indexOf(phoneColumn);
+    const valid = [];
+    const invalid = [];
+    
+    fileData.rows.forEach((row, idx) => {
+      const rawPhone = row[phoneColIndex];
+      const formatted = formatPhoneNumber(rawPhone);
+      const isValid = isValidPhoneNumber(formatted);
+      
+      if (isValid) {
+        valid.push({ idx, row, phone: formatted });
+      } else {
+        invalid.push({ 
+          idx, 
+          row, 
+          rawPhone,
+          formatted,
+          error: !rawPhone ? 'ריק' : 'לא תקין'
+        });
+      }
+    });
+    
+    return { valid, invalid };
+  };
+
   const handleImport = async () => {
-    if (!mapping.phone && !Object.values(mapping).includes('phone')) {
+    const phoneColumn = Object.keys(mapping).find(col => mapping[col] === 'phone');
+    if (!phoneColumn) {
       alert('חובה למפות עמודת טלפון');
       return;
     }
     
-    // Convert mapping format: { column: variable }
-    const mappingForBackend = {};
-    Object.entries(mapping).forEach(([col, varKey]) => {
-      mappingForBackend[col] = varKey;
-    });
+    const { valid, invalid } = getValidationResults();
+    setInvalidRows(invalid);
     
-    // Ensure phone is in mapping
-    if (!Object.values(mappingForBackend).includes('phone')) {
-      alert('חובה למפות עמודת טלפון');
+    if (valid.length === 0) {
+      alert('אין שורות תקינות לייבוא');
       return;
     }
     
     try {
       setImporting(true);
-      setStep(3);
+      setStep(4);
       
       const { data } = await api.post('/broadcasts/import/execute', {
         file_path: fileData.file_path,
-        mapping: mappingForBackend,
-        audience_id: targetAudience || null
+        mapping,
+        audience_id: targetAudience || null,
+        default_country_code: defaultCountryCode
       });
       
       setImportResult(data);
-      setStep(4);
+      setStep(5);
       onRefresh?.();
     } catch (e) {
       alert(e.response?.data?.error || 'שגיאה בייבוא');
@@ -179,26 +301,48 @@ export default function ImportTab({ onRefresh }) {
     setMapping({});
     setTargetAudience('');
     setImportResult(null);
+    setInvalidRows([]);
+    setCurrentPage(1);
   };
 
   const isPhoneMapped = Object.values(mapping).includes('phone');
-  const allVariables = [
-    ...variables.systemFields,
-    ...variables.userVariables.map(v => ({ ...v, isSystem: false }))
-  ];
+  
+  // Get all available variables for mapping
+  const getAvailableVariables = () => {
+    const contactFields = [
+      { key: 'phone', label: 'מספר טלפון', required: true, isSystem: true },
+      { key: 'name', label: 'שם איש קשר', required: false, isSystem: true },
+    ];
+    
+    const userVars = (variables.userVariables || []).map(v => ({
+      key: v.name,
+      label: v.label || v.name,
+      isSystem: false
+    }));
+    
+    return { contactFields, userVars };
+  };
+
+  const { contactFields, userVars } = getAvailableVariables();
+  const { valid: validRows, invalid: invalidRowsPreview } = getValidationResults();
+  
+  // Pagination
+  const totalPages = fileData ? Math.ceil(fileData.rows.length / rowsPerPage) : 0;
+  const paginatedRows = fileData ? fileData.rows.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage) : [];
 
   return (
     <div className="space-y-6">
       {/* Progress Steps */}
       <div className="flex items-center justify-center gap-2 mb-8">
         {[
-          { num: 1, label: 'העלאת קובץ' },
-          { num: 2, label: 'מיפוי שדות' },
-          { num: 3, label: 'ייבוא' },
-          { num: 4, label: 'סיום' }
+          { num: 1, label: 'העלאה' },
+          { num: 2, label: 'מיפוי' },
+          { num: 3, label: 'אישור' },
+          { num: 4, label: 'ייבוא' },
+          { num: 5, label: 'סיום' }
         ].map((s, i) => (
           <div key={s.num} className="flex items-center">
-            <div className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all ${
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-full transition-all ${
               step === s.num 
                 ? 'bg-orange-600 text-white shadow-lg' 
                 : step > s.num 
@@ -206,13 +350,13 @@ export default function ImportTab({ onRefresh }) {
                   : 'bg-gray-100 text-gray-400'
             }`}>
               {step > s.num ? (
-                <CheckCircle className="w-5 h-5" />
+                <CheckCircle className="w-4 h-4" />
               ) : (
-                <span className="w-5 h-5 flex items-center justify-center text-sm font-bold">{s.num}</span>
+                <span className="w-4 h-4 flex items-center justify-center text-xs font-bold">{s.num}</span>
               )}
-              <span className="text-sm font-medium hidden sm:inline">{s.label}</span>
+              <span className="text-xs font-medium hidden sm:inline">{s.label}</span>
             </div>
-            {i < 3 && <div className={`w-8 h-0.5 mx-1 ${step > s.num ? 'bg-green-300' : 'bg-gray-200'}`} />}
+            {i < 4 && <div className={`w-6 h-0.5 mx-1 ${step > s.num ? 'bg-green-300' : 'bg-gray-200'}`} />}
           </div>
         ))}
       </div>
@@ -221,8 +365,12 @@ export default function ImportTab({ onRefresh }) {
       {step === 1 && (
         <div className="space-y-6">
           <div 
-            onClick={() => fileInputRef.current?.click()}
-            className="border-2 border-dashed border-gray-300 rounded-2xl p-12 text-center cursor-pointer hover:border-orange-400 hover:bg-orange-50/50 transition-all group"
+            onClick={() => !uploading && fileInputRef.current?.click()}
+            className={`border-2 border-dashed rounded-2xl p-12 text-center transition-all group ${
+              uploading 
+                ? 'border-orange-400 bg-orange-50/50 cursor-wait' 
+                : 'border-gray-300 cursor-pointer hover:border-orange-400 hover:bg-orange-50/50'
+            }`}
           >
             <input
               ref={fileInputRef}
@@ -230,23 +378,45 @@ export default function ImportTab({ onRefresh }) {
               accept=".xlsx,.xls,.csv"
               onChange={handleFileSelect}
               className="hidden"
+              disabled={uploading}
             />
-            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform shadow-lg">
-              <Upload className="w-10 h-10 text-white" />
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">העלה קובץ אנשי קשר</h3>
-            <p className="text-gray-500 mb-4">גרור קובץ לכאן או לחץ לבחירה</p>
-            <div className="flex items-center justify-center gap-4 text-sm text-gray-400">
-              <span className="flex items-center gap-1">
-                <FileSpreadsheet className="w-4 h-4" />
-                Excel (.xlsx, .xls)
-              </span>
-              <span>או</span>
-              <span className="flex items-center gap-1">
-                <FileText className="w-4 h-4" />
-                CSV
-              </span>
-            </div>
+            
+            {uploading ? (
+              <>
+                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center mx-auto mb-6 shadow-lg">
+                  <Loader2 className="w-10 h-10 text-white animate-spin" />
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-4">מעלה קובץ...</h3>
+                <div className="max-w-xs mx-auto">
+                  <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-orange-500 to-orange-600 transition-all duration-300"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                  <p className="text-sm text-gray-500 mt-2">{uploadProgress}%</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform shadow-lg">
+                  <Upload className="w-10 h-10 text-white" />
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">העלה קובץ אנשי קשר</h3>
+                <p className="text-gray-500 mb-4">גרור קובץ לכאן או לחץ לבחירה</p>
+                <div className="flex items-center justify-center gap-4 text-sm text-gray-400">
+                  <span className="flex items-center gap-1">
+                    <FileSpreadsheet className="w-4 h-4" />
+                    Excel
+                  </span>
+                  <span>או</span>
+                  <span className="flex items-center gap-1">
+                    <FileText className="w-4 h-4" />
+                    CSV
+                  </span>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Info Box */}
@@ -258,7 +428,7 @@ export default function ImportTab({ onRefresh }) {
             <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
               <li>הקובץ חייב לכלול שורת כותרות בראש</li>
               <li>עמודת מספר טלפון היא חובה</li>
-              <li>פורמטים נתמכים: 0501234567, +972501234567, 972501234567</li>
+              <li>פורמטים נתמכים: 0501234567, 050-123-4567, +972501234567</li>
               <li>אנשי קשר קיימים יתעדכנו (לא ישוכפלו)</li>
             </ul>
           </div>
@@ -290,6 +460,23 @@ export default function ImportTab({ onRefresh }) {
             </button>
           </div>
 
+          {/* Country Code Selector */}
+          <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <Globe className="w-4 h-4 inline ml-1" />
+              קידומת מדינה (למספרים ללא קידומת)
+            </label>
+            <select
+              value={defaultCountryCode}
+              onChange={(e) => setDefaultCountryCode(e.target.value)}
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+            >
+              {COUNTRY_CODES.map(c => (
+                <option key={c.code} value={c.code}>{c.flag} {c.label}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Mapping Status */}
           <div className={`flex items-center gap-3 p-4 rounded-xl border ${
             isPhoneMapped 
@@ -299,7 +486,9 @@ export default function ImportTab({ onRefresh }) {
             {isPhoneMapped ? (
               <>
                 <CheckCircle className="w-5 h-5 text-green-600" />
-                <span className="text-green-800 font-medium">עמודת טלפון ממופה - ניתן להמשיך</span>
+                <span className="text-green-800 font-medium">
+                  עמודת טלפון ממופה • {validRows.length} תקינים מתוך {fileData.total_rows}
+                </span>
               </>
             ) : (
               <>
@@ -309,52 +498,94 @@ export default function ImportTab({ onRefresh }) {
             )}
           </div>
 
-          {/* Data Table with Mapping */}
+          {/* Column Mapping Cards - ABOVE the table */}
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+            <h4 className="text-sm font-medium text-gray-700 mb-3">מיפוי עמודות למשתנים</h4>
+            <div className="flex flex-wrap gap-3">
+              {fileData.columns.map((col, i) => (
+                <div key={i} className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg p-2 shadow-sm">
+                  <span className="text-sm font-medium text-gray-700 min-w-[80px] truncate max-w-[150px]" title={col}>
+                    {col}
+                  </span>
+                  <span className="text-gray-300">→</span>
+                  <MappingSelect
+                    column={col}
+                    value={mapping[col] || ''}
+                    contactFields={contactFields}
+                    userVars={userVars}
+                    onChange={(val) => handleMapColumn(col, val)}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Data Table Preview */}
           <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full text-sm">
                 <thead>
-                  {/* Mapping Row */}
                   <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 w-12">#</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 w-12">#</th>
                     {fileData.columns.map((col, i) => (
-                      <th key={i} className="px-4 py-3 min-w-[180px]">
-                        <MappingDropdown
-                          column={col}
-                          value={mapping[col] || ''}
-                          variables={allVariables}
-                          onChange={(val) => handleMapColumn(col, val)}
-                        />
-                      </th>
-                    ))}
-                  </tr>
-                  {/* Headers Row */}
-                  <tr className="bg-white border-b border-gray-100">
-                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-400"></th>
-                    {fileData.columns.map((col, i) => (
-                      <th key={i} className="px-4 py-2 text-right text-sm font-semibold text-gray-900">
-                        {col}
+                      <th key={i} className="px-3 py-2.5 text-right text-xs font-semibold text-gray-700 min-w-[120px]">
+                        <div className="flex items-center gap-1">
+                          {mapping[col] === 'phone' && <Phone className="w-3.5 h-3.5 text-green-600" />}
+                          {mapping[col] === 'name' && <User className="w-3.5 h-3.5 text-blue-600" />}
+                          {col}
+                        </div>
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="max-h-[350px] overflow-y-auto">
-                  {fileData.rows.slice(0, 15).map((row, rowIdx) => (
-                    <tr key={rowIdx} className="border-b border-gray-50 hover:bg-gray-50">
-                      <td className="px-4 py-2.5 text-center text-xs text-gray-400">{rowIdx + 1}</td>
-                      {fileData.columns.map((col, colIdx) => (
-                        <td key={colIdx} className="px-4 py-2.5 text-sm text-gray-700">
-                          {row[colIdx] || <span className="text-gray-300">-</span>}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
+                <tbody>
+                  {paginatedRows.map((row, rowIdx) => {
+                    const actualIdx = (currentPage - 1) * rowsPerPage + rowIdx;
+                    const phoneColIdx = fileData.columns.indexOf(Object.keys(mapping).find(col => mapping[col] === 'phone'));
+                    const rawPhone = phoneColIdx >= 0 ? row[phoneColIdx] : null;
+                    const formattedPhone = formatPhoneNumber(rawPhone);
+                    const isValid = isValidPhoneNumber(formattedPhone);
+                    
+                    return (
+                      <tr key={rowIdx} className={`border-b border-gray-50 hover:bg-gray-50 ${!isValid && isPhoneMapped ? 'bg-red-50/50' : ''}`}>
+                        <td className="px-3 py-2 text-center text-xs text-gray-400">{actualIdx + 1}</td>
+                        {fileData.columns.map((col, colIdx) => {
+                          const isMapped = !!mapping[col];
+                          return (
+                            <td key={colIdx} className={`px-3 py-2 text-sm ${isMapped ? 'text-gray-900' : 'text-gray-400'}`}>
+                              {row[colIdx] || <span className="text-gray-300">-</span>}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-            {fileData.rows.length > 15 && (
-              <div className="bg-gray-50 px-4 py-2 text-center text-sm text-gray-500 border-t border-gray-200">
-                מציג 15 מתוך {fileData.total_rows} שורות
+            
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="bg-gray-50 px-4 py-3 border-t border-gray-200 flex items-center justify-between">
+                <span className="text-sm text-gray-500">
+                  עמוד {currentPage} מתוך {totalPages} ({fileData.total_rows} שורות)
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="p-2 rounded-lg border border-gray-200 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="p-2 rounded-lg border border-gray-200 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -365,16 +596,25 @@ export default function ImportTab({ onRefresh }) {
               <Users className="w-4 h-4 inline ml-1" />
               הוסף לקהל (אופציונלי)
             </label>
-            <select
-              value={targetAudience}
-              onChange={(e) => setTargetAudience(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-            >
-              <option value="">ללא - ייבוא כאנשי קשר בלבד</option>
-              {audiences.map(a => (
-                <option key={a.id} value={a.id}>{a.name} ({a.contacts_count || 0} אנשי קשר)</option>
-              ))}
-            </select>
+            <div className="flex gap-2">
+              <select
+                value={targetAudience}
+                onChange={(e) => setTargetAudience(e.target.value)}
+                className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+              >
+                <option value="">ללא - ייבוא כאנשי קשר בלבד</option>
+                {audiences.map(a => (
+                  <option key={a.id} value={a.id}>{a.name} ({a.contacts_count || 0})</option>
+                ))}
+              </select>
+              <button
+                onClick={() => setShowCreateAudience(true)}
+                className="px-4 py-2.5 bg-orange-100 text-orange-700 rounded-xl hover:bg-orange-200 font-medium flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                חדש
+              </button>
+            </div>
           </div>
 
           {/* Actions */}
@@ -388,18 +628,31 @@ export default function ImportTab({ onRefresh }) {
             </button>
             <button
               onClick={handleImport}
-              disabled={!isPhoneMapped}
+              disabled={!isPhoneMapped || validRows.length === 0}
               className="flex-1 px-6 py-3 bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-xl hover:from-orange-700 hover:to-orange-800 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-orange-500/25"
             >
-              ייבא {fileData.total_rows} אנשי קשר
+              ייבא {validRows.length} אנשי קשר
               <ArrowLeft className="w-4 h-4" />
             </button>
           </div>
+
+          {/* Warning about invalid rows */}
+          {isPhoneMapped && invalidRowsPreview.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <div className="flex items-center gap-2 text-amber-800 font-medium mb-2">
+                <AlertTriangle className="w-5 h-5" />
+                {invalidRowsPreview.length} שורות עם מספר טלפון לא תקין (יידלגו)
+              </div>
+              <p className="text-sm text-amber-700">
+                לאחר הייבוא תוכל לערוך את השורות הלא תקינות ולהוסיף אותן ידנית.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Step 3: Importing */}
-      {step === 3 && (
+      {/* Step 4: Importing */}
+      {step === 4 && (
         <div className="text-center py-16">
           <div className="w-20 h-20 rounded-full bg-orange-100 flex items-center justify-center mx-auto mb-6">
             <Loader2 className="w-10 h-10 text-orange-600 animate-spin" />
@@ -409,48 +662,60 @@ export default function ImportTab({ onRefresh }) {
         </div>
       )}
 
-      {/* Step 4: Done */}
-      {step === 4 && importResult && (
-        <div className="text-center py-12">
-          <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6">
-            <CheckCircle className="w-10 h-10 text-green-600" />
-          </div>
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">הייבוא הושלם!</h3>
-          
-          <div className="grid grid-cols-3 gap-4 max-w-md mx-auto my-8">
-            <div className="bg-green-50 rounded-xl p-4">
-              <div className="text-3xl font-bold text-green-600">{importResult.stats.imported}</div>
-              <div className="text-sm text-green-700">נוספו חדשים</div>
+      {/* Step 5: Done */}
+      {step === 5 && importResult && (
+        <div className="space-y-6">
+          <div className="text-center py-8">
+            <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6">
+              <CheckCircle className="w-10 h-10 text-green-600" />
             </div>
-            <div className="bg-blue-50 rounded-xl p-4">
-              <div className="text-3xl font-bold text-blue-600">{importResult.stats.updated}</div>
-              <div className="text-sm text-blue-700">עודכנו</div>
-            </div>
-            <div className="bg-red-50 rounded-xl p-4">
-              <div className="text-3xl font-bold text-red-600">{importResult.stats.errors}</div>
-              <div className="text-sm text-red-700">שגיאות</div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">הייבוא הושלם!</h3>
+            
+            <div className="grid grid-cols-3 gap-4 max-w-md mx-auto my-8">
+              <div className="bg-green-50 rounded-xl p-4">
+                <div className="text-3xl font-bold text-green-600">{importResult.stats.imported}</div>
+                <div className="text-sm text-green-700">נוספו חדשים</div>
+              </div>
+              <div className="bg-blue-50 rounded-xl p-4">
+                <div className="text-3xl font-bold text-blue-600">{importResult.stats.updated}</div>
+                <div className="text-sm text-blue-700">עודכנו</div>
+              </div>
+              <div className="bg-red-50 rounded-xl p-4">
+                <div className="text-3xl font-bold text-red-600">{importResult.stats.errors}</div>
+                <div className="text-sm text-red-700">שגיאות</div>
+              </div>
             </div>
           </div>
 
+          {/* Errors List */}
           {importResult.errors?.length > 0 && (
-            <div className="max-w-lg mx-auto mb-6">
-              <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-right">
-                <h4 className="font-medium text-red-900 mb-2">שגיאות ({importResult.errors.length})</h4>
-                <div className="max-h-32 overflow-y-auto text-sm text-red-700 space-y-1">
-                  {importResult.errors.map((err, i) => (
-                    <div key={i}>שורה {err.row}: {err.error}</div>
-                  ))}
-                </div>
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+              <h4 className="font-medium text-red-900 mb-3 flex items-center gap-2">
+                <AlertCircle className="w-5 h-5" />
+                שורות שלא יובאו ({importResult.errors.length})
+              </h4>
+              <div className="max-h-48 overflow-y-auto space-y-2">
+                {importResult.errors.map((err, i) => (
+                  <div key={i} className="flex items-center justify-between bg-white rounded-lg p-3 text-sm">
+                    <div>
+                      <span className="text-gray-500">שורה {err.row}:</span>
+                      <span className="text-red-700 mr-2">{err.error}</span>
+                      {err.phone && <code className="bg-gray-100 px-2 py-0.5 rounded text-xs">{err.phone}</code>}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
           
-          <button
-            onClick={handleReset}
-            className="px-8 py-3 bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-xl hover:from-orange-700 hover:to-orange-800 font-medium shadow-lg shadow-orange-500/25"
-          >
-            ייבוא נוסף
-          </button>
+          <div className="text-center">
+            <button
+              onClick={handleReset}
+              className="px-8 py-3 bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-xl hover:from-orange-700 hover:to-orange-800 font-medium shadow-lg shadow-orange-500/25"
+            >
+              ייבוא נוסף
+            </button>
+          </div>
         </div>
       )}
 
@@ -510,105 +775,105 @@ export default function ImportTab({ onRefresh }) {
           </div>
         </div>
       )}
+
+      {/* Create Audience Modal */}
+      {showCreateAudience && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowCreateAudience(false)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center">
+                <Users className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold">יצירת קהל חדש</h3>
+                <p className="text-sm text-gray-500">הקהל יווצר ואנשי הקשר יתווספו אליו</p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">שם הקהל *</label>
+                <input
+                  type="text"
+                  value={newAudienceName}
+                  onChange={(e) => setNewAudienceName(e.target.value)}
+                  placeholder="לדוגמה: לקוחות VIP"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500"
+                  autoFocus
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">תיאור (אופציונלי)</label>
+                <textarea
+                  value={newAudienceDesc}
+                  onChange={(e) => setNewAudienceDesc(e.target.value)}
+                  placeholder="תיאור קצר של הקהל..."
+                  rows={3}
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 resize-none"
+                />
+              </div>
+            </div>
+            
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowCreateAudience(false)}
+                className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 font-medium"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={handleCreateAudience}
+                disabled={!newAudienceName.trim() || creatingAudience}
+                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-xl hover:from-orange-700 hover:to-orange-800 font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {creatingAudience ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4" />
+                    צור קהל
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // =============================================
-// Mapping Dropdown Component
+// Mapping Select Component (Simple dropdown)
 // =============================================
-function MappingDropdown({ column, value, variables, onChange }) {
-  const [isOpen, setIsOpen] = useState(false);
-  
-  const selectedVar = variables.find(v => v.key === value);
-  
+function MappingSelect({ column, value, contactFields, userVars, onChange }) {
   return (
-    <div className="relative">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-sm transition-all ${
-          value 
-            ? 'bg-green-50 border-green-300 text-green-800' 
-            : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
-        }`}
-      >
-        <span className="flex items-center gap-1.5 truncate">
-          {value ? (
-            <>
-              {selectedVar?.isSystem ? <Database className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" /> : <User className="w-3.5 h-3.5 text-purple-500 flex-shrink-0" />}
-              <span className="truncate">{selectedVar?.label || value}</span>
-            </>
-          ) : (
-            'בחר משתנה...'
-          )}
-        </span>
-        <ChevronDown className="w-4 h-4 flex-shrink-0" />
-      </button>
-      
-      {isOpen && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
-          <div className="absolute top-full right-0 mt-1 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-20 overflow-hidden">
-            {/* None option */}
-            <button
-              onClick={() => { onChange(''); setIsOpen(false); }}
-              className="w-full text-right px-4 py-2.5 text-sm text-gray-500 hover:bg-gray-50"
-            >
-              לא למפות
-            </button>
-            
-            <div className="border-t border-gray-100" />
-            
-            {/* System fields */}
-            <div className="px-3 py-1.5 text-xs text-gray-400 bg-gray-50 font-medium">שדות מערכת</div>
-            {variables.filter(v => v.isSystem).map(v => (
-              <button
-                key={v.key}
-                onClick={() => { onChange(v.key); setIsOpen(false); }}
-                className={`w-full text-right px-4 py-2.5 text-sm flex items-center gap-2 hover:bg-blue-50 ${
-                  value === v.key ? 'bg-blue-50 text-blue-700' : ''
-                }`}
-              >
-                {value === v.key && <Check className="w-4 h-4 text-blue-600" />}
-                <Database className="w-4 h-4 text-blue-500" />
-                <span className="flex-1">{v.label}</span>
-                {v.required && <span className="text-xs text-red-500">חובה</span>}
-              </button>
-            ))}
-            
-            {/* User variables */}
-            {variables.filter(v => !v.isSystem).length > 0 && (
-              <>
-                <div className="px-3 py-1.5 text-xs text-gray-400 bg-gray-50 font-medium">משתנים שלי</div>
-                {variables.filter(v => !v.isSystem).map(v => (
-                  <button
-                    key={v.key}
-                    onClick={() => { onChange(v.key); setIsOpen(false); }}
-                    className={`w-full text-right px-4 py-2.5 text-sm flex items-center gap-2 hover:bg-purple-50 ${
-                      value === v.key ? 'bg-purple-50 text-purple-700' : ''
-                    }`}
-                  >
-                    {value === v.key && <Check className="w-4 h-4 text-purple-600" />}
-                    <User className="w-4 h-4 text-purple-500" />
-                    <span className="flex-1">{v.label}</span>
-                  </button>
-                ))}
-              </>
-            )}
-            
-            <div className="border-t border-gray-100" />
-            
-            {/* Create new */}
-            <button
-              onClick={() => { onChange('__new__'); setIsOpen(false); }}
-              className="w-full text-right px-4 py-2.5 text-sm text-orange-600 hover:bg-orange-50 flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              צור משתנה חדש
-            </button>
-          </div>
-        </>
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={`px-3 py-1.5 text-sm rounded-lg border transition-all min-w-[140px] ${
+        value 
+          ? 'bg-green-50 border-green-300 text-green-800' 
+          : 'bg-white border-gray-200 text-gray-500'
+      }`}
+    >
+      <option value="">לא למפות</option>
+      <optgroup label="שדות אנשי קשר">
+        {contactFields.map(f => (
+          <option key={f.key} value={f.key}>
+            {f.label} {f.required && '*'}
+          </option>
+        ))}
+      </optgroup>
+      {userVars.length > 0 && (
+        <optgroup label="משתנים שלי">
+          {userVars.map(v => (
+            <option key={v.key} value={v.key}>{v.label}</option>
+          ))}
+        </optgroup>
       )}
-    </div>
+      <option value="__new__">+ צור משתנה חדש</option>
+    </select>
   );
 }

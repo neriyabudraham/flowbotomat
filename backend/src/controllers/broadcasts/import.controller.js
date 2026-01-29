@@ -34,12 +34,6 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB
 }).single('file');
 
-// System fields for contacts (always available)
-const CONTACT_SYSTEM_FIELDS = [
-  { key: 'phone', label: 'מספר טלפון', type: 'phone', required: true, isSystem: true },
-  { key: 'name', label: 'שם איש קשר', type: 'text', required: false, isSystem: true },
-];
-
 /**
  * Upload file and return parsed data
  */
@@ -99,74 +93,6 @@ async function uploadFile(req, res) {
 }
 
 /**
- * Get available variables for mapping
- * Uses existing user_variable_definitions table (same as bots)
- */
-async function getVariables(req, res) {
-  try {
-    const userId = req.user.id;
-    
-    // Get user-defined variables from the existing system
-    const result = await pool.query(`
-      SELECT name as key, label, var_type as type, is_system
-      FROM user_variable_definitions 
-      WHERE user_id = $1 
-      ORDER BY is_system DESC, label ASC
-    `, [userId]);
-    
-    res.json({
-      systemFields: CONTACT_SYSTEM_FIELDS,
-      userVariables: result.rows.map(v => ({
-        key: v.key,
-        label: v.label,
-        type: v.type,
-        isSystem: v.is_system
-      }))
-    });
-  } catch (error) {
-    console.error('[Import] Get variables error:', error);
-    res.status(500).json({ error: 'שגיאה בטעינת משתנים' });
-  }
-}
-
-/**
- * Create a new variable (uses existing variables system)
- */
-async function createVariable(req, res) {
-  try {
-    const userId = req.user.id;
-    const { key, label } = req.body;
-    
-    if (!key || !label) {
-      return res.status(400).json({ error: 'שם ותווית נדרשים' });
-    }
-    
-    // Validate key format
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
-      return res.status(400).json({ error: 'שם המשתנה יכול להכיל רק אותיות אנגליות, מספרים וקו תחתון' });
-    }
-    
-    // Reserved names
-    const reserved = ['name', 'phone', 'contact_phone', 'last_message', 'bot_name', 'date', 'time', 'day', 'email'];
-    if (reserved.includes(key.toLowerCase())) {
-      return res.status(400).json({ error: 'שם משתנה שמור - בחר שם אחר' });
-    }
-    
-    const result = await pool.query(`
-      INSERT INTO user_variable_definitions (user_id, name, label, var_type, description)
-      VALUES ($1, $2, $3, 'text', $4)
-      ON CONFLICT (user_id, name) DO UPDATE SET label = $3
-      RETURNING name as key, label, var_type as type
-    `, [userId, key.toLowerCase(), label, `נוצר מייבוא אנשי קשר`]);
-    
-    res.status(201).json({ variable: result.rows[0] });
-  } catch (error) {
-    console.error('[Import] Create variable error:', error);
-    res.status(500).json({ error: 'שגיאה ביצירת משתנה' });
-  }
-}
-
-/**
  * Execute the import
  */
 async function executeImport(req, res) {
@@ -174,13 +100,9 @@ async function executeImport(req, res) {
   
   try {
     const userId = req.user.id;
-    const { file_path, mapping, audience_id } = req.body;
+    const { file_path, mapping, audience_id, default_country_code = '972' } = req.body;
     
-    if (!file_path || !mapping || !mapping.phone) {
-      return res.status(400).json({ error: 'חסרים נתונים - נדרש מיפוי לעמודת טלפון' });
-    }
-    
-    // Find the phone column
+    // Find the phone column from mapping values
     const phoneColumn = Object.keys(mapping).find(col => mapping[col] === 'phone');
     if (!phoneColumn) {
       return res.status(400).json({ error: 'לא נבחרה עמודת טלפון' });
@@ -199,7 +121,7 @@ async function executeImport(req, res) {
     const headers = rawData[0];
     const rows = rawData.slice(1).filter(row => row.some(cell => cell !== ''));
     
-    console.log(`[Import] Starting import: ${rows.length} rows, mapping:`, mapping);
+    console.log(`[Import] Starting import: ${rows.length} rows, country code: ${default_country_code}, mapping:`, mapping);
     
     let imported = 0;
     let updated = 0;
@@ -213,17 +135,17 @@ async function executeImport(req, res) {
       try {
         // Get phone from mapped column
         const phoneColIndex = headers.indexOf(phoneColumn);
-        let phone = String(row[phoneColIndex] || '').trim();
+        let rawPhone = String(row[phoneColIndex] || '').trim();
         
-        if (!phone) {
+        if (!rawPhone) {
           errors.push({ row: i + 2, error: 'מספר טלפון חסר' });
           continue;
         }
         
-        // Format phone number
-        phone = formatPhoneNumber(phone);
+        // Format phone number with country code
+        const phone = formatPhoneNumber(rawPhone, default_country_code);
         if (!isValidPhoneNumber(phone)) {
-          errors.push({ row: i + 2, error: 'מספר טלפון לא תקין', phone });
+          errors.push({ row: i + 2, error: 'מספר טלפון לא תקין', phone: rawPhone });
           continue;
         }
         
@@ -290,6 +212,17 @@ async function executeImport(req, res) {
     
     await client.query('COMMIT');
     
+    // Update audience contacts count if added to audience
+    if (audience_id) {
+      await pool.query(`
+        UPDATE broadcast_audiences 
+        SET contacts_count = (
+          SELECT COUNT(*) FROM broadcast_audience_contacts WHERE audience_id = $1
+        )
+        WHERE id = $1
+      `, [audience_id]);
+    }
+    
     // Clean up file
     try {
       fs.unlinkSync(file_path);
@@ -339,29 +272,40 @@ async function cancelImport(req, res) {
 // Helper Functions
 // ============================================
 
-function formatPhoneNumber(phone) {
-  // Remove all non-digits
-  let clean = phone.replace(/\D/g, '');
+function formatPhoneNumber(phone, countryCode = '972') {
+  if (!phone) return null;
   
-  // Handle Israeli numbers
+  // Convert to string and remove all non-digits (except + at start)
+  let clean = String(phone).replace(/[^\d+]/g, '');
+  
+  // Remove + prefix if exists
+  if (clean.startsWith('+')) {
+    clean = clean.substring(1);
+  }
+  
+  // If starts with 0, replace with country code
   if (clean.startsWith('0')) {
-    clean = '972' + clean.substring(1);
-  } else if (clean.length === 9 && !clean.startsWith('972')) {
-    clean = '972' + clean;
+    clean = countryCode + clean.substring(1);
+  }
+  // If doesn't start with any common country code and is 9-10 digits, add country code
+  else if (clean.length >= 9 && clean.length <= 10) {
+    const startsWithCode = ['972', '1', '44', '49', '33', '7', '86', '91'].some(code => clean.startsWith(code));
+    if (!startsWithCode) {
+      clean = countryCode + clean;
+    }
   }
   
   return clean;
 }
 
 function isValidPhoneNumber(phone) {
-  // 10-15 digits, starts with valid country code
+  if (!phone) return false;
+  // 10-15 digits
   return /^\d{10,15}$/.test(phone);
 }
 
 module.exports = {
   uploadFile,
-  getVariables,
-  createVariable,
   executeImport,
   cancelImport
 };
