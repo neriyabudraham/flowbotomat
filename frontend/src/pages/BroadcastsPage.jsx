@@ -2,13 +2,12 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Plus, Send, Users, MessageSquare, Clock, Calendar, Play, Pause, 
-  Trash2, Edit2, X, Search, MoreHorizontal, CheckCircle, AlertCircle, 
+  Trash2, Edit2, X, Search, MoreHorizontal, CheckCircle, 
   Loader2, RefreshCw, ArrowLeft, Target, FileText, Settings,
   LayoutGrid, History, Zap, Copy, Filter, ChevronDown, Eye, Sparkles,
   TrendingUp, BarChart3
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
-import Button from '../components/atoms/Button';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
 import Logo from '../components/atoms/Logo';
 import api from '../services/api';
@@ -66,20 +65,6 @@ export default function BroadcastsPage() {
       if (showLoading) setLoading(false);
     }
   };
-
-  // Check if user is admin
-  if (user && !['admin', 'superadmin'].includes(user.role)) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">גישה מוגבלת</h1>
-          <p className="text-gray-600 mb-4">רק מנהלי מערכת יכולים לגשת לעמוד זה</p>
-          <Button onClick={() => navigate('/dashboard')}>חזרה לדשבורד</Button>
-        </div>
-      </div>
-    );
-  }
 
   const tabs = [
     { id: 'campaigns', label: 'קמפיינים', icon: Send, count: stats?.campaigns },
@@ -193,8 +178,9 @@ export default function BroadcastsPage() {
               </div>
               
               <div className="flex flex-col gap-2 items-end">
-                <span className="px-3 py-1 bg-amber-400/20 backdrop-blur text-amber-200 text-xs font-medium rounded-full">
-                  בטא - מנהלים בלבד
+                <span className="px-3 py-1 bg-white/20 backdrop-blur text-white text-xs font-medium rounded-full flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" />
+                  חדש
                 </span>
               </div>
             </div>

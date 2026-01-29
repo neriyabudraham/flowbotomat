@@ -584,6 +584,13 @@ export default function DashboardPage() {
               title="העברת הודעות"
               description="שליחה לקבוצות"
               gradient="from-cyan-500 to-blue-600"
+            />
+            <QuickActionCard
+              to="/broadcasts"
+              icon={Send}
+              title="הודעות תפוצה"
+              description="שליחה המונית"
+              gradient="from-orange-500 to-red-600"
               badge="חדש"
             />
             <QuickActionCard
@@ -614,16 +621,6 @@ export default function DashboardPage() {
               description="הגדרות החשבון"
               gradient="from-gray-500 to-slate-600"
             />
-            {user && ['admin', 'superadmin'].includes(user.role) && (
-              <QuickActionCard
-                to="/broadcasts"
-                icon={Send}
-                title="הודעות תפוצה"
-                description="שליחה המונית"
-                gradient="from-orange-500 to-red-600"
-                badge="בטא"
-              />
-            )}
           </div>
         </div>
 
