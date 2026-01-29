@@ -88,6 +88,24 @@ cron.schedule('* * * * *', async () => {
 
 console.log('📅 Campaign scheduler cron job running every minute');
 
+// Schedule cleanup of old pending forward jobs - run every hour
+const { cleanupOldPendingJobs } = require('./controllers/groupForwards/jobs.controller');
+
+cron.schedule('0 * * * *', async () => {
+  try {
+    const cancelled = await cleanupOldPendingJobs();
+    if (cancelled > 0) {
+      console.log(`[Cron] Cleaned up ${cancelled} old pending forward jobs`);
+    }
+  } catch (err) {
+    console.error('[Cron] Forward jobs cleanup failed:', err.message);
+  }
+}, {
+  timezone: 'Asia/Jerusalem'
+});
+
+console.log('📅 Forward jobs cleanup cron job scheduled (hourly)');
+
 // Start server
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {

@@ -35,6 +35,7 @@ router.put('/:forwardId/senders', manageController.updateAuthorizedSenders);
 // Jobs (Forwarding tasks)
 // =============================================
 router.get('/jobs/active', jobsController.getActiveJobs);
+router.get('/jobs/pending', jobsController.getPendingJobs); // Pending jobs awaiting confirmation
 router.get('/jobs/history', jobsController.getAllJobHistory); // All job history for user
 router.get('/:forwardId/jobs', jobsController.getForwardJobHistory);
 router.post('/:forwardId/jobs', jobsController.createForwardJob);

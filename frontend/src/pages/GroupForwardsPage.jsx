@@ -43,10 +43,16 @@ export default function GroupForwardsPage() {
       return;
     }
     fetchMe();
-    fetchForwards();
-    fetchLimit();
-    fetchActiveJobs();
   }, []);
+
+  // Refetch data when user changes (for admin access)
+  useEffect(() => {
+    if (user?.id) {
+      fetchForwards();
+      fetchLimit();
+      fetchActiveJobs();
+    }
+  }, [user?.id]);
 
   // Poll for active jobs updates
   useEffect(() => {
@@ -372,15 +378,85 @@ export default function GroupForwardsPage() {
           )}
         </div>
 
-        {/* Active Jobs Alert */}
-        {activeJobs.length > 0 && activeTab === 'forwards' && (
+        {/* Pending Jobs Alert (awaiting confirmation) */}
+        {activeJobs.filter(j => j.status === 'pending').length > 0 && activeTab === 'forwards' && (
+          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Clock className="w-5 h-5 text-yellow-600" />
+                <div>
+                  <h4 className="font-medium text-yellow-900">משימות ממתינות לאישור</h4>
+                  <p className="text-sm text-yellow-700">
+                    {activeJobs.filter(j => j.status === 'pending').length} העברות ממתינות - אם לא יאושרו תוך 24 שעות יבוטלו אוטומטית
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Pending jobs list */}
+            <div className="mt-4 space-y-2">
+              {activeJobs.filter(j => j.status === 'pending').map(job => (
+                <div key={job.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-yellow-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-yellow-100 rounded-lg flex items-center justify-center">
+                      <Forward className="w-4 h-4 text-yellow-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900">{job.forward_name}</p>
+                      <p className="text-xs text-gray-500">
+                        {job.total_targets} קבוצות • ממתין מ-{new Date(job.created_at).toLocaleString('he-IL')}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          await api.post(`/group-forwards/jobs/${job.id}/confirm`);
+                          fetchActiveJobs();
+                        } catch (err) {
+                          console.error('Confirm error:', err);
+                          setErrorMessage('שגיאה באישור המשימה');
+                        }
+                      }}
+                      className="px-3 py-1.5 text-xs font-medium text-green-700 bg-green-100 hover:bg-green-200 rounded-lg transition-colors"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5 inline ml-1" />
+                      אשר ושלח
+                    </button>
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          await api.post(`/group-forwards/jobs/${job.id}/cancel`);
+                          fetchActiveJobs();
+                        } catch (err) {
+                          console.error('Cancel error:', err);
+                          setErrorMessage('שגיאה בביטול המשימה');
+                        }
+                      }}
+                      className="px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 rounded-lg transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5 inline ml-1" />
+                      בטל
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Active Jobs Alert (sending) */}
+        {activeJobs.filter(j => j.status === 'sending' || j.status === 'confirmed').length > 0 && activeTab === 'forwards' && (
           <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
             <div className="flex items-center gap-3">
               <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
               <div>
                 <h4 className="font-medium text-blue-900">יש משימות פעילות</h4>
                 <p className="text-sm text-blue-700">
-                  {activeJobs.length} העברות בתהליך שליחה
+                  {activeJobs.filter(j => j.status === 'sending' || j.status === 'confirmed').length} העברות בתהליך שליחה
                 </p>
               </div>
             </div>
@@ -388,7 +464,7 @@ export default function GroupForwardsPage() {
         )}
 
         {/* History Tab */}
-        {activeTab === 'history' && <JobHistoryTab />}
+        {activeTab === 'history' && <JobHistoryTab key={user?.id} />}
 
         {/* Forwards Tab Content */}
         {activeTab === 'forwards' && (

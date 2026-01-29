@@ -843,6 +843,71 @@ async function deleteJob(req, res) {
   }
 }
 
+/**
+ * Clean up pending jobs older than 24 hours
+ * This runs as a cron job and also exposes getPendingJobs for the UI
+ */
+async function cleanupOldPendingJobs() {
+  try {
+    const result = await db.query(`
+      UPDATE forward_jobs 
+      SET status = 'cancelled', 
+          error_message = 'בוטל אוטומטית - עבר 24 שעות ללא אישור',
+          updated_at = NOW()
+      WHERE status = 'pending' 
+        AND created_at < NOW() - INTERVAL '24 hours'
+      RETURNING id, user_id, forward_id
+    `);
+    
+    if (result.rows.length > 0) {
+      console.log(`[GroupForwards] Auto-cancelled ${result.rows.length} old pending jobs`);
+      
+      // Notify users via socket
+      const io = getIO();
+      if (io) {
+        for (const job of result.rows) {
+          io.to(`user:${job.user_id}`).emit('job_cancelled', {
+            jobId: job.id,
+            reason: 'timeout',
+            message: 'המשימה בוטלה אוטומטית - עברו 24 שעות ללא אישור'
+          });
+        }
+      }
+    }
+    
+    return result.rows.length;
+  } catch (error) {
+    console.error('[GroupForwards] Cleanup old pending jobs error:', error);
+    return 0;
+  }
+}
+
+/**
+ * Get pending jobs for user (waiting for confirmation)
+ */
+async function getPendingJobs(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    const result = await db.query(`
+      SELECT fj.*, gf.name as forward_name,
+        EXTRACT(EPOCH FROM (NOW() - fj.created_at)) as waiting_seconds
+      FROM forward_jobs fj
+      JOIN group_forwards gf ON fj.forward_id = gf.id
+      WHERE fj.user_id = $1 AND fj.status = 'pending'
+      ORDER BY fj.created_at DESC
+    `, [userId]);
+    
+    res.json({
+      success: true,
+      jobs: result.rows
+    });
+  } catch (error) {
+    console.error('[GroupForwards] Get pending jobs error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת משימות ממתינות' });
+  }
+}
+
 module.exports = {
   createForwardJob,
   confirmForwardJob,
@@ -853,7 +918,9 @@ module.exports = {
   getForwardJobHistory,
   getAllJobHistory,
   deleteJob,
+  getPendingJobs,
   // Export for internal use
   startForwardJob,
-  deleteJobMessages
+  deleteJobMessages,
+  cleanupOldPendingJobs
 };
