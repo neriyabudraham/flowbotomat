@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { 
   CreditCard, Users, Settings, Plus, Edit2, Trash2, Check, X, 
   Crown, Zap, Star, Building, RefreshCw, Search, Calendar, User,
-  Gift, Tag, Percent, Clock, Forward
+  Gift, Tag, Percent, Clock, Forward, Send
 } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
@@ -565,6 +565,7 @@ function PlanEditModal({ plan, onSave, onClose }) {
     allow_group_forwards: plan.allow_group_forwards || false,
     max_group_forwards: plan.max_group_forwards ?? 0,
     max_forward_targets: plan.max_forward_targets ?? 0,
+    allow_broadcasts: plan.allow_broadcasts || false,
     is_active: plan.is_active ?? true,
     sort_order: plan.sort_order || 0,
   });
@@ -770,6 +771,24 @@ function PlanEditModal({ plan, onSave, onClose }) {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Broadcasts Settings */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+            <h4 className="font-medium text-gray-800 dark:text-white mb-3 flex items-center gap-2">
+              <Send className="w-4 h-4 text-orange-600" />
+              הודעות תפוצה
+            </h4>
+            
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.allow_broadcasts}
+                onChange={e => setForm({...form, allow_broadcasts: e.target.checked})}
+                className="w-4 h-4 rounded"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">אפשר שליחת הודעות תפוצה</span>
+            </label>
           </div>
 
           <div className="flex gap-3 pt-4">

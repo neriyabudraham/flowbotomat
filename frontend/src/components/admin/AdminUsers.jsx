@@ -1773,6 +1773,16 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
                       />
                       <span className="text-sm text-gray-600">תמיכה מועדפת</span>
                     </label>
+                    
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={featureOverrides?.allow_broadcasts ?? false}
+                        onChange={(e) => updateFeatureOverride('allow_broadcasts', e.target.checked ? true : null)}
+                        className="w-4 h-4 rounded border-gray-300 text-orange-600"
+                      />
+                      <span className="text-sm text-gray-600">הודעות תפוצה</span>
+                    </label>
                   </div>
 
                   {/* Save Features Button */}
