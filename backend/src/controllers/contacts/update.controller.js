@@ -248,4 +248,67 @@ async function exportContacts(req, res) {
   }
 }
 
-module.exports = { toggleBot, toggleBlock, deleteContact, takeoverConversation, bulkDeleteContacts, exportContacts };
+/**
+ * Create or update contact (for manual import correction)
+ */
+async function createOrUpdateContact(req, res) {
+  try {
+    const userId = req.user.id;
+    const { phone, display_name, variables } = req.body;
+    
+    if (!phone) {
+      return res.status(400).json({ error: 'מספר טלפון נדרש' });
+    }
+    
+    // Clean phone number
+    let cleanPhone = String(phone).replace(/[^\d]/g, '');
+    if (!/^\d{10,15}$/.test(cleanPhone)) {
+      return res.status(400).json({ error: 'מספר טלפון לא תקין' });
+    }
+    
+    // Insert or update contact
+    const contactResult = await pool.query(`
+      INSERT INTO contacts (user_id, phone, display_name)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (user_id, phone) 
+      DO UPDATE SET 
+        display_name = COALESCE(NULLIF($3, ''), contacts.display_name),
+        updated_at = NOW()
+      RETURNING id, phone, display_name, (xmax = 0) as is_new
+    `, [userId, cleanPhone, display_name || null]);
+    
+    const contact = contactResult.rows[0];
+    
+    // Save variables if provided
+    if (variables && typeof variables === 'object') {
+      for (const [key, value] of Object.entries(variables)) {
+        if (value && String(value).trim()) {
+          await pool.query(`
+            INSERT INTO contact_variables (contact_id, key, value)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (contact_id, key) 
+            DO UPDATE SET value = $3, updated_at = NOW()
+          `, [contact.id, key, String(value).trim()]);
+        }
+      }
+    }
+    
+    console.log(`[Contacts] ${contact.is_new ? 'Created' : 'Updated'} contact ${contact.phone} for user ${userId}`);
+    
+    res.json({ 
+      success: true,
+      contact: {
+        id: contact.id,
+        phone: contact.phone,
+        display_name: contact.display_name,
+        is_new: contact.is_new
+      }
+    });
+    
+  } catch (error) {
+    console.error('Create/update contact error:', error);
+    res.status(500).json({ error: 'שגיאה בשמירת איש קשר' });
+  }
+}
+
+module.exports = { toggleBot, toggleBlock, deleteContact, takeoverConversation, bulkDeleteContacts, exportContacts, createOrUpdateContact };

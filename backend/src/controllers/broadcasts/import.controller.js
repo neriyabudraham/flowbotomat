@@ -124,6 +124,13 @@ async function executeImport(req, res) {
     let imported = 0;
     let updated = 0;
     let errors = [];
+    let importedContacts = [];
+    let updatedContacts = [];
+    
+    // Get column indices
+    const phoneColIndex = headers.indexOf(phoneColumn);
+    const nameColumn = Object.keys(mapping).find(col => mapping[col] === 'name');
+    const nameColIndex = nameColumn ? headers.indexOf(nameColumn) : -1;
     
     // Process each row independently (no single transaction for all)
     for (let i = 0; i < rows.length; i++) {
@@ -131,28 +138,38 @@ async function executeImport(req, res) {
       
       try {
         // Get phone from mapped column
-        const phoneColIndex = headers.indexOf(phoneColumn);
         let rawPhone = String(row[phoneColIndex] || '').trim();
         
+        // Get all row data for error reporting
+        const rowData = {};
+        for (const [column, variableKey] of Object.entries(mapping)) {
+          const colIndex = headers.indexOf(column);
+          rowData[variableKey] = String(row[colIndex] || '').trim();
+        }
+        
         if (!rawPhone) {
-          errors.push({ row: i + 2, error: 'מספר טלפון חסר' });
+          errors.push({ 
+            row: i + 2, 
+            error: 'מספר טלפון חסר',
+            data: rowData
+          });
           continue;
         }
         
         // Format phone number with country code
         const phone = formatPhoneNumber(rawPhone, default_country_code);
         if (!isValidPhoneNumber(phone)) {
-          errors.push({ row: i + 2, error: 'מספר טלפון לא תקין', phone: rawPhone });
+          errors.push({ 
+            row: i + 2, 
+            error: 'מספר טלפון לא תקין', 
+            phone: rawPhone,
+            data: rowData
+          });
           continue;
         }
         
         // Get name if mapped
-        let displayName = null;
-        const nameColumn = Object.keys(mapping).find(col => mapping[col] === 'name');
-        if (nameColumn) {
-          const nameColIndex = headers.indexOf(nameColumn);
-          displayName = String(row[nameColIndex] || '').trim() || null;
-        }
+        let displayName = nameColIndex >= 0 ? String(row[nameColIndex] || '').trim() || null : null;
         
         // Insert or update contact in existing contacts table
         const contactResult = await db.query(`
@@ -162,16 +179,22 @@ async function executeImport(req, res) {
           DO UPDATE SET 
             display_name = COALESCE(NULLIF($3, ''), contacts.display_name),
             updated_at = NOW()
-          RETURNING id, (xmax = 0) as is_new
+          RETURNING id, phone, display_name, (xmax = 0) as is_new
         `, [userId, phone, displayName]);
         
-        const contactId = contactResult.rows[0].id;
-        const isNew = contactResult.rows[0].is_new;
+        const contact = contactResult.rows[0];
+        const isNew = contact.is_new;
         
         if (isNew) {
           imported++;
+          if (importedContacts.length < 100) {
+            importedContacts.push({ id: contact.id, phone: contact.phone, name: contact.display_name });
+          }
         } else {
           updated++;
+          if (updatedContacts.length < 100) {
+            updatedContacts.push({ id: contact.id, phone: contact.phone, name: contact.display_name });
+          }
         }
         
         // Save custom variables to contact_variables table
@@ -188,7 +211,7 @@ async function executeImport(req, res) {
               VALUES ($1, $2, $3)
               ON CONFLICT (contact_id, key) 
               DO UPDATE SET value = $3, updated_at = NOW()
-            `, [contactId, variableKey, value]);
+            `, [contact.id, variableKey, value]);
           }
         }
         
@@ -198,12 +221,17 @@ async function executeImport(req, res) {
             INSERT INTO broadcast_audience_contacts (audience_id, contact_id)
             VALUES ($1, $2)
             ON CONFLICT DO NOTHING
-          `, [audience_id, contactId]);
+          `, [audience_id, contact.id]);
         }
         
       } catch (rowError) {
         console.error(`[Import] Row ${i + 2} error:`, rowError.message);
-        errors.push({ row: i + 2, error: rowError.message });
+        const rowData = {};
+        for (const [column, variableKey] of Object.entries(mapping)) {
+          const colIndex = headers.indexOf(column);
+          rowData[variableKey] = String(row[colIndex] || '').trim();
+        }
+        errors.push({ row: i + 2, error: rowError.message, data: rowData });
       }
       
       // Log progress every 1000 rows
@@ -238,7 +266,9 @@ async function executeImport(req, res) {
         updated,
         errors: errors.length
       },
-      errors: errors.slice(0, 50) // First 50 errors
+      importedContacts: importedContacts.slice(0, 50), // First 50 imported
+      updatedContacts: updatedContacts.slice(0, 50), // First 50 updated
+      errors: errors // All errors with data for editing
     });
     
   } catch (error) {
