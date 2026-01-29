@@ -73,6 +73,21 @@ cron.schedule('0 10 * * *', async () => {
 
 console.log('📅 Subscription expiry cron jobs scheduled');
 
+// Schedule campaign scheduler - run every minute
+const { processScheduledCampaigns } = require('./services/broadcasts/scheduler.service');
+
+cron.schedule('* * * * *', async () => {
+  try {
+    await processScheduledCampaigns();
+  } catch (err) {
+    console.error('[Cron] Campaign scheduler failed:', err.message);
+  }
+}, {
+  timezone: 'Asia/Jerusalem'
+});
+
+console.log('📅 Campaign scheduler cron job running every minute');
+
 // Start server
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {

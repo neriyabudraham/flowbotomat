@@ -18,6 +18,24 @@ const STATUS_CONFIG = {
   failed: { label: 'נכשל', color: 'red', bgColor: 'bg-red-100', textColor: 'text-red-700', icon: AlertCircle }
 };
 
+// Helper: Convert ISO/UTC date to datetime-local format (YYYY-MM-DDTHH:MM in local time)
+function toLocalDateTimeString(isoString) {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  // Format as local datetime
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+// Helper: Get min datetime for datetime-local input (now in local format)
+function getMinDateTime() {
+  return toLocalDateTimeString(new Date().toISOString());
+}
+
 export default function CampaignsTab({ onRefresh }) {
   const [campaigns, setCampaigns] = useState([]);
   const [audiences, setAudiences] = useState([]);
@@ -92,8 +110,10 @@ export default function CampaignsTab({ onRefresh }) {
     if (!showReschedule || !newScheduleTime) return;
     try {
       setActionLoading('reschedule');
+      // Convert local datetime to ISO string (which includes timezone info)
+      const scheduledDate = new Date(newScheduleTime);
       await api.put(`/broadcasts/campaigns/${showReschedule.id}`, {
-        scheduled_at: newScheduleTime
+        scheduled_at: scheduledDate.toISOString()
       });
       setShowReschedule(null);
       setNewScheduleTime('');
@@ -341,7 +361,7 @@ export default function CampaignsTab({ onRefresh }) {
               onAction={handleAction}
               onReschedule={() => {
                 setShowReschedule(campaign);
-                setNewScheduleTime(campaign.scheduled_at ? new Date(campaign.scheduled_at).toISOString().slice(0, 16) : '');
+                setNewScheduleTime(toLocalDateTimeString(campaign.scheduled_at));
               }}
               onCancelSchedule={() => handleCancelSchedule(campaign)}
               onDuplicate={() => handleDuplicate(campaign)}
@@ -399,7 +419,7 @@ export default function CampaignsTab({ onRefresh }) {
                 type="datetime-local"
                 value={newScheduleTime}
                 onChange={(e) => setNewScheduleTime(e.target.value)}
-                min={new Date().toISOString().slice(0, 16)}
+                min={getMinDateTime()}
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400"
               />
             </div>
@@ -788,7 +808,7 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
     template_id: campaign?.template_id || '',
     direct_message: campaign?.direct_message || '',
     direct_media_url: campaign?.direct_media_url || '',
-    scheduled_at: campaign?.scheduled_at ? new Date(campaign.scheduled_at).toISOString().slice(0, 16) : '',
+    scheduled_at: toLocalDateTimeString(campaign?.scheduled_at),
     settings: campaign?.settings || {
       delay_between_messages: 2,
       delay_between_batches: 30,
@@ -814,9 +834,14 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
       setSaving(true);
       setError(null);
       
+      // Convert local datetime to ISO string if provided
+      const scheduledAt = formData.scheduled_at 
+        ? new Date(formData.scheduled_at).toISOString() 
+        : null;
+      
       const payload = {
         ...formData,
-        scheduled_at: formData.scheduled_at || null,
+        scheduled_at: scheduledAt,
         template_id: formData.template_id || null,
         direct_message: formData.direct_message || null,
         direct_media_url: formData.direct_media_url || null
@@ -985,7 +1010,7 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
                   type="datetime-local"
                   value={formData.scheduled_at}
                   onChange={(e) => setFormData({ ...formData, scheduled_at: e.target.value })}
-                  min={new Date().toISOString().slice(0, 16)}
+                  min={getMinDateTime()}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 focus:bg-white transition-all"
                 />
               </div>
