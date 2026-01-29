@@ -65,7 +65,8 @@ async function uploadFile(req, res) {
       }
       
       const headers = data[0];
-      const sampleRows = data.slice(1, 6); // First 5 data rows
+      // Return up to 100 rows for preview (more rows can be shown with scrolling)
+      const sampleRows = data.slice(1, 101);
       
       res.json({
         file_path: req.file.path,
