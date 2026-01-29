@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Upload, FileText, Loader2, CheckCircle, AlertCircle, X,
-  ArrowLeft, ArrowRight, Plus, Database, User, Phone,
-  ChevronDown, Check, FileSpreadsheet, Users,
-  ChevronLeft, ChevronRight, Globe, AlertTriangle
+  ArrowLeft, ArrowRight, Plus, User, Phone, Users,
+  ChevronLeft, ChevronRight, Globe, AlertTriangle,
+  FileSpreadsheet, ExternalLink, History, Clock
 } from 'lucide-react';
 import api from '../../services/api';
 
-// Country codes for phone prefix
 const COUNTRY_CODES = [
   { code: '972', label: 'ישראל (+972)', flag: '🇮🇱' },
   { code: '1', label: 'ארה"ב (+1)', flag: '🇺🇸' },
@@ -17,24 +16,18 @@ const COUNTRY_CODES = [
 ];
 
 export default function ImportTab({ onRefresh }) {
-  // Steps: 1=upload, 2=mapping, 3=importing, 4=done
   const [step, setStep] = useState(1);
-  
-  // Upload state
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  
-  // File data
   const [fileData, setFileData] = useState(null);
-  
-  // Mapping state
   const [mapping, setMapping] = useState({});
   const [variables, setVariables] = useState({ systemVariables: [], userVariables: [] });
   const [defaultCountryCode, setDefaultCountryCode] = useState('972');
-  
-  // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 20;
+  
+  // Import name
+  const [importName, setImportName] = useState('');
   
   // Audiences
   const [audiences, setAudiences] = useState([]);
@@ -53,6 +46,7 @@ export default function ImportTab({ onRefresh }) {
   // Import state
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  const [importProgress, setImportProgress] = useState('');
   
   const fileInputRef = useRef(null);
 
@@ -71,6 +65,11 @@ export default function ImportTab({ onRefresh }) {
     } catch (e) {
       console.error('Failed to load data:', e);
     }
+  };
+
+  const getDefaultImportName = () => {
+    const now = new Date();
+    return `ייבוא ${now.toLocaleDateString('he-IL')} ${now.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`;
   };
 
   const handleFileSelect = async (e) => {
@@ -93,6 +92,7 @@ export default function ImportTab({ onRefresh }) {
       });
       
       setFileData(data);
+      setImportName(data.file_name.replace(/\.(xlsx|xls|csv)$/i, ''));
       
       // Auto-map obvious columns
       const autoMapping = {};
@@ -184,7 +184,6 @@ export default function ImportTab({ onRefresh }) {
     }
   };
 
-  // Format phone number with country code support
   const formatPhoneNumber = (phone, countryCode = defaultCountryCode) => {
     if (!phone) return null;
     let clean = String(phone).replace(/[^\d+]/g, '');
@@ -202,7 +201,6 @@ export default function ImportTab({ onRefresh }) {
     return /^\d{10,15}$/.test(phone);
   };
 
-  // Validate ALL rows (memoized)
   const validationResults = useMemo(() => {
     if (!fileData || !mapping) return { validCount: 0, invalidCount: 0 };
     
@@ -213,7 +211,6 @@ export default function ImportTab({ onRefresh }) {
     let validCount = 0;
     let invalidCount = 0;
     
-    // Check ALL rows
     fileData.rows.forEach((row) => {
       const rawPhone = row[phoneColIndex];
       const formatted = formatPhoneNumber(rawPhone);
@@ -239,46 +236,48 @@ export default function ImportTab({ onRefresh }) {
       return;
     }
     
+    setImporting(true);
+    setStep(3);
+    setImportProgress('מתחיל ייבוא...');
+    
     try {
-      setImporting(true);
-      setStep(3);
-      
+      // Use longer timeout for large imports
       const { data } = await api.post('/broadcasts/import/execute', {
         file_path: fileData.file_path,
         mapping,
         audience_id: targetAudience || null,
-        default_country_code: defaultCountryCode
+        default_country_code: defaultCountryCode,
+        import_name: importName || getDefaultImportName()
+      }, {
+        timeout: 600000 // 10 minutes timeout
       });
       
+      console.log('Import result:', data);
       setImportResult(data);
       setStep(4);
       onRefresh?.();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בייבוא');
+      console.error('Import error:', e);
+      alert(e.response?.data?.error || 'שגיאה בייבוא - נסה שוב');
       setStep(2);
     } finally {
       setImporting(false);
     }
   };
 
-  const handleReset = async () => {
-    if (fileData?.file_path) {
-      try {
-        await api.post('/broadcasts/import/cancel', { file_path: fileData.file_path });
-      } catch {}
-    }
-    
+  const handleReset = () => {
     setStep(1);
     setFileData(null);
     setMapping({});
     setTargetAudience('');
     setImportResult(null);
     setCurrentPage(1);
+    setImportName('');
+    setImportProgress('');
   };
 
   const isPhoneMapped = Object.values(mapping).includes('phone');
   
-  // Get all available variables for mapping
   const contactFields = [
     { key: 'phone', label: 'מספר טלפון', required: true },
     { key: 'name', label: 'שם איש קשר', required: false },
@@ -289,7 +288,6 @@ export default function ImportTab({ onRefresh }) {
     label: v.label || v.name
   }));
   
-  // Pagination
   const totalPages = fileData ? Math.ceil(fileData.rows.length / rowsPerPage) : 0;
   const paginatedRows = fileData ? fileData.rows.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage) : [];
 
@@ -399,30 +397,38 @@ export default function ImportTab({ onRefresh }) {
       {/* Step 2: Mapping */}
       {step === 2 && fileData && (
         <div className="space-y-6">
-          {/* File Info */}
-          <div className="flex items-center justify-between bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-orange-600 flex items-center justify-center">
-                <FileSpreadsheet className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <div className="font-semibold text-gray-900">{fileData.file_name}</div>
-                <div className="text-sm text-gray-500">
-                  {fileData.columns.length} עמודות • {fileData.total_rows} שורות
+          {/* File Info + Import Name */}
+          <div className="bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-orange-600 flex items-center justify-center">
+                  <FileSpreadsheet className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <div className="font-semibold text-gray-900">{fileData.file_name}</div>
+                  <div className="text-sm text-gray-500">
+                    {fileData.columns.length} עמודות • {fileData.total_rows} שורות
+                  </div>
                 </div>
               </div>
+              <button onClick={handleReset} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <button
-              onClick={handleReset}
-              className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">שם הייבוא</label>
+              <input
+                type="text"
+                value={importName}
+                onChange={(e) => setImportName(e.target.value)}
+                placeholder={getDefaultImportName()}
+                className="w-full px-3 py-2 border border-orange-200 rounded-lg focus:ring-2 focus:ring-orange-500 bg-white"
+              />
+            </div>
           </div>
 
-          {/* Country Code + Status Row */}
+          {/* Country Code + Status */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Country Code */}
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 <Globe className="w-4 h-4 inline ml-1" />
@@ -431,7 +437,7 @@ export default function ImportTab({ onRefresh }) {
               <select
                 value={defaultCountryCode}
                 onChange={(e) => setDefaultCountryCode(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500"
               >
                 {COUNTRY_CODES.map(c => (
                   <option key={c.code} value={c.code}>{c.flag} {c.label}</option>
@@ -439,7 +445,6 @@ export default function ImportTab({ onRefresh }) {
               </select>
             </div>
 
-            {/* Status */}
             <div className={`flex items-center gap-3 p-4 rounded-xl border ${
               isPhoneMapped && validationResults.validCount > 0
                 ? 'bg-green-50 border-green-200' 
@@ -449,13 +454,9 @@ export default function ImportTab({ onRefresh }) {
                 <>
                   <CheckCircle className="w-5 h-5 text-green-600" />
                   <div>
-                    <span className="text-green-800 font-medium">
-                      {validationResults.validCount} תקינים
-                    </span>
+                    <span className="text-green-800 font-medium">{validationResults.validCount.toLocaleString()} תקינים</span>
                     {validationResults.invalidCount > 0 && (
-                      <span className="text-red-600 mr-2">
-                        • {validationResults.invalidCount} לא תקינים
-                      </span>
+                      <span className="text-red-600 mr-2">• {validationResults.invalidCount.toLocaleString()} לא תקינים</span>
                     )}
                   </div>
                 </>
@@ -468,12 +469,11 @@ export default function ImportTab({ onRefresh }) {
             </div>
           </div>
 
-          {/* Data Table with Mapping in Header */}
+          {/* Data Table */}
           <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  {/* Mapping Row */}
                   <tr className="bg-gray-100 border-b border-gray-200">
                     <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 w-12">#</th>
                     {fileData.columns.map((col, i) => (
@@ -505,13 +505,10 @@ export default function ImportTab({ onRefresh }) {
                       </th>
                     ))}
                   </tr>
-                  {/* Headers Row */}
                   <tr className="bg-gray-50 border-b border-gray-200">
                     <th className="px-3 py-2 text-center text-xs font-medium text-gray-400"></th>
                     {fileData.columns.map((col, i) => (
-                      <th key={i} className="px-3 py-2 text-right text-xs font-semibold text-gray-700">
-                        {col}
-                      </th>
+                      <th key={i} className="px-3 py-2 text-right text-xs font-semibold text-gray-700">{col}</th>
                     ))}
                   </tr>
                 </thead>
@@ -538,24 +535,21 @@ export default function ImportTab({ onRefresh }) {
               </table>
             </div>
             
-            {/* Pagination */}
             {totalPages > 1 && (
               <div className="bg-gray-50 px-4 py-3 border-t border-gray-200 flex items-center justify-between">
-                <span className="text-sm text-gray-500">
-                  עמוד {currentPage} מתוך {totalPages}
-                </span>
+                <span className="text-sm text-gray-500">עמוד {currentPage} מתוך {totalPages}</span>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="p-2 rounded-lg border border-gray-200 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="p-2 rounded-lg border border-gray-200 hover:bg-gray-100 disabled:opacity-50"
                   >
                     <ChevronRight className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
-                    className="p-2 rounded-lg border border-gray-200 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="p-2 rounded-lg border border-gray-200 hover:bg-gray-100 disabled:opacity-50"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
@@ -574,7 +568,7 @@ export default function ImportTab({ onRefresh }) {
               <select
                 value={targetAudience}
                 onChange={(e) => setTargetAudience(e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500"
               >
                 <option value="">ללא - ייבוא כאנשי קשר בלבד</option>
                 {audiences.map(a => (
@@ -605,17 +599,16 @@ export default function ImportTab({ onRefresh }) {
               disabled={!isPhoneMapped || validationResults.validCount === 0}
               className="flex-1 px-6 py-3 bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-xl hover:from-orange-700 hover:to-orange-800 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-orange-500/25"
             >
-              ייבא {validationResults.validCount} אנשי קשר
+              ייבא {validationResults.validCount.toLocaleString()} אנשי קשר
               <ArrowLeft className="w-4 h-4" />
             </button>
           </div>
 
-          {/* Warning */}
           {isPhoneMapped && validationResults.invalidCount > 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
               <div className="flex items-center gap-2 text-amber-800 font-medium">
                 <AlertTriangle className="w-5 h-5" />
-                {validationResults.invalidCount} שורות עם טלפון לא תקין יידלגו
+                {validationResults.invalidCount.toLocaleString()} שורות עם טלפון לא תקין יידלגו
               </div>
             </div>
           )}
@@ -625,36 +618,61 @@ export default function ImportTab({ onRefresh }) {
       {/* Step 3: Importing */}
       {step === 3 && (
         <div className="text-center py-16">
-          <div className="w-20 h-20 rounded-full bg-orange-100 flex items-center justify-center mx-auto mb-6">
-            <Loader2 className="w-10 h-10 text-orange-600 animate-spin" />
+          <div className="w-24 h-24 rounded-full bg-orange-100 flex items-center justify-center mx-auto mb-6">
+            <Loader2 className="w-12 h-12 text-orange-600 animate-spin" />
           </div>
           <h3 className="text-xl font-semibold text-gray-900 mb-2">מייבא אנשי קשר...</h3>
-          <p className="text-gray-500">זה יכול לקחת כמה שניות</p>
+          <p className="text-gray-500 mb-4">התהליך יכול לקחת כמה דקות בקבצים גדולים</p>
+          <div className="inline-flex items-center gap-2 bg-orange-50 text-orange-700 px-4 py-2 rounded-full text-sm">
+            <Clock className="w-4 h-4" />
+            אנא המתן, אל תסגור את הדף
+          </div>
         </div>
       )}
 
       {/* Step 4: Done */}
       {step === 4 && importResult && (
         <div className="space-y-6">
-          <div className="text-center py-8">
-            <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6">
-              <CheckCircle className="w-10 h-10 text-green-600" />
+          <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-8">
+            <div className="text-center mb-8">
+              <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="w-10 h-10 text-green-600" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-1">הייבוא הושלם!</h3>
+              <p className="text-gray-600">{importName || getDefaultImportName()}</p>
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">הייבוא הושלם!</h3>
             
-            <div className="grid grid-cols-3 gap-4 max-w-md mx-auto my-8">
-              <div className="bg-green-50 rounded-xl p-4">
-                <div className="text-3xl font-bold text-green-600">{importResult.stats.imported}</div>
-                <div className="text-sm text-green-700">נוספו</div>
+            <div className="grid grid-cols-3 gap-4 max-w-lg mx-auto mb-8">
+              <div className="bg-white rounded-xl p-4 text-center shadow-sm">
+                <div className="text-3xl font-bold text-green-600">{importResult.stats.imported.toLocaleString()}</div>
+                <div className="text-sm text-gray-600">נוספו חדשים</div>
               </div>
-              <div className="bg-blue-50 rounded-xl p-4">
-                <div className="text-3xl font-bold text-blue-600">{importResult.stats.updated}</div>
-                <div className="text-sm text-blue-700">עודכנו</div>
+              <div className="bg-white rounded-xl p-4 text-center shadow-sm">
+                <div className="text-3xl font-bold text-blue-600">{importResult.stats.updated.toLocaleString()}</div>
+                <div className="text-sm text-gray-600">עודכנו</div>
               </div>
-              <div className="bg-red-50 rounded-xl p-4">
+              <div className="bg-white rounded-xl p-4 text-center shadow-sm">
                 <div className="text-3xl font-bold text-red-600">{importResult.stats.errors}</div>
-                <div className="text-sm text-red-700">שגיאות</div>
+                <div className="text-sm text-gray-600">שגיאות</div>
               </div>
+            </div>
+
+            <div className="flex justify-center gap-4">
+              <a
+                href="/contacts"
+                className="px-6 py-3 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 font-medium flex items-center gap-2"
+              >
+                <Users className="w-4 h-4" />
+                צפה באנשי קשר
+                <ExternalLink className="w-4 h-4" />
+              </a>
+              <button
+                onClick={handleReset}
+                className="px-6 py-3 bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-xl hover:from-orange-700 hover:to-orange-800 font-medium flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                ייבוא נוסף
+              </button>
             </div>
           </div>
 
@@ -675,15 +693,6 @@ export default function ImportTab({ onRefresh }) {
               </div>
             </div>
           )}
-          
-          <div className="text-center">
-            <button
-              onClick={handleReset}
-              className="px-8 py-3 bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-xl hover:from-orange-700 hover:to-orange-800 font-medium shadow-lg shadow-orange-500/25"
-            >
-              ייבוא נוסף
-            </button>
-          </div>
         </div>
       )}
 
@@ -692,8 +701,6 @@ export default function ImportTab({ onRefresh }) {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowNewVariable(false)}>
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-semibold mb-4">יצירת משתנה חדש</h3>
-            <p className="text-sm text-gray-500 mb-4">המשתנה יהיה זמין גם בבוטים.</p>
-            
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">שם לתצוגה</label>
@@ -706,7 +713,6 @@ export default function ImportTab({ onRefresh }) {
                   autoFocus
                 />
               </div>
-              
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">שם משתנה (אנגלית)</label>
                 <input
@@ -719,12 +725,8 @@ export default function ImportTab({ onRefresh }) {
                 />
               </div>
             </div>
-            
             <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => setShowNewVariable(false)}
-                className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 font-medium"
-              >
+              <button onClick={() => setShowNewVariable(false)} className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 font-medium">
                 ביטול
               </button>
               <button
@@ -749,10 +751,9 @@ export default function ImportTab({ onRefresh }) {
               </div>
               <div>
                 <h3 className="text-lg font-semibold">יצירת קהל חדש</h3>
-                <p className="text-sm text-gray-500">הקהל יווצר ואנשי הקשר יתווספו אליו</p>
+                <p className="text-sm text-gray-500">אנשי הקשר יתווספו לקהל זה</p>
               </div>
             </div>
-            
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">שם הקהל *</label>
@@ -765,7 +766,6 @@ export default function ImportTab({ onRefresh }) {
                   autoFocus
                 />
               </div>
-              
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">תיאור (אופציונלי)</label>
                 <textarea
@@ -777,12 +777,8 @@ export default function ImportTab({ onRefresh }) {
                 />
               </div>
             </div>
-            
             <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => setShowCreateAudience(false)}
-                className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 font-medium"
-              >
+              <button onClick={() => setShowCreateAudience(false)} className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 font-medium">
                 ביטול
               </button>
               <button
