@@ -6,7 +6,7 @@ import {
   Plus, ArrowUpRight, Clock, CheckCircle, Crown, Bell,
   Sparkles, ArrowRight, BarChart3, Calendar, Phone, Star,
   Target, Rocket, Gift, AlertCircle, X, ExternalLink, Lightbulb,
-  Gauge, HardDrive, Code, Forward
+  Gauge, HardDrive, Code, Forward, Send
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useWhatsappStore from '../store/whatsappStore';
@@ -614,6 +614,16 @@ export default function DashboardPage() {
               description="הגדרות החשבון"
               gradient="from-gray-500 to-slate-600"
             />
+            {user && ['admin', 'superadmin'].includes(user.role) && (
+              <QuickActionCard
+                to="/broadcasts"
+                icon={Send}
+                title="הודעות תפוצה"
+                description="שליחה המונית"
+                gradient="from-orange-500 to-red-600"
+                badge="בטא"
+              />
+            )}
           </div>
         </div>
 
