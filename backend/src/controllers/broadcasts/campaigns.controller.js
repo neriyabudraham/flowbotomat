@@ -564,6 +564,54 @@ async function getCampaignStats(req, res) {
   }
 }
 
+/**
+ * Get campaign report (all recipients with their status for CSV export)
+ */
+async function getCampaignReport(req, res) {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+    
+    // Verify campaign belongs to user
+    const campaignResult = await db.query(
+      'SELECT * FROM broadcast_campaigns WHERE id = $1 AND user_id = $2',
+      [id, userId]
+    );
+    
+    if (campaignResult.rows.length === 0) {
+      return res.status(404).json({ error: 'קמפיין לא נמצא' });
+    }
+    
+    // Get all recipients with contact info
+    const result = await db.query(`
+      SELECT 
+        r.phone,
+        r.display_name,
+        r.status,
+        r.sent_at,
+        r.error,
+        r.queued_at
+      FROM broadcast_campaign_recipients r
+      WHERE r.campaign_id = $1
+      ORDER BY 
+        CASE r.status 
+          WHEN 'sent' THEN 1 
+          WHEN 'failed' THEN 2 
+          ELSE 3 
+        END,
+        r.sent_at DESC NULLS LAST
+    `, [id]);
+    
+    res.json({ 
+      campaign: campaignResult.rows[0],
+      recipients: result.rows 
+    });
+  } catch (error) {
+    console.error('[Broadcasts] Get campaign report error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת דוח' });
+  }
+}
+
 module.exports = {
   getCampaigns,
   getCampaign,
@@ -575,5 +623,6 @@ module.exports = {
   resumeCampaign,
   cancelCampaign,
   getCampaignRecipients,
-  getCampaignStats
+  getCampaignStats,
+  getCampaignReport
 };
