@@ -4,7 +4,7 @@ import {
   Check, X, Star, Zap, Crown, Building, ArrowLeft, CreditCard, Lock, Loader2, 
   Shield, AlertCircle, Sparkles, Users, Bot, MessageSquare, BarChart3,
   Rocket, Gift, Timer, ChevronDown, ArrowRight, CheckCircle, Phone, Code,
-  RotateCcw, Clock, Info
+  RotateCcw, Clock, Info, Send
 } from 'lucide-react';
 import api from '../services/api';
 import useAuthStore from '../store/authStore';
@@ -525,7 +525,7 @@ export default function PricingPage() {
             </div>
           ) : !customDiscount && (
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {plans.map((plan, index) => {
+              {[...plans].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map((plan, index) => {
                 const Icon = PLAN_ICONS[plan.name] || Star;
                 const gradient = PLAN_GRADIENTS[plan.name] || 'from-gray-500 to-slate-600';
                 const bgGradient = PLAN_BG[plan.name] || 'from-gray-50 to-slate-50';

@@ -387,7 +387,7 @@ export default function AdminSubscriptions() {
           </Button>
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {plans.map(plan => {
+            {[...plans].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(plan => {
               const Icon = PLAN_ICONS[plan.name] || Star;
               return (
                 <div 
@@ -398,8 +398,11 @@ export default function AdminSubscriptions() {
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+                      <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg relative">
                         <Icon className="w-5 h-5 text-purple-600" />
+                        <span className="absolute -top-1 -right-1 w-4 h-4 bg-gray-700 text-white text-[10px] rounded-full flex items-center justify-center">
+                          {plan.sort_order || 0}
+                        </span>
                       </div>
                       <div>
                         <h3 className="font-bold text-gray-800 dark:text-white">{plan.name_he}</h3>
@@ -789,6 +792,23 @@ function PlanEditModal({ plan, onSave, onClose }) {
               />
               <span className="text-sm text-gray-700 dark:text-gray-300">אפשר שליחת הודעות תפוצה</span>
             </label>
+          </div>
+
+          {/* Display Order */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                סדר תצוגה בדף התמחור
+              </label>
+              <input
+                type="number"
+                value={form.sort_order}
+                onChange={e => setForm({...form, sort_order: parseInt(e.target.value) || 0})}
+                className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                min="0"
+              />
+              <p className="text-xs text-gray-500 mt-1">מספר נמוך יותר = מופיע קודם (0 = ראשון)</p>
+            </div>
           </div>
 
           <div className="flex gap-3 pt-4">
