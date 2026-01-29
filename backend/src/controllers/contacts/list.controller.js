@@ -12,7 +12,7 @@ async function listContacts(req, res) {
     let query = `
       SELECT c.*, 
              (SELECT COUNT(*) FROM messages m WHERE m.contact_id = c.id) as message_count,
-             COALESCE(c.last_message, (SELECT content FROM messages m WHERE m.contact_id = c.id ORDER BY sent_at DESC LIMIT 1)) as last_message,
+             (SELECT content FROM messages m WHERE m.contact_id = c.id ORDER BY sent_at DESC LIMIT 1) as last_message,
              COALESCE(
                (SELECT array_agg(t.name) FROM contact_tags t 
                 JOIN contact_tag_assignments cta ON t.id = cta.tag_id 

@@ -78,16 +78,14 @@ async function saveMessageToDatabase(userId, contactId, waMessageId, messageType
     `, [userId, contactId, waMessageId, messageType, content, mediaUrl, filename]);
     
     const message = result.rows[0];
-    const lastMessageText = content?.substring(0, 100) || (mediaUrl ? `[${messageType}]` : '');
     
     // Update contact's last_message_at to move chat to top
     await db.query(`
       UPDATE contacts 
       SET last_message_at = NOW(), 
-          last_message = $1,
           updated_at = NOW() 
-      WHERE id = $2
-    `, [lastMessageText, contactId]);
+      WHERE id = $1
+    `, [contactId]);
     
     // Get contact info for socket emission
     const contactResult = await db.query(
@@ -98,6 +96,8 @@ async function saveMessageToDatabase(userId, contactId, waMessageId, messageType
     // Emit socket event for real-time update in live chat
     if (message && contactResult.rows.length > 0) {
       const contact = contactResult.rows[0];
+      const lastMessagePreview = content?.substring(0, 100) || (mediaUrl ? `[${messageType}]` : '');
+      
       emitToUser(userId, 'outgoing_message', {
         message: {
           ...message,
@@ -105,7 +105,7 @@ async function saveMessageToDatabase(userId, contactId, waMessageId, messageType
         },
         contact: {
           ...contact,
-          last_message: lastMessageText,
+          last_message: lastMessagePreview,
           last_message_at: new Date().toISOString()
         }
       });
