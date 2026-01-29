@@ -249,7 +249,7 @@ export default function ImportTab({ onRefresh }) {
         default_country_code: defaultCountryCode,
         import_name: importName || getDefaultImportName()
       }, {
-        timeout: 600000 // 10 minutes timeout
+        timeout: 900000 // 15 minutes timeout
       });
       
       console.log('Import result:', data);
@@ -258,8 +258,30 @@ export default function ImportTab({ onRefresh }) {
       onRefresh?.();
     } catch (e) {
       console.error('Import error:', e);
-      alert(e.response?.data?.error || 'שגיאה בייבוא - נסה שוב');
-      setStep(2);
+      // Show result even on error - show what was imported before error
+      if (e.response?.data?.stats) {
+        setImportResult({
+          ...e.response.data,
+          hadError: true
+        });
+        setStep(4);
+      } else {
+        // Complete failure - show error result
+        setImportResult({
+          success: false,
+          hadError: true,
+          errorMessage: e.response?.data?.error || e.message || 'שגיאה לא ידועה',
+          stats: {
+            total: validationResults.validCount,
+            imported: 0,
+            updated: 0,
+            errors: validationResults.validCount
+          },
+          errors: [{ row: 0, error: e.response?.data?.error || 'שגיאה בתהליך הייבוא' }]
+        });
+        setStep(4);
+      }
+      onRefresh?.();
     } finally {
       setImporting(false);
     }
@@ -633,13 +655,28 @@ export default function ImportTab({ onRefresh }) {
       {/* Step 4: Done */}
       {step === 4 && importResult && (
         <div className="space-y-6">
-          <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-8">
+          <div className={`border rounded-2xl p-8 ${
+            importResult.hadError 
+              ? 'bg-gradient-to-br from-orange-50 to-amber-50 border-orange-200'
+              : 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-200'
+          }`}>
             <div className="text-center mb-8">
-              <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
-                <CheckCircle className="w-10 h-10 text-green-600" />
+              <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 ${
+                importResult.hadError ? 'bg-orange-100' : 'bg-green-100'
+              }`}>
+                {importResult.hadError ? (
+                  <AlertTriangle className="w-10 h-10 text-orange-600" />
+                ) : (
+                  <CheckCircle className="w-10 h-10 text-green-600" />
+                )}
               </div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-1">הייבוא הושלם!</h3>
+              <h3 className="text-2xl font-bold text-gray-900 mb-1">
+                {importResult.hadError ? 'הייבוא הסתיים עם שגיאות' : 'הייבוא הושלם!'}
+              </h3>
               <p className="text-gray-600">{importName || getDefaultImportName()}</p>
+              {importResult.errorMessage && (
+                <p className="text-red-600 text-sm mt-2">{importResult.errorMessage}</p>
+              )}
             </div>
             
             <div className="grid grid-cols-3 gap-4 max-w-lg mx-auto mb-8">
