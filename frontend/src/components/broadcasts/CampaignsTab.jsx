@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   Plus, Send, Trash2, Edit2, Search, RefreshCw, Play, Pause,
   Loader2, X, Calendar, Clock, Users, MessageSquare, CheckCircle,
@@ -464,6 +464,8 @@ export default function CampaignsTab({ onRefresh }) {
 // =============================================
 function CampaignCard({ campaign, onView, onEdit, onDelete, onAction, onReschedule, onCancelSchedule, onDuplicate, onDownloadReport, actionLoading }) {
   const [showMenu, setShowMenu] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+  const menuButtonRef = useRef(null);
   const status = STATUS_CONFIG[campaign.status] || STATUS_CONFIG.draft;
   const StatusIcon = status.icon;
   
@@ -615,7 +617,17 @@ function CampaignCard({ campaign, onView, onEdit, onDelete, onAction, onReschedu
             {/* More Actions Menu */}
             <div className="relative">
               <button
-                onClick={() => setShowMenu(!showMenu)}
+                ref={menuButtonRef}
+                onClick={() => {
+                  if (!showMenu && menuButtonRef.current) {
+                    const rect = menuButtonRef.current.getBoundingClientRect();
+                    setMenuPosition({
+                      top: rect.bottom + 4,
+                      left: rect.left - 140 // Adjust for RTL and menu width
+                    });
+                  }
+                  setShowMenu(!showMenu);
+                }}
                 className="p-2.5 hover:bg-gray-100 rounded-xl transition-colors"
               >
                 <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${showMenu ? 'rotate-180' : ''}`} />
@@ -623,8 +635,11 @@ function CampaignCard({ campaign, onView, onEdit, onDelete, onAction, onReschedu
               
               {showMenu && (
                 <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-                  <div className="absolute left-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-gray-200 py-1 w-48 z-20">
+                  <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
+                  <div 
+                    className="fixed bg-white rounded-xl shadow-xl border border-gray-200 py-1 w-48 z-50"
+                    style={{ top: menuPosition.top, left: menuPosition.left }}
+                  >
                     {['draft', 'scheduled'].includes(campaign.status) && (
                       <button
                         onClick={() => { onEdit(); setShowMenu(false); }}
