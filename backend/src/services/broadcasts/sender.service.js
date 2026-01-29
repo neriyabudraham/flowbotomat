@@ -3,8 +3,27 @@ const wahaService = require('../waha/session.service');
 const { getWahaCredentials } = require('../settings/system.service');
 const { decrypt } = require('../crypto/encrypt.service');
 
-// Track active campaign processes
+// Track active campaign processes with detailed progress
 const activeCampaigns = new Map();
+
+/**
+ * Update campaign progress
+ */
+function updateProgress(campaignId, data) {
+  const current = activeCampaigns.get(campaignId) || {};
+  activeCampaigns.set(campaignId, {
+    ...current,
+    ...data,
+    lastUpdate: Date.now()
+  });
+}
+
+/**
+ * Get campaign progress
+ */
+function getCampaignProgress(campaignId) {
+  return activeCampaigns.get(campaignId) || null;
+}
 
 /**
  * Get WAHA connection for a user (same logic as groupForwards)
@@ -88,12 +107,22 @@ async function startCampaignSending(campaignId, userId) {
   const delayBetweenBatches = (settings.delay_between_batches || 30) * 1000;
   const batchSize = settings.batch_size || 50;
   
-  // Mark as active
-  activeCampaigns.set(campaignId, { status: 'running' });
+  // Mark as active with initial progress
+  updateProgress(campaignId, {
+    status: 'running',
+    currentAction: 'מאתחל קמפיין...',
+    currentRecipient: null,
+    sent: 0,
+    failed: 0,
+    total: campaign.total_recipients || 0,
+    startedAt: Date.now()
+  });
   
   try {
     // Get template messages if using template
     let messages = [];
+    updateProgress(campaignId, { currentAction: 'טוען תבנית הודעה...' });
+    
     if (campaign.template_id) {
       const messagesResult = await db.query(`
         SELECT * FROM broadcast_template_messages 
@@ -146,6 +175,9 @@ async function startCampaignSending(campaignId, userId) {
       }
       
       console.log(`[Broadcast Sender] Processing batch of ${recipientsResult.rows.length} recipients`);
+      updateProgress(campaignId, { 
+        currentAction: `מעבד אצווה של ${recipientsResult.rows.length} נמענים...` 
+      });
       
       // Process each recipient
       for (const recipient of recipientsResult.rows) {
@@ -155,6 +187,15 @@ async function startCampaignSending(campaignId, userId) {
           console.log(`[Broadcast Sender] Campaign ${campaignId} ${currentStatus}`);
           break;
         }
+        
+        // Update progress with current recipient
+        updateProgress(campaignId, {
+          currentAction: `שולח ל-${recipient.contact_name || recipient.phone}...`,
+          currentRecipient: {
+            phone: recipient.phone,
+            name: recipient.contact_name
+          }
+        });
         
         try {
           // Update status to sending
@@ -171,7 +212,8 @@ async function startCampaignSending(campaignId, userId) {
           
           // Send each message in the template
           const sentMessageIds = [];
-          for (const msg of messages) {
+          for (let msgIndex = 0; msgIndex < messages.length; msgIndex++) {
+            const msg = messages[msgIndex];
             // Replace variables in content
             let content = msg.content || '';
             content = content.replace(/\{\{name\}\}/g, recipient.contact_name || '');
@@ -179,8 +221,21 @@ async function startCampaignSending(campaignId, userId) {
             
             // Wait for delay between messages
             if (msg.delay_seconds > 0) {
+              updateProgress(campaignId, {
+                currentAction: `ממתין ${msg.delay_seconds} שניות לפני הודעה ${msgIndex + 1}...`,
+                waitingSeconds: msg.delay_seconds
+              });
               await sleep(msg.delay_seconds * 1000);
             }
+            
+            // Update progress for message type
+            const msgTypeLabels = { text: 'טקסט', image: 'תמונה', video: 'וידאו', audio: 'אודיו', document: 'קובץ' };
+            updateProgress(campaignId, {
+              currentAction: `שולח ${msgTypeLabels[msg.message_type] || msg.message_type} ל-${recipient.contact_name || recipient.phone}...`,
+              currentMessageIndex: msgIndex + 1,
+              totalMessages: messages.length,
+              waitingSeconds: null
+            });
             
             // Send based on message type
             let result;
@@ -221,8 +276,8 @@ async function startCampaignSending(campaignId, userId) {
                     'csv': 'text/csv',
                   };
                   const mimetype = mimetypes[ext] || 'application/octet-stream';
-                  console.log(`[Broadcast Sender] Sending file: ${filename}, mimetype: ${mimetype}`);
-                  result = await wahaService.sendFile(connection, chatId, msg.media_url, filename, mimetype);
+                  console.log(`[Broadcast Sender] Sending file: ${filename}, mimetype: ${mimetype}, caption: ${content?.substring(0, 30) || 'none'}`);
+                  result = await wahaService.sendFile(connection, chatId, msg.media_url, filename, mimetype, content);
                 }
                 break;
               default: // text
@@ -255,6 +310,13 @@ async function startCampaignSending(campaignId, userId) {
             WHERE id = $1
           `, [campaignId]);
           
+          // Update progress
+          updateProgress(campaignId, {
+            sent: totalSent,
+            failed: totalFailed,
+            currentAction: `נשלח בהצלחה ל-${recipient.contact_name || recipient.phone}`
+          });
+          
           console.log(`[Broadcast Sender] Sent to ${recipient.phone}`);
           
         } catch (error) {
@@ -276,15 +338,32 @@ async function startCampaignSending(campaignId, userId) {
             SET failed_count = failed_count + 1, updated_at = NOW()
             WHERE id = $1
           `, [campaignId]);
+          
+          // Update progress
+          updateProgress(campaignId, {
+            sent: totalSent,
+            failed: totalFailed,
+            currentAction: `שגיאה בשליחה ל-${recipient.contact_name || recipient.phone}: ${error.message?.substring(0, 50)}`
+          });
         }
         
         // Delay between messages
+        const delaySeconds = delayBetweenMessages / 1000;
+        updateProgress(campaignId, {
+          currentAction: `ממתין ${delaySeconds} שניות לפני הנמען הבא...`,
+          waitingSeconds: delaySeconds
+        });
         await sleep(delayBetweenMessages);
       }
       
       // Delay between batches
       if (recipientsResult.rows.length === batchSize) {
-        console.log(`[Broadcast Sender] Waiting ${delayBetweenBatches / 1000}s before next batch`);
+        const batchDelaySeconds = delayBetweenBatches / 1000;
+        console.log(`[Broadcast Sender] Waiting ${batchDelaySeconds}s before next batch`);
+        updateProgress(campaignId, {
+          currentAction: `ממתין ${batchDelaySeconds} שניות לפני האצווה הבאה...`,
+          waitingSeconds: batchDelaySeconds
+        });
         await sleep(delayBetweenBatches);
       }
       
@@ -353,6 +432,7 @@ function sleep(ms) {
 module.exports = {
   startCampaignSending,
   pauseCampaign,
+  getCampaignProgress,
   cancelCampaign,
   isCampaignActive
 };

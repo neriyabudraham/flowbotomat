@@ -579,6 +579,71 @@ async function getCampaignStats(req, res) {
 }
 
 /**
+ * Get campaign progress (real-time)
+ */
+async function getCampaignProgress(req, res) {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+    
+    // Verify campaign belongs to user
+    const campaignResult = await db.query(
+      'SELECT * FROM broadcast_campaigns WHERE id = $1 AND user_id = $2',
+      [id, userId]
+    );
+    
+    if (campaignResult.rows.length === 0) {
+      return res.status(404).json({ error: 'קמפיין לא נמצא' });
+    }
+    
+    const campaign = campaignResult.rows[0];
+    
+    // Get real-time progress from sender service
+    const liveProgress = broadcastSender.getCampaignProgress(id);
+    
+    // Get stats from database
+    const statsResult = await db.query(`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE status = 'pending') as pending,
+        COUNT(*) FILTER (WHERE status = 'sending') as sending,
+        COUNT(*) FILTER (WHERE status = 'sent') as sent,
+        COUNT(*) FILTER (WHERE status = 'failed') as failed
+      FROM broadcast_campaign_recipients
+      WHERE campaign_id = $1
+    `, [id]);
+    
+    // Get last 5 sent recipients
+    const recentResult = await db.query(`
+      SELECT phone, contact_name, status, sent_at, error_message
+      FROM broadcast_campaign_recipients
+      WHERE campaign_id = $1 AND status IN ('sent', 'failed')
+      ORDER BY sent_at DESC NULLS LAST
+      LIMIT 5
+    `, [id]);
+    
+    res.json({
+      campaign: {
+        id: campaign.id,
+        name: campaign.name,
+        status: campaign.status,
+        total_recipients: campaign.total_recipients,
+        sent_count: campaign.sent_count,
+        failed_count: campaign.failed_count,
+        started_at: campaign.started_at,
+        completed_at: campaign.completed_at
+      },
+      stats: statsResult.rows[0],
+      liveProgress: liveProgress || null,
+      recentRecipients: recentResult.rows
+    });
+  } catch (error) {
+    console.error('[Broadcasts] Get campaign progress error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת התקדמות' });
+  }
+}
+
+/**
  * Get campaign report (all recipients with their status for CSV export)
  */
 async function getCampaignReport(req, res) {
@@ -638,5 +703,6 @@ module.exports = {
   cancelCampaign,
   getCampaignRecipients,
   getCampaignStats,
+  getCampaignProgress,
   getCampaignReport
 };

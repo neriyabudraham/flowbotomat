@@ -245,7 +245,7 @@ async function sendImage(connection, phone, imageUrl, caption = '') {
 /**
  * Send file
  */
-async function sendFile(connection, phone, fileUrl, filename = 'file', mimetype = null) {
+async function sendFile(connection, phone, fileUrl, filename = 'file', mimetype = null, caption = '') {
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
@@ -260,13 +260,20 @@ async function sendFile(connection, phone, fileUrl, filename = 'file', mimetype 
     fileObj.mimetype = mimetype;
   }
   
-  const response = await client.post(`/api/sendFile`, {
+  const payload = {
     session: connection.session_name,
     chatId: chatId,
     file: fileObj,
-  });
+  };
   
-  console.log(`[WAHA] Sent file to ${phone}: ${filename}`);
+  // Add caption if provided
+  if (caption) {
+    payload.caption = caption;
+  }
+  
+  const response = await client.post(`/api/sendFile`, payload);
+  
+  console.log(`[WAHA] Sent file to ${phone}: ${filename}${caption ? ' with caption' : ''}`);
   return response.data;
 }
 

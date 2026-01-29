@@ -58,6 +58,7 @@ router.post('/campaigns/:id/cancel', campaignsController.cancelCampaign);
 // Campaign stats & reports
 router.get('/campaigns/:id/recipients', campaignsController.getCampaignRecipients);
 router.get('/campaigns/:id/stats', campaignsController.getCampaignStats);
+router.get('/campaigns/:id/progress', campaignsController.getCampaignProgress);
 router.get('/campaigns/:id/report', campaignsController.getCampaignReport);
 
 // ============================================
