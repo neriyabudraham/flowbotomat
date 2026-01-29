@@ -1,54 +1,44 @@
 const db = require('../../config/database');
 const wahaService = require('../waha/session.service');
 const { getWahaCredentials } = require('../settings/system.service');
+const { decrypt } = require('../crypto/encrypt.service');
 
 // Track active campaign processes
 const activeCampaigns = new Map();
 
 /**
- * Get WAHA connection for a user
+ * Get WAHA connection for a user (same logic as groupForwards)
  */
 async function getWahaConnection(userId) {
   try {
-    // First check if user has their own connection
-    const result = await db.query(`
-      SELECT 
-        wh.base_url,
-        wh.api_key,
-        ws.waha_instance_name as session_name,
-        ws.id as session_id
-      FROM waha_sessions ws
-      JOIN waha_hosts wh ON ws.waha_host_id = wh.id
-      WHERE ws.user_id = $1 AND ws.status = 'connected'
-      LIMIT 1
+    const connectionResult = await db.query(`
+      SELECT * FROM whatsapp_connections 
+      WHERE user_id = $1 AND status = 'connected'
+      ORDER BY connected_at DESC LIMIT 1
     `, [userId]);
-
-    if (result.rows.length > 0) {
-      return {
-        base_url: result.rows[0].base_url,
-        api_key: result.rows[0].api_key,
-        session_name: result.rows[0].session_name
-      };
+    
+    if (connectionResult.rows.length === 0) {
+      console.log(`[Broadcast Sender] No connected WhatsApp for user ${userId}`);
+      return null;
     }
-
-    // Fall back to system credentials
-    const systemCreds = getWahaCredentials();
-    if (systemCreds?.baseUrl) {
-      // Get user's session name from their whatsapp connection
-      const sessionResult = await db.query(`
-        SELECT waha_instance_name FROM waha_sessions WHERE user_id = $1 LIMIT 1
-      `, [userId]);
-      
-      if (sessionResult.rows.length > 0) {
-        return {
-          base_url: systemCreds.baseUrl,
-          api_key: systemCreds.apiKey,
-          session_name: sessionResult.rows[0].waha_instance_name
-        };
-      }
+    
+    const connection = connectionResult.rows[0];
+    let baseUrl, apiKey;
+    
+    if (connection.connection_type === 'external') {
+      baseUrl = decrypt(connection.external_base_url);
+      apiKey = decrypt(connection.external_api_key);
+    } else {
+      const systemCreds = getWahaCredentials();
+      baseUrl = systemCreds.baseUrl;
+      apiKey = systemCreds.apiKey;
     }
-
-    return null;
+    
+    return {
+      ...connection,
+      base_url: baseUrl,
+      api_key: apiKey
+    };
   } catch (error) {
     console.error('[Broadcast Sender] Error getting WAHA connection:', error);
     return null;
