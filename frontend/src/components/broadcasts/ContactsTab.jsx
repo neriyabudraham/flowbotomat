@@ -88,11 +88,41 @@ export default function ContactsTab({ onRefresh }) {
       phone: contact.phone || ''
     });
     
-    // Load contact variables
+    // Load contact variables and merge with all available variables
     try {
-      const { data } = await api.get(`/contacts/${contact.id}/variables`);
-      setContactVariables(data.variables || []);
+      const [varsRes, allVarsRes] = await Promise.all([
+        api.get(`/contacts/${contact.id}/variables`),
+        api.get('/variables')
+      ]);
+      
+      const contactVars = varsRes.data.variables || [];
+      const allVars = allVarsRes.data.variables || [];
+      
+      // Merge: all variables with contact's values
+      const mergedVars = allVars.map(v => {
+        const contactVar = contactVars.find(cv => cv.key === v.key);
+        return {
+          key: v.key,
+          label: v.label || v.key,
+          value: contactVar?.value || ''
+        };
+      });
+      
+      // Add any contact variables that aren't in allVars (shouldn't happen, but just in case)
+      contactVars.forEach(cv => {
+        if (!mergedVars.find(v => v.key === cv.key)) {
+          mergedVars.push({
+            key: cv.key,
+            label: cv.key,
+            value: cv.value || ''
+          });
+        }
+      });
+      
+      setContactVariables(mergedVars);
+      setAllVariables(allVars);
     } catch (e) {
+      console.error('Failed to load variables:', e);
       setContactVariables([]);
     }
   };
