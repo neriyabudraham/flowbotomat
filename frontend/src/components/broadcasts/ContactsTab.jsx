@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { 
   Search, Plus, Edit2, Trash2, Users, Phone, User, Tag,
   ChevronLeft, ChevronRight, Loader2, X, Check, Filter,
-  MoreHorizontal, Download, RefreshCw, Mail, AlertCircle
+  MoreHorizontal, Download, RefreshCw, Mail, AlertCircle, Variable
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -20,7 +20,15 @@ export default function ContactsTab({ onRefresh }) {
   const [editingContact, setEditingContact] = useState(null);
   const [editForm, setEditForm] = useState({ display_name: '', phone: '' });
   const [contactVariables, setContactVariables] = useState([]);
+  const [allVariables, setAllVariables] = useState([]);
   const [saving, setSaving] = useState(false);
+  
+  // Add variable modal
+  const [showAddVariableModal, setShowAddVariableModal] = useState(false);
+  const [selectedVarToAdd, setSelectedVarToAdd] = useState('');
+  const [newVarKey, setNewVarKey] = useState('');
+  const [newVarLabel, setNewVarLabel] = useState('');
+  const [creatingNewVar, setCreatingNewVar] = useState(false);
   
   // Tags modal
   const [showTagsModal, setShowTagsModal] = useState(false);
@@ -32,6 +40,7 @@ export default function ContactsTab({ onRefresh }) {
   useEffect(() => {
     loadContacts();
     loadTags();
+    loadAllVariables();
   }, [currentPage, searchQuery, filterTag]);
 
   const loadContacts = async () => {
@@ -63,6 +72,15 @@ export default function ContactsTab({ onRefresh }) {
     }
   };
 
+  const loadAllVariables = async () => {
+    try {
+      const { data } = await api.get('/variables');
+      setAllVariables(data.variables || []);
+    } catch (e) {
+      console.error('Failed to load variables:', e);
+    }
+  };
+
   const handleEditContact = async (contact) => {
     setEditingContact(contact);
     setEditForm({
@@ -79,6 +97,56 @@ export default function ContactsTab({ onRefresh }) {
     }
   };
 
+  const handleAddVariable = () => {
+    if (creatingNewVar) {
+      // Create new variable
+      if (!newVarKey.trim()) return;
+      
+      const newVar = {
+        key: newVarKey.trim(),
+        label: newVarLabel.trim() || newVarKey.trim(),
+        value: '',
+        isNew: true
+      };
+      
+      // Check if already exists in contactVariables
+      if (contactVariables.find(v => v.key === newVar.key)) {
+        alert('משתנה זה כבר קיים');
+        return;
+      }
+      
+      setContactVariables([...contactVariables, newVar]);
+      setShowAddVariableModal(false);
+      setNewVarKey('');
+      setNewVarLabel('');
+      setCreatingNewVar(false);
+    } else {
+      // Add existing variable
+      if (!selectedVarToAdd) return;
+      
+      const varDef = allVariables.find(v => v.key === selectedVarToAdd);
+      if (!varDef) return;
+      
+      // Check if already exists in contactVariables
+      if (contactVariables.find(v => v.key === varDef.key)) {
+        alert('משתנה זה כבר קיים');
+        return;
+      }
+      
+      setContactVariables([...contactVariables, { 
+        key: varDef.key, 
+        label: varDef.label || varDef.key,
+        value: '' 
+      }]);
+      setShowAddVariableModal(false);
+      setSelectedVarToAdd('');
+    }
+  };
+
+  const handleRemoveVariable = (key) => {
+    setContactVariables(contactVariables.filter(v => v.key !== key));
+  };
+
   const handleSaveContact = async () => {
     if (!editingContact) return;
     
@@ -86,15 +154,27 @@ export default function ContactsTab({ onRefresh }) {
       setSaving(true);
       await api.put(`/contacts/${editingContact.id}`, editForm);
       
+      // Create new variables if needed
+      for (const v of contactVariables) {
+        if (v.isNew) {
+          try {
+            await api.post('/variables', { key: v.key, label: v.label || v.key });
+          } catch (e) {
+            // Variable might already exist, continue
+          }
+        }
+      }
+      
       // Save variables
       for (const v of contactVariables) {
-        if (v.value) {
-          await api.put(`/contacts/${editingContact.id}/variables/${v.key}`, { value: v.value });
+        if (v.value !== undefined && v.value !== null) {
+          await api.post(`/contacts/${editingContact.id}/variables`, { key: v.key, value: v.value });
         }
       }
       
       setEditingContact(null);
       loadContacts();
+      loadAllVariables(); // Refresh variables list
     } catch (e) {
       alert(e.response?.data?.error || 'שגיאה בשמירה');
     } finally {
@@ -381,28 +461,65 @@ export default function ContactsTab({ onRefresh }) {
                 />
               </div>
 
-              {contactVariables.length > 0 && (
-                <div className="border-t border-gray-100 pt-4">
-                  <h4 className="text-sm font-medium text-gray-700 mb-3">משתנים</h4>
+              {/* Variables Section */}
+              <div className="border-t border-gray-100 pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                    <Variable className="w-4 h-4" />
+                    משתנים
+                  </h4>
+                  <button
+                    onClick={() => setShowAddVariableModal(true)}
+                    className="px-3 py-1 text-xs font-medium text-orange-600 hover:bg-orange-50 rounded-lg flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />
+                    הוסף משתנה
+                  </button>
+                </div>
+                
+                {contactVariables.length === 0 ? (
+                  <div className="text-center py-6 bg-gray-50 rounded-xl">
+                    <Variable className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                    <p className="text-sm text-gray-500">אין משתנים</p>
+                    <button
+                      onClick={() => setShowAddVariableModal(true)}
+                      className="text-xs text-orange-600 hover:text-orange-700 mt-1"
+                    >
+                      הוסף משתנה ראשון
+                    </button>
+                  </div>
+                ) : (
                   <div className="space-y-3">
                     {contactVariables.map((v, i) => (
-                      <div key={v.key}>
-                        <label className="block text-xs text-gray-500 mb-1">{v.key}</label>
-                        <input
-                          type="text"
-                          value={v.value || ''}
-                          onChange={(e) => {
-                            const newVars = [...contactVariables];
-                            newVars[i] = { ...v, value: e.target.value };
-                            setContactVariables(newVars);
-                          }}
-                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                        />
+                      <div key={v.key} className="flex gap-2">
+                        <div className="flex-1">
+                          <label className="block text-xs text-gray-500 mb-1">
+                            {v.label || v.key}
+                            {v.isNew && <span className="text-orange-500 mr-1">(חדש)</span>}
+                          </label>
+                          <input
+                            type="text"
+                            value={v.value || ''}
+                            onChange={(e) => {
+                              const newVars = [...contactVariables];
+                              newVars[i] = { ...v, value: e.target.value };
+                              setContactVariables(newVars);
+                            }}
+                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                            placeholder={`ערך עבור ${v.label || v.key}`}
+                          />
+                        </div>
+                        <button
+                          onClick={() => handleRemoveVariable(v.key)}
+                          className="self-end p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
             
             <div className="flex gap-3 mt-6">
@@ -419,6 +536,109 @@ export default function ContactsTab({ onRefresh }) {
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                 שמור
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Variable Modal */}
+      {showAddVariableModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={() => setShowAddVariableModal(false)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold mb-4">הוספת משתנה</h3>
+            
+            {/* Toggle between existing and new */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setCreatingNewVar(false)}
+                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                  !creatingNewVar 
+                    ? 'bg-orange-100 text-orange-700' 
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                בחר קיים
+              </button>
+              <button
+                onClick={() => setCreatingNewVar(true)}
+                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                  creatingNewVar 
+                    ? 'bg-orange-100 text-orange-700' 
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                צור חדש
+              </button>
+            </div>
+            
+            {!creatingNewVar ? (
+              <div className="space-y-4">
+                <select
+                  value={selectedVarToAdd}
+                  onChange={(e) => setSelectedVarToAdd(e.target.value)}
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500"
+                >
+                  <option value="">בחר משתנה...</option>
+                  {allVariables
+                    .filter(v => !contactVariables.find(cv => cv.key === v.key))
+                    .map(v => (
+                      <option key={v.key} value={v.key}>
+                        {v.label || v.key}
+                      </option>
+                    ))
+                  }
+                </select>
+                
+                {allVariables.filter(v => !contactVariables.find(cv => cv.key === v.key)).length === 0 && (
+                  <p className="text-sm text-gray-500 text-center py-2">
+                    כל המשתנים כבר מוגדרים לאיש קשר זה
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    מפתח (באנגלית) *
+                  </label>
+                  <input
+                    type="text"
+                    value={newVarKey}
+                    onChange={(e) => setNewVarKey(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                    placeholder="לדוגמה: company_name"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500"
+                    dir="ltr"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    תווית (לתצוגה)
+                  </label>
+                  <input
+                    type="text"
+                    value={newVarLabel}
+                    onChange={(e) => setNewVarLabel(e.target.value)}
+                    placeholder="לדוגמה: שם החברה"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500"
+                  />
+                </div>
+              </div>
+            )}
+            
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => { setShowAddVariableModal(false); setSelectedVarToAdd(''); setNewVarKey(''); setNewVarLabel(''); }}
+                className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 font-medium"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={handleAddVariable}
+                disabled={creatingNewVar ? !newVarKey.trim() : !selectedVarToAdd}
+                className="flex-1 px-4 py-2.5 bg-orange-600 text-white rounded-xl hover:bg-orange-700 font-medium disabled:opacity-50"
+              >
+                הוסף
               </button>
             </div>
           </div>

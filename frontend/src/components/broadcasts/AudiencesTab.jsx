@@ -511,32 +511,28 @@ function TypeSelection({ isStatic, onSelect }) {
 // =============================================
 function ContactPicker({ selectedIds, onChange, loading }) {
   const [contacts, setContacts] = useState([]);
+  const [allContactIds, setAllContactIds] = useState([]);
+  const [totalContacts, setTotalContacts] = useState(0);
   const [loadingContacts, setLoadingContacts] = useState(true);
+  const [loadingAll, setLoadingAll] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 100;
 
   useEffect(() => {
-    loadContacts();
+    loadContacts(1);
+    loadAllContactIds();
   }, []);
 
-  const loadContacts = async (reset = false) => {
+  const loadContacts = async (page, search = '') => {
     try {
-      if (reset) {
-        setPage(1);
-        setContacts([]);
-      }
       setLoadingContacts(true);
       const { data } = await api.get('/contacts', {
-        params: { page: reset ? 1 : page, limit: 50, search: searchQuery }
+        params: { page, limit: pageSize, search }
       });
-      
-      if (reset) {
-        setContacts(data.contacts || []);
-      } else {
-        setContacts(prev => [...prev, ...(data.contacts || [])]);
-      }
-      setHasMore(data.pagination?.page < data.pagination?.pages);
+      setContacts(data.contacts || []);
+      setTotalContacts(data.total || 0);
+      setCurrentPage(page);
     } catch (e) {
       console.error('Failed to load contacts:', e);
     } finally {
@@ -544,8 +540,18 @@ function ContactPicker({ selectedIds, onChange, loading }) {
     }
   };
 
+  const loadAllContactIds = async () => {
+    try {
+      // Get all contact IDs for "select all" functionality
+      const { data } = await api.get('/contacts', { params: { limit: 10000 } });
+      setAllContactIds((data.contacts || []).map(c => c.id));
+    } catch (e) {
+      console.error('Failed to load all contact IDs:', e);
+    }
+  };
+
   const handleSearch = () => {
-    loadContacts(true);
+    loadContacts(1, searchQuery);
   };
 
   const toggleContact = (contactId) => {
@@ -557,18 +563,20 @@ function ContactPicker({ selectedIds, onChange, loading }) {
   };
 
   const selectAll = () => {
-    onChange(contacts.map(c => c.id));
+    onChange(allContactIds);
+  };
+
+  const selectVisible = () => {
+    const visibleIds = contacts.map(c => c.id);
+    const newSelected = [...new Set([...selectedIds, ...visibleIds])];
+    onChange(newSelected);
   };
 
   const deselectAll = () => {
     onChange([]);
   };
 
-  const filteredContacts = contacts.filter(c => 
-    !searchQuery || 
-    c.display_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.phone.includes(searchQuery)
-  );
+  const totalPages = Math.ceil(totalContacts / pageSize);
 
   if (loading) {
     return (
@@ -580,7 +588,7 @@ function ContactPicker({ selectedIds, onChange, loading }) {
 
   return (
     <div className="space-y-4">
-      {/* Search & Actions */}
+      {/* Search */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -605,14 +613,21 @@ function ContactPicker({ selectedIds, onChange, loading }) {
       <div className="flex items-center justify-between bg-purple-50 border border-purple-200 rounded-xl p-3">
         <div className="flex items-center gap-2 text-sm">
           <CheckCircle className="w-4 h-4 text-purple-600" />
-          <span className="font-medium text-purple-900">{selectedIds.length} אנשי קשר נבחרו</span>
+          <span className="font-medium text-purple-900">
+            {selectedIds.length.toLocaleString()} אנשי קשר נבחרו
+            {totalContacts > 0 && <span className="text-purple-600"> (מתוך {totalContacts.toLocaleString()})</span>}
+          </span>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={selectAll} className="text-xs text-purple-600 hover:text-purple-700 font-medium">
-            בחר הכל
+        <div className="flex items-center gap-2 text-xs">
+          <button onClick={selectAll} className="text-purple-600 hover:text-purple-700 font-medium">
+            בחר הכל ({allContactIds.length.toLocaleString()})
           </button>
           <span className="text-gray-300">|</span>
-          <button onClick={deselectAll} className="text-xs text-purple-600 hover:text-purple-700 font-medium">
+          <button onClick={selectVisible} className="text-purple-600 hover:text-purple-700 font-medium">
+            בחר עמוד
+          </button>
+          <span className="text-gray-300">|</span>
+          <button onClick={deselectAll} className="text-purple-600 hover:text-purple-700 font-medium">
             נקה בחירה
           </button>
         </div>
@@ -621,18 +636,18 @@ function ContactPicker({ selectedIds, onChange, loading }) {
       {/* Contacts List */}
       <div className="border border-gray-200 rounded-xl overflow-hidden">
         <div className="max-h-[300px] overflow-y-auto">
-          {loadingContacts && contacts.length === 0 ? (
+          {loadingContacts ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
             </div>
-          ) : filteredContacts.length === 0 ? (
+          ) : contacts.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
               <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
               <p>לא נמצאו אנשי קשר</p>
             </div>
           ) : (
             <div className="divide-y divide-gray-100">
-              {filteredContacts.map(contact => (
+              {contacts.map(contact => (
                 <label
                   key={contact.id}
                   className="flex items-center gap-4 p-4 hover:bg-gray-50 cursor-pointer transition-colors"
@@ -677,15 +692,28 @@ function ContactPicker({ selectedIds, onChange, loading }) {
           )}
         </div>
         
-        {/* Load More */}
-        {hasMore && !loadingContacts && (
-          <div className="p-3 border-t border-gray-100 text-center">
-            <button
-              onClick={() => { setPage(p => p + 1); loadContacts(); }}
-              className="text-sm text-purple-600 hover:text-purple-700 font-medium"
-            >
-              טען עוד אנשי קשר
-            </button>
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="bg-gray-50 px-4 py-3 border-t border-gray-200 flex items-center justify-between">
+            <span className="text-xs text-gray-500">
+              עמוד {currentPage} מתוך {totalPages}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => loadContacts(Math.max(1, currentPage - 1), searchQuery)}
+                disabled={currentPage === 1 || loadingContacts}
+                className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+              >
+                הקודם
+              </button>
+              <button
+                onClick={() => loadContacts(Math.min(totalPages, currentPage + 1), searchQuery)}
+                disabled={currentPage === totalPages || loadingContacts}
+                className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+              >
+                הבא
+              </button>
+            </div>
           </div>
         )}
       </div>
