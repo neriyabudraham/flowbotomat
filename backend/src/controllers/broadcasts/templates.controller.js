@@ -71,7 +71,7 @@ async function createTemplate(req, res) {
     }
     
     // Start transaction
-    const client = await pool.connect();
+    const client = await pool.pool.connect();
     try {
       await client.query('BEGIN');
       
@@ -134,22 +134,76 @@ async function updateTemplate(req, res) {
   try {
     const userId = req.user.id;
     const { id } = req.params;
-    const { name, description } = req.body;
+    const { name, description, messages } = req.body;
     
-    const result = await pool.query(`
-      UPDATE broadcast_templates 
-      SET name = COALESCE($1, name),
-          description = COALESCE($2, description),
-          updated_at = NOW()
-      WHERE id = $3 AND user_id = $4
-      RETURNING *
-    `, [name, description, id, userId]);
+    // Verify template belongs to user
+    const checkResult = await pool.query(
+      'SELECT * FROM broadcast_templates WHERE id = $1 AND user_id = $2',
+      [id, userId]
+    );
     
-    if (result.rows.length === 0) {
+    if (checkResult.rows.length === 0) {
       return res.status(404).json({ error: 'תבנית לא נמצאה' });
     }
     
-    res.json({ template: result.rows[0] });
+    // Start transaction
+    const client = await pool.pool.connect();
+    try {
+      await client.query('BEGIN');
+      
+      // Update template
+      const result = await client.query(`
+        UPDATE broadcast_templates 
+        SET name = COALESCE($1, name),
+            description = COALESCE($2, description),
+            updated_at = NOW()
+        WHERE id = $3 AND user_id = $4
+        RETURNING *
+      `, [name, description, id, userId]);
+      
+      const template = result.rows[0];
+      
+      // If messages are provided, replace all messages
+      if (messages && Array.isArray(messages)) {
+        // Delete existing messages
+        await client.query('DELETE FROM broadcast_template_messages WHERE template_id = $1', [id]);
+        
+        // Add new messages
+        for (let i = 0; i < messages.length; i++) {
+          const msg = messages[i];
+          await client.query(`
+            INSERT INTO broadcast_template_messages 
+            (template_id, message_order, message_type, content, media_url, media_caption, buttons, delay_seconds)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          `, [
+            id,
+            i + 1,
+            msg.message_type || 'text',
+            msg.content || '',
+            msg.media_url || null,
+            msg.media_caption || null,
+            msg.buttons ? JSON.stringify(msg.buttons) : null,
+            msg.delay_seconds || 0
+          ]);
+        }
+      }
+      
+      await client.query('COMMIT');
+      
+      // Get template with messages
+      const messagesResult = await pool.query(
+        'SELECT * FROM broadcast_template_messages WHERE template_id = $1 ORDER BY message_order',
+        [id]
+      );
+      template.messages = messagesResult.rows;
+      
+      res.json({ template });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   } catch (error) {
     console.error('[Broadcasts] Update template error:', error);
     res.status(500).json({ error: 'שגיאה בעדכון תבנית' });
@@ -327,7 +381,7 @@ async function reorderMessages(req, res) {
     }
     
     // Update order for each message
-    const client = await pool.connect();
+    const client = await pool.pool.connect();
     try {
       await client.query('BEGIN');
       
