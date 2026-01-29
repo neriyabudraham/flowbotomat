@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { 
   Plus, Users, Trash2, Edit2, Search, RefreshCw, Loader2, X, Eye,
   Target, UserPlus, Check, ChevronDown, Tag, Filter, Phone, User,
-  CheckCircle, Circle, AlertCircle, Sparkles, ChevronLeft, ChevronRight
+  CheckCircle, Circle, AlertCircle, Sparkles, ChevronLeft, ChevronRight,
+  Settings
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -763,12 +764,31 @@ function ContactPicker({ selectedIds, onChange, loading }) {
 // =============================================
 // Filter Builder Component (for Dynamic Audiences)
 // =============================================
+const OPERATORS = [
+  { value: 'equals', label: 'שווה ל-' },
+  { value: 'not_equals', label: 'לא שווה ל-' },
+  { value: 'contains', label: 'מכיל' },
+  { value: 'not_contains', label: 'לא מכיל' },
+  { value: 'starts_with', label: 'מתחיל ב-' },
+  { value: 'ends_with', label: 'מסתיים ב-' },
+  { value: 'is_empty', label: 'ריק' },
+  { value: 'is_not_empty', label: 'לא ריק' },
+  { value: 'exists', label: 'קיים' },
+  { value: 'not_exists', label: 'לא קיים' },
+  { value: 'greater_than', label: 'גדול מ-' },
+  { value: 'less_than', label: 'קטן מ-' },
+];
+
 function FilterBuilder({ criteria, onChange }) {
   const [tags, setTags] = useState([]);
+  const [variables, setVariables] = useState([]);
   const [loadingTags, setLoadingTags] = useState(true);
+  const [loadingVariables, setLoadingVariables] = useState(true);
+  const [activeSection, setActiveSection] = useState('tags');
 
   useEffect(() => {
     loadTags();
+    loadVariables();
   }, []);
 
   const loadTags = async () => {
@@ -782,6 +802,21 @@ function FilterBuilder({ criteria, onChange }) {
     }
   };
 
+  const loadVariables = async () => {
+    try {
+      const { data } = await api.get('/variables');
+      setVariables([
+        { name: 'display_name', label: 'שם איש קשר', is_system: true },
+        { name: 'phone', label: 'טלפון', is_system: true },
+        ...(data.userVariables || [])
+      ]);
+    } catch (e) {
+      console.error('Failed to load variables:', e);
+    } finally {
+      setLoadingVariables(false);
+    }
+  };
+
   const toggleTag = (tagName) => {
     const currentTags = criteria.tags || [];
     if (currentTags.includes(tagName)) {
@@ -791,112 +826,378 @@ function FilterBuilder({ criteria, onChange }) {
     }
   };
 
+  const toggleExcludeTag = (tagName) => {
+    const currentTags = criteria.excludeTags || [];
+    if (currentTags.includes(tagName)) {
+      onChange({ ...criteria, excludeTags: currentTags.filter(t => t !== tagName) });
+    } else {
+      onChange({ ...criteria, excludeTags: [...currentTags, tagName] });
+    }
+  };
+
+  const addCondition = () => {
+    const conditions = criteria.conditions || [];
+    onChange({
+      ...criteria,
+      conditions: [...conditions, { variable: '', operator: 'equals', value: '' }]
+    });
+  };
+
+  const updateCondition = (index, field, value) => {
+    const conditions = [...(criteria.conditions || [])];
+    conditions[index] = { ...conditions[index], [field]: value };
+    onChange({ ...criteria, conditions });
+  };
+
+  const removeCondition = (index) => {
+    const conditions = [...(criteria.conditions || [])];
+    conditions.splice(index, 1);
+    onChange({ ...criteria, conditions });
+  };
+
   const selectedTags = criteria.tags || [];
+  const excludedTags = criteria.excludeTags || [];
+  const conditions = criteria.conditions || [];
+
+  const needsValue = (operator) => !['is_empty', 'is_not_empty', 'exists', 'not_exists'].includes(operator);
 
   return (
-    <div className="space-y-6">
-      {/* Tags Filter */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
-          <Tag className="w-4 h-4 text-blue-500" />
-          סינון לפי תגיות
-        </label>
-        
-        {loadingTags ? (
-          <div className="flex items-center gap-2 text-gray-400">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm">טוען תגיות...</span>
-          </div>
-        ) : tags.length === 0 ? (
-          <div className="text-sm text-gray-500 bg-gray-50 rounded-xl p-6 text-center">
-            <Tag className="w-10 h-10 mx-auto mb-3 text-gray-300" />
-            <p className="font-medium">אין תגיות עדיין</p>
-            <p className="text-xs mt-1">צור תגיות בדף אנשי הקשר</p>
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {tags.map(tag => (
-              <button
-                key={tag.id || tag}
-                onClick={() => toggleTag(typeof tag === 'string' ? tag : tag.name)}
-                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                  selectedTags.includes(typeof tag === 'string' ? tag : tag.name)
-                    ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-lg'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {selectedTags.includes(typeof tag === 'string' ? tag : tag.name) && (
-                  <Check className="w-3 h-3 inline ml-1" />
-                )}
-                {typeof tag === 'string' ? tag : tag.name}
-              </button>
-            ))}
-          </div>
-        )}
+    <div className="space-y-4">
+      {/* Section Tabs */}
+      <div className="flex gap-2 border-b border-gray-200 pb-2">
+        {[
+          { id: 'tags', label: 'תגיות', icon: Tag },
+          { id: 'conditions', label: 'תנאי משתנים', icon: Settings },
+          { id: 'status', label: 'סטטוס', icon: Filter },
+        ].map(section => (
+          <button
+            key={section.id}
+            onClick={() => setActiveSection(section.id)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
+              activeSection === section.id
+                ? 'bg-blue-100 text-blue-700'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <section.icon className="w-4 h-4" />
+            {section.label}
+          </button>
+        ))}
       </div>
 
-      {/* Other Filters */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
-          <Filter className="w-4 h-4 text-blue-500" />
-          פילטרים נוספים
-        </label>
-        
-        <div className="grid md:grid-cols-2 gap-4">
-          <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-all ${
-            criteria.is_blocked === false ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'
-          }`}>
-            <input
-              type="checkbox"
-              checked={criteria.is_blocked === false}
-              onChange={(e) => onChange({ 
-                ...criteria, 
-                is_blocked: e.target.checked ? false : undefined 
-              })}
-              className="sr-only"
-            />
-            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center ${
-              criteria.is_blocked === false ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
-            }`}>
-              {criteria.is_blocked === false && <Check className="w-3 h-3 text-white" />}
+      {/* Tags Section */}
+      {activeSection === 'tags' && (
+        <div className="space-y-4">
+          {/* Include Tags */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                <Tag className="w-4 h-4 text-green-500" />
+                כולל תגיות
+              </label>
+              {selectedTags.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">לוגיקה:</span>
+                  <select
+                    value={criteria.tagLogic || 'any'}
+                    onChange={(e) => onChange({ ...criteria, tagLogic: e.target.value })}
+                    className="text-xs border border-gray-300 rounded-lg px-2 py-1"
+                  >
+                    <option value="any">אחת מהתגיות (OR)</option>
+                    <option value="all">כל התגיות (AND)</option>
+                  </select>
+                </div>
+              )}
             </div>
-            <div>
-              <div className="font-medium text-gray-900">ללא חסומים</div>
-              <div className="text-xs text-gray-500">רק אנשי קשר שאינם חסומים</div>
-            </div>
-          </label>
-          
-          <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-all ${
-            criteria.is_bot_active === true ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'
-          }`}>
-            <input
-              type="checkbox"
-              checked={criteria.is_bot_active === true}
-              onChange={(e) => onChange({ 
-                ...criteria, 
-                is_bot_active: e.target.checked ? true : undefined 
-              })}
-              className="sr-only"
-            />
-            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center ${
-              criteria.is_bot_active === true ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
-            }`}>
-              {criteria.is_bot_active === true && <Check className="w-3 h-3 text-white" />}
-            </div>
-            <div>
-              <div className="font-medium text-gray-900">בוט פעיל</div>
-              <div className="text-xs text-gray-500">רק אנשי קשר עם בוט פעיל</div>
-            </div>
-          </label>
+            
+            {loadingTags ? (
+              <div className="flex items-center gap-2 text-gray-400">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-sm">טוען תגיות...</span>
+              </div>
+            ) : tags.length === 0 ? (
+              <div className="text-sm text-gray-500 bg-gray-50 rounded-xl p-4 text-center">
+                <p>אין תגיות עדיין</p>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {tags.map(tag => {
+                  const tagName = typeof tag === 'string' ? tag : tag.name;
+                  const isSelected = selectedTags.includes(tagName);
+                  const isExcluded = excludedTags.includes(tagName);
+                  return (
+                    <button
+                      key={tag.id || tagName}
+                      onClick={() => !isExcluded && toggleTag(tagName)}
+                      disabled={isExcluded}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                        isExcluded
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                          : isSelected
+                            ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-lg'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {isSelected && <Check className="w-3 h-3 inline ml-1" />}
+                      {tagName}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Exclude Tags */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+              <Tag className="w-4 h-4 text-red-500" />
+              ללא תגיות (הדרה)
+            </label>
+            
+            {!loadingTags && tags.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {tags.map(tag => {
+                  const tagName = typeof tag === 'string' ? tag : tag.name;
+                  const isSelected = selectedTags.includes(tagName);
+                  const isExcluded = excludedTags.includes(tagName);
+                  return (
+                    <button
+                      key={tag.id || tagName}
+                      onClick={() => !isSelected && toggleExcludeTag(tagName)}
+                      disabled={isSelected}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                        isSelected
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                          : isExcluded
+                            ? 'bg-gradient-to-r from-red-500 to-rose-500 text-white shadow-lg'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {isExcluded && <X className="w-3 h-3 inline ml-1" />}
+                      {tagName}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Summary */}
-      {(selectedTags.length > 0 || criteria.is_blocked !== undefined || criteria.is_bot_active !== undefined) && (
+      {/* Conditions Section */}
+      {activeSection === 'conditions' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+              <Settings className="w-4 h-4 text-purple-500" />
+              תנאי משתנים מותאמים אישית
+            </label>
+            <button
+              onClick={addCondition}
+              className="px-3 py-1.5 text-sm bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 flex items-center gap-1"
+            >
+              <Plus className="w-4 h-4" />
+              הוסף תנאי
+            </button>
+          </div>
+
+          {conditions.length === 0 ? (
+            <div className="text-sm text-gray-500 bg-gray-50 rounded-xl p-6 text-center">
+              <Settings className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+              <p className="font-medium">אין תנאים עדיין</p>
+              <p className="text-xs mt-1">לחץ על "הוסף תנאי" ליצירת פילטר מתקדם</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {conditions.map((condition, index) => (
+                <div key={index} className="flex items-center gap-2 p-3 bg-purple-50 border border-purple-200 rounded-xl">
+                  <select
+                    value={condition.variable}
+                    onChange={(e) => updateCondition(index, 'variable', e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  >
+                    <option value="">בחר משתנה...</option>
+                    <optgroup label="שדות מערכת">
+                      {variables.filter(v => v.is_system).map(v => (
+                        <option key={v.name} value={v.name}>{v.label || v.name}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="משתנים מותאמים">
+                      {variables.filter(v => !v.is_system).map(v => (
+                        <option key={v.name} value={v.name}>{v.label || v.name}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                  
+                  <select
+                    value={condition.operator}
+                    onChange={(e) => updateCondition(index, 'operator', e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  >
+                    {OPERATORS.map(op => (
+                      <option key={op.value} value={op.value}>{op.label}</option>
+                    ))}
+                  </select>
+                  
+                  {needsValue(condition.operator) && (
+                    <input
+                      type="text"
+                      value={condition.value}
+                      onChange={(e) => updateCondition(index, 'value', e.target.value)}
+                      placeholder="ערך..."
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    />
+                  )}
+                  
+                  <button
+                    onClick={() => removeCondition(index)}
+                    className="p-2 text-red-500 hover:bg-red-100 rounded-lg"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Example conditions info */}
+          <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 text-sm">
+            <p className="font-medium text-purple-900 mb-2">דוגמאות לשימוש:</p>
+            <ul className="text-purple-700 space-y-1 text-xs">
+              <li>• <strong>email</strong> "לא ריק" - אנשי קשר עם אימייל</li>
+              <li>• <strong>city</strong> "שווה ל-" "תל אביב" - תושבי תל אביב</li>
+              <li>• <strong>score</strong> "גדול מ-" "100" - ניקוד גבוה</li>
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Status Section */}
+      {activeSection === 'status' && (
+        <div className="space-y-4">
+          <div className="grid md:grid-cols-2 gap-4">
+            <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-all ${
+              criteria.is_blocked === false ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-green-300'
+            }`}>
+              <input
+                type="checkbox"
+                checked={criteria.is_blocked === false}
+                onChange={(e) => onChange({ 
+                  ...criteria, 
+                  is_blocked: e.target.checked ? false : undefined 
+                })}
+                className="sr-only"
+              />
+              <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center ${
+                criteria.is_blocked === false ? 'bg-green-500 border-green-500' : 'border-gray-300'
+              }`}>
+                {criteria.is_blocked === false && <Check className="w-3 h-3 text-white" />}
+              </div>
+              <div>
+                <div className="font-medium text-gray-900">ללא חסומים</div>
+                <div className="text-xs text-gray-500">רק אנשי קשר שאינם חסומים</div>
+              </div>
+            </label>
+            
+            <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-all ${
+              criteria.is_bot_active === true ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'
+            }`}>
+              <input
+                type="checkbox"
+                checked={criteria.is_bot_active === true}
+                onChange={(e) => onChange({ 
+                  ...criteria, 
+                  is_bot_active: e.target.checked ? true : undefined 
+                })}
+                className="sr-only"
+              />
+              <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center ${
+                criteria.is_bot_active === true ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
+              }`}>
+                {criteria.is_bot_active === true && <Check className="w-3 h-3 text-white" />}
+              </div>
+              <div>
+                <div className="font-medium text-gray-900">בוט פעיל</div>
+                <div className="text-xs text-gray-500">רק אנשי קשר עם בוט פעיל</div>
+              </div>
+            </label>
+
+            <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-all ${
+              criteria.is_bot_active === false ? 'border-amber-500 bg-amber-50' : 'border-gray-200 hover:border-amber-300'
+            }`}>
+              <input
+                type="checkbox"
+                checked={criteria.is_bot_active === false}
+                onChange={(e) => onChange({ 
+                  ...criteria, 
+                  is_bot_active: e.target.checked ? false : undefined 
+                })}
+                className="sr-only"
+              />
+              <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center ${
+                criteria.is_bot_active === false ? 'bg-amber-500 border-amber-500' : 'border-gray-300'
+              }`}>
+                {criteria.is_bot_active === false && <Check className="w-3 h-3 text-white" />}
+              </div>
+              <div>
+                <div className="font-medium text-gray-900">בוט כבוי</div>
+                <div className="text-xs text-gray-500">רק אנשי קשר עם בוט מושבת</div>
+              </div>
+            </label>
+          </div>
+
+          {/* Name search */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">חיפוש לפי שם/טלפון</label>
+            <input
+              type="text"
+              value={criteria.name_search || ''}
+              onChange={(e) => onChange({ ...criteria, name_search: e.target.value || undefined })}
+              placeholder="הקלד שם או מספר טלפון..."
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-xl"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Active Filters Summary */}
+      {(selectedTags.length > 0 || excludedTags.length > 0 || conditions.length > 0 || 
+        criteria.is_blocked !== undefined || criteria.is_bot_active !== undefined || criteria.name_search) && (
         <div className="bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200 rounded-xl p-4">
-          <div className="flex items-center gap-2 text-sm text-blue-900">
-            <AlertCircle className="w-4 h-4" />
-            <span>הקהל יכלול את כל אנשי הקשר שעונים לתנאים שהגדרת. הרשימה מתעדכנת אוטומטית.</span>
+          <div className="flex items-start gap-2 text-sm text-blue-900">
+            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-medium mb-1">פילטרים פעילים:</p>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {selectedTags.length > 0 && (
+                  <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                    {selectedTags.length} תגיות נבחרו
+                  </span>
+                )}
+                {excludedTags.length > 0 && (
+                  <span className="bg-red-100 text-red-700 px-2 py-1 rounded-full">
+                    {excludedTags.length} תגיות מודרות
+                  </span>
+                )}
+                {conditions.length > 0 && (
+                  <span className="bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+                    {conditions.length} תנאי משתנים
+                  </span>
+                )}
+                {criteria.is_blocked === false && (
+                  <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded-full">ללא חסומים</span>
+                )}
+                {criteria.is_bot_active === true && (
+                  <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded-full">בוט פעיל</span>
+                )}
+                {criteria.is_bot_active === false && (
+                  <span className="bg-amber-100 text-amber-700 px-2 py-1 rounded-full">בוט כבוי</span>
+                )}
+                {criteria.name_search && (
+                  <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded-full">חיפוש: {criteria.name_search}</span>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
