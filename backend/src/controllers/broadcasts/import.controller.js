@@ -96,8 +96,6 @@ async function uploadFile(req, res) {
  * Execute the import
  */
 async function executeImport(req, res) {
-  const client = await db.pool.connect();
-  
   try {
     const userId = req.user.id;
     const { file_path, mapping, audience_id, default_country_code = '972' } = req.body;
@@ -127,8 +125,7 @@ async function executeImport(req, res) {
     let updated = 0;
     let errors = [];
     
-    await client.query('BEGIN');
-    
+    // Process each row independently (no single transaction for all)
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       
@@ -158,7 +155,7 @@ async function executeImport(req, res) {
         }
         
         // Insert or update contact in existing contacts table
-        const contactResult = await client.query(`
+        const contactResult = await db.query(`
           INSERT INTO contacts (user_id, phone, display_name)
           VALUES ($1, $2, $3)
           ON CONFLICT (user_id, phone) 
@@ -186,7 +183,7 @@ async function executeImport(req, res) {
           const value = String(row[colIndex] || '').trim();
           
           if (value) {
-            await client.query(`
+            await db.query(`
               INSERT INTO contact_variables (contact_id, key, value)
               VALUES ($1, $2, $3)
               ON CONFLICT (contact_id, key) 
@@ -197,7 +194,7 @@ async function executeImport(req, res) {
         
         // Add to audience if specified
         if (audience_id) {
-          await client.query(`
+          await db.query(`
             INSERT INTO broadcast_audience_contacts (audience_id, contact_id)
             VALUES ($1, $2)
             ON CONFLICT DO NOTHING
@@ -208,9 +205,12 @@ async function executeImport(req, res) {
         console.error(`[Import] Row ${i + 2} error:`, rowError.message);
         errors.push({ row: i + 2, error: rowError.message });
       }
+      
+      // Log progress every 1000 rows
+      if ((i + 1) % 1000 === 0) {
+        console.log(`[Import] Progress: ${i + 1}/${rows.length} rows processed`);
+      }
     }
-    
-    await client.query('COMMIT');
     
     // Update audience contacts count if added to audience
     if (audience_id) {
@@ -242,11 +242,8 @@ async function executeImport(req, res) {
     });
     
   } catch (error) {
-    await client.query('ROLLBACK');
     console.error('[Import] Execute error:', error);
     res.status(500).json({ error: 'שגיאה בייבוא: ' + error.message });
-  } finally {
-    client.release();
   }
 }
 
