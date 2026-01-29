@@ -25,10 +25,29 @@ export default function ChatView({
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
+  const prevContactIdRef = useRef(null);
+  const prevMessagesLengthRef = useRef(0);
 
+  // Scroll to bottom - instant on contact change, smooth on new messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (!messages || messages.length === 0) return;
+    
+    const isContactChange = prevContactIdRef.current !== contact?.id;
+    const isNewMessage = messages.length > prevMessagesLengthRef.current && !isContactChange;
+    
+    // Update refs
+    prevContactIdRef.current = contact?.id;
+    prevMessagesLengthRef.current = messages.length;
+    
+    // Use instant scroll for initial load / contact change, smooth for new messages only
+    if (isContactChange) {
+      // Instant scroll when changing contacts - no animation
+      messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+    } else if (isNewMessage) {
+      // Smooth scroll only when new message arrives
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, contact?.id]);
 
   useEffect(() => {
     if (contact?.takeover_until) {
