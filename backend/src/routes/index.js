@@ -23,6 +23,7 @@ const uploadRoutes = require('./upload.routes');
 const apiKeysRoutes = require('./apiKeys.routes');
 const publicApiRoutes = require('./publicApi.routes');
 const groupForwardsRoutes = require('./groupForwards.routes');
+const broadcastsRoutes = require('./broadcasts.routes');
 
 // Mount routes
 router.use('/auth', authRoutes);
@@ -45,6 +46,7 @@ router.use('/payment', paymentRoutes);
 router.use('/upload', uploadRoutes);
 router.use('/api-keys', apiKeysRoutes);
 router.use('/group-forwards', groupForwardsRoutes);
+router.use('/broadcasts', broadcastsRoutes);
 
 // Public API (v1)
 router.use('/v1', publicApiRoutes);

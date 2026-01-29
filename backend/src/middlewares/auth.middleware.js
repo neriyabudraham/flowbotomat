@@ -3,7 +3,7 @@ const { verifyAccessToken } = require('../services/auth/token.service');
 /**
  * Verify JWT and add user to request
  */
-const authMiddleware = (req, res, next) => {
+const authenticate = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
@@ -29,4 +29,22 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
-module.exports = authMiddleware;
+/**
+ * Require admin or superadmin role
+ */
+const requireAdmin = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  
+  if (!['admin', 'superadmin'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  
+  next();
+};
+
+// For backward compatibility
+module.exports = authenticate;
+module.exports.authenticate = authenticate;
+module.exports.requireAdmin = requireAdmin;
