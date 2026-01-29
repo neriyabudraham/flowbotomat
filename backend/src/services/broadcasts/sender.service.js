@@ -65,6 +65,100 @@ async function getWahaConnection(userId) {
 }
 
 /**
+ * Save message to database (for live chat display)
+ */
+async function saveMessageToDatabase(userId, contactId, waMessageId, messageType, content, mediaUrl = null) {
+  try {
+    const result = await db.query(`
+      INSERT INTO messages 
+      (user_id, contact_id, wa_message_id, direction, message_type, content, media_url, status, sent_at)
+      VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, 'sent', NOW())
+      RETURNING *
+    `, [userId, contactId, waMessageId, messageType, content, mediaUrl]);
+    
+    return result.rows[0];
+  } catch (error) {
+    console.error('[Broadcast Sender] Error saving message to DB:', error);
+    return null;
+  }
+}
+
+/**
+ * Add tag to contact
+ */
+async function addTagToContact(userId, contactId, tagName) {
+  try {
+    // Get or create tag
+    let tagResult = await db.query(
+      'SELECT id FROM contact_tags WHERE user_id = $1 AND name = $2',
+      [userId, tagName]
+    );
+    
+    let tagId;
+    if (tagResult.rows.length === 0) {
+      // Create tag with default color
+      const colors = ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#EC4899', '#6366F1'];
+      const randomColor = colors[Math.floor(Math.random() * colors.length)];
+      
+      tagResult = await db.query(
+        'INSERT INTO contact_tags (user_id, name, color) VALUES ($1, $2, $3) RETURNING id',
+        [userId, tagName, randomColor]
+      );
+      tagId = tagResult.rows[0].id;
+    } else {
+      tagId = tagResult.rows[0].id;
+    }
+    
+    // Add tag to contact
+    await db.query(
+      `INSERT INTO contact_tag_assignments (contact_id, tag_id)
+       VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [contactId, tagId]
+    );
+    
+    return true;
+  } catch (error) {
+    console.error('[Broadcast Sender] Error adding tag:', error);
+    return false;
+  }
+}
+
+/**
+ * Set variable for contact
+ */
+async function setContactVariable(contactId, key, value) {
+  try {
+    await db.query(
+      `INSERT INTO contact_variables (contact_id, key, value)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (contact_id, key) DO UPDATE SET value = $3, updated_at = NOW()`,
+      [contactId, key, String(value)]
+    );
+    return true;
+  } catch (error) {
+    console.error('[Broadcast Sender] Error setting variable:', error);
+    return false;
+  }
+}
+
+/**
+ * Format date in Israel timezone
+ */
+function formatDateInIsrael() {
+  const now = new Date();
+  return now.toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem' });
+}
+
+/**
+ * Format time in Israel timezone
+ */
+function formatTimeInIsrael() {
+  const now = new Date();
+  return now.toLocaleTimeString('he-IL', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit' });
+}
+
+/**
  * Start processing a campaign
  */
 async function startCampaignSending(campaignId, userId) {
@@ -90,7 +184,7 @@ async function startCampaignSending(campaignId, userId) {
   
   // Get campaign details
   const campaignResult = await db.query(`
-    SELECT c.*, t.id as template_id
+    SELECT c.*, t.id as template_id, t.name as template_name
     FROM broadcast_campaigns c
     LEFT JOIN broadcast_templates t ON t.id = c.template_id
     WHERE c.id = $1
@@ -106,6 +200,10 @@ async function startCampaignSending(campaignId, userId) {
   const delayBetweenMessages = (settings.delay_between_messages || 2) * 1000;
   const delayBetweenBatches = (settings.delay_between_batches || 30) * 1000;
   const batchSize = settings.batch_size || 50;
+  
+  // Advanced settings for post-send actions
+  const successTag = settings.success_tag || null;
+  const variableMappings = settings.variable_mappings || {};
   
   // Mark as active with initial progress
   updateProgress(campaignId, {
@@ -214,13 +312,17 @@ async function startCampaignSending(campaignId, userId) {
           const sentMessageIds = [];
           for (let msgIndex = 0; msgIndex < messages.length; msgIndex++) {
             const msg = messages[msgIndex];
+            
             // Replace variables in content
             let content = msg.content || '';
             content = content.replace(/\{\{name\}\}/g, recipient.contact_name || '');
             content = content.replace(/\{\{phone\}\}/g, recipient.phone || '');
+            content = content.replace(/\{\{date\}\}/g, formatDateInIsrael());
+            content = content.replace(/\{\{time\}\}/g, formatTimeInIsrael());
+            content = content.replace(/\{\{campaign_name\}\}/g, campaign.name || '');
             
-            // Wait for delay between messages
-            if (msg.delay_seconds > 0) {
+            // Wait for delay between messages in template (IMPORTANT: this is the delay BEFORE the message)
+            if (msgIndex > 0 && msg.delay_seconds > 0) {
               updateProgress(campaignId, {
                 currentAction: `ממתין ${msg.delay_seconds} שניות לפני הודעה ${msgIndex + 1}...`,
                 waitingSeconds: msg.delay_seconds
@@ -231,7 +333,7 @@ async function startCampaignSending(campaignId, userId) {
             // Update progress for message type
             const msgTypeLabels = { text: 'טקסט', image: 'תמונה', video: 'וידאו', audio: 'אודיו', document: 'קובץ' };
             updateProgress(campaignId, {
-              currentAction: `שולח ${msgTypeLabels[msg.message_type] || msg.message_type} ל-${recipient.contact_name || recipient.phone}...`,
+              currentAction: `שולח ${msgTypeLabels[msg.message_type] || msg.message_type} ל-${recipient.contact_name || recipient.phone}... (${msgIndex + 1}/${messages.length})`,
               currentMessageIndex: msgIndex + 1,
               totalMessages: messages.length,
               waitingSeconds: null
@@ -289,6 +391,16 @@ async function startCampaignSending(campaignId, userId) {
             
             if (result?.id) {
               sentMessageIds.push(result.id);
+              
+              // Save message to database for live chat display
+              await saveMessageToDatabase(
+                userId,
+                recipient.contact_id,
+                result.id,
+                msg.message_type || 'text',
+                content,
+                msg.media_url
+              );
             }
           }
           
@@ -310,6 +422,33 @@ async function startCampaignSending(campaignId, userId) {
             WHERE id = $1
           `, [campaignId]);
           
+          // === POST-SEND ACTIONS FOR SUCCESSFUL SENDS ===
+          
+          // Add success tag if configured
+          if (successTag && recipient.contact_id) {
+            await addTagToContact(userId, recipient.contact_id, successTag);
+          }
+          
+          // Set success variables if configured
+          if (recipient.contact_id) {
+            // Standard success variables
+            if (variableMappings.send_date) {
+              await setContactVariable(recipient.contact_id, variableMappings.send_date, formatDateInIsrael());
+            }
+            if (variableMappings.send_time) {
+              await setContactVariable(recipient.contact_id, variableMappings.send_time, formatTimeInIsrael());
+            }
+            if (variableMappings.send_status) {
+              await setContactVariable(recipient.contact_id, variableMappings.send_status, 'true');
+            }
+            if (variableMappings.campaign_name) {
+              await setContactVariable(recipient.contact_id, variableMappings.campaign_name, campaign.name);
+            }
+            if (variableMappings.send_datetime) {
+              await setContactVariable(recipient.contact_id, variableMappings.send_datetime, `${formatDateInIsrael()} ${formatTimeInIsrael()}`);
+            }
+          }
+          
           // Update progress
           updateProgress(campaignId, {
             sent: totalSent,
@@ -322,13 +461,15 @@ async function startCampaignSending(campaignId, userId) {
         } catch (error) {
           console.error(`[Broadcast Sender] Failed to send to ${recipient.phone}:`, error.message);
           
+          const errorMessage = error.message?.substring(0, 500) || 'Unknown error';
+          
           // Update recipient as failed
           await db.query(`
             UPDATE broadcast_campaign_recipients 
             SET status = 'failed', 
                 error_message = $1
             WHERE id = $2
-          `, [error.message?.substring(0, 500), recipient.id]);
+          `, [errorMessage, recipient.id]);
           
           totalFailed++;
           
@@ -339,15 +480,31 @@ async function startCampaignSending(campaignId, userId) {
             WHERE id = $1
           `, [campaignId]);
           
+          // === POST-SEND ACTIONS FOR FAILED SENDS ===
+          if (recipient.contact_id) {
+            if (variableMappings.send_status) {
+              await setContactVariable(recipient.contact_id, variableMappings.send_status, 'false');
+            }
+            if (variableMappings.error_message) {
+              await setContactVariable(recipient.contact_id, variableMappings.error_message, errorMessage);
+            }
+            if (variableMappings.send_date) {
+              await setContactVariable(recipient.contact_id, variableMappings.send_date, formatDateInIsrael());
+            }
+            if (variableMappings.send_time) {
+              await setContactVariable(recipient.contact_id, variableMappings.send_time, formatTimeInIsrael());
+            }
+          }
+          
           // Update progress
           updateProgress(campaignId, {
             sent: totalSent,
             failed: totalFailed,
-            currentAction: `שגיאה בשליחה ל-${recipient.contact_name || recipient.phone}: ${error.message?.substring(0, 50)}`
+            currentAction: `שגיאה בשליחה ל-${recipient.contact_name || recipient.phone}: ${errorMessage?.substring(0, 50)}`
           });
         }
         
-        // Delay between messages
+        // Delay between recipients (IMPORTANT: always apply this delay)
         const delaySeconds = delayBetweenMessages / 1000;
         updateProgress(campaignId, {
           currentAction: `ממתין ${delaySeconds} שניות לפני הנמען הבא...`,
@@ -356,7 +513,7 @@ async function startCampaignSending(campaignId, userId) {
         await sleep(delayBetweenMessages);
       }
       
-      // Delay between batches
+      // Delay between batches (IMPORTANT: always apply this delay when there are more recipients)
       if (recipientsResult.rows.length === batchSize) {
         const batchDelaySeconds = delayBetweenBatches / 1000;
         console.log(`[Broadcast Sender] Waiting ${batchDelaySeconds}s before next batch`);
@@ -402,7 +559,8 @@ async function startCampaignSending(campaignId, userId) {
  */
 function pauseCampaign(campaignId) {
   if (activeCampaigns.has(campaignId)) {
-    activeCampaigns.set(campaignId, { status: 'paused' });
+    const current = activeCampaigns.get(campaignId);
+    activeCampaigns.set(campaignId, { ...current, status: 'paused' });
   }
 }
 
@@ -411,7 +569,8 @@ function pauseCampaign(campaignId) {
  */
 function cancelCampaign(campaignId) {
   if (activeCampaigns.has(campaignId)) {
-    activeCampaigns.set(campaignId, { status: 'cancelled' });
+    const current = activeCampaigns.get(campaignId);
+    activeCampaigns.set(campaignId, { ...current, status: 'cancelled' });
   }
 }
 
