@@ -63,8 +63,15 @@ export default function ContactsList({
   };
 
   const selectAllLoaded = () => {
-    setSelectAllMode(false);
-    if (selectedContacts.length === filteredContacts.length) {
+    // If in selectAllMode, deselect everything
+    if (selectAllMode) {
+      setSelectAllMode(false);
+      setSelectedContacts([]);
+      return;
+    }
+    
+    // Toggle: if all loaded are selected, deselect; otherwise select all loaded
+    if (selectedContacts.length === filteredContacts.length && filteredContacts.length > 0) {
       setSelectedContacts([]);
     } else {
       setSelectedContacts(filteredContacts.map(c => c.id));
@@ -73,8 +80,13 @@ export default function ContactsList({
 
   const selectAllContacts = () => {
     setSelectAllMode(true);
-    setSelectedContacts(filteredContacts.map(c => c.id)); // Select all loaded for UI
+    // Mark all loaded contacts as selected for visual feedback
+    setSelectedContacts(filteredContacts.map(c => c.id));
   };
+  
+  // Check if all loaded contacts are selected (either manually or via selectAllMode)
+  const allLoadedSelected = selectAllMode || 
+    (selectedContacts.length === filteredContacts.length && filteredContacts.length > 0);
 
   const cancelSelection = () => {
     setIsSelectionMode(false);
@@ -205,17 +217,17 @@ export default function ContactsList({
           <div className="space-y-2 mb-3">
             <div className="flex items-center justify-between p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-100">
               <div className="flex items-center gap-2">
-                <button
-                  onClick={selectAllLoaded}
-                  className="p-1.5 hover:bg-blue-100 rounded-lg transition-colors"
-                  title="בחר את כל הנטענים"
-                >
-                  {selectedContacts.length === filteredContacts.length && !selectAllMode ? (
-                    <CheckSquare className="w-5 h-5 text-blue-600" />
-                  ) : (
-                    <Square className="w-5 h-5 text-blue-600" />
-                  )}
-                </button>
+              <button
+                onClick={selectAllLoaded}
+                className="p-1.5 hover:bg-blue-100 rounded-lg transition-colors"
+                title={allLoadedSelected ? "בטל בחירה" : "בחר את כל הנטענים"}
+              >
+                {allLoadedSelected ? (
+                  <CheckSquare className="w-5 h-5 text-blue-600" />
+                ) : (
+                  <Square className="w-5 h-5 text-blue-600" />
+                )}
+              </button>
                 <span className="text-sm font-medium text-blue-800">
                   {selectAllMode ? (
                     <span className="text-indigo-600 font-bold">
@@ -258,7 +270,7 @@ export default function ContactsList({
             </div>
             
             {/* Select ALL button - shows when all loaded are selected but there are more */}
-            {selectedContacts.length === filteredContacts.length && 
+            {allLoadedSelected && 
              !selectAllMode && 
              (totalContacts || stats?.total || 0) > filteredContacts.length && (
               <button
