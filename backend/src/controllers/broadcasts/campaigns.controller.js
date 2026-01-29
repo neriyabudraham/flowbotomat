@@ -1,5 +1,6 @@
 const db = require('../../config/database');
 const broadcastSender = require('../../services/broadcasts/sender.service');
+const { getAudienceContacts } = require('../../services/broadcasts/audienceFilter.service');
 
 /**
  * Get all campaigns for user
@@ -315,23 +316,10 @@ async function startCampaign(req, res) {
     
     const audience = audienceResult.rows[0];
     
-    // Build recipients list
-    let contacts;
-    if (audience.is_static) {
-      const contactsResult = await db.query(`
-        SELECT c.id, c.phone, c.display_name FROM contacts c
-        JOIN broadcast_audience_contacts bac ON bac.contact_id = c.id
-        WHERE bac.audience_id = $1 AND c.is_blocked = false
-      `, [audience.id]);
-      contacts = contactsResult.rows;
-    } else {
-      // Dynamic audience - use filter
-      const contactsResult = await db.query(`
-        SELECT c.id, c.phone, c.display_name FROM contacts c
-        WHERE c.user_id = $1 AND c.is_blocked = false
-      `, [userId]);
-      contacts = contactsResult.rows;
-    }
+    // Get contacts using shared filter service (properly handles both static and dynamic audiences)
+    const contacts = await getAudienceContacts(userId, audience);
+    
+    console.log(`[Broadcasts] Campaign "${campaign.name}" - Audience "${audience.name}" (${audience.is_static ? 'static' : 'dynamic'}): ${contacts.length} contacts`);
     
     if (contacts.length === 0) {
       return res.status(400).json({ error: 'אין אנשי קשר בקהל היעד' });

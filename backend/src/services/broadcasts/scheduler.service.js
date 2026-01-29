@@ -1,5 +1,6 @@
 const db = require('../../config/database');
 const { startCampaignSending } = require('./sender.service');
+const { getAudienceContacts } = require('./audienceFilter.service');
 
 /**
  * Check for scheduled campaigns that should be started
@@ -26,7 +27,7 @@ async function processScheduledCampaigns() {
       try {
         console.log(`[Campaign Scheduler] Starting scheduled campaign: ${campaign.name} (${campaign.id})`);
         
-        // Get audience contacts
+        // Get audience
         const audienceResult = await db.query(
           'SELECT * FROM broadcast_audiences WHERE id = $1',
           [campaign.audience_id]
@@ -44,24 +45,10 @@ async function processScheduledCampaigns() {
         
         const audience = audienceResult.rows[0];
         
-        // Build recipients list
-        let contacts;
-        if (audience.is_static) {
-          const contactsResult = await db.query(`
-            SELECT c.id, c.phone, c.display_name FROM contacts c
-            JOIN broadcast_audience_contacts bac ON bac.contact_id = c.id
-            WHERE bac.audience_id = $1 AND c.is_blocked = false
-          `, [audience.id]);
-          contacts = contactsResult.rows;
-        } else {
-          // Dynamic audience - get all user's non-blocked contacts
-          // (in production, apply filter_criteria)
-          const contactsResult = await db.query(`
-            SELECT c.id, c.phone, c.display_name FROM contacts c
-            WHERE c.user_id = $1 AND c.is_blocked = false
-          `, [campaign.user_id]);
-          contacts = contactsResult.rows;
-        }
+        // Get contacts using shared filter service (properly handles dynamic audiences!)
+        const contacts = await getAudienceContacts(campaign.user_id, audience);
+        
+        console.log(`[Campaign Scheduler] Audience "${audience.name}" (${audience.is_static ? 'static' : 'dynamic'}): ${contacts.length} contacts`);
         
         if (contacts.length === 0) {
           console.log(`[Campaign Scheduler] No contacts in audience for campaign ${campaign.id}`);
@@ -117,7 +104,7 @@ async function processScheduledCampaigns() {
           console.error(`[Campaign Scheduler] Error starting campaign ${campaign.id}:`, err);
         });
         
-        console.log(`[Campaign Scheduler] Successfully started campaign: ${campaign.name}`);
+        console.log(`[Campaign Scheduler] Successfully started campaign: ${campaign.name} with ${contacts.length} recipients`);
         
       } catch (err) {
         console.error(`[Campaign Scheduler] Error processing campaign ${campaign.id}:`, err);
