@@ -67,14 +67,23 @@ async function getWahaConnection(userId) {
 /**
  * Save message to database (for live chat display)
  */
-async function saveMessageToDatabase(userId, contactId, waMessageId, messageType, content, mediaUrl = null) {
+async function saveMessageToDatabase(userId, contactId, waMessageId, messageType, content, mediaUrl = null, filename = null) {
   try {
     const result = await db.query(`
       INSERT INTO messages 
-      (user_id, contact_id, wa_message_id, direction, message_type, content, media_url, status, sent_at)
-      VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, 'sent', NOW())
+      (user_id, contact_id, wa_message_id, direction, message_type, content, media_url, media_filename, status, sent_at)
+      VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, 'sent', NOW())
       RETURNING *
-    `, [userId, contactId, waMessageId, messageType, content, mediaUrl]);
+    `, [userId, contactId, waMessageId, messageType, content, mediaUrl, filename]);
+    
+    // Update contact's last_message_at to move chat to top
+    await db.query(`
+      UPDATE contacts 
+      SET last_message_at = NOW(), 
+          last_message = $1,
+          updated_at = NOW() 
+      WHERE id = $2
+    `, [content?.substring(0, 100) || (mediaUrl ? `[${messageType}]` : ''), contactId]);
     
     return result.rows[0];
   } catch (error) {
@@ -341,6 +350,8 @@ async function startCampaignSending(campaignId, userId) {
             
             // Send based on message type
             let result;
+            let documentFilename = null;
+            
             switch (msg.message_type) {
               case 'image':
                 if (msg.media_url) {
@@ -362,8 +373,8 @@ async function startCampaignSending(campaignId, userId) {
               case 'document':
                 if (msg.media_url) {
                   // Extract filename and mimetype properly (like botEngine)
-                  const filename = msg.media_url.split('/').pop()?.split('?')[0] || 'file';
-                  const ext = filename.split('.').pop()?.toLowerCase();
+                  documentFilename = msg.media_url.split('/').pop()?.split('?')[0] || 'file';
+                  const ext = documentFilename.split('.').pop()?.toLowerCase();
                   const mimetypes = {
                     'pdf': 'application/pdf',
                     'doc': 'application/msword',
@@ -378,8 +389,8 @@ async function startCampaignSending(campaignId, userId) {
                     'csv': 'text/csv',
                   };
                   const mimetype = mimetypes[ext] || 'application/octet-stream';
-                  console.log(`[Broadcast Sender] Sending file: ${filename}, mimetype: ${mimetype}, caption: ${content?.substring(0, 30) || 'none'}`);
-                  result = await wahaService.sendFile(connection, chatId, msg.media_url, filename, mimetype, content);
+                  console.log(`[Broadcast Sender] Sending file: ${documentFilename}, mimetype: ${mimetype}, caption: ${content?.substring(0, 30) || 'none'}`);
+                  result = await wahaService.sendFile(connection, chatId, msg.media_url, documentFilename, mimetype, content);
                 }
                 break;
               default: // text
@@ -393,13 +404,15 @@ async function startCampaignSending(campaignId, userId) {
               sentMessageIds.push(result.id);
               
               // Save message to database for live chat display
+              // For documents/media, save both the caption (content) and the media info
               await saveMessageToDatabase(
                 userId,
                 recipient.contact_id,
                 result.id,
                 msg.message_type || 'text',
-                content,
-                msg.media_url
+                content, // This is the caption for documents/images
+                msg.media_url,
+                documentFilename
               );
             }
           }
