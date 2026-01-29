@@ -25,10 +25,8 @@ export default function ContactsTab({ onRefresh }) {
   
   // Add variable modal
   const [showAddVariableModal, setShowAddVariableModal] = useState(false);
-  const [selectedVarToAdd, setSelectedVarToAdd] = useState('');
   const [newVarKey, setNewVarKey] = useState('');
   const [newVarLabel, setNewVarLabel] = useState('');
-  const [creatingNewVar, setCreatingNewVar] = useState(false);
   
   // Tags modal
   const [showTagsModal, setShowTagsModal] = useState(false);
@@ -86,12 +84,16 @@ export default function ContactsTab({ onRefresh }) {
     }
   };
 
+  const [loadingVars, setLoadingVars] = useState(false);
+
   const handleEditContact = async (contact) => {
     setEditingContact(contact);
     setEditForm({
       display_name: contact.display_name || '',
       phone: contact.phone || ''
     });
+    setContactVariables([]); // Clear previous
+    setLoadingVars(true);
     
     // Load contact variables and merge with all available variables
     try {
@@ -101,12 +103,15 @@ export default function ContactsTab({ onRefresh }) {
       ]);
       
       const contactVars = varsRes.data.variables || [];
+      console.log('[ContactsTab] Contact vars:', contactVars);
+      console.log('[ContactsTab] All vars response:', allVarsRes.data);
       
       // Parse all available user variables
       const allVars = [
         ...(allVarsRes.data.userVariables || []).map(v => ({ key: v.name, label: v.label || v.name })),
         ...(allVarsRes.data.customSystemVariables || []).map(v => ({ key: v.name, label: v.label || v.name }))
       ];
+      console.log('[ContactsTab] Parsed allVars:', allVars);
       
       // Merge: all variables with contact's values
       const mergedVars = allVars.map(v => {
@@ -118,7 +123,7 @@ export default function ContactsTab({ onRefresh }) {
         };
       });
       
-      // Add any contact variables that aren't in allVars (shouldn't happen, but just in case)
+      // Add any contact variables that aren't in allVars
       contactVars.forEach(cv => {
         if (!mergedVars.find(v => v.key === cv.key)) {
           mergedVars.push({
@@ -129,58 +134,38 @@ export default function ContactsTab({ onRefresh }) {
         }
       });
       
+      console.log('[ContactsTab] Merged vars:', mergedVars);
       setContactVariables(mergedVars);
       setAllVariables(allVars);
     } catch (e) {
       console.error('Failed to load variables:', e);
       setContactVariables([]);
+    } finally {
+      setLoadingVars(false);
     }
   };
 
   const handleAddVariable = () => {
-    if (creatingNewVar) {
-      // Create new variable
-      if (!newVarKey.trim()) return;
-      
-      const newVar = {
-        key: newVarKey.trim(),
-        label: newVarLabel.trim() || newVarKey.trim(),
-        value: '',
-        isNew: true
-      };
-      
-      // Check if already exists in contactVariables
-      if (contactVariables.find(v => v.key === newVar.key)) {
-        alert('משתנה זה כבר קיים');
-        return;
-      }
-      
-      setContactVariables([...contactVariables, newVar]);
-      setShowAddVariableModal(false);
-      setNewVarKey('');
-      setNewVarLabel('');
-      setCreatingNewVar(false);
-    } else {
-      // Add existing variable
-      if (!selectedVarToAdd) return;
-      
-      const varDef = allVariables.find(v => v.key === selectedVarToAdd);
-      if (!varDef) return;
-      
-      // Check if already exists in contactVariables
-      if (contactVariables.find(v => v.key === varDef.key)) {
-        alert('משתנה זה כבר קיים');
-        return;
-      }
-      
-      setContactVariables([...contactVariables, { 
-        key: varDef.key, 
-        label: varDef.label || varDef.key,
-        value: '' 
-      }]);
-      setShowAddVariableModal(false);
-      setSelectedVarToAdd('');
+    // Create new variable
+    if (!newVarKey.trim()) return;
+    
+    const newVar = {
+      key: newVarKey.trim(),
+      label: newVarLabel.trim() || newVarKey.trim(),
+      value: '',
+      isNew: true
+    };
+    
+    // Check if already exists in contactVariables
+    if (contactVariables.find(v => v.key === newVar.key)) {
+      alert('משתנה זה כבר קיים');
+      return;
     }
+    
+    setContactVariables([...contactVariables, newVar]);
+    setShowAddVariableModal(false);
+    setNewVarKey('');
+    setNewVarLabel('');
   };
 
   const handleRemoveVariable = (key) => {
@@ -506,34 +491,39 @@ export default function ContactsTab({ onRefresh }) {
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
                     <Variable className="w-4 h-4" />
-                    משתנים
+                    משתנים ({contactVariables.length})
                   </h4>
                   <button
                     onClick={() => setShowAddVariableModal(true)}
                     className="px-3 py-1 text-xs font-medium text-orange-600 hover:bg-orange-50 rounded-lg flex items-center gap-1"
                   >
                     <Plus className="w-3 h-3" />
-                    הוסף משתנה
+                    צור משתנה חדש
                   </button>
                 </div>
                 
-                {contactVariables.length === 0 ? (
+                {loadingVars ? (
+                  <div className="text-center py-6 bg-gray-50 rounded-xl">
+                    <Loader2 className="w-6 h-6 animate-spin text-orange-500 mx-auto mb-2" />
+                    <p className="text-sm text-gray-500">טוען משתנים...</p>
+                  </div>
+                ) : contactVariables.length === 0 ? (
                   <div className="text-center py-6 bg-gray-50 rounded-xl">
                     <Variable className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500">אין משתנים</p>
+                    <p className="text-sm text-gray-500">אין משתנים מוגדרים במערכת</p>
                     <button
                       onClick={() => setShowAddVariableModal(true)}
                       className="text-xs text-orange-600 hover:text-orange-700 mt-1"
                     >
-                      הוסף משתנה ראשון
+                      צור משתנה ראשון
                     </button>
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-3 max-h-[300px] overflow-y-auto">
                     {contactVariables.map((v, i) => (
-                      <div key={v.key} className="flex gap-2">
+                      <div key={v.key} className="flex gap-2 bg-gray-50 p-3 rounded-lg">
                         <div className="flex-1">
-                          <label className="block text-xs text-gray-500 mb-1">
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
                             {v.label || v.key}
                             {v.isNew && <span className="text-orange-500 mr-1">(חדש)</span>}
                           </label>
@@ -545,16 +535,10 @@ export default function ContactsTab({ onRefresh }) {
                               newVars[i] = { ...v, value: e.target.value };
                               setContactVariables(newVars);
                             }}
-                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                            placeholder={`ערך עבור ${v.label || v.key}`}
+                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white"
+                            placeholder={`הכנס ערך...`}
                           />
                         </div>
-                        <button
-                          onClick={() => handleRemoveVariable(v.key)}
-                          className="self-end p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
                       </div>
                     ))}
                   </div>
@@ -582,103 +566,58 @@ export default function ContactsTab({ onRefresh }) {
         </div>
       )}
 
-      {/* Add Variable Modal */}
+      {/* Add Variable Modal - For creating NEW variables */}
       {showAddVariableModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={() => setShowAddVariableModal(false)}>
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold mb-4">הוספת משתנה</h3>
+            <h3 className="text-lg font-semibold mb-2">יצירת משתנה חדש</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              המשתנה החדש יתווסף למערכת ויהיה זמין לכל אנשי הקשר
+            </p>
             
-            {/* Toggle between existing and new */}
-            <div className="flex gap-2 mb-4">
-              <button
-                onClick={() => setCreatingNewVar(false)}
-                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
-                  !creatingNewVar 
-                    ? 'bg-orange-100 text-orange-700' 
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                בחר קיים
-              </button>
-              <button
-                onClick={() => setCreatingNewVar(true)}
-                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
-                  creatingNewVar 
-                    ? 'bg-orange-100 text-orange-700' 
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                צור חדש
-              </button>
-            </div>
-            
-            {!creatingNewVar ? (
-              <div className="space-y-4">
-                <select
-                  value={selectedVarToAdd}
-                  onChange={(e) => setSelectedVarToAdd(e.target.value)}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  מפתח (באנגלית) *
+                </label>
+                <input
+                  type="text"
+                  value={newVarKey}
+                  onChange={(e) => setNewVarKey(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                  placeholder="לדוגמה: company_name"
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500"
-                >
-                  <option value="">בחר משתנה...</option>
-                  {allVariables
-                    .filter(v => !contactVariables.find(cv => cv.key === v.key))
-                    .map(v => (
-                      <option key={v.key} value={v.key}>
-                        {v.label || v.key}
-                      </option>
-                    ))
-                  }
-                </select>
-                
-                {allVariables.filter(v => !contactVariables.find(cv => cv.key === v.key)).length === 0 && (
-                  <p className="text-sm text-gray-500 text-center py-2">
-                    כל המשתנים כבר מוגדרים לאיש קשר זה
-                  </p>
-                )}
+                  dir="ltr"
+                  autoFocus
+                />
+                <p className="text-xs text-gray-400 mt-1">רק אותיות אנגליות, מספרים וקו תחתון</p>
               </div>
-            ) : (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    מפתח (באנגלית) *
-                  </label>
-                  <input
-                    type="text"
-                    value={newVarKey}
-                    onChange={(e) => setNewVarKey(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                    placeholder="לדוגמה: company_name"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500"
-                    dir="ltr"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    תווית (לתצוגה)
-                  </label>
-                  <input
-                    type="text"
-                    value={newVarLabel}
-                    onChange={(e) => setNewVarLabel(e.target.value)}
-                    placeholder="לדוגמה: שם החברה"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500"
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  תווית (לתצוגה)
+                </label>
+                <input
+                  type="text"
+                  value={newVarLabel}
+                  onChange={(e) => setNewVarLabel(e.target.value)}
+                  placeholder="לדוגמה: שם החברה"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500"
+                />
               </div>
-            )}
+            </div>
             
             <div className="flex gap-3 mt-6">
               <button
-                onClick={() => { setShowAddVariableModal(false); setSelectedVarToAdd(''); setNewVarKey(''); setNewVarLabel(''); }}
+                onClick={() => { setShowAddVariableModal(false); setNewVarKey(''); setNewVarLabel(''); }}
                 className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 font-medium"
               >
                 ביטול
               </button>
               <button
                 onClick={handleAddVariable}
-                disabled={creatingNewVar ? !newVarKey.trim() : !selectedVarToAdd}
+                disabled={!newVarKey.trim()}
                 className="flex-1 px-4 py-2.5 bg-orange-600 text-white rounded-xl hover:bg-orange-700 font-medium disabled:opacity-50"
               >
-                הוסף
+                צור והוסף
               </button>
             </div>
           </div>
