@@ -347,7 +347,7 @@ export default function CampaignsTab({ onRefresh }) {
               onDuplicate={() => handleDuplicate(campaign)}
               onDownloadReport={() => downloadReport(campaign)}
               actionLoading={actionLoading}
-              onRefresh={fetchCampaigns}
+              onRefresh={fetchAll}
             />
           ))}
         </div>
