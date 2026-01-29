@@ -33,12 +33,14 @@ export default function BroadcastsPage() {
       return;
     }
     fetchMe();
-    fetchStats();
+    fetchStats(true); // Show loading only on initial load
   }, []);
 
-  const fetchStats = async () => {
+  const fetchStats = async (showLoading = false) => {
     try {
-      setLoading(true);
+      // Only show loading on initial load, not on refresh
+      if (showLoading) setLoading(true);
+      
       // Fetch basic stats
       const [audiencesRes, templatesRes, campaignsRes] = await Promise.all([
         api.get('/broadcasts/audiences'),
@@ -55,7 +57,7 @@ export default function BroadcastsPage() {
     } catch (e) {
       console.error('Failed to fetch stats:', e);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
