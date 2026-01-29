@@ -113,18 +113,28 @@ export default function ContactsTab({ onRefresh }) {
       ];
       console.log('[ContactsTab] Parsed allVars:', allVars);
       
-      // Only include contact's actual saved variables (not all available)
-      // This way the "Add Variable" dropdown can show variables not yet added
-      const enrichedContactVars = contactVars.map(cv => {
-        const varDef = allVars.find(v => v.key === cv.key);
+      // Merge: show ALL variables with contact's values (empty if no value)
+      const mergedVars = allVars.map(v => {
+        const contactVar = contactVars.find(cv => cv.key === v.key);
         return {
-          key: cv.key,
-          label: varDef?.label || cv.key,
-          value: cv.value || ''
+          key: v.key,
+          label: v.label || v.key,
+          value: contactVar?.value || ''
         };
       });
       
-      setContactVariables(enrichedContactVars);
+      // Add any contact variables that aren't in allVars (shouldn't happen, but just in case)
+      contactVars.forEach(cv => {
+        if (!mergedVars.find(v => v.key === cv.key)) {
+          mergedVars.push({
+            key: cv.key,
+            label: cv.key,
+            value: cv.value || ''
+          });
+        }
+      });
+      
+      setContactVariables(mergedVars);
       setAllVariables(allVars);
     } catch (e) {
       console.error('Failed to load variables:', e);
