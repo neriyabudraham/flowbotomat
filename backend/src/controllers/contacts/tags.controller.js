@@ -1,18 +1,18 @@
 const pool = require('../../config/database');
 
 /**
- * Get all tags for user
+ * Get all tags for user (return just names for simpler usage)
  */
 async function getAllTags(req, res) {
   try {
     const userId = req.user.id;
     
     const result = await pool.query(
-      'SELECT * FROM contact_tags WHERE user_id = $1 ORDER BY name',
+      'SELECT DISTINCT name FROM contact_tags WHERE user_id = $1 ORDER BY name',
       [userId]
     );
     
-    res.json({ tags: result.rows });
+    res.json({ tags: result.rows.map(r => r.name) });
   } catch (error) {
     console.error('Get tags error:', error);
     res.status(500).json({ error: 'שגיאה' });
@@ -156,7 +156,55 @@ async function removeTagFromContact(req, res) {
   }
 }
 
+/**
+ * Bulk add tag to multiple contacts
+ */
+async function bulkAddTag(req, res) {
+  try {
+    const userId = req.user.id;
+    const { contact_ids, tag } = req.body;
+    
+    if (!contact_ids || !Array.isArray(contact_ids) || contact_ids.length === 0) {
+      return res.status(400).json({ error: 'נדרשת רשימת אנשי קשר' });
+    }
+    
+    if (!tag || !tag.trim()) {
+      return res.status(400).json({ error: 'נדרש שם תגית' });
+    }
+    
+    // Create tag if not exists
+    const tagResult = await pool.query(
+      `INSERT INTO contact_tags (user_id, name, color)
+       VALUES ($1, $2, '#3B82F6')
+       ON CONFLICT (user_id, name) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id`,
+      [userId, tag.trim()]
+    );
+    
+    const tagId = tagResult.rows[0].id;
+    
+    // Add tag to all contacts that belong to this user
+    for (const contactId of contact_ids) {
+      await pool.query(
+        `INSERT INTO contact_tag_assignments (contact_id, tag_id)
+         SELECT $1, $2 
+         WHERE EXISTS (SELECT 1 FROM contacts WHERE id = $1 AND user_id = $3)
+         ON CONFLICT DO NOTHING`,
+        [contactId, tagId, userId]
+      );
+    }
+    
+    console.log(`[Tags] Bulk added tag "${tag}" to ${contact_ids.length} contacts for user ${userId}`);
+    
+    res.json({ success: true, tagId });
+  } catch (error) {
+    console.error('Bulk add tag error:', error);
+    res.status(500).json({ error: 'שגיאה בהוספת תגית' });
+  }
+}
+
 module.exports = { 
   getAllTags, createTag, deleteTag,
-  getContactTags, addTagToContact, removeTagFromContact 
+  getContactTags, addTagToContact, removeTagFromContact,
+  bulkAddTag
 };

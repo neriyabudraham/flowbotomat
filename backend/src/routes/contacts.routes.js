@@ -6,7 +6,7 @@ const { getMessages } = require('../controllers/contacts/messages.controller');
 const { toggleBot, toggleBlock, deleteContact, takeoverConversation, bulkDeleteContacts, exportContacts } = require('../controllers/contacts/update.controller');
 const { sendMessage } = require('../controllers/contacts/send.controller');
 const { getVariables, setVariable, deleteVariable } = require('../controllers/contacts/variables.controller');
-const { getAllTags, createTag, deleteTag, getContactTags, addTagToContact, removeTagFromContact } = require('../controllers/contacts/tags.controller');
+const { getAllTags, createTag, deleteTag, getContactTags, addTagToContact, removeTagFromContact, bulkAddTag } = require('../controllers/contacts/tags.controller');
 const { getContactStats, getGlobalStats } = require('../controllers/contacts/stats.controller');
 
 // All routes require authentication
@@ -25,6 +25,9 @@ router.delete('/tags/:tagId', deleteTag);
 
 // Bulk delete contacts
 router.post('/bulk-delete', bulkDeleteContacts);
+
+// Bulk add tag to contacts
+router.post('/bulk-tag', bulkAddTag);
 
 // List all contacts
 router.get('/', listContacts);

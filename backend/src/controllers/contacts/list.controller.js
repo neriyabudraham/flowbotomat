@@ -6,33 +6,68 @@ const pool = require('../../config/database');
 async function listContacts(req, res) {
   try {
     const userId = req.user.id;
-    const { page = 1, limit = 50, search } = req.query;
+    const { page = 1, limit = 50, search, tag } = req.query;
     const offset = (page - 1) * limit;
     
     let query = `
       SELECT c.*, 
              (SELECT COUNT(*) FROM messages m WHERE m.contact_id = c.id) as message_count,
-             (SELECT content FROM messages m WHERE m.contact_id = c.id ORDER BY sent_at DESC LIMIT 1) as last_message
+             (SELECT content FROM messages m WHERE m.contact_id = c.id ORDER BY sent_at DESC LIMIT 1) as last_message,
+             COALESCE(
+               (SELECT array_agg(t.name) FROM contact_tags t 
+                JOIN contact_tag_assignments cta ON t.id = cta.tag_id 
+                WHERE cta.contact_id = c.id), 
+               ARRAY[]::text[]
+             ) as tags
       FROM contacts c
       WHERE c.user_id = $1
     `;
     const params = [userId];
+    let paramIndex = 2;
     
     if (search) {
-      query += ` AND (c.phone LIKE $2 OR c.display_name ILIKE $2)`;
+      query += ` AND (c.phone LIKE $${paramIndex} OR c.display_name ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
+      paramIndex++;
     }
     
-    query += ` ORDER BY c.last_message_at DESC NULLS LAST LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    params.push(limit, offset);
+    if (tag) {
+      query += ` AND EXISTS (
+        SELECT 1 FROM contact_tag_assignments cta 
+        JOIN contact_tags t ON t.id = cta.tag_id 
+        WHERE cta.contact_id = c.id AND t.name = $${paramIndex}
+      )`;
+      params.push(tag);
+      paramIndex++;
+    }
     
-    const result = await pool.query(query, params);
+    // Count query with same filters
+    let countQuery = `SELECT COUNT(*) FROM contacts c WHERE c.user_id = $1`;
+    const countParams = [userId];
+    let countParamIndex = 2;
     
-    // Get total count
-    const countResult = await pool.query(
-      'SELECT COUNT(*) FROM contacts WHERE user_id = $1',
-      [userId]
-    );
+    if (search) {
+      countQuery += ` AND (c.phone LIKE $${countParamIndex} OR c.display_name ILIKE $${countParamIndex})`;
+      countParams.push(`%${search}%`);
+      countParamIndex++;
+    }
+    
+    if (tag) {
+      countQuery += ` AND EXISTS (
+        SELECT 1 FROM contact_tag_assignments cta 
+        JOIN contact_tags t ON t.id = cta.tag_id 
+        WHERE cta.contact_id = c.id AND t.name = $${countParamIndex}
+      )`;
+      countParams.push(tag);
+    }
+    
+    query += ` ORDER BY c.last_message_at DESC NULLS LAST LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(parseInt(limit), offset);
+    
+    const [result, countResult] = await Promise.all([
+      pool.query(query, params),
+      pool.query(countQuery, countParams)
+    ]);
     
     res.json({
       contacts: result.rows,

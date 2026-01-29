@@ -17,6 +17,7 @@ import AudiencesTab from '../components/broadcasts/AudiencesTab';
 import TemplatesTab from '../components/broadcasts/TemplatesTab';
 import CampaignsTab from '../components/broadcasts/CampaignsTab';
 import ImportTab from '../components/broadcasts/ImportTab';
+import ContactsTab from '../components/broadcasts/ContactsTab';
 
 export default function BroadcastsPage() {
   const navigate = useNavigate();
@@ -77,6 +78,7 @@ export default function BroadcastsPage() {
     { id: 'audiences', label: 'קהלים', icon: Users, color: 'purple' },
     { id: 'templates', label: 'תבניות', icon: MessageSquare, color: 'green' },
     { id: 'import', label: 'ייבוא אנשי קשר', icon: Upload, color: 'orange' },
+    { id: 'contacts', label: 'אנשי קשר', icon: Target, color: 'pink' },
   ];
 
   return (
@@ -210,6 +212,7 @@ export default function BroadcastsPage() {
                 {activeTab === 'audiences' && <AudiencesTab onRefresh={fetchStats} />}
                 {activeTab === 'templates' && <TemplatesTab onRefresh={fetchStats} />}
                 {activeTab === 'import' && <ImportTab onRefresh={fetchStats} />}
+                {activeTab === 'contacts' && <ContactsTab onRefresh={fetchStats} />}
               </>
             )}
           </div>
