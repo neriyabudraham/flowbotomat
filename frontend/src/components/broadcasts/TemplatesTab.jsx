@@ -230,9 +230,9 @@ export default function TemplatesTab({ onRefresh }) {
 }
 
 // =============================================
-// Template Editor Modal Component
+// Template Editor Modal Component (exported for use in CampaignsTab)
 // =============================================
-function TemplateEditorModal({ template, onClose, onSave }) {
+export function TemplateEditorModal({ template, onClose, onSave }) {
   const [name, setName] = useState(template?.name || '');
   const [description, setDescription] = useState(template?.description || '');
   const [messages, setMessages] = useState(

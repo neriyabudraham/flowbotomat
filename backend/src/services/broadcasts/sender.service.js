@@ -237,7 +237,8 @@ async function startCampaignSending(campaignId, userId) {
   const batchSize = settings.batch_size || 50;
   
   // Advanced settings for post-send actions
-  const successTag = settings.success_tag || null;
+  // Support both old single tag and new array format
+  const successTags = settings.success_tags || (settings.success_tag ? [settings.success_tag] : []);
   const variableMappings = settings.variable_mappings || {};
   
   // Mark as active with initial progress
@@ -463,9 +464,11 @@ async function startCampaignSending(campaignId, userId) {
           
           // === POST-SEND ACTIONS FOR SUCCESSFUL SENDS ===
           
-          // Add success tag if configured
-          if (successTag && recipient.contact_id) {
-            await addTagToContact(userId, recipient.contact_id, successTag);
+          // Add success tags if configured
+          if (successTags.length > 0 && recipient.contact_id) {
+            for (const tagName of successTags) {
+              await addTagToContact(userId, recipient.contact_id, tagName);
+            }
           }
           
           // Set success variables if configured

@@ -4,9 +4,10 @@ import {
   Loader2, X, Calendar, Clock, Users, MessageSquare, CheckCircle,
   AlertCircle, XCircle, Eye, Settings, Target, Sparkles, Download,
   Copy, CalendarOff, BarChart3, ChevronDown, FileText, Zap,
-  ArrowRight, TrendingUp, Timer, RotateCcw
+  ArrowRight, TrendingUp, Timer, RotateCcw, Tag
 } from 'lucide-react';
 import api from '../../services/api';
+import { TemplateEditorModal } from './TemplatesTab';
 
 const STATUS_CONFIG = {
   draft: { label: 'טיוטה', color: 'gray', bgColor: 'bg-gray-100', textColor: 'text-gray-700', icon: Edit2 },
@@ -897,33 +898,45 @@ function CampaignCard({ campaign, onView, onEdit, onDelete, onAction, onReschedu
 // Campaign Editor Modal
 // =============================================
 function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved }) {
+  // Variable mapping options with defaults
+  const VARIABLE_OPTIONS = [
+    { key: 'send_date', label: 'תאריך שליחה', defaultName: 'campaign_send_date' },
+    { key: 'send_time', label: 'שעת שליחה', defaultName: 'campaign_send_time' },
+    { key: 'send_datetime', label: 'תאריך ושעה', defaultName: 'campaign_send_datetime' },
+    { key: 'send_status', label: 'סטטוס (true/false)', defaultName: 'campaign_success' },
+    { key: 'campaign_name', label: 'שם הקמפיין', defaultName: 'last_campaign_name' },
+    { key: 'error_message', label: 'הודעת שגיאה', defaultName: 'campaign_error' },
+  ];
+
   const [formData, setFormData] = useState({
     name: campaign?.name || '',
     description: campaign?.description || '',
     audience_id: campaign?.audience_id || '',
     template_id: campaign?.template_id || '',
-    direct_message: campaign?.direct_message || '',
-    direct_media_url: campaign?.direct_media_url || '',
     scheduled_at: toLocalDateTimeString(campaign?.scheduled_at),
     settings: {
       delay_between_messages: campaign?.settings?.delay_between_messages ?? 2,
       delay_between_batches: campaign?.settings?.delay_between_batches ?? 30,
       batch_size: campaign?.settings?.batch_size ?? 50,
-      success_tag: campaign?.settings?.success_tag || '',
-      variable_mappings: {
-        send_date: campaign?.settings?.variable_mappings?.send_date || '',
-        send_time: campaign?.settings?.variable_mappings?.send_time || '',
-        send_status: campaign?.settings?.variable_mappings?.send_status || '',
-        campaign_name: campaign?.settings?.variable_mappings?.campaign_name || '',
-        error_message: campaign?.settings?.variable_mappings?.error_message || '',
-        send_datetime: campaign?.settings?.variable_mappings?.send_datetime || ''
-      }
+      success_tags: campaign?.settings?.success_tags || [],
+      variable_mappings: campaign?.settings?.variable_mappings || {}
     }
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdvancedActions, setShowAdvancedActions] = useState(false);
+  const [showTemplateCreate, setShowTemplateCreate] = useState(false);
+  const [localTemplates, setLocalTemplates] = useState(templates);
+  const [tagInput, setTagInput] = useState('');
+  const [enabledVariables, setEnabledVariables] = useState(() => {
+    // Initialize enabled variables from existing mappings
+    const enabled = {};
+    VARIABLE_OPTIONS.forEach(opt => {
+      enabled[opt.key] = !!campaign?.settings?.variable_mappings?.[opt.key];
+    });
+    return enabled;
+  });
 
   const handleSave = async () => {
     if (!formData.name.trim() || !formData.audience_id) {
@@ -931,8 +944,8 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
       return;
     }
     
-    if (!formData.template_id && !formData.direct_message) {
-      setError('יש לבחור תבנית או לכתוב הודעה');
+    if (!formData.template_id) {
+      setError('יש לבחור תבנית הודעה');
       return;
     }
     
@@ -945,12 +958,21 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
         ? new Date(formData.scheduled_at).toISOString() 
         : null;
       
+      // Filter variable_mappings to only include enabled ones
+      const activeVariableMappings = {};
+      VARIABLE_OPTIONS.forEach(opt => {
+        if (enabledVariables[opt.key] && formData.settings.variable_mappings[opt.key]) {
+          activeVariableMappings[opt.key] = formData.settings.variable_mappings[opt.key];
+        }
+      });
+      
       const payload = {
         ...formData,
         scheduled_at: scheduledAt,
-        template_id: formData.template_id || null,
-        direct_message: formData.direct_message || null,
-        direct_media_url: formData.direct_media_url || null
+        settings: {
+          ...formData.settings,
+          variable_mappings: activeVariableMappings
+        }
       };
       
       if (campaign) {
@@ -967,7 +989,78 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
     }
   };
 
+  const handleAddTag = (e) => {
+    if (e.key === 'Enter' && tagInput.trim()) {
+      e.preventDefault();
+      const newTag = tagInput.trim();
+      if (!formData.settings.success_tags.includes(newTag)) {
+        setFormData({
+          ...formData,
+          settings: {
+            ...formData.settings,
+            success_tags: [...formData.settings.success_tags, newTag]
+          }
+        });
+      }
+      setTagInput('');
+    }
+  };
+
+  const handleRemoveTag = (tagToRemove) => {
+    setFormData({
+      ...formData,
+      settings: {
+        ...formData.settings,
+        success_tags: formData.settings.success_tags.filter(t => t !== tagToRemove)
+      }
+    });
+  };
+
+  const toggleVariable = (key) => {
+    const newEnabled = { ...enabledVariables, [key]: !enabledVariables[key] };
+    setEnabledVariables(newEnabled);
+    
+    // Set default value if enabling
+    if (!enabledVariables[key]) {
+      const option = VARIABLE_OPTIONS.find(o => o.key === key);
+      if (option && !formData.settings.variable_mappings[key]) {
+        setFormData({
+          ...formData,
+          settings: {
+            ...formData.settings,
+            variable_mappings: {
+              ...formData.settings.variable_mappings,
+              [key]: option.defaultName
+            }
+          }
+        });
+      }
+    }
+  };
+
+  const handleTemplateCreated = async () => {
+    setShowTemplateCreate(false);
+    // Refresh templates list
+    try {
+      const { data } = await api.get('/broadcasts/templates');
+      setLocalTemplates(data.templates || []);
+    } catch (e) {
+      console.error('Failed to refresh templates:', e);
+    }
+  };
+
   const selectedAudience = audiences.find(a => a.id === formData.audience_id);
+
+  // Show template creation modal
+  if (showTemplateCreate) {
+    return (
+      <TemplateEditorModal
+        template={null}
+        onClose={() => setShowTemplateCreate(false)}
+        onSave={handleTemplateCreated}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -1057,54 +1150,32 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
             />
           </div>
           
-          {/* Message Content */}
+          {/* Template Selection */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">תוכן ההודעה *</label>
-            <div className="grid md:grid-cols-2 gap-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">תבנית הודעה *</label>
+            <div className="flex gap-3">
+              <select
+                value={formData.template_id}
+                onChange={(e) => { setFormData({ ...formData, template_id: e.target.value }); setError(null); }}
+                className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 focus:bg-white transition-all"
+              >
+                <option value="">בחר תבנית...</option>
+                {localTemplates.map(t => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
               <button
                 type="button"
-                onClick={() => setFormData({ ...formData, direct_message: '', direct_media_url: '' })}
-                className={`p-4 border-2 rounded-xl text-right transition-all ${
-                  formData.template_id && !formData.direct_message
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 hover:border-blue-300'
-                }`}
+                onClick={() => setShowTemplateCreate(true)}
+                className="px-4 py-3 bg-orange-100 text-orange-700 rounded-xl hover:bg-orange-200 transition-colors flex items-center gap-2 font-medium"
               >
-                <div className="flex items-center gap-2 mb-3">
-                  <MessageSquare className={`w-5 h-5 ${formData.template_id ? 'text-blue-600' : 'text-gray-400'}`} />
-                  <span className="font-medium">מתבנית</span>
-                </div>
-                <select
-                  value={formData.template_id}
-                  onChange={(e) => setFormData({ ...formData, template_id: e.target.value, direct_message: '', direct_media_url: '' })}
-                  onClick={(e) => e.stopPropagation()}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white"
-                >
-                  <option value="">בחר תבנית...</option>
-                  {templates.map(t => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                </select>
+                <Plus className="w-4 h-4" />
+                חדש
               </button>
-              
-              <div className={`p-4 border-2 rounded-xl transition-all ${
-                formData.direct_message && !formData.template_id
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-200'
-              }`}>
-                <div className="flex items-center gap-2 mb-3">
-                  <Edit2 className="w-5 h-5 text-gray-400" />
-                  <span className="font-medium">הודעה ישירה</span>
-                </div>
-                <textarea
-                  value={formData.direct_message}
-                  onChange={(e) => setFormData({ ...formData, direct_message: e.target.value, template_id: '' })}
-                  placeholder="כתוב הודעה..."
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none"
-                />
-              </div>
             </div>
+            {localTemplates.length === 0 && (
+              <p className="text-xs text-amber-600 mt-2">אין תבניות זמינות. לחץ על "חדש" ליצירת תבנית.</p>
+            )}
           </div>
           
           {/* Schedule */}
@@ -1204,23 +1275,43 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
             
             {showAdvancedActions && (
               <div className="mt-4 space-y-4">
-                {/* Success Tag */}
+                {/* Success Tags */}
                 <div className="bg-green-50 border border-green-200 rounded-xl p-4">
                   <div className="flex items-center gap-2 mb-3">
-                    <CheckCircle className="w-4 h-4 text-green-600" />
-                    <span className="font-medium text-green-900 text-sm">תיוג נמענים שקיבלו בהצלחה</span>
+                    <Tag className="w-4 h-4 text-green-600" />
+                    <span className="font-medium text-green-900 text-sm">תגיות לנמענים שקיבלו בהצלחה</span>
                   </div>
+                  
+                  {/* Tags chips */}
+                  {formData.settings.success_tags.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {formData.settings.success_tags.map((tag, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm"
+                        >
+                          {tag}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveTag(tag)}
+                            className="hover:text-green-900"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  
                   <input
                     type="text"
-                    value={formData.settings.success_tag || ''}
-                    onChange={(e) => setFormData({
-                      ...formData,
-                      settings: { ...formData.settings, success_tag: e.target.value }
-                    })}
-                    placeholder="שם התגית (לדוגמה: קיבל_הודעה)"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={handleAddTag}
+                    placeholder="הקלד שם תגית ולחץ Enter להוספה"
                     className="w-full px-3 py-2 border border-green-200 rounded-lg text-sm bg-white"
                   />
-                  <p className="text-xs text-green-600 mt-1">התגית תתווסף רק לאנשי קשר שההודעה נשלחה אליהם בהצלחה</p>
+                  <p className="text-xs text-green-600 mt-1">התגיות יתווספו רק לאנשי קשר שההודעה נשלחה אליהם בהצלחה</p>
                 </div>
                 
                 {/* Variable Mappings */}
@@ -1229,105 +1320,44 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
                     <FileText className="w-4 h-4 text-blue-600" />
                     <span className="font-medium text-blue-900 text-sm">שמירת מידע במשתנים</span>
                   </div>
-                  <p className="text-xs text-blue-600 mb-3">הזן שם משתנה לכל שדה שתרצה לשמור. השדות יתעדכנו אצל איש הקשר לאחר השליחה.</p>
+                  <p className="text-xs text-blue-600 mb-3">סמן את המשתנים שתרצה לשמור ושנה את שמם אם צריך.</p>
                   
-                  <div className="grid md:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">תאריך שליחה</label>
-                      <input
-                        type="text"
-                        value={formData.settings.variable_mappings?.send_date || ''}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          settings: {
-                            ...formData.settings,
-                            variable_mappings: { ...formData.settings.variable_mappings, send_date: e.target.value }
-                          }
-                        })}
-                        placeholder="לדוגמה: campaign_send_date"
-                        className="w-full px-3 py-2 border border-blue-200 rounded-lg text-sm bg-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">שעת שליחה</label>
-                      <input
-                        type="text"
-                        value={formData.settings.variable_mappings?.send_time || ''}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          settings: {
-                            ...formData.settings,
-                            variable_mappings: { ...formData.settings.variable_mappings, send_time: e.target.value }
-                          }
-                        })}
-                        placeholder="לדוגמה: campaign_send_time"
-                        className="w-full px-3 py-2 border border-blue-200 rounded-lg text-sm bg-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">תאריך ושעה יחד</label>
-                      <input
-                        type="text"
-                        value={formData.settings.variable_mappings?.send_datetime || ''}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          settings: {
-                            ...formData.settings,
-                            variable_mappings: { ...formData.settings.variable_mappings, send_datetime: e.target.value }
-                          }
-                        })}
-                        placeholder="לדוגמה: last_campaign_datetime"
-                        className="w-full px-3 py-2 border border-blue-200 rounded-lg text-sm bg-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">סטטוס שליחה (true/false)</label>
-                      <input
-                        type="text"
-                        value={formData.settings.variable_mappings?.send_status || ''}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          settings: {
-                            ...formData.settings,
-                            variable_mappings: { ...formData.settings.variable_mappings, send_status: e.target.value }
-                          }
-                        })}
-                        placeholder="לדוגמה: campaign_success"
-                        className="w-full px-3 py-2 border border-blue-200 rounded-lg text-sm bg-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">שם הקמפיין</label>
-                      <input
-                        type="text"
-                        value={formData.settings.variable_mappings?.campaign_name || ''}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          settings: {
-                            ...formData.settings,
-                            variable_mappings: { ...formData.settings.variable_mappings, campaign_name: e.target.value }
-                          }
-                        })}
-                        placeholder="לדוגמה: last_campaign_name"
-                        className="w-full px-3 py-2 border border-blue-200 rounded-lg text-sm bg-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">הודעת שגיאה (במקרה כישלון)</label>
-                      <input
-                        type="text"
-                        value={formData.settings.variable_mappings?.error_message || ''}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          settings: {
-                            ...formData.settings,
-                            variable_mappings: { ...formData.settings.variable_mappings, error_message: e.target.value }
-                          }
-                        })}
-                        placeholder="לדוגמה: campaign_error"
-                        className="w-full px-3 py-2 border border-blue-200 rounded-lg text-sm bg-white"
-                      />
-                    </div>
+                  <div className="space-y-3">
+                    {VARIABLE_OPTIONS.map(opt => (
+                      <div key={opt.key} className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          id={`var-${opt.key}`}
+                          checked={enabledVariables[opt.key]}
+                          onChange={() => toggleVariable(opt.key)}
+                          className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <label htmlFor={`var-${opt.key}`} className="text-sm text-gray-700 w-32">
+                          {opt.label}
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.settings.variable_mappings[opt.key] || ''}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            settings: {
+                              ...formData.settings,
+                              variable_mappings: {
+                                ...formData.settings.variable_mappings,
+                                [opt.key]: e.target.value
+                              }
+                            }
+                          })}
+                          disabled={!enabledVariables[opt.key]}
+                          placeholder={opt.defaultName}
+                          className={`flex-1 px-3 py-1.5 border rounded-lg text-sm ${
+                            enabledVariables[opt.key] 
+                              ? 'border-blue-200 bg-white' 
+                              : 'border-gray-200 bg-gray-100 text-gray-400'
+                          }`}
+                        />
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -1345,7 +1375,7 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !formData.name.trim() || !formData.audience_id || (!formData.template_id && !formData.direct_message)}
+            disabled={saving || !formData.name.trim() || !formData.audience_id || !formData.template_id}
             className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-xl font-medium hover:from-blue-600 hover:to-indigo-600 transition-all shadow-lg shadow-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {saving ? (
