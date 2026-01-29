@@ -1,25 +1,60 @@
 import { create } from 'zustand';
 import api from '../services/api';
 
+const CONTACTS_PAGE_SIZE = 200;
+
 const useContactsStore = create((set, get) => ({
   contacts: [],
   selectedContact: null,
   messages: [],
   isLoading: false,
   loadingMore: false,
+  loadingMoreContacts: false,
   hasMore: true,
+  hasMoreContacts: true,
   error: null,
   total: 0,
+  currentSearch: '',
+  contactsPage: 1,
 
   fetchContacts: async (search = '') => {
-    set({ isLoading: true, error: null });
+    set({ isLoading: true, error: null, currentSearch: search, contactsPage: 1 });
     try {
-      const { data } = await api.get('/contacts', { params: { search } });
-      set({ contacts: data.contacts, total: data.total, isLoading: false });
+      const { data } = await api.get('/contacts', { 
+        params: { search, limit: CONTACTS_PAGE_SIZE, page: 1 } 
+      });
+      set({ 
+        contacts: data.contacts, 
+        total: data.total, 
+        isLoading: false,
+        hasMoreContacts: data.contacts.length >= CONTACTS_PAGE_SIZE
+      });
       return data;
     } catch (err) {
       set({ isLoading: false, error: err.response?.data?.error || 'שגיאה' });
       throw err;
+    }
+  },
+
+  loadMoreContacts: async () => {
+    const { loadingMoreContacts, hasMoreContacts, currentSearch, contactsPage, contacts } = get();
+    if (loadingMoreContacts || !hasMoreContacts) return;
+    
+    set({ loadingMoreContacts: true });
+    try {
+      const nextPage = contactsPage + 1;
+      const { data } = await api.get('/contacts', { 
+        params: { search: currentSearch, limit: CONTACTS_PAGE_SIZE, page: nextPage } 
+      });
+      
+      set({ 
+        contacts: [...contacts, ...data.contacts],
+        contactsPage: nextPage,
+        hasMoreContacts: data.contacts.length >= CONTACTS_PAGE_SIZE,
+        loadingMoreContacts: false
+      });
+    } catch (err) {
+      set({ loadingMoreContacts: false });
     }
   },
 

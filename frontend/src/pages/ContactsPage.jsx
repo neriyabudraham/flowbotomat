@@ -25,6 +25,7 @@ export default function ContactsPage() {
     contacts, selectedContact, messages, isLoading, hasMore, loadingMore,
     fetchContacts, selectContact, clearSelection, addMessage, addNewContact, toggleBot,
     takeoverConversation, loadMoreMessages, updateMessageReaction,
+    loadMoreContacts, hasMoreContacts, loadingMoreContacts, total,
   } = useContactsStore();
 
   useEffect(() => {
@@ -233,11 +234,15 @@ export default function ContactsPage() {
             selectedId={selectedContact?.id}
             onSelect={handleSelectContact}
             onSearch={handleSearch}
-            stats={{ total: contacts.length, active: activeContacts }}
+            stats={{ total: total || contacts.length, active: activeContacts }}
             onContactsChange={() => {
               fetchContacts();
               loadStats();
             }}
+            onLoadMore={loadMoreContacts}
+            hasMoreContacts={hasMoreContacts}
+            loadingMoreContacts={loadingMoreContacts}
+            totalContacts={total}
           />
         </div>
 
