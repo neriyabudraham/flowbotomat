@@ -118,15 +118,20 @@ async function handleWebhook(req, res) {
   }
 }
 
-// Ensure sender_phone column exists (migration)
-let senderPhoneColumnAdded = false;
-async function ensureSenderPhoneColumn() {
-  if (senderPhoneColumnAdded) return;
+// Ensure columns have correct sizes (migration)
+let migrationsApplied = false;
+async function ensureMigrations() {
+  if (migrationsApplied) return;
   try {
+    // Add sender_phone column for group messages
     await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_phone VARCHAR(50)`);
-    senderPhoneColumnAdded = true;
+    // Expand phone and wa_id columns to support group IDs (e.g., 120363422185641072@g.us)
+    await pool.query(`ALTER TABLE contacts ALTER COLUMN phone TYPE VARCHAR(50)`);
+    await pool.query(`ALTER TABLE contacts ALTER COLUMN wa_id TYPE VARCHAR(100)`);
+    migrationsApplied = true;
   } catch (err) {
-    // Column might already exist
+    // Columns might already be correct
+    migrationsApplied = true;
   }
 }
 
@@ -136,8 +141,8 @@ async function ensureSenderPhoneColumn() {
 async function handleIncomingMessage(userId, event) {
   const { payload } = event;
   
-  // Ensure migration is applied
-  await ensureSenderPhoneColumn();
+  // Ensure migrations are applied
+  await ensureMigrations();
   
   // Verify user exists before processing
   const userCheck = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
