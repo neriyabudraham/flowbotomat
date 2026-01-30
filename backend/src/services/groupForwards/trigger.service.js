@@ -59,6 +59,7 @@ async function getWahaConnection(userId) {
 
 /**
  * Process incoming message for group forwards trigger
+ * Returns true if a forward was triggered (to prevent bot engine from also responding)
  */
 async function processMessageForForwards(userId, senderPhone, messageData, chatId, payload) {
   try {
@@ -92,8 +93,10 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
     
     if (forwards.rows.length === 0) {
       console.log(`[GroupForwards] No matching forwards found for user ${userId}`);
-      return;
+      return false;
     }
+    
+    let anyForwardTriggered = false;
     
     // Check if sender is authorized for each forward
     for (const forward of forwards.rows) {
@@ -136,10 +139,14 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
       console.log(`[GroupForwards] ✅ Triggering forward ${forward.id} (${forward.name}) for sender ${senderPhone}`);
       
       await createTriggerJob(userId, forward, senderPhone, messageData, payload);
+      anyForwardTriggered = true;
     }
+    
+    return anyForwardTriggered;
     
   } catch (error) {
     console.error('[GroupForwards] Trigger processing error:', error);
+    return false;
   }
 }
 

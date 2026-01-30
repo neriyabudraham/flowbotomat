@@ -162,27 +162,13 @@ async function handleIncomingMessage(userId, event) {
   
   console.log(`[Webhook] Message saved for user ${userId} from ${phone}`);
   
-  // Process with bot engine
-  try {
-    const chatId = payload.from || payload.chatId;
-    const isGroupMessage = chatId?.includes('@g.us') || false;
-    const groupId = isGroupMessage ? chatId : null;
-    
-    await botEngine.processMessage(
-      userId, 
-      phone, 
-      messageData.content, 
-      messageData.type, 
-      messageData.selectedRowId,
-      messageData.quotedListTitle, // Pass the original list title for verification
-      isGroupMessage, // Pass whether this is a group message
-      groupId // Pass the group ID if it's a group message
-    );
-  } catch (botError) {
-    console.error('[Webhook] Bot engine error:', botError);
-  }
+  const chatId = payload.from || payload.chatId;
+  const isGroupMessage = chatId?.includes('@g.us') || false;
+  const groupId = isGroupMessage ? chatId : null;
   
-  // Process group forwards trigger
+  // FIRST: Process group forwards - if message is handled by forwards, skip bot engine
+  let handledByForwards = false;
+  
   try {
     // First check if this is a confirmation response for pending job
     const wasConfirmation = await groupForwardsTrigger.handleConfirmationResponse(
@@ -192,19 +178,44 @@ async function handleIncomingMessage(userId, event) {
       messageData.selectedRowId // Button ID if clicked
     );
     
-    // If not a confirmation response, check for new triggers
-    if (!wasConfirmation) {
-      const chatId = payload.from || payload.chatId;
-      await groupForwardsTrigger.processMessageForForwards(
+    if (wasConfirmation) {
+      console.log(`[Webhook] Message handled as forward confirmation - skipping bot engine`);
+      handledByForwards = true;
+    } else {
+      // Check if this triggers a group forward (from authorized sender)
+      const forwardTriggered = await groupForwardsTrigger.processMessageForForwards(
         userId,
         phone,
         messageData,
         chatId,
         payload
       );
+      
+      if (forwardTriggered) {
+        console.log(`[Webhook] Message handled as forward trigger - skipping bot engine`);
+        handledByForwards = true;
+      }
     }
   } catch (forwardError) {
     console.error('[Webhook] Group forwards trigger error:', forwardError);
+  }
+  
+  // SECOND: Process with bot engine ONLY if not handled by forwards
+  if (!handledByForwards) {
+    try {
+      await botEngine.processMessage(
+        userId, 
+        phone, 
+        messageData.content, 
+        messageData.type, 
+        messageData.selectedRowId,
+        messageData.quotedListTitle, // Pass the original list title for verification
+        isGroupMessage, // Pass whether this is a group message
+        groupId // Pass the group ID if it's a group message
+      );
+    } catch (botError) {
+      console.error('[Webhook] Bot engine error:', botError);
+    }
   }
 }
 
