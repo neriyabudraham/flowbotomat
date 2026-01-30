@@ -5,52 +5,79 @@ const groupForwardsTrigger = require('../../services/groupForwards/trigger.servi
 
 /**
  * Extract real phone number from payload
- * Real phone numbers are typically 10-15 digits
- * LIDs are longer random strings
+ * IMPORTANT: Exclude LIDs (@lid) - these are WhatsApp internal IDs, not phone numbers
+ * Real phone numbers come from @c.us or @s.whatsapp.net suffixes
  */
 function extractRealPhone(payload) {
   const candidates = [];
   
-  // Collect all possible phone sources
-  if (payload._data?.Info?.SenderAlt) {
-    candidates.push(payload._data.Info.SenderAlt.split('@')[0]);
-  }
-  if (payload._data?.Info?.Sender) {
-    candidates.push(payload._data.Info.Sender.split('@')[0]);
-  }
-  if (payload._data?.Info?.Chat) {
-    candidates.push(payload._data.Info.Chat.split('@')[0]);
-  }
-  if (payload.from) {
-    candidates.push(payload.from.split('@')[0]);
-  }
-  if (payload.chatId) {
-    candidates.push(payload.chatId.split('@')[0]);
-  }
-  
-  // Filter to only numeric strings
-  const numericCandidates = candidates.filter(c => /^\d+$/.test(c));
-  
-  if (numericCandidates.length === 0) return null;
-  
-  // Sort by length - real phone numbers are typically 10-15 digits
-  // LIDs are usually longer (15+ digits)
-  numericCandidates.sort((a, b) => {
-    // Prefer numbers in valid phone range (10-15 digits)
-    const aValid = a.length >= 10 && a.length <= 15;
-    const bValid = b.length >= 10 && b.length <= 15;
+  // Helper to add candidate only if it's from a real phone source (not LID)
+  const addIfRealPhone = (fullId) => {
+    if (!fullId) return;
     
-    if (aValid && !bValid) return -1;
-    if (!aValid && bValid) return 1;
+    // Skip LIDs - they are NOT phone numbers
+    if (fullId.includes('@lid')) {
+      console.log(`[Webhook] Skipping LID: ${fullId}`);
+      return;
+    }
     
-    // If both valid or both invalid, prefer shorter
-    return a.length - b.length;
+    // Only accept @c.us or @s.whatsapp.net (real phone identifiers)
+    if (fullId.includes('@c.us') || fullId.includes('@s.whatsapp.net')) {
+      const phone = fullId.split('@')[0];
+      if (/^\d+$/.test(phone)) {
+        candidates.push(phone);
+      }
+    }
+  };
+  
+  // Collect phone from various sources - prioritize chat ID for direct messages
+  // because it contains the real sender phone number
+  addIfRealPhone(payload.chatId);
+  addIfRealPhone(payload.from);
+  addIfRealPhone(payload._data?.Info?.Chat);
+  addIfRealPhone(payload._data?.Info?.Sender);
+  addIfRealPhone(payload._data?.Info?.SenderAlt);
+  
+  // If no candidates found from standard sources, try fallback
+  if (candidates.length === 0) {
+    // Last resort: check all numeric strings in standard fields
+    const fallbackSources = [
+      payload._data?.Info?.SenderAlt,
+      payload._data?.Info?.Sender,
+      payload._data?.Info?.Chat,
+      payload.from,
+      payload.chatId
+    ].filter(Boolean);
+    
+    for (const source of fallbackSources) {
+      const phone = source.split('@')[0];
+      // Only accept if it looks like a real phone (10-15 digits starting with country code)
+      if (/^\d{10,15}$/.test(phone) && (phone.startsWith('972') || phone.startsWith('1'))) {
+        candidates.push(phone);
+        break;
+      }
+    }
+  }
+  
+  if (candidates.length === 0) {
+    console.log(`[Webhook] Could not find real phone in payload`);
+    return null;
+  }
+  
+  // Deduplicate and prefer numbers starting with country code
+  const uniqueCandidates = [...new Set(candidates)];
+  uniqueCandidates.sort((a, b) => {
+    // Prefer numbers starting with 972 (Israel)
+    const aIsrael = a.startsWith('972');
+    const bIsrael = b.startsWith('972');
+    if (aIsrael && !bIsrael) return -1;
+    if (!aIsrael && bIsrael) return 1;
+    return 0;
   });
   
-  // Debug log only in development
-  // console.log(`[Webhook] Phone candidates: ${numericCandidates.join(', ')} -> selected: ${numericCandidates[0]}`);
+  console.log(`[Webhook] Phone candidates: ${uniqueCandidates.join(', ')} -> selected: ${uniqueCandidates[0]}`);
   
-  return numericCandidates[0];
+  return uniqueCandidates[0];
 }
 
 /**
