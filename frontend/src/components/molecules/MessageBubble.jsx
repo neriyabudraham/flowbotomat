@@ -1,4 +1,5 @@
-import { Check, CheckCheck, Image, FileText, Mic, MapPin, Video, Play, Download, ExternalLink, Bot, User, List, MousePointer, ChevronDown, UserCircle, Phone, Building2, Eye, ThumbsUp, UserRound } from 'lucide-react';
+import { useState } from 'react';
+import { Check, CheckCheck, Image, FileText, Mic, MapPin, Video, Play, Download, ExternalLink, Bot, User, List, MousePointer, ChevronDown, UserCircle, Phone, Building2, Eye, ThumbsUp, UserRound, FileImage, AtSign } from 'lucide-react';
 
 // Format phone for display in group messages
 function formatSenderPhone(phone) {
@@ -11,6 +12,53 @@ function formatSenderPhone(phone) {
   return formatted;
 }
 
+// Parse @mentions in text and replace LIDs with formatted display
+function parseMentions(text, isOutgoing) {
+  if (!text) return text;
+  
+  // Match @followed by numbers (LID format)
+  const mentionRegex = /@(\d+)/g;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+  
+  while ((match = mentionRegex.exec(text)) !== null) {
+    // Add text before the mention
+    if (match.index > lastIndex) {
+      parts.push({ type: 'text', content: text.slice(lastIndex, match.index) });
+    }
+    // Add the mention as a special part
+    parts.push({ type: 'mention', lid: match[1] });
+    lastIndex = match.index + match[0].length;
+  }
+  
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push({ type: 'text', content: text.slice(lastIndex) });
+  }
+  
+  if (parts.length === 0) return text;
+  
+  return parts.map((part, idx) => {
+    if (part.type === 'mention') {
+      return (
+        <span 
+          key={idx}
+          className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-medium mx-0.5 ${
+            isOutgoing 
+              ? 'bg-white/20 text-white' 
+              : 'bg-blue-100 text-blue-700'
+          }`}
+        >
+          <AtSign className="w-3 h-3" />
+          {part.lid}
+        </span>
+      );
+    }
+    return <span key={idx}>{part.content}</span>;
+  });
+}
+
 export default function MessageBubble({ message, isGroupChat = false }) {
   const isOutgoing = message.direction === 'outgoing';
   const time = new Date(message.sent_at).toLocaleTimeString('he-IL', { 
@@ -20,6 +68,7 @@ export default function MessageBubble({ message, isGroupChat = false }) {
   
   // For group messages, show sender info
   const senderPhone = message.sender_phone;
+  const senderName = message.sender_name;
   const showSenderInfo = isGroupChat && !isOutgoing && senderPhone;
 
   // Parse metadata if it's a string
@@ -189,79 +238,152 @@ export default function MessageBubble({ message, isGroupChat = false }) {
         return (
           <div className="space-y-2">
             {message.media_url && (
-              <div className="relative">
+              <div className="relative rounded-xl overflow-hidden">
                 <video 
                   src={message.media_url} 
                   controls 
-                  className="max-w-[280px] rounded-xl" 
-                />
+                  playsInline
+                  preload="metadata"
+                  className="max-w-[280px] w-full rounded-xl"
+                  controlsList="nodownload"
+                  style={{ maxHeight: '400px' }}
+                >
+                  <source src={message.media_url} type={message.media_mime_type || 'video/mp4'} />
+                  הדפדפן שלך לא תומך בנגן וידאו
+                </video>
+                {/* Fallback link */}
+                <a 
+                  href={message.media_url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className={`flex items-center justify-center gap-2 mt-2 py-1.5 rounded-lg text-xs ${
+                    isOutgoing ? 'bg-white/10 text-white/80' : 'bg-gray-100 text-gray-600'
+                  }`}
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  פתח בחלון חדש
+                </a>
               </div>
             )}
-            {message.content && <p className="text-sm">{message.content}</p>}
+            {message.content && <p className="text-sm mt-2">{parseMentions(message.content, isOutgoing)}</p>}
           </div>
         );
       
       case 'audio':
+      case 'ptt': // Voice note (push-to-talk)
         return (
-          <div className="flex items-center gap-3 min-w-[200px]">
-            <div className={`p-2 rounded-full ${isOutgoing ? 'bg-white/20' : 'bg-gray-200'}`}>
-              <Mic className="w-4 h-4" />
+          <div className="space-y-2 min-w-[220px]">
+            <div className="flex items-center gap-3">
+              <div className={`p-2.5 rounded-full flex-shrink-0 ${isOutgoing ? 'bg-white/20' : 'bg-green-100'}`}>
+                <Mic className={`w-4 h-4 ${isOutgoing ? 'text-white' : 'text-green-600'}`} />
+              </div>
+              <audio 
+                src={message.media_url} 
+                controls 
+                preload="metadata"
+                className="flex-1 h-10"
+                style={{ minWidth: '150px' }}
+              >
+                <source src={message.media_url} type={message.media_mime_type || 'audio/ogg'} />
+                הדפדפן שלך לא תומך בנגן אודיו
+              </audio>
             </div>
-            <audio src={message.media_url} controls className="max-w-[180px] h-8" />
+            {/* Fallback download link */}
+            <a 
+              href={message.media_url} 
+              download
+              className={`flex items-center justify-center gap-2 py-1.5 rounded-lg text-xs ${
+                isOutgoing ? 'bg-white/10 text-white/80' : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              <Download className="w-3 h-3" />
+              הורד הקלטה
+            </a>
           </div>
         );
       
-      case 'document':
+      case 'document': {
+        const isPdf = message.media_mime_type?.includes('pdf') || 
+                      message.media_filename?.toLowerCase().endsWith('.pdf');
+        
         return (
           <div className="space-y-2">
             {/* Caption/Content above the file */}
             {message.content && (
               <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
-                {message.content}
+                {parseMentions(message.content, isOutgoing)}
               </p>
             )}
+            
+            {/* PDF Preview */}
+            {isPdf && message.media_url && (
+              <div className="rounded-xl overflow-hidden border border-gray-200">
+                <iframe 
+                  src={`${message.media_url}#toolbar=0&navpanes=0`}
+                  className="w-full bg-white"
+                  style={{ height: '300px', minWidth: '250px' }}
+                  title={message.media_filename || 'PDF'}
+                />
+              </div>
+            )}
+            
             {/* File download card */}
-            <a 
-              href={message.media_url} 
-              download={message.media_filename || 'file'}
-              onClick={(e) => {
-                // Force download instead of opening
-                e.preventDefault();
-                fetch(message.media_url)
-                  .then(res => res.blob())
-                  .then(blob => {
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = message.media_filename || 'file';
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    a.remove();
-                  })
-                  .catch(() => window.open(message.media_url, '_blank'));
-              }}
-              className={`flex items-center gap-3 p-3 rounded-xl transition-colors cursor-pointer ${
-                isOutgoing 
-                  ? 'bg-white/10 hover:bg-white/20' 
-                  : 'bg-gray-100 hover:bg-gray-200'
-              }`}
-            >
-              <div className={`p-2 rounded-lg ${isOutgoing ? 'bg-white/20' : 'bg-blue-100'}`}>
-                <FileText className={`w-5 h-5 ${isOutgoing ? 'text-white' : 'text-blue-600'}`} />
+            <div className={`flex items-center gap-3 p-3 rounded-xl ${
+              isOutgoing 
+                ? 'bg-white/10' 
+                : 'bg-gray-100'
+            }`}>
+              <div className={`p-2 rounded-lg ${isOutgoing ? 'bg-white/20' : isPdf ? 'bg-red-100' : 'bg-blue-100'}`}>
+                <FileText className={`w-5 h-5 ${isOutgoing ? 'text-white' : isPdf ? 'text-red-600' : 'text-blue-600'}`} />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-sm truncate">
                   {message.media_filename || 'קובץ'}
                 </p>
                 <p className={`text-xs ${isOutgoing ? 'text-white/60' : 'text-gray-500'}`}>
-                  לחץ להורדה
+                  {isPdf ? 'מסמך PDF' : 'קובץ'}
                 </p>
               </div>
-              <Download className={`w-4 h-4 ${isOutgoing ? 'text-white/60' : 'text-gray-400'}`} />
-            </a>
+              <div className="flex items-center gap-2">
+                {/* View button */}
+                <button
+                  onClick={() => window.open(message.media_url, '_blank')}
+                  className={`p-2 rounded-lg transition-colors ${
+                    isOutgoing ? 'hover:bg-white/20' : 'hover:bg-gray-200'
+                  }`}
+                  title="צפייה"
+                >
+                  <ExternalLink className={`w-4 h-4 ${isOutgoing ? 'text-white/60' : 'text-gray-400'}`} />
+                </button>
+                {/* Download button */}
+                <button
+                  onClick={() => {
+                    fetch(message.media_url)
+                      .then(res => res.blob())
+                      .then(blob => {
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = message.media_filename || 'file';
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        a.remove();
+                      })
+                      .catch(() => window.open(message.media_url, '_blank'));
+                  }}
+                  className={`p-2 rounded-lg transition-colors ${
+                    isOutgoing ? 'hover:bg-white/20' : 'hover:bg-gray-200'
+                  }`}
+                  title="הורדה"
+                >
+                  <Download className={`w-4 h-4 ${isOutgoing ? 'text-white/60' : 'text-gray-400'}`} />
+                </button>
+              </div>
+            </div>
           </div>
         );
+      }
       
       case 'location':
         return (
@@ -358,7 +480,7 @@ export default function MessageBubble({ message, isGroupChat = false }) {
       default:
         return (
           <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
-            {message.content}
+            {parseMentions(message.content, isOutgoing)}
           </p>
         );
     }
@@ -417,11 +539,18 @@ export default function MessageBubble({ message, isGroupChat = false }) {
           
           {/* Sender info for group messages */}
           {showSenderInfo && (
-            <div className="flex items-center gap-1.5 mb-1.5 pb-1.5 border-b border-gray-100">
-              <UserRound className="w-3.5 h-3.5 text-purple-500" />
-              <span className="text-xs font-medium text-purple-600" dir="ltr">
-                {formatSenderPhone(senderPhone)}
-              </span>
+            <div className="flex items-center gap-2 mb-1.5 pb-1.5 border-b border-gray-100">
+              <UserRound className="w-3.5 h-3.5 text-purple-500 flex-shrink-0" />
+              <div className="flex items-center gap-1.5 min-w-0">
+                {senderName && senderName !== senderPhone && (
+                  <span className="text-xs font-semibold text-purple-700 truncate">
+                    {senderName}
+                  </span>
+                )}
+                <span className="text-xs text-purple-500" dir="ltr">
+                  {formatSenderPhone(senderPhone)}
+                </span>
+              </div>
             </div>
           )}
           

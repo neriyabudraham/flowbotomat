@@ -123,15 +123,65 @@ let migrationsApplied = false;
 async function ensureMigrations() {
   if (migrationsApplied) return;
   try {
-    // Add sender_phone column for group messages
+    // Add sender_phone and sender_name columns for group messages
     await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_phone VARCHAR(50)`);
+    await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_name VARCHAR(255)`);
     // Expand phone and wa_id columns to support group IDs (e.g., 120363422185641072@g.us)
     await pool.query(`ALTER TABLE contacts ALTER COLUMN phone TYPE VARCHAR(50)`);
     await pool.query(`ALTER TABLE contacts ALTER COLUMN wa_id TYPE VARCHAR(100)`);
+    // Create LID to phone mapping table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS whatsapp_lid_mapping (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        lid VARCHAR(100) NOT NULL,
+        phone VARCHAR(50) NOT NULL,
+        display_name VARCHAR(255),
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id, lid)
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_lid_mapping_lid ON whatsapp_lid_mapping(lid)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_lid_mapping_phone ON whatsapp_lid_mapping(phone)`);
     migrationsApplied = true;
   } catch (err) {
-    // Columns might already be correct
+    console.log('[Webhook] Migration note:', err.message);
     migrationsApplied = true;
+  }
+}
+
+/**
+ * Store LID to phone mapping for future reference
+ */
+async function storeLidMapping(userId, lid, phone, displayName) {
+  if (!lid || !phone) return;
+  try {
+    await pool.query(`
+      INSERT INTO whatsapp_lid_mapping (user_id, lid, phone, display_name)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (user_id, lid) DO UPDATE SET
+        phone = EXCLUDED.phone,
+        display_name = COALESCE(EXCLUDED.display_name, whatsapp_lid_mapping.display_name),
+        updated_at = NOW()
+    `, [userId, lid, phone, displayName]);
+  } catch (err) {
+    // Ignore errors
+  }
+}
+
+/**
+ * Get phone from LID mapping
+ */
+async function getPhoneFromLid(userId, lid) {
+  try {
+    const result = await pool.query(
+      `SELECT phone, display_name FROM whatsapp_lid_mapping WHERE user_id = $1 AND lid = $2`,
+      [userId, lid]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    return null;
   }
 }
 
@@ -171,8 +221,19 @@ async function handleIncomingMessage(userId, event) {
   const isGroupMessage = chatId?.includes('@g.us') || false;
   const groupId = isGroupMessage ? chatId : null;
   
-  // Extract sender's phone number
+  // Extract sender's phone number and name
   const senderPhone = extractRealPhone(payload);
+  const senderName = payload._data?.Info?.PushName || 
+                     payload._data?.Info?.VerifiedName?.Details?.verifiedName ||
+                     payload.notifyName || payload.pushName || null;
+  
+  // Store LID to phone mapping if we have both
+  const senderLid = payload._data?.Info?.SenderAlt || payload._data?.Info?.Sender;
+  if (senderLid && senderLid.includes('@lid') && senderPhone) {
+    const lidOnly = senderLid.split('@')[0];
+    await storeLidMapping(userId, lidOnly, senderPhone, senderName);
+    console.log(`[Webhook] Stored LID mapping: ${lidOnly} -> ${senderPhone} (${senderName})`);
+  }
   
   // For groups, use the group ID as the contact identifier
   // For direct messages, use the sender's phone
@@ -184,18 +245,19 @@ async function handleIncomingMessage(userId, event) {
     // Group message: contact is the GROUP itself
     contactPhone = groupId;  // e.g., "120363422185641072@g.us"
     contactWaId = groupId;
-    // Get group name from payload
-    contactName = payload._data?.Info?.Chat?.split('@')[0] || 
-                  payload.notifyName || 
-                  'קבוצה';
-    console.log(`[Webhook] Group message - group: ${groupId}, sender: ${senderPhone}`);
+    // Get group name from payload - try multiple sources
+    // WAHA typically puts group subject in _data.Info.Subject or chat.name
+    contactName = payload._data?.Info?.Subject ||  // Group subject
+                  payload._data?.chatInfo?.subject || // Alternative location
+                  payload._data?.chat?.name || // Another alternative
+                  payload.notifyName || // Fallback
+                  'קבוצה'; // Default
+    console.log(`[Webhook] Group message - group: ${groupId}, name: ${contactName}, sender: ${senderPhone} (${senderName})`);
   } else {
     // Direct message: contact is the sender
     contactPhone = senderPhone;
     contactWaId = payload._data?.Info?.SenderAlt || payload.from || `${senderPhone}@s.whatsapp.net`;
-    contactName = payload._data?.Info?.PushName || 
-                  payload._data?.Info?.VerifiedName?.Details?.verifiedName ||
-                  payload.notifyName || payload.pushName || senderPhone;
+    contactName = senderName || senderPhone;
   }
   
   if (!contactPhone) {
@@ -218,17 +280,18 @@ async function handleIncomingMessage(userId, event) {
   // Parse message content
   const messageData = parseMessage(payload);
   
-  // Save message with sender_phone for group messages
+  // Save message with sender_phone and sender_name for group messages
   const result = await pool.query(
     `INSERT INTO messages 
      (user_id, contact_id, wa_message_id, direction, message_type, 
-      content, media_url, media_mime_type, media_filename, latitude, longitude, sent_at, sender_phone)
-     VALUES ($1, $2, $3, 'incoming', $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      content, media_url, media_mime_type, media_filename, latitude, longitude, sent_at, sender_phone, sender_name)
+     VALUES ($1, $2, $3, 'incoming', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING *`,
     [userId, contact.id, payload.id, messageData.type, messageData.content,
      messageData.mediaUrl, messageData.mimeType, messageData.filename,
      messageData.latitude, messageData.longitude, new Date(payload.timestamp * 1000),
-     isGroupMessage ? senderPhone : null]
+     isGroupMessage ? senderPhone : null,
+     isGroupMessage ? senderName : null]
   );
   
   // Update contact's last message time
