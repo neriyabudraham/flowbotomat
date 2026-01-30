@@ -84,6 +84,7 @@ export default function ChatView({
   const [takeoverRemaining, setTakeoverRemaining] = useState(null);
   const [sending, setSending] = useState(false);
   const [phoneCopied, setPhoneCopied] = useState(false);
+  const [nameCopied, setNameCopied] = useState(false);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
@@ -274,37 +275,54 @@ export default function ChatView({
           </button>
         </div>
         
-        {/* Contact Info - Center/Right */}
+        {/* Contact Info - Right side */}
         <div className="flex items-center gap-3">
-          <div className="text-right">
-            <button onClick={onShowProfile} className="hover:opacity-80 transition-opacity">
-              <h3 className="font-bold text-gray-900">{contact.display_name || contact.phone}</h3>
+          {/* Phone/Group badge - next to avatar */}
+          {isGroupContact(contact) ? (
+            <div className="px-2.5 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-medium flex items-center gap-1">
+              <Users className="w-3 h-3" />
+              <span>קבוצה</span>
+            </div>
+          ) : (
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                navigator.clipboard.writeText(formatPhoneForCopy(contact.phone));
+                setPhoneCopied(true);
+                setTimeout(() => setPhoneCopied(false), 2000);
+              }}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
+                phoneCopied 
+                  ? 'bg-green-100 text-green-700' 
+                  : 'bg-gray-100 text-gray-600 hover:bg-blue-100 hover:text-blue-700'
+              }`}
+              title="לחץ להעתקה"
+            >
+              <Phone className="w-3 h-3" />
+              <span dir="ltr">{formatPhoneDisplay(contact.phone)}</span>
+              {phoneCopied && <Check className="w-3 h-3" />}
             </button>
-            {isGroupContact(contact) ? (
-              <p className="text-xs text-gray-500 flex items-center justify-end gap-1">
-                <Users className="w-3 h-3" />
-                <span>קבוצה</span>
-              </p>
-            ) : (
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigator.clipboard.writeText(formatPhoneForCopy(contact.phone));
-                  setPhoneCopied(true);
-                  setTimeout(() => setPhoneCopied(false), 2000);
-                }}
-                className="text-xs text-gray-500 flex items-center justify-end gap-1 hover:text-blue-600 transition-colors group"
-              >
-                <Phone className="w-3 h-3" />
-                <span dir="ltr">{formatPhoneDisplay(contact.phone)}</span>
-                {phoneCopied ? (
-                  <Check className="w-3 h-3 text-green-500" />
-                ) : (
-                  <Copy className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                )}
-              </button>
-            )}
-          </div>
+          )}
+          
+          {/* Name */}
+          <button 
+            onClick={(e) => {
+              e.stopPropagation();
+              const nameText = contact.display_name || contact.phone;
+              navigator.clipboard.writeText(nameText);
+              setNameCopied(true);
+              setTimeout(() => setNameCopied(false), 2000);
+            }}
+            className="text-right hover:opacity-80 transition-opacity group"
+            title="לחץ להעתקה"
+          >
+            <h3 className={`font-bold flex items-center gap-1.5 justify-end ${
+              nameCopied ? 'text-green-600' : 'text-gray-900'
+            }`}>
+              {contact.display_name || contact.phone}
+              {nameCopied && <Check className="w-3.5 h-3.5" />}
+            </h3>
+          </button>
           
           {/* Avatar */}
           <button onClick={onShowProfile} className="relative hover:opacity-80 transition-opacity">

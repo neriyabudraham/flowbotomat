@@ -1,8 +1,17 @@
 import { useState, useRef, useCallback } from 'react';
-import { Search, Users, MessageSquare, Bot, Activity, Trash2, Download, X, CheckSquare, Square, MoreHorizontal, Loader2, UsersRound } from 'lucide-react';
+import { Search, Users, MessageSquare, Bot, Activity, Trash2, Download, X, CheckSquare, Square, MoreHorizontal, Loader2, UsersRound, UserX, MessageCircle } from 'lucide-react';
 import ContactItem from '../molecules/ContactItem';
 import DeleteContactModal from '../contacts/DeleteContactModal';
 import api from '../../services/api';
+
+/**
+ * Check if contact is a group
+ */
+function isGroupContact(contact) {
+  return contact?.phone?.includes('@g.us') || 
+         contact?.wa_id?.includes('@g.us') ||
+         contact?.phone?.length > 15;
+}
 
 export default function ContactsList({ 
   contacts, 
@@ -44,6 +53,13 @@ export default function ContactsList({
   }, [hasMoreContacts, loadingMoreContacts, onLoadMore]);
 
   const filteredContacts = contacts.filter(c => {
+    // First apply type filter (groups/chats)
+    if (filter === 'groups') {
+      if (!isGroupContact(c)) return false;
+    }
+    if (filter === 'chats') {
+      if (isGroupContact(c)) return false;
+    }
     if (filter === 'active') {
       const activityTime = c.actual_last_message_at || c.last_message_at;
       if (!activityTime) return false;
@@ -51,6 +67,7 @@ export default function ContactsList({
       return new Date(activityTime) > hourAgo;
     }
     if (filter === 'bot') return c.is_bot_active;
+    if (filter === 'rep') return !c.is_bot_active; // Representative mode - bot disabled
     return true;
   });
 
@@ -321,39 +338,73 @@ export default function ContactsList({
         </div>
 
         {/* Filter Tabs */}
-        <div className="flex items-center gap-2 mt-3">
+        <div className="flex flex-wrap items-center gap-1.5 mt-3">
           <button
             onClick={() => setFilter('all')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
               filter === 'all'
                 ? 'bg-blue-100 text-blue-700 shadow-sm'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
-            <Users className="w-3.5 h-3.5" />
+            <Users className="w-3 h-3" />
             הכל
           </button>
           <button
-            onClick={() => setFilter('active')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              filter === 'active'
-                ? 'bg-green-100 text-green-700 shadow-sm'
+            onClick={() => setFilter('chats')}
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              filter === 'chats'
+                ? 'bg-cyan-100 text-cyan-700 shadow-sm'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
-            <Activity className="w-3.5 h-3.5" />
-            פעילים
+            <MessageCircle className="w-3 h-3" />
+            צ'אטים
           </button>
           <button
-            onClick={() => setFilter('bot')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              filter === 'bot'
+            onClick={() => setFilter('groups')}
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              filter === 'groups'
                 ? 'bg-purple-100 text-purple-700 shadow-sm'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
-            <Bot className="w-3.5 h-3.5" />
+            <UsersRound className="w-3 h-3" />
+            קבוצות
+          </button>
+          <div className="w-px h-4 bg-gray-200 mx-1" />
+          <button
+            onClick={() => setFilter('bot')}
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              filter === 'bot'
+                ? 'bg-green-100 text-green-700 shadow-sm'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            <Bot className="w-3 h-3" />
             בוט
+          </button>
+          <button
+            onClick={() => setFilter('rep')}
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              filter === 'rep'
+                ? 'bg-orange-100 text-orange-700 shadow-sm'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            <UserX className="w-3 h-3" />
+            נציג
+          </button>
+          <button
+            onClick={() => setFilter('active')}
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              filter === 'active'
+                ? 'bg-emerald-100 text-emerald-700 shadow-sm'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            <Activity className="w-3 h-3" />
+            פעילים
           </button>
         </div>
       </div>
