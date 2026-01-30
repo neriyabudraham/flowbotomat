@@ -545,8 +545,8 @@ async function startForwardJob(jobId) {
           await db.query(`
             INSERT INTO messages 
             (user_id, contact_id, wa_message_id, direction, message_type, 
-             content, media_url, media_mime_type, media_filename, sent_at, from_bot)
-            VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, NOW(), false)
+             content, media_url, media_mime_type, media_filename, status, sent_at)
+            VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, 'sent', NOW())
           `, [
             job.user_id, 
             contactId, 

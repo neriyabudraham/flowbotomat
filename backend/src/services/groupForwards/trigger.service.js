@@ -11,6 +11,8 @@ async function saveOutgoingMessage(userId, chatId, messageType, content, mediaUr
     // Extract phone/group ID from chatId (remove @s.whatsapp.net or @g.us)
     const phone = chatId.split('@')[0] + (chatId.includes('@g.us') ? '@g.us' : '');
     
+    console.log(`[GroupForwards] saveOutgoingMessage - userId: ${userId}, phone: ${phone}, type: ${messageType}`);
+    
     // Get or create contact
     let contact = await db.query(
       'SELECT * FROM contacts WHERE user_id = $1 AND phone = $2',
@@ -20,6 +22,7 @@ async function saveOutgoingMessage(userId, chatId, messageType, content, mediaUr
     if (contact.rows.length === 0) {
       // Create contact
       const isGroup = chatId.includes('@g.us');
+      console.log(`[GroupForwards] Creating new contact for ${phone} (isGroup: ${isGroup})`);
       contact = await db.query(
         `INSERT INTO contacts (user_id, phone, wa_id, display_name)
          VALUES ($1, $2, $3, $4)
@@ -29,12 +32,14 @@ async function saveOutgoingMessage(userId, chatId, messageType, content, mediaUr
     }
     
     const contactId = contact.rows[0].id;
+    console.log(`[GroupForwards] Found/created contact: ${contactId}`);
     
-    // Save message
-    await db.query(`
+    // Save message - match schema used in other places
+    const result = await db.query(`
       INSERT INTO messages 
-      (user_id, contact_id, wa_message_id, direction, message_type, content, media_url, media_mime_type, media_filename, metadata, sent_at, from_bot)
-      VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, $9, NOW(), false)
+      (user_id, contact_id, wa_message_id, direction, message_type, content, media_url, media_mime_type, media_filename, metadata, status, sent_at)
+      VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, $9, 'sent', NOW())
+      RETURNING *
     `, [
       userId,
       contactId,
@@ -53,10 +58,13 @@ async function saveOutgoingMessage(userId, chatId, messageType, content, mediaUr
       [contactId]
     );
     
-    console.log(`[GroupForwards] Saved outgoing message to ${phone}`);
+    console.log(`[GroupForwards] Saved outgoing message ${result.rows[0]?.id} to ${phone}`);
+    
+    return result.rows[0];
     
   } catch (error) {
-    console.error('[GroupForwards] Failed to save outgoing message:', error.message);
+    console.error('[GroupForwards] Failed to save outgoing message:', error.message, error.stack);
+    return null;
   }
 }
 
