@@ -4,6 +4,63 @@ const { decrypt } = require('../crypto/encrypt.service');
 const axios = require('axios');
 
 /**
+ * Save outgoing message to the database for Live Chat display
+ */
+async function saveOutgoingMessage(userId, chatId, messageType, content, mediaUrl = null, mimeType = null, filename = null, metadata = null, waMessageId = null) {
+  try {
+    // Extract phone/group ID from chatId (remove @s.whatsapp.net or @g.us)
+    const phone = chatId.split('@')[0] + (chatId.includes('@g.us') ? '@g.us' : '');
+    
+    // Get or create contact
+    let contact = await db.query(
+      'SELECT * FROM contacts WHERE user_id = $1 AND phone = $2',
+      [userId, phone]
+    );
+    
+    if (contact.rows.length === 0) {
+      // Create contact
+      const isGroup = chatId.includes('@g.us');
+      contact = await db.query(
+        `INSERT INTO contacts (user_id, phone, wa_id, display_name)
+         VALUES ($1, $2, $3, $4)
+         RETURNING *`,
+        [userId, phone, chatId, isGroup ? 'קבוצה' : phone]
+      );
+    }
+    
+    const contactId = contact.rows[0].id;
+    
+    // Save message
+    await db.query(`
+      INSERT INTO messages 
+      (user_id, contact_id, wa_message_id, direction, message_type, content, media_url, media_mime_type, media_filename, metadata, sent_at, from_bot)
+      VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, $9, NOW(), false)
+    `, [
+      userId,
+      contactId,
+      waMessageId,
+      messageType,
+      content,
+      mediaUrl,
+      mimeType,
+      filename,
+      metadata ? JSON.stringify(metadata) : null
+    ]);
+    
+    // Update contact's last message time
+    await db.query(
+      `UPDATE contacts SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [contactId]
+    );
+    
+    console.log(`[GroupForwards] Saved outgoing message to ${phone}`);
+    
+  } catch (error) {
+    console.error('[GroupForwards] Failed to save outgoing message:', error.message);
+  }
+}
+
+/**
  * Normalize phone number for comparison
  * Handles Israeli numbers in various formats
  */
@@ -271,6 +328,16 @@ async function sendConfirmationList(userId, senderPhone, forward, job) {
     await wahaService.sendList(wahaConnection, chatId, listData);
     console.log(`[GroupForwards] Sent confirmation list for job ${job.id}`);
     
+    // Save to Live Chat
+    await saveOutgoingMessage(
+      userId, 
+      chatId, 
+      'list', 
+      listData.body,
+      null, null, null,
+      { title: listData.title, buttonText: listData.buttonText, buttons: listData.buttons }
+    );
+    
   } catch (error) {
     console.error('[GroupForwards] Send confirmation list error:', error.message);
     // Fallback to text
@@ -303,6 +370,16 @@ async function sendStartList(userId, senderPhone, jobId, targetCount) {
     
     await wahaService.sendList(wahaConnection, chatId, listData);
     
+    // Save to Live Chat
+    await saveOutgoingMessage(
+      userId, 
+      chatId, 
+      'list', 
+      listData.body,
+      null, null, null,
+      { title: listData.title, buttonText: listData.buttonText, buttons: listData.buttons }
+    );
+    
   } catch (error) {
     console.error('[GroupForwards] Send start list error:', error.message);
     // Fallback to text
@@ -334,6 +411,16 @@ async function sendProgressList(userId, senderPhone, jobId, sent, total) {
     };
     
     await wahaService.sendList(wahaConnection, chatId, listData);
+    
+    // Save to Live Chat
+    await saveOutgoingMessage(
+      userId, 
+      chatId, 
+      'list', 
+      listData.body,
+      null, null, null,
+      { title: listData.title, buttonText: listData.buttonText, buttons: listData.buttons }
+    );
     
   } catch (error) {
     console.error('[GroupForwards] Send progress list error:', error.message);
@@ -400,7 +487,7 @@ async function sendGroupCompletionSummary(userId, groupId, sent, failed, total, 
       message = `⚠️ *העברת הודעות הסתיימה*\n✅ ${sent} קבוצות | ❌ ${failed} נכשלו`;
     }
     
-    await axios.post(
+    const response = await axios.post(
       `${wahaConnection.base_url}/api/sendText`,
       {
         session: wahaConnection.session_name,
@@ -414,6 +501,9 @@ async function sendGroupCompletionSummary(userId, groupId, sent, failed, total, 
         }
       }
     );
+    
+    // Save to Live Chat
+    await saveOutgoingMessage(userId, groupId, 'text', message, null, null, null, null, response.data?.id);
     
     console.log(`[GroupForwards] Sent completion summary to group ${groupId}`);
     
@@ -430,9 +520,9 @@ async function sendNotificationMessage(userId, phone, text) {
     const wahaConnection = await getWahaConnection(userId);
     if (!wahaConnection) return;
     
-    const chatId = `${phone}@s.whatsapp.net`;
+    const chatId = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
     
-    await axios.post(
+    const response = await axios.post(
       `${wahaConnection.base_url}/api/sendText`,
       {
         session: wahaConnection.session_name,
@@ -446,6 +536,9 @@ async function sendNotificationMessage(userId, phone, text) {
         }
       }
     );
+    
+    // Save to Live Chat
+    await saveOutgoingMessage(userId, chatId, 'text', text, null, null, null, null, response.data?.id);
     
   } catch (error) {
     console.error('[GroupForwards] Send notification error:', error.message);
