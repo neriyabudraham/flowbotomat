@@ -2,6 +2,9 @@ const pool = require('../../config/database');
 const { getSocketManager } = require('../../services/socket/manager.service');
 const botEngine = require('../../services/botEngine.service');
 const groupForwardsTrigger = require('../../services/groupForwards/trigger.service');
+const wahaSession = require('../../services/waha/session.service');
+const { decrypt } = require('../../services/crypto/encrypt.service');
+const { getWahaCredentials } = require('../../services/settings/system.service');
 
 /**
  * Extract real phone number from payload
@@ -245,13 +248,57 @@ async function handleIncomingMessage(userId, event) {
     // Group message: contact is the GROUP itself
     contactPhone = groupId;  // e.g., "120363422185641072@g.us"
     contactWaId = groupId;
+    
     // Get group name from payload - try multiple sources
-    // WAHA typically puts group subject in _data.Info.Subject or chat.name
     contactName = payload._data?.Info?.Subject ||  // Group subject
                   payload._data?.chatInfo?.subject || // Alternative location
                   payload._data?.chat?.name || // Another alternative
                   payload.notifyName || // Fallback
-                  'קבוצה'; // Default
+                  null;
+    
+    // If we couldn't get the name from payload, fetch it from WAHA API
+    if (!contactName || contactName === groupId.split('@')[0]) {
+      try {
+        // Get user's WhatsApp connection
+        const connResult = await pool.query(
+          `SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' ORDER BY connected_at DESC LIMIT 1`,
+          [userId]
+        );
+        
+        if (connResult.rows.length > 0) {
+          const conn = connResult.rows[0];
+          let baseUrl, apiKey;
+          
+          if (conn.connection_type === 'external') {
+            baseUrl = decrypt(conn.external_base_url);
+            apiKey = decrypt(conn.external_api_key);
+          } else {
+            const systemCreds = getWahaCredentials();
+            baseUrl = systemCreds.baseUrl;
+            apiKey = systemCreds.apiKey;
+          }
+          
+          const groupInfo = await wahaSession.getGroupInfo({
+            base_url: baseUrl,
+            api_key: apiKey,
+            session_name: conn.session_name
+          }, groupId);
+          
+          if (groupInfo) {
+            contactName = groupInfo.subject || groupInfo.name || groupInfo.pushname || contactName;
+            console.log(`[Webhook] Got group name from API: ${contactName}`);
+          }
+        }
+      } catch (groupError) {
+        console.log(`[Webhook] Could not fetch group info: ${groupError.message}`);
+      }
+    }
+    
+    // Final fallback
+    if (!contactName) {
+      contactName = 'קבוצה';
+    }
+    
     console.log(`[Webhook] Group message - group: ${groupId}, name: ${contactName}, sender: ${senderPhone} (${senderName})`);
   } else {
     // Direct message: contact is the sender

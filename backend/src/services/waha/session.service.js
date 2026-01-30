@@ -907,6 +907,7 @@ module.exports = {
   updateGroupSubject,
   updateGroupDescription,
   getGroups,
+  getGroupInfo,
   deleteMessage,
   // Labels (WhatsApp Business)
   getLabels,
@@ -915,6 +916,41 @@ module.exports = {
   // Contacts
   getWhatsAppContacts,
 };
+
+/**
+ * Get info for a specific group
+ * @param {Object} connection - Connection object with base_url, api_key, session_name
+ * @param {string} groupId - Group ID (e.g., "120363422185641072@g.us")
+ * @returns {Object} Group info with id, subject, description, etc.
+ */
+async function getGroupInfo(connection, groupId) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const sessionName = connection.session_name || 'default';
+  
+  try {
+    // Try the specific group endpoint
+    const encodedGroupId = encodeURIComponent(groupId);
+    const response = await client.get(`/api/${sessionName}/groups/${encodedGroupId}`);
+    console.log(`[WAHA] Got group info for ${groupId}: ${response.data?.subject || 'no subject'}`);
+    return response.data;
+  } catch (error) {
+    console.log(`[WAHA] getGroupInfo error for ${groupId}:`, error.message);
+    
+    // Fallback: try to find in the groups list
+    try {
+      const groups = await getGroups({ base_url: connection.base_url, api_key: connection.api_key, session_name: sessionName });
+      const group = groups.find(g => g.id === groupId);
+      if (group) {
+        console.log(`[WAHA] Found group in list: ${group.subject || group.name}`);
+        return group;
+      }
+    } catch (listError) {
+      console.log(`[WAHA] getGroups fallback error:`, listError.message);
+    }
+    
+    return null;
+  }
+}
 
 /**
  * Get all WhatsApp contacts from device
