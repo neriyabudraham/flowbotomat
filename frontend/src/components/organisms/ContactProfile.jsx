@@ -1,10 +1,81 @@
 import { useState, useEffect } from 'react';
 import { 
   X, Phone, Calendar, MessageSquare, Tag, Variable, Bot, XCircle, Plus, Trash2, 
-  Clock, Mail, User, MapPin, Building, Check, ChevronDown, ChevronUp, Copy
+  Clock, Mail, User, MapPin, Building, Check, ChevronDown, ChevronUp, Copy, Users
 } from 'lucide-react';
 import api from '../../services/api';
 import DeleteContactModal from '../contacts/DeleteContactModal';
+
+/**
+ * Format phone number for display
+ * 972556690753 -> 055-669-0753
+ * Returns short format like "055..." for header
+ */
+function formatPhoneDisplay(phone, short = false) {
+  if (!phone) return '';
+  
+  let formatted = phone.toString();
+  
+  // Remove + if exists
+  formatted = formatted.replace(/^\+/, '');
+  
+  // Handle Israeli numbers (972...)
+  if (formatted.startsWith('972')) {
+    formatted = '0' + formatted.substring(3);
+  }
+  
+  // Add leading zero if needed
+  if (formatted.length === 9 && !formatted.startsWith('0')) {
+    formatted = '0' + formatted;
+  }
+  
+  if (short) {
+    // Return format like "055..."
+    return formatted.substring(0, 3) + '...';
+  }
+  
+  // Format with dashes: 055-669-0753
+  if (formatted.length === 10) {
+    return `${formatted.substring(0, 3)}-${formatted.substring(3, 6)}-${formatted.substring(6)}`;
+  }
+  
+  return formatted;
+}
+
+/**
+ * Format phone for copying (with country code)
+ * Returns: +972-55-669-0753
+ */
+function formatPhoneForCopy(phone) {
+  if (!phone) return '';
+  
+  let formatted = phone.toString().replace(/^\+/, '');
+  
+  // Ensure it starts with 972
+  if (!formatted.startsWith('972')) {
+    if (formatted.startsWith('0')) {
+      formatted = '972' + formatted.substring(1);
+    } else {
+      formatted = '972' + formatted;
+    }
+  }
+  
+  // Format: +972-55-669-0753
+  if (formatted.length >= 12) {
+    return `+${formatted.substring(0, 3)}-${formatted.substring(3, 5)}-${formatted.substring(5, 8)}-${formatted.substring(8)}`;
+  }
+  
+  return '+' + formatted;
+}
+
+/**
+ * Check if contact is a group
+ */
+function isGroupContact(contact) {
+  return contact?.phone?.includes('@g.us') || 
+         contact?.wa_id?.includes('@g.us') ||
+         contact?.phone?.length > 15; // Groups have long IDs
+}
 
 const VARIABLE_LABELS = {
   email: 'אימייל',
@@ -57,6 +128,7 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
   });
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (contact) {
@@ -187,6 +259,8 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   if (!contact) return null;
@@ -240,14 +314,30 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
             </div>
             
             <h2 className="text-xl font-bold">{contact.display_name || contact.phone}</h2>
-            <button 
-              onClick={() => copyToClipboard(contact.phone)}
-              className="flex items-center justify-center gap-2 mt-2 text-white/70 hover:text-white transition-colors mx-auto"
-            >
-              <Phone className="w-4 h-4" />
-              <span dir="ltr">+{contact.phone}</span>
-              <Copy className="w-3.5 h-3.5" />
-            </button>
+            {isGroupContact(contact) ? (
+              <div className="flex items-center justify-center gap-2 mt-2 text-white/70">
+                <Users className="w-4 h-4" />
+                <span>קבוצה</span>
+              </div>
+            ) : (
+              <button 
+                onClick={() => copyToClipboard(formatPhoneForCopy(contact.phone))}
+                className="flex items-center justify-center gap-2 mt-2 text-white/70 hover:text-white transition-colors mx-auto group"
+              >
+                <Phone className="w-4 h-4" />
+                <span dir="ltr">{formatPhoneDisplay(contact.phone)}</span>
+                {copied ? (
+                  <Check className="w-3.5 h-3.5 text-green-400" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100" />
+                )}
+              </button>
+            )}
+            {copied && (
+              <div className="text-xs text-green-400 mt-1 animate-pulse">
+                הועתק!
+              </div>
+            )}
           </div>
         </div>
       </div>

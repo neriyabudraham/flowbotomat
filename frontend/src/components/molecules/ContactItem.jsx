@@ -1,6 +1,16 @@
-import { User, Bot, XCircle, Clock, Check, CheckCheck } from 'lucide-react';
+import { User, Bot, XCircle, Clock, Check, CheckCheck, Users } from 'lucide-react';
+
+/**
+ * Check if contact is a group
+ */
+function isGroupContact(contact) {
+  return contact?.phone?.includes('@g.us') || 
+         contact?.wa_id?.includes('@g.us') ||
+         contact?.phone?.length > 15;
+}
 
 export default function ContactItem({ contact, isSelected, onClick }) {
+  const isGroup = isGroupContact(contact);
   // Get display name: display_name > full_name variable > phone
   const getDisplayName = () => {
     if (contact.display_name && contact.display_name !== contact.phone) {
@@ -68,6 +78,8 @@ export default function ContactItem({ contact, isSelected, onClick }) {
               alt="" 
               className="w-full h-full object-cover" 
             />
+          ) : isGroup ? (
+            <Users className="w-5 h-5 text-gray-500" />
           ) : (
             <span className="text-lg font-semibold text-gray-600">{initials}</span>
           )}

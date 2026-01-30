@@ -2,9 +2,70 @@ import { useState, useRef, useEffect } from 'react';
 import { 
   Send, Bot, XCircle, Phone, User, Clock, UserCheck, Loader, ChevronUp, 
   ArrowRight, MoreVertical, Info, Smile, Paperclip, Mic, Image, 
-  CheckCheck, Check, AlertCircle
+  CheckCheck, Check, AlertCircle, Copy, Users
 } from 'lucide-react';
 import MessageBubble from '../molecules/MessageBubble';
+
+/**
+ * Format phone number for display
+ * 972556690753 -> 055-669-0753
+ */
+function formatPhoneDisplay(phone, short = false) {
+  if (!phone) return '';
+  
+  let formatted = phone.toString().replace(/^\+/, '');
+  
+  // Handle Israeli numbers (972...)
+  if (formatted.startsWith('972')) {
+    formatted = '0' + formatted.substring(3);
+  }
+  
+  if (formatted.length === 9 && !formatted.startsWith('0')) {
+    formatted = '0' + formatted;
+  }
+  
+  if (short) {
+    return formatted.substring(0, 3) + '...';
+  }
+  
+  if (formatted.length === 10) {
+    return `${formatted.substring(0, 3)}-${formatted.substring(3, 6)}-${formatted.substring(6)}`;
+  }
+  
+  return formatted;
+}
+
+/**
+ * Format phone for copying
+ */
+function formatPhoneForCopy(phone) {
+  if (!phone) return '';
+  
+  let formatted = phone.toString().replace(/^\+/, '');
+  
+  if (!formatted.startsWith('972')) {
+    if (formatted.startsWith('0')) {
+      formatted = '972' + formatted.substring(1);
+    } else {
+      formatted = '972' + formatted;
+    }
+  }
+  
+  if (formatted.length >= 12) {
+    return `+${formatted.substring(0, 3)}-${formatted.substring(3, 5)}-${formatted.substring(5, 8)}-${formatted.substring(8)}`;
+  }
+  
+  return '+' + formatted;
+}
+
+/**
+ * Check if contact is a group
+ */
+function isGroupContact(contact) {
+  return contact?.phone?.includes('@g.us') || 
+         contact?.wa_id?.includes('@g.us') ||
+         contact?.phone?.length > 15;
+}
 
 const TAKEOVER_DURATIONS = [
   { label: '5 דקות', value: 5 },
@@ -22,6 +83,7 @@ export default function ChatView({
   const [showTakeoverMenu, setShowTakeoverMenu] = useState(false);
   const [takeoverRemaining, setTakeoverRemaining] = useState(null);
   const [sending, setSending] = useState(false);
+  const [phoneCopied, setPhoneCopied] = useState(false);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
@@ -213,20 +275,44 @@ export default function ChatView({
         </div>
         
         {/* Contact Info - Center/Right */}
-        <button onClick={onShowProfile} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+        <div className="flex items-center gap-3">
           <div className="text-right">
-            <h3 className="font-bold text-gray-900">{contact.display_name || contact.phone}</h3>
-            <p className="text-xs text-gray-500 flex items-center justify-end gap-1">
-              <Phone className="w-3 h-3" />
-              <span dir="ltr">+{contact.phone}</span>
-            </p>
+            <button onClick={onShowProfile} className="hover:opacity-80 transition-opacity">
+              <h3 className="font-bold text-gray-900">{contact.display_name || contact.phone}</h3>
+            </button>
+            {isGroupContact(contact) ? (
+              <p className="text-xs text-gray-500 flex items-center justify-end gap-1">
+                <Users className="w-3 h-3" />
+                <span>קבוצה</span>
+              </p>
+            ) : (
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigator.clipboard.writeText(formatPhoneForCopy(contact.phone));
+                  setPhoneCopied(true);
+                  setTimeout(() => setPhoneCopied(false), 2000);
+                }}
+                className="text-xs text-gray-500 flex items-center justify-end gap-1 hover:text-blue-600 transition-colors group"
+              >
+                <Phone className="w-3 h-3" />
+                <span dir="ltr">{formatPhoneDisplay(contact.phone)}</span>
+                {phoneCopied ? (
+                  <Check className="w-3 h-3 text-green-500" />
+                ) : (
+                  <Copy className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                )}
+              </button>
+            )}
           </div>
           
           {/* Avatar */}
-          <div className="relative">
+          <button onClick={onShowProfile} className="relative hover:opacity-80 transition-opacity">
             <div className="w-11 h-11 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden">
               {contact.profile_picture_url ? (
                 <img src={contact.profile_picture_url} alt="" className="w-full h-full object-cover" />
+              ) : isGroupContact(contact) ? (
+                <Users className="w-5 h-5 text-gray-500" />
               ) : (
                 <span className="text-lg font-bold text-gray-500">
                   {contact.display_name && contact.display_name !== contact.phone 
@@ -239,8 +325,8 @@ export default function ChatView({
             <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${
               isBotActive ? 'bg-green-400' : 'bg-gray-300'
             }`} />
-          </div>
-        </button>
+          </button>
+        </div>
       </div>
 
       {/* Messages Area */}
