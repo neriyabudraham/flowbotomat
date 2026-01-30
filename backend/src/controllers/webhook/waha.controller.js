@@ -118,11 +118,26 @@ async function handleWebhook(req, res) {
   }
 }
 
+// Ensure sender_phone column exists (migration)
+let senderPhoneColumnAdded = false;
+async function ensureSenderPhoneColumn() {
+  if (senderPhoneColumnAdded) return;
+  try {
+    await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_phone VARCHAR(50)`);
+    senderPhoneColumnAdded = true;
+  } catch (err) {
+    // Column might already exist
+  }
+}
+
 /**
  * Handle incoming message
  */
 async function handleIncomingMessage(userId, event) {
   const { payload } = event;
+  
+  // Ensure migration is applied
+  await ensureSenderPhoneColumn();
   
   // Verify user exists before processing
   const userCheck = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
@@ -146,32 +161,69 @@ async function handleIncomingMessage(userId, event) {
     return;
   }
   
-  // Extract phone number - find the real phone number
-  const phone = extractRealPhone(payload);
+  // Determine if this is a group message
+  const chatId = payload.from || payload.chatId;
+  const isGroupMessage = chatId?.includes('@g.us') || false;
+  const groupId = isGroupMessage ? chatId : null;
   
-  if (!phone) {
-    console.log('[Webhook] Could not extract phone number');
+  // Extract sender's phone number
+  const senderPhone = extractRealPhone(payload);
+  
+  // For groups, use the group ID as the contact identifier
+  // For direct messages, use the sender's phone
+  let contactPhone;
+  let contactName;
+  let contactWaId;
+  
+  if (isGroupMessage) {
+    // Group message: contact is the GROUP itself
+    contactPhone = groupId;  // e.g., "120363422185641072@g.us"
+    contactWaId = groupId;
+    // Get group name from payload
+    contactName = payload._data?.Info?.Chat?.split('@')[0] || 
+                  payload.notifyName || 
+                  'קבוצה';
+    console.log(`[Webhook] Group message - group: ${groupId}, sender: ${senderPhone}`);
+  } else {
+    // Direct message: contact is the sender
+    contactPhone = senderPhone;
+    contactWaId = payload._data?.Info?.SenderAlt || payload.from || `${senderPhone}@s.whatsapp.net`;
+    contactName = payload._data?.Info?.PushName || 
+                  payload._data?.Info?.VerifiedName?.Details?.verifiedName ||
+                  payload.notifyName || payload.pushName || senderPhone;
+  }
+  
+  if (!contactPhone) {
+    console.log('[Webhook] Could not extract contact identifier');
     return;
   }
   
-  console.log(`[Webhook] Extracted phone: ${phone}`);
+  console.log(`[Webhook] Extracted contact: ${contactPhone} (isGroup: ${isGroupMessage})`);
   
-  // Get or create contact
-  const contact = await getOrCreateContact(userId, phone, payload);
+  // Get or create contact (group or individual)
+  const contact = await getOrCreateContact(userId, contactPhone, {
+    ...payload,
+    _contactOverride: {
+      name: contactName,
+      waId: contactWaId,
+      isGroup: isGroupMessage
+    }
+  });
   
   // Parse message content
   const messageData = parseMessage(payload);
   
-  // Save message
+  // Save message with sender_phone for group messages
   const result = await pool.query(
     `INSERT INTO messages 
      (user_id, contact_id, wa_message_id, direction, message_type, 
-      content, media_url, media_mime_type, media_filename, latitude, longitude, sent_at)
-     VALUES ($1, $2, $3, 'incoming', $4, $5, $6, $7, $8, $9, $10, $11)
+      content, media_url, media_mime_type, media_filename, latitude, longitude, sent_at, sender_phone)
+     VALUES ($1, $2, $3, 'incoming', $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING *`,
     [userId, contact.id, payload.id, messageData.type, messageData.content,
      messageData.mediaUrl, messageData.mimeType, messageData.filename,
-     messageData.latitude, messageData.longitude, new Date(payload.timestamp * 1000)]
+     messageData.latitude, messageData.longitude, new Date(payload.timestamp * 1000),
+     isGroupMessage ? senderPhone : null]
   );
   
   // Update contact's last message time
@@ -187,20 +239,19 @@ async function handleIncomingMessage(userId, event) {
     contact,
   });
   
-  console.log(`[Webhook] Message saved for user ${userId} from ${phone}`);
-  
-  const chatId = payload.from || payload.chatId;
-  const isGroupMessage = chatId?.includes('@g.us') || false;
-  const groupId = isGroupMessage ? chatId : null;
+  console.log(`[Webhook] Message saved for user ${userId} from ${contactPhone}`);
   
   // FIRST: Process group forwards - if message is handled by forwards, skip bot engine
   let handledByForwards = false;
+  
+  // For group forwards and bot engine, use the SENDER's phone (not the group ID)
+  const phoneForProcessing = senderPhone;
   
   try {
     // First check if this is a confirmation response for pending job
     const wasConfirmation = await groupForwardsTrigger.handleConfirmationResponse(
       userId, 
-      phone, 
+      phoneForProcessing, 
       messageData.content,
       messageData.selectedRowId // Button ID if clicked
     );
@@ -212,7 +263,7 @@ async function handleIncomingMessage(userId, event) {
       // Check if this triggers a group forward (from authorized sender)
       const forwardTriggered = await groupForwardsTrigger.processMessageForForwards(
         userId,
-        phone,
+        phoneForProcessing,
         messageData,
         chatId,
         payload
@@ -232,7 +283,7 @@ async function handleIncomingMessage(userId, event) {
     try {
       await botEngine.processMessage(
         userId, 
-        phone, 
+        phoneForProcessing, 
         messageData.content, 
         messageData.type, 
         messageData.selectedRowId,
@@ -250,30 +301,44 @@ async function handleIncomingMessage(userId, event) {
  * Get or create contact
  */
 async function getOrCreateContact(userId, phone, payload) {
-  // Extract name from various WAHA payload formats - prefer _data.Info.PushName
-  let displayName = payload._data?.Info?.PushName || 
-                    payload._data?.Info?.VerifiedName?.Details?.verifiedName ||
-                    payload.notifyName || payload.pushName || phone;
+  // Check for override (used for groups)
+  const override = payload._contactOverride;
+  const isGroup = override?.isGroup || phone.includes('@g.us');
   
-  // Check if we have a synced WhatsApp contact name (from user's phone contacts)
-  try {
-    const syncedContact = await pool.query(
-      `SELECT display_name FROM whatsapp_contacts 
-       WHERE user_id = $1 AND phone = $2 AND display_name IS NOT NULL AND display_name != ''`,
-      [userId, phone]
-    );
-    if (syncedContact.rows.length > 0 && syncedContact.rows[0].display_name) {
-      // Prefer the synced contact name over pushname
-      displayName = syncedContact.rows[0].display_name;
+  let displayName;
+  let waId;
+  
+  if (override) {
+    displayName = override.name;
+    waId = override.waId;
+  } else {
+    // Extract name from various WAHA payload formats - prefer _data.Info.PushName
+    displayName = payload._data?.Info?.PushName || 
+                  payload._data?.Info?.VerifiedName?.Details?.verifiedName ||
+                  payload.notifyName || payload.pushName || phone;
+    
+    // Check if we have a synced WhatsApp contact name (from user's phone contacts)
+    if (!isGroup) {
+      try {
+        const syncedContact = await pool.query(
+          `SELECT display_name FROM whatsapp_contacts 
+           WHERE user_id = $1 AND phone = $2 AND display_name IS NOT NULL AND display_name != ''`,
+          [userId, phone]
+        );
+        if (syncedContact.rows.length > 0 && syncedContact.rows[0].display_name) {
+          // Prefer the synced contact name over pushname
+          displayName = syncedContact.rows[0].display_name;
+        }
+      } catch (err) {
+        // Table might not exist yet, ignore
+      }
     }
-  } catch (err) {
-    // Table might not exist yet, ignore
+    
+    // Get the real WhatsApp ID
+    waId = payload._data?.Info?.SenderAlt || payload.from || `${phone}@s.whatsapp.net`;
   }
   
-  // Get the real WhatsApp ID
-  const waId = payload._data?.Info?.SenderAlt || payload.from || `${phone}@s.whatsapp.net`;
-  
-  console.log(`[Webhook] Contact info - phone: ${phone}, name: ${displayName}, waId: ${waId}`);
+  console.log(`[Webhook] Contact info - phone: ${phone}, name: ${displayName}, waId: ${waId}, isGroup: ${isGroup}`);
   
   // Try to find existing contact
   const existing = await pool.query(
@@ -302,7 +367,7 @@ async function getOrCreateContact(userId, phone, payload) {
     [userId, phone, waId, displayName]
   );
   
-  console.log(`[Webhook] New contact created: ${phone}`);
+  console.log(`[Webhook] New contact created: ${phone} (isGroup: ${isGroup})`);
   return result.rows[0];
 }
 

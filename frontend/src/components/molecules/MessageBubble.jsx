@@ -1,11 +1,26 @@
-import { Check, CheckCheck, Image, FileText, Mic, MapPin, Video, Play, Download, ExternalLink, Bot, User, List, MousePointer, ChevronDown, UserCircle, Phone, Building2, Eye, ThumbsUp } from 'lucide-react';
+import { Check, CheckCheck, Image, FileText, Mic, MapPin, Video, Play, Download, ExternalLink, Bot, User, List, MousePointer, ChevronDown, UserCircle, Phone, Building2, Eye, ThumbsUp, UserRound } from 'lucide-react';
 
-export default function MessageBubble({ message }) {
+// Format phone for display in group messages
+function formatSenderPhone(phone) {
+  if (!phone) return null;
+  // Remove 972 prefix and format as 05X-XXX-XXXX
+  let formatted = phone.replace(/^972/, '0');
+  if (formatted.length === 10 && formatted.startsWith('0')) {
+    return `${formatted.slice(0, 3)}-${formatted.slice(3, 6)}-${formatted.slice(6)}`;
+  }
+  return formatted;
+}
+
+export default function MessageBubble({ message, isGroupChat = false }) {
   const isOutgoing = message.direction === 'outgoing';
   const time = new Date(message.sent_at).toLocaleTimeString('he-IL', { 
     hour: '2-digit', 
     minute: '2-digit' 
   });
+  
+  // For group messages, show sender info
+  const senderPhone = message.sender_phone;
+  const showSenderInfo = isGroupChat && !isOutgoing && senderPhone;
 
   // Parse metadata if it's a string
   const metadata = typeof message.metadata === 'string' 
@@ -397,6 +412,16 @@ export default function MessageBubble({ message }) {
             <div className="flex items-center gap-1 mb-1.5 text-xs text-blue-200">
               <Bot className="w-3 h-3" />
               <span>נשלח ע"י הבוט</span>
+            </div>
+          )}
+          
+          {/* Sender info for group messages */}
+          {showSenderInfo && (
+            <div className="flex items-center gap-1.5 mb-1.5 pb-1.5 border-b border-gray-100">
+              <UserRound className="w-3.5 h-3.5 text-purple-500" />
+              <span className="text-xs font-medium text-purple-600" dir="ltr">
+                {formatSenderPhone(senderPhone)}
+              </span>
             </div>
           )}
           

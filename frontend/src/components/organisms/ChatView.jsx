@@ -385,7 +385,7 @@ export default function ChatView({
         ) : (
           <div className="space-y-2">
             {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
+              <MessageBubble key={msg.id} message={msg} isGroupChat={isGroupContact(contact)} />
             ))}
           </div>
         )}
