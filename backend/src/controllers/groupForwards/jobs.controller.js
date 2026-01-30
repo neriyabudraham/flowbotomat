@@ -521,6 +521,52 @@ async function startForwardJob(jobId) {
           WHERE id = $1
         `, [message.target_id]);
         
+        // Save to messages table for Live Chat display
+        try {
+          // Get or create contact for this group
+          let contact = await db.query(
+            'SELECT * FROM contacts WHERE user_id = $1 AND phone = $2',
+            [job.user_id, message.group_id]
+          );
+          
+          if (contact.rows.length === 0) {
+            // Create contact for the group
+            contact = await db.query(
+              `INSERT INTO contacts (user_id, phone, wa_id, display_name)
+               VALUES ($1, $2, $3, $4)
+               RETURNING *`,
+              [job.user_id, message.group_id, message.group_id, message.group_name || 'קבוצה']
+            );
+          }
+          
+          const contactId = contact.rows[0].id;
+          
+          // Save the outgoing message
+          await db.query(`
+            INSERT INTO messages 
+            (user_id, contact_id, wa_message_id, direction, message_type, 
+             content, media_url, media_mime_type, media_filename, sent_at, from_bot)
+            VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, NOW(), false)
+          `, [
+            job.user_id, 
+            contactId, 
+            messageId,
+            job.message_type,
+            job.message_text,
+            job.media_url,
+            job.media_mime_type,
+            job.media_filename
+          ]);
+          
+          // Update contact's last message time
+          await db.query(
+            `UPDATE contacts SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1`,
+            [contactId]
+          );
+        } catch (saveError) {
+          console.log(`[GroupForwards] Could not save message to Live Chat: ${saveError.message}`);
+        }
+        
       } catch (sendError) {
         console.error(`[GroupForwards] Error sending to ${message.group_id}:`, sendError.message);
         
