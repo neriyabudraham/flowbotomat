@@ -202,16 +202,20 @@ async function pullWhatsAppContacts(req, res) {
   try {
     const userId = req.user.id;
     
-    // Get user's contact limit from subscription
-    const limitResult = await pool.query(`
-      SELECT sp.max_contacts
-      FROM users u
-      LEFT JOIN subscriptions s ON u.id = s.user_id AND s.status = 'active'
-      LEFT JOIN subscription_plans sp ON s.plan_id = sp.id
-      WHERE u.id = $1
-    `, [userId]);
-    
-    const maxContacts = limitResult.rows[0]?.max_contacts || 100;
+    // Get user's contact limit from subscription (with fallback if table doesn't exist)
+    let maxContacts = 1000; // Default limit
+    try {
+      const limitResult = await pool.query(`
+        SELECT sp.max_contacts
+        FROM users u
+        LEFT JOIN subscriptions s ON u.id = s.user_id AND s.status = 'active'
+        LEFT JOIN subscription_plans sp ON s.plan_id = sp.id
+        WHERE u.id = $1
+      `, [userId]);
+      maxContacts = limitResult.rows[0]?.max_contacts || 1000;
+    } catch (e) {
+      console.log('[Contacts] Subscriptions table not found, using default limit');
+    }
     
     // Get current contact count
     const countResult = await pool.query(
@@ -404,16 +408,20 @@ async function importGroupParticipants(req, res) {
       return res.status(400).json({ error: 'חסר מזהה קבוצה' });
     }
     
-    // Get user's contact limit
-    const limitResult = await pool.query(`
-      SELECT sp.max_contacts
-      FROM users u
-      LEFT JOIN subscriptions s ON u.id = s.user_id AND s.status = 'active'
-      LEFT JOIN subscription_plans sp ON s.plan_id = sp.id
-      WHERE u.id = $1
-    `, [userId]);
-    
-    const maxContacts = limitResult.rows[0]?.max_contacts || 100;
+    // Get user's contact limit (with fallback if table doesn't exist)
+    let maxContacts = 1000; // Default limit
+    try {
+      const limitResult = await pool.query(`
+        SELECT sp.max_contacts
+        FROM users u
+        LEFT JOIN subscriptions s ON u.id = s.user_id AND s.status = 'active'
+        LEFT JOIN subscription_plans sp ON s.plan_id = sp.id
+        WHERE u.id = $1
+      `, [userId]);
+      maxContacts = limitResult.rows[0]?.max_contacts || 1000;
+    } catch (e) {
+      console.log('[Contacts] Subscriptions table not found, using default limit');
+    }
     
     // Get current contact count
     const countResult = await pool.query(
