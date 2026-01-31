@@ -94,12 +94,27 @@ export default function JobHistoryTab() {
     let totalSent = 0;
     let totalFailed = 0;
     let totalTargets = 0;
+    let totalAttempted = 0; // For success rate calculation (excludes cancelled/stopped that weren't tried)
     const senderStats = {};
     
     jobs.forEach(job => {
-      totalSent += job.sent_count || 0;
-      totalFailed += job.failed_count || 0;
-      totalTargets += job.total_targets || 0;
+      const sent = job.sent_count || 0;
+      const failed = job.failed_count || 0;
+      const targets = job.total_targets || 0;
+      
+      totalSent += sent;
+      totalFailed += failed;
+      totalTargets += targets;
+      
+      // For cancelled/stopped jobs, only count attempted targets (sent + failed)
+      // For completed jobs, count all targets
+      // This prevents cancelled jobs from lowering success rate unfairly
+      const wasCancelledOrStopped = ['cancelled', 'stopped', 'pending'].includes(job.status);
+      if (wasCancelledOrStopped) {
+        totalAttempted += sent + failed; // Only count what was actually tried
+      } else {
+        totalAttempted += targets;
+      }
       
       const senderKey = job.sender_phone || 'unknown';
       const senderName = job.sender_name || formatPhone(job.sender_phone) || 'לא ידוע';
@@ -110,22 +125,26 @@ export default function JobHistoryTab() {
           sent: 0, 
           failed: 0,
           jobs: 0,
-          targets: 0
+          targets: 0,
+          attempted: 0
         };
       }
-      senderStats[senderKey].sent += job.sent_count || 0;
-      senderStats[senderKey].failed += job.failed_count || 0;
+      senderStats[senderKey].sent += sent;
+      senderStats[senderKey].failed += failed;
       senderStats[senderKey].jobs += 1;
-      senderStats[senderKey].targets += job.total_targets || 0;
+      senderStats[senderKey].targets += targets;
+      senderStats[senderKey].attempted += wasCancelledOrStopped ? (sent + failed) : targets;
     });
     
-    const successRate = totalTargets > 0 ? Math.round((totalSent / totalTargets) * 100) : 0;
+    // Success rate based on attempted, not total targets
+    const successRate = totalAttempted > 0 ? Math.round((totalSent / totalAttempted) * 100) : 0;
     
     return {
       totalJobs: total,
       totalSent,
       totalFailed,
       totalTargets,
+      totalAttempted,
       successRate,
       senders: Object.entries(senderStats)
         .map(([key, data]) => ({ key, ...data }))
@@ -326,7 +345,7 @@ export default function JobHistoryTab() {
                 </div>
                 <div className="text-center p-2 bg-white rounded-lg">
                   <p className="text-lg font-bold text-blue-600">
-                    {selectedSenderStats.targets > 0 ? Math.round((selectedSenderStats.sent / selectedSenderStats.targets) * 100) : 0}%
+                    {selectedSenderStats.attempted > 0 ? Math.round((selectedSenderStats.sent / selectedSenderStats.attempted) * 100) : 0}%
                   </p>
                   <p className="text-xs text-gray-500">הצלחה</p>
                 </div>
