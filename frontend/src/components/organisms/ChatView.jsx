@@ -5,6 +5,7 @@ import {
   CheckCheck, Check, AlertCircle, Copy, Users
 } from 'lucide-react';
 import MessageBubble from '../molecules/MessageBubble';
+import api from '../../services/api';
 
 /**
  * Format phone number for display
@@ -85,11 +86,25 @@ export default function ChatView({
   const [sending, setSending] = useState(false);
   const [phoneCopied, setPhoneCopied] = useState(false);
   const [nameCopied, setNameCopied] = useState(false);
+  const [lidMappings, setLidMappings] = useState({});
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
   const prevContactIdRef = useRef(null);
   const prevMessagesLengthRef = useRef(0);
+
+  // Fetch LID mappings once on mount
+  useEffect(() => {
+    const fetchLidMappings = async () => {
+      try {
+        const { data } = await api.get('/contacts/lid-mappings');
+        setLidMappings(data.mappings || {});
+      } catch (e) {
+        console.error('Failed to fetch LID mappings:', e);
+      }
+    };
+    fetchLidMappings();
+  }, []);
 
   // Scroll to bottom - instant on contact change, smooth on new messages
   useEffect(() => {
@@ -385,7 +400,7 @@ export default function ChatView({
         ) : (
           <div className="space-y-2">
             {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} isGroupChat={isGroupContact(contact)} />
+              <MessageBubble key={msg.id} message={msg} isGroupChat={isGroupContact(contact)} lidMappings={lidMappings} />
             ))}
           </div>
         )}

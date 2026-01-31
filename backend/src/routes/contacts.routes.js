@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middlewares/auth.middleware');
-const { listContacts, getContact } = require('../controllers/contacts/list.controller');
+const { listContacts, getContact, getLidMappings } = require('../controllers/contacts/list.controller');
 const { getMessages } = require('../controllers/contacts/messages.controller');
 const { toggleBot, toggleBlock, deleteContact, takeoverConversation, bulkDeleteContacts, exportContacts, createOrUpdateContact } = require('../controllers/contacts/update.controller');
 const { sendMessage } = require('../controllers/contacts/send.controller');
@@ -11,6 +11,9 @@ const { getContactStats, getGlobalStats } = require('../controllers/contacts/sta
 
 // All routes require authentication
 router.use(authMiddleware);
+
+// LID to phone/name mappings
+router.get('/lid-mappings', getLidMappings);
 
 // Global contacts stats
 router.get('/stats', getGlobalStats);

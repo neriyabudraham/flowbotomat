@@ -147,4 +147,50 @@ async function getContact(req, res) {
   }
 }
 
-module.exports = { listContacts, getContact };
+/**
+ * Get LID to phone/name mappings for the user
+ * Used to resolve @mentions in chat messages
+ */
+async function getLidMappings(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    // Get mappings from whatsapp_lid_mapping table
+    const result = await pool.query(`
+      SELECT lid, phone, display_name
+      FROM whatsapp_lid_mapping
+      WHERE user_id = $1
+    `, [userId]);
+    
+    // Also try to enrich with contact names if display_name is empty
+    const mappings = {};
+    
+    for (const row of result.rows) {
+      let displayName = row.display_name;
+      
+      // If no display_name, try to find from contacts table
+      if (!displayName && row.phone) {
+        const contactResult = await pool.query(
+          `SELECT display_name FROM contacts WHERE user_id = $1 AND (phone = $2 OR phone LIKE $3)`,
+          [userId, row.phone, `%${row.phone}%`]
+        );
+        if (contactResult.rows.length > 0 && contactResult.rows[0].display_name) {
+          displayName = contactResult.rows[0].display_name;
+        }
+      }
+      
+      mappings[row.lid] = {
+        phone: row.phone,
+        name: displayName || row.phone || row.lid
+      };
+    }
+    
+    res.json({ mappings });
+    
+  } catch (error) {
+    console.error('Get LID mappings error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת מיפויים' });
+  }
+}
+
+module.exports = { listContacts, getContact, getLidMappings };

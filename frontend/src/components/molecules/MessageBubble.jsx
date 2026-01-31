@@ -12,8 +12,8 @@ function formatSenderPhone(phone) {
   return formatted;
 }
 
-// Parse @mentions in text and replace LIDs with formatted display
-function parseMentions(text, isOutgoing) {
+// Parse @mentions in text and replace LIDs with contact names
+function parseMentions(text, isOutgoing, lidMappings = {}) {
   if (!text) return text;
   
   // Match @followed by numbers (LID format)
@@ -28,7 +28,14 @@ function parseMentions(text, isOutgoing) {
       parts.push({ type: 'text', content: text.slice(lastIndex, match.index) });
     }
     // Add the mention as a special part
-    parts.push({ type: 'mention', lid: match[1] });
+    const lid = match[1];
+    const mapping = lidMappings[lid];
+    parts.push({ 
+      type: 'mention', 
+      lid,
+      displayName: mapping?.name || lid,
+      phone: mapping?.phone
+    });
     lastIndex = match.index + match[0].length;
   }
   
@@ -49,9 +56,10 @@ function parseMentions(text, isOutgoing) {
               ? 'bg-white/20 text-white' 
               : 'bg-blue-100 text-blue-700'
           }`}
+          title={part.phone ? `טלפון: ${part.phone}` : `LID: ${part.lid}`}
         >
           <AtSign className="w-3 h-3" />
-          {part.lid}
+          {part.displayName}
         </span>
       );
     }
@@ -59,7 +67,7 @@ function parseMentions(text, isOutgoing) {
   });
 }
 
-export default function MessageBubble({ message, isGroupChat = false }) {
+export default function MessageBubble({ message, isGroupChat = false, lidMappings = {} }) {
   const isOutgoing = message.direction === 'outgoing';
   const time = new Date(message.sent_at).toLocaleTimeString('he-IL', { 
     hour: '2-digit', 
@@ -265,7 +273,7 @@ export default function MessageBubble({ message, isGroupChat = false }) {
                 </a>
               </div>
             )}
-            {message.content && <p className="text-sm mt-2">{parseMentions(message.content, isOutgoing)}</p>}
+            {message.content && <p className="text-sm mt-2">{parseMentions(message.content, isOutgoing, lidMappings)}</p>}
           </div>
         );
       
@@ -311,7 +319,7 @@ export default function MessageBubble({ message, isGroupChat = false }) {
             {/* Caption/Content above the file */}
             {message.content && (
               <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
-                {parseMentions(message.content, isOutgoing)}
+                {parseMentions(message.content, isOutgoing, lidMappings)}
               </p>
             )}
             
@@ -480,7 +488,7 @@ export default function MessageBubble({ message, isGroupChat = false }) {
       default:
         return (
           <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
-            {parseMentions(message.content, isOutgoing)}
+            {parseMentions(message.content, isOutgoing, lidMappings)}
           </p>
         );
     }
