@@ -62,6 +62,10 @@ export default function ContactsTab({ onRefresh }) {
   // Import modal
   const [showImportModal, setShowImportModal] = useState(false);
   
+  // WhatsApp import
+  const [pullingWhatsApp, setPullingWhatsApp] = useState(false);
+  const [pullResult, setPullResult] = useState(null);
+  
   const pageSize = 50;
 
   useEffect(() => {
@@ -339,6 +343,23 @@ export default function ContactsTab({ onRefresh }) {
 
   const totalPages = Math.ceil(totalContacts / pageSize);
 
+  const handlePullWhatsAppContacts = async () => {
+    try {
+      setPullingWhatsApp(true);
+      setPullResult(null);
+      const { data } = await api.post('/whatsapp/contacts/pull');
+      setPullResult({ success: true, ...data });
+      if (data.imported > 0) {
+        loadContacts();
+        onRefresh?.();
+      }
+    } catch (e) {
+      setPullResult({ success: false, error: e.response?.data?.error || 'שגיאה במשיכת אנשי קשר' });
+    } finally {
+      setPullingWhatsApp(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -349,11 +370,24 @@ export default function ContactsTab({ onRefresh }) {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={handlePullWhatsAppContacts}
+            disabled={pullingWhatsApp}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl hover:from-green-600 hover:to-emerald-700 font-medium shadow-lg shadow-green-500/25 disabled:opacity-50"
+            title="משיכת אנשי קשר מוואטסאפ"
+          >
+            {pullingWhatsApp ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
+            משיכה מוואטסאפ
+          </button>
+          <button
             onClick={() => setShowImportModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-xl hover:from-orange-600 hover:to-red-700 font-medium shadow-lg shadow-orange-500/25"
           >
             <Upload className="w-4 h-4" />
-            ייבוא אנשי קשר
+            ייבוא מקובץ
           </button>
           <button
             onClick={loadContacts}
@@ -363,6 +397,35 @@ export default function ContactsTab({ onRefresh }) {
           </button>
         </div>
       </div>
+
+      {/* Pull Result Message */}
+      {pullResult && (
+        <div className={`p-4 rounded-xl flex items-center gap-3 ${
+          pullResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
+        }`}>
+          {pullResult.success ? (
+            <Check className="w-5 h-5 text-green-600" />
+          ) : (
+            <AlertCircle className="w-5 h-5 text-red-600" />
+          )}
+          <div className="flex-1">
+            <p className={pullResult.success ? 'text-green-800' : 'text-red-800'}>
+              {pullResult.success ? pullResult.message : pullResult.error}
+            </p>
+            {pullResult.success && pullResult.remaining !== undefined && (
+              <p className="text-sm text-green-600 mt-1">
+                נותרו {pullResult.remaining} מקומות פנויים מתוך {pullResult.maxContacts}
+              </p>
+            )}
+          </div>
+          <button 
+            onClick={() => setPullResult(null)}
+            className="p-1 hover:bg-white/50 rounded"
+          >
+            <X className="w-4 h-4 text-gray-500" />
+          </button>
+        </div>
+      )}
 
       {/* Search & Filters */}
       <div className="flex flex-wrap gap-3 items-center">

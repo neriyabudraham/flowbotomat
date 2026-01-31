@@ -6,7 +6,7 @@ const { getStatus, getQR, requestCode } = require('../controllers/whatsapp/statu
 const { disconnect, deleteConnection } = require('../controllers/whatsapp/disconnect.controller');
 const { getGroups } = require('../controllers/whatsapp/groups.controller');
 const { getLabels } = require('../controllers/whatsapp/labels.controller');
-const { checkAndSync } = require('../controllers/whatsapp/contacts.controller');
+const { checkAndSync, pullWhatsAppContacts, getGroupParticipants, importGroupParticipants } = require('../controllers/whatsapp/contacts.controller');
 
 // All routes require authentication
 router.use(authMiddleware);
@@ -16,6 +16,15 @@ router.get('/check-existing', checkExisting);
 
 // WhatsApp contacts sync - automatic check on app load
 router.get('/contacts/check-sync', checkAndSync);
+
+// Pull WhatsApp contacts and import to system
+router.post('/contacts/pull', pullWhatsAppContacts);
+
+// Get group participants
+router.get('/groups/:groupId/participants', getGroupParticipants);
+
+// Import group participants to contacts
+router.post('/groups/:groupId/participants/import', importGroupParticipants);
 
 // Get connection status
 router.get('/status', getStatus);
