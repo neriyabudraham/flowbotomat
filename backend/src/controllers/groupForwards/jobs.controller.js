@@ -282,9 +282,38 @@ async function getActiveJobs(req, res) {
       ORDER BY fj.created_at DESC
     `, [userId]);
     
+    // For sending jobs, get current target info
+    const jobs = await Promise.all(result.rows.map(async (job) => {
+      if (job.status === 'sending' && job.current_target_index > 0) {
+        // Get the current target being sent to
+        const currentTargetResult = await db.query(`
+          SELECT gft.group_name, gft.group_id
+          FROM forward_job_messages fjm
+          JOIN group_forward_targets gft ON fjm.target_id = gft.id
+          WHERE fjm.job_id = $1 AND fjm.status = 'pending'
+          ORDER BY gft.sort_order ASC
+          LIMIT 1
+        `, [job.id]);
+        
+        if (currentTargetResult.rows.length > 0) {
+          job.current_target_name = currentTargetResult.rows[0].group_name;
+          job.current_target_id = currentTargetResult.rows[0].group_id;
+        }
+      }
+      
+      // Calculate progress percentage
+      if (job.total_targets > 0) {
+        job.progress_percent = Math.round(((job.sent_count || 0) + (job.failed_count || 0)) / job.total_targets * 100);
+      } else {
+        job.progress_percent = 0;
+      }
+      
+      return job;
+    }));
+    
     res.json({
       success: true,
-      jobs: result.rows
+      jobs
     });
   } catch (error) {
     console.error('[GroupForwards] Get active jobs error:', error);

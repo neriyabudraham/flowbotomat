@@ -6,7 +6,7 @@ const pool = require('../../config/database');
 async function listContacts(req, res) {
   try {
     const userId = req.user.id;
-    const { page = 1, limit = 200, search, tag } = req.query; // Paginated loading
+    const { page = 1, limit = 200, search, tag, contact_type } = req.query; // Paginated loading
     const offset = (page - 1) * limit;
     
     let query = `
@@ -30,6 +30,13 @@ async function listContacts(req, res) {
     const params = [userId];
     let paramIndex = 2;
     
+    // Filter by contact type (chats = no groups, groups = only groups)
+    if (contact_type === 'chats') {
+      query += ` AND c.phone NOT LIKE '%@g.us'`;
+    } else if (contact_type === 'groups') {
+      query += ` AND c.phone LIKE '%@g.us'`;
+    }
+    
     if (search) {
       query += ` AND (c.phone LIKE $${paramIndex} OR c.display_name ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
@@ -50,6 +57,13 @@ async function listContacts(req, res) {
     let countQuery = `SELECT COUNT(*) FROM contacts c WHERE c.user_id = $1`;
     const countParams = [userId];
     let countParamIndex = 2;
+    
+    // Apply same contact_type filter to count
+    if (contact_type === 'chats') {
+      countQuery += ` AND c.phone NOT LIKE '%@g.us'`;
+    } else if (contact_type === 'groups') {
+      countQuery += ` AND c.phone LIKE '%@g.us'`;
+    }
     
     if (search) {
       countQuery += ` AND (c.phone LIKE $${countParamIndex} OR c.display_name ILIKE $${countParamIndex})`;

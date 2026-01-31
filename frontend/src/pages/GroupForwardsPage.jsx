@@ -448,18 +448,57 @@ export default function GroupForwardsPage() {
           </div>
         )}
 
-        {/* Active Jobs Alert (sending) */}
+        {/* Active Jobs Alert (sending) - with real-time progress */}
         {activeJobs.filter(j => j.status === 'sending' || j.status === 'confirmed').length > 0 && activeTab === 'forwards' && (
-          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-            <div className="flex items-center gap-3">
-              <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
-              <div>
-                <h4 className="font-medium text-blue-900">יש משימות פעילות</h4>
-                <p className="text-sm text-blue-700">
-                  {activeJobs.filter(j => j.status === 'sending' || j.status === 'confirmed').length} העברות בתהליך שליחה
-                </p>
+          <div className="mb-6 space-y-3">
+            {activeJobs.filter(j => j.status === 'sending' || j.status === 'confirmed').map(job => (
+              <div key={job.id} className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-100 rounded-lg">
+                      <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-blue-900">{job.forward_name}</h4>
+                      <p className="text-sm text-blue-600">
+                        {job.status === 'confirmed' ? 'מתחיל לשלוח...' : 'שליחה בתהליך'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-left">
+                    <div className="text-2xl font-bold text-blue-700">
+                      {job.sent_count || 0}/{job.total_targets}
+                    </div>
+                    <div className="text-xs text-blue-500">קבוצות נשלחו</div>
+                  </div>
+                </div>
+                
+                {/* Progress bar */}
+                <div className="mb-3">
+                  <div className="h-3 bg-blue-100 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all duration-500"
+                      style={{ width: `${job.progress_percent || 0}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-1 text-xs text-blue-600">
+                    <span>{job.progress_percent || 0}% הושלם</span>
+                    {job.failed_count > 0 && (
+                      <span className="text-red-500">{job.failed_count} נכשלו</span>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Current target */}
+                {job.current_target_name && (
+                  <div className="flex items-center gap-2 p-2 bg-white/50 rounded-lg border border-blue-100">
+                    <Send className="w-4 h-4 text-blue-500" />
+                    <span className="text-sm text-blue-700">שולח כעת ל:</span>
+                    <span className="text-sm font-medium text-blue-900">{job.current_target_name}</span>
+                  </div>
+                )}
               </div>
-            </div>
+            ))}
           </div>
         )}
 

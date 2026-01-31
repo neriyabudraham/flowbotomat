@@ -526,6 +526,24 @@ export function AudienceEditorModal({ audience, onClose, onCreated }) {
 // =============================================
 // Contact Picker Component (Up to 100,000)
 // =============================================
+
+// Helper to check if contact is a group
+function isGroupContact(contact) {
+  return contact?.phone?.includes('@g.us') || 
+         contact?.wa_id?.includes('@g.us') ||
+         (contact?.phone?.length > 15 && !contact?.phone?.includes('@'));
+}
+
+// Format phone for display (hide @g.us)
+function formatContactPhone(phone) {
+  if (!phone) return '';
+  // Remove @g.us suffix
+  if (phone.includes('@g.us')) {
+    return phone.replace('@g.us', '');
+  }
+  return phone;
+}
+
 function ContactPicker({ selectedIds, onChange, loading }) {
   const [contacts, setContacts] = useState([]);
   const [allContactIds, setAllContactIds] = useState([]);
@@ -534,18 +552,19 @@ function ContactPicker({ selectedIds, onChange, loading }) {
   const [loadingAll, setLoadingAll] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [contactTypeFilter, setContactTypeFilter] = useState('chats'); // 'all' | 'chats' | 'groups'
   const pageSize = 100;
 
   useEffect(() => {
-    loadContacts(1);
-    loadAllContactIds();
-  }, []);
+    loadContacts(1, '', contactTypeFilter);
+    loadAllContactIds(contactTypeFilter);
+  }, [contactTypeFilter]);
 
-  const loadContacts = async (page, search = '') => {
+  const loadContacts = async (page, search = '', typeFilter = 'chats') => {
     try {
       setLoadingContacts(true);
       const { data } = await api.get('/contacts', {
-        params: { page, limit: pageSize, search }
+        params: { page, limit: pageSize, search, contact_type: typeFilter }
       });
       setContacts(data.contacts || []);
       setTotalContacts(data.total || 0);
@@ -557,11 +576,11 @@ function ContactPicker({ selectedIds, onChange, loading }) {
     }
   };
 
-  const loadAllContactIds = async () => {
+  const loadAllContactIds = async (typeFilter = 'chats') => {
     try {
       setLoadingAll(true);
       // Load up to 100,000 contact IDs for "select all" functionality
-      const { data } = await api.get('/contacts', { params: { limit: 100000, fields: 'id' } });
+      const { data } = await api.get('/contacts', { params: { limit: 100000, fields: 'id', contact_type: typeFilter } });
       setAllContactIds((data.contacts || []).map(c => c.id));
     } catch (e) {
       console.error('Failed to load all contact IDs:', e);
@@ -571,7 +590,7 @@ function ContactPicker({ selectedIds, onChange, loading }) {
   };
 
   const handleSearch = () => {
-    loadContacts(1, searchQuery);
+    loadContacts(1, searchQuery, contactTypeFilter);
   };
 
   const toggleContact = (contactId) => {
@@ -608,9 +627,50 @@ function ContactPicker({ selectedIds, onChange, loading }) {
 
   return (
     <div className="space-y-4">
-      {/* Search */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1">
+      {/* Filter & Search */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {/* Contact Type Filter */}
+        <div className="flex items-center bg-gray-100 rounded-xl p-1">
+          <button
+            onClick={() => setContactTypeFilter('chats')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              contactTypeFilter === 'chats' 
+                ? 'bg-white text-purple-700 shadow-sm' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <span className="flex items-center gap-1.5">
+              <User className="w-4 h-4" />
+              צ'אטים
+            </span>
+          </button>
+          <button
+            onClick={() => setContactTypeFilter('groups')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              contactTypeFilter === 'groups' 
+                ? 'bg-white text-purple-700 shadow-sm' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <span className="flex items-center gap-1.5">
+              <Users className="w-4 h-4" />
+              קבוצות
+            </span>
+          </button>
+          <button
+            onClick={() => setContactTypeFilter('all')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              contactTypeFilter === 'all' 
+                ? 'bg-white text-purple-700 shadow-sm' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            הכל
+          </button>
+        </div>
+        
+        {/* Search */}
+        <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
@@ -703,18 +763,27 @@ function ContactPicker({ selectedIds, onChange, loading }) {
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden">
                     {contact.profile_picture_url ? (
                       <img src={contact.profile_picture_url} alt="" className="w-full h-full object-cover" />
+                    ) : isGroupContact(contact) ? (
+                      <Users className="w-5 h-5 text-purple-500" />
                     ) : (
                       <User className="w-5 h-5 text-gray-400" />
                     )}
                   </div>
                   
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-gray-900 truncate">
+                    <div className="font-medium text-gray-900 truncate flex items-center gap-2">
                       {contact.display_name || 'ללא שם'}
+                      {isGroupContact(contact) && (
+                        <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">קבוצה</span>
+                      )}
                     </div>
                     <div className="text-sm text-gray-500 flex items-center gap-1 font-mono">
-                      <Phone className="w-3 h-3" />
-                      {contact.phone}
+                      {isGroupContact(contact) ? (
+                        <Users className="w-3 h-3" />
+                      ) : (
+                        <Phone className="w-3 h-3" />
+                      )}
+                      {formatContactPhone(contact.phone)}
                     </div>
                   </div>
                   
