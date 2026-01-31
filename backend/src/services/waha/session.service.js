@@ -992,7 +992,7 @@ async function getLidMappings(connection, limit = 999999, offset = 0) {
 }
 
 /**
- * Get all groups from session (uses /api/session/groups endpoint)
+ * Get all groups from session (uses /api/{session}/groups endpoint)
  * Returns array with JID, Name, Participants etc.
  */
 async function getSessionGroups(connection) {
@@ -1000,9 +1000,7 @@ async function getSessionGroups(connection) {
   const sessionName = connection.session_name || 'default';
   
   try {
-    const response = await client.get(`/api/session/groups`, {
-      params: { session: sessionName }
-    });
+    const response = await client.get(`/api/${sessionName}/groups`);
     console.log(`[WAHA] getSessionGroups returned ${response.data?.length || 0} groups`);
     return response.data || [];
   } catch (error) {
@@ -1092,8 +1090,8 @@ async function syncContactsAndGroups(connection, userId, db) {
       }
     }
     
-    // 3. Get ALL groups from WAHA using /api/session/groups endpoint
-    console.log(`[WAHA] Fetching groups list from /api/session/groups...`);
+    // 3. Get ALL groups from WAHA using /api/{session}/groups endpoint
+    console.log(`[WAHA] Fetching groups list from /api/{session}/groups...`);
     const groups = await getSessionGroups(connection);
     console.log(`[WAHA] Got ${groups.length} groups from WAHA`);
     
