@@ -1039,6 +1039,92 @@ async function getPendingJobs(req, res) {
   }
 }
 
+/**
+ * Retry failed messages from a job
+ * Creates a new job with only the failed targets
+ */
+async function retryFailedMessages(req, res) {
+  try {
+    const userId = req.user.id;
+    const { jobId } = req.params;
+    
+    // Get the original job
+    const jobResult = await db.query(`
+      SELECT fj.*, gf.name as forward_name
+      FROM forward_jobs fj
+      JOIN group_forwards gf ON fj.forward_id = gf.id
+      WHERE fj.id = $1 AND fj.user_id = $2
+    `, [jobId, userId]);
+    
+    if (jobResult.rows.length === 0) {
+      return res.status(404).json({ error: 'משימה לא נמצאה' });
+    }
+    
+    const originalJob = jobResult.rows[0];
+    
+    // Get failed messages from the job
+    const failedResult = await db.query(`
+      SELECT fjm.*, gft.group_name, gft.group_id
+      FROM forward_job_messages fjm
+      JOIN group_forward_targets gft ON fjm.target_id = gft.id
+      WHERE fjm.job_id = $1 AND fjm.status = 'failed'
+    `, [jobId]);
+    
+    if (failedResult.rows.length === 0) {
+      return res.status(400).json({ error: 'אין הודעות שנכשלו במשימה זו' });
+    }
+    
+    const failedMessages = failedResult.rows;
+    console.log(`[GroupForwards] Retrying ${failedMessages.length} failed messages from job ${jobId}`);
+    
+    // Create a new job
+    const newJobResult = await db.query(`
+      INSERT INTO forward_jobs 
+      (user_id, forward_id, message_type, message_text, media_url, media_mime_type, media_filename, 
+       total_targets, status, sender_phone, sender_name)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'confirmed', 'website', 'שליחה מחדש')
+      RETURNING *
+    `, [
+      userId,
+      originalJob.forward_id,
+      originalJob.message_type,
+      originalJob.message_text,
+      originalJob.media_url,
+      originalJob.media_mime_type,
+      originalJob.media_filename,
+      failedMessages.length
+    ]);
+    
+    const newJob = newJobResult.rows[0];
+    
+    // Create job messages for failed targets
+    for (const failed of failedMessages) {
+      await db.query(`
+        INSERT INTO forward_job_messages (job_id, target_id, group_id, group_name, status)
+        VALUES ($1, $2, $3, $4, 'pending')
+      `, [newJob.id, failed.target_id, failed.group_id, failed.group_name]);
+    }
+    
+    console.log(`[GroupForwards] Created retry job ${newJob.id} with ${failedMessages.length} targets`);
+    
+    // Start the job immediately (it's already confirmed)
+    startForwardJob(newJob.id).catch(err => {
+      console.error(`[GroupForwards] Error starting retry job ${newJob.id}:`, err);
+    });
+    
+    res.json({
+      success: true,
+      jobId: newJob.id,
+      failedCount: failedMessages.length,
+      message: `נוצרה משימה חדשה לשליחה ל-${failedMessages.length} קבוצות שנכשלו`
+    });
+    
+  } catch (error) {
+    console.error('[GroupForwards] Retry failed messages error:', error);
+    res.status(500).json({ error: 'שגיאה בשליחה מחדש' });
+  }
+}
+
 module.exports = {
   createForwardJob,
   confirmForwardJob,
@@ -1050,6 +1136,7 @@ module.exports = {
   getAllJobHistory,
   deleteJob,
   getPendingJobs,
+  retryFailedMessages,
   // Export for internal use
   startForwardJob,
   deleteJobMessages,

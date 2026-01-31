@@ -3,7 +3,7 @@ import {
   History, Clock, CheckCircle, XCircle, AlertTriangle, Trash2,
   Image as ImageIcon, Video, Mic, FileText, ChevronDown, ChevronUp,
   User, Users, Phone, Send, Loader2, Eye, RefreshCw, TrendingUp,
-  BarChart3, X, Globe
+  BarChart3, X, Globe, RotateCcw, AlertCircle
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -18,6 +18,8 @@ export default function JobHistoryTab() {
   const [deleting, setDeleting] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null); // job to delete
   const [errorMessage, setErrorMessage] = useState(null);
+  const [retrying, setRetrying] = useState(null);
+  const [expandedErrors, setExpandedErrors] = useState({}); // track which errors are expanded
   const limit = 20;
 
   useEffect(() => {
@@ -43,6 +45,28 @@ export default function JobHistoryTab() {
   const handleDeleteClick = (job, e) => {
     e.stopPropagation();
     setDeleteConfirm(job);
+  };
+
+  const handleRetryFailed = async (job, e) => {
+    e.stopPropagation();
+    try {
+      setRetrying(job.id);
+      setErrorMessage(null);
+      const { data } = await api.post(`/group-forwards/jobs/${job.id}/retry-failed`);
+      if (data.success) {
+        setErrorMessage({ type: 'success', text: `נוצרה משימה חדשה לשליחה ל-${data.failedCount} קבוצות שנכשלו` });
+        fetchHistory();
+      }
+    } catch (e) {
+      setErrorMessage({ type: 'error', text: e.response?.data?.error || 'שגיאה בשליחה מחדש' });
+    } finally {
+      setRetrying(null);
+    }
+  };
+
+  const toggleErrorExpand = (msgId, e) => {
+    e.stopPropagation();
+    setExpandedErrors(prev => ({ ...prev, [msgId]: !prev[msgId] }));
   };
 
   const handleDeleteConfirm = async () => {
@@ -420,13 +444,28 @@ export default function JobHistoryTab() {
                   </div>
                 </div>
 
-                {/* Expand/Collapse */}
+                {/* Actions & Expand/Collapse */}
                 <div className="flex items-center gap-3">
                   {job.failed_count > 0 && (
-                    <span className="text-sm text-red-600 flex items-center gap-1">
-                      <XCircle className="w-4 h-4" />
-                      {job.failed_count} נכשלו
-                    </span>
+                    <>
+                      <span className="text-sm text-red-600 flex items-center gap-1">
+                        <XCircle className="w-4 h-4" />
+                        {job.failed_count} נכשלו
+                      </span>
+                      <button
+                        onClick={(e) => handleRetryFailed(job, e)}
+                        disabled={retrying === job.id}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-100 text-orange-700 rounded-lg text-sm font-medium hover:bg-orange-200 transition-colors disabled:opacity-50"
+                        title="שלח מחדש לקבוצות שנכשלו"
+                      >
+                        {retrying === job.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <RotateCcw className="w-4 h-4" />
+                        )}
+                        שלח מחדש
+                      </button>
+                    </>
                   )}
                   {expandedJob === job.id ? (
                     <ChevronUp className="w-5 h-5 text-gray-400" />
@@ -478,47 +517,97 @@ export default function JobHistoryTab() {
                 {/* Target Groups */}
                 {job.messages && job.messages.length > 0 && (
                   <div>
-                    <h4 className="text-sm font-medium text-gray-700 mb-2">
-                      קבוצות יעד ({job.messages.length})
-                    </h4>
-                    <div className="grid gap-2 max-h-64 overflow-y-auto">
-                      {job.messages.map((msg, idx) => (
-                        <div
-                          key={msg.id || idx}
-                          className="flex items-center justify-between bg-white rounded-lg p-2.5 border border-gray-200"
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-medium text-gray-700">
+                        קבוצות יעד ({job.messages.length})
+                      </h4>
+                      {job.failed_count > 0 && (
+                        <button
+                          onClick={(e) => handleRetryFailed(job, e)}
+                          disabled={retrying === job.id}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-100 text-orange-700 rounded-lg text-xs font-medium hover:bg-orange-200 transition-colors disabled:opacity-50"
                         >
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
-                              <Users className="w-4 h-4 text-gray-500" />
+                          {retrying === job.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          )}
+                          שלח מחדש ל-{job.failed_count} שנכשלו
+                        </button>
+                      )}
+                    </div>
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {job.messages.map((msg, idx) => (
+                        <div key={msg.id || idx}>
+                          <div
+                            className={`flex items-center justify-between bg-white rounded-lg p-2.5 border ${
+                              msg.status === 'failed' ? 'border-red-200' : 'border-gray-200'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                                msg.status === 'failed' ? 'bg-red-100' : 'bg-gray-100'
+                              }`}>
+                                <Users className={`w-4 h-4 ${
+                                  msg.status === 'failed' ? 'text-red-500' : 'text-gray-500'
+                                }`} />
+                              </div>
+                              <span className="text-sm text-gray-800">{msg.group_name || 'קבוצה'}</span>
                             </div>
-                            <span className="text-sm text-gray-800">{msg.group_name || 'קבוצה'}</span>
+                            <div className="flex items-center gap-2">
+                              {msg.status === 'sent' && (
+                                <span className="flex items-center gap-1 text-xs text-green-600">
+                                  <CheckCircle className="w-3.5 h-3.5" />
+                                  נשלח
+                                </span>
+                              )}
+                              {msg.status === 'failed' && (
+                                <div className="flex items-center gap-2">
+                                  <span className="flex items-center gap-1 text-xs text-red-600">
+                                    <XCircle className="w-3.5 h-3.5" />
+                                    נכשל
+                                  </span>
+                                  {msg.error_message && (
+                                    <button
+                                      onClick={(e) => toggleErrorExpand(msg.id, e)}
+                                      className={`flex items-center gap-1 text-xs transition-colors ${
+                                        expandedErrors[msg.id] ? 'text-red-600' : 'text-gray-500 hover:text-red-600'
+                                      }`}
+                                      title="צפה בפרטי השגיאה"
+                                    >
+                                      <AlertCircle className="w-3.5 h-3.5" />
+                                      {expandedErrors[msg.id] ? 'הסתר' : 'פרטים'}
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                              {msg.status === 'deleted' && (
+                                <span className="flex items-center gap-1 text-xs text-orange-600">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  נמחק
+                                </span>
+                              )}
+                              {msg.status === 'pending' && (
+                                <span className="flex items-center gap-1 text-xs text-gray-500">
+                                  <Clock className="w-3.5 h-3.5" />
+                                  ממתין
+                                </span>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            {msg.status === 'sent' && (
-                              <span className="flex items-center gap-1 text-xs text-green-600">
-                                <CheckCircle className="w-3.5 h-3.5" />
-                                נשלח
-                              </span>
-                            )}
-                            {msg.status === 'failed' && (
-                              <span className="flex items-center gap-1 text-xs text-red-600" title={msg.error_message}>
-                                <XCircle className="w-3.5 h-3.5" />
-                                נכשל
-                              </span>
-                            )}
-                            {msg.status === 'deleted' && (
-                              <span className="flex items-center gap-1 text-xs text-orange-600">
-                                <Trash2 className="w-3.5 h-3.5" />
-                                נמחק
-                              </span>
-                            )}
-                            {msg.status === 'pending' && (
-                              <span className="flex items-center gap-1 text-xs text-gray-500">
-                                <Clock className="w-3.5 h-3.5" />
-                                ממתין
-                              </span>
-                            )}
-                          </div>
+                          
+                          {/* Expanded Error Details */}
+                          {msg.status === 'failed' && msg.error_message && expandedErrors[msg.id] && (
+                            <div className="mt-1 mr-10 p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+                              <div className="flex items-start gap-2">
+                                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                                <div>
+                                  <p className="font-medium mb-1">סיבת השגיאה:</p>
+                                  <p className="font-mono text-red-600 break-all">{msg.error_message}</p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>

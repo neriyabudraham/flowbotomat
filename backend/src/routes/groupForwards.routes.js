@@ -43,6 +43,7 @@ router.get('/jobs/:jobId', jobsController.getJobStatus);
 router.post('/jobs/:jobId/confirm', jobsController.confirmForwardJob);
 router.post('/jobs/:jobId/stop', jobsController.stopForwardJob);
 router.post('/jobs/:jobId/cancel', jobsController.cancelForwardJob);
+router.post('/jobs/:jobId/retry-failed', jobsController.retryFailedMessages);
 router.delete('/jobs/:jobId', jobsController.deleteJob);
 
 module.exports = router;
