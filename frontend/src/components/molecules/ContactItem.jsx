@@ -123,11 +123,20 @@ export default function ContactItem({ contact, isSelected, onClick }) {
         </div>
         
         <div className="flex items-center justify-between gap-2 mt-1">
-          {/* Last message - right side */}
-          <p className={`text-sm truncate flex-1 text-right ${
+          {/* Last message preview - truncated to ~40 chars */}
+          <p className={`text-sm flex-1 text-right overflow-hidden ${
             isSelected ? 'text-blue-700/70' : 'text-gray-500'
-          }`}>
-            {contact.last_message || 'אין הודעות'}
+          }`} style={{ 
+            display: '-webkit-box',
+            WebkitLineClamp: 1,
+            WebkitBoxOrient: 'vertical',
+            maxWidth: 'calc(100% - 40px)'
+          }}>
+            {contact.last_message 
+              ? (contact.last_message.length > 40 
+                  ? contact.last_message.substring(0, 40) + '...' 
+                  : contact.last_message)
+              : 'אין הודעות'}
           </p>
           
           {/* Unread badge - left side */}

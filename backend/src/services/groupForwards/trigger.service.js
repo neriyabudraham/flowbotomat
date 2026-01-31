@@ -6,12 +6,13 @@ const axios = require('axios');
 /**
  * Save outgoing message to the database for Live Chat display
  */
-async function saveOutgoingMessage(userId, chatId, messageType, content, mediaUrl = null, mimeType = null, filename = null, metadata = null, waMessageId = null) {
+async function saveOutgoingMessage(userId, chatId, messageType, content, mediaUrl = null, mimeType = null, filename = null, metadata = null, waMessageId = null, displayName = null) {
   try {
     // Extract phone/group ID from chatId (remove @s.whatsapp.net or @g.us)
     const phone = chatId.split('@')[0] + (chatId.includes('@g.us') ? '@g.us' : '');
+    const isGroup = chatId.includes('@g.us');
     
-    console.log(`[GroupForwards] saveOutgoingMessage - userId: ${userId}, phone: ${phone}, type: ${messageType}`);
+    console.log(`[GroupForwards] saveOutgoingMessage - userId: ${userId}, phone: ${phone}, type: ${messageType}, isGroup: ${isGroup}`);
     
     // Get or create contact
     let contact = await db.query(
@@ -21,13 +22,13 @@ async function saveOutgoingMessage(userId, chatId, messageType, content, mediaUr
     
     if (contact.rows.length === 0) {
       // Create contact
-      const isGroup = chatId.includes('@g.us');
-      console.log(`[GroupForwards] Creating new contact for ${phone} (isGroup: ${isGroup})`);
+      const contactName = displayName || (isGroup ? 'קבוצה' : phone);
+      console.log(`[GroupForwards] Creating new contact for ${phone} with name: ${contactName}`);
       contact = await db.query(
         `INSERT INTO contacts (user_id, phone, wa_id, display_name)
          VALUES ($1, $2, $3, $4)
          RETURNING *`,
-        [userId, phone, chatId, isGroup ? 'קבוצה' : phone]
+        [userId, phone, chatId, contactName]
       );
     }
     

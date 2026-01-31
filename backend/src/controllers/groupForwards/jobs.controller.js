@@ -529,24 +529,37 @@ async function startForwardJob(jobId) {
             [job.user_id, message.group_id]
           );
           
+          const groupDisplayName = message.group_name || null;
+          
           if (contact.rows.length === 0) {
             // Create contact for the group
+            console.log(`[GroupForwards] Creating contact for group ${message.group_id} with name: ${groupDisplayName}`);
             contact = await db.query(
               `INSERT INTO contacts (user_id, phone, wa_id, display_name)
                VALUES ($1, $2, $3, $4)
                RETURNING *`,
-              [job.user_id, message.group_id, message.group_id, message.group_name || 'קבוצה']
+              [job.user_id, message.group_id, message.group_id, groupDisplayName || 'קבוצה']
             );
+          } else if (groupDisplayName && (contact.rows[0].display_name === 'קבוצה' || !contact.rows[0].display_name)) {
+            // Update contact with real group name if we have it
+            console.log(`[GroupForwards] Updating group name from 'קבוצה' to: ${groupDisplayName}`);
+            await db.query(
+              `UPDATE contacts SET display_name = $1, updated_at = NOW() WHERE id = $2`,
+              [groupDisplayName, contact.rows[0].id]
+            );
+            contact.rows[0].display_name = groupDisplayName;
           }
           
           const contactId = contact.rows[0].id;
           
           // Save the outgoing message
-          await db.query(`
+          console.log(`[GroupForwards] Saving message to Live Chat - contactId: ${contactId}, type: ${job.message_type}`);
+          const msgResult = await db.query(`
             INSERT INTO messages 
             (user_id, contact_id, wa_message_id, direction, message_type, 
              content, media_url, media_mime_type, media_filename, status, sent_at)
             VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, 'sent', NOW())
+            RETURNING id
           `, [
             job.user_id, 
             contactId, 
@@ -558,13 +571,15 @@ async function startForwardJob(jobId) {
             job.media_filename
           ]);
           
+          console.log(`[GroupForwards] Saved message ${msgResult.rows[0]?.id} to contact ${contactId}`);
+          
           // Update contact's last message time
           await db.query(
             `UPDATE contacts SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1`,
             [contactId]
           );
         } catch (saveError) {
-          console.log(`[GroupForwards] Could not save message to Live Chat: ${saveError.message}`);
+          console.error(`[GroupForwards] Could not save message to Live Chat: ${saveError.message}`, saveError.stack);
         }
         
       } catch (sendError) {
