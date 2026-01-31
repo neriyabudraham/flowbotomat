@@ -297,6 +297,42 @@ async function handleIncomingMessage(userId, event) {
     // Final fallback
     if (!contactName) {
       contactName = 'קבוצה';
+      
+      // Trigger background sync of all contacts/groups since we couldn't get the name
+      try {
+        const connResult = await pool.query(
+          `SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' ORDER BY connected_at DESC LIMIT 1`,
+          [userId]
+        );
+        
+        if (connResult.rows.length > 0) {
+          const conn = connResult.rows[0];
+          let baseUrl, apiKey;
+          
+          if (conn.connection_type === 'external') {
+            baseUrl = decrypt(conn.external_base_url);
+            apiKey = decrypt(conn.external_api_key);
+          } else {
+            const systemCreds = getWahaCredentials();
+            baseUrl = systemCreds.baseUrl;
+            apiKey = systemCreds.apiKey;
+          }
+          
+          // Run sync in background (don't await)
+          console.log(`[Webhook] Triggering background contacts/groups sync for user ${userId}`);
+          wahaSession.syncContactsAndGroups({
+            base_url: baseUrl,
+            api_key: apiKey,
+            session_name: conn.session_name
+          }, userId, pool).then(results => {
+            console.log(`[Webhook] Background sync complete: ${results.groupsUpdated} groups, ${results.contactsUpdated} contacts`);
+          }).catch(err => {
+            console.error(`[Webhook] Background sync error:`, err.message);
+          });
+        }
+      } catch (syncError) {
+        console.error(`[Webhook] Could not trigger background sync:`, syncError.message);
+      }
     }
     
     console.log(`[Webhook] Group message - group: ${groupId}, name: ${contactName}, sender: ${senderPhone} (${senderName})`);

@@ -915,6 +915,8 @@ module.exports = {
   getChatsByLabel,
   // Contacts
   getWhatsAppContacts,
+  getLidMappings,
+  syncContactsAndGroups,
 };
 
 /**
@@ -968,4 +970,147 @@ async function getWhatsAppContacts(connection) {
     console.error('[WAHA] Failed to get contacts:', error.message);
     return [];
   }
+}
+
+/**
+ * Get LID to phone number mappings
+ */
+async function getLidMappings(connection, limit = 999999, offset = 0) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const sessionName = connection.session_name || 'default';
+  
+  try {
+    const response = await client.get(`/api/session/lids`, {
+      params: { session: sessionName, limit, offset }
+    });
+    return response.data || [];
+  } catch (error) {
+    console.error('[WAHA] Failed to get LID mappings:', error.message);
+    return [];
+  }
+}
+
+/**
+ * Sync all contacts and groups from WAHA to local database
+ * @param {Object} connection - WAHA connection
+ * @param {string} userId - User ID
+ * @param {Object} db - Database pool
+ * @returns {Object} - Sync results
+ */
+async function syncContactsAndGroups(connection, userId, db) {
+  console.log(`[WAHA] Starting full contacts/groups sync for user ${userId}`);
+  
+  const results = {
+    contactsUpdated: 0,
+    groupsUpdated: 0,
+    lidMappings: 0,
+    errors: []
+  };
+  
+  try {
+    // 1. Get all contacts from WAHA
+    const wahaContacts = await getWhatsAppContacts(connection);
+    console.log(`[WAHA] Got ${wahaContacts.length} contacts from WAHA`);
+    
+    // 2. Get LID mappings
+    const lidMappings = await getLidMappings(connection);
+    console.log(`[WAHA] Got ${lidMappings.length} LID mappings from WAHA`);
+    
+    // 3. Build LID to phone lookup
+    const lidToPhone = {};
+    for (const mapping of lidMappings) {
+      if (mapping.lid && mapping.pn) {
+        const lid = mapping.lid.replace('@lid', '');
+        const phone = mapping.pn.replace('@c.us', '').replace('@s.whatsapp.net', '');
+        lidToPhone[lid] = phone;
+        
+        // Save to whatsapp_lid_mapping table
+        try {
+          await db.query(`
+            INSERT INTO whatsapp_lid_mapping (user_id, lid, phone, display_name, updated_at)
+            VALUES ($1, $2, $3, '', NOW())
+            ON CONFLICT (user_id, lid) DO UPDATE SET 
+              phone = EXCLUDED.phone,
+              updated_at = NOW()
+          `, [userId, lid, phone]);
+          results.lidMappings++;
+        } catch (e) {
+          // Ignore duplicate key errors
+        }
+      }
+    }
+    
+    // 4. Process contacts
+    for (const contact of wahaContacts) {
+      try {
+        const waId = contact.id || '';
+        const isGroup = waId.endsWith('@g.us');
+        const isLid = waId.endsWith('@lid');
+        
+        // Skip LID contacts - we use phone numbers
+        if (isLid) {
+          const lid = waId.replace('@lid', '');
+          // Update LID mapping with name if we have it
+          const displayName = contact.pushname || contact.name || '';
+          if (displayName && lidToPhone[lid]) {
+            await db.query(`
+              UPDATE whatsapp_lid_mapping 
+              SET display_name = $3, updated_at = NOW()
+              WHERE user_id = $1 AND lid = $2 AND (display_name = '' OR display_name IS NULL)
+            `, [userId, lid, displayName]);
+          }
+          continue;
+        }
+        
+        // Get phone/group ID
+        const phone = waId.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@g.us', '');
+        const displayName = contact.name || contact.pushname || '';
+        
+        if (!phone) continue;
+        
+        // Build the proper phone/wa_id
+        const dbPhone = isGroup ? `${phone}@g.us` : phone;
+        const dbWaId = isGroup ? `${phone}@g.us` : `${phone}@c.us`;
+        
+        // Check if contact exists
+        const existing = await db.query(
+          'SELECT id, display_name FROM contacts WHERE user_id = $1 AND (phone = $2 OR wa_id = $3)',
+          [userId, dbPhone, dbWaId]
+        );
+        
+        if (existing.rows.length > 0) {
+          // Update if name is empty or "קבוצה"
+          const currentName = existing.rows[0].display_name;
+          if (displayName && (!currentName || currentName === 'קבוצה' || currentName === phone)) {
+            await db.query(`
+              UPDATE contacts SET display_name = $2, updated_at = NOW()
+              WHERE id = $1
+            `, [existing.rows[0].id, displayName]);
+            
+            if (isGroup) results.groupsUpdated++;
+            else results.contactsUpdated++;
+          }
+        } else {
+          // Create new contact
+          await db.query(`
+            INSERT INTO contacts (user_id, phone, wa_id, display_name)
+            VALUES ($1, $2, $3, $4)
+          `, [userId, dbPhone, dbWaId, displayName || (isGroup ? 'קבוצה' : '')]);
+          
+          if (isGroup) results.groupsUpdated++;
+          else results.contactsUpdated++;
+        }
+      } catch (e) {
+        results.errors.push(e.message);
+      }
+    }
+    
+    console.log(`[WAHA] Sync complete: ${results.contactsUpdated} contacts, ${results.groupsUpdated} groups, ${results.lidMappings} LID mappings`);
+    
+  } catch (error) {
+    console.error('[WAHA] Sync error:', error.message);
+    results.errors.push(error.message);
+  }
+  
+  return results;
 }
