@@ -45,22 +45,38 @@ async function getGroups(req, res) {
           'accept': 'application/json',
           'X-Api-Key': apiKey
         },
-        timeout: 10000
+        timeout: 30000
       }
     );
     
-    console.log('[Groups] Raw response:', JSON.stringify(response.data).substring(0, 500));
+    console.log('[Groups] Raw response sample:', JSON.stringify(response.data).substring(0, 1000));
     
     // Format groups - handle WAHA response format
+    // WAHA returns array with JID, Name, Participants (array)
     const rawGroups = Array.isArray(response.data) ? response.data : (response.data?.groups || response.data?.data || []);
     
-    const groups = rawGroups.map(group => ({
-      id: group.JID || group.id || group.chatId || group.jid,
-      name: group.Name || group.name || group.subject || group.groupName || 'קבוצה ללא שם',
-      participants: group.Participants?.length || group.participants?.length || group.ParticipantCount || 0,
-    })).sort((a, b) => a.name.localeCompare(b.name, 'he')); // Sort alphabetically in Hebrew
+    const groups = rawGroups.map(group => {
+      // Keep original format for compatibility
+      const jid = group.JID || group.id || group.chatId || group.jid || '';
+      const name = group.Name || group.name || group.subject || group.groupName || '';
+      const participants = group.Participants || group.participants || [];
+      
+      return {
+        // Original fields for backwards compatibility
+        id: jid,
+        name: name || 'קבוצה ללא שם',
+        participants: participants.length,
+        // Keep WAHA fields for the modal
+        JID: jid,
+        Name: name || 'קבוצה ללא שם',
+        Participants: participants,
+      };
+    }).sort((a, b) => a.name.localeCompare(b.name, 'he')); // Sort alphabetically in Hebrew
     
     console.log('[Groups] Formatted', groups.length, 'groups');
+    if (groups.length > 0) {
+      console.log('[Groups] Sample group:', JSON.stringify(groups[0]));
+    }
     
     res.json({ groups });
     

@@ -65,6 +65,7 @@ export default function ContactsTab({ onRefresh }) {
   // WhatsApp import
   const [pullingWhatsApp, setPullingWhatsApp] = useState(false);
   const [pullResult, setPullResult] = useState(null);
+  const [importingGroupId, setImportingGroupId] = useState(null);
   
   const pageSize = 50;
 
@@ -360,6 +361,27 @@ export default function ContactsTab({ onRefresh }) {
     }
   };
 
+  const handleImportGroupParticipants = async (groupPhone) => {
+    try {
+      setImportingGroupId(groupPhone);
+      // Format group ID - add @g.us if not present
+      const groupId = groupPhone.includes('@') ? groupPhone : `${groupPhone}@g.us`;
+      const { data } = await api.post(
+        `/whatsapp/groups/${encodeURIComponent(groupId)}/participants/import`,
+        { excludeAdmins: false }
+      );
+      setPullResult({ success: true, ...data });
+      if (data.imported > 0) {
+        loadContacts();
+        onRefresh?.();
+      }
+    } catch (e) {
+      setPullResult({ success: false, error: e.response?.data?.error || 'שגיאה בייבוא משתתפי הקבוצה' });
+    } finally {
+      setImportingGroupId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -617,6 +639,20 @@ export default function ContactsTab({ onRefresh }) {
                     </td>
                     <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                       <div className="flex items-center gap-1">
+                        {isGroupContact(contact) && (
+                          <button
+                            onClick={() => handleImportGroupParticipants(contact.phone)}
+                            disabled={importingGroupId === contact.phone}
+                            className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded disabled:opacity-50"
+                            title="ייבא משתתפי קבוצה"
+                          >
+                            {importingGroupId === contact.phone ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Download className="w-4 h-4" />
+                            )}
+                          </button>
+                        )}
                         <button
                           onClick={() => handleViewContact(contact)}
                           className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
