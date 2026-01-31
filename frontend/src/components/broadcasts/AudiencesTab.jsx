@@ -3,7 +3,7 @@ import {
   Plus, Users, Trash2, Edit2, Search, RefreshCw, Loader2, X, Eye,
   Target, UserPlus, Check, ChevronDown, Tag, Filter, Phone, User,
   CheckCircle, Circle, AlertCircle, Sparkles, ChevronLeft, ChevronRight,
-  Settings
+  Settings, Download, Crown, Shield
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -555,6 +555,15 @@ function ContactPicker({ selectedIds, onChange, loading }) {
   const [contactTypeFilter, setContactTypeFilter] = useState('chats'); // 'all' | 'chats' | 'groups'
   const pageSize = 100;
 
+  // WhatsApp Group Import
+  const [showGroupImport, setShowGroupImport] = useState(false);
+  const [waGroups, setWaGroups] = useState([]);
+  const [loadingGroups, setLoadingGroups] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [groupParticipants, setGroupParticipants] = useState([]);
+  const [loadingParticipants, setLoadingParticipants] = useState(false);
+  const [importingParticipants, setImportingParticipants] = useState(false);
+
   useEffect(() => {
     loadContacts(1, '', contactTypeFilter);
     loadAllContactIds(contactTypeFilter);
@@ -615,6 +624,63 @@ function ContactPicker({ selectedIds, onChange, loading }) {
     onChange([]);
   };
 
+  // Load WhatsApp groups
+  const loadWaGroups = async () => {
+    try {
+      setLoadingGroups(true);
+      const { data } = await api.get('/whatsapp/groups');
+      setWaGroups(data.groups || []);
+    } catch (e) {
+      console.error('Failed to load groups:', e);
+      setWaGroups([]);
+    } finally {
+      setLoadingGroups(false);
+    }
+  };
+
+  // Load group participants
+  const loadGroupParticipants = async (groupId) => {
+    try {
+      setLoadingParticipants(true);
+      const { data } = await api.get(`/whatsapp/groups/${encodeURIComponent(groupId)}/participants`);
+      setGroupParticipants(data.participants || []);
+    } catch (e) {
+      console.error('Failed to load participants:', e);
+      setGroupParticipants([]);
+    } finally {
+      setLoadingParticipants(false);
+    }
+  };
+
+  // Import participants to selected contacts
+  const handleImportGroupParticipants = async (excludeAdmins = false) => {
+    if (!selectedGroup) return;
+    
+    try {
+      setImportingParticipants(true);
+      // First import to contacts DB
+      const { data } = await api.post(
+        `/whatsapp/groups/${encodeURIComponent(selectedGroup.JID || selectedGroup.id)}/participants/import`,
+        { excludeAdmins }
+      );
+      
+      // Reload contacts to get the new IDs
+      await loadContacts(1, '', contactTypeFilter);
+      await loadAllContactIds(contactTypeFilter);
+      
+      alert(data.message || `יובאו ${data.imported} אנשי קשר מהקבוצה`);
+      
+      // Close modal
+      setShowGroupImport(false);
+      setSelectedGroup(null);
+      setGroupParticipants([]);
+    } catch (e) {
+      alert(e.response?.data?.error || 'שגיאה בייבוא משתתפי הקבוצה');
+    } finally {
+      setImportingParticipants(false);
+    }
+  };
+
   const totalPages = Math.ceil(totalContacts / pageSize);
 
   if (loading) {
@@ -627,6 +693,20 @@ function ContactPicker({ selectedIds, onChange, loading }) {
 
   return (
     <div className="space-y-4">
+      {/* Import from WhatsApp Group Button */}
+      <div className="flex justify-start">
+        <button
+          onClick={() => {
+            setShowGroupImport(true);
+            loadWaGroups();
+          }}
+          className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl hover:from-green-600 hover:to-emerald-700 font-medium shadow-lg shadow-green-500/25"
+        >
+          <Download className="w-4 h-4" />
+          ייבא מקבוצת וואטסאפ
+        </button>
+      </div>
+
       {/* Filter & Search */}
       <div className="flex items-center gap-3 flex-wrap">
         {/* Contact Type Filter */}
@@ -826,6 +906,175 @@ function ContactPicker({ selectedIds, onChange, loading }) {
           </div>
         )}
       </div>
+
+      {/* WhatsApp Group Import Modal */}
+      {showGroupImport && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4" onClick={() => setShowGroupImport(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="p-5 bg-gradient-to-r from-green-500 to-emerald-600 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-white/20 backdrop-blur rounded-xl">
+                  <Users className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">ייבוא מקבוצת וואטסאפ</h3>
+                  <p className="text-white/80 text-sm">
+                    {selectedGroup ? `משתתפי ${selectedGroup.Name || 'קבוצה'}` : 'בחר קבוצה'}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowGroupImport(false);
+                  setSelectedGroup(null);
+                  setGroupParticipants([]);
+                }}
+                className="p-2 hover:bg-white/20 rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5 text-white" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 overflow-y-auto max-h-[calc(80vh-140px)]">
+              {!selectedGroup ? (
+                // Group Selection
+                <div className="space-y-3">
+                  {loadingGroups ? (
+                    <div className="py-8 text-center">
+                      <Loader2 className="w-8 h-8 animate-spin text-green-500 mx-auto mb-2" />
+                      <p className="text-gray-500">טוען קבוצות...</p>
+                    </div>
+                  ) : waGroups.length === 0 ? (
+                    <div className="py-8 text-center text-gray-500">
+                      <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                      <p>לא נמצאו קבוצות</p>
+                    </div>
+                  ) : (
+                    waGroups.map((group, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setSelectedGroup(group);
+                          loadGroupParticipants(group.JID);
+                        }}
+                        className="w-full flex items-center gap-3 p-4 bg-gray-50 hover:bg-green-50 border border-gray-200 hover:border-green-300 rounded-xl transition-all text-right"
+                      >
+                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-100 to-emerald-100 flex items-center justify-center">
+                          <Users className="w-6 h-6 text-green-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-gray-900 truncate">{group.Name || 'קבוצה ללא שם'}</p>
+                          <p className="text-sm text-gray-500">
+                            {group.Participants?.length || 0} משתתפים
+                          </p>
+                        </div>
+                        <ChevronLeft className="w-5 h-5 text-gray-400" />
+                      </button>
+                    ))
+                  )}
+                </div>
+              ) : (
+                // Participants View
+                <div className="space-y-4">
+                  {/* Back button */}
+                  <button
+                    onClick={() => {
+                      setSelectedGroup(null);
+                      setGroupParticipants([]);
+                    }}
+                    className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                    חזור לרשימת הקבוצות
+                  </button>
+
+                  {/* Import buttons */}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => handleImportGroupParticipants(false)}
+                      disabled={importingParticipants || loadingParticipants}
+                      className="flex-1 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl font-medium hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {importingParticipants ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                      ייבא הכל ({groupParticipants.length})
+                    </button>
+                    <button
+                      onClick={() => handleImportGroupParticipants(true)}
+                      disabled={importingParticipants || loadingParticipants}
+                      className="flex-1 py-3 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl font-medium hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      ייבא ללא מנהלים
+                    </button>
+                  </div>
+
+                  {/* Participants list */}
+                  {loadingParticipants ? (
+                    <div className="py-8 text-center">
+                      <Loader2 className="w-6 h-6 animate-spin text-green-500 mx-auto mb-2" />
+                      <p className="text-gray-500 text-sm">טוען משתתפים...</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                      {groupParticipants.map((p, idx) => (
+                        <div 
+                          key={idx}
+                          className={`flex items-center justify-between p-3 rounded-xl border ${
+                            p.isSuperAdmin 
+                              ? 'bg-gradient-to-r from-yellow-50 to-orange-50 border-yellow-200' 
+                              : p.isAdmin 
+                              ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200'
+                              : 'bg-gray-50 border-gray-100'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                              p.isSuperAdmin 
+                                ? 'bg-yellow-500' 
+                                : p.isAdmin 
+                                ? 'bg-blue-500'
+                                : 'bg-gray-400'
+                            }`}>
+                              {p.isSuperAdmin ? (
+                                <Crown className="w-4 h-4 text-white" />
+                              ) : p.isAdmin ? (
+                                <Shield className="w-4 h-4 text-white" />
+                              ) : (
+                                <User className="w-4 h-4 text-white" />
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-900 text-sm">
+                                {p.displayName || p.phone || 'משתמש'}
+                              </p>
+                              {p.phone && p.displayName && (
+                                <p className="text-xs text-gray-500 font-mono">{p.phone}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {p.isSuperAdmin && (
+                              <span className="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs font-bold rounded-full">
+                                מנהל ראשי
+                              </span>
+                            )}
+                            {p.isAdmin && !p.isSuperAdmin && (
+                              <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded-full">
+                                מנהל
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { 
   X, Phone, Calendar, MessageSquare, Tag, Variable, Bot, XCircle, Plus, Trash2, 
-  Clock, Mail, User, MapPin, Building, Check, ChevronDown, ChevronUp, Copy, Users
+  Clock, Mail, User, MapPin, Building, Check, ChevronDown, ChevronUp, Copy, Users,
+  Download, Loader2, Crown, Shield
 } from 'lucide-react';
 import api from '../../services/api';
 import DeleteContactModal from '../contacts/DeleteContactModal';
@@ -125,10 +126,17 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
     tags: true,
     variables: true,
     flows: true,
+    participants: true,
   });
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  
+  // Group participants
+  const [groupParticipants, setGroupParticipants] = useState([]);
+  const [loadingParticipants, setLoadingParticipants] = useState(false);
+  const [participantsLoaded, setParticipantsLoaded] = useState(false);
+  const [importingParticipants, setImportingParticipants] = useState(false);
 
   useEffect(() => {
     if (contact) {
@@ -261,6 +269,41 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const loadGroupParticipants = async () => {
+    if (!isGroupContact(contact)) return;
+    
+    const groupId = contact.phone || contact.wa_id;
+    if (!groupId) return;
+    
+    setLoadingParticipants(true);
+    try {
+      const { data } = await api.get(`/whatsapp/groups/${encodeURIComponent(groupId)}/participants`);
+      setGroupParticipants(data.participants || []);
+      setParticipantsLoaded(true);
+    } catch (err) {
+      console.error('Error loading group participants:', err);
+      setGroupParticipants([]);
+    }
+    setLoadingParticipants(false);
+  };
+
+  const handleImportParticipants = async (excludeAdmins = false) => {
+    const groupId = contact.phone || contact.wa_id;
+    if (!groupId) return;
+    
+    setImportingParticipants(true);
+    try {
+      const { data } = await api.post(
+        `/whatsapp/groups/${encodeURIComponent(groupId)}/participants/import`,
+        { excludeAdmins }
+      );
+      alert(data.message || `יובאו ${data.imported} אנשי קשר`);
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בייבוא');
+    }
+    setImportingParticipants(false);
   };
 
   if (!contact) return null;
@@ -475,6 +518,143 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
             </button>
           </div>
         </div>
+
+        {/* Group Participants Section - Only for groups */}
+        {isGroupContact(contact) && (
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+            <button 
+              onClick={() => {
+                toggleSection('participants');
+                if (!participantsLoaded && !loadingParticipants) {
+                  loadGroupParticipants();
+                }
+              }}
+              className="flex items-center justify-between w-full mb-3"
+            >
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-gray-600" />
+                <span className="font-semibold text-gray-900">משתתפי הקבוצה</span>
+                {participantsLoaded && (
+                  <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full">
+                    {groupParticipants.length}
+                  </span>
+                )}
+              </div>
+              {expandedSections.participants ? (
+                <ChevronUp className="w-4 h-4 text-gray-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-gray-400" />
+              )}
+            </button>
+
+            {expandedSections.participants && (
+              <div className="space-y-3">
+                {/* Load Button */}
+                {!participantsLoaded && !loadingParticipants && (
+                  <button
+                    onClick={loadGroupParticipants}
+                    className="w-full py-3 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 rounded-xl font-medium text-sm hover:from-blue-100 hover:to-indigo-100 flex items-center justify-center gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    טען משתתפים מוואטסאפ
+                  </button>
+                )}
+
+                {/* Loading */}
+                {loadingParticipants && (
+                  <div className="py-4 text-center">
+                    <Loader2 className="w-6 h-6 animate-spin text-blue-500 mx-auto mb-2" />
+                    <p className="text-sm text-gray-500">טוען משתתפים...</p>
+                  </div>
+                )}
+
+                {/* Participants List */}
+                {participantsLoaded && groupParticipants.length > 0 && (
+                  <>
+                    {/* Import Button */}
+                    <div className="flex gap-2 mb-3">
+                      <button
+                        onClick={() => handleImportParticipants(false)}
+                        disabled={importingParticipants}
+                        className="flex-1 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg font-medium text-sm hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {importingParticipants ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                        ייבא הכל
+                      </button>
+                      <button
+                        onClick={() => handleImportParticipants(true)}
+                        disabled={importingParticipants}
+                        className="flex-1 py-2 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-lg font-medium text-sm hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        ייבא ללא מנהלים
+                      </button>
+                    </div>
+
+                    {/* Participants */}
+                    <div className="max-h-60 overflow-y-auto space-y-2">
+                      {groupParticipants.map((p, idx) => (
+                        <div 
+                          key={idx}
+                          className={`flex items-center justify-between p-3 rounded-xl border ${
+                            p.isSuperAdmin 
+                              ? 'bg-gradient-to-r from-yellow-50 to-orange-50 border-yellow-200' 
+                              : p.isAdmin 
+                              ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200'
+                              : 'bg-gray-50 border-gray-100'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                              p.isSuperAdmin 
+                                ? 'bg-yellow-500' 
+                                : p.isAdmin 
+                                ? 'bg-blue-500'
+                                : 'bg-gray-400'
+                            }`}>
+                              {p.isSuperAdmin ? (
+                                <Crown className="w-4 h-4 text-white" />
+                              ) : p.isAdmin ? (
+                                <Shield className="w-4 h-4 text-white" />
+                              ) : (
+                                <User className="w-4 h-4 text-white" />
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-900 text-sm">
+                                {p.displayName || formatPhoneDisplay(p.phone) || 'משתמש'}
+                              </p>
+                              {p.phone && (
+                                <p className="text-xs text-gray-500">{formatPhoneDisplay(p.phone)}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {p.isSuperAdmin && (
+                              <span className="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs font-bold rounded-full">
+                                מנהל ראשי
+                              </span>
+                            )}
+                            {p.isAdmin && !p.isSuperAdmin && (
+                              <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded-full">
+                                מנהל
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {participantsLoaded && groupParticipants.length === 0 && (
+                  <p className="text-center text-gray-500 text-sm py-4">
+                    לא נמצאו משתתפים בקבוצה
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Tags Section */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
