@@ -517,21 +517,55 @@ async function startForwardJob(jobId) {
       const message = messages[i];
       
       try {
-        // Send message based on type
+        // Send message based on type - with retry logic for timeouts
         let messageId;
+        let lastError = null;
+        const maxRetries = 3;
+        const retryDelays = [10000, 15000, 20000]; // 10s, 15s, 20s delays
         
-        if (job.message_type === 'text') {
-          const result = await wahaService.sendMessage(wahaConnection, message.group_id, job.message_text);
-          messageId = result?.id;
-        } else if (job.message_type === 'image') {
-          const result = await wahaService.sendImage(wahaConnection, message.group_id, job.media_url, job.message_text);
-          messageId = result?.id;
-        } else if (job.message_type === 'video') {
-          const result = await wahaService.sendVideo(wahaConnection, message.group_id, job.media_url, job.message_text);
-          messageId = result?.id;
-        } else if (job.message_type === 'audio') {
-          const result = await wahaService.sendVoice(wahaConnection, message.group_id, job.media_url);
-          messageId = result?.id;
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+          try {
+            if (attempt > 0) {
+              const delayMs = retryDelays[attempt - 1] || 15000;
+              console.log(`[GroupForwards] Retry attempt ${attempt}/${maxRetries} for ${message.group_id} after ${delayMs/1000}s delay`);
+              await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+            
+            if (job.message_type === 'text') {
+              const result = await wahaService.sendMessage(wahaConnection, message.group_id, job.message_text);
+              messageId = result?.id;
+            } else if (job.message_type === 'image') {
+              const result = await wahaService.sendImage(wahaConnection, message.group_id, job.media_url, job.message_text);
+              messageId = result?.id;
+            } else if (job.message_type === 'video') {
+              const result = await wahaService.sendVideo(wahaConnection, message.group_id, job.media_url, job.message_text);
+              messageId = result?.id;
+            } else if (job.message_type === 'audio') {
+              const result = await wahaService.sendVoice(wahaConnection, message.group_id, job.media_url);
+              messageId = result?.id;
+            }
+            
+            // Success - break out of retry loop
+            lastError = null;
+            break;
+            
+          } catch (attemptError) {
+            lastError = attemptError;
+            const isTimeout = attemptError.message?.includes('timeout') || attemptError.code === 'ECONNABORTED';
+            
+            if (isTimeout && attempt < maxRetries) {
+              console.log(`[GroupForwards] Timeout on attempt ${attempt + 1} for ${message.group_id}, will retry...`);
+              continue; // Try again
+            }
+            
+            // Non-timeout error or max retries reached - break
+            break;
+          }
+        }
+        
+        // If we still have an error after all retries, throw it
+        if (lastError) {
+          throw lastError;
         }
         
         // Update message status
