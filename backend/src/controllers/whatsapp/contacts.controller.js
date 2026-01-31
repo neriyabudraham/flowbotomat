@@ -199,18 +199,30 @@ async function checkAndSync(req, res) {
 }
 
 /**
- * Get the display name for a phone number from synced WhatsApp contacts
+ * Get the display name for a phone number from contacts or whatsapp_contacts
  */
 async function getContactName(userId, phone) {
   try {
-    const result = await pool.query(
+    // First try main contacts table
+    const contactResult = await pool.query(
+      `SELECT display_name FROM contacts 
+       WHERE user_id = $1 AND (phone = $2 OR phone LIKE $3)`,
+      [userId, phone, `%${phone}%`]
+    );
+    
+    if (contactResult.rows.length > 0 && contactResult.rows[0].display_name) {
+      return contactResult.rows[0].display_name;
+    }
+    
+    // Then try whatsapp_contacts table
+    const waResult = await pool.query(
       `SELECT display_name, pushname FROM whatsapp_contacts 
        WHERE user_id = $1 AND phone = $2`,
       [userId, phone]
     );
     
-    if (result.rows.length > 0) {
-      return result.rows[0].display_name || result.rows[0].pushname || null;
+    if (waResult.rows.length > 0) {
+      return waResult.rows[0].display_name || waResult.rows[0].pushname || null;
     }
     return null;
   } catch (error) {
@@ -267,7 +279,8 @@ async function pullWhatsAppContacts(req, res) {
       return res.status(400).json({ error: 'אין חיבור וואטסאפ פעיל' });
     }
     
-    const connection = connResult.rows[0];
+    const dbConnection = connResult.rows[0];
+    const connection = await prepareConnection(dbConnection);
     
     // Fetch contacts from WhatsApp
     console.log(`[Contacts] Pulling WhatsApp contacts for user ${userId}`);
