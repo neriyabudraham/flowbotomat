@@ -8,6 +8,20 @@ import {
 import api from '../../services/api';
 import ImportTab from './ImportTab';
 
+// Helper to check if contact is a group
+function isGroupContact(contact) {
+  return contact?.phone?.includes('@g.us');
+}
+
+// Format phone for display (hide @g.us)
+function formatContactPhone(phone) {
+  if (!phone) return '';
+  if (phone.includes('@g.us')) {
+    return phone.replace('@g.us', '');
+  }
+  return phone;
+}
+
 export default function ContactsTab({ onRefresh }) {
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -17,6 +31,7 @@ export default function ContactsTab({ onRefresh }) {
   const [selectedContacts, setSelectedContacts] = useState([]);
   const [tags, setTags] = useState([]);
   const [filterTag, setFilterTag] = useState('');
+  const [contactTypeFilter, setContactTypeFilter] = useState('chats'); // 'all' | 'chats' | 'groups'
   
   // View modal
   const [viewingContact, setViewingContact] = useState(null);
@@ -53,7 +68,7 @@ export default function ContactsTab({ onRefresh }) {
     loadContacts();
     loadTags();
     loadAllVariables();
-  }, [currentPage, searchQuery, filterTag]);
+  }, [currentPage, searchQuery, filterTag, contactTypeFilter]);
 
   const loadContacts = async () => {
     try {
@@ -62,7 +77,8 @@ export default function ContactsTab({ onRefresh }) {
         page: currentPage,
         limit: pageSize,
         ...(searchQuery && { search: searchQuery }),
-        ...(filterTag && { tag: filterTag })
+        ...(filterTag && { tag: filterTag }),
+        ...(contactTypeFilter && contactTypeFilter !== 'all' && { contact_type: contactTypeFilter })
       });
       
       const { data } = await api.get(`/contacts?${params}`);
@@ -349,7 +365,47 @@ export default function ContactsTab({ onRefresh }) {
       </div>
 
       {/* Search & Filters */}
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-3 items-center">
+        {/* Contact Type Filter */}
+        <div className="flex items-center bg-gray-100 rounded-xl p-1">
+          <button
+            onClick={() => { setContactTypeFilter('chats'); setCurrentPage(1); }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              contactTypeFilter === 'chats' 
+                ? 'bg-white text-orange-700 shadow-sm' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <span className="flex items-center gap-1.5">
+              <User className="w-4 h-4" />
+              צ'אטים
+            </span>
+          </button>
+          <button
+            onClick={() => { setContactTypeFilter('groups'); setCurrentPage(1); }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              contactTypeFilter === 'groups' 
+                ? 'bg-white text-orange-700 shadow-sm' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <span className="flex items-center gap-1.5">
+              <Users className="w-4 h-4" />
+              קבוצות
+            </span>
+          </button>
+          <button
+            onClick={() => { setContactTypeFilter('all'); setCurrentPage(1); }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              contactTypeFilter === 'all' 
+                ? 'bg-white text-orange-700 shadow-sm' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            הכל
+          </button>
+        </div>
+        
         <div className="flex-1 min-w-[250px] relative">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input
@@ -446,18 +502,31 @@ export default function ContactsTab({ onRefresh }) {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center">
-                          <span className="text-white font-medium text-sm">
-                            {(contact.display_name || contact.phone || '?')[0].toUpperCase()}
-                          </span>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                          isGroupContact(contact) 
+                            ? 'bg-gradient-to-br from-purple-400 to-purple-600' 
+                            : 'bg-gradient-to-br from-orange-400 to-red-500'
+                        }`}>
+                          {isGroupContact(contact) ? (
+                            <Users className="w-4 h-4 text-white" />
+                          ) : (
+                            <span className="text-white font-medium text-sm">
+                              {(contact.display_name || contact.phone || '?')[0].toUpperCase()}
+                            </span>
+                          )}
                         </div>
-                        <span className="font-medium text-gray-900">
-                          {contact.display_name || 'ללא שם'}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-900">
+                            {contact.display_name || 'ללא שם'}
+                          </span>
+                          {isGroupContact(contact) && (
+                            <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">קבוצה</span>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-gray-600 font-mono text-sm">{contact.phone}</span>
+                      <span className="text-gray-600 font-mono text-sm">{formatContactPhone(contact.phone)}</span>
                     </td>
                     <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                       <div className="flex flex-wrap gap-1 items-center">
