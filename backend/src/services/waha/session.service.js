@@ -916,6 +916,7 @@ module.exports = {
   // Contacts
   getWhatsAppContacts,
   getLidMappings,
+  getSessionGroups,
   syncContactsAndGroups,
 };
 
@@ -986,6 +987,26 @@ async function getLidMappings(connection, limit = 999999, offset = 0) {
     return response.data || [];
   } catch (error) {
     console.error('[WAHA] Failed to get LID mappings:', error.message);
+    return [];
+  }
+}
+
+/**
+ * Get all groups from session (uses /api/session/groups endpoint)
+ * Returns array with JID, Name, Participants etc.
+ */
+async function getSessionGroups(connection) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const sessionName = connection.session_name || 'default';
+  
+  try {
+    const response = await client.get(`/api/session/groups`, {
+      params: { session: sessionName }
+    });
+    console.log(`[WAHA] getSessionGroups returned ${response.data?.length || 0} groups`);
+    return response.data || [];
+  } catch (error) {
+    console.error('[WAHA] Failed to get session groups:', error.message);
     return [];
   }
 }
@@ -1071,19 +1092,23 @@ async function syncContactsAndGroups(connection, userId, db) {
       }
     }
     
-    // 3. Get ALL groups from WAHA (separate endpoint)
-    console.log(`[WAHA] Fetching groups list...`);
-    const groups = await getGroups(connection);
+    // 3. Get ALL groups from WAHA using /api/session/groups endpoint
+    console.log(`[WAHA] Fetching groups list from /api/session/groups...`);
+    const groups = await getSessionGroups(connection);
     console.log(`[WAHA] Got ${groups.length} groups from WAHA`);
     
-    // Build group name lookup
+    // Build group name lookup (using JID and Name fields from the response)
     const groupNames = {};
     for (const group of groups) {
-      const groupId = group.id?.replace('@g.us', '') || '';
-      const groupName = group.subject || group.name || '';
-      if (groupId && groupName) {
-        groupNames[groupId] = groupName;
-        groupNames[`${groupId}@g.us`] = groupName;
+      // Format: JID = "120363406858854640@g.us", Name = "טסט 3"
+      const groupJid = group.JID || '';
+      const groupName = group.Name || '';
+      const groupIdClean = groupJid.replace('@g.us', '');
+      
+      if (groupJid && groupName) {
+        groupNames[groupJid] = groupName;
+        groupNames[groupIdClean] = groupName;
+        console.log(`[WAHA] Group mapping: ${groupJid} -> "${groupName}"`);
       }
     }
     
