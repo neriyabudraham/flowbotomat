@@ -563,6 +563,7 @@ function ContactPicker({ selectedIds, onChange, loading }) {
   const [groupParticipants, setGroupParticipants] = useState([]);
   const [loadingParticipants, setLoadingParticipants] = useState(false);
   const [importingParticipants, setImportingParticipants] = useState(false);
+  const [selectedParticipants, setSelectedParticipants] = useState([]); // Array of selected phone numbers
 
   useEffect(() => {
     loadContacts(1, '', contactTypeFilter);
@@ -642,8 +643,14 @@ function ContactPicker({ selectedIds, onChange, loading }) {
   const loadGroupParticipants = async (groupId) => {
     try {
       setLoadingParticipants(true);
+      setSelectedParticipants([]);
       const { data } = await api.get(`/whatsapp/groups/${encodeURIComponent(groupId)}/participants`);
-      setGroupParticipants(data.participants || []);
+      const participants = data.participants || [];
+      setGroupParticipants(participants);
+      
+      // Auto-select all participants (existing contacts are pre-selected)
+      const allPhones = participants.map(p => p.phone).filter(Boolean);
+      setSelectedParticipants(allPhones);
     } catch (e) {
       console.error('Failed to load participants:', e);
       setGroupParticipants([]);
@@ -652,28 +659,67 @@ function ContactPicker({ selectedIds, onChange, loading }) {
     }
   };
 
-  // Import participants to selected contacts
-  const handleImportGroupParticipants = async (excludeAdmins = false) => {
-    if (!selectedGroup) return;
+  // Toggle participant selection
+  const toggleParticipantSelection = (phone) => {
+    setSelectedParticipants(prev => 
+      prev.includes(phone) 
+        ? prev.filter(p => p !== phone)
+        : [...prev, phone]
+    );
+  };
+
+  // Select all participants
+  const selectAllParticipants = () => {
+    const allPhones = groupParticipants.map(p => p.phone).filter(Boolean);
+    setSelectedParticipants(allPhones);
+  };
+
+  // Deselect all participants
+  const deselectAllParticipants = () => {
+    setSelectedParticipants([]);
+  };
+
+  // Import selected participants
+  const handleImportGroupParticipants = async () => {
+    if (!selectedGroup || selectedParticipants.length === 0) {
+      alert('לא נבחרו אנשי קשר לייבוא');
+      return;
+    }
     
     try {
       setImportingParticipants(true);
-      // First import to contacts DB
+      
+      // Build names map for the selected participants
+      const participantNames = {};
+      for (const p of groupParticipants) {
+        if (p.phone && p.displayName) {
+          participantNames[p.phone] = p.displayName;
+        }
+      }
+      
+      // Import to contacts DB
       const { data } = await api.post(
         `/whatsapp/groups/${encodeURIComponent(selectedGroup.JID || selectedGroup.id)}/participants/import`,
-        { excludeAdmins }
+        { selectedPhones: selectedParticipants, participantNames }
       );
       
-      // Reload contacts to get the new IDs
+      // Add returned contactIds to the audience selection
+      if (data.contactIds && data.contactIds.length > 0) {
+        const newSelectedIds = [...new Set([...selectedIds, ...data.contactIds])];
+        onChange(newSelectedIds);
+      }
+      
+      // Reload contacts
       await loadContacts(1, '', contactTypeFilter);
       await loadAllContactIds(contactTypeFilter);
       
-      alert(data.message || `יובאו ${data.imported} אנשי קשר מהקבוצה`);
+      alert(data.message || `יובאו ${data.imported} אנשי קשר חדשים`);
       
       // Close modal
       setShowGroupImport(false);
       setSelectedGroup(null);
       setGroupParticipants([]);
+      setSelectedParticipants([]);
     } catch (e) {
       alert(e.response?.data?.error || 'שגיאה בייבוא משתתפי הקבוצה');
     } finally {
@@ -983,6 +1029,7 @@ function ContactPicker({ selectedIds, onChange, loading }) {
                     onClick={() => {
                       setSelectedGroup(null);
                       setGroupParticipants([]);
+                      setSelectedParticipants([]);
                     }}
                     className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
                   >
@@ -990,24 +1037,39 @@ function ContactPicker({ selectedIds, onChange, loading }) {
                     חזור לרשימת הקבוצות
                   </button>
 
-                  {/* Import buttons */}
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => handleImportGroupParticipants(false)}
-                      disabled={importingParticipants || loadingParticipants}
-                      className="flex-1 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl font-medium hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
-                    >
-                      {importingParticipants ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                      ייבא הכל ({groupParticipants.length})
-                    </button>
-                    <button
-                      onClick={() => handleImportGroupParticipants(true)}
-                      disabled={importingParticipants || loadingParticipants}
-                      className="flex-1 py-3 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl font-medium hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
-                    >
-                      ייבא ללא מנהלים
-                    </button>
+                  {/* Selection summary & actions */}
+                  <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl p-3">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="w-5 h-5 text-green-600" />
+                      <span className="font-medium text-green-800">
+                        {selectedParticipants.length} נבחרו מתוך {groupParticipants.length}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={selectAllParticipants}
+                        className="px-3 py-1 text-sm bg-green-100 text-green-700 hover:bg-green-200 rounded-lg"
+                      >
+                        בחר הכל
+                      </button>
+                      <button
+                        onClick={deselectAllParticipants}
+                        className="px-3 py-1 text-sm bg-gray-100 text-gray-600 hover:bg-gray-200 rounded-lg"
+                      >
+                        נקה
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Import button */}
+                  <button
+                    onClick={handleImportGroupParticipants}
+                    disabled={importingParticipants || loadingParticipants || selectedParticipants.length === 0}
+                    className="w-full py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl font-medium hover:shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {importingParticipants ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                    ייבא והוסף לקהל ({selectedParticipants.length})
+                  </button>
 
                   {/* Participants list */}
                   {loadingParticipants ? (
@@ -1018,17 +1080,40 @@ function ContactPicker({ selectedIds, onChange, loading }) {
                   ) : (
                     <div className="space-y-2 max-h-[300px] overflow-y-auto">
                       {groupParticipants.map((p, idx) => (
-                        <div 
+                        <label 
                           key={idx}
-                          className={`flex items-center justify-between p-3 rounded-xl border ${
-                            p.isSuperAdmin 
-                              ? 'bg-gradient-to-r from-yellow-50 to-orange-50 border-yellow-200' 
-                              : p.isAdmin 
-                              ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200'
-                              : 'bg-gray-50 border-gray-100'
+                          className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${
+                            selectedParticipants.includes(p.phone)
+                              ? p.isSuperAdmin 
+                                ? 'bg-gradient-to-r from-yellow-50 to-orange-50 border-yellow-300 ring-2 ring-yellow-200' 
+                                : p.isAdmin 
+                                ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-300 ring-2 ring-blue-200'
+                                : 'bg-green-50 border-green-300 ring-2 ring-green-200'
+                              : p.isSuperAdmin 
+                                ? 'bg-gradient-to-r from-yellow-50 to-orange-50 border-yellow-200 opacity-60' 
+                                : p.isAdmin 
+                                ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200 opacity-60'
+                                : 'bg-gray-50 border-gray-100 opacity-60'
                           }`}
                         >
                           <div className="flex items-center gap-3">
+                            {/* Checkbox */}
+                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                              selectedParticipants.includes(p.phone)
+                                ? 'bg-green-500 border-green-500'
+                                : 'border-gray-300'
+                            }`}>
+                              {selectedParticipants.includes(p.phone) && (
+                                <Check className="w-3 h-3 text-white" />
+                              )}
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={selectedParticipants.includes(p.phone)}
+                              onChange={() => toggleParticipantSelection(p.phone)}
+                              className="sr-only"
+                            />
+                            
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
                               p.isSuperAdmin 
                                 ? 'bg-yellow-500' 
@@ -1045,10 +1130,17 @@ function ContactPicker({ selectedIds, onChange, loading }) {
                               )}
                             </div>
                             <div>
-                              <p className="font-medium text-gray-900 text-sm">
-                                {p.displayName || p.phone || 'משתמש'}
-                              </p>
-                              {p.phone && p.displayName && (
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium text-gray-900 text-sm">
+                                  {p.displayName || p.phone || 'משתמש'}
+                                </p>
+                                {p.exists && (
+                                  <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-xs rounded font-medium">
+                                    קיים
+                                  </span>
+                                )}
+                              </div>
+                              {p.phone && (
                                 <p className="text-xs text-gray-500 font-mono">{p.phone}</p>
                               )}
                             </div>
@@ -1065,7 +1157,7 @@ function ContactPicker({ selectedIds, onChange, loading }) {
                               </span>
                             )}
                           </div>
-                        </div>
+                        </label>
                       ))}
                     </div>
                   )}

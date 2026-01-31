@@ -389,17 +389,56 @@ async function getGroupParticipants(req, res) {
       return res.status(404).json({ error: 'קבוצה לא נמצאה' });
     }
     
+    // Also fetch WhatsApp contacts to get names
+    let waContactNames = {};
+    try {
+      const waContacts = await wahaService.getWhatsAppContacts(connection);
+      for (const c of waContacts || []) {
+        const phone = c.id?.replace(/@.*$/, '') || '';
+        if (phone && (c.name || c.pushname)) {
+          waContactNames[phone] = c.name || c.pushname;
+        }
+      }
+      console.log(`[Contacts] Got ${Object.keys(waContactNames).length} contact names from WhatsApp`);
+    } catch (e) {
+      console.log('[Contacts] Could not fetch WhatsApp contacts for names:', e.message);
+    }
+    
+    // Get existing contacts from database to check which already exist
+    const existingResult = await pool.query(
+      `SELECT id, phone, display_name FROM contacts WHERE user_id = $1`,
+      [userId]
+    );
+    const existingContacts = {};
+    for (const row of existingResult.rows) {
+      const phone = row.phone?.replace(/@.*$/, '');
+      if (phone) {
+        existingContacts[phone] = { id: row.id, name: row.display_name };
+      }
+    }
+    
     // Get participants with their details
     const participants = (group.Participants || []).map(p => {
       const phone = p.PhoneNumber?.replace('@s.whatsapp.net', '').replace('@c.us', '') || '';
       const lid = p.LID?.replace('@lid', '') || p.JID?.replace('@lid', '') || '';
       
+      // Check if exists in DB
+      const existing = existingContacts[phone];
+      
+      // Get name: 1) WAHA DisplayName, 2) WhatsApp contacts, 3) DB name
+      let displayName = p.DisplayName || '';
+      if (!displayName && phone) {
+        displayName = waContactNames[phone] || existing?.name || '';
+      }
+      
       return {
         phone,
         lid,
-        displayName: p.DisplayName || '',
+        displayName,
         isAdmin: p.IsAdmin || false,
-        isSuperAdmin: p.IsSuperAdmin || false
+        isSuperAdmin: p.IsSuperAdmin || false,
+        exists: !!existing,
+        contactId: existing?.id || null
       };
     });
     
@@ -411,14 +450,6 @@ async function getGroupParticipants(req, res) {
       if (!a.isAdmin && b.isAdmin) return 1;
       return a.phone.localeCompare(b.phone);
     });
-    
-    // Try to enrich with names from contacts/whatsapp_contacts
-    for (const p of participants) {
-      if (p.phone && !p.displayName) {
-        const name = await getContactName(userId, p.phone);
-        if (name) p.displayName = name;
-      }
-    }
     
     res.json({
       groupId: group.JID,
@@ -435,15 +466,20 @@ async function getGroupParticipants(req, res) {
 
 /**
  * Import group participants to contacts
+ * Now accepts selectedPhones array and returns contact IDs for audience
  */
 async function importGroupParticipants(req, res) {
   try {
     const userId = req.user.id;
     const { groupId } = req.params;
-    const { excludeAdmins = false } = req.body;
+    const { selectedPhones = [], participantNames = {} } = req.body;
     
     if (!groupId) {
       return res.status(400).json({ error: 'חסר מזהה קבוצה' });
+    }
+    
+    if (!selectedPhones || selectedPhones.length === 0) {
+      return res.status(400).json({ error: 'לא נבחרו אנשי קשר לייבוא' });
     }
     
     // Get user's contact limit (with fallback if table doesn't exist)
@@ -469,76 +505,71 @@ async function importGroupParticipants(req, res) {
     const currentCount = parseInt(countResult.rows[0].count);
     let remaining = maxContacts - currentCount;
     
-    if (remaining <= 0) {
-      return res.status(400).json({ 
-        error: 'הגעת למגבלת אנשי הקשר',
-        currentCount,
-        maxContacts
-      });
-    }
-    
-    // Get group participants
-    const connResult = await pool.query(
-      `SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' LIMIT 1`,
+    // Get existing contacts to find their IDs
+    const existingResult = await pool.query(
+      `SELECT id, phone FROM contacts WHERE user_id = $1`,
       [userId]
     );
-    
-    if (connResult.rows.length === 0) {
-      return res.status(400).json({ error: 'אין חיבור וואטסאפ פעיל' });
-    }
-    
-    const dbConnection = connResult.rows[0];
-    const connection = await prepareConnection(dbConnection);
-    const groups = await wahaService.getSessionGroups(connection);
-    const group = groups.find(g => g.JID === groupId || g.JID === `${groupId}@g.us`);
-    
-    if (!group) {
-      return res.status(404).json({ error: 'קבוצה לא נמצאה' });
+    const existingContacts = {};
+    for (const row of existingResult.rows) {
+      const phone = row.phone?.replace(/@.*$/, '');
+      if (phone) existingContacts[phone] = row.id;
     }
     
     let imported = 0;
-    const participants = group.Participants || [];
+    const contactIds = []; // IDs of all selected contacts (existing + new)
     
-    for (const p of participants) {
-      if (imported >= remaining) break;
+    for (const phone of selectedPhones) {
+      if (!phone) continue;
       
-      // Skip admins if requested
-      if (excludeAdmins && (p.IsAdmin || p.IsSuperAdmin)) {
+      // Check if already exists
+      if (existingContacts[phone]) {
+        contactIds.push(existingContacts[phone]);
         continue;
       }
       
-      const phone = p.PhoneNumber?.replace('@s.whatsapp.net', '').replace('@c.us', '') || '';
-      if (!phone) continue;
-      
-      // Check if exists
-      const exists = await pool.query(
-        `SELECT id FROM contacts WHERE user_id = $1 AND phone = $2`,
-        [userId, phone]
-      );
-      
-      if (exists.rows.length > 0) continue;
-      
-      // Get name from LID mapping or contacts
-      let displayName = p.DisplayName || '';
-      if (!displayName) {
-        displayName = await getContactName(userId, phone) || '';
+      // Check limit
+      if (remaining <= 0) {
+        console.log('[Contacts] Reached contact limit');
+        break;
       }
       
+      // Get name from participantNames map
+      const displayName = participantNames[phone] || '';
+      
+      // Insert new contact
       try {
-        await pool.query(
-          `INSERT INTO contacts (user_id, phone, wa_id, display_name) VALUES ($1, $2, $3, $4)`,
+        const insertResult = await pool.query(
+          `INSERT INTO contacts (user_id, phone, wa_id, display_name) 
+           VALUES ($1, $2, $3, $4) 
+           RETURNING id`,
           [userId, phone, `${phone}@c.us`, displayName]
         );
-        imported++;
+        
+        if (insertResult.rows[0]) {
+          contactIds.push(insertResult.rows[0].id);
+          imported++;
+          remaining--;
+        }
       } catch (err) {
-        console.error(`[Contacts] Error importing participant ${phone}:`, err.message);
+        console.error(`[Contacts] Error importing ${phone}:`, err.message);
+        // If duplicate, try to get existing ID
+        const existCheck = await pool.query(
+          `SELECT id FROM contacts WHERE user_id = $1 AND phone = $2`,
+          [userId, phone]
+        );
+        if (existCheck.rows[0]) {
+          contactIds.push(existCheck.rows[0].id);
+        }
       }
     }
     
+    console.log(`[Contacts] Imported ${imported} new contacts, total ${contactIds.length} for audience`);
+    
     res.json({
       imported,
-      groupName: group.Name,
-      message: `יובאו ${imported} אנשי קשר מהקבוצה`
+      contactIds, // Return all contact IDs (existing + new) for audience selection
+      message: imported > 0 ? `יובאו ${imported} אנשי קשר חדשים` : 'כל אנשי הקשר כבר קיימים'
     });
     
   } catch (error) {
