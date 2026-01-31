@@ -1,5 +1,29 @@
 const pool = require('../../config/database');
 const wahaService = require('../../services/waha/session.service');
+const { decrypt } = require('../../services/crypto/encrypt.service');
+const { getWahaCredentials } = require('../../services/settings/system.service');
+
+/**
+ * Helper to prepare WAHA connection object from database row
+ */
+async function prepareConnection(dbConnection) {
+  let baseUrl, apiKey;
+  
+  if (dbConnection.connection_type === 'external') {
+    baseUrl = decrypt(dbConnection.external_base_url);
+    apiKey = decrypt(dbConnection.external_api_key);
+  } else {
+    const systemCreds = await getWahaCredentials();
+    baseUrl = systemCreds.baseUrl;
+    apiKey = systemCreds.apiKey;
+  }
+  
+  return {
+    base_url: baseUrl,
+    api_key: apiKey,
+    session_name: dbConnection.session_name
+  };
+}
 
 // Ensure the whatsapp_contacts table exists
 async function ensureTable() {
@@ -338,7 +362,8 @@ async function getGroupParticipants(req, res) {
       return res.status(400).json({ error: 'אין חיבור וואטסאפ פעיל' });
     }
     
-    const connection = connResult.rows[0];
+    const dbConnection = connResult.rows[0];
+    const connection = await prepareConnection(dbConnection);
     
     // Fetch groups to get participants
     console.log(`[Contacts] Fetching participants for group ${groupId}`);
@@ -449,7 +474,8 @@ async function importGroupParticipants(req, res) {
       return res.status(400).json({ error: 'אין חיבור וואטסאפ פעיל' });
     }
     
-    const connection = connResult.rows[0];
+    const dbConnection = connResult.rows[0];
+    const connection = await prepareConnection(dbConnection);
     const groups = await wahaService.getSessionGroups(connection);
     const group = groups.find(g => g.JID === groupId || g.JID === `${groupId}@g.us`);
     
