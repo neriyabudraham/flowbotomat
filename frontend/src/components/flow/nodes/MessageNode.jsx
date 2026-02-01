@@ -52,7 +52,7 @@ const renderTextWithBadges = (text) => {
           border: '1px solid #a5b4fc'
         }}
       >
-        @{label}
+        {label}
       </span>
     );
     
