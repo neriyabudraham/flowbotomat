@@ -334,21 +334,19 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
               autoFocus
             />
             
-            <div className="relative">
-              <input
-                type="text"
-                value={newVarKey}
-                onChange={(e) => handleKeyChange(e.target.value)}
-                placeholder="מזהה (באנגלית)"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-200 outline-none font-mono"
-                dir="ltr"
-              />
-              {newVarKey && (
-                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">
-                  {`{{${newVarKey}}}`}
-                </span>
-              )}
-            </div>
+            <input
+              type="text"
+              value={newVarKey}
+              onChange={(e) => handleKeyChange(e.target.value)}
+              placeholder="מזהה (באנגלית)"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-200 outline-none font-mono"
+              dir="ltr"
+            />
+            {newVarKey && (
+              <div className="text-xs text-gray-400 mt-1 text-center">
+                ישמר כ: <code className="bg-gray-100 px-1 rounded">{`{{${newVarKey}}}`}</code>
+              </div>
+            )}
             
             {createError && (
               <div className="text-xs text-red-500 bg-red-50 px-2 py-1 rounded">

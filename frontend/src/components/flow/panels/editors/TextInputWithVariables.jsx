@@ -1,8 +1,13 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Hash } from 'lucide-react';
 import VariableSelector from './VariableSelector';
 import api from '../../../../services/api';
 
+/**
+ * Text input with variable support
+ * Shows variables as styled badges in a visual preview
+ * Uses regular textarea for actual editing
+ */
 export default function TextInputWithVariables({ 
   value = '', 
   onChange, 
@@ -17,10 +22,11 @@ export default function TextInputWithVariables({
   compact = false,
 }) {
   const [showVariables, setShowVariables] = useState(false);
+  const [cursorPosition, setCursorPosition] = useState(0);
   const [selectorPosition, setSelectorPosition] = useState({ top: 0, left: 0 });
   const [variableLabels, setVariableLabels] = useState({});
-  const editorRef = useRef(null);
-  const lastSelectionRef = useRef(null);
+  const [isFocused, setIsFocused] = useState(false);
+  const inputRef = useRef(null);
 
   const charCount = value?.length || 0;
   const isOverLimit = maxLength && charCount > maxLength;
@@ -45,208 +51,108 @@ export default function TextInputWithVariables({
     }
   };
 
-  // Convert text to HTML with badges
-  const textToHtml = useCallback((text) => {
-    if (!text) return '';
-    
-    // Escape HTML and convert variables to badges
-    const escaped = text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-    
-    return escaped.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
-      const label = variableLabels[varName] || varName;
-      return `<span class="var-badge" contenteditable="false" data-var="${varName}">${label}</span>`;
-    }).replace(/\n/g, '<br>');
-  }, [variableLabels]);
-
-  // Convert HTML back to text
-  const htmlToText = (element) => {
-    let result = '';
-    for (const node of element.childNodes) {
-      if (node.nodeType === Node.TEXT_NODE) {
-        result += node.textContent;
-      } else if (node.nodeType === Node.ELEMENT_NODE) {
-        if (node.classList?.contains('var-badge')) {
-          result += `{{${node.getAttribute('data-var')}}}`;
-        } else if (node.tagName === 'BR') {
-          result += '\n';
-        } else if (node.tagName === 'DIV' || node.tagName === 'P') {
-          if (result && !result.endsWith('\n')) result += '\n';
-          result += htmlToText(node);
-        } else {
-          result += htmlToText(node);
-        }
+  // Listen for { key
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      if (document.activeElement !== inputRef.current) return;
+      
+      if (e.key === '{' && e.shiftKey) {
+        e.preventDefault();
+        openSelector();
       }
-    }
-    return result;
-  };
+    };
 
-  const handleInput = () => {
-    if (!editorRef.current) return;
-    const newText = htmlToText(editorRef.current);
-    onChange(newText);
-  };
-
-  const handleKeyDown = (e) => {
-    // Open selector on {
-    if (e.key === '{' && e.shiftKey) {
-      e.preventDefault();
-      openSelector();
-      return;
-    }
-
-    // Delete whole badge on backspace
-    if (e.key === 'Backspace') {
-      const sel = window.getSelection();
-      if (sel.rangeCount > 0) {
-        const range = sel.getRangeAt(0);
-        if (range.collapsed) {
-          // Check prev sibling
-          let prev = range.startContainer.previousSibling;
-          if (!prev && range.startOffset === 0) {
-            prev = range.startContainer.parentNode?.previousSibling;
-          }
-          if (prev?.classList?.contains('var-badge')) {
-            e.preventDefault();
-            prev.remove();
-            handleInput();
-            return;
-          }
-        }
-      }
-    }
-
-    // Delete whole badge on delete
-    if (e.key === 'Delete') {
-      const sel = window.getSelection();
-      if (sel.rangeCount > 0) {
-        const range = sel.getRangeAt(0);
-        if (range.collapsed) {
-          const next = range.startContainer.nextSibling;
-          if (next?.classList?.contains('var-badge')) {
-            e.preventDefault();
-            next.remove();
-            handleInput();
-            return;
-          }
-        }
-      }
-    }
-
-    // Prevent enter in single line
-    if (e.key === 'Enter' && !multiline) {
-      e.preventDefault();
-    }
-  };
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [value]);
 
   const openSelector = () => {
-    const sel = window.getSelection();
-    if (sel.rangeCount > 0) {
-      lastSelectionRef.current = sel.getRangeAt(0).cloneRange();
-    }
-    const rect = editorRef.current?.getBoundingClientRect();
+    const rect = inputRef.current?.getBoundingClientRect();
     if (rect) {
       setSelectorPosition({
         top: rect.bottom + 5,
         left: Math.min(rect.left, window.innerWidth - 300),
       });
     }
+    setCursorPosition(inputRef.current?.selectionStart || (value?.length || 0));
     setShowVariables(true);
   };
 
   const handleSelectVariable = (variable) => {
+    const before = (value || '').slice(0, cursorPosition);
+    const after = (value || '').slice(cursorPosition);
+    const newValue = before + variable + after;
+    
+    // Update variable labels cache with the new variable
     const varName = variable.replace(/^\{\{|\}\}$/g, '');
-    const label = variableLabels[varName] || varName;
-    
-    const badge = document.createElement('span');
-    badge.className = 'var-badge';
-    badge.contentEditable = 'false';
-    badge.setAttribute('data-var', varName);
-    badge.textContent = label;
-    
-    if (lastSelectionRef.current && editorRef.current.contains(lastSelectionRef.current.startContainer)) {
-      const range = lastSelectionRef.current;
-      range.deleteContents();
-      range.insertNode(badge);
-      range.setStartAfter(badge);
-      range.setEndAfter(badge);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-    } else {
-      editorRef.current.appendChild(badge);
+    if (!variableLabels[varName]) {
+      loadVariableLabels(); // Reload to get the new label
     }
     
-    const space = document.createTextNode(' ');
-    badge.after(space);
-    
+    onChange(newValue);
     setShowVariables(false);
-    handleInput();
-    editorRef.current.focus();
+    
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+        const newPos = cursorPosition + variable.length;
+        inputRef.current.setSelectionRange(newPos, newPos);
+      }
+    }, 50);
   };
 
-  // Sync when value changes externally
-  useEffect(() => {
-    if (editorRef.current) {
-      const currentText = htmlToText(editorRef.current);
-      if (currentText !== value) {
-        editorRef.current.innerHTML = textToHtml(value);
+  // Render text with variable badges for preview
+  const renderPreview = () => {
+    if (!value) return null;
+    
+    const parts = [];
+    let lastIndex = 0;
+    const regex = /\{\{([^}]+)\}\}/g;
+    let match;
+    
+    while ((match = regex.exec(value)) !== null) {
+      // Add text before the variable
+      if (match.index > lastIndex) {
+        parts.push(
+          <span key={`text-${lastIndex}`}>
+            {value.slice(lastIndex, match.index)}
+          </span>
+        );
       }
+      
+      // Add the variable badge
+      const varName = match[1];
+      const label = variableLabels[varName] || varName;
+      parts.push(
+        <span
+          key={`var-${match.index}`}
+          className="inline-flex items-center bg-gradient-to-r from-blue-100 to-indigo-100 text-blue-700 text-xs font-medium px-2 py-0.5 rounded-full mx-0.5 border border-blue-200"
+        >
+          <Hash className="w-3 h-3 ml-0.5 opacity-60" />
+          {label}
+        </span>
+      );
+      
+      lastIndex = match.index + match[0].length;
     }
-  }, [value, textToHtml]);
-
-  // Re-render when labels load
-  useEffect(() => {
-    if (editorRef.current && value && Object.keys(variableLabels).length > 0) {
-      editorRef.current.innerHTML = textToHtml(value);
+    
+    // Add remaining text
+    if (lastIndex < value.length) {
+      parts.push(
+        <span key={`text-${lastIndex}`}>
+          {value.slice(lastIndex)}
+        </span>
+      );
     }
-  }, [variableLabels]);
+    
+    return parts;
+  };
 
-  const editorStyle = useMemo(() => ({
-    minHeight: multiline ? `${rows * 1.5}em` : '2.5em',
-    maxHeight: multiline ? '200px' : '2.5em',
-    overflowY: multiline ? 'auto' : 'hidden',
-    whiteSpace: multiline ? 'pre-wrap' : 'nowrap',
-    lineHeight: '1.8',
-  }), [multiline, rows]);
+  const InputComponent = multiline ? 'textarea' : 'input';
+  const hasVariables = value && value.includes('{{');
 
   return (
     <div className="relative">
-      <style>{`
-        .var-badge {
-          display: inline-flex;
-          align-items: center;
-          background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%);
-          color: #3b82f6;
-          font-size: 0.85em;
-          font-weight: 500;
-          padding: 1px 8px;
-          border-radius: 10px;
-          margin: 0 2px;
-          user-select: all;
-          cursor: default;
-          border: 1px solid #93c5fd;
-          white-space: nowrap;
-        }
-        .var-badge:hover {
-          background: linear-gradient(135deg, #bfdbfe 0%, #c7d2fe 100%);
-        }
-        .var-badge::before {
-          content: '#';
-          margin-left: 3px;
-          opacity: 0.5;
-          font-size: 0.9em;
-        }
-        .var-editor:empty::before {
-          content: attr(data-placeholder);
-          color: #9ca3af;
-          pointer-events: none;
-        }
-        .var-editor:focus { outline: none; }
-      `}</style>
-      
       {label && (
         <div className="flex items-center justify-between text-xs mb-1">
           <span className="text-gray-500">{label}</span>
@@ -258,20 +164,42 @@ export default function TextInputWithVariables({
         </div>
       )}
       
-      <div
-        ref={editorRef}
-        contentEditable
-        className={`var-editor w-full px-3 py-2 bg-white border rounded-lg text-sm focus:ring-2 transition-colors ${
+      {/* Preview with badges - shown when has variables and not focused */}
+      {hasVariables && !isFocused && (
+        <div
+          onClick={() => inputRef.current?.focus()}
+          className={`w-full px-3 py-2 bg-white border rounded-lg text-sm cursor-text whitespace-pre-wrap ${
+            isOverLimit || hasEmoji
+              ? 'border-red-300' 
+              : 'border-gray-200'
+          } ${multiline ? '' : 'truncate'} ${className}`}
+          style={{ 
+            minHeight: multiline ? `${rows * 1.5}em` : 'auto',
+            lineHeight: '1.8'
+          }}
+          dir={dir}
+        >
+          {renderPreview()}
+        </div>
+      )}
+      
+      {/* Actual input - shown when focused or no variables */}
+      <InputComponent
+        ref={inputRef}
+        type={multiline ? undefined : 'text'}
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setTimeout(() => setIsFocused(false), 100)}
+        placeholder={placeholder}
+        rows={multiline ? rows : undefined}
+        dir={dir}
+        className={`w-full px-3 py-2 bg-white border rounded-lg text-sm focus:ring-2 outline-none transition-colors ${
           isOverLimit || hasEmoji
             ? 'border-red-300 focus:ring-red-200 focus:border-red-400' 
             : 'border-gray-200 focus:ring-teal-200 focus:border-teal-400'
-        } ${className}`}
-        style={editorStyle}
-        dir={dir}
-        onInput={handleInput}
-        onKeyDown={handleKeyDown}
-        data-placeholder={placeholder}
-        suppressContentEditableWarning
+        } ${multiline ? 'resize-none' : ''} ${className} ${hasVariables && !isFocused ? 'absolute opacity-0 pointer-events-none' : ''}`}
+        style={hasVariables && !isFocused ? { position: 'absolute', opacity: 0 } : {}}
       />
       
       {!compact && (

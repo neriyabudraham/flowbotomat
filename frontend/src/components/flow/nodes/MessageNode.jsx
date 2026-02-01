@@ -1,6 +1,52 @@
 import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { MessageSquare, Image, FileText, MessageCircle, Edit2, Copy, Trash2, Video, Mic, User, MapPin, Keyboard, CheckCheck, SmilePlus, Clock } from 'lucide-react';
+import { MessageSquare, Image, FileText, MessageCircle, Edit2, Copy, Trash2, Video, Mic, User, MapPin, Keyboard, CheckCheck, SmilePlus, Clock, Hash } from 'lucide-react';
+
+// Render text with variable badges
+const renderTextWithBadges = (text) => {
+  if (!text) return '(ריק)';
+  
+  const parts = [];
+  let lastIndex = 0;
+  const regex = /\{\{([^}]+)\}\}/g;
+  let match;
+  
+  while ((match = regex.exec(text)) !== null) {
+    // Add text before the variable
+    if (match.index > lastIndex) {
+      parts.push(
+        <span key={`text-${lastIndex}`}>
+          {text.slice(lastIndex, match.index)}
+        </span>
+      );
+    }
+    
+    // Add the variable badge
+    const varName = match[1];
+    parts.push(
+      <span
+        key={`var-${match.index}`}
+        className="inline-flex items-center bg-blue-100 text-blue-600 text-[10px] font-medium px-1.5 py-0 rounded-full mx-0.5"
+      >
+        <Hash className="w-2 h-2 ml-0.5" />
+        {varName}
+      </span>
+    );
+    
+    lastIndex = match.index + match[0].length;
+  }
+  
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(
+      <span key={`text-${lastIndex}`}>
+        {text.slice(lastIndex)}
+      </span>
+    );
+  }
+  
+  return parts.length > 0 ? parts : '(ריק)';
+};
 
 const actionIcons = {
   text: MessageSquare,
@@ -126,7 +172,7 @@ function MessageNode({ data, selected }) {
                 )}
                 {action.caption && (
                   <div className="px-2 py-1 bg-gray-50 text-xs text-gray-600 line-clamp-1">
-                    {action.caption}
+                    {renderTextWithBadges(action.caption)}
                   </div>
                 )}
               </div>
@@ -143,7 +189,7 @@ function MessageNode({ data, selected }) {
                 </span>
               </div>
               <div className="text-sm text-gray-600 line-clamp-2">
-                {action.type === 'text' && (action.content || '(ריק)')}
+                {action.type === 'text' && renderTextWithBadges(action.content)}
                 {action.type === 'image' && !action.url && '(בחר תמונה)'}
                 {action.type === 'video' && !action.url && '(בחר סרטון)'}
                 {action.type === 'audio' && (action.fileName || action.url ? '🎙️ הודעה קולית' : '(בחר הקלטה)')}
