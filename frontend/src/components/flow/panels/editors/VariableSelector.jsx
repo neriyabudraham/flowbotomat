@@ -149,13 +149,47 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
     icon: Hash 
   }));
 
+  // Calculate safe position to ensure popup is fully visible
+  const getSafePosition = () => {
+    const popupHeight = showCreate ? 400 : 350;
+    const popupWidth = 288; // w-72 = 18rem = 288px
+    
+    let top = position?.top || 100;
+    let left = position?.left || 100;
+    
+    // Ensure popup doesn't go below viewport
+    if (top + popupHeight > window.innerHeight - 20) {
+      top = Math.max(20, window.innerHeight - popupHeight - 20);
+    }
+    
+    // Ensure popup doesn't go off right side
+    if (left + popupWidth > window.innerWidth - 20) {
+      left = Math.max(20, window.innerWidth - popupWidth - 20);
+    }
+    
+    // Ensure popup doesn't go off left side
+    if (left < 20) {
+      left = 20;
+    }
+    
+    // Ensure popup doesn't go above viewport
+    if (top < 20) {
+      top = 20;
+    }
+    
+    return { top, left };
+  };
+  
+  const safePosition = getSafePosition();
+
   return (
     <div 
       ref={ref}
-      className="fixed z-[9999] bg-white rounded-xl shadow-2xl border border-gray-200 w-72 max-h-80 overflow-hidden"
+      className="fixed z-[9999] bg-white rounded-xl shadow-2xl border border-gray-200 w-72 flex flex-col"
       style={{ 
-        top: position?.top || '50%',
-        left: position?.left || '50%',
+        top: safePosition.top,
+        left: safePosition.left,
+        maxHeight: 'calc(100vh - 40px)',
       }}
     >
       {/* Header */}
@@ -182,7 +216,7 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
       </div>
 
       {/* Variables List */}
-      <div className="overflow-y-auto max-h-52">
+      <div className="overflow-y-auto flex-1" style={{ maxHeight: showCreate ? '150px' : '250px' }}>
         {loading ? (
           <div className="p-4 text-center text-gray-400 text-sm">טוען משתנים...</div>
         ) : (
