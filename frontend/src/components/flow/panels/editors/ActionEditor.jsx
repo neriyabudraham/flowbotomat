@@ -202,20 +202,7 @@ function ActionItem({ action, onUpdate, onRemove }) {
       )}
 
       {actionInfo.hasValue === 'keyvalue' && (
-        <div className="space-y-2">
-          <input
-            type="text"
-            value={action.varKey || ''}
-            onChange={(e) => onUpdate({ varKey: e.target.value })}
-            placeholder="שם המשתנה..."
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-          />
-          <TextInputWithVariables
-            value={action.varValue || ''}
-            onChange={(v) => onUpdate({ varValue: v })}
-            placeholder="ערך (ניתן להשתמש במשתנים)..."
-          />
-        </div>
+        <VariableKeyValueEditor action={action} onUpdate={onUpdate} />
       )}
 
       {actionInfo.hasValue === 'url' && (
@@ -243,17 +230,7 @@ function ActionItem({ action, onUpdate, onRemove }) {
       
       {/* Clear Variable */}
       {actionInfo.hasValue === 'varname' && (
-        <div className="space-y-2">
-          <p className="text-xs text-gray-500">שם המשתנה לניקוי:</p>
-          <input
-            type="text"
-            value={action.varName || ''}
-            onChange={(e) => onUpdate({ varName: e.target.value })}
-            placeholder="שם המשתנה (לדוגמה: email)"
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
-          />
-          <p className="text-xs text-gray-400">ערך המשתנה יתאפס מפרופיל איש הקשר</p>
-        </div>
+        <VariableNameSelector action={action} onUpdate={onUpdate} />
       )}
 
       {/* Bot Select */}
@@ -610,6 +587,151 @@ function ApiRequestButton({ action, onUpdate }) {
         <ApiRequestModal action={action} onUpdate={onUpdate} onClose={() => setShowModal(false)} />
       )}
     </>
+  );
+}
+
+// Variable Name Selector (for delete variable action)
+function VariableNameSelector({ action, onUpdate }) {
+  const [variables, setVariables] = useState([]);
+  const [loading, setLoading] = useState(false);
+  
+  useEffect(() => {
+    loadVariables();
+  }, []);
+  
+  const loadVariables = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get('/variables');
+      const allVars = [
+        ...(data.userVariables || []).map(v => ({ key: v.name, label: v.label || v.name })),
+        ...(data.customSystemVariables || []).map(v => ({ key: v.name, label: v.label || v.name }))
+      ];
+      setVariables(allVars);
+    } catch (err) {
+      console.error('Error loading variables:', err);
+    }
+    setLoading(false);
+  };
+  
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-gray-500">בחר משתנה לניקוי:</p>
+      <div className="flex items-center gap-2">
+        <select
+          value={action.varName || ''}
+          onChange={(e) => onUpdate({ varName: e.target.value })}
+          className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+          disabled={loading}
+        >
+          <option value="">-- בחר משתנה --</option>
+          {variables.map(v => (
+            <option key={v.key} value={v.key}>{v.label} ({v.key})</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={loadVariables}
+          disabled={loading}
+          className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+      <p className="text-xs text-gray-400">ערך המשתנה יתאפס מפרופיל איש הקשר</p>
+    </div>
+  );
+}
+
+// Variable Key-Value Editor - Select from existing variables
+function VariableKeyValueEditor({ action, onUpdate }) {
+  const [variables, setVariables] = useState([]);
+  const [loading, setLoading] = useState(false);
+  
+  useEffect(() => {
+    loadVariables();
+  }, []);
+  
+  const loadVariables = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get('/variables');
+      // Combine user variables and custom system variables
+      const allVars = [
+        ...(data.userVariables || []).map(v => ({ key: v.name, label: v.label || v.name, type: 'user' })),
+        ...(data.customSystemVariables || []).map(v => ({ key: v.name, label: v.label || v.name, type: 'constant' }))
+      ];
+      setVariables(allVars);
+    } catch (err) {
+      console.error('Error loading variables:', err);
+    }
+    setLoading(false);
+  };
+  
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">בחר משתנה:</label>
+        <div className="flex items-center gap-2">
+          <select
+            value={action.varKey || ''}
+            onChange={(e) => {
+              const selected = variables.find(v => v.key === e.target.value);
+              onUpdate({ varKey: e.target.value, varLabel: selected?.label || e.target.value });
+            }}
+            className="flex-1 px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-200"
+            disabled={loading}
+          >
+            <option value="">-- בחר משתנה --</option>
+            {variables.filter(v => v.type === 'user').length > 0 && (
+              <optgroup label="המשתנים שלי">
+                {variables.filter(v => v.type === 'user').map(v => (
+                  <option key={v.key} value={v.key}>{v.label} ({v.key})</option>
+                ))}
+              </optgroup>
+            )}
+            {variables.filter(v => v.type === 'constant').length > 0 && (
+              <optgroup label="קבועים">
+                {variables.filter(v => v.type === 'constant').map(v => (
+                  <option key={v.key} value={v.key}>{v.label} ({v.key})</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          <button
+            type="button"
+            onClick={loadVariables}
+            disabled={loading}
+            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+            title="רענן רשימת משתנים"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+      
+      {action.varKey && (
+        <div className="p-2 bg-blue-50 rounded-lg flex items-center gap-2">
+          <span className="text-blue-600 text-sm">📝</span>
+          <code className="text-sm text-blue-700 font-mono">{`{{${action.varKey}}}`}</code>
+        </div>
+      )}
+      
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">ערך:</label>
+        <TextInputWithVariables
+          value={action.varValue || ''}
+          onChange={(v) => onUpdate({ varValue: v })}
+          placeholder="הזן ערך או השתמש במשתנים..."
+        />
+      </div>
+      
+      {variables.length === 0 && !loading && (
+        <p className="text-xs text-orange-500 bg-orange-50 p-2 rounded-lg">
+          אין משתנים זמינים. צור משתנים בהגדרות המתקדמות בדף הבוטים.
+        </p>
+      )}
+    </div>
   );
 }
 

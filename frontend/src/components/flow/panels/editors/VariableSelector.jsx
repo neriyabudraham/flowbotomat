@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Search, User, Settings, Hash, Calendar, Clock, MessageSquare } from 'lucide-react';
+import { X, Search, User, Settings, Hash, Calendar, Clock, MessageSquare, Plus, Loader2 } from 'lucide-react';
 import api from '../../../../services/api';
 
 // System variable icons mapping
@@ -17,6 +17,11 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
   const [userVariables, setUserVariables] = useState([]);
   const [constantVariables, setConstantVariables] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newVarLabel, setNewVarLabel] = useState('');
+  const [newVarKey, setNewVarKey] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
   const ref = useRef(null);
 
   // Load variables from API when opened (always reload to get fresh data)
@@ -65,10 +70,62 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
     }
   };
 
+  // Auto-generate key from label
+  const handleLabelChange = (value) => {
+    setNewVarLabel(value);
+    // Convert Hebrew/spaces to English-friendly key
+    const key = value
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_]/g, '');
+    setNewVarKey(key);
+  };
+
+  const handleKeyChange = (value) => {
+    // Only allow valid variable name characters
+    const cleanKey = value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    setNewVarKey(cleanKey);
+  };
+
+  const handleCreateVariable = async () => {
+    if (!newVarKey.trim()) {
+      setCreateError('יש להזין מזהה למשתנה');
+      return;
+    }
+    
+    try {
+      setCreating(true);
+      setCreateError('');
+      
+      await api.post('/variables', {
+        name: newVarKey.trim(),
+        label: newVarLabel.trim() || newVarKey.trim(),
+        is_system: false
+      });
+      
+      // Reload variables and select the new one
+      await loadVariables();
+      onSelect(`{{${newVarKey.trim()}}}`);
+      
+      // Reset form
+      setNewVarLabel('');
+      setNewVarKey('');
+      setShowCreate(false);
+      onClose();
+      
+    } catch (err) {
+      setCreateError(err.response?.data?.error || 'שגיאה ביצירת משתנה');
+    } finally {
+      setCreating(false);
+    }
+  };
+
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (ref.current && !ref.current.contains(e.target)) {
-        onClose();
+        if (!showCreate) {
+          onClose();
+        }
       }
     };
     
@@ -76,7 +133,7 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, showCreate]);
 
   if (!isOpen) return null;
 
@@ -217,6 +274,76 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
               </div>
             )}
           </>
+        )}
+      </div>
+
+      {/* Create Variable Button / Form */}
+      <div className="border-t border-gray-100 p-2 bg-gray-50">
+        {!showCreate ? (
+          <button
+            onClick={() => setShowCreate(true)}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors font-medium"
+          >
+            <Plus className="w-4 h-4" />
+            צור משתנה חדש
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <div className="text-xs font-medium text-gray-600 mb-2">יצירת משתנה חדש</div>
+            
+            <input
+              type="text"
+              value={newVarLabel}
+              onChange={(e) => handleLabelChange(e.target.value)}
+              placeholder="שם לתצוגה (עברית)"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-200 outline-none"
+              autoFocus
+            />
+            
+            <div className="relative">
+              <input
+                type="text"
+                value={newVarKey}
+                onChange={(e) => handleKeyChange(e.target.value)}
+                placeholder="מזהה (באנגלית)"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-200 outline-none font-mono"
+                dir="ltr"
+              />
+              {newVarKey && (
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+                  {`{{${newVarKey}}}`}
+                </span>
+              )}
+            </div>
+            
+            {createError && (
+              <div className="text-xs text-red-500 bg-red-50 px-2 py-1 rounded">
+                {createError}
+              </div>
+            )}
+            
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setShowCreate(false);
+                  setNewVarLabel('');
+                  setNewVarKey('');
+                  setCreateError('');
+                }}
+                className="flex-1 px-3 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={handleCreateVariable}
+                disabled={!newVarKey.trim() || creating}
+                className="flex-1 px-3 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+              >
+                {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                צור
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>
