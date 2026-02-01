@@ -1,26 +1,23 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Search, User, Settings, Hash } from 'lucide-react';
+import { X, Search, User, Settings, Hash, Calendar, Clock, MessageSquare } from 'lucide-react';
 import api from '../../../../services/api';
 
-// Default system variables (used as fallback)
-const defaultSystemVariables = [
-  { key: 'name', label: 'שם איש קשר (מ-WhatsApp)', icon: User },
-  { key: 'contact_phone', label: 'טלפון איש קשר', icon: User },
-  { key: 'last_message', label: 'ההודעה האחרונה', icon: Settings },
-  { key: 'date', label: 'תאריך נוכחי', icon: Settings },
-  { key: 'time', label: 'שעה נוכחית', icon: Settings },
-  { key: 'day', label: 'יום בשבוע', icon: Settings },
-  { key: 'bot_name', label: 'שם הבוט', icon: Settings },
-];
+// System variable icons mapping
+const getVariableIcon = (name) => {
+  if (name === 'name' || name === 'contact_phone' || name === 'sender_phone') return User;
+  if (name === 'date' || name === 'day') return Calendar;
+  if (name === 'time') return Clock;
+  if (name === 'last_message') return MessageSquare;
+  return Settings;
+};
 
 export default function VariableSelector({ isOpen, onSelect, onClose, position, customVariables = [] }) {
   const [search, setSearch] = useState('');
-  const [systemVariables, setSystemVariables] = useState(defaultSystemVariables);
+  const [systemVariables, setSystemVariables] = useState([]);
   const [userVariables, setUserVariables] = useState([]);
   const [constantVariables, setConstantVariables] = useState([]);
   const [loading, setLoading] = useState(false);
   const ref = useRef(null);
-  const loadedRef = useRef(false);
 
   // Load variables from API when opened (always reload to get fresh data)
   useEffect(() => {
@@ -34,17 +31,17 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
       setLoading(true);
       const res = await api.get('/variables');
       
-      // Format system variables
+      console.log('[VariableSelector] Loaded variables:', res.data);
+      
+      // Format system variables from API
       const sysVars = (res.data.systemVariables || []).map(v => ({
         key: v.name,
         label: v.label,
-        icon: v.name === 'name' || v.name === 'phone' ? User : Settings,
+        icon: getVariableIcon(v.name),
       }));
-      if (sysVars.length > 0) {
-        setSystemVariables(sysVars);
-      }
+      setSystemVariables(sysVars);
       
-      // Format user variables
+      // Format user variables (custom variables defined by user)
       const usrVars = (res.data.userVariables || []).map(v => ({
         key: v.name,
         label: v.label || v.name,
@@ -52,7 +49,7 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
       }));
       setUserVariables(usrVars);
       
-      // Format constant variables (custom system vars)
+      // Format constant variables (custom system vars / constants)
       const constVars = (res.data.customSystemVariables || []).map(v => ({
         key: v.name,
         label: v.label || v.name,
@@ -61,7 +58,6 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
       }));
       setConstantVariables(constVars);
       
-      loadedRef.current = true;
     } catch (err) {
       console.error('Failed to load variables:', err);
     } finally {
@@ -134,55 +130,17 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
           <div className="p-4 text-center text-gray-400 text-sm">טוען משתנים...</div>
         ) : (
           <>
-            {/* System Variables */}
-            <div className="p-2">
-              <div className="text-xs font-medium text-gray-400 px-2 mb-1">משתני מערכת</div>
-              {filterVars(systemVariables).map(v => (
-                <button
-                  key={v.key}
-                  onClick={() => { onSelect(`{{${v.key}}}`); onClose(); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-teal-50 rounded-lg text-right transition-colors"
-                >
-                  <v.icon className="w-4 h-4 text-teal-600" />
-                  <span className="flex-1 text-sm text-gray-700">{v.label}</span>
-                  <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                    {`{{${v.key}}}`}
-                  </code>
-                </button>
-              ))}
-            </div>
-
-            {/* Constant Variables */}
-            {constantVariables.length > 0 && (
-              <div className="p-2 border-t border-gray-100">
-                <div className="text-xs font-medium text-gray-400 px-2 mb-1">קבועים</div>
-                {filterVars(constantVariables).map(v => (
-                  <button
-                    key={v.key}
-                    onClick={() => { onSelect(`{{${v.key}}}`); onClose(); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-purple-50 rounded-lg text-right transition-colors"
-                  >
-                    <v.icon className="w-4 h-4 text-purple-600" />
-                    <span className="flex-1 text-sm text-gray-700">{v.label}</span>
-                    <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                      {`{{${v.key}}}`}
-                    </code>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* User Variables */}
+            {/* User Variables - Show first as they are most relevant for broadcasts */}
             {userVariables.length > 0 && (
-              <div className="p-2 border-t border-gray-100">
-                <div className="text-xs font-medium text-gray-400 px-2 mb-1">משתני יוזר</div>
+              <div className="p-2">
+                <div className="text-xs font-medium text-blue-500 px-2 mb-1">המשתנים שלי</div>
                 {filterVars(userVariables).map(v => (
                   <button
                     key={v.key}
                     onClick={() => { onSelect(`{{${v.key}}}`); onClose(); }}
                     className="w-full flex items-center gap-2 px-3 py-2 hover:bg-blue-50 rounded-lg text-right transition-colors"
                   >
-                    <v.icon className="w-4 h-4 text-blue-600" />
+                    <Hash className="w-4 h-4 text-blue-600" />
                     <span className="flex-1 text-sm text-gray-700">{v.label}</span>
                     <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
                       {`{{${v.key}}}`}
@@ -192,23 +150,70 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
               </div>
             )}
 
-            {/* Custom Variables */}
-            {allCustom.length > 0 && (
+            {/* Constant Variables */}
+            {constantVariables.length > 0 && (
               <div className="p-2 border-t border-gray-100">
-                <div className="text-xs font-medium text-gray-400 px-2 mb-1">משתנים מותאמים</div>
-                {filterVars(allCustom).map(v => (
+                <div className="text-xs font-medium text-purple-500 px-2 mb-1">קבועים</div>
+                {filterVars(constantVariables).map(v => (
                   <button
                     key={v.key}
                     onClick={() => { onSelect(`{{${v.key}}}`); onClose(); }}
                     className="w-full flex items-center gap-2 px-3 py-2 hover:bg-purple-50 rounded-lg text-right transition-colors"
                   >
-                    <v.icon className="w-4 h-4 text-purple-600" />
+                    <Settings className="w-4 h-4 text-purple-600" />
                     <span className="flex-1 text-sm text-gray-700">{v.label}</span>
                     <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
                       {`{{${v.key}}}`}
                     </code>
                   </button>
                 ))}
+              </div>
+            )}
+
+            {/* System Variables */}
+            {systemVariables.length > 0 && (
+              <div className="p-2 border-t border-gray-100">
+                <div className="text-xs font-medium text-gray-400 px-2 mb-1">משתני מערכת</div>
+                {filterVars(systemVariables).map(v => (
+                  <button
+                    key={v.key}
+                    onClick={() => { onSelect(`{{${v.key}}}`); onClose(); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-teal-50 rounded-lg text-right transition-colors"
+                  >
+                    <v.icon className="w-4 h-4 text-teal-600" />
+                    <span className="flex-1 text-sm text-gray-700">{v.label}</span>
+                    <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                      {`{{${v.key}}}`}
+                    </code>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Custom Variables passed as props */}
+            {allCustom.length > 0 && (
+              <div className="p-2 border-t border-gray-100">
+                <div className="text-xs font-medium text-gray-400 px-2 mb-1">משתנים נוספים</div>
+                {filterVars(allCustom).map(v => (
+                  <button
+                    key={v.key}
+                    onClick={() => { onSelect(`{{${v.key}}}`); onClose(); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-purple-50 rounded-lg text-right transition-colors"
+                  >
+                    <Hash className="w-4 h-4 text-purple-600" />
+                    <span className="flex-1 text-sm text-gray-700">{v.label}</span>
+                    <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                      {`{{${v.key}}}`}
+                    </code>
+                  </button>
+                ))}
+              </div>
+            )}
+            
+            {/* Empty state */}
+            {systemVariables.length === 0 && userVariables.length === 0 && constantVariables.length === 0 && allCustom.length === 0 && (
+              <div className="p-4 text-center text-gray-400 text-sm">
+                לא נמצאו משתנים
               </div>
             )}
           </>
