@@ -172,11 +172,10 @@ export default function TextInputWithVariables({
       )}
       
       <div className="relative">
-        {/* Always visible preview with badges */}
+        {/* Preview layer with badges - shown behind the textarea */}
         <div
           ref={previewRef}
-          onClick={() => inputRef.current?.focus()}
-          className={`w-full px-3 py-2 bg-white border rounded-lg text-sm cursor-text whitespace-pre-wrap ${
+          className={`absolute inset-0 px-3 py-2 bg-white border rounded-lg text-sm whitespace-pre-wrap pointer-events-none ${
             isFocused
               ? 'ring-2 ring-teal-200 border-teal-400'
               : isOverLimit || hasEmoji
@@ -185,14 +184,15 @@ export default function TextInputWithVariables({
           } ${multiline ? '' : 'truncate'} ${className}`}
           style={{ 
             minHeight: multiline ? `${rows * 1.5 + 1}em` : 'auto',
-            lineHeight: '1.8'
+            lineHeight: '1.8',
+            overflow: 'hidden'
           }}
           dir={dir}
         >
           {renderContent()}
         </div>
         
-        {/* Hidden textarea for actual input */}
+        {/* Actual textarea - visible for cursor and selection, transparent text */}
         <InputComponent
           ref={inputRef}
           type={multiline ? undefined : 'text'}
@@ -200,11 +200,23 @@ export default function TextInputWithVariables({
           onChange={(e) => onChange(e.target.value)}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setTimeout(() => setIsFocused(false), 100)}
-          placeholder={placeholder}
+          placeholder={!value ? placeholder : ''}
           rows={multiline ? rows : undefined}
           dir={dir}
-          className="absolute top-0 left-0 w-full h-full opacity-0 cursor-text"
-          style={{ resize: 'none' }}
+          className={`relative w-full px-3 py-2 bg-transparent border rounded-lg text-sm focus:ring-2 outline-none transition-colors ${
+            isFocused
+              ? 'ring-teal-200 border-teal-400'
+              : isOverLimit || hasEmoji
+                ? 'border-red-300' 
+                : 'border-gray-200'
+          } ${multiline ? 'resize-none' : ''} ${className}`}
+          style={{ 
+            color: 'transparent',
+            caretColor: '#0d9488', // teal-600 - visible cursor
+            lineHeight: '1.8',
+            minHeight: multiline ? `${rows * 1.5 + 1}em` : 'auto',
+            WebkitTextFillColor: 'transparent',
+          }}
         />
       </div>
       
