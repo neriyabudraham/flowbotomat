@@ -172,50 +172,43 @@ export default function TextInputWithVariables({
       )}
       
       <div className="relative">
-        {/* Preview layer with badges - shown behind the textarea */}
-        <div
-          ref={previewRef}
-          className={`absolute inset-0 px-3 py-2 bg-white border rounded-lg text-sm whitespace-pre-wrap pointer-events-none ${
-            isFocused
-              ? 'ring-2 ring-teal-200 border-teal-400'
-              : isOverLimit || hasEmoji
-                ? 'border-red-300' 
-                : 'border-gray-200'
-          } ${multiline ? '' : 'truncate'} ${className}`}
-          style={{ 
-            minHeight: multiline ? `${rows * 1.5 + 1}em` : 'auto',
-            lineHeight: '1.8',
-            overflow: 'hidden'
-          }}
-          dir={dir}
-        >
-          {renderContent()}
-        </div>
+        {/* Preview with badges - shown when NOT focused */}
+        {!isFocused && hasVariables && (
+          <div
+            ref={previewRef}
+            onClick={() => inputRef.current?.focus()}
+            className={`w-full px-3 py-2 bg-white border rounded-lg text-sm cursor-text whitespace-pre-wrap ${
+              isOverLimit || hasEmoji ? 'border-red-300' : 'border-gray-200'
+            } ${className}`}
+            style={{ 
+              minHeight: multiline ? `${rows * 1.5 + 1}em` : 'auto',
+              lineHeight: '1.8'
+            }}
+            dir={dir}
+          >
+            {renderContent()}
+          </div>
+        )}
         
-        {/* Actual textarea - visible for cursor and selection, transparent text */}
+        {/* Actual textarea - shown when focused OR no variables */}
         <InputComponent
           ref={inputRef}
           type={multiline ? undefined : 'text'}
           value={value || ''}
           onChange={(e) => onChange(e.target.value)}
           onFocus={() => setIsFocused(true)}
-          onBlur={() => setTimeout(() => setIsFocused(false), 100)}
-          placeholder={!value ? placeholder : ''}
+          onBlur={() => setTimeout(() => setIsFocused(false), 150)}
+          placeholder={placeholder}
           rows={multiline ? rows : undefined}
           dir={dir}
-          className={`relative w-full px-3 py-2 bg-transparent border rounded-lg text-sm focus:ring-2 outline-none transition-colors ${
-            isFocused
-              ? 'ring-teal-200 border-teal-400'
-              : isOverLimit || hasEmoji
-                ? 'border-red-300' 
-                : 'border-gray-200'
-          } ${multiline ? 'resize-none' : ''} ${className}`}
+          className={`w-full px-3 py-2 bg-white border rounded-lg text-sm focus:ring-2 outline-none transition-colors ${
+            isOverLimit || hasEmoji
+              ? 'border-red-300 focus:ring-red-200 focus:border-red-400' 
+              : 'border-gray-200 focus:ring-teal-200 focus:border-teal-400'
+          } ${multiline ? 'resize-none' : ''} ${className} ${!isFocused && hasVariables ? 'absolute opacity-0 pointer-events-none' : ''}`}
           style={{ 
-            color: 'transparent',
-            caretColor: '#0d9488', // teal-600 - visible cursor
-            lineHeight: '1.8',
             minHeight: multiline ? `${rows * 1.5 + 1}em` : 'auto',
-            WebkitTextFillColor: 'transparent',
+            lineHeight: '1.8'
           }}
         />
       </div>
