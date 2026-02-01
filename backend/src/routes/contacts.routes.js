@@ -3,7 +3,7 @@ const router = express.Router();
 const authMiddleware = require('../middlewares/auth.middleware');
 const { listContacts, getContact, getLidMappings } = require('../controllers/contacts/list.controller');
 const { getMessages } = require('../controllers/contacts/messages.controller');
-const { toggleBot, toggleBlock, deleteContact, takeoverConversation, bulkDeleteContacts, exportContacts, createOrUpdateContact } = require('../controllers/contacts/update.controller');
+const { toggleBot, toggleBlock, deleteContact, takeoverConversation, bulkDeleteContacts, exportContacts, createOrUpdateContact, getDisabledBots, toggleBotForContact } = require('../controllers/contacts/update.controller');
 const { sendMessage } = require('../controllers/contacts/send.controller');
 const { getVariables, setVariable, deleteVariable } = require('../controllers/contacts/variables.controller');
 const { getAllTags, createTag, deleteTag, getContactTags, addTagToContact, removeTagFromContact, bulkAddTag } = require('../controllers/contacts/tags.controller');
@@ -60,8 +60,14 @@ router.get('/:contactId/tags', getContactTags);
 router.post('/:contactId/tags', addTagToContact);
 router.delete('/:contactId/tags/:tagId', removeTagFromContact);
 
-// Toggle bot for contact
+// Toggle bot for contact (global)
 router.patch('/:contactId/bot', toggleBot);
+
+// Get disabled bots for contact
+router.get('/:contactId/disabled-bots', getDisabledBots);
+
+// Toggle specific bot for contact
+router.patch('/:contactId/bots/:botId', toggleBotForContact);
 
 // Takeover conversation (disable bot temporarily)
 router.post('/:contactId/takeover', takeoverConversation);

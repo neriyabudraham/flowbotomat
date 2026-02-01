@@ -137,6 +137,17 @@ class BotEngine {
   // Process single bot
   async processBot(bot, contact, message, messageType, userId, selectedRowId = null, quotedListTitle = null, isGroupMessage = false) {
     try {
+      // Check if this specific bot is disabled for this contact
+      const disabledCheck = await db.query(
+        'SELECT id FROM contact_disabled_bots WHERE contact_id = $1 AND bot_id = $2',
+        [contact.id, bot.id]
+      );
+      
+      if (disabledCheck.rows.length > 0) {
+        console.log('[BotEngine] Bot', bot.name, 'is disabled for contact:', contact.phone);
+        return;
+      }
+      
       const flowData = bot.flow_data;
       if (!flowData || !flowData.nodes || flowData.nodes.length === 0) {
         console.log('[BotEngine] Bot has no flow data:', bot.id);

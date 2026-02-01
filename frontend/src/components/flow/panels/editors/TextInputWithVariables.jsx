@@ -5,8 +5,8 @@ import api from '../../../../services/api';
 
 /**
  * Text input with variable support
- * Shows variables as styled badges in a visual preview
- * Uses regular textarea for actual editing
+ * Always shows variables as styled badges (like mentions)
+ * Hidden textarea handles actual input
  */
 export default function TextInputWithVariables({ 
   value = '', 
@@ -27,6 +27,7 @@ export default function TextInputWithVariables({
   const [variableLabels, setVariableLabels] = useState({});
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef(null);
+  const previewRef = useRef(null);
 
   const charCount = value?.length || 0;
   const isOverLimit = maxLength && charCount > maxLength;
@@ -67,7 +68,7 @@ export default function TextInputWithVariables({
   }, [value]);
 
   const openSelector = () => {
-    const rect = inputRef.current?.getBoundingClientRect();
+    const rect = (previewRef.current || inputRef.current)?.getBoundingClientRect();
     if (rect) {
       setSelectorPosition({
         top: rect.bottom + 5,
@@ -101,9 +102,11 @@ export default function TextInputWithVariables({
     }, 50);
   };
 
-  // Render text with variable badges for preview (styled like mentions)
-  const renderPreview = () => {
-    if (!value) return null;
+  // Render text with variable badges (styled like mentions)
+  const renderContent = () => {
+    if (!value) {
+      return <span className="text-gray-400">{placeholder}</span>;
+    }
     
     const parts = [];
     let lastIndex = 0;
@@ -113,11 +116,12 @@ export default function TextInputWithVariables({
     while ((match = regex.exec(value)) !== null) {
       // Add text before the variable
       if (match.index > lastIndex) {
-        parts.push(
-          <span key={`text-${lastIndex}`}>
-            {value.slice(lastIndex, match.index)}
-          </span>
-        );
+        const text = value.slice(lastIndex, match.index);
+        // Handle newlines
+        text.split('\n').forEach((line, i, arr) => {
+          if (i > 0) parts.push(<br key={`br-${lastIndex}-${i}`} />);
+          if (line) parts.push(<span key={`text-${lastIndex}-${i}`}>{line}</span>);
+        });
       }
       
       // Add the variable badge - styled like mentions
@@ -141,14 +145,14 @@ export default function TextInputWithVariables({
     
     // Add remaining text
     if (lastIndex < value.length) {
-      parts.push(
-        <span key={`text-${lastIndex}`}>
-          {value.slice(lastIndex)}
-        </span>
-      );
+      const text = value.slice(lastIndex);
+      text.split('\n').forEach((line, i, arr) => {
+        if (i > 0) parts.push(<br key={`br-end-${i}`} />);
+        if (line) parts.push(<span key={`text-end-${i}`}>{line}</span>);
+      });
     }
     
-    return parts;
+    return parts.length > 0 ? parts : <span className="text-gray-400">{placeholder}</span>;
   };
 
   const InputComponent = multiline ? 'textarea' : 'input';
@@ -167,43 +171,42 @@ export default function TextInputWithVariables({
         </div>
       )}
       
-      {/* Preview with badges - shown when has variables and not focused */}
-      {hasVariables && !isFocused && (
+      <div className="relative">
+        {/* Always visible preview with badges */}
         <div
+          ref={previewRef}
           onClick={() => inputRef.current?.focus()}
           className={`w-full px-3 py-2 bg-white border rounded-lg text-sm cursor-text whitespace-pre-wrap ${
-            isOverLimit || hasEmoji
-              ? 'border-red-300' 
-              : 'border-gray-200'
+            isFocused
+              ? 'ring-2 ring-teal-200 border-teal-400'
+              : isOverLimit || hasEmoji
+                ? 'border-red-300' 
+                : 'border-gray-200'
           } ${multiline ? '' : 'truncate'} ${className}`}
           style={{ 
-            minHeight: multiline ? `${rows * 1.5}em` : 'auto',
+            minHeight: multiline ? `${rows * 1.5 + 1}em` : 'auto',
             lineHeight: '1.8'
           }}
           dir={dir}
         >
-          {renderPreview()}
+          {renderContent()}
         </div>
-      )}
-      
-      {/* Actual input - shown when focused or no variables */}
-      <InputComponent
-        ref={inputRef}
-        type={multiline ? undefined : 'text'}
-        value={value || ''}
-        onChange={(e) => onChange(e.target.value)}
-        onFocus={() => setIsFocused(true)}
-        onBlur={() => setTimeout(() => setIsFocused(false), 100)}
-        placeholder={placeholder}
-        rows={multiline ? rows : undefined}
-        dir={dir}
-        className={`w-full px-3 py-2 bg-white border rounded-lg text-sm focus:ring-2 outline-none transition-colors ${
-          isOverLimit || hasEmoji
-            ? 'border-red-300 focus:ring-red-200 focus:border-red-400' 
-            : 'border-gray-200 focus:ring-teal-200 focus:border-teal-400'
-        } ${multiline ? 'resize-none' : ''} ${className} ${hasVariables && !isFocused ? 'absolute opacity-0 pointer-events-none' : ''}`}
-        style={hasVariables && !isFocused ? { position: 'absolute', opacity: 0 } : {}}
-      />
+        
+        {/* Hidden textarea for actual input */}
+        <InputComponent
+          ref={inputRef}
+          type={multiline ? undefined : 'text'}
+          value={value || ''}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setTimeout(() => setIsFocused(false), 100)}
+          placeholder={placeholder}
+          rows={multiline ? rows : undefined}
+          dir={dir}
+          className="absolute top-0 left-0 w-full h-full opacity-0 cursor-text"
+          style={{ resize: 'none' }}
+        />
+      </div>
       
       {!compact && (
         <div className="flex items-center justify-between mt-1">

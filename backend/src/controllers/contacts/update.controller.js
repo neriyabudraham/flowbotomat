@@ -355,4 +355,109 @@ async function createOrUpdateContact(req, res) {
   }
 }
 
-module.exports = { toggleBot, toggleBlock, deleteContact, takeoverConversation, bulkDeleteContacts, exportContacts, createOrUpdateContact };
+/**
+ * Get disabled bots for a contact
+ */
+async function getDisabledBots(req, res) {
+  try {
+    const userId = req.user.id;
+    const { contactId } = req.params;
+    
+    // Ensure table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS contact_disabled_bots (
+        id SERIAL PRIMARY KEY,
+        contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+        bot_id INTEGER NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(contact_id, bot_id)
+      )
+    `);
+    
+    // Get all user bots with disabled status
+    const result = await pool.query(`
+      SELECT 
+        b.id,
+        b.name,
+        b.is_active,
+        CASE WHEN cdb.id IS NOT NULL THEN true ELSE false END as disabled_for_contact
+      FROM bots b
+      LEFT JOIN contact_disabled_bots cdb ON cdb.bot_id = b.id AND cdb.contact_id = $1
+      WHERE b.user_id = $2
+      ORDER BY b.name
+    `, [contactId, userId]);
+    
+    res.json({ bots: result.rows });
+  } catch (error) {
+    console.error('Get disabled bots error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת בוטים' });
+  }
+}
+
+/**
+ * Toggle bot disabled status for a specific contact
+ */
+async function toggleBotForContact(req, res) {
+  try {
+    const userId = req.user.id;
+    const { contactId, botId } = req.params;
+    const { disabled } = req.body;
+    
+    // Ensure table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS contact_disabled_bots (
+        id SERIAL PRIMARY KEY,
+        contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+        bot_id INTEGER NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(contact_id, bot_id)
+      )
+    `);
+    
+    // Verify contact belongs to user
+    const contactCheck = await pool.query(
+      'SELECT id FROM contacts WHERE id = $1 AND user_id = $2',
+      [contactId, userId]
+    );
+    
+    if (contactCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'איש קשר לא נמצא' });
+    }
+    
+    // Verify bot belongs to user
+    const botCheck = await pool.query(
+      'SELECT id, name FROM bots WHERE id = $1 AND user_id = $2',
+      [botId, userId]
+    );
+    
+    if (botCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'בוט לא נמצא' });
+    }
+    
+    if (disabled) {
+      // Add to disabled list
+      await pool.query(`
+        INSERT INTO contact_disabled_bots (contact_id, bot_id)
+        VALUES ($1, $2)
+        ON CONFLICT (contact_id, bot_id) DO NOTHING
+      `, [contactId, botId]);
+      
+      console.log(`[Contacts] Disabled bot ${botCheck.rows[0].name} for contact ${contactId}`);
+    } else {
+      // Remove from disabled list
+      await pool.query(
+        'DELETE FROM contact_disabled_bots WHERE contact_id = $1 AND bot_id = $2',
+        [contactId, botId]
+      );
+      
+      console.log(`[Contacts] Enabled bot ${botCheck.rows[0].name} for contact ${contactId}`);
+    }
+    
+    res.json({ success: true, disabled });
+  } catch (error) {
+    console.error('Toggle bot for contact error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון בוט' });
+  }
+}
+
+module.exports = { toggleBot, toggleBlock, deleteContact, takeoverConversation, bulkDeleteContacts, exportContacts, createOrUpdateContact, getDisabledBots, toggleBotForContact };

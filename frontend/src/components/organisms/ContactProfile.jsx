@@ -137,6 +137,10 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
   const [loadingParticipants, setLoadingParticipants] = useState(false);
   const [participantsLoaded, setParticipantsLoaded] = useState(false);
   const [importingParticipants, setImportingParticipants] = useState(false);
+  
+  // Per-bot disabled list
+  const [contactBots, setContactBots] = useState([]);
+  const [loadingBots, setLoadingBots] = useState(false);
 
   useEffect(() => {
     if (contact) {
@@ -269,6 +273,29 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const loadContactBots = async () => {
+    setLoadingBots(true);
+    try {
+      const { data } = await api.get(`/contacts/${contact.id}/disabled-bots`);
+      setContactBots(data.bots || []);
+    } catch (err) {
+      console.error('Error loading contact bots:', err);
+    }
+    setLoadingBots(false);
+  };
+
+  const handleToggleBotForContact = async (botId, currentlyDisabled) => {
+    try {
+      await api.patch(`/contacts/${contact.id}/bots/${botId}`, { disabled: !currentlyDisabled });
+      // Update local state
+      setContactBots(prev => prev.map(b => 
+        b.id === botId ? { ...b, disabled_for_contact: !currentlyDisabled } : b
+      ));
+    } catch (err) {
+      console.error('Error toggling bot:', err);
+    }
   };
 
   const loadGroupParticipants = async () => {
@@ -500,9 +527,9 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
                 )}
               </div>
               <div>
-                <span className="font-semibold text-gray-900">סטטוס בוט</span>
+                <span className="font-semibold text-gray-900">סטטוס בוטים</span>
                 <p className="text-xs text-gray-500">
-                  {contact.is_bot_active ? 'הבוט מגיב להודעות' : 'הבוט מושהה'}
+                  {contact.is_bot_active ? 'בוטים פעילים' : 'כל הבוטים כבויים'}
                 </p>
               </div>
             </div>
@@ -514,9 +541,71 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
                   : 'bg-gradient-to-r from-red-500 to-rose-500 text-white hover:shadow-lg'
               }`}
             >
-              {contact.is_bot_active ? 'פעיל' : 'כבוי'}
+              {contact.is_bot_active ? 'פעיל' : 'הכל כבוי'}
             </button>
           </div>
+          
+          {/* Per-bot controls - show when global bots are enabled */}
+          {contact.is_bot_active && (
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <button
+                onClick={() => {
+                  if (contactBots.length === 0) {
+                    loadContactBots();
+                  }
+                }}
+                className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+              >
+                {contactBots.length > 0 ? 'הסתר' : loadingBots ? 'טוען...' : 'הגדר בוטים ספציפיים'}
+                {!loadingBots && contactBots.length === 0 && <ChevronDown className="w-4 h-4" />}
+              </button>
+              
+              {loadingBots && (
+                <div className="mt-3 text-center py-2">
+                  <Loader2 className="w-5 h-5 animate-spin text-indigo-500 mx-auto" />
+                </div>
+              )}
+              
+              {contactBots.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs text-gray-500 mb-2">כבה בוטים ספציפיים לאיש קשר זה:</p>
+                  {contactBots.filter(b => b.is_active).map(bot => (
+                    <div 
+                      key={bot.id}
+                      className={`flex items-center justify-between p-3 rounded-xl border ${
+                        bot.disabled_for_contact
+                          ? 'bg-red-50 border-red-200'
+                          : 'bg-green-50 border-green-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className={`p-1.5 rounded-lg ${bot.disabled_for_contact ? 'bg-red-500' : 'bg-green-500'}`}>
+                          <Bot className="w-3.5 h-3.5 text-white" />
+                        </div>
+                        <span className={`text-sm font-medium ${bot.disabled_for_contact ? 'text-red-700' : 'text-green-700'}`}>
+                          {bot.name}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => handleToggleBotForContact(bot.id, bot.disabled_for_contact)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          bot.disabled_for_contact
+                            ? 'bg-red-100 text-red-600 hover:bg-red-200'
+                            : 'bg-green-100 text-green-600 hover:bg-green-200'
+                        }`}
+                      >
+                        {bot.disabled_for_contact ? 'כבוי' : 'פעיל'}
+                      </button>
+                    </div>
+                  ))}
+                  
+                  {contactBots.filter(b => b.is_active).length === 0 && (
+                    <p className="text-sm text-gray-400 text-center py-2">אין בוטים פעילים</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Group Participants Section - Only for groups */}
