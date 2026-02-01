@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Hash } from 'lucide-react';
+import { Variable } from 'lucide-react';
 import VariableSelector from './VariableSelector';
 import api from '../../../../services/api';
 
@@ -101,7 +101,7 @@ export default function TextInputWithVariables({
     }, 50);
   };
 
-  // Render text with variable badges for preview
+  // Render text with variable badges for preview (styled like mentions)
   const renderPreview = () => {
     if (!value) return null;
     
@@ -120,16 +120,19 @@ export default function TextInputWithVariables({
         );
       }
       
-      // Add the variable badge
+      // Add the variable badge - styled like mentions
       const varName = match[1];
       const label = variableLabels[varName] || varName;
       parts.push(
         <span
           key={`var-${match.index}`}
-          className="inline-flex items-center bg-gradient-to-r from-blue-100 to-indigo-100 text-blue-700 text-xs font-medium px-2 py-0.5 rounded-full mx-0.5 border border-blue-200"
+          className="inline-flex items-center text-indigo-700 text-xs font-medium px-2 py-0.5 rounded-full mx-0.5 whitespace-nowrap"
+          style={{ 
+            background: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)',
+            border: '1px solid #a5b4fc'
+          }}
         >
-          <Hash className="w-3 h-3 ml-0.5 opacity-60" />
-          {label}
+          @{label}
         </span>
       );
       
@@ -207,9 +210,9 @@ export default function TextInputWithVariables({
           <button
             type="button"
             onClick={openSelector}
-            className="text-xs text-teal-600 hover:text-teal-700 flex items-center gap-1"
+            className="text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
           >
-            <Hash className="w-3 h-3" />
+            <Variable className="w-3 h-3" />
             הוסף משתנה
           </button>
           {hasEmoji && <span className="text-xs text-red-500">⚠️ ללא אימוג'י</span>}

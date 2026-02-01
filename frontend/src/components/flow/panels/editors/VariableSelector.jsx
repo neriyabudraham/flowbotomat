@@ -151,30 +151,31 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
 
   // Calculate safe position to ensure popup is fully visible
   const getSafePosition = () => {
-    const popupHeight = showCreate ? 400 : 350;
+    const popupHeight = showCreate ? 380 : 320;
     const popupWidth = 288; // w-72 = 18rem = 288px
     
     let top = position?.top || 100;
     let left = position?.left || 100;
     
-    // Ensure popup doesn't go below viewport
-    if (top + popupHeight > window.innerHeight - 20) {
-      top = Math.max(20, window.innerHeight - popupHeight - 20);
+    // Ensure popup doesn't go below viewport - if so, show above
+    if (top + popupHeight > window.innerHeight - 10) {
+      // Show above the trigger instead
+      top = Math.max(10, (position?.top || 100) - popupHeight - 50);
     }
     
     // Ensure popup doesn't go off right side
-    if (left + popupWidth > window.innerWidth - 20) {
-      left = Math.max(20, window.innerWidth - popupWidth - 20);
+    if (left + popupWidth > window.innerWidth - 10) {
+      left = Math.max(10, window.innerWidth - popupWidth - 10);
     }
     
     // Ensure popup doesn't go off left side
-    if (left < 20) {
-      left = 20;
+    if (left < 10) {
+      left = 10;
     }
     
     // Ensure popup doesn't go above viewport
-    if (top < 20) {
-      top = 20;
+    if (top < 10) {
+      top = 10;
     }
     
     return { top, left };

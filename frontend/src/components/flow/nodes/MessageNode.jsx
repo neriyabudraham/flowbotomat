@@ -1,8 +1,27 @@
 import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { MessageSquare, Image, FileText, MessageCircle, Edit2, Copy, Trash2, Video, Mic, User, MapPin, Keyboard, CheckCheck, SmilePlus, Clock, Hash } from 'lucide-react';
+import { MessageSquare, Image, FileText, MessageCircle, Edit2, Copy, Trash2, Video, Mic, User, MapPin, Keyboard, CheckCheck, SmilePlus, Clock } from 'lucide-react';
 
-// Render text with variable badges
+// Variable labels cache - will be populated
+const variableLabelsCache = {
+  // System variables
+  name: 'שם',
+  contact_phone: 'טלפון',
+  phone: 'טלפון',
+  date: 'תאריך',
+  time: 'שעה',
+  day: 'יום',
+  last_message: 'ההודעה האחרונה',
+  message: 'ההודעה',
+  bot_name: 'שם הבוט',
+  first_name: 'שם פרטי',
+  campaign_name: 'שם הקמפיין',
+  sender_phone: 'טלפון השולח',
+  group_id: 'מזהה קבוצה',
+  is_group: 'האם קבוצה',
+};
+
+// Render text with variable badges (like mentions in live chat)
 const renderTextWithBadges = (text) => {
   if (!text) return '(ריק)';
   
@@ -21,15 +40,19 @@ const renderTextWithBadges = (text) => {
       );
     }
     
-    // Add the variable badge
+    // Add the variable badge - styled like mentions
     const varName = match[1];
+    const label = variableLabelsCache[varName] || varName;
     parts.push(
       <span
         key={`var-${match.index}`}
-        className="inline-flex items-center bg-blue-100 text-blue-600 text-[10px] font-medium px-1.5 py-0 rounded-full mx-0.5"
+        className="inline-flex items-center bg-indigo-100 text-indigo-700 text-[11px] font-medium px-2 py-0.5 rounded-full mx-0.5 whitespace-nowrap"
+        style={{ 
+          background: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)',
+          border: '1px solid #a5b4fc'
+        }}
       >
-        <Hash className="w-2 h-2 ml-0.5" />
-        {varName}
+        @{label}
       </span>
     );
     
