@@ -605,9 +605,6 @@ function MessageEditor({ message, index, total, onUpdate, onRemove, onMove, onFi
             rows={3}
             className="bg-gray-50 border-gray-200 rounded-xl focus:ring-orange-500/20 focus:border-orange-400 focus:bg-white"
           />
-          <p className="text-xs text-gray-400 mt-1">
-            לחץ על <span className="bg-orange-100 text-orange-700 px-1 rounded">{'{ }'}</span> או הקלד <code className="bg-gray-100 px-1 rounded">{'{'}</code> להוספת משתנה
-          </p>
         </div>
 
         {/* Media Section */}

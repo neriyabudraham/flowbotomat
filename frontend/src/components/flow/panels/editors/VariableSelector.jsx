@@ -22,9 +22,9 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
   const ref = useRef(null);
   const loadedRef = useRef(false);
 
-  // Load variables from API when opened
+  // Load variables from API when opened (always reload to get fresh data)
   useEffect(() => {
-    if (isOpen && !loadedRef.current) {
+    if (isOpen) {
       loadVariables();
     }
   }, [isOpen]);

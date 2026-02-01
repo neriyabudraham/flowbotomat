@@ -24,6 +24,26 @@ export default function TextInputWithVariables({
   const isNearLimit = maxLength && charCount > maxLength * 0.9;
   const hasEmoji = noEmoji && /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(value || '');
 
+  // Get caret position in pixels (for positioning popup near cursor)
+  const getCaretPosition = () => {
+    const input = inputRef.current;
+    if (!input) return null;
+    
+    const rect = input.getBoundingClientRect();
+    // For textarea, try to estimate position based on cursor
+    const cursorPos = input.selectionStart || 0;
+    const textBeforeCursor = (value || '').slice(0, cursorPos);
+    const lines = textBeforeCursor.split('\n');
+    const currentLine = lines.length - 1;
+    const lineHeight = 24; // Approximate line height
+    
+    // Calculate approximate position
+    const top = rect.top + Math.min(currentLine * lineHeight, rect.height - 20) + lineHeight + 5;
+    const left = Math.max(rect.left, Math.min(rect.right - 300, window.innerWidth - 320));
+    
+    return { top, left };
+  };
+
   // Listen for { key - only when Shift is pressed (actual { character)
   useEffect(() => {
     const handleKeyPress = (e) => {
@@ -32,12 +52,9 @@ export default function TextInputWithVariables({
       // Only trigger on actual { character (Shift + [ or Shift + ה in Hebrew)
       if (e.key === '{' && e.shiftKey) {
         e.preventDefault();
-        const rect = inputRef.current?.getBoundingClientRect();
-        if (rect) {
-          setSelectorPosition({
-            top: rect.bottom + 5,
-            left: Math.min(rect.left + 100, window.innerWidth - 300),
-          });
+        const pos = getCaretPosition();
+        if (pos) {
+          setSelectorPosition(pos);
         }
         setCursorPosition(inputRef.current?.selectionStart || 0);
         setShowVariables(true);
@@ -46,7 +63,7 @@ export default function TextInputWithVariables({
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, []);
+  }, [value]);
 
   const handleSelectVariable = (variable) => {
     const before = (value || '').slice(0, cursorPosition);
@@ -99,11 +116,12 @@ export default function TextInputWithVariables({
         <div className="flex items-center justify-between mt-1">
           <button
             type="button"
-            onClick={() => {
-              const rect = inputRef.current?.getBoundingClientRect();
-              if (rect) {
-                setSelectorPosition({ top: rect.bottom + 5, left: rect.left });
-              }
+            onClick={(e) => {
+              const buttonRect = e.currentTarget.getBoundingClientRect();
+              setSelectorPosition({ 
+                top: buttonRect.bottom + 5, 
+                left: Math.max(buttonRect.left - 100, 10) 
+              });
               setCursorPosition(inputRef.current?.selectionStart || (value?.length || 0));
               setShowVariables(true);
             }}
