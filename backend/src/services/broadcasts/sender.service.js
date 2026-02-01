@@ -178,6 +178,54 @@ async function setContactVariable(contactId, key, value) {
 }
 
 /**
+ * Get all variables for a contact
+ */
+async function getContactVariables(contactId) {
+  try {
+    const result = await db.query(
+      `SELECT key, value FROM contact_variables WHERE contact_id = $1`,
+      [contactId]
+    );
+    const variables = {};
+    for (const row of result.rows) {
+      variables[row.key] = row.value;
+    }
+    return variables;
+  } catch (error) {
+    console.error('[Broadcast Sender] Error getting contact variables:', error);
+    return {};
+  }
+}
+
+/**
+ * Replace all variables in content
+ * Handles system variables (name, phone, date, time) and custom contact variables
+ * Returns empty string for undefined variables (not the placeholder)
+ */
+function replaceVariables(content, recipient, campaignName, contactVariables = {}) {
+  if (!content) return '';
+  
+  let result = content;
+  
+  // System variables
+  result = result.replace(/\{\{name\}\}/gi, recipient.contact_name || '');
+  result = result.replace(/\{\{phone\}\}/gi, recipient.phone || '');
+  result = result.replace(/\{\{contact_phone\}\}/gi, recipient.phone || '');
+  result = result.replace(/\{\{date\}\}/gi, formatDateInIsrael());
+  result = result.replace(/\{\{time\}\}/gi, formatTimeInIsrael());
+  result = result.replace(/\{\{campaign_name\}\}/gi, campaignName || '');
+  result = result.replace(/\{\{first_name\}\}/gi, (recipient.contact_name || '').split(' ')[0] || '');
+  
+  // Custom contact variables - replace with value or empty string
+  result = result.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
+    const value = contactVariables[varName.trim()];
+    return value !== undefined ? value : ''; // Return empty string if not found
+  });
+  
+  return result;
+}
+
+/**
  * Format date in Israel timezone
  */
 function formatDateInIsrael() {
@@ -344,18 +392,16 @@ async function startCampaignSending(campaignId, userId) {
             ? recipient.phone 
             : `${recipient.phone}@s.whatsapp.net`;
           
+          // Get contact variables for replacement
+          const contactVariables = await getContactVariables(recipient.contact_id);
+          
           // Send each message in the template
           const sentMessageIds = [];
           for (let msgIndex = 0; msgIndex < messages.length; msgIndex++) {
             const msg = messages[msgIndex];
             
-            // Replace variables in content
-            let content = msg.content || '';
-            content = content.replace(/\{\{name\}\}/g, recipient.contact_name || '');
-            content = content.replace(/\{\{phone\}\}/g, recipient.phone || '');
-            content = content.replace(/\{\{date\}\}/g, formatDateInIsrael());
-            content = content.replace(/\{\{time\}\}/g, formatTimeInIsrael());
-            content = content.replace(/\{\{campaign_name\}\}/g, campaign.name || '');
+            // Replace all variables in content (system + custom)
+            let content = replaceVariables(msg.content, recipient, campaign.name, contactVariables);
             
             // Wait for delay between messages in template (IMPORTANT: this is the delay BEFORE the message)
             if (msgIndex > 0 && msg.delay_seconds > 0) {

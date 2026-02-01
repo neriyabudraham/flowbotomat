@@ -3,9 +3,10 @@ import {
   Plus, MessageSquare, Trash2, Edit2, Search, RefreshCw,
   Loader2, X, Image, Video, Mic, FileText, Type, Clock,
   ChevronUp, ChevronDown, Copy, Send, AlertCircle, Upload,
-  GripVertical, Sparkles
+  GripVertical, Sparkles, Hash
 } from 'lucide-react';
 import api from '../../services/api';
+import TextInputWithVariables from '../flow/panels/editors/TextInputWithVariables';
 
 export default function TemplatesTab({ onRefresh }) {
   const [templates, setTemplates] = useState([]);
@@ -482,9 +483,6 @@ export function TemplateEditorModal({ template, onClose, onSave }) {
               ))}
             </div>
 
-            <p className="text-xs text-gray-500 mt-3 bg-orange-50 p-3 rounded-xl">
-              💡 טיפ: השתמש ב-{"{{name}}"} להכנסת שם איש הקשר, {"{{phone}}"} למספר טלפון, או כל משתנה אחר שהגדרת
-            </p>
           </div>
         </div>
 
@@ -597,15 +595,19 @@ function MessageEditor({ message, index, total, onUpdate, onRemove, onMove, onFi
 
       {/* Message Content */}
       <div className="p-4 space-y-4">
-        {/* Text Input */}
+        {/* Text Input with Variables */}
         <div>
-          <textarea
+          <TextInputWithVariables
             value={message.content}
-            onChange={(e) => onUpdate({ content: e.target.value })}
+            onChange={(newContent) => onUpdate({ content: newContent })}
             placeholder={message.message_type !== 'text' ? 'כיתוב (אופציונלי)...' : 'הקלד את ההודעה כאן...'}
+            multiline={true}
             rows={3}
-            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500/20 focus:border-orange-400 focus:bg-white resize-none transition-all text-sm"
+            className="bg-gray-50 border-gray-200 rounded-xl focus:ring-orange-500/20 focus:border-orange-400 focus:bg-white"
           />
+          <p className="text-xs text-gray-400 mt-1">
+            לחץ על <span className="bg-orange-100 text-orange-700 px-1 rounded">{'{ }'}</span> או הקלד <code className="bg-gray-100 px-1 rounded">{'{'}</code> להוספת משתנה
+          </p>
         </div>
 
         {/* Media Section */}
