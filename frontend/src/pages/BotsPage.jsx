@@ -53,6 +53,8 @@ export default function BotsPage() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeError, setUpgradeError] = useState(null);
   const [usage, setUsage] = useState(null);
+  const [editingVariable, setEditingVariable] = useState(null);
+  const [editVarLabel, setEditVarLabel] = useState('');
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -159,6 +161,15 @@ export default function BotsPage() {
       fetchVariables();
     } catch (e) {
       alert('שגיאה בעדכון משתנה');
+    }
+  };
+
+  const handleUpdateVariableLabel = async (varId, newLabel) => {
+    try {
+      await api.put(`/variables/${varId}`, { label: newLabel });
+      fetchVariables();
+    } catch (e) {
+      alert('שגיאה בעדכון תווית');
     }
   };
 
@@ -954,7 +965,40 @@ export default function BotsPage() {
                   {customSystemVars.map(v => (
                     <div key={v.id} className="flex items-center gap-3 p-4 bg-white border border-purple-200 rounded-xl">
                       <code className="text-purple-600 font-mono text-sm bg-purple-50 px-3 py-1.5 rounded-lg">{`{{${v.name}}}`}</code>
-                      <span className="text-gray-600 text-sm">{v.label || v.name}</span>
+                      {editingVariable === `const-${v.id}` ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={editVarLabel}
+                            onChange={(e) => setEditVarLabel(e.target.value)}
+                            placeholder="תווית..."
+                            className="w-32 px-3 py-1.5 border border-purple-300 rounded-lg text-sm"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleUpdateVariableLabel(v.id, editVarLabel);
+                                setEditingVariable(null);
+                              }
+                              if (e.key === 'Escape') setEditingVariable(null);
+                            }}
+                          />
+                          <button onClick={() => { handleUpdateVariableLabel(v.id, editVarLabel); setEditingVariable(null); }} className="p-1 bg-purple-600 text-white rounded">
+                            <CheckCircle className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => setEditingVariable(null)} className="p-1 bg-gray-200 rounded">
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={() => { setEditingVariable(`const-${v.id}`); setEditVarLabel(v.label || ''); }}
+                          className="text-gray-600 text-sm hover:text-purple-600 hover:underline"
+                          title="לחץ לעריכת תווית"
+                        >
+                          {v.label || v.name}
+                          {!v.label && <span className="text-xs text-orange-500 mr-1">(חסר תווית)</span>}
+                        </button>
+                      )}
                       <span className="text-gray-400">=</span>
                       <input
                         type="text"
@@ -1039,18 +1083,73 @@ export default function BotsPage() {
                   <div className="space-y-2">
                     {userVariables.map(v => (
                       <div key={v.id} className="flex items-center gap-3 px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm">
-                        <code className="text-indigo-600 font-mono text-xs">{`{{${v.name}}}`}</code>
-                        <span className="text-gray-500">-</span>
-                        <span className="text-gray-700">{v.label || v.name}</span>
-                        {v.default_value && (
-                          <span className="text-xs text-gray-400">(ברירת מחדל: {v.default_value})</span>
+                        <code className="text-indigo-600 font-mono text-xs bg-indigo-50 px-2 py-1 rounded">{`{{${v.name}}}`}</code>
+                        <span className="text-gray-400">→</span>
+                        {editingVariable === v.id ? (
+                          <div className="flex items-center gap-2 flex-1">
+                            <input
+                              type="text"
+                              value={editVarLabel}
+                              onChange={(e) => setEditVarLabel(e.target.value)}
+                              placeholder="תווית לתצוגה..."
+                              className="flex-1 px-3 py-1.5 border border-indigo-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  handleUpdateVariableLabel(v.id, editVarLabel);
+                                  setEditingVariable(null);
+                                }
+                                if (e.key === 'Escape') {
+                                  setEditingVariable(null);
+                                }
+                              }}
+                            />
+                            <button 
+                              onClick={() => {
+                                handleUpdateVariableLabel(v.id, editVarLabel);
+                                setEditingVariable(null);
+                              }}
+                              className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => setEditingVariable(null)}
+                              className="p-1.5 bg-gray-200 text-gray-600 rounded-lg hover:bg-gray-300"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="text-gray-700 font-medium">{v.label || v.name}</span>
+                            {!v.label && (
+                              <span className="text-xs text-orange-500 bg-orange-50 px-2 py-0.5 rounded">חסר תווית</span>
+                            )}
+                            {v.default_value && (
+                              <span className="text-xs text-gray-400">(ברירת מחדל: {v.default_value})</span>
+                            )}
+                            <div className="mr-auto flex items-center gap-1">
+                              <button 
+                                onClick={() => {
+                                  setEditingVariable(v.id);
+                                  setEditVarLabel(v.label || '');
+                                }}
+                                className="p-2 hover:bg-indigo-50 rounded-lg text-gray-400 hover:text-indigo-600 transition-colors"
+                                title="ערוך תווית"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteVariable(v.id)} 
+                                className="p-2 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
+                                title="מחק משתנה"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </>
                         )}
-                        <button 
-                          onClick={() => handleDeleteVariable(v.id)} 
-                          className="mr-auto p-2 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
                       </div>
                     ))}
                     {userVariables.length === 0 && (

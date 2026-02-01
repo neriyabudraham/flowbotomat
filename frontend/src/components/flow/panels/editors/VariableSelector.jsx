@@ -130,9 +130,29 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
           <div className="p-4 text-center text-gray-400 text-sm">טוען משתנים...</div>
         ) : (
           <>
-            {/* User Variables - Show first as they are most relevant for broadcasts */}
-            {userVariables.length > 0 && (
+            {/* System Variables - Show first */}
+            {systemVariables.length > 0 && (
               <div className="p-2">
+                <div className="text-xs font-medium text-teal-500 px-2 mb-1">משתני מערכת</div>
+                {filterVars(systemVariables).map(v => (
+                  <button
+                    key={v.key}
+                    onClick={() => { onSelect(`{{${v.key}}}`); onClose(); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-teal-50 rounded-lg text-right transition-colors"
+                  >
+                    <v.icon className="w-4 h-4 text-teal-600" />
+                    <span className="flex-1 text-sm text-gray-700">{v.label}</span>
+                    <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                      {`{{${v.key}}}`}
+                    </code>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* User Variables */}
+            {userVariables.length > 0 && (
+              <div className="p-2 border-t border-gray-100">
                 <div className="text-xs font-medium text-blue-500 px-2 mb-1">המשתנים שלי</div>
                 {filterVars(userVariables).map(v => (
                   <button
@@ -141,7 +161,7 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
                     className="w-full flex items-center gap-2 px-3 py-2 hover:bg-blue-50 rounded-lg text-right transition-colors"
                   >
                     <Hash className="w-4 h-4 text-blue-600" />
-                    <span className="flex-1 text-sm text-gray-700">{v.label}</span>
+                    <span className="flex-1 text-sm text-gray-700">{v.label || v.key}</span>
                     <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
                       {`{{${v.key}}}`}
                     </code>
@@ -161,27 +181,7 @@ export default function VariableSelector({ isOpen, onSelect, onClose, position, 
                     className="w-full flex items-center gap-2 px-3 py-2 hover:bg-purple-50 rounded-lg text-right transition-colors"
                   >
                     <Settings className="w-4 h-4 text-purple-600" />
-                    <span className="flex-1 text-sm text-gray-700">{v.label}</span>
-                    <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                      {`{{${v.key}}}`}
-                    </code>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* System Variables */}
-            {systemVariables.length > 0 && (
-              <div className="p-2 border-t border-gray-100">
-                <div className="text-xs font-medium text-gray-400 px-2 mb-1">משתני מערכת</div>
-                {filterVars(systemVariables).map(v => (
-                  <button
-                    key={v.key}
-                    onClick={() => { onSelect(`{{${v.key}}}`); onClose(); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-teal-50 rounded-lg text-right transition-colors"
-                  >
-                    <v.icon className="w-4 h-4 text-teal-600" />
-                    <span className="flex-1 text-sm text-gray-700">{v.label}</span>
+                    <span className="flex-1 text-sm text-gray-700">{v.label || v.key}</span>
                     <code className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
                       {`{{${v.key}}}`}
                     </code>
