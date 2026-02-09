@@ -3,19 +3,19 @@ import {
   Plus, Trash2, Edit2, Search, RefreshCw, Play, Pause, Settings,
   Loader2, X, Calendar, Clock, Users, MessageSquare, CheckCircle,
   AlertCircle, Eye, Zap, Timer, RotateCcw, CalendarDays, Repeat,
-  ChevronDown, ChevronUp, Hash, ArrowRight, FileText, Send, 
-  ArrowDown, PlayCircle, StopCircle, Target, Link2, Ban, Sparkles,
-  AlertTriangle, Info
+  ChevronDown, ChevronUp, Hash, Send, PlayCircle, Ban, Sparkles,
+  AlertTriangle, Info, Target, TrendingUp, XCircle, StopCircle,
+  Download, BarChart3, Activity
 } from 'lucide-react';
 import api from '../../services/api';
 import { TemplateEditorModal } from './TemplatesTab';
 import { AudienceEditorModal } from './AudiencesTab';
 
 const SCHEDULE_TYPES = {
-  manual: { label: 'הפעלה ידנית', icon: PlayCircle, description: 'מופעל בלחיצה' },
-  interval: { label: 'כל X זמן', icon: Repeat, description: 'חוזר כל מספר שעות/ימים' },
-  weekly: { label: 'שבועי', icon: CalendarDays, description: 'בימים בשבוע' },
-  monthly: { label: 'חודשי', icon: Calendar, description: 'בתאריכים בחודש' },
+  manual: { label: 'הפעלה ידנית', icon: PlayCircle, description: 'מופעל בלחיצה', color: 'purple' },
+  interval: { label: 'כל X זמן', icon: Repeat, description: 'חוזר כל מספר שעות/ימים', color: 'blue' },
+  weekly: { label: 'שבועי', icon: CalendarDays, description: 'בימים בשבוע', color: 'emerald' },
+  monthly: { label: 'חודשי', icon: Calendar, description: 'בתאריכים בחודש', color: 'orange' },
 };
 
 const DAYS_OF_WEEK = [
@@ -32,6 +32,14 @@ const STEP_TYPES = {
   send: { label: 'שלח הודעה', icon: Send, color: 'amber' },
   wait: { label: 'המתן', icon: Timer, color: 'blue' },
   trigger_campaign: { label: 'הפעל קמפיין', icon: Zap, color: 'purple' }
+};
+
+const STATUS_CONFIG = {
+  completed: { label: 'הושלם', bgColor: 'bg-green-100', textColor: 'text-green-700', icon: CheckCircle },
+  running: { label: 'פועל', bgColor: 'bg-blue-100', textColor: 'text-blue-700', icon: Activity },
+  paused: { label: 'מושהה', bgColor: 'bg-amber-100', textColor: 'text-amber-700', icon: Pause },
+  failed: { label: 'נכשל', bgColor: 'bg-red-100', textColor: 'text-red-700', icon: XCircle },
+  pending: { label: 'ממתין', bgColor: 'bg-gray-100', textColor: 'text-gray-700', icon: Clock }
 };
 
 /**
@@ -76,7 +84,7 @@ function ConfirmModal({ title, message, confirmText = 'אישור', cancelText =
     danger: { icon: Trash2, iconBg: 'bg-red-100', iconColor: 'text-red-500', btnBg: 'bg-red-500 hover:bg-red-600' },
     warning: { icon: AlertTriangle, iconBg: 'bg-amber-100', iconColor: 'text-amber-500', btnBg: 'bg-amber-500 hover:bg-amber-600' },
     info: { icon: Info, iconBg: 'bg-blue-100', iconColor: 'text-blue-500', btnBg: 'bg-blue-500 hover:bg-blue-600' },
-    success: { icon: Zap, iconBg: 'bg-green-100', iconColor: 'text-green-500', btnBg: 'bg-green-500 hover:bg-green-600' }
+    success: { icon: Zap, iconBg: 'bg-orange-100', iconColor: 'text-orange-500', btnBg: 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700' }
   };
   
   const style = typeStyles[type];
@@ -120,10 +128,12 @@ export default function AutomatedCampaignsTab() {
   const [showEditor, setShowEditor] = useState(false);
   const [editCampaign, setEditCampaign] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [runConfirm, setRunConfirm] = useState(null);
   const [viewCampaign, setViewCampaign] = useState(null);
   const [runs, setRuns] = useState([]);
+  const [loadingRuns, setLoadingRuns] = useState(false);
   const [runningAction, setRunningAction] = useState(null);
   const [toast, setToast] = useState(null);
 
@@ -155,15 +165,18 @@ export default function AutomatedCampaignsTab() {
   };
 
   const fetchRuns = async (campaignId) => {
+    setLoadingRuns(true);
     try {
       const { data } = await api.get(`/broadcasts/automated/${campaignId}/runs`);
       setRuns(data.runs || []);
     } catch (e) {
       console.error('Failed to fetch runs:', e);
     }
+    setLoadingRuns(false);
   };
 
   const handleToggle = async (campaign) => {
+    setRunningAction(`toggle-${campaign.id}`);
     try {
       await api.patch(`/broadcasts/automated/${campaign.id}/toggle`, { is_active: !campaign.is_active });
       showToast(campaign.is_active ? 'הקמפיין הושהה' : 'הקמפיין הופעל', 'success');
@@ -171,10 +184,12 @@ export default function AutomatedCampaignsTab() {
     } catch (e) {
       showToast(e.response?.data?.error || 'שגיאה בעדכון סטטוס', 'error');
     }
+    setRunningAction(null);
   };
 
   const handleDelete = async () => {
     if (!deleteConfirm) return;
+    setRunningAction(`delete-${deleteConfirm.id}`);
     try {
       await api.delete(`/broadcasts/automated/${deleteConfirm.id}`);
       setDeleteConfirm(null);
@@ -183,11 +198,12 @@ export default function AutomatedCampaignsTab() {
     } catch (e) {
       showToast(e.response?.data?.error || 'שגיאה במחיקה', 'error');
     }
+    setRunningAction(null);
   };
 
   const handleRunNow = async () => {
     if (!runConfirm) return;
-    setRunningAction(runConfirm.id);
+    setRunningAction(`run-${runConfirm.id}`);
     try {
       const { data } = await api.post(`/broadcasts/automated/${runConfirm.id}/run`);
       setRunConfirm(null);
@@ -246,9 +262,28 @@ export default function AutomatedCampaignsTab() {
     }
   };
 
-  const filtered = campaigns.filter(c => 
-    c.name?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const openView = async (campaign) => {
+    setViewCampaign(campaign);
+    setRuns([]);
+    fetchRuns(campaign.id);
+  };
+
+  // Stats
+  const stats = {
+    total: campaigns.length,
+    active: campaigns.filter(c => c.is_active).length,
+    manual: campaigns.filter(c => c.schedule_type === 'manual').length,
+    totalRuns: campaigns.reduce((sum, c) => sum + (c.total_sent || 0), 0)
+  };
+
+  const filtered = campaigns.filter(c => {
+    const matchesSearch = c.name?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = !statusFilter || 
+      (statusFilter === 'active' && c.is_active) ||
+      (statusFilter === 'inactive' && !c.is_active) ||
+      (statusFilter === 'manual' && c.schedule_type === 'manual');
+    return matchesSearch && matchesStatus;
+  });
 
   if (loading) {
     return (
@@ -259,7 +294,7 @@ export default function AutomatedCampaignsTab() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Toast Notification */}
       {toast && (
         <Toast 
@@ -269,8 +304,58 @@ export default function AutomatedCampaignsTab() {
         />
       )}
 
+      {/* Stats Overview */}
+      {campaigns.length > 0 && (
+        <div className="grid grid-cols-4 gap-4">
+          <div className="bg-gradient-to-br from-orange-50 to-amber-50 rounded-2xl p-4 border border-orange-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center shadow-lg shadow-orange-500/20">
+                <Zap className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-orange-900">{stats.total}</div>
+                <div className="text-xs text-orange-600">סה"כ קמפיינים</div>
+              </div>
+            </div>
+          </div>
+          <div className="bg-gradient-to-br from-emerald-50 to-green-50 rounded-2xl p-4 border border-emerald-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-green-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                <Activity className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-emerald-900">{stats.active}</div>
+                <div className="text-xs text-emerald-600">פעילים</div>
+              </div>
+            </div>
+          </div>
+          <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-2xl p-4 border border-purple-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center shadow-lg shadow-purple-500/20">
+                <PlayCircle className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-purple-900">{stats.manual}</div>
+                <div className="text-xs text-purple-600">ידניים</div>
+              </div>
+            </div>
+          </div>
+          <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-2xl p-4 border border-blue-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                <TrendingUp className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-blue-900">{stats.totalRuns}</div>
+                <div className="text-xs text-blue-600">הרצות</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <div className="relative">
             <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -279,12 +364,24 @@ export default function AutomatedCampaignsTab() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="חיפוש קמפיינים..."
-              className="pl-4 pr-10 py-2 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-400"
+              className="pl-4 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-500/20 focus:border-orange-400"
             />
           </div>
+          
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-500/20 focus:border-orange-400 bg-white"
+          >
+            <option value="">כל הסטטוסים</option>
+            <option value="active">פעילים</option>
+            <option value="inactive">כבויים</option>
+            <option value="manual">ידניים</option>
+          </select>
+          
           <button
             onClick={fetchAll}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-2.5 hover:bg-gray-100 rounded-xl transition-colors"
           >
             <RefreshCw className="w-4 h-4 text-gray-500" />
           </button>
@@ -292,7 +389,7 @@ export default function AutomatedCampaignsTab() {
         
         <button
           onClick={() => { setEditCampaign(null); setShowEditor(true); }}
-          className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-xl hover:from-orange-600 hover:to-orange-700 transition-all shadow-lg shadow-orange-500/25 font-medium"
+          className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-xl hover:from-orange-600 hover:to-amber-600 transition-all shadow-lg shadow-orange-500/25 font-medium"
         >
           <Plus className="w-4 h-4" />
           צור קמפיין חדש
@@ -309,21 +406,21 @@ export default function AutomatedCampaignsTab() {
           <p className="text-gray-500 mb-6 max-w-sm mx-auto">צור קמפיין חוזר או רצף הודעות אוטומטי</p>
           <button
             onClick={() => { setEditCampaign(null); setShowEditor(true); }}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-xl hover:from-orange-600 hover:to-orange-700 font-medium shadow-lg shadow-orange-500/25"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-xl hover:from-orange-600 hover:to-amber-600 font-medium shadow-lg shadow-orange-500/25"
           >
             <Sparkles className="w-5 h-5" />
             צור קמפיין ראשון
           </button>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="space-y-4">
           {filtered.map(campaign => (
             <CampaignCard
               key={campaign.id}
               campaign={campaign}
               onToggle={handleToggle}
               onEdit={() => { setEditCampaign(campaign); setShowEditor(true); }}
-              onView={() => { setViewCampaign(campaign); fetchRuns(campaign.id); }}
+              onView={() => openView(campaign)}
               onDelete={() => setDeleteConfirm(campaign)}
               onRunNow={() => setRunConfirm(campaign)}
               runningAction={runningAction}
@@ -348,12 +445,15 @@ export default function AutomatedCampaignsTab() {
         />
       )}
 
-      {/* View History Modal */}
+      {/* View Stats Modal */}
       {viewCampaign && (
-        <CampaignRunsModal
+        <CampaignStatsModal
           campaign={viewCampaign}
           runs={runs}
+          loadingRuns={loadingRuns}
           onClose={() => setViewCampaign(null)}
+          onRefresh={() => fetchRuns(viewCampaign.id)}
+          formatSchedule={formatSchedule}
         />
       )}
 
@@ -366,6 +466,7 @@ export default function AutomatedCampaignsTab() {
           type="danger"
           onConfirm={handleDelete}
           onCancel={() => setDeleteConfirm(null)}
+          loading={runningAction?.startsWith('delete')}
         />
       )}
 
@@ -378,7 +479,7 @@ export default function AutomatedCampaignsTab() {
           type="success"
           onConfirm={handleRunNow}
           onCancel={() => setRunConfirm(null)}
-          loading={runningAction === runConfirm.id}
+          loading={runningAction?.startsWith('run')}
         />
       )}
     </div>
@@ -389,94 +490,134 @@ export default function AutomatedCampaignsTab() {
  * Campaign Card Component
  */
 function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, runningAction, formatSchedule, formatNextRun }) {
+  const scheduleConfig = SCHEDULE_TYPES[campaign.schedule_type] || SCHEDULE_TYPES.manual;
+  const ScheduleIcon = scheduleConfig.icon;
+  
   return (
-    <div 
-      className="group bg-white border border-gray-200 rounded-2xl overflow-hidden hover:shadow-xl hover:border-orange-200 transition-all cursor-pointer"
-      onClick={onEdit}
-    >
+    <div className={`bg-white rounded-2xl border-2 ${campaign.is_active ? 'border-orange-200' : 'border-gray-100'} hover:shadow-xl transition-all overflow-hidden`}>
       <div className="p-5">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-3">
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
-              campaign.is_active 
-                ? 'bg-gradient-to-br from-green-500 to-emerald-500 shadow-green-500/20' 
-                : 'bg-gradient-to-br from-gray-400 to-gray-500 shadow-gray-500/20'
-            }`}>
-              <Zap className="w-6 h-6 text-white" />
+        <div className="flex items-start gap-4">
+          {/* Icon */}
+          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg shrink-0 ${
+            campaign.is_active 
+              ? 'bg-gradient-to-br from-orange-500 to-amber-500 shadow-orange-500/20' 
+              : 'bg-gradient-to-br from-gray-400 to-gray-500 shadow-gray-500/20'
+          }`}>
+            <Zap className="w-7 h-7 text-white" />
+          </div>
+          
+          {/* Content */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div>
+                <h3 className="font-bold text-lg text-gray-900">{campaign.name}</h3>
+                {campaign.description && (
+                  <p className="text-sm text-gray-500 mt-0.5 line-clamp-1">{campaign.description}</p>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                  campaign.is_active 
+                    ? 'bg-green-100 text-green-700' 
+                    : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {campaign.is_active ? 'פעיל' : 'כבוי'}
+                </span>
+                <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${
+                  scheduleConfig.color === 'purple' ? 'bg-purple-100 text-purple-700' :
+                  scheduleConfig.color === 'blue' ? 'bg-blue-100 text-blue-700' :
+                  scheduleConfig.color === 'emerald' ? 'bg-emerald-100 text-emerald-700' :
+                  'bg-orange-100 text-orange-700'
+                }`}>
+                  <ScheduleIcon className="w-3 h-3" />
+                  {SCHEDULE_TYPES[campaign.schedule_type]?.label}
+                </span>
+              </div>
             </div>
-            <div>
-              <h3 className="font-semibold text-gray-900">{campaign.name}</h3>
-              <span className="text-xs text-gray-500 flex items-center gap-1">
-                <Calendar className="w-3 h-3" />
+            
+            {/* Meta Info */}
+            <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500 mb-4">
+              <span className="flex items-center gap-1.5">
+                <Hash className="w-4 h-4 text-gray-400" />
+                {campaign.steps_count || 0} שלבים
+              </span>
+              <span className="flex items-center gap-1.5">
+                <RotateCcw className="w-4 h-4 text-gray-400" />
+                {campaign.total_sent || 0} הרצות
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Calendar className="w-4 h-4 text-gray-400" />
                 {formatSchedule(campaign)}
               </span>
+              {campaign.schedule_type !== 'manual' && campaign.is_active && campaign.next_run_at && (
+                <span className="flex items-center gap-1.5 text-orange-600 font-medium">
+                  <Timer className="w-4 h-4" />
+                  {formatNextRun(campaign.next_run_at, campaign.schedule_type)}
+                </span>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-2">
+              {campaign.schedule_type !== 'manual' && (
+                <button
+                  onClick={() => onToggle(campaign)}
+                  disabled={runningAction?.startsWith('toggle')}
+                  className={`px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-all ${
+                    campaign.is_active
+                      ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                      : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                  }`}
+                >
+                  {runningAction === `toggle-${campaign.id}` ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : campaign.is_active ? (
+                    <Pause className="w-4 h-4" />
+                  ) : (
+                    <Play className="w-4 h-4" />
+                  )}
+                  {campaign.is_active ? 'השהה' : 'הפעל'}
+                </button>
+              )}
+              
+              <button
+                onClick={onRunNow}
+                disabled={runningAction?.startsWith('run')}
+                className="px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-xl text-sm font-medium hover:shadow-lg transition-all flex items-center gap-2 disabled:opacity-50"
+              >
+                {runningAction === `run-${campaign.id}` ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Zap className="w-4 h-4" />
+                )}
+                הרץ עכשיו
+              </button>
+              
+              <button
+                onClick={onView}
+                className="p-2 bg-purple-50 text-purple-600 rounded-xl hover:bg-purple-100 transition-colors"
+                title="סטטיסטיקות"
+              >
+                <BarChart3 className="w-5 h-5" />
+              </button>
+              
+              <button
+                onClick={onEdit}
+                className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors"
+                title="עריכה"
+              >
+                <Edit2 className="w-5 h-5" />
+              </button>
+              
+              <button
+                onClick={onDelete}
+                className="p-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-colors"
+                title="מחיקה"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
             </div>
           </div>
-          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-            campaign.is_active 
-              ? 'bg-green-100 text-green-700' 
-              : 'bg-gray-100 text-gray-600'
-          }`}>
-            {campaign.is_active ? 'פעיל' : 'כבוי'}
-          </span>
-        </div>
-        
-        {campaign.description && (
-          <p className="text-sm text-gray-500 mb-3 line-clamp-2">{campaign.description}</p>
-        )}
-        
-        <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 mb-4">
-          <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-lg">
-            <Hash className="w-3 h-3" />
-            {campaign.steps_count || 0} שלבים
-          </span>
-          <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-lg">
-            <RotateCcw className="w-3 h-3" />
-            {campaign.total_sent || 0} הרצות
-          </span>
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center gap-2 pt-3 border-t border-gray-100" onClick={(e) => e.stopPropagation()}>
-          {campaign.schedule_type !== 'manual' && (
-            <button
-              onClick={() => onToggle(campaign)}
-              className={`p-2 rounded-lg transition-all ${
-                campaign.is_active
-                  ? 'bg-green-100 text-green-600 hover:bg-green-200'
-                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-              }`}
-              title={campaign.is_active ? 'השהה' : 'הפעל'}
-            >
-              {campaign.is_active ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-            </button>
-          )}
-          <button
-            onClick={onView}
-            className="p-2 bg-purple-50 text-purple-600 rounded-lg hover:bg-purple-100 transition-colors"
-            title="היסטוריה"
-          >
-            <Eye className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onDelete}
-            className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
-            title="מחק"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onRunNow}
-            disabled={runningAction === campaign.id}
-            className="mr-auto px-3 py-2 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-lg text-xs font-medium hover:shadow-lg transition-all flex items-center gap-1.5 disabled:opacity-50"
-          >
-            {runningAction === campaign.id ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Zap className="w-3.5 h-3.5" />
-            )}
-            הרץ עכשיו
-          </button>
         </div>
       </div>
     </div>
@@ -484,73 +625,200 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
 }
 
 /**
- * Campaign Runs Modal
+ * Campaign Stats Modal - Enhanced
  */
-function CampaignRunsModal({ campaign, runs, onClose }) {
+function CampaignStatsModal({ campaign, runs, loadingRuns, onClose, onRefresh, formatSchedule }) {
+  const totalSent = runs.reduce((sum, r) => sum + (r.recipients_sent || 0), 0);
+  const totalFailed = runs.reduce((sum, r) => sum + (r.recipients_failed || 0), 0);
+  const successRate = totalSent + totalFailed > 0 
+    ? Math.round((totalSent / (totalSent + totalFailed)) * 100) 
+    : 0;
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden shadow-2xl">
-        <div className="p-5 border-b border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center">
-              <RotateCcw className="w-5 h-5 text-white" />
+      <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-orange-500 to-amber-500 p-6 shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
+                <BarChart3 className="w-7 h-7 text-white" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">{campaign.name}</h3>
+                <p className="text-orange-100">{formatSchedule(campaign)}</p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-bold text-gray-900">היסטוריית הרצות</h3>
-              <p className="text-sm text-gray-500">{campaign.name}</p>
+            <button 
+              onClick={onClose}
+              className="p-2 hover:bg-white/20 rounded-xl text-white transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+        </div>
+
+        {/* Stats Summary */}
+        <div className="grid grid-cols-4 gap-4 p-6 bg-gray-50 border-b border-gray-200">
+          <div className="bg-white rounded-xl p-4 border border-gray-200">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
+                <RotateCcw className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-gray-900">{runs.length}</div>
+                <div className="text-xs text-gray-500">הרצות</div>
+              </div>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
+          <div className="bg-white rounded-xl p-4 border border-gray-200">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-gray-900">{totalSent}</div>
+                <div className="text-xs text-gray-500">נשלחו</div>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-gray-200">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
+                <XCircle className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-gray-900">{totalFailed}</div>
+                <div className="text-xs text-gray-500">נכשלו</div>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-gray-200">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
+                <TrendingUp className="w-5 h-5 text-orange-600" />
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-gray-900">{successRate}%</div>
+                <div className="text-xs text-gray-500">הצלחה</div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="p-5 overflow-y-auto max-h-[60vh]">
-          {runs.length === 0 ? (
+
+        {/* Runs List */}
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="font-bold text-gray-900">היסטוריית הרצות</h4>
+            <button 
+              onClick={onRefresh}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 text-gray-500 ${loadingRuns ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+
+          {loadingRuns ? (
             <div className="text-center py-12">
-              <RotateCcw className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+              <Loader2 className="w-8 h-8 animate-spin mx-auto text-orange-500" />
+            </div>
+          ) : runs.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <RotateCcw className="w-8 h-8 text-gray-400" />
+              </div>
               <p className="text-gray-500">אין היסטוריה עדיין</p>
+              <p className="text-sm text-gray-400 mt-1">לחץ "הרץ עכשיו" להפעלת הקמפיין</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {runs.map(run => (
-                <div key={run.id} className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                        run.status === 'completed' ? 'bg-green-100 text-green-700' :
-                        run.status === 'running' ? 'bg-blue-100 text-blue-700' :
-                        run.status === 'paused' ? 'bg-amber-100 text-amber-700' :
-                        'bg-red-100 text-red-700'
-                      }`}>
-                        {run.status === 'completed' ? 'הושלם' :
-                         run.status === 'running' ? 'פועל' :
-                         run.status === 'paused' ? 'מושהה' : 'נכשל'}
+              {runs.map((run, index) => {
+                const statusConfig = STATUS_CONFIG[run.status] || STATUS_CONFIG.pending;
+                const StatusIcon = statusConfig.icon;
+                const total = (run.recipients_sent || 0) + (run.recipients_failed || 0);
+                const runSuccessRate = total > 0 ? Math.round((run.recipients_sent / total) * 100) : 0;
+                
+                return (
+                  <div 
+                    key={run.id} 
+                    className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg font-bold text-gray-400">#{runs.length - index}</span>
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${statusConfig.bgColor} ${statusConfig.textColor}`}>
+                          <StatusIcon className="w-3.5 h-3.5" />
+                          {statusConfig.label}
+                        </span>
+                        {run.step_order !== undefined && (
+                          <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-lg">
+                            שלב {run.step_order + 1}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {new Date(run.started_at).toLocaleString('he-IL')}
+                      </div>
+                    </div>
+                    
+                    {/* Progress Bar */}
+                    {total > 0 && (
+                      <div className="mb-3">
+                        <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                          <span>התקדמות</span>
+                          <span>{runSuccessRate}% הצלחה</span>
+                        </div>
+                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-green-400 to-green-500 rounded-full transition-all"
+                            style={{ width: `${runSuccessRate}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="flex items-center gap-6 text-sm">
+                      <span className="flex items-center gap-1.5">
+                        <CheckCircle className="w-4 h-4 text-green-500" />
+                        <span className="text-gray-700 font-medium">{run.recipients_sent || 0}</span>
+                        <span className="text-gray-500">נשלחו</span>
                       </span>
-                      {run.step_order !== undefined && (
-                        <span className="text-xs text-gray-500">שלב {run.step_order + 1}</span>
+                      <span className="flex items-center gap-1.5">
+                        <XCircle className="w-4 h-4 text-red-500" />
+                        <span className="text-gray-700 font-medium">{run.recipients_failed || 0}</span>
+                        <span className="text-gray-500">נכשלו</span>
+                      </span>
+                      {run.completed_at && (
+                        <span className="flex items-center gap-1.5 text-gray-500">
+                          <Timer className="w-4 h-4" />
+                          {Math.round((new Date(run.completed_at) - new Date(run.started_at)) / 1000)}ש'
+                        </span>
                       )}
                     </div>
-                    <span className="text-sm text-gray-500">
-                      {new Date(run.started_at).toLocaleString('he-IL')}
-                    </span>
+                    
+                    {run.error_message && (
+                      <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                        <div className="flex items-center gap-2 text-red-700 text-sm">
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                          <span>{run.error_message}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-4 text-sm text-gray-600">
-                    <span className="flex items-center gap-1">
-                      <CheckCircle className="w-4 h-4 text-green-500" />
-                      {run.recipients_sent || 0} נשלחו
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <AlertCircle className="w-4 h-4 text-red-500" />
-                      {run.recipients_failed || 0} נכשלו
-                    </span>
-                  </div>
-                  {run.error_message && (
-                    <p className="mt-2 text-sm text-red-600 bg-red-50 p-2 rounded">{run.error_message}</p>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end shrink-0">
+          <button
+            onClick={onClose}
+            className="px-6 py-2.5 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 font-medium transition-colors"
+          >
+            סגור
+          </button>
         </div>
       </div>
     </div>
@@ -767,19 +1035,21 @@ function CampaignEditor({ campaign, audiences, templates, allCampaigns, onClose,
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
         {/* Header */}
-        <div className="p-5 border-b border-gray-100 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center shadow-lg shadow-orange-500/20">
-              <Zap className="w-5 h-5 text-white" />
+        <div className="bg-gradient-to-r from-orange-500 to-amber-500 p-5 shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                <Zap className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg text-white">{campaign ? 'עריכת קמפיין אוטומטי' : 'קמפיין אוטומטי חדש'}</h3>
+                <p className="text-sm text-orange-100">הגדר רצף הודעות אוטומטי</p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-bold text-gray-900">{campaign ? 'עריכת קמפיין אוטומטי' : 'קמפיין אוטומטי חדש'}</h3>
-              <p className="text-sm text-gray-500">הגדר רצף הודעות אוטומטי</p>
-            </div>
+            <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-lg text-white transition-colors">
+              <X className="w-5 h-5" />
+            </button>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
         </div>
 
         {/* Content */}
@@ -1107,7 +1377,7 @@ function CampaignEditor({ campaign, audiences, templates, allCampaigns, onClose,
           <button
             onClick={handleSave}
             disabled={saving}
-            className="px-6 py-2.5 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-xl hover:shadow-lg disabled:opacity-50 flex items-center gap-2 font-medium transition-all"
+            className="px-6 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-xl hover:shadow-lg disabled:opacity-50 flex items-center gap-2 font-medium transition-all"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
             {campaign ? 'שמור שינויים' : 'צור קמפיין'}

@@ -120,8 +120,8 @@ async function executeCampaign(campaign) {
     // Get WhatsApp connection
     const connectionResult = await db.query(`
       SELECT * FROM whatsapp_connections 
-      WHERE user_id = $1 AND is_active = true
-      LIMIT 1
+      WHERE user_id = $1 AND status = 'connected'
+      ORDER BY connected_at DESC LIMIT 1
     `, [campaign.user_id]);
     
     if (connectionResult.rows.length === 0) {
