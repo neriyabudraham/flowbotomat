@@ -469,19 +469,83 @@ async function startForwardJob(jobId) {
     // If media_url is a WAHA URL, download and save locally before sending
     if (job.media_url && job.media_url.includes('/api/files/session_')) {
       try {
-        const { downloadAndSaveMedia } = require('../../services/groupForwards/trigger.service');
-        if (typeof downloadAndSaveMedia === 'function') {
-          console.log(`[GroupForwards] Job ${jobId}: WAHA media URL detected, downloading locally...`);
-          const localUrl = await downloadAndSaveMedia(job.media_url, job.media_mime_type, job.media_filename);
-          if (localUrl && localUrl !== job.media_url) {
+        const axios = require('axios');
+        const path = require('path');
+        const fs = require('fs');
+        const crypto = require('crypto');
+        
+        console.log(`[GroupForwards] Job ${jobId}: WAHA media URL detected, downloading locally...`);
+        console.log(`[GroupForwards] Original URL: ${job.media_url}`);
+        
+        // Extract the path part from the URL (e.g., /api/files/session_xxx/file.jpeg)
+        const urlObj = new URL(job.media_url);
+        const filePath = urlObj.pathname; // /api/files/session_.../file.jpeg
+        
+        // Try downloading using WAHA internal base URL first, then fallback to original
+        const wahaBaseUrl = (creds.baseUrl || process.env.WAHA_BASE_URL || '').replace(/\/$/, '');
+        const wahaApiKey = creds.apiKey || process.env.WAHA_API_KEY;
+        
+        const urlsToTry = [];
+        if (wahaBaseUrl) {
+          urlsToTry.push({ url: `${wahaBaseUrl}${filePath}`, label: 'WAHA internal' });
+        }
+        urlsToTry.push({ url: job.media_url, label: 'original' });
+        
+        let downloaded = false;
+        for (const attempt of urlsToTry) {
+          try {
+            console.log(`[GroupForwards] Trying download from ${attempt.label}: ${attempt.url.substring(0, 80)}...`);
+            const response = await axios.get(attempt.url, { 
+              responseType: 'arraybuffer',
+              timeout: 30000,
+              headers: wahaApiKey ? { 'X-Api-Key': wahaApiKey } : {}
+            });
+            
+            // Determine type and save
+            let type = 'misc';
+            const mime = job.media_mime_type || '';
+            if (mime.startsWith('image/')) type = 'image';
+            else if (mime.startsWith('video/')) type = 'video';
+            else if (mime.startsWith('audio/')) type = 'audio';
+            
+            const uploadsDir = path.join(__dirname, '../../../uploads', type);
+            if (!fs.existsSync(uploadsDir)) {
+              fs.mkdirSync(uploadsDir, { recursive: true });
+            }
+            
+            const ext = path.extname(job.media_filename || urlObj.pathname) || '.jpeg';
+            const uniqueId = crypto.randomBytes(8).toString('hex');
+            const filename = `${Date.now()}-${uniqueId}${ext}`;
+            const savePath = path.join(uploadsDir, filename);
+            
+            fs.writeFileSync(savePath, response.data);
+            
+            // Build absolute URL for WAHA to download from
+            let baseApiUrl = process.env.API_URL || '';
+            // If API_URL is relative (like /api), prepend FRONTEND_URL to make it absolute
+            if (baseApiUrl.startsWith('/') || !baseApiUrl.startsWith('http')) {
+              const frontendUrl = (process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:4000').replace(/\/$/, '');
+              baseApiUrl = `${frontendUrl}${baseApiUrl.startsWith('/') ? baseApiUrl : '/api'}`;
+            }
+            const localUrl = `${baseApiUrl}/uploads/${type}/${filename}`;
+            
             // Update job with local URL
             await db.query(`UPDATE forward_jobs SET media_url = $2 WHERE id = $1`, [jobId, localUrl]);
             job.media_url = localUrl;
-            console.log(`[GroupForwards] Job ${jobId}: Media saved locally: ${localUrl}`);
+            
+            console.log(`[GroupForwards] Job ${jobId}: Media saved locally: ${localUrl} (${response.data.length} bytes)`);
+            downloaded = true;
+            break;
+          } catch (dlErr) {
+            console.error(`[GroupForwards] Download from ${attempt.label} failed:`, dlErr.message);
           }
         }
+        
+        if (!downloaded) {
+          console.error(`[GroupForwards] Job ${jobId}: All download attempts failed, keeping original URL`);
+        }
       } catch (dlErr) {
-        console.error(`[GroupForwards] Job ${jobId}: Failed to download media locally:`, dlErr.message);
+        console.error(`[GroupForwards] Job ${jobId}: Media download error:`, dlErr.message);
       }
     }
     
