@@ -136,10 +136,24 @@ export default function AutomatedCampaignsTab() {
   const [loadingRuns, setLoadingRuns] = useState(false);
   const [runningAction, setRunningAction] = useState(null);
   const [toast, setToast] = useState(null);
+  const [tick, setTick] = useState(0); // For real-time countdown
 
   useEffect(() => {
     fetchAll();
   }, []);
+
+  // Real-time countdown ticker - updates every second when there are active campaigns with upcoming runs
+  useEffect(() => {
+    const hasUpcoming = campaigns.some(c => 
+      c.is_active && c.next_run_at && c.schedule_type !== 'manual' &&
+      (new Date(c.next_run_at) - new Date()) < 3600000 // Less than 1 hour away
+    );
+    
+    if (hasUpcoming) {
+      const interval = setInterval(() => setTick(t => t + 1), 1000);
+      return () => clearInterval(interval);
+    }
+  }, [campaigns]);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });

@@ -40,7 +40,7 @@ async function checkAndRunCampaigns() {
       SELECT 
         name, 
         to_char(next_run_at, 'YYYY-MM-DD HH24:MI:SS') as next_run_utc,
-        to_char(next_run_at AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') as next_run_israel,
+        to_char(next_run_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') as next_run_israel,
         is_active 
       FROM automated_campaigns 
       WHERE is_active = true AND next_run_at IS NOT NULL
@@ -89,15 +89,98 @@ async function executeCampaign(campaign) {
       return;
     }
     
-    // Get first 'send' step for now (later we can implement sequences with wait)
-    const sendStep = steps.find(s => s.step_type === 'send');
+    // Process ALL steps in order (send, wait, trigger_campaign)
+    for (const step of steps) {
+      if (step.step_type === 'trigger_campaign') {
+        // Trigger another campaign
+        await executeTriggerStep(step, campaign);
+        continue;
+      }
+      
+      if (step.step_type === 'wait') {
+        // Wait step - delay execution
+        const waitConfig = step.wait_config || {};
+        const waitValue = waitConfig.value || 0;
+        const waitUnit = waitConfig.unit || 'seconds';
+        let waitMs = waitValue * 1000; // default seconds
+        if (waitUnit === 'minutes') waitMs = waitValue * 60 * 1000;
+        if (waitUnit === 'hours') waitMs = waitValue * 60 * 60 * 1000;
+        
+        if (waitMs > 0) {
+          console.log(`[Scheduler] Campaign ${campaign.id} waiting ${waitValue} ${waitUnit}...`);
+          await new Promise(resolve => setTimeout(resolve, waitMs));
+        }
+        continue;
+      }
+      
+      if (step.step_type !== 'send') continue;
+      
+      // Process send step
+      await executeSendStep(step, campaign);
+    }
     
-    if (!sendStep) {
-      console.log(`[Scheduler] Campaign ${campaign.id} has no send step, skipping`);
-      await updateCampaignNextRun(campaign);
+    // Calculate and set next run
+    await updateCampaignNextRun(campaign);
+    
+  } catch (error) {
+    console.error(`[Scheduler] Execute campaign error:`, error);
+    
+    // Try to mark run as failed
+    try {
+      await db.query(`
+        UPDATE automated_campaign_runs
+        SET status = 'failed', completed_at = NOW(), error_message = $1
+        WHERE campaign_id = $2 AND status = 'running'
+      `, [error.message, campaign.id]);
+    } catch (e) {}
+    
+    await updateCampaignNextRun(campaign);
+  }
+}
+
+/**
+ * Execute a trigger_campaign step
+ */
+async function executeTriggerStep(step, parentCampaign) {
+  const targetCampaignId = step.trigger_campaign_id;
+  if (!targetCampaignId) {
+    console.log(`[Scheduler] Trigger step has no target campaign, skipping`);
+    return;
+  }
+  
+  console.log(`[Scheduler] Campaign ${parentCampaign.id} triggering campaign ${targetCampaignId}`);
+  
+  try {
+    // Get the target campaign
+    const targetResult = await db.query(`
+      SELECT ac.*, a.name as audience_name, a.id as audience_id
+      FROM automated_campaigns ac
+      LEFT JOIN broadcast_audiences a ON a.id = ac.audience_id
+      WHERE ac.id = $1 AND ac.user_id = $2
+    `, [targetCampaignId, parentCampaign.user_id]);
+    
+    if (targetResult.rows.length === 0) {
+      console.error(`[Scheduler] Target campaign ${targetCampaignId} not found`);
       return;
     }
     
+    const targetCampaign = targetResult.rows[0];
+    console.log(`[Scheduler] Executing triggered campaign: ${targetCampaign.name}`);
+    
+    // Execute the target campaign (recursive call)
+    await executeCampaign(targetCampaign);
+  } catch (error) {
+    console.error(`[Scheduler] Error executing triggered campaign ${targetCampaignId}:`, error.message);
+  }
+}
+
+/**
+ * Execute a send step
+ */
+async function executeSendStep(sendStep, campaign) {
+  console.log(`[Scheduler] Executing send step for campaign ${campaign.id}`);
+  
+  try {
     // Create a run record
     const runResult = await db.query(`
       INSERT INTO automated_campaign_runs (campaign_id, step_id, status)
@@ -139,7 +222,6 @@ async function executeCampaign(campaign) {
         SET status = 'completed', completed_at = NOW()
         WHERE id = $1
       `, [runId]);
-      await updateCampaignNextRun(campaign);
       return;
     }
     
@@ -153,7 +235,6 @@ async function executeCampaign(campaign) {
         SET status = 'failed', completed_at = NOW(), error_message = 'אין חיבור וואטסאפ פעיל'
         WHERE id = $1
       `, [runId]);
-      await updateCampaignNextRun(campaign);
       return;
     }
     
@@ -183,7 +264,6 @@ async function executeCampaign(campaign) {
         SET status = 'failed', completed_at = NOW(), error_message = 'אין הודעות בתבנית'
         WHERE id = $1
       `, [runId]);
-      await updateCampaignNextRun(campaign);
       return;
     }
     
@@ -232,13 +312,10 @@ async function executeCampaign(campaign) {
       WHERE id = $1
     `, [campaign.id]);
     
-    console.log(`[Scheduler] Campaign ${campaign.id} completed: ${sentCount} sent, ${failedCount} failed`);
-    
-    // Calculate and set next run
-    await updateCampaignNextRun(campaign);
+    console.log(`[Scheduler] Send step completed for campaign ${campaign.id}: ${sentCount} sent, ${failedCount} failed`);
     
   } catch (error) {
-    console.error(`[Scheduler] Execute campaign error:`, error);
+    console.error(`[Scheduler] Send step error:`, error);
     
     // Try to mark run as failed
     try {
@@ -248,8 +325,6 @@ async function executeCampaign(campaign) {
         WHERE campaign_id = $2 AND status = 'running'
       `, [error.message, campaign.id]);
     } catch (e) {}
-    
-    await updateCampaignNextRun(campaign);
   }
 }
 

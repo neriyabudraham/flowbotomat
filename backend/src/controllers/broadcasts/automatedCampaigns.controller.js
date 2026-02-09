@@ -332,11 +332,12 @@ async function storeNextRunAt(campaignId, israelTimeStr) {
   await db.query(sql, params);
   
   // Log what was actually stored
+  // For TIMESTAMP WITHOUT TIME ZONE: first AT TIME ZONE 'UTC' declares it as UTC (→ TIMESTAMPTZ), 
+  // then AT TIME ZONE 'Asia/Jerusalem' converts to Israel local time
   const check = await db.query(`
     SELECT 
-      next_run_at as stored_utc,
-      to_char(next_run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') as utc_str,
-      to_char(next_run_at AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') as israel_str
+      to_char(next_run_at, 'YYYY-MM-DD HH24:MI:SS') as utc_str,
+      to_char(next_run_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') as israel_str
     FROM automated_campaigns WHERE id = $1
   `, [campaignId]);
   if (check.rows[0]) {
