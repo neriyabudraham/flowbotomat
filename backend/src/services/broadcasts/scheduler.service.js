@@ -144,7 +144,7 @@ async function executeCampaign(campaign) {
       const messagesResult = await db.query(`
         SELECT * FROM broadcast_template_messages 
         WHERE template_id = $1 
-        ORDER BY order_index
+        ORDER BY message_order
       `, [sendStep.template_id]);
       
       messages = messagesResult.rows;

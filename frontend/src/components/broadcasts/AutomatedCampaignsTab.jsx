@@ -396,7 +396,7 @@ export default function AutomatedCampaignsTab() {
         </button>
       </div>
 
-      {/* Campaigns List */}
+      {/* Campaigns Grid */}
       {filtered.length === 0 ? (
         <div className="text-center py-16">
           <div className="w-20 h-20 bg-gradient-to-br from-orange-100 to-amber-100 rounded-3xl flex items-center justify-center mx-auto mb-4">
@@ -413,7 +413,7 @@ export default function AutomatedCampaignsTab() {
           </button>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
           {filtered.map(campaign => (
             <CampaignCard
               key={campaign.id}
@@ -428,6 +428,19 @@ export default function AutomatedCampaignsTab() {
               formatNextRun={formatNextRun}
             />
           ))}
+          
+          {/* Create New Card */}
+          <div
+            onClick={() => { setEditCampaign(null); setShowEditor(true); }}
+            className="group relative bg-gradient-to-br from-gray-50 to-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-orange-300 hover:bg-orange-50/30 transition-all cursor-pointer flex items-center justify-center min-h-[200px]"
+          >
+            <div className="text-center">
+              <div className="w-14 h-14 bg-gray-100 group-hover:bg-orange-100 rounded-xl flex items-center justify-center mx-auto mb-3 transition-colors">
+                <Plus className="w-7 h-7 text-gray-400 group-hover:text-orange-500 transition-colors" />
+              </div>
+              <div className="font-medium text-gray-600 group-hover:text-orange-600 transition-colors">צור קמפיין חדש</div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -487,138 +500,126 @@ export default function AutomatedCampaignsTab() {
 }
 
 /**
- * Campaign Card Component
+ * Campaign Card Component - Matching AudiencesTab style
  */
 function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, runningAction, formatSchedule, formatNextRun }) {
   const scheduleConfig = SCHEDULE_TYPES[campaign.schedule_type] || SCHEDULE_TYPES.manual;
   const ScheduleIcon = scheduleConfig.icon;
   
   return (
-    <div className={`bg-white rounded-2xl border-2 ${campaign.is_active ? 'border-orange-200' : 'border-gray-100'} hover:shadow-xl transition-all overflow-hidden`}>
+    <div 
+      className="group bg-white border border-gray-200 rounded-2xl overflow-hidden hover:shadow-xl hover:border-orange-200 transition-all cursor-pointer"
+      onClick={onEdit}
+    >
       <div className="p-5">
-        <div className="flex items-start gap-4">
-          {/* Icon */}
-          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg shrink-0 ${
-            campaign.is_active 
-              ? 'bg-gradient-to-br from-orange-500 to-amber-500 shadow-orange-500/20' 
-              : 'bg-gradient-to-br from-gray-400 to-gray-500 shadow-gray-500/20'
-          }`}>
-            <Zap className="w-7 h-7 text-white" />
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
+              campaign.is_active 
+                ? 'bg-gradient-to-br from-orange-500 to-amber-500 shadow-orange-500/20' 
+                : 'bg-gradient-to-br from-gray-400 to-gray-500 shadow-gray-500/20'
+            }`}>
+              <Zap className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900">{campaign.name}</h3>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                scheduleConfig.color === 'purple' ? 'bg-purple-100 text-purple-700' :
+                scheduleConfig.color === 'blue' ? 'bg-blue-100 text-blue-700' :
+                scheduleConfig.color === 'emerald' ? 'bg-emerald-100 text-emerald-700' :
+                'bg-orange-100 text-orange-700'
+              }`}>
+                {SCHEDULE_TYPES[campaign.schedule_type]?.label}
+              </span>
+            </div>
           </div>
-          
-          {/* Content */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-start justify-between gap-3 mb-2">
-              <div>
-                <h3 className="font-bold text-lg text-gray-900">{campaign.name}</h3>
-                {campaign.description && (
-                  <p className="text-sm text-gray-500 mt-0.5 line-clamp-1">{campaign.description}</p>
-                )}
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                  campaign.is_active 
-                    ? 'bg-green-100 text-green-700' 
-                    : 'bg-gray-100 text-gray-600'
-                }`}>
-                  {campaign.is_active ? 'פעיל' : 'כבוי'}
-                </span>
-                <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${
-                  scheduleConfig.color === 'purple' ? 'bg-purple-100 text-purple-700' :
-                  scheduleConfig.color === 'blue' ? 'bg-blue-100 text-blue-700' :
-                  scheduleConfig.color === 'emerald' ? 'bg-emerald-100 text-emerald-700' :
-                  'bg-orange-100 text-orange-700'
-                }`}>
-                  <ScheduleIcon className="w-3 h-3" />
-                  {SCHEDULE_TYPES[campaign.schedule_type]?.label}
-                </span>
-              </div>
-            </div>
-            
-            {/* Meta Info */}
-            <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500 mb-4">
-              <span className="flex items-center gap-1.5">
-                <Hash className="w-4 h-4 text-gray-400" />
-                {campaign.steps_count || 0} שלבים
-              </span>
-              <span className="flex items-center gap-1.5">
-                <RotateCcw className="w-4 h-4 text-gray-400" />
-                {campaign.total_sent || 0} הרצות
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Calendar className="w-4 h-4 text-gray-400" />
-                {formatSchedule(campaign)}
-              </span>
-              {campaign.schedule_type !== 'manual' && campaign.is_active && campaign.next_run_at && (
-                <span className="flex items-center gap-1.5 text-orange-600 font-medium">
-                  <Timer className="w-4 h-4" />
-                  {formatNextRun(campaign.next_run_at, campaign.schedule_type)}
-                </span>
-              )}
-            </div>
+          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+            campaign.is_active 
+              ? 'bg-green-100 text-green-700' 
+              : 'bg-gray-100 text-gray-600'
+          }`}>
+            {campaign.is_active ? 'פעיל' : 'כבוי'}
+          </span>
+        </div>
+        
+        {campaign.description && (
+          <p className="text-sm text-gray-500 mb-3 line-clamp-2">{campaign.description}</p>
+        )}
 
-            {/* Actions */}
-            <div className="flex items-center gap-2">
-              {campaign.schedule_type !== 'manual' && (
-                <button
-                  onClick={() => onToggle(campaign)}
-                  disabled={runningAction?.startsWith('toggle')}
-                  className={`px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-all ${
-                    campaign.is_active
-                      ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                      : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                  }`}
-                >
-                  {runningAction === `toggle-${campaign.id}` ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : campaign.is_active ? (
-                    <Pause className="w-4 h-4" />
-                  ) : (
-                    <Play className="w-4 h-4" />
-                  )}
-                  {campaign.is_active ? 'השהה' : 'הפעל'}
-                </button>
-              )}
-              
-              <button
-                onClick={onRunNow}
-                disabled={runningAction?.startsWith('run')}
-                className="px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-xl text-sm font-medium hover:shadow-lg transition-all flex items-center gap-2 disabled:opacity-50"
-              >
-                {runningAction === `run-${campaign.id}` ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Zap className="w-4 h-4" />
-                )}
-                הרץ עכשיו
-              </button>
-              
-              <button
-                onClick={onView}
-                className="p-2 bg-purple-50 text-purple-600 rounded-xl hover:bg-purple-100 transition-colors"
-                title="סטטיסטיקות"
-              >
-                <BarChart3 className="w-5 h-5" />
-              </button>
-              
-              <button
-                onClick={onEdit}
-                className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors"
-                title="עריכה"
-              >
-                <Edit2 className="w-5 h-5" />
-              </button>
-              
-              <button
-                onClick={onDelete}
-                className="p-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-colors"
-                title="מחיקה"
-              >
-                <Trash2 className="w-5 h-5" />
-              </button>
-            </div>
+        {/* Stats */}
+        <div className="flex items-center gap-3 mb-3">
+          <div className="flex items-center gap-2 text-gray-600 bg-gray-50 rounded-lg px-3 py-2 flex-1">
+            <Hash className="w-4 h-4" />
+            <span className="font-bold">{campaign.steps_count || 0}</span>
+            <span className="text-sm text-gray-500">שלבים</span>
+          </div>
+          <div className="flex items-center gap-2 text-gray-600 bg-gray-50 rounded-lg px-3 py-2 flex-1">
+            <RotateCcw className="w-4 h-4" />
+            <span className="font-bold">{campaign.total_sent || 0}</span>
+            <span className="text-sm text-gray-500">הרצות</span>
           </div>
         </div>
+
+        {/* Next Run */}
+        {campaign.schedule_type !== 'manual' && campaign.is_active && campaign.next_run_at && (
+          <div className="flex items-center gap-2 text-orange-600 bg-orange-50 rounded-lg px-3 py-2 text-sm font-medium">
+            <Timer className="w-4 h-4" />
+            {formatNextRun(campaign.next_run_at, campaign.schedule_type)}
+          </div>
+        )}
+      </div>
+      
+      {/* Actions Footer */}
+      <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+        <button
+          onClick={onRunNow}
+          disabled={runningAction?.startsWith('run')}
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:shadow-lg rounded-lg text-sm font-medium transition-all disabled:opacity-50"
+        >
+          {runningAction === `run-${campaign.id}` ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Zap className="w-4 h-4" />
+          )}
+          הרץ עכשיו
+        </button>
+        
+        {campaign.schedule_type !== 'manual' && (
+          <button
+            onClick={() => onToggle(campaign)}
+            disabled={runningAction?.startsWith('toggle')}
+            className={`p-2 rounded-lg transition-colors ${
+              campaign.is_active
+                ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+            }`}
+            title={campaign.is_active ? 'השהה' : 'הפעל'}
+          >
+            {runningAction === `toggle-${campaign.id}` ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : campaign.is_active ? (
+              <Pause className="w-4 h-4" />
+            ) : (
+              <Play className="w-4 h-4" />
+            )}
+          </button>
+        )}
+        
+        <button
+          onClick={onView}
+          className="p-2 bg-purple-100 text-purple-600 hover:bg-purple-200 rounded-lg transition-colors"
+          title="סטטיסטיקות"
+        >
+          <BarChart3 className="w-4 h-4" />
+        </button>
+        
+        <button
+          onClick={onDelete}
+          className="p-2 bg-red-100 text-red-600 hover:bg-red-200 rounded-lg transition-colors"
+          title="מחיקה"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
       </div>
     </div>
   );
