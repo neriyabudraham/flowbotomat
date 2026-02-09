@@ -1072,7 +1072,7 @@ async function getPendingJobs(req, res) {
 
 /**
  * Retry failed messages from a job
- * Creates a new job with only the failed targets
+ * Resets failed messages to 'pending' in the SAME job and restarts it
  */
 async function retryFailedMessages(req, res) {
   try {
@@ -1081,9 +1081,8 @@ async function retryFailedMessages(req, res) {
     
     // Get the original job
     const jobResult = await db.query(`
-      SELECT fj.*, gf.name as forward_name
+      SELECT fj.*
       FROM forward_jobs fj
-      JOIN group_forwards gf ON fj.forward_id = gf.id
       WHERE fj.id = $1 AND fj.user_id = $2
     `, [jobId, userId]);
     
@@ -1091,63 +1090,47 @@ async function retryFailedMessages(req, res) {
       return res.status(404).json({ error: 'משימה לא נמצאה' });
     }
     
-    const originalJob = jobResult.rows[0];
-    
-    // Get failed messages from the job
+    // Count failed messages
     const failedResult = await db.query(`
-      SELECT fjm.*, gft.group_name, gft.group_id
-      FROM forward_job_messages fjm
-      JOIN group_forward_targets gft ON fjm.target_id = gft.id
-      WHERE fjm.job_id = $1 AND fjm.status = 'failed'
+      SELECT COUNT(*) as count
+      FROM forward_job_messages
+      WHERE job_id = $1 AND status = 'failed'
     `, [jobId]);
     
-    if (failedResult.rows.length === 0) {
+    const failedCount = parseInt(failedResult.rows[0]?.count) || 0;
+    
+    if (failedCount === 0) {
       return res.status(400).json({ error: 'אין הודעות שנכשלו במשימה זו' });
     }
     
-    const failedMessages = failedResult.rows;
-    console.log(`[GroupForwards] Retrying ${failedMessages.length} failed messages from job ${jobId}`);
+    console.log(`[GroupForwards] Retrying ${failedCount} failed messages in job ${jobId} (same job)`);
     
-    // Create a new job
-    const newJobResult = await db.query(`
-      INSERT INTO forward_jobs 
-      (user_id, forward_id, message_type, message_text, media_url, media_mime_type, media_filename, 
-       total_targets, status, sender_phone, sender_name)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'confirmed', 'website', 'שליחה מחדש')
-      RETURNING *
-    `, [
-      userId,
-      originalJob.forward_id,
-      originalJob.message_type,
-      originalJob.message_text,
-      originalJob.media_url,
-      originalJob.media_mime_type,
-      originalJob.media_filename,
-      failedMessages.length
-    ]);
+    // Reset failed messages to 'pending' in the SAME job
+    await db.query(`
+      UPDATE forward_job_messages 
+      SET status = 'pending', error_message = NULL
+      WHERE job_id = $1 AND status = 'failed'
+    `, [jobId]);
     
-    const newJob = newJobResult.rows[0];
+    // Reset job status to 'confirmed' and clear stop flag
+    await db.query(`
+      UPDATE forward_jobs 
+      SET status = 'confirmed', stop_requested = false, 
+          failed_count = 0, updated_at = NOW(),
+          completed_at = NULL
+      WHERE id = $1
+    `, [jobId]);
     
-    // Create job messages for failed targets
-    for (const failed of failedMessages) {
-      await db.query(`
-        INSERT INTO forward_job_messages (job_id, target_id, status)
-        VALUES ($1, $2, 'pending')
-      `, [newJob.id, failed.target_id]);
-    }
-    
-    console.log(`[GroupForwards] Created retry job ${newJob.id} with ${failedMessages.length} targets`);
-    
-    // Start the job immediately (it's already confirmed)
-    startForwardJob(newJob.id).catch(err => {
-      console.error(`[GroupForwards] Error starting retry job ${newJob.id}:`, err);
+    // Start sending in background (will pick up the pending messages)
+    startForwardJob(jobId).catch(err => {
+      console.error(`[GroupForwards] Error restarting job ${jobId}:`, err);
     });
     
     res.json({
       success: true,
-      jobId: newJob.id,
-      failedCount: failedMessages.length,
-      message: `נוצרה משימה חדשה לשליחה ל-${failedMessages.length} קבוצות שנכשלו`
+      jobId,
+      failedCount,
+      message: `שולח מחדש ל-${failedCount} קבוצות שנכשלו...`
     });
     
   } catch (error) {
