@@ -17,6 +17,7 @@ import AudiencesTab from '../components/broadcasts/AudiencesTab';
 import TemplatesTab from '../components/broadcasts/TemplatesTab';
 import CampaignsTab from '../components/broadcasts/CampaignsTab';
 import ContactsTab from '../components/broadcasts/ContactsTab';
+import AutomatedCampaignsTab from '../components/broadcasts/AutomatedCampaignsTab';
 
 export default function BroadcastsPage() {
   const navigate = useNavigate();
@@ -206,6 +207,7 @@ export default function BroadcastsPage() {
 
   const tabs = [
     { id: 'campaigns', label: 'קמפיינים', icon: Send, count: stats?.campaigns },
+    { id: 'automated', label: 'אוטומטי', icon: Zap },
     { id: 'audiences', label: 'קהלים', icon: Users, count: stats?.audiences },
     { id: 'templates', label: 'תבניות', icon: MessageSquare, count: stats?.templates },
     { id: 'contacts', label: 'אנשי קשר', icon: Target },
@@ -366,6 +368,7 @@ export default function BroadcastsPage() {
             ) : (
               <>
                 {activeTab === 'campaigns' && <CampaignsTab onRefresh={fetchStats} />}
+                {activeTab === 'automated' && <AutomatedCampaignsTab />}
                 {activeTab === 'audiences' && <AudiencesTab onRefresh={fetchStats} />}
                 {activeTab === 'templates' && <TemplatesTab onRefresh={fetchStats} />}
                 {activeTab === 'contacts' && <ContactsTab onRefresh={fetchStats} />}

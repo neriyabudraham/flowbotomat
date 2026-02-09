@@ -6,6 +6,7 @@ const { checkLimit } = require('../controllers/subscriptions/subscriptions.contr
 const audiencesController = require('../controllers/broadcasts/audiences.controller');
 const templatesController = require('../controllers/broadcasts/templates.controller');
 const campaignsController = require('../controllers/broadcasts/campaigns.controller');
+const automatedCampaignsController = require('../controllers/broadcasts/automatedCampaigns.controller');
 const importController = require('../controllers/broadcasts/import.controller');
 
 // All routes require authentication
@@ -105,5 +106,17 @@ router.get('/campaigns/:id/report', campaignsController.getCampaignReport);
 router.post('/import/upload', importController.uploadFile);
 router.post('/import/execute', importController.executeImport);
 router.post('/import/cancel', importController.cancelImport);
+
+// ============================================
+// Automated Campaigns (Recurring/Scheduled)
+// ============================================
+router.get('/automated', automatedCampaignsController.getAutomatedCampaigns);
+router.get('/automated/:id', automatedCampaignsController.getAutomatedCampaign);
+router.post('/automated', automatedCampaignsController.createAutomatedCampaign);
+router.put('/automated/:id', automatedCampaignsController.updateAutomatedCampaign);
+router.patch('/automated/:id/toggle', automatedCampaignsController.toggleAutomatedCampaign);
+router.delete('/automated/:id', automatedCampaignsController.deleteAutomatedCampaign);
+router.get('/automated/:id/runs', automatedCampaignsController.getCampaignRuns);
+router.post('/automated/:id/run', automatedCampaignsController.runCampaignNow);
 
 module.exports = router;
