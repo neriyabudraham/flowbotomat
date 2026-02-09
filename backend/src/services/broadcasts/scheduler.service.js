@@ -1,6 +1,6 @@
 const db = require('../../config/database');
 const broadcastSender = require('./sender.service');
-const { calculateNextRun } = require('../../controllers/broadcasts/automatedCampaigns.controller');
+const { calculateNextRun, getNowInIsraelFromDB, storeNextRunAt } = require('../../controllers/broadcasts/automatedCampaigns.controller');
 
 /**
  * Automated Campaign Scheduler
@@ -14,6 +14,14 @@ let schedulerInterval = null;
  */
 async function checkAndRunCampaigns() {
   try {
+    // Log current time for debugging
+    const nowResult = await db.query(`
+      SELECT 
+        to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') as utc_now,
+        to_char(NOW() AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') as israel_now
+    `);
+    const { utc_now, israel_now } = nowResult.rows[0];
+    
     // Find campaigns that are due to run
     const result = await db.query(`
       SELECT 
@@ -26,6 +34,24 @@ async function checkAndRunCampaigns() {
         AND ac.next_run_at IS NOT NULL 
         AND ac.next_run_at <= NOW()
     `);
+    
+    // Log pending campaigns for debugging
+    const pendingResult = await db.query(`
+      SELECT 
+        name, 
+        to_char(next_run_at, 'YYYY-MM-DD HH24:MI:SS') as next_run_utc,
+        to_char(next_run_at AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') as next_run_israel,
+        is_active 
+      FROM automated_campaigns 
+      WHERE is_active = true AND next_run_at IS NOT NULL
+      LIMIT 5
+    `);
+    if (pendingResult.rows.length > 0) {
+      console.log(`[Scheduler] UTC: ${utc_now} | Israel: ${israel_now}`);
+      pendingResult.rows.forEach(c => {
+        console.log(`[Scheduler] Campaign "${c.name}": next_run UTC=${c.next_run_utc}, Israel=${c.next_run_israel}`);
+      });
+    }
     
     if (result.rows.length === 0) {
       return;
@@ -229,31 +255,36 @@ async function executeCampaign(campaign) {
 
 /**
  * Update campaign's next run time
+ * Now uses PostgreSQL for timezone conversion
  */
 async function updateCampaignNextRun(campaign) {
-  const nextRun = calculateNextRun(
-    campaign.schedule_type, 
-    campaign.schedule_config, 
-    campaign.send_time
-  );
-  
-  if (nextRun) {
-    await db.query(`
-      UPDATE automated_campaigns
-      SET next_run_at = $1
-      WHERE id = $2
-    `, [nextRun, campaign.id]);
+  try {
+    // Get current Israel time from PostgreSQL
+    const israelNow = await getNowInIsraelFromDB();
     
-    console.log(`[Scheduler] Campaign ${campaign.id} next run: ${nextRun}`);
-  } else {
-    // No more scheduled runs (e.g., specific_dates exhausted)
-    await db.query(`
-      UPDATE automated_campaigns
-      SET is_active = false, next_run_at = NULL
-      WHERE id = $1
-    `, [campaign.id]);
+    const nextRunIsrael = calculateNextRun(
+      campaign.schedule_type, 
+      campaign.schedule_config, 
+      campaign.send_time,
+      israelNow
+    );
     
-    console.log(`[Scheduler] Campaign ${campaign.id} deactivated - no more scheduled runs`);
+    if (nextRunIsrael) {
+      // Store using PostgreSQL timezone conversion
+      await storeNextRunAt(campaign.id, nextRunIsrael);
+      console.log(`[Scheduler] Campaign ${campaign.id} next run (Israel): ${nextRunIsrael}`);
+    } else {
+      // No more scheduled runs
+      await db.query(`
+        UPDATE automated_campaigns
+        SET is_active = false, next_run_at = NULL
+        WHERE id = $1
+      `, [campaign.id]);
+      
+      console.log(`[Scheduler] Campaign ${campaign.id} deactivated - no more scheduled runs`);
+    }
+  } catch (error) {
+    console.error(`[Scheduler] Error updating next run for campaign ${campaign.id}:`, error);
   }
 }
 

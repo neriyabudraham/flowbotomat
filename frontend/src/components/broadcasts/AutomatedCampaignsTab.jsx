@@ -228,11 +228,13 @@ export default function AutomatedCampaignsTab() {
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
     
-    if (days > 0) return `בעוד ${days} ימים`;
-    if (hours > 0) return `בעוד ${hours} שעות`;
+    if (days > 0) return `בעוד ${days} ימים ו-${hours} שעות`;
+    if (hours > 0) return `בעוד ${hours} שעות ו-${minutes} דקות`;
     if (minutes > 0) return `בעוד ${minutes} דקות`;
-    return 'בקרוב';
+    if (seconds > 0) return `בעוד ${seconds} שניות`;
+    return 'עכשיו';
   };
 
   const formatSchedule = (campaign) => {

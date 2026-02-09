@@ -3,6 +3,13 @@ const db = require('../../config/database');
 /**
  * Automated Campaigns Controller
  * Handles recurring/scheduled campaigns with multi-step sequences
+ * 
+ * TIMEZONE STRATEGY:
+ * - All user-facing times are in Israel timezone (Asia/Jerusalem)
+ * - calculateNextRun returns Israel time as a STRING (e.g., "2025-02-09 20:12:00")
+ * - PostgreSQL converts to UTC on INSERT/UPDATE using AT TIME ZONE 'Asia/Jerusalem'
+ * - PostgreSQL converts back to UTC ISO string on SELECT using to_char + AT TIME ZONE
+ * - This avoids ALL JavaScript Date serialization issues
  */
 
 // Ensure tables exist
@@ -111,31 +118,74 @@ async function ensureTables() {
 ensureTables().catch(err => console.error('[AutomatedCampaigns] Table init error:', err));
 
 /**
- * Calculate next run date based on schedule
- * Supports per-day/per-date times with day_times and date_times
+ * Get current date/time in Israel timezone using PostgreSQL
+ * Returns { year, month (1-12), day, hour, minute, dayOfWeek (0=Sunday) }
  */
-function calculateNextRun(scheduleType, scheduleConfig, sendTime, fromDate = new Date()) {
+async function getNowInIsraelFromDB() {
+  const result = await db.query(`
+    SELECT 
+      EXTRACT(year FROM NOW() AT TIME ZONE 'Asia/Jerusalem')::int as year,
+      EXTRACT(month FROM NOW() AT TIME ZONE 'Asia/Jerusalem')::int as month,
+      EXTRACT(day FROM NOW() AT TIME ZONE 'Asia/Jerusalem')::int as day,
+      EXTRACT(hour FROM NOW() AT TIME ZONE 'Asia/Jerusalem')::int as hour,
+      EXTRACT(minute FROM NOW() AT TIME ZONE 'Asia/Jerusalem')::int as minute,
+      EXTRACT(dow FROM NOW() AT TIME ZONE 'Asia/Jerusalem')::int as day_of_week,
+      to_char(NOW() AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') as israel_now_str,
+      to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') as utc_now_str
+  `);
+  return result.rows[0];
+}
+
+/**
+ * Calculate next run date based on schedule
+ * Returns an Israel time STRING like "2025-02-09 20:12:00" (NOT a Date object!)
+ * PostgreSQL will convert this to UTC when storing
+ */
+function calculateNextRun(scheduleType, scheduleConfig, sendTime, israelNow) {
   // Manual campaigns don't have scheduled runs
   if (scheduleType === 'manual') {
     return null;
   }
   
   const defaultTime = sendTime || '09:00';
-  const [defaultHours, defaultMinutes] = defaultTime.split(':').map(Number);
+  // Handle TIME format from DB (e.g., "20:12:00" → "20:12")
+  const cleanDefaultTime = defaultTime.substring(0, 5);
+  const [defaultHours, defaultMinutes] = cleanDefaultTime.split(':').map(Number);
+  
+  console.log(`[calculateNextRun] Type: ${scheduleType}, SendTime: ${sendTime}, Default: ${cleanDefaultTime}`);
+  console.log(`[calculateNextRun] Israel Now: ${israelNow.israel_now_str} (day ${israelNow.day_of_week}), UTC Now: ${israelNow.utc_now_str}`);
+  
+  // israelNow has: year, month (1-12), day, hour, minute, day_of_week
+  const nowMinutes = israelNow.hour * 60 + israelNow.minute;
   
   switch (scheduleType) {
     case 'interval': {
       const value = scheduleConfig.value || 1;
       const unit = scheduleConfig.unit || 'days';
-      const next = new Date(fromDate);
       
       if (unit === 'hours') {
-        next.setHours(next.getHours() + value);
+        // Add hours to current Israel time
+        let h = israelNow.hour + value;
+        let d = israelNow.day;
+        let m = israelNow.month;
+        let y = israelNow.year;
+        while (h >= 24) {
+          h -= 24;
+          d++;
+        }
+        const hStr = String(h).padStart(2, '0');
+        const minStr = String(israelNow.minute).padStart(2, '0');
+        const dStr = String(d).padStart(2, '0');
+        const mStr = String(m).padStart(2, '0');
+        return `${y}-${mStr}-${dStr} ${hStr}:${minStr}:00`;
       } else {
-        next.setDate(next.getDate() + value);
-        next.setHours(defaultHours, defaultMinutes, 0, 0);
+        // X days from now at the specified time
+        // We'll let PostgreSQL calculate the actual date
+        const hStr = String(defaultHours).padStart(2, '0');
+        const minStr = String(defaultMinutes).padStart(2, '0');
+        // Return a special format that we'll handle in SQL
+        return `INTERVAL_DAYS:${value}:${hStr}:${minStr}`;
       }
-      return next;
     }
     
     case 'weekly': {
@@ -145,24 +195,31 @@ function calculateNextRun(scheduleType, scheduleConfig, sendTime, fromDate = new
         ? Object.keys(dayTimes).map(Number) 
         : (scheduleConfig.days || [0]); // Fallback to old format
       
+      console.log(`[calculateNextRun] Weekly - targetDays: ${targetDays}, dayTimes:`, dayTimes);
+      
       if (targetDays.length === 0) return null;
       
       // Find next occurrence (check today first, then next 7 days)
       for (let i = 0; i <= 7; i++) {
-        const checkDate = new Date(fromDate);
-        checkDate.setDate(checkDate.getDate() + i);
-        const dayOfWeek = checkDate.getDay();
+        // Calculate what day of week it will be in i days
+        const futureDow = (israelNow.day_of_week + i) % 7;
         
-        if (targetDays.includes(dayOfWeek)) {
+        if (targetDays.includes(futureDow)) {
           // Get time for this day
-          const dayTime = dayTimes[dayOfWeek] || defaultTime;
-          const [h, m] = dayTime.split(':').map(Number);
-          checkDate.setHours(h, m, 0, 0);
+          const dayTime = dayTimes[futureDow] || cleanDefaultTime;
+          const cleanDayTime = dayTime.substring(0, 5);
+          const [h, m] = cleanDayTime.split(':').map(Number);
+          const targetMinutes = h * 60 + m;
           
-          // Only return if this time is in the future
-          if (checkDate > fromDate) {
-            return checkDate;
+          // If it's today (i=0), only count if the time is in the future
+          if (i === 0 && targetMinutes <= nowMinutes) {
+            console.log(`[calculateNextRun] Weekly - today day ${futureDow}: time ${h}:${m} already passed (now ${israelNow.hour}:${israelNow.minute})`);
+            continue;
           }
+          
+          // Return a special format: WEEKLY_OFFSET:days:HH:MM
+          console.log(`[calculateNextRun] Weekly - found: day ${futureDow} in ${i} days at ${h}:${String(m).padStart(2, '0')} Israel`);
+          return `WEEKLY_OFFSET:${i}:${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
         }
       }
       return null;
@@ -177,23 +234,32 @@ function calculateNextRun(scheduleType, scheduleConfig, sendTime, fromDate = new
       
       if (targetDates.length === 0) return null;
       
-      // Find next occurrence (this month or next 2 months)
+      // Check this month first, then next months
       for (let monthOffset = 0; monthOffset <= 2; monthOffset++) {
-        const checkMonth = new Date(fromDate);
-        checkMonth.setMonth(checkMonth.getMonth() + monthOffset);
+        let checkMonth = israelNow.month + monthOffset;
+        let checkYear = israelNow.year;
+        if (checkMonth > 12) {
+          checkMonth -= 12;
+          checkYear++;
+        }
         
-        for (const date of targetDates.sort((a, b) => a - b)) {
-          const checkDate = new Date(checkMonth);
-          checkDate.setDate(date);
+        for (const targetDay of targetDates.sort((a, b) => a - b)) {
+          const dateTime = dateTimes[targetDay] || cleanDefaultTime;
+          const cleanDateTime = dateTime.substring(0, 5);
+          const [h, m] = cleanDateTime.split(':').map(Number);
+          const targetMinutes = h * 60 + m;
           
-          // Get time for this date
-          const dateTime = dateTimes[date] || defaultTime;
-          const [h, m] = dateTime.split(':').map(Number);
-          checkDate.setHours(h, m, 0, 0);
-          
-          if (checkDate > fromDate) {
-            return checkDate;
+          // If same month, check if the date/time is in the future
+          if (monthOffset === 0) {
+            if (targetDay < israelNow.day) continue;
+            if (targetDay === israelNow.day && targetMinutes <= nowMinutes) continue;
           }
+          
+          const mStr = String(checkMonth).padStart(2, '0');
+          const dStr = String(targetDay).padStart(2, '0');
+          const hStr = String(h).padStart(2, '0');
+          const minStr = String(m).padStart(2, '0');
+          return `${checkYear}-${mStr}-${dStr} ${hStr}:${minStr}:00`;
         }
       }
       return null;
@@ -205,6 +271,91 @@ function calculateNextRun(scheduleType, scheduleConfig, sendTime, fromDate = new
 }
 
 /**
+ * Store next_run_at using PostgreSQL timezone conversion
+ * israelTimeStr can be:
+ * - null → SET next_run_at = NULL
+ * - "2025-02-09 20:12:00" → direct Israel time
+ * - "WEEKLY_OFFSET:3:14:30" → 3 days from now at 14:30 Israel
+ * - "INTERVAL_DAYS:2:09:00" → 2 days from now at 09:00 Israel
+ */
+async function storeNextRunAt(campaignId, israelTimeStr) {
+  if (!israelTimeStr) {
+    await db.query(`UPDATE automated_campaigns SET next_run_at = NULL WHERE id = $1`, [campaignId]);
+    return;
+  }
+  
+  let sql;
+  let params;
+  
+  if (israelTimeStr.startsWith('WEEKLY_OFFSET:')) {
+    // Format: WEEKLY_OFFSET:days_offset:HH:MM
+    const parts = israelTimeStr.split(':');
+    const daysOffset = parseInt(parts[1]);
+    const time = `${parts[2]}:${parts[3]}:00`;
+    
+    // Use PostgreSQL to calculate: current Israel date + offset days, at the specified Israel time
+    sql = `
+      UPDATE automated_campaigns 
+      SET next_run_at = (
+        (date_trunc('day', NOW() AT TIME ZONE 'Asia/Jerusalem') + interval '${daysOffset} days' + $2::time)
+        AT TIME ZONE 'Asia/Jerusalem'
+      )
+      WHERE id = $1
+    `;
+    params = [campaignId, time];
+  } else if (israelTimeStr.startsWith('INTERVAL_DAYS:')) {
+    // Format: INTERVAL_DAYS:days:HH:MM
+    const parts = israelTimeStr.split(':');
+    const daysOffset = parseInt(parts[1]);
+    const time = `${parts[2]}:${parts[3]}:00`;
+    
+    sql = `
+      UPDATE automated_campaigns 
+      SET next_run_at = (
+        (date_trunc('day', NOW() AT TIME ZONE 'Asia/Jerusalem') + interval '${daysOffset} days' + $2::time)
+        AT TIME ZONE 'Asia/Jerusalem'
+      )
+      WHERE id = $1
+    `;
+    params = [campaignId, time];
+  } else {
+    // Direct Israel time string: "2025-02-09 20:12:00"
+    sql = `
+      UPDATE automated_campaigns 
+      SET next_run_at = ($2::timestamp AT TIME ZONE 'Asia/Jerusalem')
+      WHERE id = $1
+    `;
+    params = [campaignId, israelTimeStr];
+  }
+  
+  console.log(`[storeNextRunAt] Campaign ${campaignId}: Israel time = ${israelTimeStr}`);
+  await db.query(sql, params);
+  
+  // Log what was actually stored
+  const check = await db.query(`
+    SELECT 
+      next_run_at as stored_utc,
+      to_char(next_run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') as utc_str,
+      to_char(next_run_at AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') as israel_str
+    FROM automated_campaigns WHERE id = $1
+  `, [campaignId]);
+  if (check.rows[0]) {
+    console.log(`[storeNextRunAt] Stored: UTC=${check.rows[0].utc_str}, Israel=${check.rows[0].israel_str}`);
+  }
+}
+
+// Common SELECT fields for campaigns with proper timezone formatting
+const CAMPAIGN_SELECT_FIELDS = `
+  ac.id, ac.user_id, ac.name, ac.description, ac.is_active,
+  ac.schedule_type, ac.schedule_config, ac.send_time, ac.settings,
+  ac.audience_id, ac.current_step, ac.total_sent,
+  to_char(ac.next_run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as next_run_at,
+  to_char(ac.last_run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_run_at,
+  to_char(ac.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+  to_char(ac.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
+`;
+
+/**
  * Get all automated campaigns
  */
 async function getAutomatedCampaigns(req, res) {
@@ -213,7 +364,7 @@ async function getAutomatedCampaigns(req, res) {
     
     const result = await db.query(`
       SELECT 
-        ac.*,
+        ${CAMPAIGN_SELECT_FIELDS},
         a.name as audience_name,
         (SELECT COUNT(*) FROM automated_campaign_steps WHERE campaign_id = ac.id) as steps_count,
         (SELECT COUNT(*) FROM automated_campaign_runs WHERE campaign_id = ac.id) as runs_count
@@ -240,7 +391,7 @@ async function getAutomatedCampaign(req, res) {
     
     const result = await db.query(`
       SELECT 
-        ac.*,
+        ${CAMPAIGN_SELECT_FIELDS},
         a.name as audience_name
       FROM automated_campaigns ac
       LEFT JOIN broadcast_audiences a ON a.id = ac.audience_id
@@ -297,18 +448,24 @@ async function createAutomatedCampaign(req, res) {
       return res.status(400).json({ error: 'סוג תזמון נדרש' });
     }
     
-    // Calculate next run (null for manual)
-    const nextRun = calculateNextRun(schedule_type, schedule_config || {}, send_time);
+    // Get current Israel time from PostgreSQL
+    const israelNow = await getNowInIsraelFromDB();
     
-    // Create campaign
+    // Calculate next run (returns Israel time string or null)
+    const nextRunIsrael = calculateNextRun(schedule_type, schedule_config || {}, send_time, israelNow);
+    
+    // Create campaign (without next_run_at - we'll set it separately)
     const result = await db.query(`
       INSERT INTO automated_campaigns 
-      (user_id, name, description, schedule_type, schedule_config, send_time, settings, next_run_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING *
-    `, [userId, name, description, schedule_type, schedule_config || {}, send_time || '09:00', settings || {}, nextRun]);
+      (user_id, name, description, schedule_type, schedule_config, send_time, settings)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id
+    `, [userId, name, description, schedule_type, schedule_config || {}, send_time || '09:00', settings || {}]);
     
-    const campaign = result.rows[0];
+    const campaignId = result.rows[0].id;
+    
+    // Store next_run_at using PostgreSQL timezone conversion
+    await storeNextRunAt(campaignId, nextRunIsrael);
     
     // Create steps if provided
     if (steps && Array.isArray(steps)) {
@@ -319,7 +476,7 @@ async function createAutomatedCampaign(req, res) {
           (campaign_id, step_order, step_type, template_id, audience_id, send_time, wait_config, trigger_campaign_id)
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         `, [
-          campaign.id, 
+          campaignId, 
           i, 
           step.step_type || 'send', 
           step.template_id || null, 
@@ -331,9 +488,16 @@ async function createAutomatedCampaign(req, res) {
       }
     }
     
-    console.log(`[AutomatedCampaigns] Created campaign ${campaign.id} for user ${userId}`);
+    // Fetch the campaign with proper timestamp formatting
+    const campaignResult = await db.query(`
+      SELECT ${CAMPAIGN_SELECT_FIELDS}
+      FROM automated_campaigns ac
+      WHERE ac.id = $1
+    `, [campaignId]);
     
-    res.json({ campaign });
+    console.log(`[AutomatedCampaigns] Created campaign ${campaignId} for user ${userId}, next_run_at: ${campaignResult.rows[0].next_run_at}`);
+    
+    res.json({ campaign: campaignResult.rows[0] });
   } catch (error) {
     console.error('[AutomatedCampaigns] Create error:', error);
     res.status(500).json({ error: 'שגיאה ביצירת קמפיין' });
@@ -357,20 +521,27 @@ async function updateAutomatedCampaign(req, res) {
       steps 
     } = req.body;
     
-    // Calculate new next run if schedule changed (null for manual)
-    const nextRun = calculateNextRun(schedule_type, schedule_config || {}, send_time);
+    // Get current Israel time from PostgreSQL
+    const israelNow = await getNowInIsraelFromDB();
     
-    const result = await db.query(`
+    // Calculate new next run (returns Israel time string or null)
+    const nextRunIsrael = calculateNextRun(schedule_type, schedule_config || {}, send_time, israelNow);
+    
+    // Update campaign (without next_run_at - we'll set it separately)
+    const updateResult = await db.query(`
       UPDATE automated_campaigns
       SET name = $1, description = $2, schedule_type = $3, schedule_config = $4, 
-          send_time = $5, settings = $6, next_run_at = $7, updated_at = NOW()
-      WHERE id = $8 AND user_id = $9
-      RETURNING *
-    `, [name, description, schedule_type, schedule_config || {}, send_time || '09:00', settings || {}, nextRun, id, userId]);
+          send_time = $5, settings = $6, updated_at = NOW()
+      WHERE id = $7 AND user_id = $8
+      RETURNING id
+    `, [name, description, schedule_type, schedule_config || {}, send_time || '09:00', settings || {}, id, userId]);
     
-    if (result.rows.length === 0) {
+    if (updateResult.rows.length === 0) {
       return res.status(404).json({ error: 'קמפיין לא נמצא' });
     }
+    
+    // Store next_run_at using PostgreSQL timezone conversion
+    await storeNextRunAt(id, nextRunIsrael);
     
     // Update steps if provided
     if (steps && Array.isArray(steps)) {
@@ -397,7 +568,16 @@ async function updateAutomatedCampaign(req, res) {
       }
     }
     
-    res.json({ campaign: result.rows[0] });
+    // Fetch the updated campaign with proper timestamp formatting
+    const campaignResult = await db.query(`
+      SELECT ${CAMPAIGN_SELECT_FIELDS}
+      FROM automated_campaigns ac
+      WHERE ac.id = $1
+    `, [id]);
+    
+    console.log(`[AutomatedCampaigns] Updated campaign ${id}, next_run_at: ${campaignResult.rows[0].next_run_at}`);
+    
+    res.json({ campaign: campaignResult.rows[0] });
   } catch (error) {
     console.error('[AutomatedCampaigns] Update error:', error);
     res.status(500).json({ error: 'שגיאה בעדכון קמפיין' });
@@ -413,10 +593,6 @@ async function toggleAutomatedCampaign(req, res) {
     const { id } = req.params;
     const { is_active } = req.body;
     
-    // If activating, recalculate next run
-    let nextRunUpdate = '';
-    const params = [is_active, id, userId];
-    
     if (is_active) {
       // Get campaign schedule to calculate next run
       const campaignResult = await db.query(
@@ -424,28 +600,41 @@ async function toggleAutomatedCampaign(req, res) {
         [id, userId]
       );
       
-      if (campaignResult.rows.length > 0) {
-        const { schedule_type, schedule_config, send_time } = campaignResult.rows[0];
-        const nextRun = calculateNextRun(schedule_type, schedule_config, send_time);
-        if (nextRun) {
-          nextRunUpdate = ', next_run_at = $4';
-          params.push(nextRun);
-        }
+      if (campaignResult.rows.length === 0) {
+        return res.status(404).json({ error: 'קמפיין לא נמצא' });
       }
+      
+      const { schedule_type, schedule_config, send_time: st } = campaignResult.rows[0];
+      
+      // Get current Israel time from PostgreSQL
+      const israelNow = await getNowInIsraelFromDB();
+      const nextRunIsrael = calculateNextRun(schedule_type, schedule_config, st, israelNow);
+      
+      // Update is_active first
+      await db.query(`
+        UPDATE automated_campaigns SET is_active = true, updated_at = NOW() WHERE id = $1 AND user_id = $2
+      `, [id, userId]);
+      
+      // Store next_run_at using PostgreSQL timezone conversion
+      await storeNextRunAt(id, nextRunIsrael);
+    } else {
+      await db.query(`
+        UPDATE automated_campaigns SET is_active = false, updated_at = NOW() WHERE id = $1 AND user_id = $2
+      `, [id, userId]);
     }
     
+    console.log(`[AutomatedCampaigns] ${is_active ? 'Activated' : 'Deactivated'} campaign ${id}`);
+    
+    // Fetch the updated campaign with proper timestamp formatting
     const result = await db.query(`
-      UPDATE automated_campaigns
-      SET is_active = $1, updated_at = NOW()${nextRunUpdate}
-      WHERE id = $2 AND user_id = $3
-      RETURNING *
-    `, params);
+      SELECT ${CAMPAIGN_SELECT_FIELDS}
+      FROM automated_campaigns ac
+      WHERE ac.id = $1
+    `, [id]);
     
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'קמפיין לא נמצא' });
     }
-    
-    console.log(`[AutomatedCampaigns] ${is_active ? 'Activated' : 'Deactivated'} campaign ${id}`);
     
     res.json({ campaign: result.rows[0] });
   } catch (error) {
@@ -498,7 +687,11 @@ async function getCampaignRuns(req, res) {
     
     const result = await db.query(`
       SELECT 
-        r.*,
+        r.id, r.campaign_id, r.step_id, r.status, 
+        r.recipients_total, r.recipients_sent, r.recipients_failed,
+        r.error_message,
+        to_char(r.started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as started_at,
+        to_char(r.completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as completed_at,
         s.step_order,
         t.name as template_name
       FROM automated_campaign_runs r
@@ -570,5 +763,7 @@ module.exports = {
   deleteAutomatedCampaign,
   getCampaignRuns,
   runCampaignNow,
-  calculateNextRun
+  calculateNextRun,
+  getNowInIsraelFromDB,
+  storeNextRunAt
 };
