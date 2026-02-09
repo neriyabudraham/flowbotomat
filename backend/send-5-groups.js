@@ -95,7 +95,7 @@ async function main() {
       JOIN group_forward_targets gft ON fjm.target_id = gft.id
       WHERE fjm.job_id = $1 AND fjm.status IN ('pending', 'failed')
       ORDER BY gft.sort_order DESC
-      LIMIT 5
+      LIMIT 7
     `, [JOB_ID]);
     
     if (msgsRes.rows.length === 0) {
