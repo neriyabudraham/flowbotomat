@@ -876,7 +876,12 @@ function CampaignEditor({ campaign, audiences, templates, allCampaigns, onClose,
     try {
       const { data } = await api.get(`/broadcasts/automated/${campaign.id}`);
       if (data.campaign?.steps && data.campaign.steps.length > 0) {
-        setForm(prev => ({ ...prev, steps: data.campaign.steps }));
+        // Map trigger_campaign_id to campaign_id for frontend compatibility
+        const mappedSteps = data.campaign.steps.map(step => ({
+          ...step,
+          campaign_id: step.trigger_campaign_id || step.campaign_id || ''
+        }));
+        setForm(prev => ({ ...prev, steps: mappedSteps }));
       } else {
         setForm(prev => ({
           ...prev,
