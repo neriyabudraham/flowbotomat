@@ -37,27 +37,59 @@ async function downloadAndSaveMedia(mediaUrl, mimeType, originalFilename) {
          mimeType?.includes('mpeg') || mimeType?.includes('mp3') ? '.mp3' : '');
     const uniqueId = crypto.randomBytes(8).toString('hex');
     const filename = `${Date.now()}-${uniqueId}${ext}`;
-    const filePath = path.join(uploadsDir, filename);
+    const savePath = path.join(uploadsDir, filename);
     
-    // Download the file
-    console.log(`[GroupForwards] Downloading media from ${mediaUrl.substring(0, 80)}...`);
-    const response = await axios.get(mediaUrl, { 
-      responseType: 'arraybuffer',
-      timeout: 30000
-    });
+    // Build URLs to try (with WAHA API key for auth)
+    const creds = getWahaCredentials();
+    const wahaBaseUrl = (creds.baseUrl || process.env.WAHA_BASE_URL || '').replace(/\/$/, '');
+    const wahaApiKey = creds.apiKey || process.env.WAHA_API_KEY;
+    const headers = wahaApiKey ? { 'X-Api-Key': wahaApiKey } : {};
     
-    // Save to disk
-    fs.writeFileSync(filePath, response.data);
+    const urlsToTry = [];
+    // If it's a WAHA URL, try with internal base URL first
+    if (mediaUrl.includes('/api/files/session_')) {
+      try {
+        const urlObj = new URL(mediaUrl);
+        const pathPart = urlObj.pathname;
+        if (wahaBaseUrl) {
+          urlsToTry.push({ url: `${wahaBaseUrl}${pathPart}`, label: 'WAHA internal' });
+        }
+      } catch (e) {}
+    }
+    urlsToTry.push({ url: mediaUrl, label: 'original' });
     
-    // Build local URL
-    const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 3000}/api`;
-    const localUrl = `${baseUrl}/uploads/${type}/${filename}`;
+    // Try each URL
+    for (const attempt of urlsToTry) {
+      try {
+        console.log(`[MediaDownload] Trying ${attempt.label}: ${attempt.url.substring(0, 80)}...`);
+        const response = await axios.get(attempt.url, { 
+          responseType: 'arraybuffer',
+          timeout: 30000,
+          headers
+        });
+        
+        fs.writeFileSync(savePath, response.data);
+        
+        // Build absolute URL
+        let baseApiUrl = process.env.API_URL || '';
+        if (baseApiUrl.startsWith('/') || !baseApiUrl.startsWith('http')) {
+          const frontendUrl = (process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:4000').replace(/\/$/, '');
+          baseApiUrl = `${frontendUrl}${baseApiUrl.startsWith('/') ? baseApiUrl : '/api'}`;
+        }
+        const localUrl = `${baseApiUrl}/uploads/${type}/${filename}`;
+        
+        console.log(`[MediaDownload] Saved locally: ${localUrl} (${response.data.length} bytes)`);
+        return localUrl;
+      } catch (dlErr) {
+        console.error(`[MediaDownload] ${attempt.label} failed:`, dlErr.message);
+      }
+    }
     
-    console.log(`[GroupForwards] Media saved locally: ${localUrl} (${response.data.length} bytes)`);
-    return localUrl;
+    console.error(`[MediaDownload] All download attempts failed, using original URL`);
+    return mediaUrl;
     
   } catch (error) {
-    console.error(`[GroupForwards] Failed to download media, using original URL:`, error.message);
+    console.error(`[MediaDownload] Failed to download media:`, error.message);
     return mediaUrl; // Fallback to original URL
   }
 }
