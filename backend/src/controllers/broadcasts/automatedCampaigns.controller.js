@@ -112,6 +112,7 @@ ensureTables().catch(err => console.error('[AutomatedCampaigns] Table init error
 
 /**
  * Calculate next run date based on schedule
+ * Supports per-day/per-date times with day_times and date_times
  */
 function calculateNextRun(scheduleType, scheduleConfig, sendTime, fromDate = new Date()) {
   // Manual campaigns don't have scheduled runs
@@ -119,7 +120,8 @@ function calculateNextRun(scheduleType, scheduleConfig, sendTime, fromDate = new
     return null;
   }
   
-  const [hours, minutes] = (sendTime || '09:00').split(':').map(Number);
+  const defaultTime = sendTime || '09:00';
+  const [defaultHours, defaultMinutes] = defaultTime.split(':').map(Number);
   
   switch (scheduleType) {
     case 'interval': {
@@ -131,48 +133,66 @@ function calculateNextRun(scheduleType, scheduleConfig, sendTime, fromDate = new
         next.setHours(next.getHours() + value);
       } else {
         next.setDate(next.getDate() + value);
-        next.setHours(hours, minutes, 0, 0);
+        next.setHours(defaultHours, defaultMinutes, 0, 0);
       }
       return next;
     }
     
     case 'weekly': {
-      const targetDays = scheduleConfig.days || [0]; // Default Sunday
-      const next = new Date(fromDate);
-      next.setHours(hours, minutes, 0, 0);
+      // Support new format with day_times: { "0": "09:00", "3": "14:00" }
+      const dayTimes = scheduleConfig.day_times || {};
+      const targetDays = Object.keys(dayTimes).length > 0 
+        ? Object.keys(dayTimes).map(Number) 
+        : (scheduleConfig.days || [0]); // Fallback to old format
       
-      // Find next occurrence
+      if (targetDays.length === 0) return null;
+      
+      // Find next occurrence (check next 7 days)
       for (let i = 1; i <= 7; i++) {
-        const checkDate = new Date(next);
+        const checkDate = new Date(fromDate);
         checkDate.setDate(checkDate.getDate() + i);
-        if (targetDays.includes(checkDate.getDay())) {
+        const dayOfWeek = checkDate.getDay();
+        
+        if (targetDays.includes(dayOfWeek)) {
+          // Get time for this day
+          const dayTime = dayTimes[dayOfWeek] || defaultTime;
+          const [h, m] = dayTime.split(':').map(Number);
+          checkDate.setHours(h, m, 0, 0);
           return checkDate;
         }
       }
-      return next;
+      return null;
     }
     
     case 'monthly': {
-      const targetDates = scheduleConfig.dates || [1]; // Default 1st
-      const next = new Date(fromDate);
-      next.setHours(hours, minutes, 0, 0);
+      // Support new format with date_times: { "1": "09:00", "15": "14:00" }
+      const dateTimes = scheduleConfig.date_times || {};
+      const targetDates = Object.keys(dateTimes).length > 0
+        ? Object.keys(dateTimes).map(Number)
+        : (scheduleConfig.dates || [1]); // Fallback to old format
       
-      // Find next occurrence (this month or next)
-      for (let monthOffset = 0; monthOffset <= 1; monthOffset++) {
-        const checkMonth = new Date(next);
+      if (targetDates.length === 0) return null;
+      
+      // Find next occurrence (this month or next 2 months)
+      for (let monthOffset = 0; monthOffset <= 2; monthOffset++) {
+        const checkMonth = new Date(fromDate);
         checkMonth.setMonth(checkMonth.getMonth() + monthOffset);
         
         for (const date of targetDates.sort((a, b) => a - b)) {
           const checkDate = new Date(checkMonth);
           checkDate.setDate(date);
-          checkDate.setHours(hours, minutes, 0, 0);
+          
+          // Get time for this date
+          const dateTime = dateTimes[date] || defaultTime;
+          const [h, m] = dateTime.split(':').map(Number);
+          checkDate.setHours(h, m, 0, 0);
           
           if (checkDate > fromDate) {
             return checkDate;
           }
         }
       }
-      return next;
+      return null;
     }
     
     default:
@@ -493,18 +513,22 @@ async function getCampaignRuns(req, res) {
 }
 
 /**
- * Run campaign manually (for testing)
+ * Run campaign manually
  */
 async function runCampaignNow(req, res) {
   try {
     const userId = req.user.id;
     const { id } = req.params;
     
-    // Get campaign
+    // Get campaign with user_id for execution
     const campaignResult = await db.query(`
-      SELECT ac.*, a.name as audience_name
+      SELECT ac.*, a.name as audience_name, a.id as audience_id
       FROM automated_campaigns ac
-      LEFT JOIN broadcast_audiences a ON a.id = ac.audience_id
+      LEFT JOIN broadcast_audiences a ON a.id = (
+        SELECT audience_id FROM automated_campaign_steps 
+        WHERE campaign_id = ac.id AND step_type = 'send' 
+        ORDER BY step_order LIMIT 1
+      )
       WHERE ac.id = $1 AND ac.user_id = $2
     `, [id, userId]);
     
@@ -514,19 +538,19 @@ async function runCampaignNow(req, res) {
     
     const campaign = campaignResult.rows[0];
     
-    // Execute the campaign (this would call the sender service)
-    // For now, just mark it as run
-    await db.query(`
-      UPDATE automated_campaigns
-      SET last_run_at = NOW(), 
-          next_run_at = $1,
-          total_sent = total_sent + 1
-      WHERE id = $2
-    `, [calculateNextRun(campaign.schedule_type, campaign.schedule_config, campaign.send_time), id]);
+    // Execute the campaign asynchronously
+    const scheduler = require('../../services/broadcasts/scheduler.service');
+    
+    // Start execution in background
+    scheduler.executeCampaign(campaign).then(() => {
+      console.log(`[AutomatedCampaigns] Manual run completed for campaign ${id}`);
+    }).catch(err => {
+      console.error(`[AutomatedCampaigns] Manual run failed for campaign ${id}:`, err);
+    });
     
     console.log(`[AutomatedCampaigns] Manual run triggered for campaign ${id}`);
     
-    res.json({ success: true, message: 'הקמפיין הופעל' });
+    res.json({ success: true, message: 'הקמפיין הופעל! ההודעות נשלחות ברקע.' });
   } catch (error) {
     console.error('[AutomatedCampaigns] Run error:', error);
     res.status(500).json({ error: 'שגיאה בהפעלת קמפיין' });

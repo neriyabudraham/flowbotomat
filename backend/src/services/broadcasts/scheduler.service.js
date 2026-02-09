@@ -81,21 +81,24 @@ async function executeCampaign(campaign) {
     
     const runId = runResult.rows[0].id;
     
+    // Get audience ID - either from step or from campaign
+    const audienceId = sendStep.audience_id || campaign.audience_id;
+    
     // Get recipients from audience
     let recipients = [];
     
-    if (campaign.audience_id) {
+    if (audienceId) {
       const recipientsResult = await db.query(`
         SELECT DISTINCT c.id, c.phone, c.display_name as contact_name
         FROM contacts c
         JOIN broadcast_audience_contacts bac ON bac.contact_id = c.id
         WHERE bac.audience_id = $1 AND c.phone IS NOT NULL
-      `, [campaign.audience_id]);
+      `, [audienceId]);
       
       recipients = recipientsResult.rows;
     }
     
-    console.log(`[Scheduler] Campaign ${campaign.id} has ${recipients.length} recipients`);
+    console.log(`[Scheduler] Campaign ${campaign.id} has ${recipients.length} recipients from audience ${audienceId}`);
     
     // Update run with recipient count
     await db.query(`
