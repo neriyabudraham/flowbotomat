@@ -147,8 +147,8 @@ function calculateNextRun(scheduleType, scheduleConfig, sendTime, fromDate = new
       
       if (targetDays.length === 0) return null;
       
-      // Find next occurrence (check next 7 days)
-      for (let i = 1; i <= 7; i++) {
+      // Find next occurrence (check today first, then next 7 days)
+      for (let i = 0; i <= 7; i++) {
         const checkDate = new Date(fromDate);
         checkDate.setDate(checkDate.getDate() + i);
         const dayOfWeek = checkDate.getDay();
@@ -158,7 +158,11 @@ function calculateNextRun(scheduleType, scheduleConfig, sendTime, fromDate = new
           const dayTime = dayTimes[dayOfWeek] || defaultTime;
           const [h, m] = dayTime.split(':').map(Number);
           checkDate.setHours(h, m, 0, 0);
-          return checkDate;
+          
+          // Only return if this time is in the future
+          if (checkDate > fromDate) {
+            return checkDate;
+          }
         }
       }
       return null;

@@ -895,15 +895,27 @@ function CampaignEditor({ campaign, audiences, templates, allCampaigns, onClose,
       return;
     }
 
+    // Validate: need at least one actionable step (send or trigger_campaign)
     const sendSteps = form.steps.filter(s => s.step_type === 'send');
-    if (sendSteps.length === 0) {
-      showToast('יש להוסיף לפחות שלב שליחה אחד', 'error');
+    const triggerSteps = form.steps.filter(s => s.step_type === 'trigger_campaign');
+    
+    if (sendSteps.length === 0 && triggerSteps.length === 0) {
+      showToast('יש להוסיף לפחות שלב שליחה או הפעלת קמפיין', 'error');
       return;
     }
 
+    // Validate send steps have templates
     for (const step of sendSteps) {
       if (!step.template_id) {
         showToast('יש לבחור תבנית לכל שלבי השליחה', 'error');
+        return;
+      }
+    }
+    
+    // Validate trigger_campaign steps have campaign_id
+    for (const step of triggerSteps) {
+      if (!step.campaign_id) {
+        showToast('יש לבחור קמפיין לכל שלבי הפעלת הקמפיין', 'error');
         return;
       }
     }
