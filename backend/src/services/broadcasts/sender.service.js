@@ -676,10 +676,125 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Send messages to a single recipient (for automated campaigns)
+ * @param {string} userId - User ID
+ * @param {Object} connection - WhatsApp connection object
+ * @param {Object} recipient - { id, phone, contact_name, contact_id }
+ * @param {Array} messages - Array of message objects
+ * @param {string} campaignName - Campaign name for variable replacement
+ * @returns {boolean} - Success status
+ */
+async function sendToRecipient(userId, connection, recipient, messages, campaignName) {
+  if (!connection || !recipient || !messages || messages.length === 0) {
+    console.error('[Broadcast Sender] sendToRecipient: Missing required parameters');
+    return false;
+  }
+
+  try {
+    // Format phone number
+    const chatId = recipient.phone.includes('@') 
+      ? recipient.phone 
+      : `${recipient.phone}@s.whatsapp.net`;
+    
+    // Get contact variables for replacement
+    const contactVariables = recipient.contact_id 
+      ? await getContactVariables(recipient.contact_id) 
+      : {};
+    
+    // Send each message
+    for (let msgIndex = 0; msgIndex < messages.length; msgIndex++) {
+      const msg = messages[msgIndex];
+      
+      // Replace all variables in content (system + custom)
+      let content = replaceVariables(
+        msg.content, 
+        recipient, 
+        campaignName, 
+        contactVariables
+      );
+      
+      // Wait for delay between messages in template
+      if (msgIndex > 0 && msg.delay_seconds > 0) {
+        await sleep(msg.delay_seconds * 1000);
+      }
+      
+      // Send based on message type
+      let result;
+      const messageType = msg.message_type || 'text';
+      
+      switch (messageType) {
+        case 'image':
+          if (msg.media_url) {
+            result = await wahaService.sendImage(connection, chatId, msg.media_url, content);
+          } else if (content) {
+            result = await wahaService.sendMessage(connection, chatId, content);
+          }
+          break;
+        case 'video':
+          if (msg.media_url) {
+            result = await wahaService.sendVideo(connection, chatId, msg.media_url, content);
+          }
+          break;
+        case 'audio':
+          if (msg.media_url) {
+            result = await wahaService.sendVoice(connection, chatId, msg.media_url);
+          }
+          break;
+        case 'document':
+          if (msg.media_url) {
+            const filename = msg.media_url.split('/').pop()?.split('?')[0] || 'file';
+            const ext = filename.split('.').pop()?.toLowerCase();
+            const mimetypes = {
+              'pdf': 'application/pdf',
+              'doc': 'application/msword',
+              'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+              'xls': 'application/vnd.ms-excel',
+              'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              'txt': 'text/plain',
+              'zip': 'application/zip',
+              'csv': 'text/csv',
+            };
+            const mimetype = mimetypes[ext] || 'application/octet-stream';
+            result = await wahaService.sendFile(connection, chatId, msg.media_url, filename, mimetype, content);
+          }
+          break;
+        default: // text
+          if (content) {
+            result = await wahaService.sendMessage(connection, chatId, content);
+          }
+          break;
+      }
+      
+      // Save message to database if successful
+      if (result?.id && recipient.contact_id) {
+        await saveMessageToDatabase(
+          userId,
+          recipient.contact_id,
+          result.id,
+          messageType,
+          content,
+          msg.media_url,
+          null
+        );
+      }
+    }
+    
+    console.log(`[Broadcast Sender] Successfully sent to ${recipient.phone}`);
+    return true;
+    
+  } catch (error) {
+    console.error(`[Broadcast Sender] Error sending to ${recipient.phone}:`, error.message);
+    return false;
+  }
+}
+
 module.exports = {
   startCampaignSending,
   pauseCampaign,
   getCampaignProgress,
   cancelCampaign,
-  isCampaignActive
+  isCampaignActive,
+  sendToRecipient,
+  getWahaConnection
 };

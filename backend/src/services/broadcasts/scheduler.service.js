@@ -117,14 +117,10 @@ async function executeCampaign(campaign) {
       return;
     }
     
-    // Get WhatsApp connection
-    const connectionResult = await db.query(`
-      SELECT * FROM whatsapp_connections 
-      WHERE user_id = $1 AND status = 'connected'
-      ORDER BY connected_at DESC LIMIT 1
-    `, [campaign.user_id]);
+    // Get WhatsApp connection using sender service (handles credentials properly)
+    const connection = await broadcastSender.getWahaConnection(campaign.user_id);
     
-    if (connectionResult.rows.length === 0) {
+    if (!connection) {
       console.error(`[Scheduler] No active WhatsApp connection for user ${campaign.user_id}`);
       await db.query(`
         UPDATE automated_campaign_runs
@@ -134,8 +130,6 @@ async function executeCampaign(campaign) {
       await updateCampaignNextRun(campaign);
       return;
     }
-    
-    const connection = connectionResult.rows[0];
     
     // Get template messages if using template
     let messages = [];
