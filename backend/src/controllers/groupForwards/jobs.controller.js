@@ -1131,9 +1131,9 @@ async function retryFailedMessages(req, res) {
     // Create job messages for failed targets
     for (const failed of failedMessages) {
       await db.query(`
-        INSERT INTO forward_job_messages (job_id, target_id, group_id, group_name, status)
-        VALUES ($1, $2, $3, $4, 'pending')
-      `, [newJob.id, failed.target_id, failed.group_id, failed.group_name]);
+        INSERT INTO forward_job_messages (job_id, target_id, status)
+        VALUES ($1, $2, 'pending')
+      `, [newJob.id, failed.target_id]);
     }
     
     console.log(`[GroupForwards] Created retry job ${newJob.id} with ${failedMessages.length} targets`);
