@@ -2,6 +2,65 @@ const db = require('../../config/database');
 const { getWahaCredentials } = require('../settings/system.service');
 const { decrypt } = require('../crypto/encrypt.service');
 const axios = require('axios');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+
+/**
+ * Download media from URL and save locally to uploads folder
+ * Returns the local URL or the original URL if download fails
+ */
+async function downloadAndSaveMedia(mediaUrl, mimeType, originalFilename) {
+  try {
+    if (!mediaUrl) return mediaUrl;
+    
+    // Determine type folder
+    let type = 'misc';
+    if (mimeType?.startsWith('image/')) type = 'image';
+    else if (mimeType?.startsWith('video/')) type = 'video';
+    else if (mimeType?.startsWith('audio/')) type = 'audio';
+    
+    // Ensure directory exists
+    const uploadsDir = path.join(__dirname, '../../../uploads', type);
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    
+    // Generate unique filename
+    const ext = originalFilename 
+      ? path.extname(originalFilename) 
+      : (mimeType?.includes('jpeg') || mimeType?.includes('jpg') ? '.jpeg' : 
+         mimeType?.includes('png') ? '.png' :
+         mimeType?.includes('mp4') ? '.mp4' :
+         mimeType?.includes('webm') ? '.webm' :
+         mimeType?.includes('ogg') ? '.ogg' :
+         mimeType?.includes('mpeg') || mimeType?.includes('mp3') ? '.mp3' : '');
+    const uniqueId = crypto.randomBytes(8).toString('hex');
+    const filename = `${Date.now()}-${uniqueId}${ext}`;
+    const filePath = path.join(uploadsDir, filename);
+    
+    // Download the file
+    console.log(`[GroupForwards] Downloading media from ${mediaUrl.substring(0, 80)}...`);
+    const response = await axios.get(mediaUrl, { 
+      responseType: 'arraybuffer',
+      timeout: 30000
+    });
+    
+    // Save to disk
+    fs.writeFileSync(filePath, response.data);
+    
+    // Build local URL
+    const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 3000}/api`;
+    const localUrl = `${baseUrl}/uploads/${type}/${filename}`;
+    
+    console.log(`[GroupForwards] Media saved locally: ${localUrl} (${response.data.length} bytes)`);
+    return localUrl;
+    
+  } catch (error) {
+    console.error(`[GroupForwards] Failed to download media, using original URL:`, error.message);
+    return mediaUrl; // Fallback to original URL
+  }
+}
 
 /**
  * Save outgoing message to the database for Live Chat display
@@ -246,6 +305,9 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
         await sendNotificationMessage(userId, senderPhone, '❌ לא הצלחתי לקבל את המדיה. אנא נסה שוב.');
         return;
       }
+      
+      // Download and save media locally so it persists after WAHA restart
+      mediaUrl = await downloadAndSaveMedia(mediaUrl, mediaMimeType, mediaFilename);
     } else if (messageType === 'list_response') {
       messageType = 'text';
     }
