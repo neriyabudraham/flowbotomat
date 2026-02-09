@@ -19,6 +19,7 @@ export default function JobHistoryTab() {
   const [deleteConfirm, setDeleteConfirm] = useState(null); // job to delete
   const [errorMessage, setErrorMessage] = useState(null);
   const [retrying, setRetrying] = useState(null);
+  const [resuming, setResuming] = useState(null);
   const [expandedErrors, setExpandedErrors] = useState({}); // track which errors are expanded
   const limit = 20;
 
@@ -61,6 +62,23 @@ export default function JobHistoryTab() {
       setErrorMessage({ type: 'error', text: e.response?.data?.error || 'שגיאה בשליחה מחדש' });
     } finally {
       setRetrying(null);
+    }
+  };
+
+  const handleResume = async (job, e) => {
+    e.stopPropagation();
+    try {
+      setResuming(job.id);
+      setErrorMessage(null);
+      const { data } = await api.post(`/group-forwards/jobs/${job.id}/resume`);
+      if (data.success) {
+        setErrorMessage({ type: 'success', text: data.message || `ממשיך לשלוח ל-${data.pendingCount} קבוצות` });
+        fetchHistory();
+      }
+    } catch (e) {
+      setErrorMessage({ type: 'error', text: e.response?.data?.error || 'שגיאה בהמשכת המשימה' });
+    } finally {
+      setResuming(null);
     }
   };
 
@@ -446,6 +464,22 @@ export default function JobHistoryTab() {
 
                 {/* Actions & Expand/Collapse */}
                 <div className="flex items-center gap-3">
+                  {/* Resume button for stuck/stopped jobs with pending messages */}
+                  {['sending', 'stopped', 'error'].includes(job.status) && job.sent_count < job.total_targets && (
+                    <button
+                      onClick={(e) => handleResume(job, e)}
+                      disabled={resuming === job.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-200 transition-colors disabled:opacity-50"
+                      title="המשך שליחה לקבוצות שנשארו"
+                    >
+                      {resuming === job.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4" />
+                      )}
+                      המשך שליחה ({job.total_targets - job.sent_count - (job.failed_count || 0)} נשארו)
+                    </button>
+                  )}
                   {job.failed_count > 0 && (
                     <>
                       <span className="text-sm text-red-600 flex items-center gap-1">
@@ -719,16 +753,24 @@ export default function JobHistoryTab() {
         </div>
       )}
 
-      {/* Error Modal */}
+      {/* Error/Success Modal */}
       {errorMessage && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setErrorMessage(null)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="p-6 text-center">
-              <div className="w-14 h-14 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
-                <AlertTriangle className="w-7 h-7 text-red-600" />
+              <div className={`w-14 h-14 mx-auto mb-4 rounded-full flex items-center justify-center ${
+                errorMessage?.type === 'success' ? 'bg-green-100' : 'bg-red-100'
+              }`}>
+                {errorMessage?.type === 'success' ? (
+                  <CheckCircle className="w-7 h-7 text-green-600" />
+                ) : (
+                  <AlertTriangle className="w-7 h-7 text-red-600" />
+                )}
               </div>
-              <h3 className="text-lg font-bold text-gray-900 mb-2">שגיאה</h3>
-              <p className="text-gray-600 mb-6">{errorMessage}</p>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">
+                {errorMessage?.type === 'success' ? 'הצלחה' : 'שגיאה'}
+              </h3>
+              <p className="text-gray-600 mb-6">{errorMessage?.text || errorMessage}</p>
               
               <button
                 onClick={() => setErrorMessage(null)}

@@ -482,9 +482,23 @@ async function startForwardJob(jobId) {
     `, [jobId]);
     
     const messages = messagesResult.rows;
-    const totalTargets = messages.length;
-    let sentCount = 0;
-    let failedCount = 0;
+    const totalTargets = job.total_targets || messages.length;
+    
+    // Initialize counters from DB (important for resume after restart)
+    // Count actual sent/failed from message statuses for accuracy
+    const actualCounts = await db.query(`
+      SELECT 
+        COUNT(*) FILTER (WHERE status = 'sent') as actual_sent,
+        COUNT(*) FILTER (WHERE status = 'failed') as actual_failed
+      FROM forward_job_messages WHERE job_id = $1
+    `, [jobId]);
+    let sentCount = parseInt(actualCounts.rows[0]?.actual_sent) || 0;
+    let failedCount = parseInt(actualCounts.rows[0]?.actual_failed) || 0;
+    
+    if (sentCount > 0 || failedCount > 0) {
+      console.log(`[GroupForwards] Resuming job ${jobId}: ${sentCount} already sent, ${failedCount} failed, ${messages.length} pending`);
+    }
+    
     const io = getIO();
     
     // Function to calculate variable delay
@@ -714,8 +728,25 @@ async function startForwardJob(jobId) {
     const shouldDelete = finalCheck.rows[0]?.delete_sent_requested;
     const senderPhone = finalCheck.rows[0]?.sender_phone;
     
-    // Finalize job
-    const finalStatus = wasStopped ? 'stopped' : (sentCount === totalTargets ? 'completed' : (failedCount > 0 ? 'partial' : 'stopped'));
+    // Finalize job - check actual counts from DB for accuracy
+    const finalCounts = await db.query(`
+      SELECT 
+        COUNT(*) FILTER (WHERE status = 'sent') as sent,
+        COUNT(*) FILTER (WHERE status = 'failed') as failed,
+        COUNT(*) FILTER (WHERE status = 'pending') as pending
+      FROM forward_job_messages WHERE job_id = $1
+    `, [jobId]);
+    const actualSent = parseInt(finalCounts.rows[0]?.sent) || 0;
+    const actualFailed = parseInt(finalCounts.rows[0]?.failed) || 0;
+    const actualPending = parseInt(finalCounts.rows[0]?.pending) || 0;
+    
+    // Sync counts to job
+    await db.query(`
+      UPDATE forward_jobs SET sent_count = $2, failed_count = $3, updated_at = NOW()
+      WHERE id = $1
+    `, [jobId, actualSent, actualFailed]);
+    
+    const finalStatus = wasStopped ? 'stopped' : (actualPending === 0 && actualSent > 0 ? 'completed' : (actualFailed > 0 ? 'partial' : 'stopped'));
     
     await db.query(`
       UPDATE forward_jobs 
@@ -1125,6 +1156,131 @@ async function retryFailedMessages(req, res) {
   }
 }
 
+/**
+ * Resume a specific forward job (manual trigger from UI)
+ * Works for jobs stuck in 'sending' status or completed jobs with pending messages
+ */
+async function resumeForwardJob(req, res) {
+  try {
+    const userId = req.user.id;
+    const { jobId } = req.params;
+    
+    // Get job and verify ownership
+    const jobResult = await db.query(`
+      SELECT fj.*, 
+        (SELECT COUNT(*) FROM forward_job_messages WHERE job_id = fj.id AND status = 'pending') as pending_count,
+        (SELECT COUNT(*) FROM forward_job_messages WHERE job_id = fj.id AND status = 'sent') as actual_sent,
+        (SELECT COUNT(*) FROM forward_job_messages WHERE job_id = fj.id AND status = 'failed') as actual_failed
+      FROM forward_jobs fj
+      WHERE fj.id = $1 AND fj.user_id = $2
+    `, [jobId, userId]);
+    
+    if (jobResult.rows.length === 0) {
+      return res.status(404).json({ error: 'משימה לא נמצאה' });
+    }
+    
+    const job = jobResult.rows[0];
+    const pendingCount = parseInt(job.pending_count) || 0;
+    
+    if (pendingCount === 0) {
+      return res.status(400).json({ error: 'אין קבוצות שממתינות לשליחה' });
+    }
+    
+    // Sync counts
+    const actualSent = parseInt(job.actual_sent) || 0;
+    const actualFailed = parseInt(job.actual_failed) || 0;
+    
+    // Reset job to confirmed status so startForwardJob can pick it up
+    await db.query(`
+      UPDATE forward_jobs 
+      SET status = 'confirmed', stop_requested = false, 
+          sent_count = $2, failed_count = $3, updated_at = NOW()
+      WHERE id = $1
+    `, [jobId, actualSent, actualFailed]);
+    
+    // Start sending in background
+    startForwardJob(jobId).catch(err => {
+      console.error(`[GroupForwards] Error resuming job ${jobId}:`, err);
+    });
+    
+    res.json({
+      success: true,
+      message: `ממשיך לשלוח ל-${pendingCount} קבוצות שנשארו...`,
+      pendingCount
+    });
+  } catch (error) {
+    console.error('[GroupForwards] Resume job error:', error);
+    res.status(500).json({ error: 'שגיאה בהמשכת המשימה' });
+  }
+}
+
+/**
+ * Resume stuck forward jobs after server restart
+ * Finds jobs that were in 'sending' or 'confirmed' status and restarts them
+ */
+async function resumeStuckForwardJobs() {
+  try {
+    // Find all jobs stuck in 'sending' or 'confirmed' status
+    const stuckJobs = await db.query(`
+      SELECT 
+        fj.id, fj.user_id, fj.forward_id, fj.status, fj.total_targets,
+        fj.forward_name,
+        (SELECT COUNT(*) FROM forward_job_messages WHERE job_id = fj.id AND status = 'sent') as actual_sent,
+        (SELECT COUNT(*) FROM forward_job_messages WHERE job_id = fj.id AND status = 'failed') as actual_failed,
+        (SELECT COUNT(*) FROM forward_job_messages WHERE job_id = fj.id AND status = 'pending') as actual_pending
+      FROM forward_jobs fj
+      WHERE fj.status IN ('sending', 'confirmed')
+    `);
+    
+    if (stuckJobs.rows.length === 0) {
+      return;
+    }
+    
+    console.log(`[GroupForwards] Found ${stuckJobs.rows.length} stuck jobs on startup, resuming...`);
+    
+    for (const job of stuckJobs.rows) {
+      const actualSent = parseInt(job.actual_sent) || 0;
+      const actualFailed = parseInt(job.actual_failed) || 0;
+      const actualPending = parseInt(job.actual_pending) || 0;
+      
+      // If no pending messages, mark as completed
+      if (actualPending === 0) {
+        const status = actualSent > 0 ? 'completed' : 'stopped';
+        await db.query(`
+          UPDATE forward_jobs 
+          SET status = $2, sent_count = $3, failed_count = $4, 
+              completed_at = NOW(), updated_at = NOW()
+          WHERE id = $1
+        `, [job.id, status, actualSent, actualFailed]);
+        console.log(`[GroupForwards] Job ${job.id} (${job.forward_name}) had no pending messages, marked as ${status} (${actualSent}/${job.total_targets})`);
+        continue;
+      }
+      
+      // Sync sent_count and failed_count from actual message statuses
+      await db.query(`
+        UPDATE forward_jobs 
+        SET sent_count = $2, failed_count = $3, updated_at = NOW()
+        WHERE id = $1
+      `, [job.id, actualSent, actualFailed]);
+      
+      console.log(`[GroupForwards] Resuming job ${job.id} (${job.forward_name}): ${actualSent}/${job.total_targets} sent, ${actualPending} pending`);
+      
+      // Re-start the job (it will pick up pending messages)
+      startForwardJob(job.id).catch(err => {
+        console.error(`[GroupForwards] Error resuming job ${job.id}:`, err);
+        // Mark as error if resume fails
+        db.query(`
+          UPDATE forward_jobs 
+          SET status = 'error', error_message = $2, updated_at = NOW()
+          WHERE id = $1
+        `, [job.id, `Resume failed: ${err.message}`]).catch(() => {});
+      });
+    }
+  } catch (error) {
+    console.error('[GroupForwards] Resume stuck jobs error:', error);
+  }
+}
+
 module.exports = {
   createForwardJob,
   confirmForwardJob,
@@ -1137,8 +1293,10 @@ module.exports = {
   deleteJob,
   getPendingJobs,
   retryFailedMessages,
+  resumeForwardJob,
   // Export for internal use
   startForwardJob,
   deleteJobMessages,
-  cleanupOldPendingJobs
+  cleanupOldPendingJobs,
+  resumeStuckForwardJobs
 };

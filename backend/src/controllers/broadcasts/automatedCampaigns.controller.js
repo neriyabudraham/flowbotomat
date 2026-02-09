@@ -51,6 +51,7 @@ async function ensureTables() {
   // Add settings column if not exists (migration)
   await db.query(`ALTER TABLE automated_campaigns ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{}'`);
   await db.query(`ALTER TABLE automated_campaigns ADD COLUMN IF NOT EXISTS current_step INTEGER DEFAULT 0`);
+  await db.query(`ALTER TABLE automated_campaigns ADD COLUMN IF NOT EXISTS audience_id UUID REFERENCES broadcast_audiences(id) ON DELETE SET NULL`);
   
   await db.query(`
     CREATE TABLE IF NOT EXISTS automated_campaign_steps (

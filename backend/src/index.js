@@ -110,4 +110,19 @@ console.log('📅 Forward jobs cleanup cron job scheduled (hourly)');
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
   console.log(`🚀 FlowBotomat Backend running on port ${PORT}`);
+  
+  // Resume stuck jobs after server starts (wait for DB connections to stabilize)
+  setTimeout(async () => {
+    try {
+      const { resumeStuckForwardJobs } = require('./controllers/groupForwards/jobs.controller');
+      const { resumeStuckBroadcastCampaigns } = require('./services/broadcasts/sender.service');
+      
+      console.log('[Startup] Checking for stuck jobs to resume...');
+      await resumeStuckForwardJobs();
+      await resumeStuckBroadcastCampaigns();
+      console.log('[Startup] Stuck jobs check complete');
+    } catch (err) {
+      console.error('[Startup] Error resuming stuck jobs:', err.message);
+    }
+  }, 5000);
 });

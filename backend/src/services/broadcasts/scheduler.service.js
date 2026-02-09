@@ -181,11 +181,27 @@ async function executeTriggerStep(step, parentCampaign) {
     }
     
     const targetCampaign = targetResult.rows[0];
+    
+    // Debug: log audience resolution details
+    console.log(`[Scheduler] Target campaign "${targetCampaign.name}" audience debug:`);
+    console.log(`[Scheduler]   - campaign.audience_id (column): ${targetCampaign.audience_id || 'NULL'}`);
+    console.log(`[Scheduler]   - resolved_audience_id (COALESCE): ${targetCampaign.resolved_audience_id || 'NULL'}`);
+    
+    // Also check steps directly for debugging
+    const stepsDebug = await db.query(`
+      SELECT step_order, step_type, audience_id, template_id 
+      FROM automated_campaign_steps 
+      WHERE campaign_id = $1 ORDER BY step_order
+    `, [targetCampaignId]);
+    console.log(`[Scheduler]   - Steps:`, stepsDebug.rows.map(s => 
+      `${s.step_type}(order:${s.step_order}, audience:${s.audience_id || 'NULL'}, template:${s.template_id || 'NULL'})`
+    ).join(', '));
+    
     // Set the resolved audience on the campaign object for use by executeSendStep
     if (targetCampaign.resolved_audience_id) {
       targetCampaign.audience_id = targetCampaign.resolved_audience_id;
     }
-    console.log(`[Scheduler] Executing triggered campaign: ${targetCampaign.name} (audience: ${targetCampaign.audience_id || 'none'})`);
+    console.log(`[Scheduler] Executing triggered campaign: ${targetCampaign.name} (final audience: ${targetCampaign.audience_id || 'NONE'})`);
     
     // Execute the target campaign as TRIGGERED (won't update its next_run_at or deactivate it)
     await executeCampaign(targetCampaign, { isTriggered: true });
@@ -198,7 +214,7 @@ async function executeTriggerStep(step, parentCampaign) {
  * Execute a send step
  */
 async function executeSendStep(sendStep, campaign) {
-  console.log(`[Scheduler] Executing send step for campaign ${campaign.id}`);
+  console.log(`[Scheduler] Executing send step for campaign ${campaign.id} (step ${sendStep.id})`);
   
   try {
     // Create a run record
@@ -212,6 +228,7 @@ async function executeSendStep(sendStep, campaign) {
     
     // Get audience ID - check step level first, then campaign level, then query DB
     let audienceId = sendStep.audience_id || campaign.audience_id;
+    let audienceSource = sendStep.audience_id ? 'step' : (campaign.audience_id ? 'campaign-object' : 'none');
     
     if (!audienceId) {
       // Fallback: query campaign's audience_id directly from DB
@@ -221,14 +238,33 @@ async function executeSendStep(sendStep, campaign) {
       );
       audienceId = campAudience.rows[0]?.audience_id;
       if (audienceId) {
+        audienceSource = 'campaign-db';
         console.log(`[Scheduler] Found audience ${audienceId} from campaign DB record`);
       }
     }
+    
+    // If still no audience, try to get from any send step of this campaign
+    if (!audienceId) {
+      const stepAudience = await db.query(`
+        SELECT audience_id FROM automated_campaign_steps 
+        WHERE campaign_id = $1 AND step_type = 'send' AND audience_id IS NOT NULL
+        ORDER BY step_order LIMIT 1
+      `, [campaign.id]);
+      audienceId = stepAudience.rows[0]?.audience_id;
+      if (audienceId) {
+        audienceSource = 'other-step-db';
+        console.log(`[Scheduler] Found audience ${audienceId} from another step in campaign`);
+      }
+    }
+    
+    console.log(`[Scheduler] Audience resolution: id=${audienceId || 'NULL'}, source=${audienceSource}`);
+    console.log(`[Scheduler]   step.audience_id=${sendStep.audience_id || 'NULL'}, campaign.audience_id=${campaign.audience_id || 'NULL'}`);
     
     // Get recipients from audience
     let recipients = [];
     
     if (audienceId) {
+      // Try broadcast_audience_contacts first (static audiences)
       const recipientsResult = await db.query(`
         SELECT DISTINCT c.id, c.phone, c.display_name as contact_name
         FROM contacts c
@@ -237,9 +273,43 @@ async function executeSendStep(sendStep, campaign) {
       `, [audienceId]);
       
       recipients = recipientsResult.rows;
+      
+      // If no contacts found in static table, try dynamic audience resolution
+      if (recipients.length === 0) {
+        console.log(`[Scheduler] No contacts in broadcast_audience_contacts for audience ${audienceId}, trying dynamic resolution...`);
+        
+        // Get audience details to check if it's dynamic
+        const audienceDetails = await db.query(
+          'SELECT * FROM broadcast_audiences WHERE id = $1',
+          [audienceId]
+        );
+        
+        if (audienceDetails.rows.length > 0) {
+          const audience = audienceDetails.rows[0];
+          console.log(`[Scheduler] Audience "${audience.name}" is_static=${audience.is_static}, filters=${JSON.stringify(audience.filters)}`);
+          
+          // For dynamic audiences, use the filter service
+          if (!audience.is_static && audience.filters) {
+            try {
+              const { getAudienceContacts } = require('../../services/broadcasts/audienceFilter.service');
+              const dynamicContacts = await getAudienceContacts(campaign.user_id, audience);
+              recipients = dynamicContacts.map(c => ({
+                id: c.id,
+                phone: c.phone,
+                contact_name: c.display_name
+              }));
+              console.log(`[Scheduler] Dynamic audience resolved to ${recipients.length} contacts`);
+            } catch (filterErr) {
+              console.error(`[Scheduler] Dynamic audience filter error:`, filterErr.message);
+            }
+          }
+        } else {
+          console.log(`[Scheduler] Audience ${audienceId} not found in broadcast_audiences table!`);
+        }
+      }
     }
     
-    console.log(`[Scheduler] Campaign ${campaign.id} has ${recipients.length} recipients from audience ${audienceId}`);
+    console.log(`[Scheduler] Campaign ${campaign.id} has ${recipients.length} recipients from audience ${audienceId} (source: ${audienceSource})`);
     
     // Update run with recipient count
     await db.query(`

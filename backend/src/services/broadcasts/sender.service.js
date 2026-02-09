@@ -789,6 +789,68 @@ async function sendToRecipient(userId, connection, recipient, messages, campaign
   }
 }
 
+/**
+ * Resume stuck broadcast campaigns after server restart
+ * Finds campaigns that were in 'running' status and restarts them
+ */
+async function resumeStuckBroadcastCampaigns() {
+  try {
+    const stuckCampaigns = await db.query(`
+      SELECT 
+        id, user_id, name,
+        (SELECT COUNT(*) FROM broadcast_campaign_recipients WHERE campaign_id = bc.id AND status = 'pending') as pending_count,
+        (SELECT COUNT(*) FROM broadcast_campaign_recipients WHERE campaign_id = bc.id AND status = 'sending') as sending_count,
+        (SELECT COUNT(*) FROM broadcast_campaign_recipients WHERE campaign_id = bc.id AND status = 'sent') as sent_count
+      FROM broadcast_campaigns bc
+      WHERE status = 'running'
+    `);
+    
+    if (stuckCampaigns.rows.length === 0) {
+      return;
+    }
+    
+    console.log(`[Broadcast Sender] Found ${stuckCampaigns.rows.length} stuck campaigns on startup, resuming...`);
+    
+    for (const campaign of stuckCampaigns.rows) {
+      const pendingCount = parseInt(campaign.pending_count) || 0;
+      const sendingCount = parseInt(campaign.sending_count) || 0;
+      const sentCount = parseInt(campaign.sent_count) || 0;
+      
+      // Reset 'sending' recipients back to 'pending' (they were interrupted mid-send)
+      if (sendingCount > 0) {
+        await db.query(`
+          UPDATE broadcast_campaign_recipients
+          SET status = 'pending'
+          WHERE campaign_id = $1 AND status = 'sending'
+        `, [campaign.id]);
+        console.log(`[Broadcast Sender] Reset ${sendingCount} 'sending' recipients to 'pending' for campaign ${campaign.id}`);
+      }
+      
+      const totalPending = pendingCount + sendingCount;
+      
+      // If no pending recipients, mark as completed
+      if (totalPending === 0) {
+        await db.query(`
+          UPDATE broadcast_campaigns 
+          SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+          WHERE id = $1
+        `, [campaign.id]);
+        console.log(`[Broadcast Sender] Campaign ${campaign.id} (${campaign.name}) had no pending recipients, marked as completed (${sentCount} sent)`);
+        continue;
+      }
+      
+      console.log(`[Broadcast Sender] Resuming campaign ${campaign.id} (${campaign.name}): ${sentCount} sent, ${totalPending} pending`);
+      
+      // Re-start the campaign (it will pick up pending recipients)
+      startCampaignSending(campaign.id, campaign.user_id).catch(err => {
+        console.error(`[Broadcast Sender] Error resuming campaign ${campaign.id}:`, err);
+      });
+    }
+  } catch (error) {
+    console.error('[Broadcast Sender] Resume stuck campaigns error:', error);
+  }
+}
+
 module.exports = {
   startCampaignSending,
   pauseCampaign,
@@ -796,5 +858,6 @@ module.exports = {
   cancelCampaign,
   isCampaignActive,
   sendToRecipient,
-  getWahaConnection
+  getWahaConnection,
+  resumeStuckBroadcastCampaigns
 };
