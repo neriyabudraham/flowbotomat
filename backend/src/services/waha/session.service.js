@@ -215,43 +215,14 @@ async function sendImage(connection, phone, imageUrl, caption = '') {
   };
   const mimetype = mimetypes[ext] || 'image/jpeg';
   
-  // Check if the image is a local upload - if so, read as base64 to send directly
-  // This avoids WAHA having to download the file via URL
-  let filePayload;
-  const localUploadMatch = imageUrl.match(/\/uploads\/(image|video|audio|misc)\/(.+)$/);
-  if (localUploadMatch) {
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      const localPath = path.join(__dirname, '../../../uploads', localUploadMatch[1], localUploadMatch[2]);
-      if (fs.existsSync(localPath)) {
-        const fileBuffer = fs.readFileSync(localPath);
-        const base64Data = fileBuffer.toString('base64');
-        console.log(`[WAHA] Sending local file as base64 (${fileBuffer.length} bytes): ${localPath}`);
-        filePayload = {
-          mimetype: mimetype,
-          filename: filename,
-          data: `data:${mimetype};base64,${base64Data}`
-        };
-      }
-    } catch (readErr) {
-      console.error(`[WAHA] Failed to read local file, falling back to URL:`, readErr.message);
-    }
-  }
-  
-  // Fallback to URL if not local or read failed
-  if (!filePayload) {
-    filePayload = {
-      mimetype: mimetype,
-      filename: filename,
-      url: imageUrl
-    };
-  }
-  
   const payload = {
     session: connection.session_name,
     chatId: chatId,
-    file: filePayload,
+    file: {
+      mimetype: mimetype,
+      filename: filename,
+      url: imageUrl
+    },
     caption: caption || '',
   };
   
@@ -278,39 +249,15 @@ async function sendFile(connection, phone, fileUrl, filename = 'file', mimetype 
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
-  // Check if the file is a local upload - if so, read as base64
-  let fileObj;
-  const localUploadMatch = fileUrl.match(/\/uploads\/(image|video|audio|misc)\/(.+)$/);
-  if (localUploadMatch) {
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      const localPath = path.join(__dirname, '../../../uploads', localUploadMatch[1], localUploadMatch[2]);
-      if (fs.existsSync(localPath)) {
-        const fileBuffer = fs.readFileSync(localPath);
-        const base64Data = fileBuffer.toString('base64');
-        const detectedMime = mimetype || 'application/octet-stream';
-        console.log(`[WAHA] Sending local file as base64 (${fileBuffer.length} bytes): ${localPath}`);
-        fileObj = {
-          filename: filename,
-          data: `data:${detectedMime};base64,${base64Data}`
-        };
-        if (mimetype) fileObj.mimetype = mimetype;
-      }
-    } catch (readErr) {
-      console.error(`[WAHA] Failed to read local file, falling back to URL:`, readErr.message);
-    }
-  }
+  // Build file object with proper structure
+  const fileObj = {
+    url: fileUrl,
+    filename: filename,
+  };
   
-  // Fallback to URL
-  if (!fileObj) {
-    fileObj = {
-      url: fileUrl,
-      filename: filename,
-    };
-    if (mimetype) {
-      fileObj.mimetype = mimetype;
-    }
+  // Add mimetype if provided
+  if (mimetype) {
+    fileObj.mimetype = mimetype;
   }
   
   const payload = {
@@ -353,42 +300,14 @@ async function sendVideo(connection, phone, videoUrl, caption = '') {
   };
   const mimetype = mimetypes[ext] || 'video/mp4';
   
-  // Check if the video is a local upload - if so, read as base64
-  let filePayload;
-  const localUploadMatch = videoUrl.match(/\/uploads\/(image|video|audio|misc)\/(.+)$/);
-  if (localUploadMatch) {
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      const localPath = path.join(__dirname, '../../../uploads', localUploadMatch[1], localUploadMatch[2]);
-      if (fs.existsSync(localPath)) {
-        const fileBuffer = fs.readFileSync(localPath);
-        const base64Data = fileBuffer.toString('base64');
-        console.log(`[WAHA] Sending local video as base64 (${fileBuffer.length} bytes): ${localPath}`);
-        filePayload = {
-          mimetype: mimetype,
-          filename: filename,
-          data: `data:${mimetype};base64,${base64Data}`
-        };
-      }
-    } catch (readErr) {
-      console.error(`[WAHA] Failed to read local video, falling back to URL:`, readErr.message);
-    }
-  }
-  
-  // Fallback to URL
-  if (!filePayload) {
-    filePayload = {
-      mimetype: mimetype,
-      filename: filename,
-      url: videoUrl
-    };
-  }
-  
   const payload = {
     session: connection.session_name,
     chatId: chatId,
-    file: filePayload,
+    file: {
+      mimetype: mimetype,
+      filename: filename,
+      url: videoUrl
+    },
     caption: caption || '',
     convert: true,
   };
