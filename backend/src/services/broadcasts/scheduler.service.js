@@ -70,8 +70,13 @@ async function checkAndRunCampaigns() {
 /**
  * Execute a single automated campaign
  */
-async function executeCampaign(campaign) {
-  console.log(`[Scheduler] Running campaign: ${campaign.name} (${campaign.id})`);
+/**
+ * @param {object} campaign - campaign row from DB
+ * @param {object} options - { isTriggered: bool } - if true, don't update next_run_at
+ */
+async function executeCampaign(campaign, options = {}) {
+  const { isTriggered = false } = options;
+  console.log(`[Scheduler] Running campaign: ${campaign.name} (${campaign.id})${isTriggered ? ' [TRIGGERED]' : ''}`);
   
   try {
     // Get campaign steps
@@ -85,7 +90,7 @@ async function executeCampaign(campaign) {
     
     if (steps.length === 0) {
       console.log(`[Scheduler] Campaign ${campaign.id} has no steps, skipping`);
-      await updateCampaignNextRun(campaign);
+      if (!isTriggered) await updateCampaignNextRun(campaign);
       return;
     }
     
@@ -119,8 +124,10 @@ async function executeCampaign(campaign) {
       await executeSendStep(step, campaign);
     }
     
-    // Calculate and set next run
-    await updateCampaignNextRun(campaign);
+    // Only update next run for scheduled campaigns, NOT triggered ones
+    if (!isTriggered) {
+      await updateCampaignNextRun(campaign);
+    }
     
   } catch (error) {
     console.error(`[Scheduler] Execute campaign error:`, error);
@@ -134,12 +141,15 @@ async function executeCampaign(campaign) {
       `, [error.message, campaign.id]);
     } catch (e) {}
     
-    await updateCampaignNextRun(campaign);
+    if (!isTriggered) {
+      await updateCampaignNextRun(campaign);
+    }
   }
 }
 
 /**
  * Execute a trigger_campaign step
+ * Gets the target campaign with audience from its STEPS (not campaign level)
  */
 async function executeTriggerStep(step, parentCampaign) {
   const targetCampaignId = step.trigger_campaign_id;
@@ -151,11 +161,17 @@ async function executeTriggerStep(step, parentCampaign) {
   console.log(`[Scheduler] Campaign ${parentCampaign.id} triggering campaign ${targetCampaignId}`);
   
   try {
-    // Get the target campaign
+    // Get the target campaign - fetch audience from STEPS (same as runCampaignNow)
     const targetResult = await db.query(`
-      SELECT ac.*, a.name as audience_name, a.id as audience_id
+      SELECT ac.*, 
+        a.name as audience_name, 
+        a.id as audience_id
       FROM automated_campaigns ac
-      LEFT JOIN broadcast_audiences a ON a.id = ac.audience_id
+      LEFT JOIN broadcast_audiences a ON a.id = (
+        SELECT audience_id FROM automated_campaign_steps 
+        WHERE campaign_id = ac.id AND step_type = 'send' 
+        ORDER BY step_order LIMIT 1
+      )
       WHERE ac.id = $1 AND ac.user_id = $2
     `, [targetCampaignId, parentCampaign.user_id]);
     
@@ -165,10 +181,10 @@ async function executeTriggerStep(step, parentCampaign) {
     }
     
     const targetCampaign = targetResult.rows[0];
-    console.log(`[Scheduler] Executing triggered campaign: ${targetCampaign.name}`);
+    console.log(`[Scheduler] Executing triggered campaign: ${targetCampaign.name} (audience: ${targetCampaign.audience_id || 'from steps'})`);
     
-    // Execute the target campaign (recursive call)
-    await executeCampaign(targetCampaign);
+    // Execute the target campaign as TRIGGERED (won't update its next_run_at or deactivate it)
+    await executeCampaign(targetCampaign, { isTriggered: true });
   } catch (error) {
     console.error(`[Scheduler] Error executing triggered campaign ${targetCampaignId}:`, error.message);
   }
