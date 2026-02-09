@@ -719,14 +719,16 @@ async function runCampaignNow(req, res) {
     const { id } = req.params;
     
     // Get campaign with user_id for execution
+    // Use COALESCE to prefer step-level audience, then fall back to campaign-level
     const campaignResult = await db.query(`
-      SELECT ac.*, a.name as audience_name, a.id as audience_id
+      SELECT ac.*,
+        COALESCE(
+          (SELECT audience_id FROM automated_campaign_steps 
+           WHERE campaign_id = ac.id AND step_type = 'send' AND audience_id IS NOT NULL
+           ORDER BY step_order LIMIT 1),
+          ac.audience_id
+        ) as resolved_audience_id
       FROM automated_campaigns ac
-      LEFT JOIN broadcast_audiences a ON a.id = (
-        SELECT audience_id FROM automated_campaign_steps 
-        WHERE campaign_id = ac.id AND step_type = 'send' 
-        ORDER BY step_order LIMIT 1
-      )
       WHERE ac.id = $1 AND ac.user_id = $2
     `, [id, userId]);
     
@@ -735,6 +737,10 @@ async function runCampaignNow(req, res) {
     }
     
     const campaign = campaignResult.rows[0];
+    // Set the resolved audience on the campaign object
+    if (campaign.resolved_audience_id) {
+      campaign.audience_id = campaign.resolved_audience_id;
+    }
     
     // Execute the campaign asynchronously
     const scheduler = require('../../services/broadcasts/scheduler.service');

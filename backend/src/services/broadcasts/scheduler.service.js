@@ -161,17 +161,17 @@ async function executeTriggerStep(step, parentCampaign) {
   console.log(`[Scheduler] Campaign ${parentCampaign.id} triggering campaign ${targetCampaignId}`);
   
   try {
-    // Get the target campaign - fetch audience from STEPS (same as runCampaignNow)
+    // Get the target campaign
+    // Use COALESCE to prefer step-level audience, then fall back to campaign-level
     const targetResult = await db.query(`
-      SELECT ac.*, 
-        a.name as audience_name, 
-        a.id as audience_id
+      SELECT ac.*,
+        COALESCE(
+          (SELECT audience_id FROM automated_campaign_steps 
+           WHERE campaign_id = ac.id AND step_type = 'send' AND audience_id IS NOT NULL
+           ORDER BY step_order LIMIT 1),
+          ac.audience_id
+        ) as resolved_audience_id
       FROM automated_campaigns ac
-      LEFT JOIN broadcast_audiences a ON a.id = (
-        SELECT audience_id FROM automated_campaign_steps 
-        WHERE campaign_id = ac.id AND step_type = 'send' 
-        ORDER BY step_order LIMIT 1
-      )
       WHERE ac.id = $1 AND ac.user_id = $2
     `, [targetCampaignId, parentCampaign.user_id]);
     
@@ -181,7 +181,11 @@ async function executeTriggerStep(step, parentCampaign) {
     }
     
     const targetCampaign = targetResult.rows[0];
-    console.log(`[Scheduler] Executing triggered campaign: ${targetCampaign.name} (audience: ${targetCampaign.audience_id || 'from steps'})`);
+    // Set the resolved audience on the campaign object for use by executeSendStep
+    if (targetCampaign.resolved_audience_id) {
+      targetCampaign.audience_id = targetCampaign.resolved_audience_id;
+    }
+    console.log(`[Scheduler] Executing triggered campaign: ${targetCampaign.name} (audience: ${targetCampaign.audience_id || 'none'})`);
     
     // Execute the target campaign as TRIGGERED (won't update its next_run_at or deactivate it)
     await executeCampaign(targetCampaign, { isTriggered: true });
@@ -206,8 +210,20 @@ async function executeSendStep(sendStep, campaign) {
     
     const runId = runResult.rows[0].id;
     
-    // Get audience ID - either from step or from campaign
-    const audienceId = sendStep.audience_id || campaign.audience_id;
+    // Get audience ID - check step level first, then campaign level, then query DB
+    let audienceId = sendStep.audience_id || campaign.audience_id;
+    
+    if (!audienceId) {
+      // Fallback: query campaign's audience_id directly from DB
+      const campAudience = await db.query(
+        'SELECT audience_id FROM automated_campaigns WHERE id = $1',
+        [campaign.id]
+      );
+      audienceId = campAudience.rows[0]?.audience_id;
+      if (audienceId) {
+        console.log(`[Scheduler] Found audience ${audienceId} from campaign DB record`);
+      }
+    }
     
     // Get recipients from audience
     let recipients = [];
