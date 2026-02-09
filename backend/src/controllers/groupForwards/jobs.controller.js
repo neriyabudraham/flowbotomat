@@ -466,6 +466,25 @@ async function startForwardJob(jobId) {
       session_name: sessionName
     };
     
+    // If media_url is a WAHA URL, download and save locally before sending
+    if (job.media_url && job.media_url.includes('/api/files/session_')) {
+      try {
+        const { downloadAndSaveMedia } = require('../../services/groupForwards/trigger.service');
+        if (typeof downloadAndSaveMedia === 'function') {
+          console.log(`[GroupForwards] Job ${jobId}: WAHA media URL detected, downloading locally...`);
+          const localUrl = await downloadAndSaveMedia(job.media_url, job.media_mime_type, job.media_filename);
+          if (localUrl && localUrl !== job.media_url) {
+            // Update job with local URL
+            await db.query(`UPDATE forward_jobs SET media_url = $2 WHERE id = $1`, [jobId, localUrl]);
+            job.media_url = localUrl;
+            console.log(`[GroupForwards] Job ${jobId}: Media saved locally: ${localUrl}`);
+          }
+        }
+      } catch (dlErr) {
+        console.error(`[GroupForwards] Job ${jobId}: Failed to download media locally:`, dlErr.message);
+      }
+    }
+    
     // Update status to sending
     await db.query(`
       UPDATE forward_jobs SET status = 'sending', updated_at = NOW()

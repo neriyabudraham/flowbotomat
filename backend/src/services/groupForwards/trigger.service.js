@@ -858,5 +858,6 @@ module.exports = {
   sendStoppedMessage,
   sendGroupCompletionSummary,
   sendNotificationMessage,
-  normalizePhoneNumber
+  normalizePhoneNumber,
+  downloadAndSaveMedia
 };
