@@ -15,31 +15,35 @@ async function ensureTables() {
       description TEXT,
       is_active BOOLEAN DEFAULT false,
       
-      -- Schedule type: 'interval', 'weekly', 'monthly', 'specific_dates'
+      -- Schedule type: 'manual', 'interval', 'weekly', 'monthly'
       schedule_type VARCHAR(50) NOT NULL,
       
       -- Schedule config (JSON)
-      -- For interval: { "days": 3 }
+      -- For interval: { "value": 3, "unit": "days" } or { "value": 12, "unit": "hours" }
       -- For weekly: { "days": [0, 3] } (0=Sunday, 6=Saturday)
       -- For monthly: { "dates": [1, 15] }
-      -- For specific_dates: { "dates": ["2024-01-15", "2024-02-20"] }
       schedule_config JSONB NOT NULL DEFAULT '{}',
       
       -- Time to send (HH:MM format)
       send_time TIME NOT NULL DEFAULT '09:00',
       
-      -- Audience
-      audience_id UUID REFERENCES broadcast_audiences(id) ON DELETE SET NULL,
+      -- Advanced settings
+      settings JSONB DEFAULT '{"delay_between_messages": 2, "delay_unit": "seconds", "batch_size": 50, "batch_delay": 30}',
       
       -- Stats
       total_sent INTEGER DEFAULT 0,
       last_run_at TIMESTAMP,
       next_run_at TIMESTAMP,
+      current_step INTEGER DEFAULT 0,
       
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
     )
   `);
+  
+  // Add settings column if not exists (migration)
+  await db.query(`ALTER TABLE automated_campaigns ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{}'`);
+  await db.query(`ALTER TABLE automated_campaigns ADD COLUMN IF NOT EXISTS current_step INTEGER DEFAULT 0`);
   
   await db.query(`
     CREATE TABLE IF NOT EXISTS automated_campaign_steps (
@@ -47,38 +51,54 @@ async function ensureTables() {
       campaign_id UUID NOT NULL REFERENCES automated_campaigns(id) ON DELETE CASCADE,
       step_order INTEGER NOT NULL DEFAULT 0,
       
-      -- Step type: 'send', 'wait'
+      -- Step type: 'send', 'wait', 'trigger_campaign'
       step_type VARCHAR(50) NOT NULL DEFAULT 'send',
       
       -- For 'send' step
       template_id UUID REFERENCES broadcast_templates(id) ON DELETE SET NULL,
-      direct_message TEXT,
-      direct_media_url TEXT,
+      audience_id UUID REFERENCES broadcast_audiences(id) ON DELETE SET NULL,
+      send_time TIME,
       
       -- For 'wait' step
-      -- wait_config: { "type": "days", "value": 3 } or { "type": "until_date", "day": 15 }
+      -- wait_config: { "value": 3, "unit": "hours" } or { "value": 2, "unit": "days" }
       wait_config JSONB DEFAULT '{}',
+      
+      -- For 'trigger_campaign' step
+      trigger_campaign_id UUID REFERENCES automated_campaigns(id) ON DELETE SET NULL,
       
       created_at TIMESTAMP DEFAULT NOW()
     )
   `);
+  
+  // Add new columns if not exists (migration)
+  await db.query(`ALTER TABLE automated_campaign_steps ADD COLUMN IF NOT EXISTS audience_id UUID REFERENCES broadcast_audiences(id) ON DELETE SET NULL`);
+  await db.query(`ALTER TABLE automated_campaign_steps ADD COLUMN IF NOT EXISTS send_time TIME`);
+  await db.query(`ALTER TABLE automated_campaign_steps ADD COLUMN IF NOT EXISTS trigger_campaign_id UUID`);
   
   await db.query(`
     CREATE TABLE IF NOT EXISTS automated_campaign_runs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       campaign_id UUID NOT NULL REFERENCES automated_campaigns(id) ON DELETE CASCADE,
       step_id UUID REFERENCES automated_campaign_steps(id) ON DELETE SET NULL,
+      step_order INTEGER,
       
       status VARCHAR(50) DEFAULT 'running',
       recipients_total INTEGER DEFAULT 0,
       recipients_sent INTEGER DEFAULT 0,
       recipients_failed INTEGER DEFAULT 0,
+      current_index INTEGER DEFAULT 0,
       
       started_at TIMESTAMP DEFAULT NOW(),
       completed_at TIMESTAMP,
+      paused_at TIMESTAMP,
       error_message TEXT
     )
   `);
+  
+  // Add new columns if not exists (migration)
+  await db.query(`ALTER TABLE automated_campaign_runs ADD COLUMN IF NOT EXISTS step_order INTEGER`);
+  await db.query(`ALTER TABLE automated_campaign_runs ADD COLUMN IF NOT EXISTS current_index INTEGER DEFAULT 0`);
+  await db.query(`ALTER TABLE automated_campaign_runs ADD COLUMN IF NOT EXISTS paused_at TIMESTAMP`);
   
   // Index for faster queries
   await db.query(`
@@ -94,14 +114,25 @@ ensureTables().catch(err => console.error('[AutomatedCampaigns] Table init error
  * Calculate next run date based on schedule
  */
 function calculateNextRun(scheduleType, scheduleConfig, sendTime, fromDate = new Date()) {
+  // Manual campaigns don't have scheduled runs
+  if (scheduleType === 'manual') {
+    return null;
+  }
+  
   const [hours, minutes] = (sendTime || '09:00').split(':').map(Number);
   
   switch (scheduleType) {
     case 'interval': {
-      const days = scheduleConfig.days || 1;
+      const value = scheduleConfig.value || 1;
+      const unit = scheduleConfig.unit || 'days';
       const next = new Date(fromDate);
-      next.setDate(next.getDate() + days);
-      next.setHours(hours, minutes, 0, 0);
+      
+      if (unit === 'hours') {
+        next.setHours(next.getHours() + value);
+      } else {
+        next.setDate(next.getDate() + value);
+        next.setHours(hours, minutes, 0, 0);
+      }
       return next;
     }
     
@@ -142,20 +173,6 @@ function calculateNextRun(scheduleType, scheduleConfig, sendTime, fromDate = new
         }
       }
       return next;
-    }
-    
-    case 'specific_dates': {
-      const dates = (scheduleConfig.dates || [])
-        .map(d => new Date(d))
-        .filter(d => d > fromDate)
-        .sort((a, b) => a - b);
-      
-      if (dates.length > 0) {
-        const next = dates[0];
-        next.setHours(hours, minutes, 0, 0);
-        return next;
-      }
-      return null; // No more dates
     }
     
     default:
@@ -244,7 +261,7 @@ async function createAutomatedCampaign(req, res) {
       schedule_type, 
       schedule_config, 
       send_time,
-      audience_id,
+      settings,
       steps 
     } = req.body;
     
@@ -256,16 +273,16 @@ async function createAutomatedCampaign(req, res) {
       return res.status(400).json({ error: 'סוג תזמון נדרש' });
     }
     
-    // Calculate next run
+    // Calculate next run (null for manual)
     const nextRun = calculateNextRun(schedule_type, schedule_config || {}, send_time);
     
     // Create campaign
     const result = await db.query(`
       INSERT INTO automated_campaigns 
-      (user_id, name, description, schedule_type, schedule_config, send_time, audience_id, next_run_at)
+      (user_id, name, description, schedule_type, schedule_config, send_time, settings, next_run_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
-    `, [userId, name, description, schedule_type, schedule_config || {}, send_time || '09:00', audience_id, nextRun]);
+    `, [userId, name, description, schedule_type, schedule_config || {}, send_time || '09:00', settings || {}, nextRun]);
     
     const campaign = result.rows[0];
     
@@ -275,9 +292,18 @@ async function createAutomatedCampaign(req, res) {
         const step = steps[i];
         await db.query(`
           INSERT INTO automated_campaign_steps 
-          (campaign_id, step_order, step_type, template_id, direct_message, direct_media_url, wait_config)
-          VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `, [campaign.id, i, step.step_type || 'send', step.template_id, step.direct_message, step.direct_media_url, step.wait_config || {}]);
+          (campaign_id, step_order, step_type, template_id, audience_id, send_time, wait_config, trigger_campaign_id)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `, [
+          campaign.id, 
+          i, 
+          step.step_type || 'send', 
+          step.template_id || null, 
+          step.audience_id || null,
+          step.send_time || null,
+          step.wait_config || {},
+          step.campaign_id || null
+        ]);
       }
     }
     
@@ -303,20 +329,20 @@ async function updateAutomatedCampaign(req, res) {
       schedule_type, 
       schedule_config, 
       send_time,
-      audience_id,
+      settings,
       steps 
     } = req.body;
     
-    // Calculate new next run if schedule changed
+    // Calculate new next run if schedule changed (null for manual)
     const nextRun = calculateNextRun(schedule_type, schedule_config || {}, send_time);
     
     const result = await db.query(`
       UPDATE automated_campaigns
       SET name = $1, description = $2, schedule_type = $3, schedule_config = $4, 
-          send_time = $5, audience_id = $6, next_run_at = $7, updated_at = NOW()
+          send_time = $5, settings = $6, next_run_at = $7, updated_at = NOW()
       WHERE id = $8 AND user_id = $9
       RETURNING *
-    `, [name, description, schedule_type, schedule_config || {}, send_time || '09:00', audience_id, nextRun, id, userId]);
+    `, [name, description, schedule_type, schedule_config || {}, send_time || '09:00', settings || {}, nextRun, id, userId]);
     
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'קמפיין לא נמצא' });
@@ -332,9 +358,18 @@ async function updateAutomatedCampaign(req, res) {
         const step = steps[i];
         await db.query(`
           INSERT INTO automated_campaign_steps 
-          (campaign_id, step_order, step_type, template_id, direct_message, direct_media_url, wait_config)
-          VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `, [id, i, step.step_type || 'send', step.template_id, step.direct_message, step.direct_media_url, step.wait_config || {}]);
+          (campaign_id, step_order, step_type, template_id, audience_id, send_time, wait_config, trigger_campaign_id)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `, [
+          id, 
+          i, 
+          step.step_type || 'send', 
+          step.template_id || null, 
+          step.audience_id || null,
+          step.send_time || null,
+          step.wait_config || {},
+          step.campaign_id || null
+        ]);
       }
     }
     
