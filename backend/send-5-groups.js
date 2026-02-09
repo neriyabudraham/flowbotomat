@@ -17,7 +17,7 @@ const pool = new Pool({
 });
 
 const JOB_ID = '859795e8-d974-49be-858d-9fc332fda53d';
-const WAHA_IMAGE_URL = 'https://bot.botomat.co.il/api/files/session_01keptmqb60fhc15240vbgpss3/ACDB677F73A9440BD26099E0FA62FEC4.jpeg';
+const WAHA_IMAGE_URL = 'https://files.neriyabudraham.co.il/files/ACDB677F73A9440BD26099E0FA62FEC4_20260209_s5793.jpeg';
 const WAHA_BASE_URL = process.env.WAHA_BASE_URL;
 const WAHA_API_KEY = process.env.WAHA_API_KEY;
 const SESSION_NAME = 'session_01keptmqb60fhc15240vbgpss3';
@@ -108,16 +108,8 @@ async function main() {
       console.log(`  ${i+1}. ${m.group_name || m.group_id} (sort: ${m.sort_order}, status: ${m.status})`);
     });
     
-    // 3. Download image locally
-    console.log('\nDownloading image...');
-    let imageUrl = await downloadImage();
-    
-    if (!imageUrl) {
-      console.error('\nCould not download image from WAHA! File is no longer available.');
-      console.error('Trying with original URL as last resort...');
-      imageUrl = WAHA_IMAGE_URL;
-    }
-    
+    // 3. Use the provided image URL directly
+    let imageUrl = WAHA_IMAGE_URL;
     console.log(`\nUsing image URL: ${imageUrl}`);
     
     // 4. Send to each group with delay
@@ -191,8 +183,8 @@ async function main() {
     
     await pool.query(`
       UPDATE forward_jobs 
-      SET sent_count = $2, failed_count = $3, status = $4, 
-          updated_at = NOW(), completed_at = CASE WHEN $4 IN ('completed', 'partial') THEN NOW() ELSE completed_at END
+      SET sent_count = $2, failed_count = $3, status = $4::text, 
+          updated_at = NOW(), completed_at = CASE WHEN $4::text IN ('completed', 'partial') THEN NOW() ELSE completed_at END
       WHERE id = $1
     `, [JOB_ID, parseInt(counts.sent), parseInt(counts.failed), finalStatus]);
     
