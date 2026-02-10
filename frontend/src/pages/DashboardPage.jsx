@@ -391,8 +391,8 @@ export default function DashboardPage() {
 
         {/* Main Grid */}
         <div className="grid lg:grid-cols-3 gap-6 mb-8">
-          {/* WhatsApp Connection Card */}
-          <div className="lg:col-span-2">
+          {/* WhatsApp Connection Card - full width when setup is dismissed */}
+          <div className={allStepsCompleted && setupDismissed ? 'lg:col-span-3' : 'lg:col-span-2'}>
             <Link to="/whatsapp" className="block group">
               <div className={`relative overflow-hidden rounded-2xl p-6 transition-all hover:shadow-2xl ${
                 isConnected 
@@ -519,10 +519,13 @@ export default function DashboardPage() {
                 <Gauge className="w-5 h-5 text-indigo-600" />
                 שימוש בחבילה החודשית
               </h3>
-              <Link to="/pricing" className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
-                שדרג חבילה
-                <ChevronLeft className="w-4 h-4" />
-              </Link>
+              {/* Hide upgrade link when all limits are unlimited */}
+              {!(usage.limits?.max_bots === -1 && usage.limits?.max_contacts === -1 && usage.limits?.max_bot_runs_per_month === -1) && (
+                <Link to="/pricing" className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
+                  שדרג חבילה
+                  <ChevronLeft className="w-4 h-4" />
+                </Link>
+              )}
             </div>
             <div className="p-6">
               <div className="grid md:grid-cols-3 gap-6">
