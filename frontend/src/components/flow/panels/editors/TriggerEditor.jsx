@@ -14,6 +14,14 @@ const triggerTypes = [
   { id: 'tag_added', label: 'תגית נוספה', icon: '🏷️', hasValue: true, category: 'event' },
   { id: 'tag_removed', label: 'תגית הוסרה', icon: '🏷️', hasValue: true, category: 'event' },
   { id: 'not_triggered_in', label: 'לא הופעל עבור המשתמש ב-X זמן', icon: '⏰', hasTimeValue: true, category: 'behavior' },
+  { id: 'status_viewed', label: 'צפייה בסטטוס', icon: '👁️', category: 'status' },
+  { id: 'status_reaction', label: 'תגובה/לב על סטטוס', icon: '💚', category: 'status' },
+  { id: 'group_join', label: 'משתמש הצטרף לקבוצה', icon: '📥', category: 'group' },
+  { id: 'group_leave', label: 'משתמש יצא מקבוצה', icon: '📤', category: 'group' },
+  { id: 'call_received', label: 'שיחה נכנסת', icon: '📞', hasCallType: true, category: 'call' },
+  { id: 'call_rejected', label: 'שיחה שנדחתה / לא נענתה', icon: '📵', hasCallType: true, category: 'call' },
+  { id: 'call_accepted', label: 'שיחה שנענתה', icon: '✅', hasCallType: true, category: 'call' },
+  { id: 'poll_vote', label: 'מענה על סקר', icon: '📊', hasValue: true, hasOperator: true, category: 'group' },
 ];
 
 const operators = [
@@ -269,6 +277,21 @@ export default function TriggerEditor({ data, onUpdate }) {
                                 <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
                               ))}
                             </optgroup>
+                            <optgroup label="סטטוס">
+                              {triggerTypes.filter(t => t.category === 'status').map(t => (
+                                <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="קבוצות">
+                              {triggerTypes.filter(t => t.category === 'group').map(t => (
+                                <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="שיחות">
+                              {triggerTypes.filter(t => t.category === 'call').map(t => (
+                                <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
+                              ))}
+                            </optgroup>
                             <optgroup label="אירועים">
                               {triggerTypes.filter(t => t.category === 'event').map(t => (
                                 <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
@@ -302,6 +325,19 @@ export default function TriggerEditor({ data, onUpdate }) {
                                 <option value="weeks">שבועות</option>
                               </select>
                             </div>
+                          )}
+                          
+                          {/* Call type selector for call triggers */}
+                          {triggerInfo.hasCallType && (
+                            <select
+                              value={condition.callType || 'any'}
+                              onChange={(e) => updateCondition(group.id, conditionIndex, 'callType', e.target.value)}
+                              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                            >
+                              <option value="any">כל סוג שיחה</option>
+                              <option value="audio">שיחה קולית בלבד</option>
+                              <option value="video">שיחת וידאו בלבד</option>
+                            </select>
                           )}
                           
                           {/* Field selector for contact_field */}
@@ -613,30 +649,7 @@ export default function TriggerEditor({ data, onUpdate }) {
         </div>
       )}
 
-      {/* Global Settings - Only mark as read */}
-      {groups.length > 0 && (
-        <div className="border-t border-gray-200 pt-4">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-lg">⚙️</span>
-            <span className="font-semibold text-gray-800">הגדרות כלליות</span>
-          </div>
-          
-          <div className="bg-gray-50 rounded-xl p-4">
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={data.autoMarkSeen || false}
-                onChange={(e) => onUpdate({ autoMarkSeen: e.target.checked })}
-                className="w-5 h-5 mt-0.5 rounded border-gray-300 text-purple-600"
-              />
-              <div>
-                <div className="font-medium text-gray-700">סמן כנקרא אוטומטית</div>
-                <div className="text-xs text-gray-500">כל הודעה במסגרת הבוט תסומן כנקראה</div>
-              </div>
-            </label>
-          </div>
-        </div>
-      )}
+      {/* Global Settings removed - autoMarkSeen no longer shown */}
     </div>
   );
 }

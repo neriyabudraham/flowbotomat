@@ -92,7 +92,7 @@ async function handleWebhook(req, res) {
     const event = req.body;
     
     // Quick check if user exists (skip for frequent events to reduce DB load)
-    const silentEvents = ['message', 'message.ack', 'message.any', 'poll.vote', 'poll.vote.failed'];
+    const silentEvents = ['message', 'message.ack', 'message.any', 'message.reaction', 'poll.vote', 'poll.vote.failed', 'call.received', 'call.rejected', 'call.accepted'];
     if (!silentEvents.includes(event.event)) {
       console.log(`[Webhook] User: ${userId}, Event: ${event.event}`);
     }
@@ -103,14 +103,26 @@ async function handleWebhook(req, res) {
         await handleIncomingMessage(userId, event);
         break;
       case 'message.ack':
-        // Silent - these are very frequent
         await handleMessageAck(userId, event);
+        break;
+      case 'message.reaction':
+        await handleMessageReaction(userId, event);
         break;
       case 'session.status':
         await handleSessionStatus(userId, event);
         break;
+      case 'group.v2.participants':
+        await handleGroupParticipants(userId, event);
+        break;
+      case 'call.received':
+      case 'call.rejected':
+      case 'call.accepted':
+        await handleCallEvent(userId, event);
+        break;
+      case 'poll.vote':
+        await handlePollVote(userId, event);
+        break;
       default:
-        // Unhandled events are already filtered at the top
         break;
     }
     
@@ -782,6 +794,24 @@ async function handleMessageAck(userId, event) {
       [ackLevel === 2 ? 'delivered' : 'read', payload.id._serialized || payload.id]
     );
   }
+  
+  // Detect status view (ack=3 READ on status@broadcast means someone viewed our status)
+  if (ackLevel >= 3 && payload.from === 'status@broadcast' && payload.fromMe === true) {
+    const viewerPhone = payload.participant || payload.to;
+    if (viewerPhone) {
+      const phone = viewerPhone.replace('@s.whatsapp.net', '').replace('@c.us', '');
+      console.log(`[Webhook] Status viewed by ${phone}`);
+      
+      try {
+        await botEngine.processEvent(userId, phone, 'status_viewed', {
+          messageId: payload.id?._serialized || payload.id,
+          ackName: payload.ackName
+        });
+      } catch (err) {
+        console.error('[Webhook] Status view trigger error:', err.message);
+      }
+    }
+  }
 }
 
 /**
@@ -809,5 +839,195 @@ async function handleSessionStatus(userId, event) {
   const socketManager = getSocketManager();
   socketManager.emitToUser(userId, 'whatsapp_status', { status: ourStatus });
 }
+
+/**
+ * Handle message reactions (including status reactions/likes)
+ */
+async function handleMessageReaction(userId, event) {
+  try {
+    const { payload } = event;
+    const isStatusReaction = payload.from === 'status@broadcast';
+    
+    if (isStatusReaction) {
+      // Status reaction (like/heart on status)
+      const rawPhone = payload.participant || payload.to || '';
+      const reactorPhone = rawPhone.replace('@s.whatsapp.net', '').replace('@c.us', '').replace('@lid', '');
+      const reactionText = payload.reaction?.text || '';
+      
+      console.log(`[Webhook] Status reaction from ${reactorPhone}: ${reactionText}`);
+      
+      // Trigger bot engine with special event type
+      await botEngine.processEvent(userId, reactorPhone, 'status_reaction', {
+        reaction: reactionText,
+        messageId: payload.reaction?.messageId,
+        fromMe: payload.fromMe
+      });
+    }
+    // Non-status reactions can be handled here in the future
+  } catch (error) {
+    console.error('[Webhook] Reaction handler error:', error.message);
+  }
+}
+
+/**
+ * Handle group participant events (join/leave)
+ */
+async function handleGroupParticipants(userId, event) {
+  try {
+    const { payload } = event;
+    const groupId = payload.group?.id;
+    const eventType = payload.type; // 'join' or 'leave'
+    const participants = payload.participants || [];
+    
+    console.log(`[Webhook] Group ${eventType} in ${groupId}: ${participants.length} participants`);
+    
+    for (const participant of participants) {
+      // Resolve phone - try multiple sources
+      let phone = null;
+      
+      // Best source: SenderPN has real phone for the action performer
+      if (payload._data?.SenderPN) {
+        phone = payload._data.SenderPN.replace('@s.whatsapp.net', '').replace('@c.us', '');
+      }
+      
+      // If participant ID has real phone format
+      if (!phone && participant.id && !participant.id.endsWith('@lid')) {
+        phone = participant.id.replace('@s.whatsapp.net', '').replace('@c.us', '');
+      }
+      
+      // For LID we can't easily resolve to phone - just use the LID number
+      // The bot will create/find the contact as needed
+      
+      // Last resort: use participant ID without @lid suffix
+      if (!phone) {
+        phone = participant.id?.replace('@lid', '') || 'unknown';
+      }
+      
+      const triggerType = eventType === 'join' ? 'group_join' : 'group_leave';
+      
+      await botEngine.processEvent(userId, phone, triggerType, {
+        groupId,
+        participantId: participant.id,
+        participantRole: participant.role,
+        senderPhone: payload._data?.SenderPN?.replace('@s.whatsapp.net', '') || null,
+        notify: payload._data?.Notify || null
+      });
+    }
+  } catch (error) {
+    console.error('[Webhook] Group participants handler error:', error.message);
+  }
+}
+
+/**
+ * Handle call events (received, rejected, accepted)
+ */
+async function handleCallEvent(userId, event) {
+  try {
+    const { payload } = event;
+    const eventType = event.event; // call.received, call.rejected, call.accepted
+    const isVideo = payload.isVideo || false;
+    const isGroup = payload.isGroup || false;
+    
+    // Resolve caller phone - try multiple sources
+    let callerPhone = null;
+    
+    // Best source: CallCreatorAlt has real phone
+    if (payload._data?.CallCreatorAlt) {
+      const alt = payload._data.CallCreatorAlt;
+      if (alt && !alt.endsWith('@lid')) {
+        callerPhone = alt.replace('@s.whatsapp.net', '').replace('@c.us', '');
+      }
+    }
+    
+    // Try caller_pn from nested data
+    if (!callerPhone && payload._data?.Data?.Attrs?.caller_pn) {
+      callerPhone = payload._data.Data.Attrs.caller_pn.replace('@s.whatsapp.net', '');
+    }
+    
+    // Try from field if it's a real phone
+    if (!callerPhone && payload.from && !payload.from.endsWith('@lid')) {
+      callerPhone = payload.from.replace('@s.whatsapp.net', '').replace('@c.us', '');
+    }
+    
+    // For LID, use the LID number as fallback
+    if (!callerPhone && payload.from && payload.from.endsWith('@lid')) {
+      callerPhone = payload.from.replace('@lid', '');
+    }
+    
+    if (!callerPhone) {
+      callerPhone = 'unknown';
+    }
+    
+    let triggerType;
+    if (eventType === 'call.received') {
+      triggerType = 'call_received';
+    } else if (eventType === 'call.rejected') {
+      triggerType = 'call_rejected';
+    } else if (eventType === 'call.accepted') {
+      triggerType = 'call_accepted';
+    }
+    
+    console.log(`[Webhook] Call event: ${triggerType} from ${callerPhone}, video: ${isVideo}`);
+    
+    await botEngine.processEvent(userId, callerPhone, triggerType, {
+      callId: payload.id || payload._data?.CallID,
+      isVideo,
+      isGroup,
+      fromMe: payload.fromMe || false
+    });
+  } catch (error) {
+    console.error('[Webhook] Call event handler error:', error.message);
+  }
+}
+
+/**
+ * Handle poll votes
+ */
+async function handlePollVote(userId, event) {
+  try {
+    const { payload } = event;
+    
+    // Get voter info - try multiple sources
+    let voterPhone = null;
+    const voterLid = payload.vote?.participant || payload.vote?.to;
+    
+    // Best source: SenderAlt has real phone
+    if (payload._data?.Info?.SenderAlt) {
+      const alt = payload._data.Info.SenderAlt;
+      if (alt && !alt.endsWith('@lid')) {
+        voterPhone = alt.replace('@s.whatsapp.net', '').replace('@c.us', '');
+      }
+    }
+    
+    // For LID, use LID number as fallback
+    if (!voterPhone && voterLid && voterLid.endsWith('@lid')) {
+      voterPhone = voterLid.replace('@lid', '');
+    }
+    
+    if (!voterPhone && voterLid) {
+      voterPhone = voterLid.replace('@lid', '').replace('@s.whatsapp.net', '').replace('@c.us', '');
+    }
+    
+    const selectedOptions = payload._data?.Votes || payload.vote?.selectedOptions || [];
+    const groupId = payload._data?.Info?.Chat || payload.poll?.to;
+    
+    console.log(`[Webhook] Poll vote from ${voterPhone} in ${groupId}: ${selectedOptions.join(', ')}`);
+    
+    await botEngine.processEvent(userId, voterPhone, 'poll_vote', {
+      groupId,
+      selectedOptions,
+      pollId: payload.poll?.id,
+      pushName: payload._data?.Info?.PushName
+    });
+  } catch (error) {
+    console.error('[Webhook] Poll vote handler error:', error.message);
+  }
+}
+
+/**
+ * Handle status view (detected via message.ack with status@broadcast)
+ */
+// Note: Status views come through message.ack when ack=3 (read) and from=status@broadcast
+// This is already handled in handleMessageAck but we add special processing for bot triggers
 
 module.exports = { handleWebhook };

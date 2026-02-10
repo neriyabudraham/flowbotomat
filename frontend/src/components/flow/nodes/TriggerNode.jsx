@@ -12,6 +12,14 @@ const triggerLabels = {
   contact_added: '➕ איש קשר נוסף',
   tag_added: '🏷️ תגית נוספה',
   tag_removed: '🏷️ תגית הוסרה',
+  status_viewed: '👁️ צפייה בסטטוס',
+  status_reaction: '💚 תגובה על סטטוס',
+  group_join: '📥 הצטרף לקבוצה',
+  group_leave: '📤 יצא מקבוצה',
+  call_received: '📞 שיחה נכנסת',
+  call_rejected: '📵 שיחה נדחתה',
+  call_accepted: '✅ שיחה נענתה',
+  poll_vote: '📊 מענה על סקר',
 };
 
 const operatorLabels = {
@@ -38,8 +46,9 @@ function TriggerNode({ data, selected }) {
   const getConditionSummary = (condition) => {
     const label = triggerLabels[condition.type] || condition.type;
     
-    // For simple triggers like any_message, first_message, contact_added - no operator/value needed
-    if (['any_message', 'first_message', 'contact_added'].includes(condition.type)) {
+    // For simple triggers - no operator/value needed
+    if (['any_message', 'first_message', 'contact_added', 'status_viewed', 'status_reaction', 
+         'group_join', 'group_leave', 'call_received', 'call_rejected', 'call_accepted'].includes(condition.type)) {
       return label;
     }
     
@@ -62,7 +71,7 @@ function TriggerNode({ data, selected }) {
   
   // Build advanced settings summary
   const advancedSettings = [];
-  if (data.autoMarkSeen) advancedSettings.push('📖 סמן כנקרא');
+  // autoMarkSeen removed from display
   if (data.oncePerUser) advancedSettings.push('👤 פעם אחת ליוזר');
   if (data.hasCooldown) {
     const unit = { minutes: 'דקות', hours: 'שעות', days: 'ימים', weeks: 'שבועות' }[data.cooldownUnit] || data.cooldownUnit;

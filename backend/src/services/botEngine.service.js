@@ -134,6 +134,280 @@ class BotEngine {
     }
   }
   
+  // Process special events (status view, status reaction, group join/leave, calls, poll vote)
+  async processEvent(userId, contactPhone, eventType, eventData = {}) {
+    console.log('[BotEngine] ========================================');
+    console.log('[BotEngine] Processing event:', eventType);
+    console.log('[BotEngine] Contact phone:', contactPhone);
+    console.log('[BotEngine] Event data:', JSON.stringify(eventData));
+    
+    try {
+      // Get all active bots for this user
+      const botsResult = await db.query(
+        'SELECT * FROM bots WHERE user_id = $1 AND is_active = true',
+        [userId]
+      );
+      
+      if (botsResult.rows.length === 0) {
+        console.log('[BotEngine] No active bots for user:', userId);
+        return;
+      }
+      
+      // Get or create contact
+      let contact;
+      const contactResult = await db.query(
+        'SELECT * FROM contacts WHERE user_id = $1 AND phone = $2',
+        [userId, contactPhone]
+      );
+      
+      if (contactResult.rows.length === 0) {
+        // For some events like group_join we may not have the contact yet
+        // Try to create one
+        console.log('[BotEngine] Contact not found for event, creating:', contactPhone);
+        try {
+          const insertResult = await db.query(
+            `INSERT INTO contacts (user_id, phone, name, created_at, updated_at) 
+             VALUES ($1, $2, $3, NOW(), NOW()) 
+             ON CONFLICT (user_id, phone) DO UPDATE SET updated_at = NOW()
+             RETURNING *`,
+            [userId, contactPhone, eventData.pushName || eventData.notify || contactPhone]
+          );
+          contact = insertResult.rows[0];
+        } catch (insertErr) {
+          console.log('[BotEngine] Could not create contact for event:', insertErr.message);
+          return;
+        }
+      } else {
+        contact = contactResult.rows[0];
+      }
+      
+      // Check if bot is disabled for this contact
+      if (!contact.is_bot_active) {
+        if (contact.takeover_until && new Date(contact.takeover_until) < new Date()) {
+          await db.query('UPDATE contacts SET is_bot_active = true, takeover_until = NULL WHERE id = $1', [contact.id]);
+        } else {
+          console.log('[BotEngine] Bot disabled for contact:', contactPhone);
+          return;
+        }
+      }
+      
+      // Add event context to contact
+      contact._eventType = eventType;
+      contact._eventData = eventData;
+      contact._isGroupMessage = !!eventData.groupId;
+      contact._groupId = eventData.groupId || null;
+      
+      // Process each active bot
+      for (const bot of botsResult.rows) {
+        await this.processEventBot(bot, contact, eventType, eventData, userId);
+      }
+      
+    } catch (error) {
+      console.error('[BotEngine] Error processing event:', error);
+    }
+  }
+  
+  // Process single bot for special events
+  async processEventBot(bot, contact, eventType, eventData, userId) {
+    try {
+      // Check if this specific bot is disabled for this contact
+      const disabledCheck = await db.query(
+        'SELECT id FROM contact_disabled_bots WHERE contact_id = $1 AND bot_id = $2',
+        [contact.id, bot.id]
+      );
+      
+      if (disabledCheck.rows.length > 0) {
+        console.log('[BotEngine] Bot', bot.name, 'is disabled for contact:', contact.phone);
+        return;
+      }
+      
+      const flowData = bot.flow_data;
+      if (!flowData || !flowData.nodes || flowData.nodes.length === 0) {
+        return;
+      }
+      
+      const triggerNode = flowData.nodes.find(n => n.type === 'trigger');
+      if (!triggerNode) return;
+      
+      // Check if trigger has matching event condition
+      const triggerGroups = triggerNode.data.triggerGroups || [];
+      let matched = false;
+      
+      for (const group of triggerGroups) {
+        if (!group.conditions || group.conditions.length === 0) continue;
+        
+        // Check group message settings (allowDirectMessages defaults to true)
+        const isGroupEvent = !!eventData.groupId;
+        const allowDirectMessages = group.allowDirectMessages !== false;
+        const allowGroupMessages = group.allowGroupMessages || false;
+        if (isGroupEvent && !allowGroupMessages) continue;
+        if (!isGroupEvent && !allowDirectMessages) continue;
+        
+        // Check if all conditions in the group match
+        let allMatch = true;
+        let hasEventCondition = false;
+        
+        for (const condition of group.conditions) {
+          if (this.isEventCondition(condition.type)) {
+            hasEventCondition = true;
+            if (!this.checkEventCondition(condition, eventType, eventData)) {
+              allMatch = false;
+              break;
+            }
+          } else if (condition.type === 'has_tag' || condition.type === 'no_tag' || condition.type === 'contact_field') {
+            // Also check contact-based conditions
+            const conditionMet = await this.checkSingleCondition(condition, '', contact);
+            if (!conditionMet) {
+              allMatch = false;
+              break;
+            }
+          }
+        }
+        
+        if (allMatch && hasEventCondition) {
+          // Check cooldown
+          if (group.hasCooldown && group.cooldownValue && group.cooldownUnit) {
+            const cooldownMinutes = group.cooldownValue * ({
+              minutes: 1, hours: 60, days: 1440, weeks: 10080
+            }[group.cooldownUnit] || 1440);
+            
+            const lastTrigger = await db.query(
+              `SELECT triggered_at FROM bot_trigger_history 
+               WHERE bot_id = $1 AND contact_id = $2 AND trigger_group_id = $3 
+               ORDER BY triggered_at DESC LIMIT 1`,
+              [bot.id, contact.id, group.id]
+            );
+            
+            if (lastTrigger.rows.length > 0) {
+              const lastTime = new Date(lastTrigger.rows[0].triggered_at);
+              const cooldownEnd = new Date(lastTime.getTime() + cooldownMinutes * 60000);
+              if (new Date() < cooldownEnd) {
+                console.log('[BotEngine] Event cooldown active for group:', group.id);
+                continue;
+              }
+            }
+          }
+          
+          // Check once per user
+          if (group.oncePerUser) {
+            const prevTrigger = await db.query(
+              `SELECT id FROM bot_trigger_history WHERE bot_id = $1 AND contact_id = $2 AND trigger_group_id = $3`,
+              [bot.id, contact.id, group.id]
+            );
+            if (prevTrigger.rows.length > 0) {
+              console.log('[BotEngine] Event already triggered once for this user in group:', group.id);
+              continue;
+            }
+          }
+          
+          matched = true;
+          
+          // Record trigger history
+          try {
+            await db.query(
+              `INSERT INTO bot_trigger_history (bot_id, contact_id, trigger_group_id, triggered_at)
+               VALUES ($1, $2, $3, NOW())`,
+              [bot.id, contact.id, group.id]
+            );
+          } catch (historyErr) {
+            console.log('[BotEngine] Failed to record event trigger history:', historyErr.message);
+          }
+          
+          break;
+        }
+      }
+      
+      if (!matched) return;
+      
+      console.log(`[BotEngine] ✅ Event trigger matched! Starting flow for bot: ${bot.name}, event: ${eventType}`);
+      
+      // Check subscription limit for bot runs
+      const runsLimit = await checkLimit(userId, 'bot_runs');
+      if (!runsLimit.allowed) {
+        console.log('[BotEngine] User has reached monthly bot runs limit');
+        return;
+      }
+      
+      // Log bot run and increment usage
+      await this.logBotRun(bot.id, contact.id, 'triggered');
+      await incrementBotRuns(userId);
+      
+      // Create event description for the flow
+      const eventMessage = this.getEventDescription(eventType, eventData);
+      
+      // Start the flow from trigger node
+      const triggerNode2 = flowData.nodes.find(n => n.type === 'trigger');
+      if (!triggerNode2) return;
+      
+      const nextEdges = flowData.edges.filter(e => e.source === triggerNode2.id);
+      if (nextEdges.length === 0) return;
+      
+      const sortedEdges = nextEdges.sort((a, b) => {
+        const nodeA = flowData.nodes.find(n => n.id === a.target);
+        const nodeB = flowData.nodes.find(n => n.id === b.target);
+        return (nodeA?.position?.y || 0) - (nodeB?.position?.y || 0);
+      });
+      
+      for (const edge of sortedEdges) {
+        await this.executeNode(edge.target, flowData, contact, eventMessage, userId, bot.id, bot.name);
+      }
+    } catch (error) {
+      console.error('[BotEngine] Error processing event bot:', error.message);
+    }
+  }
+  
+  // Check if condition type is an event-based condition
+  isEventCondition(type) {
+    return ['status_viewed', 'status_reaction', 'group_join', 'group_leave', 
+            'call_received', 'call_rejected', 'call_accepted', 'poll_vote'].includes(type);
+  }
+  
+  // Check if event matches condition
+  checkEventCondition(condition, eventType, eventData) {
+    // Simple match: condition type must equal event type
+    if (condition.type !== eventType) return false;
+    
+    // Additional filtering based on condition settings
+    if (condition.type === 'call_received' || condition.type === 'call_rejected' || condition.type === 'call_accepted') {
+      // If condition specifies video/audio filter
+      if (condition.callType === 'video' && !eventData.isVideo) return false;
+      if (condition.callType === 'audio' && eventData.isVideo) return false;
+    }
+    
+    if (condition.type === 'poll_vote' && condition.value) {
+      // If condition has specific option text to match
+      const selectedOptions = eventData.selectedOptions || [];
+      const optionsText = selectedOptions.join(', ');
+      // Use matchOperator if available, otherwise default to contains
+      if (condition.operator) {
+        if (!this.matchOperator(optionsText, condition.operator, condition.value)) {
+          return false;
+        }
+      } else {
+        if (!selectedOptions.some(opt => opt.toLowerCase().includes(condition.value.toLowerCase()))) {
+          return false;
+        }
+      }
+    }
+    
+    return true;
+  }
+  
+  // Get human-readable event description
+  getEventDescription(eventType, eventData) {
+    const descriptions = {
+      'status_viewed': 'צפה בסטטוס',
+      'status_reaction': `הגיב על סטטוס: ${eventData.reaction || ''}`,
+      'group_join': 'הצטרף לקבוצה',
+      'group_leave': 'יצא מהקבוצה',
+      'call_received': eventData.isVideo ? 'שיחת וידאו נכנסת' : 'שיחה נכנסת',
+      'call_rejected': 'שיחה שנדחתה',
+      'call_accepted': 'שיחה שנענתה',
+      'poll_vote': `ענה על סקר: ${(eventData.selectedOptions || []).join(', ')}`
+    };
+    return descriptions[eventType] || eventType;
+  }
+  
   // Process single bot
   async processBot(bot, contact, message, messageType, userId, selectedRowId = null, quotedListTitle = null, isGroupMessage = false) {
     try {
@@ -1036,6 +1310,11 @@ class BotEngine {
       // This condition is checked at the group level, not here
       // Returning true here as the actual check happens in matchesTrigger
       return true;
+    }
+    
+    // Event-based conditions - these only match via processEvent, not via regular message processing
+    if (this.isEventCondition(type)) {
+      return false;
     }
     
     return false;

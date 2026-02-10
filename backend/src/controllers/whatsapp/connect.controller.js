@@ -9,7 +9,13 @@ const { checkLimit } = require('../subscriptions/subscriptions.controller');
 const WEBHOOK_EVENTS = [
   'message',
   'message.ack',
+  'message.reaction',
   'session.status',
+  'group.v2.participants',
+  'call.received',
+  'call.rejected',
+  'call.accepted',
+  'poll.vote',
 ];
 
 // Build webhook URL for user
