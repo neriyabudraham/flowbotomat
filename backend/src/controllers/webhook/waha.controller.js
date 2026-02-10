@@ -21,6 +21,78 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
+// In-memory cache for LID -> phone resolution (avoids repeated API calls)
+const lidPhoneCache = new Map();
+
+// Clean LID cache every 30 minutes (entries last 1 hour)
+setInterval(() => {
+  const now = Date.now();
+  for (const [lid, data] of lidPhoneCache.entries()) {
+    if (now - data.timestamp > 60 * 60 * 1000) {
+      lidPhoneCache.delete(lid);
+    }
+  }
+}, 30 * 60 * 1000);
+
+/**
+ * Get user's WAHA connection details
+ */
+async function getUserConnection(userId) {
+  const connResult = await pool.query(
+    `SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' ORDER BY connected_at DESC LIMIT 1`,
+    [userId]
+  );
+  
+  if (connResult.rows.length === 0) return null;
+  
+  const conn = connResult.rows[0];
+  let baseUrl, apiKey;
+  
+  if (conn.connection_type === 'external') {
+    baseUrl = decrypt(conn.external_base_url);
+    apiKey = decrypt(conn.external_api_key);
+  } else {
+    const systemCreds = getWahaCredentials();
+    baseUrl = systemCreds.baseUrl;
+    apiKey = systemCreds.apiKey;
+  }
+  
+  return {
+    base_url: baseUrl,
+    api_key: apiKey,
+    session_name: conn.session_name
+  };
+}
+
+/**
+ * Resolve a LID to a real phone number using WAHA API (with caching)
+ */
+async function resolvePhoneFromLid(userId, lid) {
+  if (!lid || !lid.includes('@lid')) return null;
+  
+  const cleanLid = lid.replace('@lid', '');
+  
+  // Check cache first
+  if (lidPhoneCache.has(cleanLid)) {
+    return lidPhoneCache.get(cleanLid).phone;
+  }
+  
+  try {
+    const connection = await getUserConnection(userId);
+    if (!connection) return null;
+    
+    const phone = await wahaSession.resolveLid(connection, cleanLid);
+    if (phone) {
+      lidPhoneCache.set(cleanLid, { phone, timestamp: Date.now() });
+      console.log(`[Webhook] Resolved LID ${cleanLid} -> ${phone}`);
+    }
+    return phone;
+  } catch (err) {
+    console.log(`[Webhook] LID resolution failed for ${cleanLid}:`, err.message);
+    return null;
+  }
+}
+
 /**
  * Extract real phone number from payload
  * IMPORTANT: Exclude LIDs (@lid) - these are WhatsApp internal IDs, not phone numbers
@@ -812,18 +884,28 @@ async function handleMessageAck(userId, event) {
   
   // Detect status view (ack=3 READ on status@broadcast means someone viewed our status)
   if (ackLevel >= 3 && payload.from === 'status@broadcast' && payload.fromMe === true) {
-    const viewerPhone = payload.participant || payload.to;
-    if (viewerPhone) {
-      const phone = viewerPhone.replace('@s.whatsapp.net', '').replace('@c.us', '');
-      console.log(`[Webhook] Status viewed by ${phone}`);
+    const viewerId = payload.participant || payload.to;
+    if (viewerId) {
+      let phone = null;
       
-      try {
-        await botEngine.processEvent(userId, phone, 'status_viewed', {
-          messageId: payload.id?._serialized || payload.id,
-          ackName: payload.ackName
-        });
-      } catch (err) {
-        console.error('[Webhook] Status view trigger error:', err.message);
+      if (viewerId.endsWith('@lid')) {
+        phone = await resolvePhoneFromLid(userId, viewerId);
+      } else {
+        phone = viewerId.replace('@s.whatsapp.net', '').replace('@c.us', '');
+      }
+      
+      if (phone) {
+        console.log(`[Webhook] Status viewed by ${phone}`);
+        try {
+          await botEngine.processEvent(userId, phone, 'status_viewed', {
+            messageId: payload.id?._serialized || payload.id,
+            ackName: payload.ackName
+          });
+        } catch (err) {
+          console.error('[Webhook] Status view trigger error:', err.message);
+        }
+      } else {
+        console.log(`[Webhook] Status view: could not resolve phone for ${viewerId}`);
       }
     }
   }
@@ -865,10 +947,21 @@ async function handleMessageReaction(userId, event) {
     
     if (isStatusReaction) {
       // Status reaction (like/heart on status)
-      const rawPhone = payload.participant || payload.to || '';
-      const reactorPhone = rawPhone.replace('@s.whatsapp.net', '').replace('@c.us', '').replace('@lid', '');
-      const reactionText = payload.reaction?.text || '';
+      const rawId = payload.participant || payload.to || '';
+      let reactorPhone = null;
       
+      if (rawId.endsWith('@lid')) {
+        reactorPhone = await resolvePhoneFromLid(userId, rawId);
+      } else {
+        reactorPhone = rawId.replace('@s.whatsapp.net', '').replace('@c.us', '');
+      }
+      
+      if (!reactorPhone) {
+        console.log(`[Webhook] Status reaction: could not resolve phone for ${rawId}, skipping`);
+        return;
+      }
+      
+      const reactionText = payload.reaction?.text || '';
       console.log(`[Webhook] Status reaction from ${reactorPhone}: ${reactionText}`);
       
       // Trigger bot engine with special event type
@@ -910,12 +1003,15 @@ async function handleGroupParticipants(userId, event) {
         phone = participant.id.replace('@s.whatsapp.net', '').replace('@c.us', '');
       }
       
-      // For LID we can't easily resolve to phone - just use the LID number
-      // The bot will create/find the contact as needed
+      // Try to resolve LID via WAHA API
+      if (!phone && participant.id && participant.id.endsWith('@lid')) {
+        phone = await resolvePhoneFromLid(userId, participant.id);
+      }
       
-      // Last resort: use participant ID without @lid suffix
+      // Last resort: skip if we can't resolve
       if (!phone) {
-        phone = participant.id?.replace('@lid', '') || 'unknown';
+        console.log(`[Webhook] Group ${eventType}: could not resolve phone for ${participant.id}, skipping`);
+        continue;
       }
       
       const triggerType = eventType === 'join' ? 'group_join' : 'group_leave';
@@ -966,6 +1062,11 @@ async function handleCallEvent(userId, event) {
         callerPhone = payload.from.replace('@s.whatsapp.net', '').replace('@c.us', '');
       }
       
+      // Try to resolve caller LID via API
+      if (!callerPhone && payload.from && payload.from.endsWith('@lid')) {
+        callerPhone = await resolvePhoneFromLid(userId, payload.from);
+      }
+      
       // Cache the caller phone for later call.rejected/call.accepted events
       if (callerPhone && callId) {
         callCache.set(callId, { callerPhone, userId, isVideo, isGroup, timestamp: Date.now() });
@@ -986,6 +1087,11 @@ async function handleCallEvent(userId, event) {
         if (alt && alt.length > 0 && !alt.endsWith('@lid')) {
           callerPhone = alt.replace('@s.whatsapp.net', '').replace('@c.us', '');
         }
+      }
+      
+      // If not in cache and no alt, try resolving CallCreator LID via API
+      if (!callerPhone && payload._data?.CallCreator && payload._data.CallCreator.endsWith('@lid')) {
+        callerPhone = await resolvePhoneFromLid(userId, payload._data.CallCreator);
       }
     }
     
@@ -1036,9 +1142,14 @@ async function handlePollVote(userId, event) {
       }
     }
     
-    // For LID, use LID number as fallback
+    // Try to resolve LID via WAHA API
     if (!voterPhone && voterLid && voterLid.endsWith('@lid')) {
-      voterPhone = voterLid.replace('@lid', '');
+      voterPhone = await resolvePhoneFromLid(userId, voterLid);
+    }
+    
+    // Try Sender LID if participant LID failed
+    if (!voterPhone && payload._data?.Info?.Sender && payload._data.Info.Sender.endsWith('@lid')) {
+      voterPhone = await resolvePhoneFromLid(userId, payload._data.Info.Sender);
     }
     
     if (!voterPhone && voterLid) {
