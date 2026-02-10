@@ -207,14 +207,38 @@ function replaceVariables(content, recipient, campaignName, contactVariables = {
   
   let result = content;
   
+  // Israel timezone for day/date/time
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
+  const days = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+  
   // System variables
   result = result.replace(/\{\{name\}\}/gi, recipient.contact_name || '');
   result = result.replace(/\{\{phone\}\}/gi, recipient.phone || '');
   result = result.replace(/\{\{contact_phone\}\}/gi, recipient.phone || '');
   result = result.replace(/\{\{date\}\}/gi, formatDateInIsrael());
   result = result.replace(/\{\{time\}\}/gi, formatTimeInIsrael());
+  result = result.replace(/\{\{day\}\}/gi, days[now.getDay()]);
   result = result.replace(/\{\{campaign_name\}\}/gi, campaignName || '');
   result = result.replace(/\{\{first_name\}\}/gi, (recipient.contact_name || '').split(' ')[0] || '');
+  
+  // Date/time formulas: {{date+1d}}, {{time+2h}}, {{day+1}}
+  result = result.replace(/\{\{date([+-]\d+)d?\}\}/gi, (_, offset) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() + parseInt(offset));
+    return d.toLocaleDateString('he-IL');
+  });
+  
+  result = result.replace(/\{\{time([+-]\d+)h?\}\}/gi, (_, offset) => {
+    const d = new Date(now);
+    d.setHours(d.getHours() + parseInt(offset));
+    return d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+  });
+  
+  result = result.replace(/\{\{day([+-]\d+)\}\}/gi, (_, offset) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() + parseInt(offset));
+    return days[d.getDay()];
+  });
   
   // Custom contact variables - replace with value or empty string
   result = result.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {

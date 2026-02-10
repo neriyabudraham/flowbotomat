@@ -59,19 +59,22 @@ export default function BroadcastsPage() {
     try {
       if (showLoading) setLoading(true);
       
-      const [audiencesRes, templatesRes, campaignsRes] = await Promise.all([
+      const [audiencesRes, templatesRes, campaignsRes, automatedRes] = await Promise.all([
         api.get('/broadcasts/audiences'),
         api.get('/broadcasts/templates'),
-        api.get('/broadcasts/campaigns')
+        api.get('/broadcasts/campaigns'),
+        api.get('/broadcasts/automated').catch(() => ({ data: { campaigns: [] } }))
       ]);
       
       const campaigns = campaignsRes.data.campaigns || [];
+      const automatedCampaigns = automatedRes.data.campaigns || automatedRes.data || [];
       const totalSent = campaigns.reduce((sum, c) => sum + (c.sent_count || 0), 0);
       const totalRecipients = campaigns.reduce((sum, c) => sum + (c.total_recipients || 0), 0);
       
       setStats({
         audiences: audiencesRes.data.audiences?.length || 0,
         templates: templatesRes.data.templates?.length || 0,
+        automated: Array.isArray(automatedCampaigns) ? automatedCampaigns.length : 0,
         campaigns: campaigns.length,
         activeCampaigns: campaigns.filter(c => c.status === 'running').length,
         scheduledCampaigns: campaigns.filter(c => c.status === 'scheduled').length,
@@ -207,7 +210,7 @@ export default function BroadcastsPage() {
 
   const tabs = [
     { id: 'campaigns', label: 'קמפיינים', icon: Send, count: stats?.campaigns },
-    { id: 'automated', label: 'אוטומטי', icon: Zap },
+    { id: 'automated', label: 'אוטומטי', icon: Zap, count: stats?.automated },
     { id: 'audiences', label: 'קהלים', icon: Users, count: stats?.audiences },
     { id: 'templates', label: 'תבניות', icon: MessageSquare, count: stats?.templates },
     { id: 'contacts', label: 'אנשי קשר', icon: Target },
