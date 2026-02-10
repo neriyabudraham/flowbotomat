@@ -240,11 +240,17 @@ class BotEngine {
         if (!group.conditions || group.conditions.length === 0) continue;
         
         // Check group message settings (allowDirectMessages defaults to true)
-        const isGroupEvent = !!eventData.groupId;
-        const allowDirectMessages = group.allowDirectMessages !== false;
-        const allowGroupMessages = group.allowGroupMessages || false;
-        if (isGroupEvent && !allowGroupMessages) continue;
-        if (!isGroupEvent && !allowDirectMessages) continue;
+        // Event types that are inherently group-related skip this check
+        const inherentlyGroupEvents = ['group_join', 'group_leave'];
+        const hasInherentGroupCondition = group.conditions.some(c => inherentlyGroupEvents.includes(c.type));
+        
+        if (!hasInherentGroupCondition) {
+          const isGroupEvent = !!eventData.groupId;
+          const allowDirectMessages = group.allowDirectMessages !== false;
+          const allowGroupMessages = group.allowGroupMessages || false;
+          if (isGroupEvent && !allowGroupMessages) continue;
+          if (!isGroupEvent && !allowDirectMessages) continue;
+        }
         
         // Check if all conditions in the group match
         let allMatch = true;
