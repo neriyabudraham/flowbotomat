@@ -206,7 +206,7 @@ async function autoUpdateWebhookEvents(userId) {
     }
     
     const REQUIRED_EVENTS = [
-      'message', 'message.ack', 'message.reaction', 'session.status',
+      'message', 'message.any', 'message.ack', 'message.reaction', 'session.status',
       'group.v2.participants', 'call.received', 'call.rejected', 'call.accepted', 'poll.vote',
     ];
     
@@ -245,6 +245,15 @@ async function handleWebhook(req, res) {
     switch (event.event) {
       case 'message':
         await handleIncomingMessage(userId, event);
+        break;
+      case 'message.any':
+        // message.any fires for BOTH incoming and outgoing messages
+        // We only use it to capture outgoing status posts (fromMe on status@broadcast)
+        // Incoming messages are already handled by 'message' event - don't double-process
+        if (event.payload?.fromMe && event.payload?.from === 'status@broadcast') {
+          await ensureMigrations();
+          await saveUserStatus(userId, event.payload);
+        }
         break;
       case 'message.ack':
         await handleMessageAck(userId, event);
@@ -377,10 +386,14 @@ async function saveUserStatus(userId, payload) {
     await pool.query(`
       INSERT INTO user_statuses (user_id, wa_message_id, message_type, content, media_url, media_mime_type, posted_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
-      ON CONFLICT (user_id, wa_message_id) DO NOTHING
+      ON CONFLICT (user_id, wa_message_id) DO UPDATE SET
+        message_type = COALESCE(NULLIF(EXCLUDED.message_type, 'text'), user_statuses.message_type),
+        content = COALESCE(NULLIF(EXCLUDED.content, ''), user_statuses.content),
+        media_url = COALESCE(EXCLUDED.media_url, user_statuses.media_url),
+        media_mime_type = COALESCE(EXCLUDED.media_mime_type, user_statuses.media_mime_type)
     `, [userId, waMessageId, messageData.type, messageData.content || '', messageData.mediaUrl || null, messageData.mimeType || null, postedAt]);
     
-    console.log(`[Webhook] Saved user status: ${waMessageId} (type: ${messageData.type})`);
+    console.log(`[Webhook] Saved user status: ${waMessageId} (type: ${messageData.type}, content: ${(messageData.content || '').substring(0, 50)})`);
     
     // Clean up old statuses (older than 48 hours) - keep a bit more than 24h for safety
     await pool.query(
@@ -1033,28 +1046,48 @@ async function handleMessageAck(userId, event) {
     );
   }
   
-  // Detect status view (ack=3 READ on status@broadcast means someone viewed our status)
-  if (ackLevel >= 3 && payload.from === 'status@broadcast' && payload.fromMe === true) {
-    const viewerRaw = payload.participant || payload.to;
-    if (viewerRaw) {
-      let phone = null;
-      
-      if (viewerRaw.endsWith('@lid')) {
-        phone = await resolveLidToPhone(userId, viewerRaw);
-      }
-      if (!phone) {
-        phone = viewerRaw.replace('@s.whatsapp.net', '').replace('@c.us', '');
-      }
-      
-      console.log(`[Webhook] Status viewed by ${phone}`);
-      
+  // Detect status events (ack on status@broadcast with fromMe: true)
+  if (payload.from === 'status@broadcast' && payload.fromMe === true) {
+    const statusMsgId = payload.id?._serialized || payload.id;
+    
+    // Fallback: ensure this status is saved even if message.any wasn't received
+    // (ack events don't have full content, but at least we record the ID)
+    if (statusMsgId) {
       try {
-        await botEngine.processEvent(userId, phone, 'status_viewed', {
-          messageId: payload.id?._serialized || payload.id,
-          ackName: payload.ackName
-        });
-      } catch (err) {
-        console.error('[Webhook] Status view trigger error:', err.message);
+        await ensureMigrations();
+        await pool.query(`
+          INSERT INTO user_statuses (user_id, wa_message_id, message_type, content, posted_at)
+          VALUES ($1, $2, 'text', '', $3)
+          ON CONFLICT (user_id, wa_message_id) DO NOTHING
+        `, [userId, statusMsgId, payload.timestamp ? new Date(payload.timestamp * 1000) : new Date()]);
+      } catch (saveErr) {
+        // Ignore - may already exist with content from message.any
+      }
+    }
+    
+    // Detect status view (ack=3 READ means someone viewed our status)
+    if (ackLevel >= 3) {
+      const viewerRaw = payload.participant || payload.to;
+      if (viewerRaw) {
+        let phone = null;
+        
+        if (viewerRaw.endsWith('@lid')) {
+          phone = await resolveLidToPhone(userId, viewerRaw);
+        }
+        if (!phone) {
+          phone = viewerRaw.replace('@s.whatsapp.net', '').replace('@c.us', '');
+        }
+        
+        console.log(`[Webhook] Status viewed by ${phone}`);
+        
+        try {
+          await botEngine.processEvent(userId, phone, 'status_viewed', {
+            messageId: statusMsgId,
+            ackName: payload.ackName
+          });
+        } catch (err) {
+          console.error('[Webhook] Status view trigger error:', err.message);
+        }
       }
     }
   }

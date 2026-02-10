@@ -8,6 +8,7 @@ const { checkLimit } = require('../subscriptions/subscriptions.controller');
 // Webhook events we want to receive
 const WEBHOOK_EVENTS = [
   'message',
+  'message.any',
   'message.ack',
   'message.reaction',
   'session.status',
