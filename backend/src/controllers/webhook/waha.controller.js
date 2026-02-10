@@ -1029,6 +1029,12 @@ async function handleMessageReaction(userId, event) {
     const isStatusReaction = payload.from === 'status@broadcast';
     
     if (isStatusReaction) {
+      // Only trigger when SOMEONE ELSE reacts to YOUR status (fromMe: false)
+      // Skip when YOU react to someone else's status (fromMe: true)
+      if (payload.fromMe) {
+        return;
+      }
+      
       // Status reaction (like/heart on status)
       const rawPhone = payload.participant || payload.to || '';
       let reactorPhone = null;

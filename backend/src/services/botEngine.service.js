@@ -416,14 +416,17 @@ class BotEngine {
   async processBot(bot, contact, message, messageType, userId, selectedRowId = null, quotedListTitle = null, isGroupMessage = false) {
     try {
       // Check if this specific bot is disabled for this contact
-      const disabledCheck = await db.query(
-        'SELECT id FROM contact_disabled_bots WHERE contact_id = $1 AND bot_id = $2',
-        [contact.id, bot.id]
-      );
-      
-      if (disabledCheck.rows.length > 0) {
-        console.log('[BotEngine] Bot', bot.name, 'is disabled for contact:', contact.phone);
-        return;
+      try {
+        const disabledCheck = await db.query(
+          'SELECT id FROM contact_disabled_bots WHERE contact_id = $1 AND bot_id = $2',
+          [contact.id, bot.id]
+        );
+        if (disabledCheck.rows.length > 0) {
+          console.log('[BotEngine] Bot', bot.name, 'is disabled for contact:', contact.phone);
+          return;
+        }
+      } catch (disabledErr) {
+        // Table may not exist yet - that's fine, no bots are disabled
       }
       
       const flowData = bot.flow_data;
