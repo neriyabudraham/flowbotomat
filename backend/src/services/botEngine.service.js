@@ -2254,7 +2254,7 @@ class BotEngine {
             const values = {};
             for (const mapping of (action.columnMappings || [])) {
               if (mapping.column) {
-                values[mapping.column] = this.replaceVariables(mapping.value || '', contact, '', '');
+                values[mapping.column] = await this.replaceAllVariables(mapping.value || '', contact, '', '', userId);
               }
             }
             const result = await googleSheets.appendRow(userId, spreadsheetId, sheetName, values);
@@ -2264,15 +2264,16 @@ class BotEngine {
           }
           
           case 'update_row': {
-            const rowIndex = parseInt(this.replaceVariables(action.rowIndex || '', contact, '', ''));
+            const resolvedRowIndex = await this.replaceAllVariables(action.rowIndex || '', contact, '', '', userId);
+            const rowIndex = parseInt(resolvedRowIndex);
             if (!rowIndex || isNaN(rowIndex)) {
-              console.log('[BotEngine] ⚠️ Invalid row index for update');
+              console.log(`[BotEngine] ⚠️ Invalid row index for update: "${action.rowIndex}" resolved to "${resolvedRowIndex}"`);
               break;
             }
             const values = {};
             for (const mapping of (action.columnMappings || [])) {
               if (mapping.column) {
-                values[mapping.column] = this.replaceVariables(mapping.value || '', contact, '', '');
+                values[mapping.column] = await this.replaceAllVariables(mapping.value || '', contact, '', '', userId);
               }
             }
             const result = await googleSheets.updateCells(userId, spreadsheetId, sheetName, rowIndex, values);
@@ -2282,7 +2283,7 @@ class BotEngine {
           }
           
           case 'search_rows': {
-            const searchValue = this.replaceVariables(action.searchValue || '', contact, '', '');
+            const searchValue = await this.replaceAllVariables(action.searchValue || '', contact, '', '', userId);
             const result = await googleSheets.searchRows(
               userId, spreadsheetId, sheetName,
               action.searchColumn, action.searchOperator || 'equals', searchValue
@@ -2331,11 +2332,11 @@ class BotEngine {
           }
           
           case 'search_and_update': {
-            const searchValue = this.replaceVariables(action.searchValue || '', contact, '', '');
+            const searchValue = await this.replaceAllVariables(action.searchValue || '', contact, '', '', userId);
             const updateValues = {};
             for (const mapping of (action.columnMappings || [])) {
               if (mapping.column) {
-                updateValues[mapping.column] = this.replaceVariables(mapping.value || '', contact, '', '');
+                updateValues[mapping.column] = await this.replaceAllVariables(mapping.value || '', contact, '', '', userId);
               }
             }
             const result = await googleSheets.searchAndUpdate(
@@ -2368,11 +2369,11 @@ class BotEngine {
           }
           
           case 'search_or_append': {
-            const searchValue = this.replaceVariables(action.searchValue || '', contact, '', '');
+            const searchValue = await this.replaceAllVariables(action.searchValue || '', contact, '', '', userId);
             const values = {};
             for (const mapping of (action.columnMappings || [])) {
               if (mapping.column) {
-                values[mapping.column] = this.replaceVariables(mapping.value || '', contact, '', '');
+                values[mapping.column] = await this.replaceAllVariables(mapping.value || '', contact, '', '', userId);
               }
             }
             const result = await googleSheets.searchOrAppend(
