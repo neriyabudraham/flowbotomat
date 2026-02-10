@@ -111,7 +111,6 @@ function extractRealPhone(payload) {
     
     // Skip LIDs - they are NOT phone numbers
     if (fullId.includes('@lid')) {
-      console.log(`[Webhook] Skipping LID: ${fullId}`);
       return;
     }
     
@@ -154,7 +153,6 @@ function extractRealPhone(payload) {
   }
   
   if (candidates.length === 0) {
-    console.log(`[Webhook] Could not find real phone in payload`);
     return null;
   }
   
@@ -481,7 +479,6 @@ async function handleIncomingMessage(userId, event) {
                   null;
     
     // Don't use notifyName for groups - that's the sender's name, not the group name
-    console.log(`[Webhook] Group name from payload: ${contactName || 'NOT FOUND'} (payload keys: ${Object.keys(payload._data || {}).join(',')})`);
     
     // If we couldn't get the name from payload, try DB first (faster than API)
     if (!contactName || contactName === groupId.split('@')[0]) {
@@ -492,7 +489,6 @@ async function handleIncomingMessage(userId, event) {
       
       if (existingGroup.rows.length > 0 && existingGroup.rows[0].display_name && existingGroup.rows[0].display_name !== 'קבוצה') {
         contactName = existingGroup.rows[0].display_name;
-        console.log(`[Webhook] Found existing group name in DB: ${contactName}`);
       }
     }
     
@@ -527,9 +523,9 @@ async function handleIncomingMessage(userId, event) {
             const resolvedName = groupInfo.subject || groupInfo.name || groupInfo.Name || groupInfo.title || null;
             if (resolvedName) {
               contactName = resolvedName;
-              console.log(`[Webhook] Got group name from API: ${contactName}`);
+              // Got name from API
             } else {
-              console.log(`[Webhook] API returned group info but no name (keys: ${Object.keys(groupInfo).join(',')})`);
+              // No name found in API response
             }
           }
         }
@@ -584,11 +580,10 @@ async function handleIncomingMessage(userId, event) {
           console.error(`[Webhook] Could not trigger background sync:`, syncError.message);
         }
       } else {
-        console.log(`[Webhook] Skipping sync - recently synced`);
+        // Recently synced, skip
       }
     }
     
-    console.log(`[Webhook] Group message - group: ${groupId}, name: ${contactName}, sender: ${senderPhone} (${senderName})`);
   } else {
     // Direct message: contact is the sender
     contactPhone = senderPhone;
@@ -600,8 +595,6 @@ async function handleIncomingMessage(userId, event) {
     console.log('[Webhook] Could not extract contact identifier');
     return;
   }
-  
-  console.log(`[Webhook] Extracted contact: ${contactPhone} (isGroup: ${isGroupMessage})`);
   
   // Get or create contact (group or individual)
   const contact = await getOrCreateContact(userId, contactPhone, {
@@ -642,8 +635,6 @@ async function handleIncomingMessage(userId, event) {
     message: result.rows[0],
     contact,
   });
-  
-  console.log(`[Webhook] Message saved for user ${userId} from ${contactPhone}`);
   
   // FIRST: Process group forwards - if message is handled by forwards, skip bot engine
   let handledByForwards = false;
@@ -784,8 +775,6 @@ async function getOrCreateContact(userId, phone, payload) {
     waId = payload._data?.Info?.SenderAlt || payload.from || `${phone}@s.whatsapp.net`;
   }
   
-  console.log(`[Webhook] Contact info - phone: ${phone}, name: ${displayName}, waId: ${waId}, isGroup: ${isGroup}`);
-  
   // Try to find existing contact
   const existing = await pool.query(
     'SELECT * FROM contacts WHERE user_id = $1 AND phone = $2',
@@ -823,10 +812,6 @@ async function getOrCreateContact(userId, phone, payload) {
 function parseMessage(payload) {
   const body = payload.body || '';
   
-  // Debug log for media messages
-  if (payload.hasMedia || payload.type !== 'chat') {
-    console.log(`[Webhook] parseMessage - type: ${payload.type}, hasMedia: ${payload.hasMedia}, mediaUrl: ${payload.mediaUrl}`);
-  }
   
   // Check for list response (button click)
   const listResponse = payload._data?.Message?.listResponseMessage;

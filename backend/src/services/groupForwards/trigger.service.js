@@ -222,7 +222,6 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
   try {
     const isGroupMessage = chatId?.includes('@g.us');
     
-    console.log(`[GroupForwards] Processing message - isGroup: ${isGroupMessage}, sender: ${senderPhone}, chat: ${chatId}, type: ${messageData.type}`);
     
     // Find active forwards that might be triggered
     let forwards;
@@ -249,7 +248,6 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
     }
     
     if (forwards.rows.length === 0) {
-      console.log(`[GroupForwards] No matching forwards found for user ${userId}`);
       return false;
     }
     
@@ -280,11 +278,7 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
         }
       }
       
-      console.log(`[GroupForwards] Auth check - sender: ${senderPhone} (normalized: ${normalizedPhone}), authorized senders: ${totalAuthSenders}, isAuthorized: ${isAuthorized}`);
-      
       if (!isAuthorized) {
-        // Silently ignore - don't respond to unauthorized senders
-        console.log(`[GroupForwards] Sender ${senderPhone} not authorized for forward ${forward.id} - ignoring silently`);
         continue;
       }
       

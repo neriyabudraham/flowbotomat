@@ -69,16 +69,6 @@ class BotEngine {
   
   // Process incoming message
   async processMessage(userId, contactPhone, message, messageType = 'text', selectedRowId = null, quotedListTitle = null, isGroupMessage = false, groupId = null) {
-    console.log('[BotEngine] ========================================');
-    console.log('[BotEngine] Processing message from:', contactPhone);
-    console.log('[BotEngine] Message:', message);
-    console.log('[BotEngine] Message type:', messageType);
-    console.log('[BotEngine] Selected row ID:', selectedRowId);
-    console.log('[BotEngine] Quoted list title:', quotedListTitle);
-    console.log('[BotEngine] Is group message:', isGroupMessage);
-    console.log('[BotEngine] Group ID:', groupId);
-    console.log('[BotEngine] User ID:', userId);
-    
     try {
       // Get all active bots for this user
       const botsResult = await db.query(
@@ -86,10 +76,7 @@ class BotEngine {
         [userId]
       );
       
-      console.log('[BotEngine] Active bots found:', botsResult.rows.length);
-      
       if (botsResult.rows.length === 0) {
-        console.log('[BotEngine] No active bots for user:', userId);
         return;
       }
       
@@ -136,11 +123,6 @@ class BotEngine {
   
   // Process special events (status view, status reaction, group join/leave, calls, poll vote)
   async processEvent(userId, contactPhone, eventType, eventData = {}) {
-    console.log('[BotEngine] ========================================');
-    console.log('[BotEngine] Processing event:', eventType);
-    console.log('[BotEngine] Contact phone:', contactPhone);
-    console.log('[BotEngine] Event data:', JSON.stringify(eventData));
-    
     try {
       // Get all active bots for this user
       const botsResult = await db.query(
@@ -149,7 +131,6 @@ class BotEngine {
       );
       
       if (botsResult.rows.length === 0) {
-        console.log('[BotEngine] No active bots for user:', userId);
         return;
       }
       

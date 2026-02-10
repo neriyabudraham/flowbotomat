@@ -955,7 +955,6 @@ async function getGroupInfo(connection, groupId) {
     
     // Extract group name from multiple possible fields (WAHA may use different field names)
     const groupName = data?.subject || data?.name || data?.Name || data?.groupMetadata?.subject || data?.title || data?.Topic || null;
-    console.log(`[WAHA] Got group info for ${groupId}: ${groupName || 'no subject'} (fields: subject=${data?.subject}, name=${data?.name}, Name=${data?.Name}, keys=${Object.keys(data || {}).join(',')})`);
     
     // Normalize: ensure 'subject' field is set
     if (!data.subject && groupName) {
