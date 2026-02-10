@@ -361,7 +361,7 @@ class BotEngine {
   
   // Check if condition type is an event-based condition
   isEventCondition(type) {
-    return ['status_viewed', 'status_reaction', 'group_join', 'group_leave', 
+    return ['status_viewed', 'status_reaction', 'status_reply', 'group_join', 'group_leave', 
             'call_received', 'call_rejected', 'call_accepted', 'poll_vote'].includes(type);
   }
   
@@ -400,7 +400,8 @@ class BotEngine {
   getEventDescription(eventType, eventData) {
     const descriptions = {
       'status_viewed': 'צפה בסטטוס',
-      'status_reaction': `הגיב על סטטוס: ${eventData.reaction || ''}`,
+      'status_reaction': `סימן לב על סטטוס: ${eventData.reaction || ''}`,
+      'status_reply': 'הגיב על סטטוס',
       'group_join': 'הצטרף לקבוצה',
       'group_leave': 'יצא מהקבוצה',
       'call_received': eventData.isVideo ? 'שיחת וידאו נכנסת' : 'שיחה נכנסת',

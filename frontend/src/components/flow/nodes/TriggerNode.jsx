@@ -13,7 +13,8 @@ const triggerLabels = {
   tag_added: '🏷️ תגית נוספה',
   tag_removed: '🏷️ תגית הוסרה',
   status_viewed: '👁️ צפייה בסטטוס',
-  status_reaction: '💚 תגובה על סטטוס',
+  status_reaction: '💚 לב/אימוג\'י על סטטוס',
+  status_reply: '💬 תגובה על סטטוס',
   group_join: '📥 הצטרף לקבוצה',
   group_leave: '📤 יצא מקבוצה',
   call_received: '📞 שיחה נכנסת',
@@ -47,7 +48,7 @@ function TriggerNode({ data, selected }) {
     const label = triggerLabels[condition.type] || condition.type;
     
     // For simple triggers - no operator/value needed
-    if (['any_message', 'first_message', 'contact_added', 'status_viewed', 'status_reaction', 
+    if (['any_message', 'first_message', 'contact_added', 'status_viewed', 'status_reaction', 'status_reply',
          'group_join', 'group_leave', 'call_received', 'call_rejected', 'call_accepted'].includes(condition.type)) {
       return label;
     }
