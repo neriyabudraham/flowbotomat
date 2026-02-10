@@ -15,7 +15,6 @@ const initSocket = (server) => {
   });
 
   io.on('connection', (socket) => {
-    console.log(`🔌 Socket connected: ${socket.id}`);
 
     socket.on('join_room', (userId) => {
       socket.join(`user_${userId}`);
@@ -23,13 +22,11 @@ const initSocket = (server) => {
         userId,
         connectedAt: new Date()
       });
-      console.log(`👤 User ${userId} joined room (${getConnectedUsersCount()} users online)`);
     });
 
     socket.on('disconnect', () => {
       const userData = connectedUsers.get(socket.id);
       connectedUsers.delete(socket.id);
-      console.log(`🔌 Socket disconnected: ${socket.id} (user: ${userData?.userId}, ${getConnectedUsersCount()} users online)`);
     });
   });
 

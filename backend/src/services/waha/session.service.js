@@ -1007,7 +1007,6 @@ async function getWhatsAppContacts(connection) {
     });
     return response.data || [];
   } catch (error) {
-    console.error('[WAHA] Failed to get contacts:', error.message);
     return [];
   }
 }

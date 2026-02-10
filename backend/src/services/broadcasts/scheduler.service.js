@@ -47,10 +47,6 @@ async function checkAndRunCampaigns() {
       LIMIT 5
     `);
     if (pendingResult.rows.length > 0) {
-      console.log(`[Scheduler] UTC: ${utc_now} | Israel: ${israel_now}`);
-      pendingResult.rows.forEach(c => {
-        console.log(`[Scheduler] Campaign "${c.name}": next_run UTC=${c.next_run_utc}, Israel=${c.next_run_israel}`);
-      });
     }
     
     if (result.rows.length === 0) {

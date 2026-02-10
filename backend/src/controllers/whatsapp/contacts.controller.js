@@ -77,11 +77,9 @@ async function syncContactsForUser(userId) {
     const connection = connResult.rows[0];
     
     // Fetch contacts from WhatsApp
-    console.log('[Contacts] Fetching WhatsApp contacts for user:', userId);
     const waContacts = await wahaService.getWhatsAppContacts(connection);
     
     if (!waContacts || waContacts.length === 0) {
-      console.log('[Contacts] No contacts found for user:', userId);
       return { synced: 0, total: 0 };
     }
 
@@ -184,7 +182,6 @@ async function checkAndSync(req, res) {
 
     // Run sync in background (don't wait for response)
     syncContactsForUser(userId).then(result => {
-      console.log(`[Contacts] Background sync completed for user ${userId}:`, result);
     });
 
     return res.json({ 
