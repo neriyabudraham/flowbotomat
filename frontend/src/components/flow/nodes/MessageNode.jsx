@@ -242,28 +242,34 @@ function MessageNode({ data, selected }) {
         )}
       </div>
       
-      {/* Source Handle - reply path */}
+      {/* Source Handles */}
       {hasWaitReplyWithTimeout ? (
         <>
-          <div className="absolute -right-1 flex flex-col items-center" style={{ top: '40%' }}>
-            <span className="text-[8px] text-teal-500 font-medium mb-0.5 bg-white px-1 rounded">תגובה</span>
-            <Handle
-              type="source"
-              position={Position.Right}
-              id="reply"
-              style={{ position: 'relative', top: 'auto', right: 'auto', transform: 'none' }}
-              className="!w-4 !h-4 bg-teal-500 !border-2 !border-white"
-            />
+          {/* Reply handle - inline like ListNode buttons */}
+          <div className="relative border-t border-gray-100 px-3 py-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-teal-600 font-medium">💬 תגובה התקבלה</span>
+              <Handle
+                type="source"
+                position={Position.Right}
+                id="reply"
+                style={{ top: '50%', right: '-8px' }}
+                className="!w-3 !h-3 bg-teal-500 !border-2 !border-white !relative !transform-none"
+              />
+            </div>
           </div>
-          <div className="absolute -right-1 flex flex-col items-center" style={{ top: '70%' }}>
-            <span className="text-[8px] text-amber-500 font-medium mb-0.5 bg-white px-1 rounded">טיימאאוט</span>
-            <Handle
-              type="source"
-              position={Position.Right}
-              id="timeout"
-              style={{ position: 'relative', top: 'auto', right: 'auto', transform: 'none' }}
-              className="!w-4 !h-4 bg-amber-400 !border-2 !border-white"
-            />
+          {/* Timeout handle */}
+          <div className="relative border-t border-gray-100 px-3 py-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-400">⏰ אין תגובה</span>
+              <Handle
+                type="source"
+                position={Position.Right}
+                id="timeout"
+                style={{ top: '50%', right: '-8px' }}
+                className="!w-3 !h-3 bg-gray-400 !border-2 !border-white !relative !transform-none"
+              />
+            </div>
           </div>
         </>
       ) : (
