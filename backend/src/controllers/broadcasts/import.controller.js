@@ -57,7 +57,24 @@ async function uploadFile(req, res) {
         originalName = req.file.originalname;
       }
       
-      const workbook = XLSX.readFile(req.file.path);
+      // Read file with proper encoding (UTF-8 for Hebrew support)
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const ext = path.extname(req.file.path).toLowerCase();
+      
+      let workbook;
+      if (ext === '.csv') {
+        // For CSV files, read as UTF-8 string to handle Hebrew properly
+        let csvContent = fileBuffer.toString('utf8');
+        // Strip BOM if present
+        if (csvContent.charCodeAt(0) === 0xFEFF) {
+          csvContent = csvContent.substring(1);
+        }
+        workbook = XLSX.read(csvContent, { type: 'string' });
+      } else {
+        // For Excel files (xlsx/xls), read as buffer
+        workbook = XLSX.read(fileBuffer, { type: 'buffer' });
+      }
+      
       const sheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[sheetName];
       
@@ -111,7 +128,21 @@ async function executeImport(req, res) {
       return res.status(400).json({ error: 'הקובץ לא נמצא - יש להעלות מחדש' });
     }
     
-    const workbook = XLSX.readFile(file_path);
+    // Read file with proper encoding (UTF-8 for Hebrew support)
+    const fileBuffer = fs.readFileSync(file_path);
+    const ext = path.extname(file_path).toLowerCase();
+    
+    let workbook;
+    if (ext === '.csv') {
+      let csvContent = fileBuffer.toString('utf8');
+      if (csvContent.charCodeAt(0) === 0xFEFF) {
+        csvContent = csvContent.substring(1);
+      }
+      workbook = XLSX.read(csvContent, { type: 'string' });
+    } else {
+      workbook = XLSX.read(fileBuffer, { type: 'buffer' });
+    }
+    
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
