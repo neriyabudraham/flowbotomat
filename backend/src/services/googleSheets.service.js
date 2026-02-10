@@ -1,7 +1,12 @@
 const db = require('../config/database');
 const { encrypt, decrypt } = require('./crypto/encrypt.service');
 
-const SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.readonly'];
+const SCOPES = [
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/userinfo.profile',
+];
 
 // Lazy-load googleapis to prevent server crash if package not yet installed
 let _google = null;
