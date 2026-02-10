@@ -142,23 +142,45 @@ export default function BotEditorPage() {
       const node = prev.nodes.find(n => n.id === nodeId);
       let newEdges = prev.edges;
       
-      // If updating a list node's buttons, clean up invalid edges
+      // If updating a list node's buttons, remap edges to stay connected to the correct buttons
       if (node?.type === 'list' && newData.buttons) {
-        const validHandles = new Set(
-          newData.buttons.map((_, i) => String(i))
-        );
-        validHandles.add('timeout'); // Always keep timeout handle
+        const oldButtons = node.data.buttons || [];
+        const newButtons = newData.buttons || [];
         
-        newEdges = prev.edges.filter(edge => {
-          if (edge.source !== nodeId) return true;
-          if (!edge.sourceHandle) return true;
-          return validHandles.has(edge.sourceHandle);
-        });
+        // Build mapping: old index -> button id
+        const oldIndexToId = {};
+        oldButtons.forEach((btn, i) => { if (btn.id) oldIndexToId[i] = btn.id; });
         
-        const removedEdges = prev.edges.length - newEdges.length;
-        if (removedEdges > 0) {
-          console.log(`[FlowEditor] Removed ${removedEdges} invalid edges from list node`);
-        }
+        // Build mapping: button id -> new index
+        const idToNewIndex = {};
+        newButtons.forEach((btn, i) => { if (btn.id) idToNewIndex[btn.id] = i; });
+        
+        newEdges = prev.edges.map(edge => {
+          if (edge.source !== nodeId) return edge;
+          if (!edge.sourceHandle || edge.sourceHandle === 'timeout') return edge;
+          
+          const oldIndex = parseInt(edge.sourceHandle);
+          if (isNaN(oldIndex)) return edge;
+          
+          // Find which button was at this old index
+          const buttonId = oldIndexToId[oldIndex];
+          if (!buttonId) return null; // Old button had no ID, remove edge
+          
+          // Find where this button is in the new array
+          const newIndex = idToNewIndex[buttonId];
+          if (newIndex === undefined) {
+            // Button was deleted - remove this edge
+            console.log(`[FlowEditor] Removing edge for deleted button (old index ${oldIndex})`);
+            return null;
+          }
+          
+          // Remap to new index
+          if (oldIndex !== newIndex) {
+            console.log(`[FlowEditor] Remapping edge: handle ${oldIndex} -> ${newIndex}`);
+            return { ...edge, sourceHandle: String(newIndex), id: edge.id.replace(`handle-${oldIndex}`, `handle-${newIndex}`) || edge.id };
+          }
+          return edge;
+        }).filter(Boolean);
       }
       
       const updated = {
