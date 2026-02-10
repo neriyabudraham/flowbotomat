@@ -1253,7 +1253,7 @@ function AffiliateQuickLink() {
 
   if (!affiliate?.affiliate?.ref_code) return null;
 
-  const shareLink = `https://flow.botomat.co.il/?ref=${affiliate.affiliate.ref_code}`;
+  const shareLink = `https://botomat.co.il/?ref=${affiliate.affiliate.ref_code}`;
 
   const copyLink = () => {
     navigator.clipboard.writeText(shareLink);

@@ -206,7 +206,7 @@ async function autoUpdateWebhookEvents(userId) {
       'group.v2.participants', 'call.received', 'call.rejected', 'call.accepted', 'poll.vote',
     ];
     
-    const appUrl = process.env.APP_URL || 'https://flow.botomat.co.il';
+    const appUrl = process.env.APP_URL || 'https://botomat.co.il';
     const webhookUrl = `${appUrl}/api/webhook/waha/${userId}`;
     
     await wahaSession.addWebhook(baseUrl, apiKey, conn.session_name, webhookUrl, REQUIRED_EVENTS);

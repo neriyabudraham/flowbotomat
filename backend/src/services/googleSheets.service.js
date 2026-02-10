@@ -26,7 +26,7 @@ function getGoogle() {
  */
 function createOAuth2Client() {
   const google = getGoogle();
-  const frontendUrl = process.env.FRONTEND_URL || 'https://flow.botomat.co.il';
+  const frontendUrl = process.env.FRONTEND_URL || 'https://botomat.co.il';
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,

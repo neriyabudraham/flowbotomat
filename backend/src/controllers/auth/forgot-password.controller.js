@@ -46,7 +46,7 @@ const forgotPassword = async (req, res) => {
     const { token, code } = await createVerification(user.id, 'password_reset');
     
     // Build reset link
-    const resetLink = `${process.env.APP_URL || 'https://flow.botomat.co.il'}/reset-password?token=${token}`;
+    const resetLink = `${process.env.APP_URL || 'https://botomat.co.il'}/reset-password?token=${token}`;
 
     // Send email
     try {

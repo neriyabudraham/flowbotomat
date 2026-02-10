@@ -20,7 +20,7 @@ const getAuthUrl = async (req, res) => {
  * Handle OAuth callback from Google
  */
 const handleCallback = async (req, res) => {
-  const frontendUrl = process.env.FRONTEND_URL || 'https://flow.botomat.co.il';
+  const frontendUrl = process.env.FRONTEND_URL || 'https://botomat.co.il';
   
   try {
     const { code, state } = req.query;

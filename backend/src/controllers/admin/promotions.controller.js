@@ -733,7 +733,7 @@ async function getMyAffiliate(req, res) {
       settings: settings,
       referrals: referrals.rows,
       payouts: payouts.rows,
-      shareLink: `${process.env.FRONTEND_URL || 'https://flow.botomat.co.il'}?ref=${affiliate.rows[0].ref_code}`
+      shareLink: `${process.env.FRONTEND_URL || 'https://botomat.co.il'}?ref=${affiliate.rows[0].ref_code}`
     });
   } catch (error) {
     console.error('[Affiliate] Get my affiliate error:', error);

@@ -20,7 +20,7 @@ router.get('/', (req, res) => {
   res.json({
     name: 'Botomat API',
     version: '1.0.0',
-    documentation: 'https://flow.botomat.co.il/developers',
+    documentation: 'https://botomat.co.il/developers',
     endpoints: {
       messages: {
         text: 'POST /v1/messages/text',
@@ -38,7 +38,7 @@ router.get('/', (req, res) => {
       status: 'GET /v1/status',
     },
     authentication: 'Bearer token in Authorization header',
-    baseUrl: 'https://flow.botomat.co.il/api/v1',
+    baseUrl: 'https://botomat.co.il/api/v1',
   });
 });
 

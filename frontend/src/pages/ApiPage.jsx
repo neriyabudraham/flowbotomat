@@ -116,7 +116,7 @@ export default function ApiPage() {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const BASE_URL = 'https://flow.botomat.co.il/api/v1';
+  const BASE_URL = 'https://botomat.co.il/api/v1';
   
   const apiDocs = [
     {
@@ -640,9 +640,9 @@ export default function ApiPage() {
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Base URL</label>
                   <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-                    <code className="flex-1 text-sm font-mono">https://flow.botomat.co.il/api/v1</code>
+                    <code className="flex-1 text-sm font-mono">https://botomat.co.il/api/v1</code>
                     <button
-                      onClick={() => copyToClipboard('https://flow.botomat.co.il/api/v1', 'base')}
+                      onClick={() => copyToClipboard('https://botomat.co.il/api/v1', 'base')}
                       className="p-1 hover:bg-gray-200 rounded"
                     >
                       {copiedKey === 'base' ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4 text-gray-500" />}

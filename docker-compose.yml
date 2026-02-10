@@ -50,7 +50,7 @@ services:
       API_URL: ${VITE_API_URL}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-      FRONTEND_URL: ${FRONTEND_URL:-https://flow.botomat.co.il}
+      FRONTEND_URL: ${FRONTEND_URL:-https://botomat.co.il}
     ports:
       - "3749:4000"
     volumes:

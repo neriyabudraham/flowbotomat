@@ -9,7 +9,7 @@ const {
 
 // Admin email - you can also move this to environment variables
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'neriyabu100@gmail.com';
-const APP_URL = process.env.APP_URL || 'https://flow.botomat.co.il';
+const APP_URL = process.env.APP_URL || 'https://botomat.co.il';
 
 /**
  * Send email notification for new subscription

@@ -6,7 +6,7 @@ const axios = require('axios');
 const client = new OAuth2Client(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
-  `${process.env.FRONTEND_URL || 'https://flow.botomat.co.il'}/api/auth/google/callback`
+  `${process.env.FRONTEND_URL || 'https://botomat.co.il'}/api/auth/google/callback`
 );
 
 /**
@@ -14,7 +14,7 @@ const client = new OAuth2Client(
  * OAuth2 callback from Google - redirects back to frontend with tokens
  */
 const googleCallback = async (req, res) => {
-  const frontendUrl = process.env.FRONTEND_URL || 'https://flow.botomat.co.il';
+  const frontendUrl = process.env.FRONTEND_URL || 'https://botomat.co.il';
   const redirectUri = `${frontendUrl}/api/auth/google/callback`;
   
   console.log('[Google Auth] Callback received');

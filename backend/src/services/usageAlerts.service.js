@@ -212,7 +212,7 @@ async function sendUsageAlertEmail(user, usageData, percentage, planName) {
         </div>
         
         <div style="text-align: center;">
-          <a href="https://flow.botomat.co.il/pricing" 
+          <a href="https://botomat.co.il/pricing" 
              style="display: inline-block; background: linear-gradient(135deg, #4F46E5, #7C3AED); color: white; padding: 16px 32px; text-decoration: none; border-radius: 12px; font-weight: bold;">
             🚀 שדרג את החבילה שלך
           </a>
@@ -435,7 +435,7 @@ async function sendBroadcastEmail(user, subject, message, type) {
         </div>
         
         <div style="text-align: center;">
-          <a href="https://flow.botomat.co.il/dashboard" 
+          <a href="https://botomat.co.il/dashboard" 
              style="display: inline-block; background: linear-gradient(135deg, #4F46E5, #7C3AED); color: white; padding: 16px 32px; text-decoration: none; border-radius: 12px; font-weight: bold;">
             כניסה למערכת
           </a>
@@ -444,7 +444,7 @@ async function sendBroadcastEmail(user, subject, message, type) {
         <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #E5E7EB; text-align: center; color: #9CA3AF; font-size: 12px;">
           <p>© ${new Date().getFullYear()} Botomat. כל הזכויות שמורות.</p>
           <p style="margin-top: 8px;">
-            <a href="https://flow.botomat.co.il/settings?tab=notifications" style="color: #6B7280;">
+            <a href="https://botomat.co.il/settings?tab=notifications" style="color: #6B7280;">
               ניהול העדפות התראות
             </a>
           </p>

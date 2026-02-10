@@ -21,7 +21,7 @@ const WEBHOOK_EVENTS = [
 
 // Build webhook URL for user
 function getWebhookUrl(userId) {
-  const appUrl = process.env.APP_URL || 'https://flow.botomat.co.il';
+  const appUrl = process.env.APP_URL || 'https://botomat.co.il';
   return `${appUrl}/api/webhook/waha/${userId}`;
 }
 
