@@ -166,9 +166,9 @@ class BotEngine {
         console.log('[BotEngine] Contact not found for event, creating:', contactPhone);
         try {
           const insertResult = await db.query(
-            `INSERT INTO contacts (user_id, phone, name, created_at, updated_at) 
-             VALUES ($1, $2, $3, NOW(), NOW()) 
-             ON CONFLICT (user_id, phone) DO UPDATE SET updated_at = NOW()
+            `INSERT INTO contacts (user_id, phone, display_name) 
+             VALUES ($1, $2, $3) 
+             ON CONFLICT (user_id, phone) DO UPDATE SET display_name = COALESCE(contacts.display_name, EXCLUDED.display_name)
              RETURNING *`,
             [userId, contactPhone, eventData.pushName || eventData.notify || contactPhone]
           );
@@ -211,14 +211,17 @@ class BotEngine {
   async processEventBot(bot, contact, eventType, eventData, userId) {
     try {
       // Check if this specific bot is disabled for this contact
-      const disabledCheck = await db.query(
-        'SELECT id FROM contact_disabled_bots WHERE contact_id = $1 AND bot_id = $2',
-        [contact.id, bot.id]
-      );
-      
-      if (disabledCheck.rows.length > 0) {
-        console.log('[BotEngine] Bot', bot.name, 'is disabled for contact:', contact.phone);
-        return;
+      try {
+        const disabledCheck = await db.query(
+          'SELECT id FROM contact_disabled_bots WHERE contact_id = $1 AND bot_id = $2',
+          [contact.id, bot.id]
+        );
+        if (disabledCheck.rows.length > 0) {
+          console.log('[BotEngine] Bot', bot.name, 'is disabled for contact:', contact.phone);
+          return;
+        }
+      } catch (disabledErr) {
+        // Table may not exist yet - that's fine, no bots are disabled
       }
       
       const flowData = bot.flow_data;

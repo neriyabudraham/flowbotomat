@@ -928,34 +928,65 @@ async function handleCallEvent(userId, event) {
     const isVideo = payload.isVideo || false;
     const isGroup = payload.isGroup || false;
     
-    // Resolve caller phone - try multiple sources
+    // For call.received: "from" is the caller (other person)
+    // For call.rejected/call.accepted: "from" is US (our LID), caller is in CallCreator
+    // So we always prefer CallCreator/CallCreatorAlt to get the OTHER person's phone
+    
     let callerPhone = null;
     
-    // Best source: CallCreatorAlt has real phone
+    // 1. CallCreatorAlt - best source, has real phone of the caller
     if (payload._data?.CallCreatorAlt) {
       const alt = payload._data.CallCreatorAlt;
-      if (alt && !alt.endsWith('@lid')) {
+      if (alt && alt.length > 0 && !alt.endsWith('@lid')) {
         callerPhone = alt.replace('@s.whatsapp.net', '').replace('@c.us', '');
       }
     }
     
-    // Try caller_pn from nested data
+    // 2. caller_pn from nested offer data (call.received has this)
     if (!callerPhone && payload._data?.Data?.Attrs?.caller_pn) {
-      callerPhone = payload._data.Data.Attrs.caller_pn.replace('@s.whatsapp.net', '');
+      callerPhone = payload._data.Data.Attrs.caller_pn.replace('@s.whatsapp.net', '').replace('@c.us', '');
     }
     
-    // Try from field if it's a real phone
-    if (!callerPhone && payload.from && !payload.from.endsWith('@lid')) {
-      callerPhone = payload.from.replace('@s.whatsapp.net', '').replace('@c.us', '');
+    // 3. call-creator attr from nested data
+    if (!callerPhone && payload._data?.Data?.Attrs?.['call-creator']) {
+      const creator = payload._data.Data.Attrs['call-creator'];
+      if (creator && !creator.endsWith('@lid')) {
+        callerPhone = creator.replace('@s.whatsapp.net', '').replace('@c.us', '');
+      }
     }
     
-    // For LID, use the LID number as fallback
-    if (!callerPhone && payload.from && payload.from.endsWith('@lid')) {
-      callerPhone = payload.from.replace('@lid', '');
+    // 4. For call.received only, "from" is the caller
+    if (!callerPhone && eventType === 'call.received' && payload.from) {
+      if (!payload.from.endsWith('@lid')) {
+        callerPhone = payload.from.replace('@s.whatsapp.net', '').replace('@c.us', '');
+      }
+    }
+    
+    // 5. CallCreator LID as last resort - try to resolve from contacts
+    if (!callerPhone && payload._data?.CallCreator && payload._data.CallCreator.endsWith('@lid')) {
+      const creatorLid = payload._data.CallCreator;
+      // Try to find a contact with this phone in our me.id field (which is the user itself)
+      // The CallCreator is the other person for received, but for rejected/accepted it's also the other person
+      callerPhone = creatorLid.replace('@lid', '');
+    }
+    
+    // 6. Fallback to from field
+    if (!callerPhone && payload.from) {
+      callerPhone = payload.from.replace('@lid', '').replace('@s.whatsapp.net', '').replace('@c.us', '');
     }
     
     if (!callerPhone) {
       callerPhone = 'unknown';
+    }
+    
+    // For call_rejected and call_accepted, the "from" is ourselves
+    // Skip if the resolved phone is our own (me.id)
+    if (event.me?.id) {
+      const myPhone = event.me.id.replace('@c.us', '').replace('@s.whatsapp.net', '');
+      if (callerPhone === myPhone) {
+        console.log(`[Webhook] Call event ${eventType}: resolved phone is our own (${myPhone}), skipping`);
+        return;
+      }
     }
     
     let triggerType;
