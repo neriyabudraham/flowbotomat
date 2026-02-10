@@ -253,10 +253,13 @@ class BotEngine {
         for (const condition of group.conditions) {
           if (this.isEventCondition(condition.type)) {
             hasEventCondition = true;
+            console.log(`[BotEngine] Checking event condition: type=${condition.type}, filterByStatus=${condition.filterByStatus}, specificStatusId=${condition.specificStatusId || 'none'}`);
             if (!this.checkEventCondition(condition, eventType, eventData)) {
+              console.log(`[BotEngine] Event condition did NOT match`);
               allMatch = false;
               break;
             }
+            console.log(`[BotEngine] Event condition matched!`);
           } else if (condition.type === 'has_tag' || condition.type === 'no_tag' || condition.type === 'contact_field') {
             // Also check contact-based conditions
             const conditionMet = await this.checkSingleCondition(condition, '', contact);
@@ -394,7 +397,7 @@ class BotEngine {
     }
     
     // Specific status matching for status_reaction, status_reply, status_viewed
-    if (condition.specificStatusId && (condition.type === 'status_reaction' || condition.type === 'status_reply' || condition.type === 'status_viewed')) {
+    if (condition.filterByStatus && condition.specificStatusId && (condition.type === 'status_reaction' || condition.type === 'status_reply' || condition.type === 'status_viewed')) {
       // Extract hex ID from stored full wa_message_id (e.g. "true_status@broadcast_<HEX>_<PHONE>@c.us")
       const storedHex = this.extractStatusHexId(condition.specificStatusId);
       
@@ -410,11 +413,15 @@ class BotEngine {
       
       const eventHex = this.extractStatusHexId(eventMsgId);
       
+      console.log(`[BotEngine] Specific status check: condition.specificStatusId=${condition.specificStatusId}`);
+      console.log(`[BotEngine] Specific status check: eventMsgId=${eventMsgId}`);
+      console.log(`[BotEngine] Specific status check: storedHex=${storedHex}, eventHex=${eventHex}`);
+      
       if (!storedHex || !eventHex || storedHex !== eventHex) {
-        console.log(`[BotEngine] Specific status mismatch: stored=${storedHex}, event=${eventHex}`);
+        console.log(`[BotEngine] Specific status mismatch`);
         return false;
       }
-      console.log(`[BotEngine] Specific status matched: ${storedHex}`);
+      console.log(`[BotEngine] Specific status matched!`);
     }
     
     return true;

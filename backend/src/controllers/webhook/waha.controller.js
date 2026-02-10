@@ -1147,12 +1147,16 @@ async function handleMessageReaction(userId, event) {
       
       const reactionText = payload.reaction?.text || '';
       
+      const reactionMsgId = payload.reaction?.messageId || payload.reaction?.id?._serialized || payload.reaction?.id || '';
+      
       console.log(`[Webhook] Status reaction from ${reactorPhone}: ${reactionText}`);
+      console.log(`[Webhook] Status reaction messageId: ${reactionMsgId}`);
+      console.log(`[Webhook] Status reaction payload.reaction keys: ${JSON.stringify(Object.keys(payload.reaction || {}))}`);
       
       // Trigger bot engine with special event type
       await botEngine.processEvent(userId, reactorPhone, 'status_reaction', {
         reaction: reactionText,
-        messageId: payload.reaction?.messageId,
+        messageId: reactionMsgId,
         fromMe: payload.fromMe
       });
     }
