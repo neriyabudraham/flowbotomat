@@ -397,11 +397,22 @@ export default function TriggerEditor({ data, onUpdate }) {
                                   type="checkbox"
                                   checked={condition.filterByStatus || false}
                                   onChange={(e) => {
-                                    updateCondition(group.id, conditionIndex, 'filterByStatus', e.target.checked);
-                                    if (!e.target.checked) {
-                                      updateCondition(group.id, conditionIndex, 'specificStatusId', '');
-                                    }
-                                    if (e.target.checked && userStatuses.length === 0) {
+                                    const checked = e.target.checked;
+                                    const newGroups = groups.map(gr => {
+                                      if (gr.id === group.id) {
+                                        return {
+                                          ...gr,
+                                          conditions: gr.conditions.map((c, i) =>
+                                            i === conditionIndex
+                                              ? { ...c, filterByStatus: checked, ...(!checked ? { specificStatusId: '' } : {}) }
+                                              : c
+                                          )
+                                        };
+                                      }
+                                      return gr;
+                                    });
+                                    onUpdate({ triggerGroups: newGroups });
+                                    if (checked && userStatuses.length === 0) {
                                       loadStatuses();
                                     }
                                   }}
@@ -493,11 +504,23 @@ export default function TriggerEditor({ data, onUpdate }) {
                                   type="checkbox"
                                   checked={condition.filterByGroup || false}
                                   onChange={(e) => {
-                                    updateCondition(group.id, conditionIndex, 'filterByGroup', e.target.checked);
-                                    if (!e.target.checked) {
-                                      updateCondition(group.id, conditionIndex, 'specificGroupId', '');
-                                    }
-                                    if (e.target.checked && whatsappGroups.length === 0) {
+                                    const checked = e.target.checked;
+                                    // Update both fields at once by modifying the condition directly
+                                    const newGroups = groups.map(gr => {
+                                      if (gr.id === group.id) {
+                                        return {
+                                          ...gr,
+                                          conditions: gr.conditions.map((c, i) =>
+                                            i === conditionIndex
+                                              ? { ...c, filterByGroup: checked, ...(!checked ? { specificGroupId: '' } : {}) }
+                                              : c
+                                          )
+                                        };
+                                      }
+                                      return gr;
+                                    });
+                                    onUpdate({ triggerGroups: newGroups });
+                                    if (checked && whatsappGroups.length === 0) {
                                       loadGroups();
                                     }
                                   }}
