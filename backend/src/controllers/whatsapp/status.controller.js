@@ -250,8 +250,9 @@ async function updateConnectionStatus(connectionId, status, wahaStatus) {
 }
 
 /**
- * Get user's recently posted statuses (last 24 hours)
- * Used for specific status triggers in bot editor
+ * Get user's recently posted statuses (up to 48 hours)
+ * Returns statuses up to 48h so already-selected expired ones still show in dropdown.
+ * Frontend marks statuses older than 24h as expired.
  */
 async function getUserStatuses(req, res) {
   try {
@@ -260,7 +261,7 @@ async function getUserStatuses(req, res) {
     const result = await pool.query(
       `SELECT id, wa_message_id, message_type, content, media_url, media_mime_type, posted_at
        FROM user_statuses
-       WHERE user_id = $1 AND posted_at > NOW() - INTERVAL '24 hours'
+       WHERE user_id = $1 AND posted_at > NOW() - INTERVAL '48 hours'
        ORDER BY posted_at DESC`,
       [userId]
     );

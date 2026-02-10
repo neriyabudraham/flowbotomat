@@ -397,8 +397,10 @@ export default function TriggerEditor({ data, onUpdate }) {
                                       <option value="">-- בחר סטטוס --</option>
                                       {userStatuses.map(status => {
                                         const time = new Date(status.posted_at);
-                                        const timeStr = time.toLocaleString('he-IL', { 
-                                          day: '2-digit', month: '2-digit', 
+                                        const now = new Date();
+                                        const hoursAgo = (now - time) / (1000 * 60 * 60);
+                                        const isExpired = hoursAgo >= 24;
+                                        const timeStr = time.toLocaleTimeString('he-IL', { 
                                           hour: '2-digit', minute: '2-digit' 
                                         });
                                         const typeIcon = status.message_type === 'text' ? '📝' :
@@ -407,9 +409,10 @@ export default function TriggerEditor({ data, onUpdate }) {
                                         const preview = status.content 
                                           ? status.content.substring(0, 40) + (status.content.length > 40 ? '...' : '')
                                           : `(${status.message_type})`;
+                                        const expiredLabel = isExpired ? ' ⚠️ לא תקף' : '';
                                         return (
                                           <option key={status.wa_message_id} value={status.wa_message_id}>
-                                            {typeIcon} {timeStr} - {preview}
+                                            {typeIcon} {timeStr} - {preview}{expiredLabel}
                                           </option>
                                         );
                                       })}
@@ -424,6 +427,26 @@ export default function TriggerEditor({ data, onUpdate }) {
                                       <RefreshCw className={`w-4 h-4 ${loadingStatuses ? 'animate-spin' : ''}`} />
                                     </button>
                                   </div>
+                                  {condition.specificStatusId && (() => {
+                                    const selected = userStatuses.find(s => s.wa_message_id === condition.specificStatusId);
+                                    if (selected) {
+                                      const hoursAgo = (new Date() - new Date(selected.posted_at)) / (1000 * 60 * 60);
+                                      if (hoursAgo >= 24) {
+                                        return (
+                                          <p className="text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg flex items-center gap-1">
+                                            ⚠️ הסטטוס הזה כבר לא תקף (עבר 24 שעות). הטריגר לא יופעל עליו. העלה סטטוס חדש ובחר אותו.
+                                          </p>
+                                        );
+                                      }
+                                    } else if (condition.specificStatusId) {
+                                      return (
+                                        <p className="text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg flex items-center gap-1">
+                                          ⚠️ הסטטוס שנבחר כבר לא קיים ברשימה. בחר סטטוס חדש.
+                                        </p>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
                                   {userStatuses.length === 0 && !loadingStatuses && (
                                     <p className="text-xs text-gray-500 flex items-center gap-1">
                                       <Clock className="w-3 h-3" />
