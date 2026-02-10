@@ -106,6 +106,63 @@ cron.schedule('0 * * * *', async () => {
 
 console.log('📅 Forward jobs cleanup cron job scheduled (hourly)');
 
+// Schedule session timeout checker - run every 30 seconds
+const db = require('./config/database');
+const BotEngine = require('./services/botEngine.service');
+
+cron.schedule('*/30 * * * * *', async () => {
+  try {
+    // Find expired sessions
+    const result = await db.query(
+      `SELECT bs.*, b.flow_data, b.user_id, b.name as bot_name
+       FROM bot_sessions bs
+       JOIN bots b ON b.id = bs.bot_id
+       WHERE bs.expires_at IS NOT NULL AND bs.expires_at < NOW()`
+    );
+    
+    if (result.rows.length === 0) return;
+    
+    console.log(`[SessionTimeout] Found ${result.rows.length} expired session(s)`);
+    const botEngine = new BotEngine();
+    
+    for (const session of result.rows) {
+      try {
+        const flowData = session.flow_data;
+        if (!flowData) continue;
+        
+        const currentNode = flowData.nodes?.find(n => n.id === session.current_node_id);
+        if (!currentNode) continue;
+        
+        // Clear the expired session
+        await db.query('DELETE FROM bot_sessions WHERE bot_id = $1 AND contact_id = $2', [session.bot_id, session.contact_id]);
+        
+        // Find timeout edge
+        const timeoutEdge = flowData.edges?.find(e => 
+          e.source === currentNode.id && e.sourceHandle === 'timeout'
+        );
+        
+        if (timeoutEdge) {
+          // Get contact info
+          const contactResult = await db.query('SELECT * FROM contacts WHERE id = $1', [session.contact_id]);
+          const contact = contactResult.rows[0];
+          if (contact) {
+            console.log(`[SessionTimeout] ⏰ Executing timeout path for contact ${contact.phone}, bot ${session.bot_name}`);
+            await botEngine.executeNode(timeoutEdge.target, flowData, contact, '', session.user_id, session.bot_id, session.bot_name);
+          }
+        } else {
+          console.log(`[SessionTimeout] No timeout edge found for node ${currentNode.id}, session cleared`);
+        }
+      } catch (err) {
+        console.error('[SessionTimeout] Error handling expired session:', err.message);
+      }
+    }
+  } catch (err) {
+    // Silently ignore - table might not exist yet
+  }
+});
+
+console.log('📅 Session timeout checker running every 30 seconds');
+
 // Start server
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {

@@ -110,6 +110,10 @@ function MessageNode({ data, selected }) {
   const mediaActions = actions.filter(a => (a.type === 'image' || a.type === 'video') && (a.url || a.previewUrl));
   const hasMedia = mediaActions.length > 0;
   
+  // Check if there's a wait_reply action with timeout
+  const waitReplyAction = actions.find(a => a.type === 'wait_reply');
+  const hasWaitReplyWithTimeout = (waitReplyAction && waitReplyAction.timeout) || (data.waitForReply && data.timeout);
+  
   return (
     <div 
       className={`group bg-white rounded-2xl border-2 transition-all duration-200 min-w-[220px] ${
@@ -238,21 +242,35 @@ function MessageNode({ data, selected }) {
         )}
       </div>
       
-      {/* Source Handle */}
-      <Handle
-        type="source"
-        position={Position.Right}
-        className="!w-4 !h-4 bg-teal-500 !border-2 !border-white !-right-2"
-      />
-      
-      {/* Timeout handle if waiting for reply */}
-      {data.waitForReply && data.timeout && (
+      {/* Source Handle - reply path */}
+      {hasWaitReplyWithTimeout ? (
+        <>
+          <div className="absolute -right-1 flex flex-col items-center" style={{ top: '40%' }}>
+            <span className="text-[8px] text-teal-500 font-medium mb-0.5 bg-white px-1 rounded">תגובה</span>
+            <Handle
+              type="source"
+              position={Position.Right}
+              id="reply"
+              style={{ position: 'relative', top: 'auto', right: 'auto', transform: 'none' }}
+              className="!w-4 !h-4 bg-teal-500 !border-2 !border-white"
+            />
+          </div>
+          <div className="absolute -right-1 flex flex-col items-center" style={{ top: '70%' }}>
+            <span className="text-[8px] text-amber-500 font-medium mb-0.5 bg-white px-1 rounded">טיימאאוט</span>
+            <Handle
+              type="source"
+              position={Position.Right}
+              id="timeout"
+              style={{ position: 'relative', top: 'auto', right: 'auto', transform: 'none' }}
+              className="!w-4 !h-4 bg-amber-400 !border-2 !border-white"
+            />
+          </div>
+        </>
+      ) : (
         <Handle
           type="source"
           position={Position.Right}
-          id="timeout"
-          style={{ top: '80%' }}
-          className="!w-3 !h-3 bg-gray-400 !border-2 !border-white !-right-1.5"
+          className="!w-4 !h-4 bg-teal-500 !border-2 !border-white !-right-2"
         />
       )}
     </div>

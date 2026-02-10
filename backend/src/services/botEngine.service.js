@@ -913,8 +913,19 @@ class BotEngine {
       
     } else if (session.waiting_for === 'reply') {
       // For regular reply wait, clear session and continue
+      const waitingData = session.waiting_data ? (typeof session.waiting_data === 'string' ? JSON.parse(session.waiting_data) : session.waiting_data) : {};
+      
+      // Save reply to variable if configured
+      if (waitingData.saveToVariable && waitingData.variableName && message) {
+        await this.setContactVariable(contact.id, waitingData.variableName, message);
+        console.log(`[BotEngine] 💾 Saved reply to variable "${waitingData.variableName}": ${message.substring(0, 50)}`);
+      }
+      
       await this.clearSession(bot.id, contact.id);
       console.log('[BotEngine] Got reply, continuing flow');
+      
+      // For reply sessions, prefer 'reply' handle edge, then fall back to default
+      nextHandleId = 'reply';
     } else if (session.waiting_for === 'registration') {
       // Continue registration flow
       console.log('[BotEngine] Continuing registration flow');
@@ -927,8 +938,8 @@ class BotEngine {
       nextEdge = flowData.edges.find(e => e.source === currentNode.id && e.sourceHandle === nextHandleId);
     }
     if (!nextEdge) {
-      // Fallback - try default edge (no handle)
-      nextEdge = flowData.edges.find(e => e.source === currentNode.id && !e.sourceHandle);
+      // Fallback - try default edge (no handle or null handle)
+      nextEdge = flowData.edges.find(e => e.source === currentNode.id && (!e.sourceHandle || e.sourceHandle === null));
       if (nextEdge) {
         console.log('[BotEngine] Using default edge (no specific handle)');
       }
@@ -1737,6 +1748,26 @@ class BotEngine {
             }
             break;
             
+          case 'wait_reply': {
+            // Wait for reply action - save session and stop processing
+            if (botId) {
+              let waitTimeout = null;
+              if (action.timeout) {
+                const unit = action.timeoutUnit || 'seconds';
+                const multiplier = unit === 'hours' ? 3600 : unit === 'minutes' ? 60 : 1;
+                waitTimeout = action.timeout * multiplier;
+              }
+              const waitData = {
+                saveToVariable: action.saveToVariable || false,
+                variableName: action.variableName || '',
+              };
+              await this.saveSession(botId, contact.id, node.id, 'reply', waitData, waitTimeout);
+              console.log('[BotEngine] ⏳ Wait reply action - waiting for reply (timeout:', waitTimeout, 'seconds)');
+              return true;
+            }
+            break;
+          }
+            
           default:
             console.log('[BotEngine] Unknown action type:', action.type);
         }
@@ -1750,10 +1781,10 @@ class BotEngine {
       }
     }
     
-    // If waitForReply is enabled, save session and return true
+    // If waitForReply is enabled (old mechanism), save session and return true
     if (waitForReply && botId) {
       await this.saveSession(botId, contact.id, node.id, 'reply', {}, timeout);
-      console.log('[BotEngine] ⏳ Waiting for reply...');
+      console.log('[BotEngine] ⏳ Waiting for reply (legacy)...');
       return true;
     }
     

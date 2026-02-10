@@ -1068,6 +1068,41 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
               />
             </div>
           )}
+          
+          {/* Timeout */}
+          <div className="border-t border-gray-100 pt-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!action.timeout}
+                onChange={(e) => onUpdate({ timeout: e.target.checked ? 60 : null, timeoutUnit: 'seconds' })}
+                className="w-4 h-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+              />
+              <span className="text-sm text-gray-700">טיימאאוט - פעולה אם אין תגובה</span>
+            </label>
+            
+            {action.timeout && (
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  type="number"
+                  min="1"
+                  value={action.timeout || 60}
+                  onChange={(e) => onUpdate({ timeout: parseInt(e.target.value) || 60 })}
+                  className="w-20 px-2 py-1.5 border border-gray-200 rounded-lg text-sm text-center"
+                />
+                <select
+                  value={action.timeoutUnit || 'seconds'}
+                  onChange={(e) => onUpdate({ timeoutUnit: e.target.value })}
+                  className="px-2 py-1.5 border border-gray-200 rounded-lg text-sm"
+                >
+                  <option value="seconds">שניות</option>
+                  <option value="minutes">דקות</option>
+                  <option value="hours">שעות</option>
+                </select>
+                <span className="text-xs text-gray-400">ואז ימשיך ליציאת טיימאאוט</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
