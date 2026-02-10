@@ -582,24 +582,31 @@ async function handleIncomingMessage(userId, event) {
     }
   }
   
-  // THIRD: Check if this is a reply to a status (status_reply event)
+  // THIRD: Check if this is a DIRECT reply to a status (status_reply event)
+  // Important: Only the first reply to a status counts. If the bot responds and the user
+  // replies to the bot's message, that's a regular message - NOT a status reply.
   try {
-    const contextInfo = payload._data?.Message?.extendedTextMessage?.contextInfo ||
-                        payload._data?.Message?.imageMessage?.contextInfo ||
-                        payload._data?.Message?.videoMessage?.contextInfo ||
-                        payload._data?.QuotedMessage?.Chat === 'status@broadcast' ? { isStatusReply: true } : null;
-    
-    const quotedRemoteJid = contextInfo?.remoteJid || contextInfo?.participant;
-    const isStatusReply = quotedRemoteJid === 'status@broadcast' || 
-                          contextInfo?.isStatusReply ||
-                          (payload._data?.QuotedMessage?.Chat === 'status@broadcast');
-    
-    if (isStatusReply && !payload.fromMe) {
-      console.log(`[Webhook] Status reply detected from ${senderPhone}`);
-      await botEngine.processEvent(userId, senderPhone, 'status_reply', {
-        message: messageData.content,
-        messageType: messageData.type
-      });
+    if (!payload.fromMe) {
+      // Get contextInfo from the message (the quoted/replied-to message info)
+      const contextInfo = payload._data?.Message?.extendedTextMessage?.contextInfo ||
+                          payload._data?.Message?.imageMessage?.contextInfo ||
+                          payload._data?.Message?.videoMessage?.contextInfo ||
+                          null;
+      
+      // A status reply has remoteJid pointing to status@broadcast in the DIRECTLY quoted message
+      const quotedRemoteJid = contextInfo?.remoteJid || '';
+      const quotedChat = payload._data?.QuotedMessage?.Chat || '';
+      
+      // Only trigger if the quoted message is directly from status@broadcast
+      const isStatusReply = quotedRemoteJid === 'status@broadcast' || quotedChat === 'status@broadcast';
+      
+      if (isStatusReply) {
+        console.log(`[Webhook] Status reply detected from ${senderPhone} (quoted: ${quotedRemoteJid || quotedChat})`);
+        await botEngine.processEvent(userId, senderPhone, 'status_reply', {
+          message: messageData.content,
+          messageType: messageData.type
+        });
+      }
     }
   } catch (statusReplyErr) {
     // Ignore errors in status reply detection
