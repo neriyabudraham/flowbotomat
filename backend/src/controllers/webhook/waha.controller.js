@@ -653,33 +653,21 @@ async function handleIncomingMessage(userId, event) {
                           null;
       
       // Check multiple possible indicators that this is a status reply
-      const quotedRemoteJid = contextInfo?.remoteJid || '';
-      const quotedParticipant = contextInfo?.participant || '';
-      const quotedStanzaId = contextInfo?.stanzaId || '';
-      const quotedChat = payload._data?.QuotedMessage?.Chat || '';
+      // Note: WAHA uses camelCase with uppercase: remoteJID, stanzaID
+      const quotedRemoteJid = contextInfo?.remoteJID || contextInfo?.remoteJid || '';
+      const entryPoint = contextInfo?.entryPointConversionSource || '';
       
       // Status reply indicators:
-      // 1. contextInfo.remoteJid === 'status@broadcast'
-      // 2. QuotedMessage.Chat === 'status@broadcast'  
-      // 3. stanzaId contains 'status@broadcast' pattern
-      const isStatusReply = quotedRemoteJid === 'status@broadcast' || 
-                            quotedChat === 'status@broadcast' ||
-                            quotedStanzaId.includes('status@broadcast');
+      // 1. contextInfo.remoteJID === 'status@broadcast'
+      // 2. entryPointConversionSource === 'status'
+      const isStatusReply = quotedRemoteJid === 'status@broadcast' || entryPoint === 'status';
       
       if (isStatusReply) {
-        console.log(`[Webhook] Status reply detected from ${senderPhone} (remoteJid: ${quotedRemoteJid}, chat: ${quotedChat}, stanzaId: ${quotedStanzaId})`);
+        console.log(`[Webhook] Status reply detected from ${senderPhone} (remoteJID: ${quotedRemoteJid}, entryPoint: ${entryPoint})`);
         await botEngine.processEvent(userId, senderPhone, 'status_reply', {
           message: messageData.content,
           messageType: messageData.type
         });
-      } else if (contextInfo) {
-        // Debug: log full contextInfo and QuotedMessage to understand status reply structure
-        console.log(`[Webhook] Message has contextInfo but not status reply - keys: ${Object.keys(contextInfo).join(', ')}`);
-        console.log(`[Webhook] contextInfo dump:`, JSON.stringify(contextInfo, null, 0).substring(0, 500));
-        if (payload._data?.QuotedMessage) {
-          console.log(`[Webhook] QuotedMessage keys: ${Object.keys(payload._data.QuotedMessage).join(', ')}`);
-          console.log(`[Webhook] QuotedMessage dump:`, JSON.stringify(payload._data.QuotedMessage, null, 0).substring(0, 500));
-        }
       }
     }
   } catch (statusReplyErr) {
