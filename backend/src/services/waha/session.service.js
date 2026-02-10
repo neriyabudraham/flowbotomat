@@ -1049,7 +1049,7 @@ async function resolveLid(connection, lid) {
     // Response may have pn (phone number) field
     if (data?.pn) {
       const phone = data.pn.replace('@s.whatsapp.net', '').replace('@c.us', '');
-      console.log(`[WAHA] Resolved LID ${lid} -> ${phone}`);
+      // LID resolved silently
       return phone;
     }
     

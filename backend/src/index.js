@@ -174,10 +174,8 @@ server.listen(PORT, () => {
       const { resumeStuckForwardJobs } = require('./controllers/groupForwards/jobs.controller');
       const { resumeStuckBroadcastCampaigns } = require('./services/broadcasts/sender.service');
       
-      console.log('[Startup] Checking for stuck jobs to resume...');
       await resumeStuckForwardJobs();
       await resumeStuckBroadcastCampaigns();
-      console.log('[Startup] Stuck jobs check complete');
     } catch (err) {
       console.error('[Startup] Error resuming stuck jobs:', err.message);
     }

@@ -10,7 +10,7 @@ const { getSocketManager } = require('./socket/manager.service');
 (async () => {
   try {
     await db.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS metadata JSONB`);
-    console.log('[BotEngine] Metadata column ensured');
+    // metadata column ensured silently
   } catch (err) {
     // Column might already exist or table might not exist yet
   }

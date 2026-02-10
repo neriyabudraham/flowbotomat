@@ -14,14 +14,6 @@ let schedulerInterval = null;
  */
 async function checkAndRunCampaigns() {
   try {
-    // Log current time for debugging
-    const nowResult = await db.query(`
-      SELECT 
-        to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') as utc_now,
-        to_char(NOW() AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') as israel_now
-    `);
-    const { utc_now, israel_now } = nowResult.rows[0];
-    
     // Find campaigns that are due to run
     const result = await db.query(`
       SELECT 
@@ -34,20 +26,6 @@ async function checkAndRunCampaigns() {
         AND ac.next_run_at IS NOT NULL 
         AND ac.next_run_at <= NOW()
     `);
-    
-    // Log pending campaigns for debugging
-    const pendingResult = await db.query(`
-      SELECT 
-        name, 
-        to_char(next_run_at, 'YYYY-MM-DD HH24:MI:SS') as next_run_utc,
-        to_char(next_run_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') as next_run_israel,
-        is_active 
-      FROM automated_campaigns 
-      WHERE is_active = true AND next_run_at IS NOT NULL
-      LIMIT 5
-    `);
-    if (pendingResult.rows.length > 0) {
-    }
     
     if (result.rows.length === 0) {
       return;
