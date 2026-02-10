@@ -1,4 +1,4 @@
-import { MessageSquare, GitBranch, Clock, Cog, List, X, ClipboardList, Globe, Send } from 'lucide-react';
+import { MessageSquare, GitBranch, Clock, Cog, List, X, ClipboardList, Globe, Send, FileSpreadsheet } from 'lucide-react';
 
 // Note: 'note' is excluded from quick add menu - only available from palette
 const nodeTypes = [
@@ -9,6 +9,7 @@ const nodeTypes = [
   { type: 'delay', label: 'השהייה', icon: Clock, color: 'blue', description: 'המתן' },
   { type: 'action', label: 'פעולה', icon: Cog, color: 'pink', description: 'תגיות ובקרה' },
   { type: 'integration', label: 'אינטגרציה', icon: Globe, color: 'amber', description: 'Webhook וAPI' },
+  { type: 'google_sheets', label: 'Google Sheets', icon: FileSpreadsheet, color: 'green', description: 'קריאה וכתיבה בגיליון' },
   { type: 'send_other', label: 'שליחה אחרת', icon: Send, color: 'violet', description: 'שלח למספר/קבוצה' },
 ];
 
@@ -22,6 +23,7 @@ const colorClasses = {
   yellow: 'hover:bg-yellow-50 hover:border-yellow-200',
   amber: 'hover:bg-amber-50 hover:border-amber-200',
   violet: 'hover:bg-violet-50 hover:border-violet-200',
+  green: 'hover:bg-green-50 hover:border-green-200',
 };
 
 const iconColors = {
@@ -34,6 +36,7 @@ const iconColors = {
   yellow: 'bg-yellow-500',
   amber: 'bg-amber-500',
   violet: 'bg-violet-500',
+  green: 'bg-green-500',
 };
 
 export default function QuickAddMenu({ position, onSelect, onClose }) {

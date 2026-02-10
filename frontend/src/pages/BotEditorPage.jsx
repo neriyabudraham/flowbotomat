@@ -573,6 +573,7 @@ function getDefaultData(type) {
     };
     case 'note': return { note: '', color: 'yellow' };
     case 'integration': return { actions: [] };
+    case 'google_sheets': return { actions: [] };
     case 'send_other': return { 
       recipient: { type: 'phone', phone: '', useVariable: false, variableName: '' },
       actions: [] 

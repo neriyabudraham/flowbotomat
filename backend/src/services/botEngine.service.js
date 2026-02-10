@@ -1468,6 +1468,10 @@ class BotEngine {
         await this.executeIntegrationNode(node, contact, userId);
         break;
         
+      case 'google_sheets':
+        await this.executeGoogleSheetsNode(node, contact, userId);
+        break;
+        
       case 'note':
         // Note nodes are just for documentation, skip them
         console.log('[BotEngine] 📝 Note node (skipped):', node.data?.text?.substring(0, 50) || '');
@@ -2211,6 +2215,174 @@ class BotEngine {
             }
           }
           break;
+      }
+    }
+  }
+  
+  // Execute Google Sheets node
+  async executeGoogleSheetsNode(node, contact, userId) {
+    const googleSheets = require('./googleSheets.service');
+    const actions = node.data?.actions || [];
+    console.log(`[BotEngine] Google Sheets node has ${actions.length} action(s)`);
+    
+    for (let i = 0; i < actions.length; i++) {
+      const action = actions[i];
+      const { operation, spreadsheetId, sheetName } = action;
+      
+      if (!spreadsheetId || !sheetName) {
+        console.log('[BotEngine] ⚠️ Google Sheets action missing spreadsheet or sheet name');
+        continue;
+      }
+      
+      console.log(`[BotEngine] Executing Google Sheets: ${operation} on "${action.spreadsheetName}/${sheetName}"`);
+      
+      try {
+        switch (operation) {
+          case 'append_row': {
+            const values = {};
+            for (const mapping of (action.columnMappings || [])) {
+              if (mapping.column) {
+                values[mapping.column] = this.replaceVariables(mapping.value || '', contact, '', '');
+              }
+            }
+            const result = await googleSheets.appendRow(userId, spreadsheetId, sheetName, values);
+            console.log('[BotEngine] ✅ Google Sheets row appended:', result.updatedRange);
+            await this.setContactVariable(contact.id, 'sheets_found', 'true');
+            break;
+          }
+          
+          case 'update_row': {
+            const rowIndex = parseInt(this.replaceVariables(action.rowIndex || '', contact, '', ''));
+            if (!rowIndex || isNaN(rowIndex)) {
+              console.log('[BotEngine] ⚠️ Invalid row index for update');
+              break;
+            }
+            const values = {};
+            for (const mapping of (action.columnMappings || [])) {
+              if (mapping.column) {
+                values[mapping.column] = this.replaceVariables(mapping.value || '', contact, '', '');
+              }
+            }
+            const result = await googleSheets.updateCells(userId, spreadsheetId, sheetName, rowIndex, values);
+            console.log('[BotEngine] ✅ Google Sheets row updated:', result.updated, 'cells');
+            await this.setContactVariable(contact.id, 'sheets_found', 'true');
+            break;
+          }
+          
+          case 'search_rows': {
+            const searchValue = this.replaceVariables(action.searchValue || '', contact, '', '');
+            const result = await googleSheets.searchRows(
+              userId, spreadsheetId, sheetName,
+              action.searchColumn, action.searchOperator || 'equals', searchValue
+            );
+            console.log(`[BotEngine] 🔍 Google Sheets search: ${result.totalMatches} matches`);
+            
+            await this.setContactVariable(contact.id, 'sheets_total_matches', String(result.totalMatches));
+            await this.setContactVariable(contact.id, 'sheets_found', result.totalMatches > 0 ? 'true' : 'false');
+            
+            if (result.rows.length > 0) {
+              const firstRow = result.rows[0];
+              await this.setContactVariable(contact.id, 'sheets_row_index', String(firstRow._rowIndex));
+              
+              // Apply result mappings
+              for (const mapping of (action.resultMappings || [])) {
+                if (mapping.column && mapping.variable) {
+                  const val = String(firstRow[mapping.column] || '');
+                  await this.setContactVariable(contact.id, mapping.variable, val);
+                  console.log(`[BotEngine] ✅ Mapped "${mapping.column}" → ${mapping.variable} = "${val.substring(0, 100)}"`);
+                }
+              }
+            }
+            break;
+          }
+          
+          case 'read_rows': {
+            const result = await googleSheets.readRows(userId, spreadsheetId, sheetName);
+            console.log(`[BotEngine] 📖 Google Sheets read: ${result.rows.length} rows`);
+            
+            await this.setContactVariable(contact.id, 'sheets_total_matches', String(result.rows.length));
+            await this.setContactVariable(contact.id, 'sheets_found', result.rows.length > 0 ? 'true' : 'false');
+            
+            if (result.rows.length > 0) {
+              const firstRow = result.rows[0];
+              await this.setContactVariable(contact.id, 'sheets_row_index', String(firstRow._rowIndex));
+              
+              for (const mapping of (action.resultMappings || [])) {
+                if (mapping.column && mapping.variable) {
+                  const val = String(firstRow[mapping.column] || '');
+                  await this.setContactVariable(contact.id, mapping.variable, val);
+                  console.log(`[BotEngine] ✅ Mapped "${mapping.column}" → ${mapping.variable} = "${val.substring(0, 100)}"`);
+                }
+              }
+            }
+            break;
+          }
+          
+          case 'search_and_update': {
+            const searchValue = this.replaceVariables(action.searchValue || '', contact, '', '');
+            const updateValues = {};
+            for (const mapping of (action.columnMappings || [])) {
+              if (mapping.column) {
+                updateValues[mapping.column] = this.replaceVariables(mapping.value || '', contact, '', '');
+              }
+            }
+            const result = await googleSheets.searchAndUpdate(
+              userId, spreadsheetId, sheetName,
+              action.searchColumn, searchValue, updateValues
+            );
+            console.log(`[BotEngine] 🔄 Google Sheets search & update: found=${result.found}, row=${result.rowIndex}`);
+            
+            await this.setContactVariable(contact.id, 'sheets_found', result.found ? 'true' : 'false');
+            if (result.rowIndex) {
+              await this.setContactVariable(contact.id, 'sheets_row_index', String(result.rowIndex));
+            }
+            
+            // Apply result mappings if found
+            if (result.found && (action.resultMappings || []).length > 0) {
+              const searchResult = await googleSheets.searchRows(
+                userId, spreadsheetId, sheetName,
+                action.searchColumn, 'equals', searchValue
+              );
+              if (searchResult.rows.length > 0) {
+                for (const mapping of (action.resultMappings || [])) {
+                  if (mapping.column && mapping.variable) {
+                    const val = String(searchResult.rows[0][mapping.column] || '');
+                    await this.setContactVariable(contact.id, mapping.variable, val);
+                  }
+                }
+              }
+            }
+            break;
+          }
+          
+          case 'search_or_append': {
+            const searchValue = this.replaceVariables(action.searchValue || '', contact, '', '');
+            const values = {};
+            for (const mapping of (action.columnMappings || [])) {
+              if (mapping.column) {
+                values[mapping.column] = this.replaceVariables(mapping.value || '', contact, '', '');
+              }
+            }
+            const result = await googleSheets.searchOrAppend(
+              userId, spreadsheetId, sheetName,
+              action.searchColumn, searchValue, values
+            );
+            console.log(`[BotEngine] 🔎 Google Sheets search or append: action=${result.action}`);
+            
+            await this.setContactVariable(contact.id, 'sheets_found', result.action === 'updated' ? 'true' : 'false');
+            if (result.rowIndex) {
+              await this.setContactVariable(contact.id, 'sheets_row_index', String(result.rowIndex));
+            }
+            break;
+          }
+          
+          default:
+            console.log(`[BotEngine] ⚠️ Unknown Google Sheets operation: ${operation}`);
+        }
+      } catch (error) {
+        console.error(`[BotEngine] ❌ Google Sheets error (${operation}):`, error.message);
+        await this.setContactVariable(contact.id, 'sheets_found', 'false');
+        await this.setContactVariable(contact.id, 'sheets_error', error.message);
       }
     }
   }

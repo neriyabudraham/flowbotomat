@@ -4,7 +4,8 @@ import {
   User, Lock, Globe, Save, ArrowLeft, Settings, Bell, Shield, 
   CreditCard, Crown, Check, Eye, EyeOff, Sparkles, ChevronRight,
   Mail, Phone, Building, Palette, Moon, Sun, Languages, Key, Share2,
-  Loader2, MessageSquare, Clock, Bot, Hand
+  Loader2, MessageSquare, Clock, Bot, Hand, Puzzle, ExternalLink,
+  RefreshCw, Unplug, CheckCircle2, XCircle
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
@@ -73,6 +74,10 @@ export default function SettingsPage() {
   const [notifLoading, setNotifLoading] = useState(false);
   const [notifSaving, setNotifSaving] = useState(false);
   
+  // Integrations
+  const [googleSheetsStatus, setGoogleSheetsStatus] = useState(null);
+  const [integrationLoading, setIntegrationLoading] = useState(false);
+
   // Live chat settings
   const [liveChatSettings, setLiveChatSettings] = useState({
     onManualMessage: 'pause_temp', // 'pause_temp' | 'pause_permanent' | 'none'
@@ -116,7 +121,48 @@ export default function SettingsPage() {
     if (activeTab === 'livechat') {
       loadLiveChatSettings();
     }
+    if (activeTab === 'integrations') {
+      loadGoogleSheetsStatus();
+    }
   }, [activeTab]);
+
+  const loadGoogleSheetsStatus = async () => {
+    try {
+      setIntegrationLoading(true);
+      const { data } = await api.get('/google-sheets/status');
+      setGoogleSheetsStatus(data);
+    } catch (err) {
+      console.error('Failed to load Google Sheets status:', err);
+    } finally {
+      setIntegrationLoading(false);
+    }
+  };
+
+  const connectGoogleSheets = async () => {
+    try {
+      setIntegrationLoading(true);
+      const { data } = await api.get('/google-sheets/auth-url');
+      window.location.href = data.url;
+    } catch (err) {
+      console.error('Failed to get auth URL:', err);
+      setMessage({ type: 'error', text: 'שגיאה בחיבור Google Sheets' });
+    } finally {
+      setIntegrationLoading(false);
+    }
+  };
+
+  const disconnectGoogleSheets = async () => {
+    if (!confirm('האם אתה בטוח שברצונך לנתק את Google Sheets?')) return;
+    try {
+      setIntegrationLoading(true);
+      await api.post('/google-sheets/disconnect');
+      setGoogleSheetsStatus({ connected: false });
+    } catch (err) {
+      console.error('Failed to disconnect Google Sheets:', err);
+    } finally {
+      setIntegrationLoading(false);
+    }
+  };
 
   const loadProfile = async () => {
     try {
@@ -245,6 +291,7 @@ export default function SettingsPage() {
     { id: 'subscription', label: 'מנוי', icon: Crown },
     { id: 'notifications', label: 'התראות', icon: Bell },
     { id: 'affiliate', label: 'תוכנית שותפים', icon: Share2 },
+    { id: 'integrations', label: 'אינטגרציות', icon: Puzzle },
     { id: 'security', label: 'אבטחה', icon: Shield },
     { id: 'experts', label: 'גישת מומחים', icon: Settings },
   ];
@@ -782,6 +829,132 @@ export default function SettingsPage() {
             {/* Affiliate Tab */}
             {activeTab === 'affiliate' && (
               <AffiliatePanel />
+            )}
+
+            {/* Integrations Tab */}
+            {activeTab === 'integrations' && (
+              <div className="space-y-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div className="bg-gradient-to-r from-green-500 to-emerald-500 px-6 py-4">
+                    <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                      <Puzzle className="w-5 h-5" />
+                      אינטגרציות
+                    </h2>
+                    <p className="text-green-100 text-sm mt-1">חבר שירותים חיצוניים למערכת הבוטים שלך</p>
+                  </div>
+                  
+                  <div className="p-6 space-y-4">
+                    {/* Google Sheets Integration Card */}
+                    <div className="border border-gray-200 rounded-xl p-5 hover:border-green-200 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-green-50 rounded-xl flex items-center justify-center">
+                            <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none">
+                              <path d="M14.5 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V7.5L14.5 2Z" stroke="#0F9D58" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              <polyline points="14,2 14,8 20,8" stroke="#0F9D58" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              <line x1="8" y1="13" x2="16" y2="13" stroke="#0F9D58" strokeWidth="1.5"/>
+                              <line x1="8" y1="17" x2="16" y2="17" stroke="#0F9D58" strokeWidth="1.5"/>
+                              <line x1="12" y1="10" x2="12" y2="20" stroke="#0F9D58" strokeWidth="1.5"/>
+                            </svg>
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-gray-900 text-lg">Google Sheets</h3>
+                            <p className="text-sm text-gray-500">
+                              {googleSheetsStatus?.connected 
+                                ? `מחובר: ${googleSheetsStatus.email}`
+                                : 'קרא, כתוב ועדכן נתונים בגיליונות אלקטרוניים'}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-3">
+                          {integrationLoading ? (
+                            <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                          ) : googleSheetsStatus?.connected ? (
+                            <>
+                              <span className="flex items-center gap-1.5 text-sm text-green-600 bg-green-50 px-3 py-1.5 rounded-lg font-medium">
+                                <CheckCircle2 className="w-4 h-4" />
+                                מחובר
+                              </span>
+                              <button
+                                onClick={disconnectGoogleSheets}
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors font-medium"
+                              >
+                                <Unplug className="w-4 h-4" />
+                                נתק
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={connectGoogleSheets}
+                              className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:from-green-600 hover:to-emerald-600 transition-all shadow-sm font-medium"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                              חבר חשבון
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {googleSheetsStatus?.connected && (
+                        <div className="mt-4 pt-4 border-t border-gray-100">
+                          <div className="flex items-center gap-6 text-sm text-gray-500">
+                            <span className="flex items-center gap-1.5">
+                              <Mail className="w-4 h-4" />
+                              {googleSheetsStatus.email}
+                            </span>
+                            {googleSheetsStatus.name && (
+                              <span className="flex items-center gap-1.5">
+                                <User className="w-4 h-4" />
+                                {googleSheetsStatus.name}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-400 mt-2">
+                            ניתן להשתמש בפעולות Google Sheets בבוטים שלך דרך עורך הבוט
+                          </p>
+                        </div>
+                      )}
+                      
+                      {!googleSheetsStatus?.connected && (
+                        <div className="mt-4 pt-4 border-t border-gray-100">
+                          <div className="grid grid-cols-2 gap-3 text-sm text-gray-500">
+                            <div className="flex items-center gap-2">
+                              <Check className="w-4 h-4 text-green-500" />
+                              הוספת שורות לגיליון
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Check className="w-4 h-4 text-green-500" />
+                              עדכון שורות קיימות
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Check className="w-4 h-4 text-green-500" />
+                              חיפוש נתונים
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Check className="w-4 h-4 text-green-500" />
+                              קריאת נתונים מגיליון
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Placeholder for future integrations */}
+                    <div className="border border-dashed border-gray-200 rounded-xl p-5 opacity-50">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center">
+                          <Puzzle className="w-6 h-6 text-gray-300" />
+                        </div>
+                        <div>
+                          <h3 className="font-medium text-gray-400">אינטגרציות נוספות בקרוב...</h3>
+                          <p className="text-sm text-gray-300">CRM, מערכות סליקה, ועוד</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             )}
 
             {/* Security Tab */}

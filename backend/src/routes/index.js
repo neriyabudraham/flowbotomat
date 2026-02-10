@@ -24,6 +24,7 @@ const apiKeysRoutes = require('./apiKeys.routes');
 const publicApiRoutes = require('./publicApi.routes');
 const groupForwardsRoutes = require('./groupForwards.routes');
 const broadcastsRoutes = require('./broadcasts.routes');
+const googleSheetsRoutes = require('./googleSheets.routes');
 
 // Mount routes
 router.use('/auth', authRoutes);
@@ -47,6 +48,7 @@ router.use('/upload', uploadRoutes);
 router.use('/api-keys', apiKeysRoutes);
 router.use('/group-forwards', groupForwardsRoutes);
 router.use('/broadcasts', broadcastsRoutes);
+router.use('/google-sheets', googleSheetsRoutes);
 
 // Public API (v1)
 router.use('/v1', publicApiRoutes);

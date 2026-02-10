@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { TriggerNode, MessageNode, ConditionNode, DelayNode, ActionNode, ListNode, NoteNode, IntegrationNode, SendOtherNode } from './nodes';
+import { TriggerNode, MessageNode, ConditionNode, DelayNode, ActionNode, ListNode, NoteNode, IntegrationNode, SendOtherNode, GoogleSheetsNode } from './nodes';
 import RegistrationNode from './nodes/RegistrationNode';
 import QuickAddMenu from './panels/QuickAddMenu';
 import EdgeWithDelete from './EdgeWithDelete';
@@ -29,6 +29,7 @@ const nodeTypes = {
   note: NoteNode,
   integration: IntegrationNode,
   send_other: SendOtherNode,
+  google_sheets: GoogleSheetsNode,
 };
 
 const edgeTypes = {
@@ -346,6 +347,8 @@ function getDefaultData(type) {
     case 'note':
       return { note: '', color: 'yellow' };
     case 'integration':
+      return { actions: [] };
+    case 'google_sheets':
       return { actions: [] };
     default:
       return {};
