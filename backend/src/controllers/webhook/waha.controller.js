@@ -372,12 +372,23 @@ async function saveUserStatus(userId, payload) {
   try {
     await ensureMigrations();
     
-    const waMessageId = payload.id?._serialized || payload.id || '';
+    // Normalize message ID - ensure consistent format regardless of event source
+    let waMessageId = '';
+    if (typeof payload.id === 'string') {
+      waMessageId = payload.id;
+    } else if (payload.id?._serialized) {
+      waMessageId = payload.id._serialized;
+    } else if (payload.id?.id) {
+      // Build consistent serialized format: fromMe_remote_id
+      waMessageId = `${payload.id.fromMe ? 'true' : 'false'}_${payload.id.remote || 'status@broadcast'}_${payload.id.id}`;
+    }
     if (!waMessageId) return;
     
     // Parse the status content
     const messageData = parseMessage(payload);
     const postedAt = payload.timestamp ? new Date(payload.timestamp * 1000) : new Date();
+    
+    console.log(`[Status] Saving: id=${waMessageId}, detected_type=${messageData.type}, payload.type=${payload.type}, MediaType=${payload._data?.Info?.MediaType || 'N/A'}, hasMedia=${payload.hasMedia || false}`);
     
     await pool.query(`
       INSERT INTO user_statuses (user_id, wa_message_id, message_type, content, media_url, media_mime_type, posted_at)
@@ -389,15 +400,13 @@ async function saveUserStatus(userId, payload) {
         media_mime_type = COALESCE(EXCLUDED.media_mime_type, user_statuses.media_mime_type)
     `, [userId, waMessageId, messageData.type, messageData.content || '', messageData.mediaUrl || null, messageData.mimeType || null, postedAt]);
     
-    console.log(`[Webhook] Saved user status: ${waMessageId} (type: ${messageData.type}, content: ${(messageData.content || '').substring(0, 50)})`);
-    
     // Clean up old statuses (older than 48 hours) - keep a bit more than 24h for safety
     await pool.query(
       `DELETE FROM user_statuses WHERE user_id = $1 AND posted_at < NOW() - INTERVAL '48 hours'`,
       [userId]
     );
   } catch (err) {
-    console.log('[Webhook] Save status error:', err.message);
+    console.log('[Status] Save error:', err.message);
   }
 }
 
@@ -421,12 +430,8 @@ async function handleIncomingMessage(userId, event) {
   // Debug log disabled to reduce noise
   // console.log('[Webhook] Incoming message payload:', JSON.stringify(payload, null, 2));
   
-  // Handle status updates
+  // Handle status updates - skip here, statuses are saved via message.any event only
   if (payload.from === 'status@broadcast') {
-    // If this is OUR status post (fromMe: true), save it for specific status triggers
-    if (payload.fromMe) {
-      await saveUserStatus(userId, payload);
-    }
     return;
   }
   
@@ -840,16 +845,19 @@ function parseMessage(payload) {
   }
   
   // Check for media via hasMedia flag or media property (WAHA formats)
+  // Also check _data.Info.MediaType which WAHA go uses for media type indication
+  const mediaType = payload._data?.Info?.MediaType;
   const hasMedia = payload.hasMedia || payload.media || payload._data?.Message?.imageMessage || 
-                   payload._data?.Message?.videoMessage || payload._data?.Message?.audioMessage;
+                   payload._data?.Message?.videoMessage || payload._data?.Message?.audioMessage ||
+                   (mediaType && mediaType !== 'list_response');
   
   // Get media URL from various WAHA formats
   const getMediaUrl = () => {
     return payload.mediaUrl || payload.media?.url || payload.media?.link;
   };
   
-  // Image - check multiple indicators
-  if (payload.type === 'image' || payload._data?.Message?.imageMessage || 
+  // Image - check multiple indicators including WAHA go MediaType
+  if (payload.type === 'image' || mediaType === 'image' || payload._data?.Message?.imageMessage || 
       (hasMedia && payload.mimetype?.startsWith('image/'))) {
     const imageMsg = payload._data?.Message?.imageMessage;
     return {
@@ -860,8 +868,8 @@ function parseMessage(payload) {
     };
   }
   
-  // Video - check multiple indicators
-  if (payload.type === 'video' || payload._data?.Message?.videoMessage ||
+  // Video - check multiple indicators including WAHA go MediaType
+  if (payload.type === 'video' || mediaType === 'video' || payload._data?.Message?.videoMessage ||
       (hasMedia && payload.mimetype?.startsWith('video/'))) {
     const videoMsg = payload._data?.Message?.videoMessage;
     return {
@@ -872,8 +880,9 @@ function parseMessage(payload) {
     };
   }
   
-  // Audio/Voice - check multiple indicators
+  // Audio/Voice - check multiple indicators including WAHA go MediaType
   if (payload.type === 'audio' || payload.type === 'ptt' || 
+      mediaType === 'audio' || mediaType === 'ptt' ||
       payload._data?.Message?.audioMessage ||
       (hasMedia && payload.mimetype?.startsWith('audio/'))) {
     const audioMsg = payload._data?.Message?.audioMessage;
@@ -884,8 +893,8 @@ function parseMessage(payload) {
     };
   }
   
-  // Document
-  if (payload.type === 'document' || payload._data?.Message?.documentMessage) {
+  // Document - check including WAHA go MediaType
+  if (payload.type === 'document' || mediaType === 'document' || payload._data?.Message?.documentMessage) {
     const docMsg = payload._data?.Message?.documentMessage;
     return {
       type: 'document',
@@ -1032,20 +1041,7 @@ async function handleMessageAck(userId, event) {
   if (payload.from === 'status@broadcast' && payload.fromMe === true) {
     const statusMsgId = payload.id?._serialized || payload.id;
     
-    // Fallback: ensure this status is saved even if message.any wasn't received
-    // (ack events don't have full content, but at least we record the ID)
-    if (statusMsgId) {
-      try {
-        await ensureMigrations();
-        await pool.query(`
-          INSERT INTO user_statuses (user_id, wa_message_id, message_type, content, posted_at)
-          VALUES ($1, $2, 'text', '', $3)
-          ON CONFLICT (user_id, wa_message_id) DO NOTHING
-        `, [userId, statusMsgId, payload.timestamp ? new Date(payload.timestamp * 1000) : new Date()]);
-      } catch (saveErr) {
-        // Ignore - may already exist with content from message.any
-      }
-    }
+    // Status saving is handled by message.any event only (no fallback here to avoid duplicates)
     
     // Detect status view (ack=3 READ means someone viewed our status)
     if (ackLevel >= 3) {
