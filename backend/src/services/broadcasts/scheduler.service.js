@@ -201,6 +201,13 @@ async function executeTriggerStep(step, parentCampaign) {
     if (targetCampaign.resolved_audience_id) {
       targetCampaign.audience_id = targetCampaign.resolved_audience_id;
     }
+    
+    // If target campaign has no audience, inherit from parent campaign
+    if (!targetCampaign.audience_id && parentCampaign.audience_id) {
+      console.log(`[Scheduler] Target campaign "${targetCampaign.name}" has no audience, inheriting from parent: ${parentCampaign.audience_id}`);
+      targetCampaign.audience_id = parentCampaign.audience_id;
+    }
+    
     console.log(`[Scheduler] Executing triggered campaign: ${targetCampaign.name} (final audience: ${targetCampaign.audience_id || 'NONE'})`);
     
     // Execute the target campaign as TRIGGERED (won't update its next_run_at or deactivate it)
