@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
-    allowedHosts: ['flow.botomat.co.il', 'localhost'],
+    allowedHosts: ['botomat.co.il', 'flow.botomat.co.il', 'localhost'],
     proxy: {
       '/api': {
         target: 'http://backend:4000',
