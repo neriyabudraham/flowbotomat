@@ -641,26 +641,44 @@ async function handleIncomingMessage(userId, event) {
   // replies to the bot's message, that's a regular message - NOT a status reply.
   try {
     if (!payload.fromMe && !isGroupMessage && senderPhone) {
-      // Get contextInfo from the message (the quoted/replied-to message info)
-      const contextInfo = payload._data?.Message?.extendedTextMessage?.contextInfo ||
-                          payload._data?.Message?.imageMessage?.contextInfo ||
-                          payload._data?.Message?.videoMessage?.contextInfo ||
+      // Get contextInfo from ALL possible message types
+      const msg = payload._data?.Message || {};
+      const contextInfo = msg.extendedTextMessage?.contextInfo ||
+                          msg.imageMessage?.contextInfo ||
+                          msg.videoMessage?.contextInfo ||
+                          msg.audioMessage?.contextInfo ||
+                          msg.documentMessage?.contextInfo ||
+                          msg.stickerMessage?.contextInfo ||
+                          msg.conversation?.contextInfo ||
                           null;
       
-      // A status reply has remoteJid pointing to status@broadcast in the DIRECTLY quoted message
+      // Check multiple possible indicators that this is a status reply
       const quotedRemoteJid = contextInfo?.remoteJid || '';
+      const quotedParticipant = contextInfo?.participant || '';
+      const quotedStanzaId = contextInfo?.stanzaId || '';
+      const quotedChat = payload._data?.QuotedMessage?.Chat || '';
       
-      // Only trigger if the contextInfo explicitly references status@broadcast
-      if (quotedRemoteJid === 'status@broadcast') {
-        console.log(`[Webhook] Status reply detected from ${senderPhone}`);
+      // Status reply indicators:
+      // 1. contextInfo.remoteJid === 'status@broadcast'
+      // 2. QuotedMessage.Chat === 'status@broadcast'  
+      // 3. stanzaId contains 'status@broadcast' pattern
+      const isStatusReply = quotedRemoteJid === 'status@broadcast' || 
+                            quotedChat === 'status@broadcast' ||
+                            quotedStanzaId.includes('status@broadcast');
+      
+      if (isStatusReply) {
+        console.log(`[Webhook] Status reply detected from ${senderPhone} (remoteJid: ${quotedRemoteJid}, chat: ${quotedChat}, stanzaId: ${quotedStanzaId})`);
         await botEngine.processEvent(userId, senderPhone, 'status_reply', {
           message: messageData.content,
           messageType: messageData.type
         });
+      } else if (contextInfo) {
+        // Debug: log contextInfo to understand status reply structure
+        console.log(`[Webhook] Message has contextInfo but not status reply - remoteJid: ${quotedRemoteJid}, chat: ${quotedChat}, stanzaId: ${quotedStanzaId}`);
       }
     }
   } catch (statusReplyErr) {
-    // Ignore errors in status reply detection
+    console.log('[Webhook] Status reply detection error:', statusReplyErr.message);
   }
 }
 
