@@ -1,13 +1,26 @@
-const { google } = require('googleapis');
 const db = require('../config/database');
 const { encrypt, decrypt } = require('./crypto/encrypt.service');
 
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.readonly'];
 
+// Lazy-load googleapis to prevent server crash if package not yet installed
+let _google = null;
+function getGoogle() {
+  if (!_google) {
+    try {
+      _google = require('googleapis').google;
+    } catch (err) {
+      throw new Error('googleapis package is not installed. Run: npm install googleapis');
+    }
+  }
+  return _google;
+}
+
 /**
  * Create OAuth2 client
  */
 function createOAuth2Client() {
+  const google = getGoogle();
   const frontendUrl = process.env.FRONTEND_URL || 'https://flow.botomat.co.il';
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
@@ -33,6 +46,7 @@ function getAuthUrl(userId) {
  * Exchange authorization code for tokens and store them
  */
 async function handleCallback(code, userId) {
+  const google = getGoogle();
   const oauth2Client = createOAuth2Client();
   const { tokens } = await oauth2Client.getToken(code);
   
@@ -163,6 +177,7 @@ async function disconnect(userId) {
  * List user's spreadsheets
  */
 async function listSpreadsheets(userId) {
+  const google = getGoogle();
   const auth = await getAuthenticatedClient(userId);
   const drive = google.drive({ version: 'v3', auth });
   
@@ -180,6 +195,7 @@ async function listSpreadsheets(userId) {
  * Get spreadsheet metadata (sheets/tabs info)
  */
 async function getSpreadsheetInfo(userId, spreadsheetId) {
+  const google = getGoogle();
   const auth = await getAuthenticatedClient(userId);
   const sheets = google.sheets({ version: 'v4', auth });
   
@@ -199,6 +215,7 @@ async function getSpreadsheetInfo(userId, spreadsheetId) {
  * Get column headers (first row) of a sheet
  */
 async function getHeaders(userId, spreadsheetId, sheetName) {
+  const google = getGoogle();
   const auth = await getAuthenticatedClient(userId);
   const sheets = google.sheets({ version: 'v4', auth });
   
@@ -214,6 +231,7 @@ async function getHeaders(userId, spreadsheetId, sheetName) {
  * Read rows from a sheet
  */
 async function readRows(userId, spreadsheetId, sheetName, range = null) {
+  const google = getGoogle();
   const auth = await getAuthenticatedClient(userId);
   const sheets = google.sheets({ version: 'v4', auth });
   
@@ -268,6 +286,7 @@ async function searchRows(userId, spreadsheetId, sheetName, column, operator, va
  * Append a row to a sheet
  */
 async function appendRow(userId, spreadsheetId, sheetName, values) {
+  const google = getGoogle();
   const auth = await getAuthenticatedClient(userId);
   const sheets = google.sheets({ version: 'v4', auth });
   
@@ -298,6 +317,7 @@ async function appendRow(userId, spreadsheetId, sheetName, values) {
  * Update a specific row
  */
 async function updateRow(userId, spreadsheetId, sheetName, rowIndex, values) {
+  const google = getGoogle();
   const auth = await getAuthenticatedClient(userId);
   const sheets = google.sheets({ version: 'v4', auth });
   
@@ -326,6 +346,7 @@ async function updateRow(userId, spreadsheetId, sheetName, rowIndex, values) {
  * Update specific cells in a row (partial update)
  */
 async function updateCells(userId, spreadsheetId, sheetName, rowIndex, columnValues) {
+  const google = getGoogle();
   const auth = await getAuthenticatedClient(userId);
   const sheets = google.sheets({ version: 'v4', auth });
   
