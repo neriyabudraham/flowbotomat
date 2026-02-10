@@ -167,8 +167,6 @@ function extractRealPhone(payload) {
     return 0;
   });
   
-  console.log(`[Webhook] Phone candidates: ${uniqueCandidates.join(', ')} -> selected: ${uniqueCandidates[0]}`);
-  
   return uniqueCandidates[0];
 }
 
@@ -454,7 +452,6 @@ async function handleIncomingMessage(userId, event) {
   if (senderLid && senderLid.includes('@lid') && senderPhone) {
     const lidOnly = senderLid.split('@')[0];
     await storeLidMapping(userId, lidOnly, senderPhone, senderName);
-    console.log(`[Webhook] Stored LID mapping: ${lidOnly} -> ${senderPhone} (${senderName})`);
   }
   
   // For groups, use the group ID as the contact identifier
@@ -1062,8 +1059,6 @@ async function handleMessageAck(userId, event) {
         if (!phone) {
           phone = viewerRaw.replace('@s.whatsapp.net', '').replace('@c.us', '');
         }
-        
-        console.log(`[Webhook] Status viewed by ${phone}`);
         
         try {
           await botEngine.processEvent(userId, phone, 'status_viewed', {
