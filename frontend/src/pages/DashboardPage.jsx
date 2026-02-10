@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { 
   MessageCircle, Workflow, Users, Settings, Bot, MessageSquare, 
-  TrendingUp, Grid, Shield, ChevronLeft, Zap, Activity, 
+  TrendingUp, Shield, ChevronLeft, Zap, Activity, 
   Plus, ArrowUpRight, Clock, CheckCircle, Crown, Bell,
   Sparkles, ArrowRight, BarChart3, Calendar, Phone, Star,
   Target, Rocket, Gift, AlertCircle, X, ExternalLink, Lightbulb,
@@ -162,6 +162,8 @@ export default function DashboardPage() {
   const [selectedTip, setSelectedTip] = useState(null);
   const [usage, setUsage] = useState(null);
   const [viewingAs, setViewingAs] = useState(null);
+  const [setupDismissed, setSetupDismissed] = useState(() => localStorage.getItem('setupDismissed') === 'true');
+  const [showCompletionMessage, setShowCompletionMessage] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -235,6 +237,20 @@ export default function DashboardPage() {
   ].filter(Boolean).length;
   const totalSteps = 3;
   const progressPercent = Math.round((completedSteps / totalSteps) * 100);
+  const allStepsCompleted = completedSteps === totalSteps;
+
+  // Auto-dismiss setup steps when all completed
+  useEffect(() => {
+    if (allStepsCompleted && !setupDismissed) {
+      setShowCompletionMessage(true);
+      const timer = setTimeout(() => {
+        setShowCompletionMessage(false);
+        setSetupDismissed(true);
+        localStorage.setItem('setupDismissed', 'true');
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [allStepsCompleted, setupDismissed]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50" dir="rtl">
@@ -346,25 +362,31 @@ export default function DashboardPage() {
                 <div className="text-white/70 text-sm">הודעות היום</div>
               </div>
               <div className="bg-white/20 backdrop-blur rounded-2xl px-6 py-4 text-center">
-                <div className="text-3xl font-bold text-white">{stats?.activeBots || 0}</div>
-                <div className="text-white/70 text-sm">בוטים פעילים</div>
+                <div className="text-3xl font-bold text-white">{stats?.totalContacts || 0}</div>
+                <div className="text-white/70 text-sm">אנשי קשר</div>
               </div>
             </div>
           </div>
           
-          {/* Progress Bar */}
-          <div className="relative z-10 mt-6 pt-6 border-t border-white/20">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-white/70 text-sm">התקדמות ההגדרה</span>
-              <span className="text-white font-medium">{progressPercent}%</span>
+          {/* Progress Bar - hide when all steps completed and dismissed */}
+          {!(allStepsCompleted && setupDismissed) && (
+            <div className="relative z-10 mt-6 pt-6 border-t border-white/20">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-white/70 text-sm">התקדמות ההגדרה</span>
+                <span className="text-white font-medium">{progressPercent}%</span>
+              </div>
+              <div className="h-2 bg-white/20 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    progressPercent >= 100 
+                      ? 'bg-gradient-to-r from-green-400 to-emerald-400' 
+                      : 'bg-gradient-to-r from-yellow-400 to-orange-400'
+                  }`}
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
             </div>
-            <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-gradient-to-r from-yellow-400 to-orange-400 rounded-full transition-all duration-500"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Main Grid */}
@@ -434,47 +456,59 @@ export default function DashboardPage() {
             </Link>
           </div>
           
-          {/* Getting Started Card */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="bg-gradient-to-r from-amber-50 to-orange-50 px-6 py-4 border-b border-amber-100">
-              <h3 className="font-bold text-gray-900 flex items-center gap-2">
-                <Target className="w-5 h-5 text-amber-500" />
-                צעדים ראשונים
-              </h3>
+          {/* Getting Started Card - hide when all steps completed and dismissed */}
+          {allStepsCompleted && setupDismissed ? null : showCompletionMessage ? (
+            <div className="bg-white rounded-2xl border border-green-200 shadow-sm overflow-hidden">
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 px-6 py-8 text-center">
+                <div className="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle className="w-8 h-8 text-green-600" />
+                </div>
+                <h3 className="text-xl font-bold text-green-800 mb-2">כל ההגדרות הושלמו!</h3>
+                <p className="text-green-600 text-sm">המערכת מוכנה לעבודה</p>
+              </div>
             </div>
-            <div className="p-4 space-y-2">
-              <SetupStep 
-                completed={isConnected}
-                number={1}
-                text="חבר את WhatsApp שלך"
-                link="/whatsapp"
-              />
-              <SetupStep 
-                completed={stats?.activeBots > 0}
-                number={2}
-                text="צור את הבוט הראשון"
-                link="/bots"
-              />
-              <SetupStep 
-                completed={stats?.totalContacts > 0}
-                number={3}
-                text="קבל את ההודעה הראשונה"
-                link="/contacts"
-              />
+          ) : (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="bg-gradient-to-r from-amber-50 to-orange-50 px-6 py-4 border-b border-amber-100">
+                <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                  <Target className="w-5 h-5 text-amber-500" />
+                  צעדים ראשונים
+                </h3>
+              </div>
+              <div className="p-4 space-y-2">
+                <SetupStep 
+                  completed={isConnected}
+                  number={1}
+                  text="חבר את WhatsApp שלך"
+                  link="/whatsapp"
+                />
+                <SetupStep 
+                  completed={stats?.activeBots > 0}
+                  number={2}
+                  text="צור את הבוט הראשון"
+                  link="/bots"
+                />
+                <SetupStep 
+                  completed={stats?.totalContacts > 0}
+                  number={3}
+                  text="קבל את ההודעה הראשונה"
+                  link="/contacts"
+                />
+              </div>
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-100">
+                <Link 
+                  to="/templates" 
+                  className="flex items-center justify-between text-sm text-purple-600 hover:text-purple-700"
+                >
+                  <span className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4" />
+                    גלריית תבניות בוטים מוכנות
+                  </span>
+                  <ChevronLeft className="w-4 h-4" />
+                </Link>
+              </div>
             </div>
-            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100">
-              <Link 
-                to="/templates" 
-                className="flex items-center justify-between text-sm text-purple-600 hover:text-purple-700"
-              >
-                <span className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" />
-                  עיין בתבניות מוכנות
-                </span>
-                <ChevronLeft className="w-4 h-4" />
-              </Link>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Usage Card */}
@@ -542,9 +576,9 @@ export default function DashboardPage() {
             trend={stats?.messageTrend}
           />
           <StatCard 
-            icon={Bot} 
-            label="בוטים פעילים" 
-            value={stats?.activeBots || 0}
+            icon={Zap} 
+            label="הפעלות בוט החודש" 
+            value={usage?.usage?.bot_runs || 0}
             gradient="from-purple-500 to-pink-500"
             bgColor="bg-purple-50"
           />
@@ -569,14 +603,6 @@ export default function DashboardPage() {
               title="בוטים"
               description="יצירת וניהול אוטומציות"
               gradient="from-blue-500 to-indigo-600"
-            />
-            <QuickActionCard
-              to="/templates"
-              icon={Grid}
-              title="תבניות"
-              description="גלריית בוטים מוכנים"
-              gradient="from-purple-500 to-pink-600"
-              badge="חדש"
             />
             <QuickActionCard
               to="/group-forwards"
@@ -941,10 +967,10 @@ function UsageBar({ label, icon: Icon, used, limit, color }) {
   
   const colors = colorClasses[color] || colorClasses.indigo;
   
-  // Determine bar color based on percentage
+  // Determine bar color based on percentage - green at 100% (fully utilized is ok)
   const getBarColor = () => {
-    if (percentage >= 100) return 'bg-gradient-to-r from-red-500 to-rose-500';
-    if (percentage >= 80) return 'bg-gradient-to-r from-amber-500 to-orange-500';
+    if (percentage >= 100) return 'bg-gradient-to-r from-green-500 to-emerald-500';
+    if (percentage >= 80) return colors.bar;
     return colors.bar;
   };
 
@@ -969,8 +995,7 @@ function UsageBar({ label, icon: Icon, used, limit, color }) {
         </div>
         {!isUnlimited && (
           <span className={`text-lg font-bold ${
-            percentage >= 100 ? 'text-red-600' : 
-            percentage >= 80 ? 'text-amber-600' : 
+            percentage >= 100 ? 'text-green-600' : 
             colors.text
           }`}>
             {percentage}%
@@ -987,9 +1012,9 @@ function UsageBar({ label, icon: Icon, used, limit, color }) {
         </div>
       )}
       
-      {percentage >= 80 && !isUnlimited && (
-        <p className={`text-xs mt-2 ${percentage >= 100 ? 'text-red-600' : 'text-amber-600'}`}>
-          {percentage >= 100 ? '⚠️ הגעת למגבלה! שדרג כדי להמשיך' : '📊 מומלץ לשדרג את החבילה'}
+      {percentage >= 100 && !isUnlimited && (
+        <p className="text-xs mt-2 text-green-600">
+          ✓ ניצולת מלאה של החבילה
         </p>
       )}
     </div>

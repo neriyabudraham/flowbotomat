@@ -749,14 +749,24 @@ async function getAccessibleAccounts(req, res) {
  */
 async function switchAccount(req, res) {
   try {
-    const userId = req.user.id;
-    const userRole = req.user.role;
+    const currentUserId = req.user.id;
     const { targetUserId } = req.params;
+    
+    // Use original account ID when already viewing another account
+    // This allows switching from Client A -> Client B without going back first
+    const originalUserId = req.user.viewingAs || req.user.id;
+    
+    // Get the original user's role (not the viewed account's role)
+    let originalRole = req.user.role;
+    if (req.user.viewingAs) {
+      const originalUserResult = await db.query('SELECT role FROM users WHERE id = $1', [originalUserId]);
+      originalRole = originalUserResult.rows[0]?.role || req.user.role;
+    }
     
     let access = null;
     
     // Admins can switch to any account
-    if (userRole === 'superadmin' || userRole === 'admin') {
+    if (originalRole === 'superadmin' || originalRole === 'admin') {
       access = {
         access_type: 'admin',
         can_view_bots: true,
@@ -764,9 +774,9 @@ async function switchAccount(req, res) {
         can_manage_contacts: true,
         can_view_analytics: true
       };
-      console.log(`[Experts] Admin ${userId} switching to account ${targetUserId}`);
+      console.log(`[Experts] Admin ${originalUserId} switching to account ${targetUserId}`);
     } else {
-      // Check if user has access to target account
+      // Check if ORIGINAL user has access to target account
       const accessResult = await db.query(
         `SELECT ec.*, 'expert' as access_type 
          FROM expert_clients ec
@@ -778,7 +788,7 @@ async function switchAccount(req, res) {
                 NULL as requested_at, NULL as rejected_at, NULL as rejection_reason, 'linked' as access_type
          FROM linked_accounts la
          WHERE la.parent_user_id = $1 AND la.child_user_id = $2`,
-        [userId, targetUserId]
+        [originalUserId, targetUserId]
       );
       
       if (accessResult.rows.length === 0) {
@@ -807,7 +817,7 @@ async function switchAccount(req, res) {
         userId: targetUserId, 
         email: targetUser.email, 
         role: targetUser.role,
-        viewingAs: userId, // Original user ID
+        viewingAs: originalUserId, // Always the original account, even when switching between clients
         accessType: access.access_type,
         permissions: {
           can_view_bots: access.can_view_bots,
@@ -820,7 +830,7 @@ async function switchAccount(req, res) {
       { expiresIn: '24h' }
     );
     
-    console.log(`[Experts] ${userId} switched to account ${targetUserId}`);
+    console.log(`[Experts] ${originalUserId} switched to account ${targetUserId} (was viewing: ${currentUserId})`);
     
     res.json({
       success: true,
