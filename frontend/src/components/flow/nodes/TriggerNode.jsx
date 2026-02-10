@@ -54,6 +54,10 @@ function TriggerNode({ data, selected }) {
       if (condition.filterByStatus && condition.specificStatusId) {
         return `${label} (ספציפי)`;
       }
+      // Show specific group indicator if filtering by group
+      if (condition.filterByGroup && condition.specificGroupId) {
+        return `${label} (ספציפי)`;
+      }
       return label;
     }
     

@@ -17,8 +17,8 @@ const triggerTypes = [
   { id: 'status_viewed', label: 'צפייה בסטטוס', icon: '👁️', category: 'status', hasStatusFilter: true },
   { id: 'status_reaction', label: 'סימון לב על סטטוס', icon: '💚', category: 'status', hasStatusFilter: true },
   { id: 'status_reply', label: 'תגובה על סטטוס', icon: '💬', category: 'status', hasStatusFilter: true },
-  { id: 'group_join', label: 'משתמש הצטרף לקבוצה', icon: '📥', category: 'group' },
-  { id: 'group_leave', label: 'משתמש יצא מקבוצה', icon: '📤', category: 'group' },
+  { id: 'group_join', label: 'משתמש הצטרף לקבוצה', icon: '📥', category: 'group', hasGroupFilter: true },
+  { id: 'group_leave', label: 'משתמש יצא מקבוצה', icon: '📤', category: 'group', hasGroupFilter: true },
   { id: 'call_received', label: 'שיחה נכנסת', icon: '📞', hasCallType: true, category: 'call' },
   { id: 'call_rejected', label: 'שיחה שנדחתה / לא נענתה', icon: '📵', hasCallType: true, category: 'call' },
   { id: 'call_accepted', label: 'שיחה שנענתה', icon: '✅', hasCallType: true, category: 'call' },
@@ -56,6 +56,8 @@ export default function TriggerEditor({ data, onUpdate }) {
   const [savingTag, setSavingTag] = useState(false);
   const [userStatuses, setUserStatuses] = useState([]);
   const [loadingStatuses, setLoadingStatuses] = useState(false);
+  const [whatsappGroups, setWhatsappGroups] = useState([]);
+  const [loadingGroups, setLoadingGroups] = useState(false);
 
   // Load available tags
   useEffect(() => {
@@ -72,6 +74,16 @@ export default function TriggerEditor({ data, onUpdate }) {
     }
   }, [groups]);
 
+  // Load groups if any group trigger exists
+  useEffect(() => {
+    const hasGroupTrigger = groups.some(g => 
+      g.conditions?.some(c => ['group_join', 'group_leave'].includes(c.type))
+    );
+    if (hasGroupTrigger && whatsappGroups.length === 0 && !loadingGroups) {
+      loadGroups();
+    }
+  }, [groups]);
+
   const loadStatuses = async () => {
     setLoadingStatuses(true);
     try {
@@ -82,6 +94,18 @@ export default function TriggerEditor({ data, onUpdate }) {
       setUserStatuses([]);
     }
     setLoadingStatuses(false);
+  };
+
+  const loadGroups = async () => {
+    setLoadingGroups(true);
+    try {
+      const response = await api.get('/whatsapp/groups');
+      setWhatsappGroups(response.data?.groups || []);
+    } catch (err) {
+      console.error('Error loading groups:', err);
+      setWhatsappGroups([]);
+    }
+    setLoadingGroups(false);
   };
 
   const loadTags = async () => {
@@ -455,6 +479,66 @@ export default function TriggerEditor({ data, onUpdate }) {
                                   )}
                                   {loadingStatuses && (
                                     <p className="text-xs text-gray-400">טוען סטטוסים...</p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          
+                          {/* Specific group filter for group triggers */}
+                          {triggerInfo.hasGroupFilter && (
+                            <div className="space-y-2">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={condition.filterByGroup || false}
+                                  onChange={(e) => {
+                                    updateCondition(group.id, conditionIndex, 'filterByGroup', e.target.checked);
+                                    if (!e.target.checked) {
+                                      updateCondition(group.id, conditionIndex, 'specificGroupId', '');
+                                    }
+                                    if (e.target.checked && whatsappGroups.length === 0) {
+                                      loadGroups();
+                                    }
+                                  }}
+                                  className="w-4 h-4 rounded border-gray-300 text-purple-600"
+                                />
+                                <span className="text-sm text-gray-700">קבוצה ספציפית בלבד</span>
+                              </label>
+                              
+                              {condition.filterByGroup && (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <select
+                                      value={condition.specificGroupId || ''}
+                                      onChange={(e) => updateCondition(group.id, conditionIndex, 'specificGroupId', e.target.value)}
+                                      className="flex-1 px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                                    >
+                                      <option value="">-- בחר קבוצה --</option>
+                                      {whatsappGroups.map(g => (
+                                        <option key={g.id} value={g.id}>
+                                          👥 {g.name} ({g.participants} משתתפים)
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <button
+                                      type="button"
+                                      onClick={loadGroups}
+                                      disabled={loadingGroups}
+                                      className="p-2.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+                                      title="רענן רשימת קבוצות"
+                                    >
+                                      <RefreshCw className={`w-4 h-4 ${loadingGroups ? 'animate-spin' : ''}`} />
+                                    </button>
+                                  </div>
+                                  {whatsappGroups.length === 0 && !loadingGroups && (
+                                    <p className="text-xs text-gray-500 flex items-center gap-1">
+                                      <Clock className="w-3 h-3" />
+                                      לא נמצאו קבוצות. וודא שהווצאפ מחובר ורענן.
+                                    </p>
+                                  )}
+                                  {loadingGroups && (
+                                    <p className="text-xs text-gray-400">טוען קבוצות...</p>
                                   )}
                                 </div>
                               )}

@@ -396,6 +396,17 @@ class BotEngine {
       }
     }
     
+    // Specific group matching for group_join, group_leave
+    if (condition.filterByGroup && condition.specificGroupId && (condition.type === 'group_join' || condition.type === 'group_leave')) {
+      const eventGroupId = eventData.groupId || '';
+      console.log(`[BotEngine] Specific group check: condition=${condition.specificGroupId}, event=${eventGroupId}`);
+      if (eventGroupId !== condition.specificGroupId) {
+        console.log(`[BotEngine] Specific group mismatch`);
+        return false;
+      }
+      console.log(`[BotEngine] Specific group matched!`);
+    }
+    
     // Specific status matching for status_reaction, status_reply, status_viewed
     if (condition.filterByStatus && condition.specificStatusId && (condition.type === 'status_reaction' || condition.type === 'status_reply' || condition.type === 'status_viewed')) {
       // Extract hex ID from stored full wa_message_id (e.g. "true_status@broadcast_<HEX>_<PHONE>@c.us")
