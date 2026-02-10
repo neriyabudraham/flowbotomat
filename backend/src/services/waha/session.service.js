@@ -916,10 +916,9 @@ module.exports = {
   // Contacts
   getWhatsAppContacts,
   getLidMappings,
+  resolveLid,
   getSessionGroups,
   syncContactsAndGroups,
-  // LID resolution
-  resolveLid,
 };
 
 /**
@@ -1013,6 +1012,43 @@ async function getLidMappings(connection, limit = 999999, offset = 0) {
   } catch (error) {
     console.error('[WAHA] Failed to get LID mappings:', error.message);
     return [];
+  }
+}
+
+/**
+ * Resolve a single LID to phone number
+ * @param {Object} connection - Connection object with base_url, api_key, session_name
+ * @param {string} lid - LID identifier (e.g., "258548525215961@lid" or "258548525215961")
+ * @returns {string|null} Phone number or null if not found
+ */
+async function resolveLid(connection, lid) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const sessionName = connection.session_name || 'default';
+  
+  // Ensure LID has @lid suffix
+  const lidWithSuffix = lid.includes('@lid') ? lid : `${lid}@lid`;
+  
+  try {
+    const response = await client.get(`/api/${sessionName}/lids/${lidWithSuffix}`);
+    const data = response.data;
+    
+    // Response may have pn (phone number) field
+    if (data?.pn) {
+      const phone = data.pn.replace('@s.whatsapp.net', '').replace('@c.us', '');
+      console.log(`[WAHA] Resolved LID ${lid} -> ${phone}`);
+      return phone;
+    }
+    
+    // Try other possible response formats
+    if (data?.phone) {
+      return data.phone.replace('@s.whatsapp.net', '').replace('@c.us', '');
+    }
+    
+    console.log(`[WAHA] LID ${lid} resolved but no phone in response:`, JSON.stringify(data));
+    return null;
+  } catch (error) {
+    console.log(`[WAHA] Failed to resolve LID ${lid}:`, error.message);
+    return null;
   }
 }
 
@@ -1182,40 +1218,4 @@ async function syncContactsAndGroups(connection, userId, db) {
   }
   
   return results;
-}
-
-/**
- * Resolve a single LID to a real phone number
- * @param {Object} connection - Connection object with base_url, api_key, session_name
- * @param {string} lid - The LID (e.g., "258548525215961@lid" or just "258548525215961")
- * @returns {string|null} The real phone number or null if not found
- */
-async function resolveLid(connection, lid) {
-  const client = createClient(connection.base_url, connection.api_key);
-  const sessionName = connection.session_name || 'default';
-  
-  // Strip @lid suffix if present
-  const cleanLid = lid.replace('@lid', '');
-  
-  try {
-    const response = await client.get(`/api/${sessionName}/lids/${cleanLid}`);
-    const data = response.data;
-    
-    // Extract phone number from response
-    if (data?.phone) {
-      return data.phone.replace('@s.whatsapp.net', '').replace('@c.us', '');
-    }
-    if (data?.id && !data.id.endsWith('@lid')) {
-      return data.id.replace('@s.whatsapp.net', '').replace('@c.us', '');
-    }
-    if (typeof data === 'string' && data.length > 0) {
-      return data.replace('@s.whatsapp.net', '').replace('@c.us', '');
-    }
-    
-    console.log(`[WAHA] LID resolution returned unexpected format:`, JSON.stringify(data));
-    return null;
-  } catch (error) {
-    console.log(`[WAHA] Failed to resolve LID ${cleanLid}:`, error.message);
-    return null;
-  }
 }
