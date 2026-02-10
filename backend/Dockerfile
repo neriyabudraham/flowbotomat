@@ -7,7 +7,7 @@ RUN apk add --no-cache postgresql-client
 
 # Install dependencies
 COPY package*.json ./
-RUN npm install --include=dev && npm install googleapis
+RUN npm install && npm install googleapis
 
 # Copy source code
 COPY . .
