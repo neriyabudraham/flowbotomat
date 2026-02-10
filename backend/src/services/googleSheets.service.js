@@ -48,13 +48,23 @@ function getAuthUrl(userId) {
 async function handleCallback(code, userId) {
   const axios = require('axios');
   const oauth2Client = createOAuth2Client();
-  const { tokens } = await oauth2Client.getToken(code);
   
-  // Get user email for display using direct API call (more reliable)
-  const userInfoRes = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
-    headers: { Authorization: `Bearer ${tokens.access_token}` }
-  });
-  const userInfo = userInfoRes.data;
+  console.log('[GoogleSheets] Exchanging code for tokens...');
+  const { tokens } = await oauth2Client.getToken(code);
+  console.log('[GoogleSheets] Token exchange success. Has access_token:', !!tokens.access_token, 'Has refresh_token:', !!tokens.refresh_token);
+  
+  // Get user email for display
+  let userInfo = { email: null, name: null };
+  try {
+    const userInfoRes = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+    userInfo = userInfoRes.data;
+    console.log('[GoogleSheets] Got user info:', userInfo.email);
+  } catch (infoErr) {
+    console.warn('[GoogleSheets] Could not get user info (non-fatal):', infoErr.message);
+    // Non-fatal - we can still save the tokens and connect
+  }
   
   // Encrypt tokens
   const encryptedAccess = encrypt(tokens.access_token);
