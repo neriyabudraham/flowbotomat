@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middlewares/auth.middleware');
 const { createManaged, createExternal, checkExisting } = require('../controllers/whatsapp/connect.controller');
-const { getStatus, getQR, requestCode } = require('../controllers/whatsapp/status.controller');
+const { getStatus, getQR, requestCode, getUserStatuses } = require('../controllers/whatsapp/status.controller');
 const { disconnect, deleteConnection } = require('../controllers/whatsapp/disconnect.controller');
 const { getGroups } = require('../controllers/whatsapp/groups.controller');
 const { getLabels } = require('../controllers/whatsapp/labels.controller');
@@ -25,6 +25,9 @@ router.get('/groups/:groupId/participants', getGroupParticipants);
 
 // Import group participants to contacts
 router.post('/groups/:groupId/participants/import', importGroupParticipants);
+
+// Get user's recently posted statuses (for specific status triggers)
+router.get('/statuses', getUserStatuses);
 
 // Get connection status
 router.get('/status', getStatus);

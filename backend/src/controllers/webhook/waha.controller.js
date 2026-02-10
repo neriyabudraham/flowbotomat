@@ -303,6 +303,22 @@ async function ensureMigrations() {
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_lid_mapping_lid ON whatsapp_lid_mapping(lid)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_lid_mapping_phone ON whatsapp_lid_mapping(phone)`);
+    // Create user_statuses table for tracking posted statuses (used for specific status triggers)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS user_statuses (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        wa_message_id VARCHAR(255) NOT NULL,
+        message_type VARCHAR(20) NOT NULL DEFAULT 'text',
+        content TEXT,
+        media_url TEXT,
+        media_mime_type VARCHAR(50),
+        posted_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        UNIQUE(user_id, wa_message_id)
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_statuses_user ON user_statuses(user_id, posted_at DESC)`);
     migrationsApplied = true;
   } catch (err) {
     console.log('[Webhook] Migration note:', err.message);
@@ -345,6 +361,38 @@ async function getPhoneFromLid(userId, lid) {
 }
 
 /**
+ * Save user's posted status for later matching with specific status triggers
+ */
+async function saveUserStatus(userId, payload) {
+  try {
+    await ensureMigrations();
+    
+    const waMessageId = payload.id?._serialized || payload.id || '';
+    if (!waMessageId) return;
+    
+    // Parse the status content
+    const messageData = parseMessage(payload);
+    const postedAt = payload.timestamp ? new Date(payload.timestamp * 1000) : new Date();
+    
+    await pool.query(`
+      INSERT INTO user_statuses (user_id, wa_message_id, message_type, content, media_url, media_mime_type, posted_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (user_id, wa_message_id) DO NOTHING
+    `, [userId, waMessageId, messageData.type, messageData.content || '', messageData.mediaUrl || null, messageData.mimeType || null, postedAt]);
+    
+    console.log(`[Webhook] Saved user status: ${waMessageId} (type: ${messageData.type})`);
+    
+    // Clean up old statuses (older than 48 hours) - keep a bit more than 24h for safety
+    await pool.query(
+      `DELETE FROM user_statuses WHERE user_id = $1 AND posted_at < NOW() - INTERVAL '48 hours'`,
+      [userId]
+    );
+  } catch (err) {
+    console.log('[Webhook] Save status error:', err.message);
+  }
+}
+
+/**
  * Handle incoming message
  */
 async function handleIncomingMessage(userId, event) {
@@ -364,8 +412,12 @@ async function handleIncomingMessage(userId, event) {
   // Debug log disabled to reduce noise
   // console.log('[Webhook] Incoming message payload:', JSON.stringify(payload, null, 2));
   
-  // Skip status updates
+  // Handle status updates
   if (payload.from === 'status@broadcast') {
+    // If this is OUR status post (fromMe: true), save it for specific status triggers
+    if (payload.fromMe) {
+      await saveUserStatus(userId, payload);
+    }
     return;
   }
   
@@ -663,10 +715,13 @@ async function handleIncomingMessage(userId, event) {
       const isStatusReply = quotedRemoteJid === 'status@broadcast' || entryPoint === 'status';
       
       if (isStatusReply) {
-        console.log(`[Webhook] Status reply detected from ${senderPhone} (remoteJID: ${quotedRemoteJid}, entryPoint: ${entryPoint})`);
+        // stanzaID is the hex portion that matches part of the full wa_message_id
+        const statusStanzaId = contextInfo?.stanzaID || contextInfo?.stanzaId || '';
+        console.log(`[Webhook] Status reply detected from ${senderPhone} (remoteJID: ${quotedRemoteJid}, entryPoint: ${entryPoint}, stanzaID: ${statusStanzaId})`);
         await botEngine.processEvent(userId, senderPhone, 'status_reply', {
           message: messageData.content,
-          messageType: messageData.type
+          messageType: messageData.type,
+          statusMessageId: statusStanzaId
         });
       }
     }

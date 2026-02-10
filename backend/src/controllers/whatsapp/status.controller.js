@@ -249,4 +249,31 @@ async function updateConnectionStatus(connectionId, status, wahaStatus) {
   );
 }
 
-module.exports = { getStatus, getQR, requestCode };
+/**
+ * Get user's recently posted statuses (last 24 hours)
+ * Used for specific status triggers in bot editor
+ */
+async function getUserStatuses(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    const result = await pool.query(
+      `SELECT id, wa_message_id, message_type, content, media_url, media_mime_type, posted_at
+       FROM user_statuses
+       WHERE user_id = $1 AND posted_at > NOW() - INTERVAL '24 hours'
+       ORDER BY posted_at DESC`,
+      [userId]
+    );
+    
+    res.json({ statuses: result.rows });
+  } catch (error) {
+    // Table might not exist yet
+    if (error.code === '42P01') {
+      return res.json({ statuses: [] });
+    }
+    console.error('Get user statuses error:', error);
+    res.status(500).json({ error: 'שגיאה בקבלת סטטוסים' });
+  }
+}
+
+module.exports = { getStatus, getQR, requestCode, getUserStatuses };

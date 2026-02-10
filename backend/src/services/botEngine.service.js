@@ -393,7 +393,46 @@ class BotEngine {
       }
     }
     
+    // Specific status matching for status_reaction, status_reply, status_viewed
+    if (condition.specificStatusId && (condition.type === 'status_reaction' || condition.type === 'status_reply' || condition.type === 'status_viewed')) {
+      // Extract hex ID from stored full wa_message_id (e.g. "true_status@broadcast_<HEX>_<PHONE>@c.us")
+      const storedHex = this.extractStatusHexId(condition.specificStatusId);
+      
+      // Get the event's message ID reference
+      let eventMsgId = '';
+      if (condition.type === 'status_reply') {
+        eventMsgId = eventData.statusMessageId || ''; // This is the stanzaID (just the hex part)
+      } else if (condition.type === 'status_reaction') {
+        eventMsgId = eventData.messageId || ''; // e.g. "false_status@broadcast_<HEX>"
+      } else if (condition.type === 'status_viewed') {
+        eventMsgId = eventData.messageId || ''; // e.g. "true_status@broadcast_<HEX>_<PHONE>@c.us"
+      }
+      
+      const eventHex = this.extractStatusHexId(eventMsgId);
+      
+      if (!storedHex || !eventHex || storedHex !== eventHex) {
+        console.log(`[BotEngine] Specific status mismatch: stored=${storedHex}, event=${eventHex}`);
+        return false;
+      }
+      console.log(`[BotEngine] Specific status matched: ${storedHex}`);
+    }
+    
     return true;
+  }
+  
+  // Extract hex ID portion from a status message ID
+  // Formats: "true_status@broadcast_<HEX>_<PHONE>@c.us", "false_status@broadcast_<HEX>", just "<HEX>"
+  extractStatusHexId(messageId) {
+    if (!messageId) return '';
+    
+    // If it's a full status message ID with broadcast prefix
+    const broadcastMatch = messageId.match(/status@broadcast_([A-F0-9]+)/i);
+    if (broadcastMatch) return broadcastMatch[1].toUpperCase();
+    
+    // If it's just a hex string (stanzaID)
+    if (/^[A-F0-9]+$/i.test(messageId)) return messageId.toUpperCase();
+    
+    return messageId.toUpperCase();
   }
   
   // Get human-readable event description

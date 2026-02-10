@@ -1,4 +1,4 @@
-import { Plus, X, ChevronDown, ChevronUp, Trash2, RefreshCw } from 'lucide-react';
+import { Plus, X, ChevronDown, ChevronUp, Trash2, RefreshCw, Clock } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import api from '../../../../services/api';
 
@@ -14,9 +14,9 @@ const triggerTypes = [
   { id: 'tag_added', label: 'תגית נוספה', icon: '🏷️', hasValue: true, category: 'event' },
   { id: 'tag_removed', label: 'תגית הוסרה', icon: '🏷️', hasValue: true, category: 'event' },
   { id: 'not_triggered_in', label: 'לא הופעל עבור המשתמש ב-X זמן', icon: '⏰', hasTimeValue: true, category: 'behavior' },
-  { id: 'status_viewed', label: 'צפייה בסטטוס', icon: '👁️', category: 'status' },
-  { id: 'status_reaction', label: 'סימון לב על סטטוס', icon: '💚', category: 'status' },
-  { id: 'status_reply', label: 'תגובה על סטטוס', icon: '💬', category: 'status' },
+  { id: 'status_viewed', label: 'צפייה בסטטוס', icon: '👁️', category: 'status', hasStatusFilter: true },
+  { id: 'status_reaction', label: 'סימון לב על סטטוס', icon: '💚', category: 'status', hasStatusFilter: true },
+  { id: 'status_reply', label: 'תגובה על סטטוס', icon: '💬', category: 'status', hasStatusFilter: true },
   { id: 'group_join', label: 'משתמש הצטרף לקבוצה', icon: '📥', category: 'group' },
   { id: 'group_leave', label: 'משתמש יצא מקבוצה', icon: '📤', category: 'group' },
   { id: 'call_received', label: 'שיחה נכנסת', icon: '📞', hasCallType: true, category: 'call' },
@@ -54,11 +54,35 @@ export default function TriggerEditor({ data, onUpdate }) {
   const [creatingTagFor, setCreatingTagFor] = useState(null); // { groupId, conditionIndex }
   const [newTagName, setNewTagName] = useState('');
   const [savingTag, setSavingTag] = useState(false);
+  const [userStatuses, setUserStatuses] = useState([]);
+  const [loadingStatuses, setLoadingStatuses] = useState(false);
 
   // Load available tags
   useEffect(() => {
     loadTags();
   }, []);
+
+  // Load user statuses if any status trigger exists
+  useEffect(() => {
+    const hasStatusTrigger = groups.some(g => 
+      g.conditions?.some(c => ['status_viewed', 'status_reaction', 'status_reply'].includes(c.type))
+    );
+    if (hasStatusTrigger && userStatuses.length === 0 && !loadingStatuses) {
+      loadStatuses();
+    }
+  }, [groups]);
+
+  const loadStatuses = async () => {
+    setLoadingStatuses(true);
+    try {
+      const response = await api.get('/whatsapp/statuses');
+      setUserStatuses(response.data?.statuses || []);
+    } catch (err) {
+      console.error('Error loading statuses:', err);
+      setUserStatuses([]);
+    }
+    setLoadingStatuses(false);
+  };
 
   const loadTags = async () => {
     setLoadingTags(true);
@@ -339,6 +363,79 @@ export default function TriggerEditor({ data, onUpdate }) {
                               <option value="audio">שיחה קולית בלבד</option>
                               <option value="video">שיחת וידאו בלבד</option>
                             </select>
+                          )}
+                          
+                          {/* Specific status filter for status triggers */}
+                          {triggerInfo.hasStatusFilter && (
+                            <div className="space-y-2">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={condition.filterByStatus || false}
+                                  onChange={(e) => {
+                                    updateCondition(group.id, conditionIndex, 'filterByStatus', e.target.checked);
+                                    if (!e.target.checked) {
+                                      updateCondition(group.id, conditionIndex, 'specificStatusId', '');
+                                    }
+                                    if (e.target.checked && userStatuses.length === 0) {
+                                      loadStatuses();
+                                    }
+                                  }}
+                                  className="w-4 h-4 rounded border-gray-300 text-purple-600"
+                                />
+                                <span className="text-sm text-gray-700">סטטוס ספציפי בלבד</span>
+                              </label>
+                              
+                              {condition.filterByStatus && (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <select
+                                      value={condition.specificStatusId || ''}
+                                      onChange={(e) => updateCondition(group.id, conditionIndex, 'specificStatusId', e.target.value)}
+                                      className="flex-1 px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                                    >
+                                      <option value="">-- בחר סטטוס --</option>
+                                      {userStatuses.map(status => {
+                                        const time = new Date(status.posted_at);
+                                        const timeStr = time.toLocaleString('he-IL', { 
+                                          day: '2-digit', month: '2-digit', 
+                                          hour: '2-digit', minute: '2-digit' 
+                                        });
+                                        const typeIcon = status.message_type === 'text' ? '📝' :
+                                                         status.message_type === 'image' ? '🖼️' :
+                                                         status.message_type === 'video' ? '🎥' : '📎';
+                                        const preview = status.content 
+                                          ? status.content.substring(0, 40) + (status.content.length > 40 ? '...' : '')
+                                          : `(${status.message_type})`;
+                                        return (
+                                          <option key={status.wa_message_id} value={status.wa_message_id}>
+                                            {typeIcon} {timeStr} - {preview}
+                                          </option>
+                                        );
+                                      })}
+                                    </select>
+                                    <button
+                                      type="button"
+                                      onClick={loadStatuses}
+                                      disabled={loadingStatuses}
+                                      className="p-2.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+                                      title="רענן רשימת סטטוסים"
+                                    >
+                                      <RefreshCw className={`w-4 h-4 ${loadingStatuses ? 'animate-spin' : ''}`} />
+                                    </button>
+                                  </div>
+                                  {userStatuses.length === 0 && !loadingStatuses && (
+                                    <p className="text-xs text-gray-500 flex items-center gap-1">
+                                      <Clock className="w-3 h-3" />
+                                      אין סטטוסים ב-24 השעות האחרונות. העלה סטטוס ורענן.
+                                    </p>
+                                  )}
+                                  {loadingStatuses && (
+                                    <p className="text-xs text-gray-400">טוען סטטוסים...</p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           )}
                           
                           {/* Field selector for contact_field */}

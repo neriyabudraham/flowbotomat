@@ -50,6 +50,10 @@ function TriggerNode({ data, selected }) {
     // For simple triggers - no operator/value needed
     if (['any_message', 'first_message', 'contact_added', 'status_viewed', 'status_reaction', 'status_reply',
          'group_join', 'group_leave', 'call_received', 'call_rejected', 'call_accepted'].includes(condition.type)) {
+      // Show specific status indicator if filtering by status
+      if (condition.filterByStatus && condition.specificStatusId) {
+        return `${label} (ספציפי)`;
+      }
       return label;
     }
     
