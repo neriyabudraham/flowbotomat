@@ -5,6 +5,9 @@ WORKDIR /app
 # Install PostgreSQL client for pg_dump backups
 RUN apk add --no-cache postgresql-client
 
+# Install nodemon globally
+RUN npm install -g nodemon
+
 # Install dependencies
 COPY package*.json ./
 RUN npm install && npm install googleapis
