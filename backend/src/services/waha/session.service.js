@@ -143,25 +143,41 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
   const currentWebhooks = currentConfig.webhooks || [];
   
   // Check if webhook already exists
-  const exists = currentWebhooks.some(wh => wh.url === webhookUrl);
-  if (exists) {
-    console.log(`[WAHA] Webhook already exists: ${webhookUrl}`);
-    return sessionInfo.data;
-  }
+  const existingIndex = currentWebhooks.findIndex(wh => wh.url === webhookUrl);
   
-  // Add new webhook to existing list
-  const updatedWebhooks = [
-    ...currentWebhooks,
-    {
-      url: webhookUrl,
-      events: events,
-      retries: {
-        delaySeconds: 2,
-        attempts: 2,
-        policy: 'constant',
+  let updatedWebhooks;
+  if (existingIndex >= 0) {
+    // Webhook exists - check if events need updating
+    const existingEvents = currentWebhooks[existingIndex].events || [];
+    const missingEvents = events.filter(e => !existingEvents.includes(e));
+    
+    if (missingEvents.length === 0) {
+      console.log(`[WAHA] Webhook already exists with correct events: ${webhookUrl}`);
+      return sessionInfo.data;
+    }
+    
+    // Update existing webhook with new events
+    console.log(`[WAHA] Updating webhook events, adding: ${missingEvents.join(', ')}`);
+    updatedWebhooks = [...currentWebhooks];
+    updatedWebhooks[existingIndex] = {
+      ...updatedWebhooks[existingIndex],
+      events: events, // Replace with full events list
+    };
+  } else {
+    // Add new webhook
+    updatedWebhooks = [
+      ...currentWebhooks,
+      {
+        url: webhookUrl,
+        events: events,
+        retries: {
+          delaySeconds: 2,
+          attempts: 2,
+          policy: 'constant',
+        },
       },
-    },
-  ];
+    ];
+  }
   
   // Update session - keep ALL existing config, only update webhooks
   const response = await client.put(`/api/sessions/${sessionName}`, {

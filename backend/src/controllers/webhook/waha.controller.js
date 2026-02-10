@@ -174,6 +174,52 @@ function extractRealPhone(payload) {
   return uniqueCandidates[0];
 }
 
+// Track which users already had their webhook events updated (per process lifetime)
+const webhookUpdatedUsers = new Set();
+
+/**
+ * Auto-update webhook events for existing connections
+ * Runs once per user when session.status WORKING is received
+ */
+async function autoUpdateWebhookEvents(userId) {
+  if (webhookUpdatedUsers.has(userId)) return;
+  webhookUpdatedUsers.add(userId);
+  
+  try {
+    const connResult = await pool.query(
+      `SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' ORDER BY connected_at DESC LIMIT 1`,
+      [userId]
+    );
+    
+    if (connResult.rows.length === 0) return;
+    
+    const conn = connResult.rows[0];
+    let baseUrl, apiKey;
+    
+    if (conn.connection_type === 'external') {
+      baseUrl = decrypt(conn.external_base_url);
+      apiKey = decrypt(conn.external_api_key);
+    } else {
+      const systemCreds = getWahaCredentials();
+      baseUrl = systemCreds.baseUrl;
+      apiKey = systemCreds.apiKey;
+    }
+    
+    const REQUIRED_EVENTS = [
+      'message', 'message.ack', 'message.reaction', 'session.status',
+      'group.v2.participants', 'call.received', 'call.rejected', 'call.accepted', 'poll.vote',
+    ];
+    
+    const appUrl = process.env.APP_URL || 'https://flow.botomat.co.il';
+    const webhookUrl = `${appUrl}/api/webhook/waha/${userId}`;
+    
+    await wahaSession.addWebhook(baseUrl, apiKey, conn.session_name, webhookUrl, REQUIRED_EVENTS);
+    console.log(`[Webhook] Auto-updated webhook events for user ${userId}`);
+  } catch (err) {
+    console.log(`[Webhook] Auto-update webhook events failed for ${userId}:`, err.message);
+  }
+}
+
 /**
  * Handle incoming WAHA webhooks
  */
@@ -186,6 +232,13 @@ async function handleWebhook(req, res) {
     const silentEvents = ['message', 'message.ack', 'message.any', 'message.reaction', 'poll.vote', 'poll.vote.failed', 'call.received', 'call.rejected', 'call.accepted'];
     if (!silentEvents.includes(event.event)) {
       console.log(`[Webhook] User: ${userId}, Event: ${event.event}`);
+    }
+    
+    // Auto-update webhook events for existing connections (runs once per user)
+    if (event.event === 'session.status' && event.payload?.status === 'WORKING') {
+      autoUpdateWebhookEvents(userId).catch(err => 
+        console.log('[Webhook] Auto-update events skipped:', err.message)
+      );
     }
     
     // Handle different event types
@@ -583,10 +636,11 @@ async function handleIncomingMessage(userId, event) {
   }
   
   // THIRD: Check if this is a DIRECT reply to a status (status_reply event)
+  // Only for direct messages (not groups), only when sender phone is known
   // Important: Only the first reply to a status counts. If the bot responds and the user
   // replies to the bot's message, that's a regular message - NOT a status reply.
   try {
-    if (!payload.fromMe) {
+    if (!payload.fromMe && !isGroupMessage && senderPhone) {
       // Get contextInfo from the message (the quoted/replied-to message info)
       const contextInfo = payload._data?.Message?.extendedTextMessage?.contextInfo ||
                           payload._data?.Message?.imageMessage?.contextInfo ||
@@ -595,13 +649,10 @@ async function handleIncomingMessage(userId, event) {
       
       // A status reply has remoteJid pointing to status@broadcast in the DIRECTLY quoted message
       const quotedRemoteJid = contextInfo?.remoteJid || '';
-      const quotedChat = payload._data?.QuotedMessage?.Chat || '';
       
-      // Only trigger if the quoted message is directly from status@broadcast
-      const isStatusReply = quotedRemoteJid === 'status@broadcast' || quotedChat === 'status@broadcast';
-      
-      if (isStatusReply) {
-        console.log(`[Webhook] Status reply detected from ${senderPhone} (quoted: ${quotedRemoteJid || quotedChat})`);
+      // Only trigger if the contextInfo explicitly references status@broadcast
+      if (quotedRemoteJid === 'status@broadcast') {
+        console.log(`[Webhook] Status reply detected from ${senderPhone}`);
         await botEngine.processEvent(userId, senderPhone, 'status_reply', {
           message: messageData.content,
           messageType: messageData.type
