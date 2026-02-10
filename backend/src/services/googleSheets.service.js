@@ -46,14 +46,15 @@ function getAuthUrl(userId) {
  * Exchange authorization code for tokens and store them
  */
 async function handleCallback(code, userId) {
-  const google = getGoogle();
+  const axios = require('axios');
   const oauth2Client = createOAuth2Client();
   const { tokens } = await oauth2Client.getToken(code);
   
-  // Get user email for display
-  oauth2Client.setCredentials(tokens);
-  const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
-  const { data: userInfo } = await oauth2.userinfo.get();
+  // Get user email for display using direct API call (more reliable)
+  const userInfoRes = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+    headers: { Authorization: `Bearer ${tokens.access_token}` }
+  });
+  const userInfo = userInfoRes.data;
   
   // Encrypt tokens
   const encryptedAccess = encrypt(tokens.access_token);
