@@ -112,7 +112,7 @@ export default function LoginPage() {
             <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 group-hover:scale-105 transition-transform">
               <Bot className="w-6 h-6 text-white" />
             </div>
-            <span className="text-xl font-bold text-gray-900">FlowBotomat</span>
+            <span className="text-xl font-bold text-gray-900">Botomat</span>
           </Link>
 
           {/* Header */}
@@ -300,7 +300,7 @@ export default function LoginPage() {
             <div className="w-12 h-12 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center">
               <Bot className="w-7 h-7 text-white" />
             </div>
-            <span className="text-2xl font-bold text-white">FlowBotomat</span>
+            <span className="text-2xl font-bold text-white">Botomat</span>
           </div>
 
           <h2 className="text-4xl xl:text-5xl font-bold text-white mb-6 leading-tight">
@@ -346,7 +346,7 @@ export default function LoginPage() {
             </div>
             <div>
               <p className="text-white/90 mb-2">
-                "FlowBotomat שינה את העסק שלנו. הלקוחות מקבלים מענה מיידי 24/7 והמכירות עלו ב-40%"
+                "Botomat שינה את העסק שלנו. הלקוחות מקבלים מענה מיידי 24/7 והמכירות עלו ב-40%"
               </p>
               <p className="text-white/60 text-sm">רון כהן, מנכ"ל סטארטאפ</p>
             </div>

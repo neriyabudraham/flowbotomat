@@ -166,7 +166,7 @@ console.log('📅 Session timeout checker running every 30 seconds');
 // Start server
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
-  console.log(`🚀 FlowBotomat Backend running on port ${PORT}`);
+  console.log(`🚀 Botomat Backend running on port ${PORT}`);
   
   // Resume stuck jobs after server starts (wait for DB connections to stabilize)
   setTimeout(async () => {

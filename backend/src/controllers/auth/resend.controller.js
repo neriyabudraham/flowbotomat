@@ -43,7 +43,7 @@ const resendVerification = async (req, res) => {
     // Send email
     await sendMail(
       email,
-      'אימות חשבון FlowBotomat',
+      'אימות חשבון Botomat',
       getVerificationEmail(code, verifyLink, 'he')
     );
 

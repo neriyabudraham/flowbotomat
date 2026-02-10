@@ -52,7 +52,7 @@ const forgotPassword = async (req, res) => {
     try {
       await sendMail(
         user.email,
-        'איפוס סיסמה - FlowBotomat',
+        'איפוס סיסמה - Botomat',
         getPasswordResetEmail(code, resetLink, 'he')
       );
       console.log(`[ForgotPassword] Reset email sent to: ${user.email}`);

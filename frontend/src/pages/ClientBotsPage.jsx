@@ -420,7 +420,7 @@ export default function ClientBotsPage() {
                 >
                   <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                   <p className="text-gray-600 mb-2">לחץ לבחירת קובץ</p>
-                  <p className="text-xs text-gray-400">קובץ JSON שיוצא ממערכת FlowBotomat</p>
+                  <p className="text-xs text-gray-400">קובץ JSON שיוצא ממערכת Botomat</p>
                   <input
                     id="import-file-client"
                     type="file"

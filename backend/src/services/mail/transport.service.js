@@ -28,7 +28,7 @@ const sendMail = async (to, subject, html) => {
   const transport = initTransporter();
 
   await transport.sendMail({
-    from: `"FlowBotomat" <${process.env.SMTP_USER}>`,
+    from: `"Botomat" <${process.env.SMTP_USER}>`,
     to,
     subject,
     html,

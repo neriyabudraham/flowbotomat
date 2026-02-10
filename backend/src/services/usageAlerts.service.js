@@ -176,13 +176,13 @@ async function sendUsageAlertEmail(user, usageData, percentage, planName) {
     const isAtLimit = percentage >= 100;
     
     const subject = isAtLimit 
-      ? `⚠️ הגעת למגבלת ${usageData.label} - FlowBotomat`
-      : `📊 ${percentage}% מ${usageData.label} נוצלו - FlowBotomat`;
+      ? `⚠️ הגעת למגבלת ${usageData.label} - Botomat`
+      : `📊 ${percentage}% מ${usageData.label} נוצלו - Botomat`;
     
     const html = `
       <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="color: #4F46E5; margin: 0;">FlowBotomat</h1>
+          <h1 style="color: #4F46E5; margin: 0;">Botomat</h1>
         </div>
         
         <div style="background: ${isAtLimit ? '#FEE2E2' : '#FEF3C7'}; border-radius: 16px; padding: 24px; margin-bottom: 24px;">
@@ -219,7 +219,7 @@ async function sendUsageAlertEmail(user, usageData, percentage, planName) {
         </div>
         
         <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #E5E7EB; text-align: center; color: #9CA3AF; font-size: 12px;">
-          <p>© ${new Date().getFullYear()} FlowBotomat. כל הזכויות שמורות.</p>
+          <p>© ${new Date().getFullYear()} Botomat. כל הזכויות שמורות.</p>
         </div>
       </div>
     `;
@@ -421,7 +421,7 @@ async function sendBroadcastEmail(user, subject, message, type) {
     const html = `
       <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="color: #4F46E5; margin: 0;">FlowBotomat</h1>
+          <h1 style="color: #4F46E5; margin: 0;">Botomat</h1>
         </div>
         
         <div style="background: ${colors.bg}; border-radius: 16px; padding: 24px; margin-bottom: 24px;">
@@ -442,7 +442,7 @@ async function sendBroadcastEmail(user, subject, message, type) {
         </div>
         
         <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #E5E7EB; text-align: center; color: #9CA3AF; font-size: 12px;">
-          <p>© ${new Date().getFullYear()} FlowBotomat. כל הזכויות שמורות.</p>
+          <p>© ${new Date().getFullYear()} Botomat. כל הזכויות שמורות.</p>
           <p style="margin-top: 8px;">
             <a href="https://flow.botomat.co.il/settings?tab=notifications" style="color: #6B7280;">
               ניהול העדפות התראות

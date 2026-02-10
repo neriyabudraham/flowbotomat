@@ -141,7 +141,7 @@ export default function AdminPage() {
           {/* Quick Stats in Sidebar */}
           <div className="p-4 border-t border-gray-100">
             <div className="text-xs text-gray-400 mb-2">גירסה</div>
-            <div className="text-sm font-medium text-gray-600">FlowBotomat v1.0.0</div>
+            <div className="text-sm font-medium text-gray-600">Botomat v1.0.0</div>
           </div>
         </aside>
 

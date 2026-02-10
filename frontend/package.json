@@ -1,7 +1,7 @@
 {
   "name": "flowbotomat-frontend",
   "version": "1.0.0",
-  "description": "FlowBotomat Frontend",
+  "description": "Botomat Frontend",
   "type": "module",
   "scripts": {
     "dev": "vite",

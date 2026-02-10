@@ -32,7 +32,7 @@ async function sendNewSubscriptionEmail(userId, planName, amount, paymentDetails
         amount,
         APP_URL
       );
-      await sendMail(user.email, '🎉 ברוך הבא ל-FlowBotomat!', userHtml);
+      await sendMail(user.email, '🎉 ברוך הבא ל-Botomat!', userHtml);
       console.log(`[SubNotification] New subscription email sent to user: ${user.email}`);
     } catch (e) {
       console.error('[SubNotification] Failed to send user email:', e.message);

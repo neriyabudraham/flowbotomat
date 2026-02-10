@@ -528,7 +528,7 @@ async function requestAccess(req, res) {
     // Send email to client
     try {
       const emailHtml = getAccessRequestEmail(expert.name || expert.email, expert.email, message);
-      await sendMail(client.email, 'בקשת גישה לחשבון שלך - FlowBotomat', emailHtml);
+      await sendMail(client.email, 'בקשת גישה לחשבון שלך - Botomat', emailHtml);
     } catch (emailErr) {
       console.error('[Experts] Failed to send access request email:', emailErr);
     }
@@ -1011,7 +1011,7 @@ function getAccessRequestEmail(expertName, expertEmail, message) {
       </div>
       <div style="background: #f9fafb; padding: 30px; border-radius: 0 0 12px 12px;">
         <p style="font-size: 16px; color: #111827;">
-          <strong>${expertName}</strong> (${expertEmail}) מבקש/ת גישה לנהל את החשבון שלך ב-FlowBotomat.
+          <strong>${expertName}</strong> (${expertEmail}) מבקש/ת גישה לנהל את החשבון שלך ב-Botomat.
         </p>
         ${message ? `
         <div style="background: white; padding: 15px; border-radius: 8px; margin: 20px 0; border-right: 4px solid #6366f1;">

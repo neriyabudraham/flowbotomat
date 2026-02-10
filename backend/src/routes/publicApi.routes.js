@@ -18,7 +18,7 @@ const {
 // API Info (public - no auth required)
 router.get('/', (req, res) => {
   res.json({
-    name: 'FlowBotomat API',
+    name: 'Botomat API',
     version: '1.0.0',
     documentation: 'https://flow.botomat.co.il/developers',
     endpoints: {

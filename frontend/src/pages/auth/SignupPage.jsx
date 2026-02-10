@@ -191,7 +191,7 @@ export default function SignupPage() {
             <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/25 group-hover:scale-105 transition-transform">
               <Bot className="w-6 h-6 text-white" />
             </div>
-            <span className="text-xl font-bold text-gray-900">FlowBotomat</span>
+            <span className="text-xl font-bold text-gray-900">Botomat</span>
           </Link>
 
           {/* Header */}
@@ -204,7 +204,7 @@ export default function SignupPage() {
               צור חשבון חדש 🚀
             </h1>
             <p className="text-gray-500">
-              הצטרף לאלפי עסקים שכבר משתמשים ב-FlowBotomat
+              הצטרף לאלפי עסקים שכבר משתמשים ב-Botomat
             </p>
           </div>
 
@@ -498,7 +498,7 @@ export default function SignupPage() {
             <div className="w-12 h-12 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center">
               <Bot className="w-7 h-7 text-white" />
             </div>
-            <span className="text-2xl font-bold text-white">FlowBotomat</span>
+            <span className="text-2xl font-bold text-white">Botomat</span>
           </div>
 
           <h2 className="text-4xl xl:text-5xl font-bold text-white mb-6 leading-tight">

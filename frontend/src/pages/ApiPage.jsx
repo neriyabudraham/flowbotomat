@@ -215,7 +215,7 @@ export default function ApiPage() {
             ]
           }
         ],
-        footer: 'FlowBotomat API'
+        footer: 'Botomat API'
       },
       params: [
         { name: 'phone', type: 'string', required: true, description: 'מספר טלפון' },

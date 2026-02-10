@@ -247,7 +247,7 @@ export default function LandingPage() {
     {
       name: 'רון כהן',
       role: 'מנכ"ל, סטארטאפ טכנולוגי',
-      content: 'FlowBotomat שינה לנו את העסק. הלקוחות מקבלים מענה מיידי 24/7 והמכירות עלו ב-40%.',
+      content: 'Botomat שינה לנו את העסק. הלקוחות מקבלים מענה מיידי 24/7 והמכירות עלו ב-40%.',
       avatar: 'ר',
     },
     {
@@ -274,7 +274,7 @@ export default function LandingPage() {
               <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25">
                 <Bot className="w-6 h-6 text-white" />
               </div>
-              <span className="text-xl font-bold text-gray-900">FlowBotomat</span>
+              <span className="text-xl font-bold text-gray-900">Botomat</span>
             </Link>
           </div>
           <div className="hidden md:flex items-center gap-8">
@@ -375,7 +375,7 @@ export default function LandingPage() {
         </div>
         <div className="max-w-7xl mx-auto relative z-10">
           <div className="text-center mb-10">
-            <h3 className="text-2xl font-bold text-white">למה לבחור ב-FlowBotomat?</h3>
+            <h3 className="text-2xl font-bold text-white">למה לבחור ב-Botomat?</h3>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-8">
             {benefits.map((benefit, i) => (
@@ -561,7 +561,7 @@ export default function LandingPage() {
                 <Bot className="w-6 h-6 text-white" />
               </div>
               <div>
-                <div className="text-white font-bold">FlowBotomat</div>
+                <div className="text-white font-bold">Botomat</div>
                 <div className="text-gray-500 text-sm">שירותי אוטומציה</div>
               </div>
             </div>
@@ -573,7 +573,7 @@ export default function LandingPage() {
           </div>
           <div className="pt-8 text-center">
             <p className="text-gray-500 text-sm">
-              © 2026 FlowBotomat. כל הזכויות שמורות.
+              © 2026 Botomat. כל הזכויות שמורות.
             </p>
           </div>
         </div>

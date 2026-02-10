@@ -1,7 +1,7 @@
 {
   "name": "flowbotomat-backend",
   "version": "1.0.0",
-  "description": "FlowBotomat Backend API",
+  "description": "Botomat Backend API",
   "main": "src/index.js",
   "scripts": {
     "dev": "nodemon src/index.js",

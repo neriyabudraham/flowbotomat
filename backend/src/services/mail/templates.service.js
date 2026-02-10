@@ -6,7 +6,7 @@ const getVerificationEmail = (code, link, lang = 'he') => {
 
   return `
     <div dir="${isHe ? 'rtl' : 'ltr'}" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-      <h1 style="color: #0d9488;">${isHe ? 'ברוך הבא ל-FlowBotomat!' : 'Welcome to FlowBotomat!'}</h1>
+      <h1 style="color: #0d9488;">${isHe ? 'ברוך הבא ל-Botomat!' : 'Welcome to Botomat!'}</h1>
       <p>${isHe ? 'קוד האימות שלך:' : 'Your verification code:'}</p>
       <div style="background: #f3f4f6; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 8px; margin: 20px 0;">
         ${code}
@@ -56,7 +56,7 @@ const getNewSubscriptionUserEmail = (userName, planName, amount, appUrl) => {
       </div>
       <div style="background: #f9fafb; padding: 30px; border-radius: 0 0 12px 12px;">
         <p style="font-size: 18px; color: #111827;">שלום ${userName},</p>
-        <p style="color: #374151;">תודה שהצטרפת ל-FlowBotomat!</p>
+        <p style="color: #374151;">תודה שהצטרפת ל-Botomat!</p>
         <p style="color: #374151;">המנוי שלך לתוכנית <strong style="color: #059669;">${planName}</strong> הופעל בהצלחה.</p>
         ${amount > 0 ? `<p style="color: #6b7280;">סכום: <strong>₪${amount}</strong></p>` : ''}
         <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">

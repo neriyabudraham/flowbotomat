@@ -1204,7 +1204,7 @@ export default function BotsPage() {
               >
                 <Upload className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                 <p className="text-gray-600 font-medium mb-2">לחץ לבחירת קובץ</p>
-                <p className="text-xs text-gray-400">קובץ JSON שיוצא ממערכת FlowBotomat</p>
+                <p className="text-xs text-gray-400">קובץ JSON שיוצא ממערכת Botomat</p>
                 <input
                   id="import-file"
                   type="file"

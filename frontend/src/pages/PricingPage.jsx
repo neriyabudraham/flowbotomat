@@ -927,7 +927,7 @@ export default function PricingPage() {
             מוכן להתחיל?
           </h2>
           <p className="text-xl text-white/80 mb-8">
-            הצטרף לאלפי עסקים שכבר משתמשים ב-FlowBotomat
+            הצטרף לאלפי עסקים שכבר משתמשים ב-Botomat
           </p>
           <button
             onClick={() => isAuthenticated ? navigate('/dashboard') : navigate('/signup')}
@@ -942,7 +942,7 @@ export default function PricingPage() {
       {/* Footer */}
       <footer className="py-8 px-6 bg-white border-t border-gray-100">
         <div className="max-w-7xl mx-auto text-center text-gray-500">
-          <p>© 2026 FlowBotomat. כל הזכויות שמורות.</p>
+          <p>© 2026 Botomat. כל הזכויות שמורות.</p>
         </div>
       </footer>
 

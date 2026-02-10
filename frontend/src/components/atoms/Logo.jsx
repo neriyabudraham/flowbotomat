@@ -7,7 +7,7 @@ export default function Logo({ size = 'md' }) {
 
   return (
     <div className={`font-bold text-primary-500 ${sizes[size]}`}>
-      FlowBotomat
+      Botomat
     </div>
   );
 }
