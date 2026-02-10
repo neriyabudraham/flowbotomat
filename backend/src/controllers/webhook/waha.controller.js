@@ -673,8 +673,13 @@ async function handleIncomingMessage(userId, event) {
           messageType: messageData.type
         });
       } else if (contextInfo) {
-        // Debug: log contextInfo to understand status reply structure
-        console.log(`[Webhook] Message has contextInfo but not status reply - remoteJid: ${quotedRemoteJid}, chat: ${quotedChat}, stanzaId: ${quotedStanzaId}`);
+        // Debug: log full contextInfo and QuotedMessage to understand status reply structure
+        console.log(`[Webhook] Message has contextInfo but not status reply - keys: ${Object.keys(contextInfo).join(', ')}`);
+        console.log(`[Webhook] contextInfo dump:`, JSON.stringify(contextInfo, null, 0).substring(0, 500));
+        if (payload._data?.QuotedMessage) {
+          console.log(`[Webhook] QuotedMessage keys: ${Object.keys(payload._data.QuotedMessage).join(', ')}`);
+          console.log(`[Webhook] QuotedMessage dump:`, JSON.stringify(payload._data.QuotedMessage, null, 0).substring(0, 500));
+        }
       }
     }
   } catch (statusReplyErr) {
