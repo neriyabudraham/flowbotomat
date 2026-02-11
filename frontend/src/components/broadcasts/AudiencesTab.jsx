@@ -546,6 +546,7 @@ function formatContactPhone(phone) {
 
 function ContactPicker({ selectedIds, onChange, loading }) {
   const [contacts, setContacts] = useState([]);
+  const [selectedContacts, setSelectedContacts] = useState([]); // Contacts data for selected IDs (shown at top)
   const [allContactIds, setAllContactIds] = useState([]);
   const [totalContacts, setTotalContacts] = useState(0);
   const [loadingContacts, setLoadingContacts] = useState(true);
@@ -553,6 +554,7 @@ function ContactPicker({ selectedIds, onChange, loading }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [contactTypeFilter, setContactTypeFilter] = useState('chats'); // 'all' | 'chats' | 'groups'
+  const [showSelectedOnly, setShowSelectedOnly] = useState(false); // Toggle to show only selected contacts
   const pageSize = 100;
 
   // WhatsApp Group Import
@@ -569,6 +571,27 @@ function ContactPicker({ selectedIds, onChange, loading }) {
     loadContacts(1, '', contactTypeFilter);
     loadAllContactIds(contactTypeFilter);
   }, [contactTypeFilter]);
+  
+  // Load selected contacts data when component mounts with existing selections
+  useEffect(() => {
+    if (selectedIds.length > 0 && selectedContacts.length === 0) {
+      loadSelectedContacts();
+    }
+  }, []);
+
+  // Load details of selected contacts
+  const loadSelectedContacts = async () => {
+    if (selectedIds.length === 0) return;
+    try {
+      // Load contacts by IDs
+      const { data } = await api.get('/contacts', {
+        params: { ids: selectedIds.join(','), limit: selectedIds.length }
+      });
+      setSelectedContacts(data.contacts || []);
+    } catch (e) {
+      console.error('Failed to load selected contacts:', e);
+    }
+  };
 
   // Debounced search
   useEffect(() => {
@@ -613,8 +636,14 @@ function ContactPicker({ selectedIds, onChange, loading }) {
 
   const toggleContact = (contactId) => {
     if (selectedIds.includes(contactId)) {
+      // Removing - keep in selectedContacts for UI but mark as unselected
       onChange(selectedIds.filter(id => id !== contactId));
     } else {
+      // Adding - find contact data and add to selectedContacts if not there
+      const contact = contacts.find(c => c.id === contactId);
+      if (contact && !selectedContacts.some(c => c.id === contactId)) {
+        setSelectedContacts(prev => [...prev, contact]);
+      }
       onChange([...selectedIds, contactId]);
     }
   };
@@ -863,6 +892,19 @@ function ContactPicker({ selectedIds, onChange, loading }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Toggle to show only selected */}
+          {selectedIds.length > 0 && (
+            <button 
+              onClick={() => setShowSelectedOnly(!showSelectedOnly)}
+              className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-colors ${
+                showSelectedOnly 
+                  ? 'bg-purple-500 text-white hover:bg-purple-600' 
+                  : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+              }`}
+            >
+              {showSelectedOnly ? 'הצג הכל' : `הצג נבחרים (${selectedIds.length})`}
+            </button>
+          )}
           <button 
             onClick={selectAll} 
             disabled={loadingAll}
@@ -896,17 +938,92 @@ function ContactPicker({ selectedIds, onChange, loading }) {
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-6 h-6 animate-spin text-purple-500" />
             </div>
-          ) : contacts.length === 0 ? (
+          ) : (showSelectedOnly ? selectedContacts : contacts).length === 0 ? (
             <div className="text-center py-12 text-gray-500">
               <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-              <p>לא נמצאו אנשי קשר</p>
+              <p>{showSelectedOnly ? 'לא נבחרו אנשי קשר' : 'לא נמצאו אנשי קשר'}</p>
             </div>
           ) : (
             <div className="divide-y divide-gray-100">
-              {contacts.map(contact => (
+              {/* Show selected contacts at top when editing (if not showing selected only) */}
+              {!showSelectedOnly && selectedContacts.length > 0 && selectedIds.length > 0 && (
+                <>
+                  <div className="bg-purple-50 px-4 py-2 text-sm font-medium text-purple-700 flex items-center justify-between sticky top-0 z-10">
+                    <span>נבחרים ({selectedContacts.filter(c => selectedIds.includes(c.id)).length})</span>
+                    <button
+                      onClick={() => setShowSelectedOnly(true)}
+                      className="text-xs text-purple-600 hover:text-purple-800 underline"
+                    >
+                      הצג רק נבחרים
+                    </button>
+                  </div>
+                  {selectedContacts
+                    .filter(contact => selectedIds.includes(contact.id))
+                    .map(contact => (
+                    <label
+                      key={`selected-${contact.id}`}
+                      className="flex items-center gap-4 p-4 hover:bg-purple-50/50 cursor-pointer transition-colors bg-purple-50/30"
+                    >
+                      <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
+                        selectedIds.includes(contact.id)
+                          ? 'bg-gradient-to-br from-purple-500 to-pink-500 border-purple-500'
+                          : 'border-gray-300 hover:border-purple-400'
+                      }`}>
+                        {selectedIds.includes(contact.id) && (
+                          <Check className="w-4 h-4 text-white" />
+                        )}
+                      </div>
+                      
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden">
+                        {contact.profile_picture_url ? (
+                          <img src={contact.profile_picture_url} alt="" className="w-full h-full object-cover" />
+                        ) : isGroupContact(contact) ? (
+                          <Users className="w-5 h-5 text-purple-500" />
+                        ) : (
+                          <User className="w-5 h-5 text-gray-400" />
+                        )}
+                      </div>
+                      
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-gray-900 truncate flex items-center gap-2">
+                          {contact.display_name || 'ללא שם'}
+                          {isGroupContact(contact) && (
+                            <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">קבוצה</span>
+                          )}
+                        </div>
+                        <div className="text-sm text-gray-500 flex items-center gap-1 font-mono">
+                          {isGroupContact(contact) ? (
+                            <Users className="w-3 h-3" />
+                          ) : (
+                            <Phone className="w-3 h-3" />
+                          )}
+                          {formatContactPhone(contact.phone)}
+                        </div>
+                      </div>
+                      
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(contact.id)}
+                        onChange={() => toggleContact(contact.id)}
+                        className="sr-only"
+                      />
+                    </label>
+                  ))}
+                  <div className="bg-gray-100 px-4 py-2 text-sm font-medium text-gray-600 sticky top-0 z-10">
+                    כל אנשי הקשר
+                  </div>
+                </>
+              )}
+              
+              {/* Show selected only mode OR regular contacts list */}
+              {(showSelectedOnly ? selectedContacts.filter(c => selectedIds.includes(c.id)) : contacts).map(contact => (
                 <label
                   key={contact.id}
-                  className="flex items-center gap-4 p-4 hover:bg-purple-50/50 cursor-pointer transition-colors"
+                  className={`flex items-center gap-4 p-4 hover:bg-purple-50/50 cursor-pointer transition-colors ${
+                    !showSelectedOnly && selectedIds.includes(contact.id) && selectedContacts.some(c => c.id === contact.id) 
+                      ? 'hidden' // Hide from regular list if already shown in selected section
+                      : ''
+                  }`}
                 >
                   <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
                     selectedIds.includes(contact.id)

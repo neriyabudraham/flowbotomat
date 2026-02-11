@@ -6,8 +6,38 @@ const pool = require('../../config/database');
 async function listContacts(req, res) {
   try {
     const userId = req.user.id;
-    const { page = 1, limit = 200, search, tag, contact_type } = req.query; // Paginated loading
+    const { page = 1, limit = 200, search, tag, contact_type, ids } = req.query; // Paginated loading
     const offset = (page - 1) * limit;
+    
+    // If specific IDs are requested, filter by them
+    if (ids) {
+      const idArray = ids.split(',').filter(id => id.trim());
+      if (idArray.length > 0) {
+        const placeholders = idArray.map((_, i) => `$${i + 2}`).join(',');
+        const query = `
+          SELECT c.*, 
+                 (SELECT COUNT(*) FROM messages m WHERE m.contact_id = c.id) as message_count,
+                 (SELECT content FROM messages m WHERE m.contact_id = c.id ORDER BY sent_at DESC LIMIT 1) as last_message,
+                 c.last_message_at as actual_last_message_at,
+                 COALESCE(
+                   (SELECT array_agg(t.name) FROM contact_tags t 
+                    JOIN contact_tag_assignments cta ON t.id = cta.tag_id 
+                    WHERE cta.contact_id = c.id), 
+                   ARRAY[]::text[]
+                 ) as tags
+          FROM contacts c
+          WHERE c.user_id = $1 AND c.id IN (${placeholders})
+          ORDER BY c.display_name ASC
+        `;
+        const result = await pool.query(query, [userId, ...idArray]);
+        return res.json({
+          contacts: result.rows,
+          total: result.rows.length,
+          page: 1,
+          limit: idArray.length,
+        });
+      }
+    }
     
     let query = `
       SELECT c.*, 

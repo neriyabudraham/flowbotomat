@@ -11,8 +11,6 @@ const wahaSession = require('../waha/session.service');
  * 3. Cancelled subscriptions past their end date
  */
 async function handleExpiredSubscriptions() {
-  console.log('[Subscription Expiry] Starting check...');
-  
   try {
     // Find all expired subscriptions (trial, active, and cancelled past end date)
     const expiredResult = await db.query(`
@@ -39,6 +37,11 @@ async function handleExpiredSubscriptions() {
         ))
       )
     `);
+    
+    // Only log if there's something to process
+    if (expiredResult.rows.length === 0) {
+      return { processed: 0 };
+    }
     
     console.log(`[Subscription Expiry] Found ${expiredResult.rows.length} expired subscriptions`);
     
@@ -146,7 +149,7 @@ async function handleExpiredSubscriptions() {
       }
     }
     
-    console.log('[Subscription Expiry] Check completed');
+    console.log(`[Subscription Expiry] ✅ Processed ${expiredResult.rows.length} expired subscriptions`);
     return { processed: expiredResult.rows.length };
     
   } catch (error) {
