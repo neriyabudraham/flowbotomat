@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { 
-  X, ChevronDown, ChevronUp, Loader2, Plus, Trash2, 
+  X, ChevronDown, ChevronUp, Loader2, 
   RefreshCw, AlertCircle, Users, Phone, Mail, Tag,
-  Zap, Search, UserPlus, Check
+  Zap, Search, UserPlus, Check, Copy, Edit3
 } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 import api from '../../../../services/api';
@@ -22,16 +22,17 @@ const SEARCH_BY_OPTIONS = [
   { id: 'email', label: 'אימייל', icon: Mail },
 ];
 
-// Auto-saved variables per operation type
-const AUTO_SAVED_VARS = {
-  check_exists: ['exists (true/false)', 'resourceName (מזהה)'],
-  search_contact: ['exists (true/false)', 'resourceName (מזהה)', 'name (שם)', 'phone (טלפון)', 'email (אימייל)'],
-  create_contact: ['resourceName (מזהה)', 'action (created)'],
-  update_contact: ['resourceName (מזהה)', 'action (updated)'],
-  find_or_create: ['exists (true/false)', 'resourceName (מזהה)', 'action (found/created)'],
-  add_to_label: ['success (true/false)'],
-  remove_from_label: ['success (true/false)'],
-};
+// All possible result variables with descriptions
+const RESULT_VARIABLES = [
+  { key: 'contact_exists', label: 'קיים', description: 'האם איש הקשר קיים (true/false)', operations: ['check_exists', 'search_contact', 'find_or_create'] },
+  { key: 'contact_id', label: 'מזהה', description: 'מזהה איש הקשר בגוגל', operations: ['check_exists', 'search_contact', 'create_contact', 'update_contact', 'find_or_create'] },
+  { key: 'contact_name', label: 'שם', description: 'שם מלא של איש הקשר', operations: ['search_contact', 'find_or_create'] },
+  { key: 'contact_phone', label: 'טלפון', description: 'מספר הטלפון שנמצא', operations: ['search_contact', 'find_or_create'] },
+  { key: 'contact_email', label: 'אימייל', description: 'כתובת האימייל שנמצאה', operations: ['search_contact', 'find_or_create'] },
+  { key: 'contact_action', label: 'פעולה', description: 'הפעולה שבוצעה (found/created/updated)', operations: ['create_contact', 'update_contact', 'find_or_create'] },
+  { key: 'contact_success', label: 'הצלחה', description: 'האם הפעולה הצליחה (true/false)', operations: ['add_to_label', 'remove_from_label'] },
+  { key: 'contact_error', label: 'שגיאה', description: 'הודעת שגיאה אם נכשל', operations: ['check_exists', 'search_contact', 'create_contact', 'update_contact', 'find_or_create', 'add_to_label', 'remove_from_label'] },
+];
 
 export default function GoogleContactsEditor({ data, onUpdate }) {
   const actions = data.actions || [];
@@ -48,8 +49,17 @@ export default function GoogleContactsEditor({ data, onUpdate }) {
       email: '',
       labelId: '',
       labelName: '',
-      saveToVars: true, // Auto-save to default variables
-      customVarPrefix: '', // Optional custom prefix
+      // Default variable names (can be customized)
+      varNames: {
+        contact_exists: 'contact_exists',
+        contact_id: 'contact_id',
+        contact_name: 'contact_name',
+        contact_phone: 'contact_phone',
+        contact_email: 'contact_email',
+        contact_action: 'contact_action',
+        contact_success: 'contact_success',
+        contact_error: 'contact_error',
+      },
     };
     onUpdate({ actions: [...actions, newAction] });
   };
@@ -106,6 +116,8 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
   const [loading, setLoading] = useState({ labels: false });
   const [error, setError] = useState(null);
   const [connected, setConnected] = useState(null);
+  const [showVarEditor, setShowVarEditor] = useState(false);
+  const [copiedVar, setCopiedVar] = useState(null);
 
   useEffect(() => {
     checkConnection();
@@ -149,12 +161,26 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
     });
   };
 
+  const copyVarName = (varName) => {
+    navigator.clipboard.writeText(`{{${varName}}}`);
+    setCopiedVar(varName);
+    setTimeout(() => setCopiedVar(null), 2000);
+  };
+
+  const updateVarName = (key, newName) => {
+    const varNames = { ...(action.varNames || {}), [key]: newName };
+    onUpdate({ varNames });
+  };
+
   const operationInfo = OPERATIONS.find(op => op.id === action.operation);
   
   const needsSearch = ['check_exists', 'search_contact', 'find_or_create', 'update_contact', 'add_to_label', 'remove_from_label'].includes(action.operation);
   const needsContactDetails = ['create_contact', 'update_contact', 'find_or_create'].includes(action.operation);
   const needsLabel = ['create_contact', 'find_or_create', 'add_to_label', 'remove_from_label'].includes(action.operation);
-  const autoSavedVars = AUTO_SAVED_VARS[action.operation] || [];
+  
+  // Get relevant variables for current operation
+  const relevantVars = RESULT_VARIABLES.filter(v => v.operations.includes(action.operation));
+  const varNames = action.varNames || {};
 
   if (connected === false) {
     return (
@@ -190,11 +216,6 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
           <span className="font-medium text-blue-800 text-sm">
             {operationInfo?.label || 'פעולת Google Contacts'}
           </span>
-          {action.labelName && (
-            <span className="text-xs text-blue-500 max-w-[120px] truncate">
-              - {action.labelName}
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -231,9 +252,7 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
                   }`}
                 >
                   <span className="text-base">{op.icon}</span>
-                  <div className="flex-1 min-w-0">
-                    <span className="font-medium block text-xs">{op.label}</span>
-                  </div>
+                  <span className="font-medium text-xs">{op.label}</span>
                 </button>
               ))}
             </div>
@@ -275,11 +294,8 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
                   value={action.searchValue || ''}
                   onChange={(val) => onUpdate({ searchValue: val })}
                   placeholder={action.searchBy === 'phone' ? 'מספר טלפון לחיפוש' : 'כתובת אימייל לחיפוש'}
-                  className="w-full p-2 border border-blue-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-300"
+                  className="w-full"
                 />
-                <p className="text-[10px] text-blue-500 mt-1">
-                  💡 הקלד {'{'} כדי להוסיף משתנה
-                </p>
               </div>
             </div>
           )}
@@ -299,7 +315,7 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
                     value={action.firstName || ''}
                     onChange={(val) => onUpdate({ firstName: val })}
                     placeholder="שם פרטי"
-                    className="w-full p-2 border border-green-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-green-300"
+                    className="w-full"
                   />
                 </div>
                 <div>
@@ -308,7 +324,7 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
                     value={action.lastName || ''}
                     onChange={(val) => onUpdate({ lastName: val })}
                     placeholder="שם משפחה"
-                    className="w-full p-2 border border-green-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-green-300"
+                    className="w-full"
                   />
                 </div>
               </div>
@@ -319,7 +335,7 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
                   value={action.name || ''}
                   onChange={(val) => onUpdate({ name: val })}
                   placeholder="שם מלא"
-                  className="w-full p-2 border border-green-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-green-300"
+                  className="w-full"
                 />
               </div>
               
@@ -329,7 +345,7 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
                   value={action.phone || ''}
                   onChange={(val) => onUpdate({ phone: val })}
                   placeholder="מספר טלפון"
-                  className="w-full p-2 border border-green-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-green-300"
+                  className="w-full"
                 />
               </div>
               
@@ -339,13 +355,9 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
                   value={action.email || ''}
                   onChange={(val) => onUpdate({ email: val })}
                   placeholder="כתובת אימייל"
-                  className="w-full p-2 border border-green-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-green-300"
+                  className="w-full"
                 />
               </div>
-              
-              <p className="text-[10px] text-green-600">
-                💡 הקלד {'{'} כדי להוסיף משתנה בכל שדה
-              </p>
             </div>
           )}
 
@@ -389,33 +401,95 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
             </div>
           )}
 
-          {/* Auto-saved Variables Info */}
-          <div className="bg-amber-50 rounded-lg p-3 space-y-2">
-            <div className="flex items-center gap-2">
-              <Zap className="w-4 h-4 text-amber-600" />
-              <span className="text-sm font-medium text-amber-800">משתנים שנשמרים אוטומטית</span>
+          {/* Variables Section - Beautiful and Clear */}
+          <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-4 border border-amber-200">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">
+                  <Zap className="w-4 h-4 text-amber-600" />
+                </div>
+                <div>
+                  <span className="text-sm font-bold text-amber-800">משתנים שיישמרו</span>
+                  <p className="text-[10px] text-amber-600">לחץ להעתקה, לחץ על עריכה לשינוי שם</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowVarEditor(!showVarEditor)}
+                className={`flex items-center gap-1 px-2 py-1 text-xs rounded-lg transition-colors ${
+                  showVarEditor 
+                    ? 'bg-amber-600 text-white' 
+                    : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                }`}
+              >
+                <Edit3 className="w-3 h-3" />
+                {showVarEditor ? 'סגור' : 'ערוך שמות'}
+              </button>
             </div>
             
-            <div className="flex flex-wrap gap-1.5">
-              {autoSavedVars.map((v, i) => (
-                <span key={i} className="px-2 py-1 bg-white border border-amber-200 rounded-lg text-xs text-amber-700">
-                  {v}
-                </span>
-              ))}
+            <div className="space-y-2">
+              {relevantVars.map((v) => {
+                const currentName = varNames[v.key] || v.key;
+                const isCopied = copiedVar === currentName;
+                
+                return (
+                  <div 
+                    key={v.key} 
+                    className="bg-white rounded-lg border border-amber-200 overflow-hidden"
+                  >
+                    <div className="flex items-center gap-2 p-2">
+                      {/* Variable badge */}
+                      <button
+                        onClick={() => copyVarName(currentName)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono transition-all ${
+                          isCopied 
+                            ? 'bg-green-500 text-white' 
+                            : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                        }`}
+                      >
+                        {isCopied ? (
+                          <>
+                            <Check className="w-3 h-3" />
+                            הועתק!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            {`{{${currentName}}}`}
+                          </>
+                        )}
+                      </button>
+                      
+                      {/* Description */}
+                      <div className="flex-1 min-w-0">
+                        <span className="text-xs text-gray-600">{v.description}</span>
+                      </div>
+                    </div>
+                    
+                    {/* Edit mode */}
+                    {showVarEditor && (
+                      <div className="px-2 pb-2 pt-1 border-t border-amber-100 bg-amber-50/50">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-amber-600 whitespace-nowrap">שם המשתנה:</span>
+                          <input
+                            type="text"
+                            value={currentName}
+                            onChange={(e) => updateVarName(v.key, e.target.value)}
+                            className="flex-1 px-2 py-1 text-xs border border-amber-200 rounded bg-white focus:ring-1 focus:ring-amber-400"
+                            dir="ltr"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             
-            <div className="pt-2 border-t border-amber-200 mt-2">
-              <label className="block text-xs text-amber-700 mb-1">קידומת למשתנים (אופציונלי)</label>
-              <input
-                type="text"
-                value={action.customVarPrefix || ''}
-                onChange={(e) => onUpdate({ customVarPrefix: e.target.value })}
-                placeholder="לדוגמה: google_contact_"
-                className="w-full p-2 border border-amber-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-amber-300"
-                dir="ltr"
-              />
-              <p className="text-[10px] text-amber-500 mt-1">
-                אם תגדיר קידומת "my_", המשתנים יישמרו כ-my_exists, my_resourceName וכו׳
+            <div className="mt-3 pt-3 border-t border-amber-200">
+              <p className="text-[10px] text-amber-700 leading-relaxed">
+                💡 <strong>איך להשתמש:</strong> לחץ על משתנה להעתקה, ואז הדבק אותו בכל שדה טקסט במערכת.
+                <br />
+                לדוגמה: שלח הודעה "שלום {'{{contact_name}}'}" או בדוק תנאי "{'{{contact_exists}}'} שווה ל-true"
               </p>
             </div>
           </div>

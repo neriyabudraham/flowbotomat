@@ -2241,19 +2241,19 @@ class BotEngine {
     const actions = node.data?.actions || [];
     console.log(`[BotEngine] Google Sheets node has ${actions.length} action(s)`);
     
-    // Helper to save built-in result variables (found, rowIndex, totalMatches)
-    const saveBuiltInResults = async (action, resultData) => {
-      const builtInMappings = action.builtInMappings || [];
-      for (const mapping of builtInMappings) {
-        if (mapping.varName && mapping.field && resultData[mapping.field] !== undefined) {
-          await this.setContactVariable(contact.id, mapping.varName, String(resultData[mapping.field]), mapping.label || mapping.varName);
-        }
+    // Helper to save result variables using varNames mapping
+    const saveVar = async (varNames, key, value) => {
+      const varName = varNames?.[key] || key;
+      if (varName && value !== undefined && value !== null) {
+        await this.setContactVariable(contact.id, varName, String(value));
+        console.log(`[BotEngine] Setting ${varName} = ${String(value).substring(0, 50)}`);
       }
     };
     
     for (let i = 0; i < actions.length; i++) {
       const action = actions[i];
       const { operation, spreadsheetId, sheetName } = action;
+      const varNames = action.varNames || {};
       
       if (!spreadsheetId || !sheetName) {
         console.log('[BotEngine] ⚠️ Google Sheets action missing spreadsheet or sheet name');
@@ -2273,7 +2273,17 @@ class BotEngine {
             }
             const result = await googleSheets.appendRow(userId, spreadsheetId, sheetName, values);
             console.log('[BotEngine] ✅ Google Sheets row appended:', result.updatedRange);
-            await saveBuiltInResults(action, { found: 'true', action: 'appended' });
+            
+            // Extract row index from updated range (e.g., "Sheet1!A5:C5" -> 5)
+            let rowIndex = '';
+            if (result.updatedRange) {
+              const match = result.updatedRange.match(/!.*?(\d+)/);
+              if (match) rowIndex = match[1];
+            }
+            
+            await saveVar(varNames, 'sheets_row_index', rowIndex);
+            await saveVar(varNames, 'sheets_action', 'appended');
+            await saveVar(varNames, 'sheets_success', 'true');
             break;
           }
           
@@ -2282,7 +2292,8 @@ class BotEngine {
             const rowIndex = parseInt(resolvedRowIndex);
             if (!rowIndex || isNaN(rowIndex)) {
               console.log(`[BotEngine] ⚠️ Invalid row index for update: "${action.rowIndex}" resolved to "${resolvedRowIndex}"`);
-              await saveBuiltInResults(action, { found: 'false', error: 'מספר שורה לא תקין' });
+              await saveVar(varNames, 'sheets_success', 'false');
+              await saveVar(varNames, 'sheets_error', 'מספר שורה לא תקין');
               break;
             }
             const values = {};
@@ -2293,7 +2304,9 @@ class BotEngine {
             }
             const result = await googleSheets.updateCells(userId, spreadsheetId, sheetName, rowIndex, values);
             console.log('[BotEngine] ✅ Google Sheets row updated:', result.updated, 'cells');
-            await saveBuiltInResults(action, { found: 'true', action: 'updated', rowIndex: String(rowIndex) });
+            
+            await saveVar(varNames, 'sheets_action', 'updated');
+            await saveVar(varNames, 'sheets_success', 'true');
             break;
           }
           
@@ -2305,26 +2318,22 @@ class BotEngine {
             );
             console.log(`[BotEngine] 🔍 Google Sheets search: ${result.totalMatches} matches`);
             
-            const builtInData = {
-              totalMatches: String(result.totalMatches),
-              found: result.totalMatches > 0 ? 'true' : 'false',
-            };
+            await saveVar(varNames, 'sheets_found', result.totalMatches > 0 ? 'true' : 'false');
+            await saveVar(varNames, 'sheets_total_matches', String(result.totalMatches));
             
             if (result.rows.length > 0) {
               const firstRow = result.rows[0];
-              builtInData.rowIndex = String(firstRow._rowIndex);
+              await saveVar(varNames, 'sheets_row_index', String(firstRow._rowIndex));
               
-              // Apply column result mappings
+              // Apply column result mappings (user-defined column -> variable)
               for (const mapping of (action.resultMappings || [])) {
                 if (mapping.column && mapping.variable) {
                   const val = String(firstRow[mapping.column] || '');
-                  await this.setContactVariable(contact.id, mapping.variable, val, mapping.label || mapping.variable);
+                  await this.setContactVariable(contact.id, mapping.variable, val);
                   console.log(`[BotEngine] ✅ Mapped "${mapping.column}" → ${mapping.variable} = "${val.substring(0, 100)}"`);
                 }
               }
             }
-            
-            await saveBuiltInResults(action, builtInData);
             break;
           }
           
@@ -2332,25 +2341,19 @@ class BotEngine {
             const result = await googleSheets.readRows(userId, spreadsheetId, sheetName);
             console.log(`[BotEngine] 📖 Google Sheets read: ${result.rows.length} rows`);
             
-            const builtInData = {
-              totalMatches: String(result.rows.length),
-              found: result.rows.length > 0 ? 'true' : 'false',
-            };
+            await saveVar(varNames, 'sheets_total_rows', String(result.rows.length));
             
             if (result.rows.length > 0) {
               const firstRow = result.rows[0];
-              builtInData.rowIndex = String(firstRow._rowIndex);
               
               for (const mapping of (action.resultMappings || [])) {
                 if (mapping.column && mapping.variable) {
                   const val = String(firstRow[mapping.column] || '');
-                  await this.setContactVariable(contact.id, mapping.variable, val, mapping.label || mapping.variable);
+                  await this.setContactVariable(contact.id, mapping.variable, val);
                   console.log(`[BotEngine] ✅ Mapped "${mapping.column}" → ${mapping.variable} = "${val.substring(0, 100)}"`);
                 }
               }
             }
-            
-            await saveBuiltInResults(action, builtInData);
             break;
           }
           
@@ -2368,12 +2371,11 @@ class BotEngine {
             );
             console.log(`[BotEngine] 🔄 Google Sheets search & update: found=${result.found}, row=${result.rowIndex}`);
             
-            const builtInData = {
-              found: result.found ? 'true' : 'false',
-              action: result.found ? 'updated' : 'not_found',
-            };
+            await saveVar(varNames, 'sheets_found', result.found ? 'true' : 'false');
+            await saveVar(varNames, 'sheets_action', result.found ? 'updated' : 'not_found');
+            
             if (result.rowIndex) {
-              builtInData.rowIndex = String(result.rowIndex);
+              await saveVar(varNames, 'sheets_row_index', String(result.rowIndex));
             }
             
             // Apply result mappings if found
@@ -2386,13 +2388,11 @@ class BotEngine {
                 for (const mapping of (action.resultMappings || [])) {
                   if (mapping.column && mapping.variable) {
                     const val = String(searchResult.rows[0][mapping.column] || '');
-                    await this.setContactVariable(contact.id, mapping.variable, val, mapping.label || mapping.variable);
+                    await this.setContactVariable(contact.id, mapping.variable, val);
                   }
                 }
               }
             }
-            
-            await saveBuiltInResults(action, builtInData);
             break;
           }
           
@@ -2410,15 +2410,12 @@ class BotEngine {
             );
             console.log(`[BotEngine] 🔎 Google Sheets search or append: action=${result.action}`);
             
-            const builtInData = {
-              found: result.action === 'updated' ? 'true' : 'false',
-              action: result.action, // 'updated' or 'appended'
-            };
-            if (result.rowIndex) {
-              builtInData.rowIndex = String(result.rowIndex);
-            }
+            await saveVar(varNames, 'sheets_found', result.action === 'updated' ? 'true' : 'false');
+            await saveVar(varNames, 'sheets_action', result.action); // 'updated' or 'appended'
             
-            await saveBuiltInResults(action, builtInData);
+            if (result.rowIndex) {
+              await saveVar(varNames, 'sheets_row_index', String(result.rowIndex));
+            }
             break;
           }
           
@@ -2444,12 +2441,9 @@ class BotEngine {
           errorMessage = 'שם הגיליון או הטווח לא תקינים.';
         }
         
-        // Save error to user-defined error variable if specified
-        const errorMapping = (action.builtInMappings || []).find(m => m.field === 'error');
-        if (errorMapping && errorMapping.varName) {
-          await this.setContactVariable(contact.id, errorMapping.varName, errorMessage, errorMapping.label || errorMapping.varName);
-        }
-        await saveBuiltInResults(action, { found: 'false' });
+        // Save error to variable
+        await saveVar(varNames, 'sheets_error', errorMessage);
+        await saveVar(varNames, 'sheets_success', 'false');
       }
     }
   }
@@ -2460,20 +2454,19 @@ class BotEngine {
     const actions = node.data?.actions || [];
     console.log(`[BotEngine] Google Contacts node has ${actions.length} action(s)`);
     
-    // Helper to save result variables with user-defined mappings
-    const saveResultVariables = async (resultData, action) => {
-      const mappings = action.resultMappings || [];
-      for (const mapping of mappings) {
-        if (mapping.varName && mapping.field) {
-          const value = resultData[mapping.field] || '';
-          await this.setContactVariable(contact.id, mapping.varName, String(value), mapping.label || mapping.varName);
-        }
+    // Helper to save result variables using varNames mapping
+    const saveVar = async (varNames, key, value) => {
+      const varName = varNames?.[key] || key;
+      if (varName && value !== undefined && value !== null) {
+        await this.setContactVariable(contact.id, varName, String(value));
+        console.log(`[BotEngine] Setting ${varName} = ${String(value).substring(0, 50)}`);
       }
     };
     
     for (let i = 0; i < actions.length; i++) {
       const action = actions[i];
       const { operation } = action;
+      const varNames = action.varNames || {};
       
       console.log(`[BotEngine] Executing Google Contacts: ${operation}`);
       
@@ -2486,16 +2479,9 @@ class BotEngine {
             const result = await googleContacts.exists(userId, searchValue, searchBy);
             console.log(`[BotEngine] 🔍 Google Contacts exists check: ${result.exists}`);
             
-            // Prepare result data for mapping
-            const resultData = {
-              exists: result.exists ? 'true' : 'false',
-              resourceName: result.contact?.resourceName || '',
-              name: result.contact?.name || '',
-              phone: result.contact?.primaryPhone || '',
-              email: result.contact?.primaryEmail || '',
-            };
-            
-            await saveResultVariables(resultData, action);
+            // Save all relevant variables
+            await saveVar(varNames, 'contact_exists', result.exists ? 'true' : 'false');
+            await saveVar(varNames, 'contact_id', result.contact?.resourceName || '');
             break;
           }
           
@@ -2512,15 +2498,11 @@ class BotEngine {
             
             console.log(`[BotEngine] 🔍 Google Contacts search: ${foundContact ? 'found' : 'not found'}`);
             
-            const resultData = {
-              exists: foundContact ? 'true' : 'false',
-              resourceName: foundContact?.resourceName || '',
-              name: foundContact?.name || '',
-              phone: foundContact?.primaryPhone || '',
-              email: foundContact?.primaryEmail || '',
-            };
-            
-            await saveResultVariables(resultData, action);
+            await saveVar(varNames, 'contact_exists', foundContact ? 'true' : 'false');
+            await saveVar(varNames, 'contact_id', foundContact?.resourceName || '');
+            await saveVar(varNames, 'contact_name', foundContact?.name || '');
+            await saveVar(varNames, 'contact_phone', foundContact?.primaryPhone || '');
+            await saveVar(varNames, 'contact_email', foundContact?.primaryEmail || '');
             break;
           }
           
@@ -2537,16 +2519,8 @@ class BotEngine {
             const newContact = await googleContacts.createContact(userId, contactData);
             console.log(`[BotEngine] ➕ Google Contact created: ${newContact.resourceName}`);
             
-            const resultData = {
-              exists: 'true',
-              action: 'created',
-              resourceName: newContact.resourceName,
-              name: newContact.name || '',
-              phone: newContact.primaryPhone || '',
-              email: newContact.primaryEmail || '',
-            };
-            
-            await saveResultVariables(resultData, action);
+            await saveVar(varNames, 'contact_id', newContact.resourceName);
+            await saveVar(varNames, 'contact_action', 'created');
             break;
           }
           
@@ -2563,7 +2537,7 @@ class BotEngine {
             
             if (!foundContact) {
               console.log('[BotEngine] ⚠️ Google Contact not found for update');
-              await saveResultVariables({ exists: 'false' }, action);
+              await saveVar(varNames, 'contact_exists', 'false');
               break;
             }
             
@@ -2577,16 +2551,8 @@ class BotEngine {
             const updatedContact = await googleContacts.updateContact(userId, foundContact.resourceName, updateData);
             console.log(`[BotEngine] ✏️ Google Contact updated: ${updatedContact.resourceName}`);
             
-            const resultData = {
-              exists: 'true',
-              action: 'updated',
-              resourceName: updatedContact.resourceName,
-              name: updatedContact.name || '',
-              phone: updatedContact.primaryPhone || '',
-              email: updatedContact.primaryEmail || '',
-            };
-            
-            await saveResultVariables(resultData, action);
+            await saveVar(varNames, 'contact_id', updatedContact.resourceName);
+            await saveVar(varNames, 'contact_action', 'updated');
             break;
           }
           
@@ -2603,16 +2569,12 @@ class BotEngine {
             const result = await googleContacts.findOrCreate(userId, phone, contactData);
             console.log(`[BotEngine] 🔎 Google Contact find or create: ${result.action}`);
             
-            const resultData = {
-              exists: 'true',
-              action: result.action, // 'found' or 'created'
-              resourceName: result.contact.resourceName,
-              name: result.contact.name || '',
-              phone: result.contact.primaryPhone || '',
-              email: result.contact.primaryEmail || '',
-            };
-            
-            await saveResultVariables(resultData, action);
+            await saveVar(varNames, 'contact_exists', result.action === 'found' ? 'true' : 'false');
+            await saveVar(varNames, 'contact_id', result.contact.resourceName);
+            await saveVar(varNames, 'contact_action', result.action);
+            await saveVar(varNames, 'contact_name', result.contact.name || '');
+            await saveVar(varNames, 'contact_phone', result.contact.primaryPhone || '');
+            await saveVar(varNames, 'contact_email', result.contact.primaryEmail || '');
             break;
           }
           
@@ -2623,6 +2585,7 @@ class BotEngine {
             
             if (!labelId) {
               console.log('[BotEngine] ⚠️ No label specified for add_to_label');
+              await saveVar(varNames, 'contact_success', 'false');
               break;
             }
             
@@ -2635,14 +2598,14 @@ class BotEngine {
             
             if (!foundContact) {
               console.log('[BotEngine] ⚠️ Google Contact not found for label operation');
-              await saveResultVariables({ exists: 'false' }, action);
+              await saveVar(varNames, 'contact_success', 'false');
               break;
             }
             
             await googleContacts.addToLabel(userId, foundContact.resourceName, labelId);
             console.log(`[BotEngine] 🏷️ Google Contact added to label`);
             
-            await saveResultVariables({ exists: 'true', resourceName: foundContact.resourceName }, action);
+            await saveVar(varNames, 'contact_success', 'true');
             break;
           }
           
@@ -2653,6 +2616,7 @@ class BotEngine {
             
             if (!labelId) {
               console.log('[BotEngine] ⚠️ No label specified for remove_from_label');
+              await saveVar(varNames, 'contact_success', 'false');
               break;
             }
             
@@ -2665,14 +2629,14 @@ class BotEngine {
             
             if (!foundContact) {
               console.log('[BotEngine] ⚠️ Google Contact not found for label operation');
-              await saveResultVariables({ exists: 'false' }, action);
+              await saveVar(varNames, 'contact_success', 'false');
               break;
             }
             
             await googleContacts.removeFromLabel(userId, foundContact.resourceName, labelId);
             console.log(`[BotEngine] 🗑️ Google Contact removed from label`);
             
-            await saveResultVariables({ exists: 'true', resourceName: foundContact.resourceName }, action);
+            await saveVar(varNames, 'contact_success', 'true');
             break;
           }
           
@@ -2698,11 +2662,8 @@ class BotEngine {
           errorMessage = 'חרגת ממכסת הבקשות של גוגל. נסה שוב מאוחר יותר.';
         }
         
-        // Save error to user-defined error variable if specified
-        const errorMapping = (action.resultMappings || []).find(m => m.field === 'error');
-        if (errorMapping && errorMapping.varName) {
-          await this.setContactVariable(contact.id, errorMapping.varName, errorMessage, errorMapping.label || errorMapping.varName);
-        }
+        // Save error to variable
+        await saveVar(varNames, 'contact_error', errorMessage);
       }
     }
   }
