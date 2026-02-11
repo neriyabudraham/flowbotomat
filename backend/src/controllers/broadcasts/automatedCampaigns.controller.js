@@ -576,12 +576,17 @@ async function updateAutomatedCampaign(req, res) {
     }
     
     // Update campaign (without next_run_at - we'll set it separately)
+    // If activating with a new schedule, reset execution state to allow pickup by scheduler
     const updateResult = await db.query(`
       UPDATE automated_campaigns
       SET name = $1, description = $2, schedule_type = $3, schedule_config = $4, 
           send_time = $5, settings = $6, scheduled_start_at = $7, 
           is_active = CASE WHEN $8 THEN true ELSE is_active END,
           audience_id = $9,
+          execution_status = CASE WHEN $8 THEN 'idle' ELSE execution_status END,
+          current_step = CASE WHEN $8 THEN 0 ELSE current_step END,
+          resume_at = CASE WHEN $8 THEN NULL ELSE resume_at END,
+          paused_at_step = CASE WHEN $8 THEN NULL ELSE paused_at_step END,
           updated_at = NOW()
       WHERE id = $10 AND user_id = $11
       RETURNING id
