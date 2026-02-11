@@ -604,6 +604,21 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
   const statusInfo = getStatusInfo();
   const progressPercent = getProgressPercent();
   
+  // Check if completed status should be shown (only within 5 minutes of completion)
+  const shouldShowCompletedProgress = () => {
+    if (status !== 'completed') return false;
+    if (!campaign.last_run_at) return false;
+    
+    const lastRun = new Date(campaign.last_run_at);
+    const now = new Date();
+    const fiveMinutes = 5 * 60 * 1000; // 5 minutes in ms
+    
+    return (now - lastRun) < fiveMinutes;
+  };
+  
+  // Determine effective status for display (completed becomes idle after 5 min)
+  const displayStatus = status === 'completed' && !shouldShowCompletedProgress() ? 'idle' : status;
+  
   return (
     <div 
       className="group bg-white border border-gray-200 rounded-2xl overflow-hidden hover:shadow-xl hover:border-orange-200 transition-all cursor-pointer"
@@ -613,21 +628,21 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-3">
             <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
-              campaign.execution_status === 'running' 
+              displayStatus === 'running' 
                 ? 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/20' :
-              campaign.execution_status === 'waiting'
+              displayStatus === 'waiting'
                 ? 'bg-gradient-to-br from-amber-500 to-amber-600 shadow-amber-500/20' :
-              campaign.execution_status === 'completed'
+              displayStatus === 'completed'
                 ? 'bg-gradient-to-br from-green-500 to-green-600 shadow-green-500/20' :
               campaign.is_active 
                 ? 'bg-gradient-to-br from-orange-500 to-amber-500 shadow-orange-500/20' 
                 : 'bg-gradient-to-br from-gray-400 to-gray-500 shadow-gray-500/20'
             }`}>
-              {campaign.execution_status === 'running' ? (
+              {displayStatus === 'running' ? (
                 <Loader2 className="w-6 h-6 text-white animate-spin" />
-              ) : campaign.execution_status === 'waiting' ? (
+              ) : displayStatus === 'waiting' ? (
                 <Timer className="w-6 h-6 text-white" />
-              ) : campaign.execution_status === 'completed' ? (
+              ) : displayStatus === 'completed' ? (
                 <CheckCircle className="w-6 h-6 text-white" />
               ) : (
                 <Zap className="w-6 h-6 text-white" />
@@ -646,19 +661,19 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
             </div>
           </div>
           <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-            campaign.execution_status === 'completed'
+            displayStatus === 'completed'
               ? 'bg-green-100 text-green-700' :
-            campaign.execution_status === 'running'
+            displayStatus === 'running'
               ? 'bg-blue-100 text-blue-700' :
-            campaign.execution_status === 'waiting'
+            displayStatus === 'waiting'
               ? 'bg-amber-100 text-amber-700' :
             campaign.is_active 
               ? 'bg-green-100 text-green-700' 
               : 'bg-gray-100 text-gray-600'
           }`}>
-            {campaign.execution_status === 'completed' ? 'הושלם' :
-             campaign.execution_status === 'running' ? 'פועל' :
-             campaign.execution_status === 'waiting' ? 'ממתין' :
+            {displayStatus === 'completed' ? 'הושלם' :
+             displayStatus === 'running' ? 'פועל' :
+             displayStatus === 'waiting' ? 'ממתין' :
              campaign.is_active ? 'פעיל' : 'כבוי'}
           </span>
         </div>
@@ -681,32 +696,32 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
           </div>
         </div>
 
-        {/* Real-time Progress Bar - for running/waiting/completed campaigns */}
-        {(status === 'running' || status === 'waiting' || status === 'completed') && totalSteps > 0 && (
+        {/* Real-time Progress Bar - for running/waiting campaigns, and completed only within 5 minutes */}
+        {(displayStatus === 'running' || displayStatus === 'waiting' || (displayStatus === 'completed' && shouldShowCompletedProgress())) && totalSteps > 0 && (
           <div className={`rounded-lg p-3 mb-3 ${
-            status === 'running' ? 'bg-blue-50' :
-            status === 'waiting' ? 'bg-amber-50' :
+            displayStatus === 'running' ? 'bg-blue-50' :
+            displayStatus === 'waiting' ? 'bg-amber-50' :
             'bg-green-50'
           }`}>
             {/* Progress info */}
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                {status === 'running' && <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />}
-                {status === 'waiting' && <Timer className="w-4 h-4 text-amber-600" />}
-                {status === 'completed' && <CheckCircle className="w-4 h-4 text-green-600" />}
+                {displayStatus === 'running' && <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />}
+                {displayStatus === 'waiting' && <Timer className="w-4 h-4 text-amber-600" />}
+                {displayStatus === 'completed' && <CheckCircle className="w-4 h-4 text-green-600" />}
                 <span className={`text-sm font-medium ${
-                  status === 'running' ? 'text-blue-700' :
-                  status === 'waiting' ? 'text-amber-700' :
+                  displayStatus === 'running' ? 'text-blue-700' :
+                  displayStatus === 'waiting' ? 'text-amber-700' :
                   'text-green-700'
                 }`}>
-                  {status === 'running' && `מבצע שלב ${currentStep + 1} מתוך ${totalSteps}`}
-                  {status === 'waiting' && `ממתין לשלב ${pausedAtStep + 1} מתוך ${totalSteps}`}
-                  {status === 'completed' && `הושלם - ${totalSteps} שלבים`}
+                  {displayStatus === 'running' && `מבצע שלב ${currentStep + 1} מתוך ${totalSteps}`}
+                  {displayStatus === 'waiting' && `ממתין לשלב ${pausedAtStep + 1} מתוך ${totalSteps}`}
+                  {displayStatus === 'completed' && `הושלם - ${totalSteps} שלבים`}
                 </span>
               </div>
               <span className={`text-lg font-bold ${
-                status === 'running' ? 'text-blue-600' :
-                status === 'waiting' ? 'text-amber-600' :
+                displayStatus === 'running' ? 'text-blue-600' :
+                displayStatus === 'waiting' ? 'text-amber-600' :
                 'text-green-600'
               }`}>
                 {progressPercent}%
@@ -717,8 +732,8 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
             <div className="h-2 bg-white rounded-full overflow-hidden">
               <div 
                 className={`h-full rounded-full transition-all duration-500 ${
-                  status === 'running' ? 'bg-gradient-to-r from-blue-500 to-blue-400' :
-                  status === 'waiting' ? 'bg-gradient-to-r from-amber-500 to-amber-400' :
+                  displayStatus === 'running' ? 'bg-gradient-to-r from-blue-500 to-blue-400' :
+                  displayStatus === 'waiting' ? 'bg-gradient-to-r from-amber-500 to-amber-400' :
                   'bg-gradient-to-r from-green-500 to-green-400'
                 }`}
                 style={{ width: `${progressPercent}%` }}
@@ -726,7 +741,7 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
             </div>
             
             {/* Real-time countdown for waiting */}
-            {status === 'waiting' && campaign.resume_at && (
+            {displayStatus === 'waiting' && campaign.resume_at && (
               <div className="mt-2 flex items-center justify-center gap-2 text-amber-700">
                 <Clock className="w-4 h-4" />
                 <span className="text-sm">השלב הבא בעוד:</span>
@@ -738,10 +753,8 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
           </div>
         )}
 
-        {/* Next Run - Only show if idle and not completed */}
-        {status !== 'running' && status !== 'waiting' && status !== 'completed' &&
-         ((campaign.schedule_type !== 'manual' && campaign.is_active && campaign.next_run_at) || 
-          (campaign.schedule_type === 'manual' && campaign.scheduled_start_at && campaign.next_run_at && campaign.is_active)) && (
+        {/* Next Run - Show when there's a scheduled time (even after completion) */}
+        {displayStatus !== 'running' && displayStatus !== 'waiting' && campaign.next_run_at && (
           <div className="flex items-center gap-2 text-orange-600 bg-orange-50 rounded-lg px-3 py-2 text-sm font-medium">
             <Timer className="w-4 h-4" />
             {formatNextRun(campaign.next_run_at, campaign.schedule_type, campaign.scheduled_start_at)}
