@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   X, ChevronDown, ChevronUp, Loader2, Plus, Trash2, 
-  RefreshCw, AlertCircle, Check, Search, FileSpreadsheet,
-  ArrowRight, Table2, Settings2, Zap
+  RefreshCw, AlertCircle, Search, FileSpreadsheet,
+  ArrowRight, Table2, Zap
 } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 import api from '../../../../services/api';
@@ -26,14 +26,15 @@ const SEARCH_OPERATORS = [
   { id: 'is_empty', label: 'ריק' },
 ];
 
-// Built-in result fields that can be saved
-const BUILTIN_FIELDS = [
-  { id: 'found', label: 'נמצא', description: 'true/false' },
-  { id: 'rowIndex', label: 'מספר שורה', description: 'מספר השורה שנמצאה' },
-  { id: 'totalMatches', label: 'סה"כ תוצאות', description: 'מספר התוצאות' },
-  { id: 'action', label: 'פעולה', description: 'updated/appended' },
-  { id: 'error', label: 'שגיאה', description: 'הודעת שגיאה' },
-];
+// Auto-saved variables per operation type
+const AUTO_SAVED_VARS = {
+  append_row: ['rowIndex (מספר שורה)', 'action (appended)'],
+  update_row: ['action (updated)', 'success (true/false)'],
+  search_rows: ['found (true/false)', 'rowIndex (מספר שורה)', 'totalMatches (כמות תוצאות)'],
+  read_rows: ['totalRows (כמות שורות)', 'data (כל הנתונים)'],
+  search_and_update: ['found (true/false)', 'rowIndex (מספר שורה)', 'action (updated/not_found)'],
+  search_or_append: ['found (true/false)', 'rowIndex (מספר שורה)', 'action (updated/appended)'],
+};
 
 export default function GoogleSheetsEditor({ data, onUpdate }) {
   const actions = data.actions || [];
@@ -49,8 +50,8 @@ export default function GoogleSheetsEditor({ data, onUpdate }) {
       searchOperator: 'equals',
       searchValue: '',
       resultMappings: [],
-      builtInMappings: [], // User-defined mappings for built-in results (found, rowIndex, etc.)
       rowIndex: '',
+      customVarPrefix: '',
     };
     onUpdate({ actions: [...actions, newAction] });
   };
@@ -110,7 +111,6 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
   const [error, setError] = useState(null);
   const [connected, setConnected] = useState(null);
 
-  // Check connection status on mount
   useEffect(() => {
     checkConnection();
   }, []);
@@ -127,7 +127,6 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
     }
   };
 
-  // Load spreadsheets
   const loadSpreadsheets = async () => {
     try {
       setLoading(prev => ({ ...prev, spreadsheets: true }));
@@ -146,7 +145,6 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
     }
   };
 
-  // Load sheets when spreadsheet changes
   useEffect(() => {
     if (action.spreadsheetId) {
       loadSheets(action.spreadsheetId);
@@ -156,7 +154,6 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
     }
   }, [action.spreadsheetId]);
 
-  // Load headers when sheet changes
   useEffect(() => {
     if (action.spreadsheetId && action.sheetName) {
       loadHeaders(action.spreadsheetId, action.sheetName);
@@ -210,7 +207,6 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
     });
   };
 
-  // Column mappings management
   const addColumnMapping = () => {
     onUpdate({
       columnMappings: [...(action.columnMappings || []), { column: '', value: '' }],
@@ -227,7 +223,6 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
     onUpdate({ columnMappings: (action.columnMappings || []).filter((_, idx) => idx !== i) });
   };
 
-  // Result mappings management (for search/read operations)
   const addResultMapping = () => {
     onUpdate({
       resultMappings: [...(action.resultMappings || []), { column: '', variable: '' }],
@@ -249,6 +244,7 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
   const needsSearch = ['search_rows', 'search_and_update', 'search_or_append'].includes(action.operation);
   const needsRowIndex = ['update_row'].includes(action.operation);
   const needsResultMapping = ['search_rows', 'read_rows', 'search_and_update', 'search_or_append'].includes(action.operation);
+  const autoSavedVars = AUTO_SAVED_VARS[action.operation] || [];
 
   if (connected === false) {
     return (
@@ -445,9 +441,12 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
                   <TextInputWithVariables
                     value={action.searchValue || ''}
                     onChange={(val) => onUpdate({ searchValue: val })}
-                    placeholder="ערך לחיפוש (ניתן להשתמש ב-{{משתנה}})"
+                    placeholder="ערך לחיפוש"
                     className="w-full p-2 border border-blue-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-300"
                   />
+                  <p className="text-[10px] text-blue-500 mt-1">
+                    💡 הקלד {'{'} כדי להוסיף משתנה
+                  </p>
                 </div>
               )}
             </div>
@@ -464,7 +463,7 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
                 className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-300"
               />
               <p className="text-xs text-gray-400 mt-1">
-                ניתן להשתמש במשתנה שהגדרת בחיפוש קודם (לדוגמה: {'{{row_index}}'})
+                💡 הקלד {'{'} כדי להוסיף משתנה
               </p>
             </div>
           )}
@@ -476,7 +475,7 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
                 <label className="text-sm font-medium text-gray-700">מיפוי עמודות</label>
                 <button
                   onClick={addColumnMapping}
-                  className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 font-medium"
+                  className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 font-medium px-2 py-1 bg-green-100 hover:bg-green-200 rounded-lg"
                 >
                   <Plus className="w-3 h-3" />
                   הוסף
@@ -494,7 +493,7 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
                   <select
                     value={mapping.column || ''}
                     onChange={(e) => updateColumnMapping(i, { column: e.target.value })}
-                    className="flex-1 p-1.5 border border-gray-200 rounded text-sm bg-white"
+                    className="w-32 p-1.5 border border-gray-200 rounded text-sm bg-white"
                   >
                     <option value="">עמודה...</option>
                     {headers.map((h, hi) => (
@@ -505,19 +504,19 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
                   <TextInputWithVariables
                     value={mapping.value || ''}
                     onChange={(val) => updateColumnMapping(i, { value: val })}
-                    placeholder="ערך / {{משתנה}}"
+                    placeholder="ערך"
                     className="flex-1 p-1.5 border border-gray-200 rounded text-sm"
+                    compact
                   />
                   <button
                     onClick={() => removeColumnMapping(i)}
-                    className="p-1 hover:bg-red-100 rounded text-red-400 hover:text-red-600"
+                    className="p-1.5 hover:bg-red-100 rounded text-red-400 hover:text-red-600"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
               ))}
 
-              {/* Quick-add all columns button */}
               {headers.length > 0 && (action.columnMappings || []).length === 0 && (
                 <button
                   onClick={() => {
@@ -543,7 +542,7 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
                 </div>
                 <button
                   onClick={addResultMapping}
-                  className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-700 font-medium"
+                  className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-700 font-medium px-2 py-1 bg-purple-100 hover:bg-purple-200 rounded-lg"
                 >
                   <Plus className="w-3 h-3" />
                   הוסף
@@ -559,7 +558,7 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
                   <select
                     value={mapping.column || ''}
                     onChange={(e) => updateResultMapping(i, { column: e.target.value })}
-                    className="flex-1 p-1.5 border border-purple-200 rounded text-xs bg-purple-50"
+                    className="w-28 p-1.5 border border-purple-200 rounded text-xs bg-purple-50"
                   >
                     <option value="">עמודה...</option>
                     {headers.map((h, hi) => (
@@ -571,111 +570,51 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
                     type="text"
                     value={mapping.variable || ''}
                     onChange={(e) => updateResultMapping(i, { variable: e.target.value })}
-                    placeholder="שם משתנה (באנגלית)"
+                    placeholder="שם משתנה"
                     className="flex-1 p-1.5 border border-purple-200 rounded text-xs"
                     dir="ltr"
                   />
-                  <input
-                    type="text"
-                    value={mapping.label || ''}
-                    onChange={(e) => updateResultMapping(i, { label: e.target.value })}
-                    placeholder="תווית (בעברית)"
-                    className="flex-1 p-1.5 border border-purple-200 rounded text-xs"
-                  />
                   <button
                     onClick={() => removeResultMapping(i)}
-                    className="p-1 hover:bg-red-100 rounded text-red-400 hover:text-red-600"
+                    className="p-1.5 hover:bg-red-100 rounded text-red-400 hover:text-red-600"
                   >
-                    <Trash2 className="w-3 h-3" />
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Built-in Results Mappings */}
+          {/* Auto-saved Variables Info */}
           {action.sheetName && (
-            <div className="bg-amber-50 rounded-lg p-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Settings2 className="w-4 h-4 text-amber-600" />
-                  <span className="text-sm font-medium text-amber-800">שמירת תוצאות מובנות</span>
-                </div>
-                <button
-                  onClick={() => {
-                    const mappings = action.builtInMappings || [];
-                    onUpdate({ builtInMappings: [...mappings, { field: 'found', varName: '', label: '' }] });
-                  }}
-                  className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700 px-2 py-1 bg-amber-100 hover:bg-amber-200 rounded-lg transition-colors"
-                >
-                  <Plus className="w-3 h-3" />
-                  הוסף
-                </button>
+            <div className="bg-amber-50 rounded-lg p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-amber-600" />
+                <span className="text-sm font-medium text-amber-800">משתנים שנשמרים אוטומטית</span>
               </div>
               
-              {(action.builtInMappings || []).length === 0 ? (
-                <p className="text-xs text-amber-600">
-                  לחץ "הוסף" לשמור תוצאות כמו נמצא/לא נמצא, מספר שורה וכו׳
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {(action.builtInMappings || []).map((mapping, mIndex) => (
-                    <div key={mIndex} className="flex items-center gap-2 bg-white rounded-lg p-2 border border-amber-200">
-                      <select
-                        value={mapping.field || ''}
-                        onChange={(e) => {
-                          const newMappings = [...(action.builtInMappings || [])];
-                          newMappings[mIndex] = { ...newMappings[mIndex], field: e.target.value };
-                          onUpdate({ builtInMappings: newMappings });
-                        }}
-                        className="flex-1 p-1.5 text-xs border border-amber-200 rounded-lg bg-amber-50"
-                      >
-                        <option value="">בחר שדה...</option>
-                        {BUILTIN_FIELDS.map(f => (
-                          <option key={f.id} value={f.id}>{f.label} ({f.description})</option>
-                        ))}
-                      </select>
-                      <ArrowRight className="w-3 h-3 text-amber-400 flex-shrink-0" />
-                      <input
-                        type="text"
-                        value={mapping.varName || ''}
-                        onChange={(e) => {
-                          const newMappings = [...(action.builtInMappings || [])];
-                          newMappings[mIndex] = { ...newMappings[mIndex], varName: e.target.value };
-                          onUpdate({ builtInMappings: newMappings });
-                        }}
-                        placeholder="שם משתנה (באנגלית)"
-                        className="flex-1 p-1.5 text-xs border border-amber-200 rounded-lg"
-                        dir="ltr"
-                      />
-                      <input
-                        type="text"
-                        value={mapping.label || ''}
-                        onChange={(e) => {
-                          const newMappings = [...(action.builtInMappings || [])];
-                          newMappings[mIndex] = { ...newMappings[mIndex], label: e.target.value };
-                          onUpdate({ builtInMappings: newMappings });
-                        }}
-                        placeholder="תווית (בעברית)"
-                        className="flex-1 p-1.5 text-xs border border-amber-200 rounded-lg"
-                      />
-                      <button
-                        onClick={() => {
-                          const newMappings = (action.builtInMappings || []).filter((_, i) => i !== mIndex);
-                          onUpdate({ builtInMappings: newMappings });
-                        }}
-                        className="p-1 hover:bg-red-100 rounded text-red-400 hover:text-red-600"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div className="flex flex-wrap gap-1.5">
+                {autoSavedVars.map((v, i) => (
+                  <span key={i} className="px-2 py-1 bg-white border border-amber-200 rounded-lg text-xs text-amber-700">
+                    {v}
+                  </span>
+                ))}
+              </div>
               
-              <p className="text-[10px] text-amber-500">
-                💡 שם משתנה באנגלית (לדוגמה: row_found) ותווית בעברית (לדוגמה: נמצאה שורה)
-              </p>
+              <div className="pt-2 border-t border-amber-200 mt-2">
+                <label className="block text-xs text-amber-700 mb-1">קידומת למשתנים (אופציונלי)</label>
+                <input
+                  type="text"
+                  value={action.customVarPrefix || ''}
+                  onChange={(e) => onUpdate({ customVarPrefix: e.target.value })}
+                  placeholder="לדוגמה: sheets_"
+                  className="w-full p-2 border border-amber-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-amber-300"
+                  dir="ltr"
+                />
+                <p className="text-[10px] text-amber-500 mt-1">
+                  אם תגדיר קידומת "my_", המשתנים יישמרו כ-my_found, my_rowIndex וכו׳
+                </p>
+              </div>
             </div>
           )}
         </div>
