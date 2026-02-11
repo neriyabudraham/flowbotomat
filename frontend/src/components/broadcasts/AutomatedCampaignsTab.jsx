@@ -158,21 +158,35 @@ export default function AutomatedCampaignsTab() {
     }
   }, [campaigns]);
   
-  // Auto-refresh campaigns data every 10 seconds when there are running/waiting campaigns
+  // Auto-refresh campaigns data when there are running/waiting campaigns OR campaigns due to run
   useEffect(() => {
-    const hasRunningCampaigns = campaigns.some(c => 
-      c.execution_status === 'running' || c.execution_status === 'waiting'
-    );
+    const now = new Date();
+    const hasActiveOrDueCampaigns = campaigns.some(c => {
+      // Running or waiting - need to refresh to track progress
+      if (c.execution_status === 'running' || c.execution_status === 'waiting') return true;
+      
+      // Campaign is due (past next_run_at) but hasn't started yet - refresh to catch when it starts
+      if (c.is_active && c.next_run_at && new Date(c.next_run_at) <= now && 
+          c.execution_status !== 'completed') return true;
+      
+      // Campaign will be due soon (within 30 seconds) - refresh frequently
+      if (c.is_active && c.next_run_at) {
+        const timeTillRun = new Date(c.next_run_at) - now;
+        if (timeTillRun > 0 && timeTillRun < 30000) return true;
+      }
+      
+      return false;
+    });
     
-    if (hasRunningCampaigns) {
+    if (hasActiveOrDueCampaigns) {
       const refreshInterval = setInterval(() => {
         api.get('/broadcasts/automated').then(res => {
           setCampaigns(res.data.campaigns || []);
         }).catch(console.error);
-      }, 10000); // Refresh every 10 seconds
+      }, 3000); // Refresh every 3 seconds for responsive UI
       return () => clearInterval(refreshInterval);
     }
-  }, [campaigns.map(c => c.execution_status).join(',')]);
+  }, [campaigns.map(c => `${c.execution_status}-${c.next_run_at}`).join(',')]);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });

@@ -73,13 +73,13 @@ cron.schedule('0 10 * * *', async () => {
 
 console.log('📅 Subscription expiry cron jobs scheduled');
 
-// Schedule campaign scheduler - run every 30 seconds for precise timing
+// Schedule campaign scheduler - run every 10 seconds for fast response
 const { startScheduler } = require('./services/broadcasts/scheduler.service');
 
-// Start the scheduler with 30-second interval (more precise than 1-minute cron)
-startScheduler(30000);
+// Start the scheduler with 10-second interval for faster campaign pickup
+startScheduler(10000);
 
-console.log('📅 Campaign scheduler running every 30 seconds');
+console.log('📅 Campaign scheduler running every 10 seconds');
 
 // Schedule cleanup of old pending forward jobs - run every hour
 const { cleanupOldPendingJobs } = require('./controllers/groupForwards/jobs.controller');
