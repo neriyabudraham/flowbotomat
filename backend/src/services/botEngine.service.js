@@ -1435,7 +1435,7 @@ class BotEngine {
         break;
         
       case 'condition':
-        nextHandleId = await this.executeConditionNode(node, contact, message);
+        nextHandleId = await this.executeConditionNode(node, contact, message, userId);
         break;
         
       case 'delay':
@@ -1777,16 +1777,16 @@ class BotEngine {
   }
   
   // Execute condition node
-  async executeConditionNode(node, contact, message) {
+  async executeConditionNode(node, contact, message, userId = null) {
     const data = node.data;
     
     // Support new conditionGroup format or old single condition format
     let result;
     if (data.conditionGroup) {
-      result = await this.evaluateConditionGroup(data.conditionGroup, contact, message);
+      result = await this.evaluateConditionGroup(data.conditionGroup, contact, message, userId);
     } else {
       // Old format - single condition
-      result = await this.evaluateSingleCondition(data, contact, message);
+      result = await this.evaluateSingleCondition(data, contact, message, userId);
     }
     
     console.log('[BotEngine] Condition result:', result);
@@ -1794,7 +1794,7 @@ class BotEngine {
   }
   
   // Evaluate a group of conditions with AND/OR logic
-  async evaluateConditionGroup(group, contact, message) {
+  async evaluateConditionGroup(group, contact, message, userId = null) {
     const conditions = group.conditions || [];
     const logic = group.logic || 'AND';
     
@@ -1803,9 +1803,9 @@ class BotEngine {
     const results = [];
     for (const cond of conditions) {
       if (cond.isGroup) {
-        results.push(await this.evaluateConditionGroup(cond, contact, message));
+        results.push(await this.evaluateConditionGroup(cond, contact, message, userId));
       } else {
-        results.push(await this.evaluateSingleCondition(cond, contact, message));
+        results.push(await this.evaluateSingleCondition(cond, contact, message, userId));
       }
     }
     
@@ -1817,9 +1817,22 @@ class BotEngine {
   }
   
   // Evaluate a single condition
-  async evaluateSingleCondition(condition, contact, message) {
-    const { variable, operator, value, varName, selectedVar } = condition;
+  async evaluateSingleCondition(condition, contact, message, userId = null) {
+    const { variable, operator, value, varName } = condition;
     let checkValue = '';
+    
+    // Resolve value if it contains variables like {{varName}}
+    let resolvedValue = value || '';
+    if (resolvedValue.includes('{{')) {
+      resolvedValue = await this.replaceAllVariables(resolvedValue, contact, message, '', userId);
+    }
+    
+    // Resolve varName if it contains variables
+    let resolvedVarName = varName || '';
+    if (resolvedVarName.includes('{{')) {
+      // Extract just the variable name from {{varName}}
+      resolvedVarName = resolvedVarName.replace(/\{\{|\}\}/g, '').trim();
+    }
     
     // Israel timezone for time checks
     const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
@@ -1858,13 +1871,13 @@ class BotEngine {
         break;
       case 'has_tag':
         // Check if contact has tag
-        if (varName) {
+        if (resolvedVarName) {
           try {
             const tagResult = await db.query(
               `SELECT 1 FROM contact_tags ct 
                JOIN tags t ON ct.tag_id = t.id 
                WHERE ct.contact_id = $1 AND LOWER(t.name) = LOWER($2)`,
-              [contact.id, varName]
+              [contact.id, resolvedVarName]
             );
             checkValue = tagResult.rows.length > 0 ? 'true' : 'false';
           } catch (err) {
@@ -1873,32 +1886,16 @@ class BotEngine {
           }
         }
         break;
-      case 'user_variable':
-        // Get user variable from database using selectedVar
-        if (selectedVar) {
-          try {
-            const varResult = await db.query(
-              'SELECT value FROM contact_variables WHERE contact_id = $1 AND key = $2',
-              [contact.id, selectedVar]
-            );
-            checkValue = varResult.rows[0]?.value || '';
-            console.log(`[BotEngine] Variable ${selectedVar} = "${checkValue}"`);
-          } catch (err) {
-            console.error('[BotEngine] Error getting variable:', err.message);
-            checkValue = '';
-          }
-        }
-        break;
       case 'contact_var':
         // Get contact variable by name
-        if (varName) {
+        if (resolvedVarName) {
           try {
             const varResult = await db.query(
               'SELECT value FROM contact_variables WHERE contact_id = $1 AND key = $2',
-              [contact.id, varName]
+              [contact.id, resolvedVarName]
             );
             checkValue = varResult.rows[0]?.value || '';
-            console.log(`[BotEngine] Variable ${varName} = "${checkValue}"`);
+            console.log(`[BotEngine] Variable ${resolvedVarName} = "${checkValue}"`);
           } catch (err) {
             console.error('[BotEngine] Error getting variable:', err.message);
             checkValue = '';
@@ -1911,7 +1908,9 @@ class BotEngine {
     
     // Check condition
     const lowerCheck = (checkValue || '').toLowerCase();
-    const lowerValue = (value || '').toLowerCase();
+    const lowerValue = (resolvedValue || '').toLowerCase();
+    
+    console.log(`[BotEngine] Condition: "${checkValue}" ${operator} "${resolvedValue}"`);
     
     switch (operator) {
       case 'equals':
@@ -1927,13 +1926,13 @@ class BotEngine {
       case 'ends_with':
         return lowerCheck.endsWith(lowerValue);
       case 'greater_than':
-        return parseFloat(checkValue) > parseFloat(value);
+        return parseFloat(checkValue) > parseFloat(resolvedValue);
       case 'less_than':
-        return parseFloat(checkValue) < parseFloat(value);
+        return parseFloat(checkValue) < parseFloat(resolvedValue);
       case 'greater_or_equal':
-        return parseFloat(checkValue) >= parseFloat(value);
+        return parseFloat(checkValue) >= parseFloat(resolvedValue);
       case 'less_or_equal':
-        return parseFloat(checkValue) <= parseFloat(value);
+        return parseFloat(checkValue) <= parseFloat(resolvedValue);
       case 'is_empty':
         return (checkValue || '').trim() === '';
       case 'is_not_empty':
@@ -1944,7 +1943,7 @@ class BotEngine {
         return checkValue === 'false' || checkValue === false || checkValue === '';
       case 'matches_regex':
         try {
-          return new RegExp(value, 'i').test(checkValue);
+          return new RegExp(resolvedValue, 'i').test(checkValue);
         } catch {
           return false;
         }
