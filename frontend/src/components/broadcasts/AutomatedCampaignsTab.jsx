@@ -142,18 +142,37 @@ export default function AutomatedCampaignsTab() {
     fetchAll();
   }, []);
 
-  // Real-time countdown ticker - updates every second when there are active campaigns with upcoming runs
+  // Real-time ticker - updates every second for active campaigns
   useEffect(() => {
-    const hasUpcoming = campaigns.some(c => 
-      c.is_active && c.next_run_at && c.schedule_type !== 'manual' &&
-      (new Date(c.next_run_at) - new Date()) < 3600000 // Less than 1 hour away
+    const hasActiveCampaigns = campaigns.some(c => 
+      c.is_active && (
+        c.execution_status === 'running' || 
+        c.execution_status === 'waiting' ||
+        (c.next_run_at && (new Date(c.next_run_at) - new Date()) < 3600000)
+      )
     );
     
-    if (hasUpcoming) {
+    if (hasActiveCampaigns) {
       const interval = setInterval(() => setTick(t => t + 1), 1000);
       return () => clearInterval(interval);
     }
   }, [campaigns]);
+  
+  // Auto-refresh campaigns data every 10 seconds when there are running/waiting campaigns
+  useEffect(() => {
+    const hasRunningCampaigns = campaigns.some(c => 
+      c.execution_status === 'running' || c.execution_status === 'waiting'
+    );
+    
+    if (hasRunningCampaigns) {
+      const refreshInterval = setInterval(() => {
+        api.get('/broadcasts/automated').then(res => {
+          setCampaigns(res.data.campaigns || []);
+        }).catch(console.error);
+      }, 10000); // Refresh every 10 seconds
+      return () => clearInterval(refreshInterval);
+    }
+  }, [campaigns.map(c => c.execution_status).join(',')]);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -522,54 +541,68 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
   const scheduleConfig = SCHEDULE_TYPES[campaign.schedule_type] || SCHEDULE_TYPES.manual;
   const ScheduleIcon = scheduleConfig.icon;
   
-  // Get execution status display
-  const getExecutionStatusBadge = () => {
-    const status = campaign.execution_status || 'idle';
-    const currentStep = campaign.current_step || 0;
-    const totalSteps = campaign.steps_count || 0;
-    
-    switch (status) {
-      case 'running':
-        return (
-          <div className="flex items-center gap-2 text-blue-600 bg-blue-50 rounded-lg px-3 py-2 text-sm font-medium">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span>פועל - שלב {currentStep + 1} מתוך {totalSteps}</span>
-          </div>
-        );
-      case 'waiting':
-        return (
-          <div className="flex items-center gap-2 text-amber-600 bg-amber-50 rounded-lg px-3 py-2 text-sm font-medium">
-            <Timer className="w-4 h-4" />
-            <span>ממתין - השלב הבא: {(campaign.paused_at_step || 0) + 1}</span>
-            {campaign.resume_at && (
-              <span className="text-xs">({formatResumeTime(campaign.resume_at)})</span>
-            )}
-          </div>
-        );
-      case 'completed':
-        return (
-          <div className="flex items-center gap-2 text-green-600 bg-green-50 rounded-lg px-3 py-2 text-sm font-medium">
-            <CheckCircle className="w-4 h-4" />
-            <span>הושלם - כל {totalSteps} השלבים בוצעו</span>
-          </div>
-        );
-      default:
-        return null;
+  const status = campaign.execution_status || 'idle';
+  const currentStep = campaign.current_step || 0;
+  const totalSteps = campaign.steps_count || 0;
+  const pausedAtStep = campaign.paused_at_step || 0;
+  
+  // Calculate overall progress percentage
+  const getProgressPercent = () => {
+    if (totalSteps === 0) return 0;
+    if (status === 'completed') return 100;
+    if (status === 'running') {
+      // Currently executing step currentStep
+      return Math.round((currentStep / totalSteps) * 100);
     }
+    if (status === 'waiting') {
+      // Waiting before step pausedAtStep
+      // Show progress as completed steps / total, with partial progress for current wait
+      const completedSteps = pausedAtStep > 0 ? pausedAtStep - 1 : 0;
+      return Math.round((completedSteps / totalSteps) * 100);
+    }
+    return 0;
   };
   
-  // Format resume time
-  const formatResumeTime = (resumeAt) => {
+  // Format resume time with real-time countdown
+  const formatResumeTimeRealtime = (resumeAt) => {
     const date = new Date(resumeAt);
     const now = new Date();
     const diff = date - now;
     
-    if (diff < 0) return 'מיד';
-    if (diff < 60000) return 'פחות מדקה';
-    if (diff < 3600000) return `עוד ${Math.round(diff / 60000)} דקות`;
-    if (diff < 86400000) return `עוד ${Math.round(diff / 3600000)} שעות`;
-    return `עוד ${Math.round(diff / 86400000)} ימים`;
+    if (diff <= 0) return 'מיד';
+    
+    const days = Math.floor(diff / 86400000);
+    const hours = Math.floor((diff % 86400000) / 3600000);
+    const minutes = Math.floor((diff % 3600000) / 60000);
+    const seconds = Math.floor((diff % 60000) / 1000);
+    
+    if (days > 0) {
+      return `${days} ימים ${hours} שעות`;
+    }
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
+  
+  // Get status info
+  const getStatusInfo = () => {
+    switch (status) {
+      case 'running':
+        return { color: 'blue', label: 'פועל', icon: Loader2 };
+      case 'waiting':
+        return { color: 'amber', label: 'ממתין', icon: Timer };
+      case 'completed':
+        return { color: 'green', label: 'הושלם', icon: CheckCircle };
+      default:
+        return campaign.is_active 
+          ? { color: 'green', label: 'פעיל', icon: CheckCircle }
+          : { color: 'gray', label: 'כבוי', icon: null };
+    }
+  };
+  
+  const statusInfo = getStatusInfo();
+  const progressPercent = getProgressPercent();
   
   return (
     <div 
@@ -638,7 +671,7 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
         <div className="flex items-center gap-3 mb-3">
           <div className="flex items-center gap-2 text-gray-600 bg-gray-50 rounded-lg px-3 py-2 flex-1">
             <Hash className="w-4 h-4" />
-            <span className="font-bold">{campaign.steps_count || 0}</span>
+            <span className="font-bold">{totalSteps}</span>
             <span className="text-sm text-gray-500">שלבים</span>
           </div>
           <div className="flex items-center gap-2 text-gray-600 bg-gray-50 rounded-lg px-3 py-2 flex-1">
@@ -648,14 +681,68 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
           </div>
         </div>
 
-        {/* Execution Status */}
-        {getExecutionStatusBadge()}
+        {/* Real-time Progress Bar - for running/waiting/completed campaigns */}
+        {(status === 'running' || status === 'waiting' || status === 'completed') && totalSteps > 0 && (
+          <div className={`rounded-lg p-3 mb-3 ${
+            status === 'running' ? 'bg-blue-50' :
+            status === 'waiting' ? 'bg-amber-50' :
+            'bg-green-50'
+          }`}>
+            {/* Progress info */}
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                {status === 'running' && <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />}
+                {status === 'waiting' && <Timer className="w-4 h-4 text-amber-600" />}
+                {status === 'completed' && <CheckCircle className="w-4 h-4 text-green-600" />}
+                <span className={`text-sm font-medium ${
+                  status === 'running' ? 'text-blue-700' :
+                  status === 'waiting' ? 'text-amber-700' :
+                  'text-green-700'
+                }`}>
+                  {status === 'running' && `מבצע שלב ${currentStep + 1} מתוך ${totalSteps}`}
+                  {status === 'waiting' && `ממתין לשלב ${pausedAtStep + 1} מתוך ${totalSteps}`}
+                  {status === 'completed' && `הושלם - ${totalSteps} שלבים`}
+                </span>
+              </div>
+              <span className={`text-lg font-bold ${
+                status === 'running' ? 'text-blue-600' :
+                status === 'waiting' ? 'text-amber-600' :
+                'text-green-600'
+              }`}>
+                {progressPercent}%
+              </span>
+            </div>
+            
+            {/* Progress bar */}
+            <div className="h-2 bg-white rounded-full overflow-hidden">
+              <div 
+                className={`h-full rounded-full transition-all duration-500 ${
+                  status === 'running' ? 'bg-gradient-to-r from-blue-500 to-blue-400' :
+                  status === 'waiting' ? 'bg-gradient-to-r from-amber-500 to-amber-400' :
+                  'bg-gradient-to-r from-green-500 to-green-400'
+                }`}
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+            
+            {/* Real-time countdown for waiting */}
+            {status === 'waiting' && campaign.resume_at && (
+              <div className="mt-2 flex items-center justify-center gap-2 text-amber-700">
+                <Clock className="w-4 h-4" />
+                <span className="text-sm">השלב הבא בעוד:</span>
+                <span className="font-mono font-bold text-base">
+                  {formatResumeTimeRealtime(campaign.resume_at)}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Next Run - Only show if idle and not completed */}
-        {campaign.execution_status !== 'running' && campaign.execution_status !== 'waiting' && campaign.execution_status !== 'completed' &&
+        {status !== 'running' && status !== 'waiting' && status !== 'completed' &&
          ((campaign.schedule_type !== 'manual' && campaign.is_active && campaign.next_run_at) || 
           (campaign.schedule_type === 'manual' && campaign.scheduled_start_at && campaign.next_run_at && campaign.is_active)) && (
-          <div className="flex items-center gap-2 text-orange-600 bg-orange-50 rounded-lg px-3 py-2 text-sm font-medium mt-3">
+          <div className="flex items-center gap-2 text-orange-600 bg-orange-50 rounded-lg px-3 py-2 text-sm font-medium">
             <Timer className="w-4 h-4" />
             {formatNextRun(campaign.next_run_at, campaign.schedule_type, campaign.scheduled_start_at)}
             {campaign.schedule_type === 'manual' && campaign.scheduled_start_at && (
