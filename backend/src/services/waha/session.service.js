@@ -137,10 +137,14 @@ async function findSessionByEmail(baseUrl, apiKey, email) {
 async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
   const client = createClient(baseUrl, apiKey);
   
+  console.log(`[WAHA] addWebhook called for session ${sessionName}, url: ${webhookUrl}, requested events: ${events.length}`);
+  
   // Get current session config
   const sessionInfo = await client.get(`/api/sessions/${sessionName}`);
   const currentConfig = sessionInfo.data?.config || {};
   const currentWebhooks = currentConfig.webhooks || [];
+  
+  console.log(`[WAHA] Current webhooks count: ${currentWebhooks.length}`);
   
   // Check if webhook already exists
   const existingIndex = currentWebhooks.findIndex(wh => wh.url === webhookUrl);
@@ -149,15 +153,18 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
   if (existingIndex >= 0) {
     // Webhook exists - check if events need updating
     const existingEvents = currentWebhooks[existingIndex].events || [];
+    console.log(`[WAHA] Found existing webhook at index ${existingIndex} with ${existingEvents.length} events`);
+    
     const missingEvents = events.filter(e => !existingEvents.includes(e));
     
     if (missingEvents.length === 0) {
-      console.log(`[WAHA] Webhook already exists with correct events: ${webhookUrl}`);
+      console.log(`[WAHA] ✓ Webhook already has all ${events.length} events - no update needed`);
       return sessionInfo.data;
     }
     
     // Update existing webhook with new events
-    console.log(`[WAHA] Updating webhook events, adding: ${missingEvents.join(', ')}`);
+    console.log(`[WAHA] ⚠️ Missing ${missingEvents.length} events: ${missingEvents.join(', ')}`);
+    console.log(`[WAHA] Updating webhook to have all ${events.length} events...`);
     updatedWebhooks = [...currentWebhooks];
     updatedWebhooks[existingIndex] = {
       ...updatedWebhooks[existingIndex],
@@ -165,6 +172,7 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
     };
   } else {
     // Add new webhook
+    console.log(`[WAHA] Webhook not found, creating new one with ${events.length} events...`);
     updatedWebhooks = [
       ...currentWebhooks,
       {
@@ -187,7 +195,7 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
     },
   });
   
-  console.log(`[WAHA] Webhook added. Total: ${updatedWebhooks.length}`);
+  console.log(`[WAHA] ✅ Webhook updated successfully. Total webhooks: ${updatedWebhooks.length}`);
   return response.data;
 }
 
