@@ -1526,7 +1526,7 @@ function CampaignEditor({ campaign, audiences, templates, allCampaigns, onClose,
       {showCreateAudience && (
         <AudienceEditorModal
           onClose={() => setShowCreateAudience(false)}
-          onSave={handleAudienceCreated}
+          onCreated={handleAudienceCreated}
         />
       )}
     </div>

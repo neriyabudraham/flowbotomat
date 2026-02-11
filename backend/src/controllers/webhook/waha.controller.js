@@ -229,7 +229,11 @@ async function handleWebhook(req, res) {
     const event = req.body;
     
     // Quick check if user exists (skip for frequent events to reduce DB load)
-    const silentEvents = ['message', 'message.ack', 'message.any', 'message.reaction', 'poll.vote', 'poll.vote.failed', 'call.received', 'call.rejected', 'call.accepted'];
+    const silentEvents = [
+      'message', 'message.ack', 'message.any', 'message.reaction', 'message.ack.group',
+      'message.waiting', 'poll.vote', 'poll.vote.failed', 'call.received', 'call.rejected', 
+      'call.accepted', 'presence.update'
+    ];
     if (!silentEvents.includes(event.event)) {
       console.log(`[Webhook] User: ${userId}, Event: ${event.event}`);
     }
