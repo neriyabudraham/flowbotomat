@@ -1,187 +1,344 @@
 import { useState } from 'react';
-import { X, ChevronDown, ChevronUp, Play, Check, AlertCircle, Loader2, FileSpreadsheet, Users } from 'lucide-react';
+import { X, GripVertical, ChevronDown, ChevronUp, Play, Check, AlertCircle, Loader2, FileSpreadsheet, Users } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 import GoogleSheetsEditor from './GoogleSheetsEditor';
 import GoogleContactsEditor from './GoogleContactsEditor';
 import api from '../../../../services/api';
 
-export default function IntegrationEditor({ data, onUpdate }) {
-  const [activeSection, setActiveSection] = useState(null); // 'api' | 'sheets' | 'contacts'
-  
-  // Data for each section
-  const apiData = data.api || { method: 'GET', apiUrl: '', headers: [], body: '', bodyParams: [], mappings: [] };
-  const sheetsData = data.sheets || { actions: [] };
-  const contactsData = data.contacts || { actions: [] };
-  
-  // Check if configured
-  const hasApi = !!apiData.apiUrl;
-  const hasSheets = sheetsData.actions?.length > 0;
-  const hasContacts = contactsData.actions?.length > 0;
+const integrationTypes = [
+  { id: 'http_request', label: 'קריאת API', icon: '📡', color: 'orange' },
+  { id: 'google_sheets', label: 'Google Sheets', icon: '📊', color: 'green' },
+  { id: 'google_contacts', label: 'Google Contacts', icon: '👥', color: 'blue' },
+];
 
-  const toggleSection = (section) => {
-    setActiveSection(activeSection === section ? null : section);
+const colorClasses = {
+  orange: { bg: 'bg-orange-50', hover: 'hover:bg-orange-100', text: 'text-orange-700', border: 'border-orange-200', button: 'bg-orange-600 hover:bg-orange-700' },
+  green: { bg: 'bg-green-50', hover: 'hover:bg-green-100', text: 'text-green-700', border: 'border-green-200', button: 'bg-green-600 hover:bg-green-700' },
+  blue: { bg: 'bg-blue-50', hover: 'hover:bg-blue-100', text: 'text-blue-700', border: 'border-blue-200', button: 'bg-blue-600 hover:bg-blue-700' },
+};
+
+export default function IntegrationEditor({ data, onUpdate }) {
+  const actions = data.actions || [];
+  const [dragIndex, setDragIndex] = useState(null);
+
+  const addAction = (type) => {
+    let newAction;
+    if (type === 'http_request') {
+      newAction = { type: 'http_request', method: 'GET', apiUrl: '', headers: [], body: '', bodyParams: [], mappings: [] };
+    } else if (type === 'google_sheets') {
+      newAction = { type: 'google_sheets', actions: [] };
+    } else if (type === 'google_contacts') {
+      newAction = { type: 'google_contacts', actions: [] };
+    }
+    onUpdate({ actions: [...actions, newAction] });
+  };
+
+  const removeAction = (index) => {
+    onUpdate({ actions: actions.filter((_, i) => i !== index) });
+  };
+
+  const updateAction = (index, updates) => {
+    const newActions = [...actions];
+    newActions[index] = { ...newActions[index], ...updates };
+    onUpdate({ actions: newActions });
+  };
+
+  const handleDragStart = (index) => setDragIndex(index);
+  
+  const handleDragOver = (e, index) => {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === index) return;
+    const newActions = [...actions];
+    const [removed] = newActions.splice(dragIndex, 1);
+    newActions.splice(index, 0, removed);
+    onUpdate({ actions: newActions });
+    setDragIndex(index);
   };
 
   return (
-    <div className="space-y-3">
-      {/* API Card */}
-      <div className={`rounded-xl border overflow-hidden transition-all ${
-        activeSection === 'api' ? 'border-orange-300 shadow-sm' : 'border-orange-200'
-      }`}>
-        <button
-          onClick={() => toggleSection('api')}
-          className={`w-full flex items-center gap-3 p-4 transition-all ${
-            activeSection === 'api' ? 'bg-orange-100' : 'bg-orange-50 hover:bg-orange-100'
-          }`}
-        >
-          <span className="text-2xl">📡</span>
-          <div className="flex-1 text-right">
-            <span className="font-medium text-orange-800">קריאת API</span>
-            {hasApi && (
-              <p className="text-xs text-orange-600 truncate" dir="ltr">
-                {apiData.method} {apiData.apiUrl}
-              </p>
-            )}
+    <div className="space-y-4">
+      {/* Current Actions */}
+      {actions.length > 0 ? (
+        <div className="space-y-3">
+          {actions.map((action, index) => (
+            <div
+              key={index}
+              draggable
+              onDragStart={() => handleDragStart(index)}
+              onDragOver={(e) => handleDragOver(e, index)}
+              onDragEnd={() => setDragIndex(null)}
+              className={`transition-opacity ${dragIndex === index ? 'opacity-50' : ''}`}
+            >
+              <IntegrationItem
+                action={action}
+                onUpdate={(updates) => updateAction(index, updates)}
+                onRemove={() => removeAction(index)}
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-8 px-4 bg-gradient-to-b from-amber-50/50 to-white rounded-2xl border-2 border-dashed border-amber-200">
+          <div className="w-14 h-14 bg-amber-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <span className="text-2xl">🔗</span>
           </div>
-          {hasApi && <Check className="w-5 h-5 text-orange-600" />}
-          {activeSection === 'api' ? (
-            <ChevronUp className="w-5 h-5 text-orange-400" />
-          ) : (
-            <ChevronDown className="w-5 h-5 text-orange-400" />
-          )}
-        </button>
-        
-        {activeSection === 'api' && (
-          <div className="p-4 bg-white border-t border-orange-100">
-            <ApiEditor 
-              data={apiData} 
-              onUpdate={(updates) => onUpdate({ ...data, api: { ...apiData, ...updates } })} 
-            />
-          </div>
-        )}
-      </div>
+          <p className="text-gray-700 font-medium mb-1">אין אינטגרציות עדיין</p>
+          <p className="text-sm text-gray-500">בחר אינטגרציה מהאפשרויות למטה</p>
+        </div>
+      )}
 
-      {/* Google Sheets Card */}
-      <div className={`rounded-xl border overflow-hidden transition-all ${
-        activeSection === 'sheets' ? 'border-green-300 shadow-sm' : 'border-green-200'
-      }`}>
-        <button
-          onClick={() => toggleSection('sheets')}
-          className={`w-full flex items-center gap-3 p-4 transition-all ${
-            activeSection === 'sheets' ? 'bg-green-100' : 'bg-green-50 hover:bg-green-100'
-          }`}
-        >
-          <FileSpreadsheet className="w-6 h-6 text-green-600" />
-          <div className="flex-1 text-right">
-            <span className="font-medium text-green-800">Google Sheets</span>
-            {hasSheets && (
-              <p className="text-xs text-green-600">
-                {sheetsData.actions.length} פעולות
-              </p>
-            )}
-          </div>
-          {hasSheets && <Check className="w-5 h-5 text-green-600" />}
-          {activeSection === 'sheets' ? (
-            <ChevronUp className="w-5 h-5 text-green-400" />
-          ) : (
-            <ChevronDown className="w-5 h-5 text-green-400" />
-          )}
-        </button>
-        
-        {activeSection === 'sheets' && (
-          <div className="p-4 bg-white border-t border-green-100">
-            <GoogleSheetsEditor 
-              data={sheetsData} 
-              onUpdate={(updates) => onUpdate({ ...data, sheets: updates })} 
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Google Contacts Card */}
-      <div className={`rounded-xl border overflow-hidden transition-all ${
-        activeSection === 'contacts' ? 'border-blue-300 shadow-sm' : 'border-blue-200'
-      }`}>
-        <button
-          onClick={() => toggleSection('contacts')}
-          className={`w-full flex items-center gap-3 p-4 transition-all ${
-            activeSection === 'contacts' ? 'bg-blue-100' : 'bg-blue-50 hover:bg-blue-100'
-          }`}
-        >
-          <Users className="w-6 h-6 text-blue-600" />
-          <div className="flex-1 text-right">
-            <span className="font-medium text-blue-800">Google Contacts</span>
-            {hasContacts && (
-              <p className="text-xs text-blue-600">
-                {contactsData.actions.length} פעולות
-              </p>
-            )}
-          </div>
-          {hasContacts && <Check className="w-5 h-5 text-blue-600" />}
-          {activeSection === 'contacts' ? (
-            <ChevronUp className="w-5 h-5 text-blue-400" />
-          ) : (
-            <ChevronDown className="w-5 h-5 text-blue-400" />
-          )}
-        </button>
-        
-        {activeSection === 'contacts' && (
-          <div className="p-4 bg-white border-t border-blue-100">
-            <GoogleContactsEditor 
-              data={contactsData} 
-              onUpdate={(updates) => onUpdate({ ...data, contacts: updates })} 
-            />
-          </div>
-        )}
+      {/* Add Integration Options */}
+      <div className={actions.length > 0 ? "border-t border-gray-100 pt-4" : ""}>
+        <p className="text-sm font-medium text-gray-600 mb-3">הוסף אינטגרציה</p>
+        <div className="grid grid-cols-1 gap-2">
+          {integrationTypes.map(({ id, label, icon, color }) => {
+            const colors = colorClasses[color];
+            return (
+              <button
+                key={id}
+                onClick={() => addAction(id)}
+                className={`flex items-center gap-3 p-3 ${colors.bg} ${colors.hover} rounded-xl transition-all text-sm border ${colors.border} hover:shadow-sm`}
+              >
+                <span className="text-xl">{icon}</span>
+                <span className={`font-medium ${colors.text}`}>{label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
 }
 
-// Inline API Editor
-function ApiEditor({ data, onUpdate }) {
-  const [showHeaders, setShowHeaders] = useState(false);
-  const [showBody, setShowBody] = useState(false);
-  const [showMapping, setShowMapping] = useState(false);
+function IntegrationItem({ action, onUpdate, onRemove }) {
+  const [showModal, setShowModal] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
+  
+  const actionType = action.type || 'http_request';
+  const typeInfo = integrationTypes.find(t => t.id === actionType) || integrationTypes[0];
+  const colors = colorClasses[typeInfo.color];
+
+  // Get description based on type
+  const getDescription = () => {
+    if (actionType === 'http_request') {
+      return action.apiUrl ? `${action.method || 'GET'} ${action.apiUrl}` : '';
+    }
+    if (actionType === 'google_sheets') {
+      const subActions = action.actions || [];
+      if (subActions.length === 0) return 'לחץ להגדרה';
+      return subActions.map(a => {
+        switch (a.operation) {
+          case 'read': return 'קריאה';
+          case 'add': case 'append_row': return 'הוספה';
+          case 'update': return 'עדכון';
+          case 'search': case 'search_rows': return 'חיפוש';
+          case 'search_update': return 'חיפוש ועדכון';
+          case 'search_or_add': return 'חיפוש או הוספה';
+          default: return a.operation;
+        }
+      }).join(', ');
+    }
+    if (actionType === 'google_contacts') {
+      const subActions = action.actions || [];
+      if (subActions.length === 0) return 'לחץ להגדרה';
+      return subActions.map(a => {
+        switch (a.operation) {
+          case 'check_exists': return 'בדיקה';
+          case 'search_contact': return 'חיפוש';
+          case 'create_contact': return 'יצירה';
+          case 'find_or_create': return 'מצא/צור';
+          case 'add_to_label': return 'תווית';
+          default: return a.operation;
+        }
+      }).join(', ');
+    }
+    return '';
+  };
+
+  return (
+    <div className={`rounded-xl border ${colors.border} overflow-hidden transition-all`}>
+      {/* Header */}
+      <div className={`flex items-center gap-3 px-4 py-3 ${colors.bg}`}>
+        <div className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500">
+          <GripVertical className="w-4 h-4" />
+        </div>
+        <span className="text-xl">{typeInfo.icon}</span>
+        <div className="flex-1 min-w-0">
+          <span className={`font-medium text-sm ${colors.text}`}>{typeInfo.label}</span>
+          {getDescription() && (
+            <p className="text-[10px] text-gray-500 truncate" dir={actionType === 'http_request' ? 'ltr' : 'rtl'}>
+              {getDescription()}
+            </p>
+          )}
+        </div>
+        
+        {/* For API - open modal, for others - toggle expand */}
+        {actionType === 'http_request' ? (
+          <button 
+            onClick={() => setShowModal(true)}
+            className={`px-3 py-1 text-xs ${colors.button} text-white rounded-lg`}
+          >
+            הגדרות
+          </button>
+        ) : (
+          <button 
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="p-1.5 hover:bg-white/50 rounded-lg transition-colors"
+          >
+            {isExpanded ? (
+              <ChevronUp className="w-4 h-4 text-gray-400" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-gray-400" />
+            )}
+          </button>
+        )}
+        
+        <button 
+          onClick={onRemove} 
+          className="p-1.5 hover:bg-red-100 rounded-lg transition-colors group"
+        >
+          <X className="w-4 h-4 text-gray-400 group-hover:text-red-500" />
+        </button>
+      </div>
+      
+      {/* Content - inline editor for Sheets/Contacts */}
+      {actionType !== 'http_request' && isExpanded && (
+        <div className="p-4 bg-white border-t border-gray-100">
+          {actionType === 'google_sheets' && (
+            <GoogleSheetsEditor 
+              data={{ actions: action.actions || [] }} 
+              onUpdate={(updates) => onUpdate({ ...action, actions: updates.actions })}
+            />
+          )}
+          {actionType === 'google_contacts' && (
+            <GoogleContactsEditor 
+              data={{ actions: action.actions || [] }} 
+              onUpdate={(updates) => onUpdate({ ...action, actions: updates.actions })}
+            />
+          )}
+        </div>
+      )}
+      
+      {/* API Modal */}
+      {showModal && (
+        <ApiRequestModal action={action} onUpdate={onUpdate} onClose={() => setShowModal(false)} />
+      )}
+    </div>
+  );
+}
+
+// Full API Request Modal - the complete one
+function ApiRequestModal({ action, onUpdate, onClose }) {
+  const [showHeaders, setShowHeaders] = useState(true);
+  const [showBody, setShowBody] = useState(true);
+  const [showMapping, setShowMapping] = useState(true);
   const [testResult, setTestResult] = useState(null);
   const [isTesting, setIsTesting] = useState(false);
+  const [draggedPath, setDraggedPath] = useState(null);
   
-  const headers = data.headers || [];
-  const bodyParams = data.bodyParams || [];
-  const mappings = data.mappings || [];
+  const headers = action.headers || [];
+  const bodyParams = action.bodyParams || [];
+  const mappings = action.mappings || [];
+  
+  const addHeader = () => {
+    onUpdate({ headers: [...headers, { key: '', value: '' }] });
+  };
+  
+  const updateHeader = (index, field, value) => {
+    const newHeaders = [...headers];
+    newHeaders[index] = { ...newHeaders[index], [field]: value };
+    onUpdate({ headers: newHeaders });
+  };
+  
+  const removeHeader = (index) => {
+    onUpdate({ headers: headers.filter((_, i) => i !== index) });
+  };
+
+  const addBodyParam = () => {
+    onUpdate({ bodyParams: [...bodyParams, { key: '', value: '' }] });
+  };
+  
+  const updateBodyParam = (index, field, value) => {
+    const newParams = [...bodyParams];
+    newParams[index] = { ...newParams[index], [field]: value };
+    onUpdate({ bodyParams: newParams });
+  };
+  
+  const removeBodyParam = (index) => {
+    onUpdate({ bodyParams: bodyParams.filter((_, i) => i !== index) });
+  };
+  
+  const addMapping = (path = '', varName = '') => {
+    onUpdate({ mappings: [...mappings, { path, varName: varName || path.split('.').pop() || '' }] });
+  };
+  
+  const updateMapping = (index, field, value) => {
+    const newMappings = [...mappings];
+    newMappings[index] = { ...newMappings[index], [field]: value };
+    onUpdate({ mappings: newMappings });
+  };
+  
+  const removeMapping = (index) => {
+    onUpdate({ mappings: mappings.filter((_, i) => i !== index) });
+  };
+  
+  // Build body from params for testing
+  const buildBodyFromParams = () => {
+    if (action.bodyMode === 'keyvalue' && bodyParams.length > 0) {
+      const obj = {};
+      bodyParams.forEach(p => {
+        if (p.key) obj[p.key] = p.value;
+      });
+      return obj;
+    }
+    if (action.body) {
+      try {
+        return JSON.parse(action.body);
+      } catch {
+        return action.body;
+      }
+    }
+    return undefined;
+  };
 
   const testApiCall = async () => {
-    if (!data.apiUrl) return;
+    if (!action.apiUrl) return;
+    
     setIsTesting(true);
     setTestResult(null);
     
     try {
-      const bodyData = data.bodyMode === 'keyvalue' && bodyParams.length > 0
-        ? bodyParams.reduce((obj, p) => p.key ? { ...obj, [p.key]: p.value } : obj, {})
-        : data.body ? (() => { try { return JSON.parse(data.body); } catch { return data.body; } })() : undefined;
-        
+      const bodyData = buildBodyFromParams();
       const res = await api.post('/utils/test-api', {
-        method: data.method || 'GET',
-        url: data.apiUrl,
+        method: action.method || 'GET',
+        url: action.apiUrl,
         headers: headers.reduce((acc, h) => h.key ? { ...acc, [h.key]: h.value } : acc, {}),
         body: bodyData
       });
       
-      let responseData = res.data.data;
-      if (typeof responseData === 'string') {
-        try { responseData = JSON.parse(responseData); } catch { responseData = { _raw: responseData }; }
+      // Handle HTML or non-JSON response
+      let data = res.data.data;
+      if (typeof data === 'string') {
+        try {
+          data = JSON.parse(data);
+        } catch {
+          data = { _raw_response: data, _type: 'html_or_text' };
+        }
       }
-      setTestResult({ success: true, status: res.data.status, data: responseData });
+      
+      setTestResult({ success: true, status: res.data.status, data });
     } catch (err) {
       setTestResult({ success: false, error: err.response?.data?.error || err.message });
     }
+    
     setIsTesting(false);
   };
-
-  // Extract paths from response
+  
+  // Extract all paths from response data
   const extractPaths = (obj, prefix = '') => {
     const paths = [];
     if (typeof obj !== 'object' || obj === null) return paths;
+    
     for (const key of Object.keys(obj)) {
       const path = prefix ? `${prefix}.${key}` : key;
       paths.push({ path, value: obj[key] });
@@ -191,206 +348,394 @@ function ApiEditor({ data, onUpdate }) {
     }
     return paths;
   };
-
+  
   const availablePaths = testResult?.success ? extractPaths(testResult.data) : [];
+  
+  // Drag handlers for mapping
+  const handleDragStart = (path) => {
+    setDraggedPath(path);
+  };
+
+  const handleDrop = (e, targetIndex) => {
+    e.preventDefault();
+    if (draggedPath) {
+      updateMapping(targetIndex, 'path', draggedPath);
+      setDraggedPath(null);
+    }
+  };
 
   return (
-    <div className="space-y-4">
-      {/* Method & URL */}
-      <div className="flex gap-2">
-        <select
-          value={data.method || 'GET'}
-          onChange={(e) => onUpdate({ method: e.target.value })}
-          className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium"
-        >
-          <option value="GET">GET</option>
-          <option value="POST">POST</option>
-          <option value="PUT">PUT</option>
-          <option value="PATCH">PATCH</option>
-          <option value="DELETE">DELETE</option>
-        </select>
-        <TextInputWithVariables
-          value={data.apiUrl || ''}
-          onChange={(v) => onUpdate({ apiUrl: v })}
-          placeholder="https://api.example.com/endpoint"
-          className="flex-1"
-          dir="ltr"
-          compact
-        />
-      </div>
-
-      {/* Headers */}
-      <div className="border border-gray-200 rounded-lg">
-        <button
-          onClick={() => setShowHeaders(!showHeaders)}
-          className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium hover:bg-gray-50"
-        >
-          <span>Headers {headers.length > 0 && `(${headers.length})`}</span>
-          {showHeaders ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-        </button>
-        {showHeaders && (
-          <div className="p-3 border-t border-gray-100 space-y-2">
-            {headers.map((h, i) => (
-              <div key={i} className="flex gap-2">
-                <input
-                  value={h.key}
-                  onChange={(e) => {
-                    const newHeaders = [...headers];
-                    newHeaders[i] = { ...h, key: e.target.value };
-                    onUpdate({ headers: newHeaders });
-                  }}
-                  placeholder="Header"
-                  className="w-28 px-2 py-1.5 border rounded text-sm"
-                  dir="ltr"
-                />
-                <TextInputWithVariables
-                  value={h.value}
-                  onChange={(v) => {
-                    const newHeaders = [...headers];
-                    newHeaders[i] = { ...h, value: v };
-                    onUpdate({ headers: newHeaders });
-                  }}
-                  placeholder="Value"
-                  className="flex-1"
-                  dir="ltr"
-                  compact
-                />
-                <button onClick={() => onUpdate({ headers: headers.filter((_, idx) => idx !== i) })} className="text-red-500 px-2">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-            <button
-              onClick={() => onUpdate({ headers: [...headers, { key: '', value: '' }] })}
-              className="text-sm text-orange-600 hover:underline"
-            >
-              + הוסף Header
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Body */}
-      {['POST', 'PUT', 'PATCH'].includes(data.method) && (
-        <div className="border border-gray-200 rounded-lg">
-          <button
-            onClick={() => setShowBody(!showBody)}
-            className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium hover:bg-gray-50"
-          >
-            <span>Body</span>
-            {showBody ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </button>
-          {showBody && (
-            <div className="p-3 border-t border-gray-100">
-              <TextInputWithVariables
-                value={data.body || ''}
-                onChange={(v) => onUpdate({ body: v })}
-                placeholder='{"key": "value"}'
-                multiline
-                rows={4}
-                dir="ltr"
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Test Button */}
-      <button
-        onClick={testApiCall}
-        disabled={!data.apiUrl || isTesting}
-        className="w-full py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
-      >
-        {isTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-        בדיקת API
-      </button>
-
-      {/* Test Result */}
-      {testResult && (
-        <div className={`p-3 rounded-lg text-sm ${testResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-          {testResult.success ? (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-orange-50 to-amber-50">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">📡</span>
             <div>
-              <div className="flex items-center gap-2 font-medium text-green-700">
-                <Check className="w-4 h-4" />
-                הצלחה! סטטוס: {testResult.status}
+              <h2 className="text-lg font-bold text-gray-800">הגדרת קריאת API</h2>
+              <p className="text-sm text-gray-500">הגדר את פרטי הקריאה, בדוק ומפה תגובות</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/50 rounded-lg transition-colors">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-6">
+          <div className="grid grid-cols-2 gap-6">
+            {/* Left Column - Request */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-gray-700 flex items-center gap-2">
+                <span className="w-6 h-6 bg-orange-100 text-orange-700 rounded-full flex items-center justify-center text-xs">1</span>
+                הגדרת הבקשה
+              </h3>
+              
+              {/* Method & URL */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-600">Method & URL</label>
+                <div className="flex gap-2">
+                  <select
+                    value={action.method || 'GET'}
+                    onChange={(e) => onUpdate({ method: e.target.value })}
+                    className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-orange-200 focus:border-orange-400 outline-none"
+                  >
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="PATCH">PATCH</option>
+                    <option value="DELETE">DELETE</option>
+                  </select>
+                  <TextInputWithVariables
+                    value={action.apiUrl || ''}
+                    onChange={(v) => onUpdate({ apiUrl: v })}
+                    placeholder="https://api.example.com/endpoint - הקלד { למשתנים"
+                    className="flex-1"
+                    dir="ltr"
+                    compact
+                  />
+                </div>
               </div>
-              <pre className="mt-2 text-xs overflow-auto max-h-32 bg-white/50 p-2 rounded" dir="ltr">
-                {JSON.stringify(testResult.data, null, 2)}
-              </pre>
-              {availablePaths.length > 0 && (
-                <div className="mt-2 text-xs text-gray-600">
-                  <p className="mb-1">לחץ להוספת מיפוי:</p>
-                  <div className="flex flex-wrap gap-1">
-                    {availablePaths.slice(0, 10).map(({ path }) => (
-                      <button
-                        key={path}
-                        onClick={() => onUpdate({ mappings: [...mappings, { path, varName: path.split('.').pop() }] })}
-                        className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded hover:bg-orange-200"
-                      >
-                        {path}
-                      </button>
-                    ))}
+              
+              {/* Headers */}
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowHeaders(!showHeaders)}
+                  className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 text-sm font-medium"
+                >
+                  <span>Headers</span>
+                  <div className="flex items-center gap-2">
+                    {headers.length > 0 && (
+                      <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs rounded-full">{headers.length}</span>
+                    )}
+                    {showHeaders ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   </div>
+                </button>
+                
+                {showHeaders && (
+                  <div className="p-4 space-y-2 bg-white">
+                    {headers.map((header, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={header.key}
+                          onChange={(e) => updateHeader(i, 'key', e.target.value)}
+                          placeholder="Header Name"
+                          className="w-[120px] px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm flex-shrink-0"
+                          dir="ltr"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <TextInputWithVariables
+                            value={header.value}
+                            onChange={(v) => updateHeader(i, 'value', v)}
+                            placeholder="Value - הקלד { למשתנים"
+                            dir="ltr"
+                            compact
+                            className="bg-gray-50"
+                          />
+                        </div>
+                        <button 
+                          type="button"
+                          onClick={() => removeHeader(i)} 
+                          className="flex-shrink-0 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={addHeader}
+                      className="w-full py-2 text-sm text-orange-600 hover:bg-orange-50 rounded-lg border border-dashed border-orange-200"
+                    >
+                      + הוסף Header
+                    </button>
+                  </div>
+                )}
+              </div>
+              
+              {/* Body */}
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowBody(!showBody)}
+                  className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 text-sm font-medium"
+                >
+                  <div className="flex items-center gap-2">
+                    <span>Body</span>
+                    {!['POST', 'PUT', 'PATCH'].includes(action.method || 'GET') && (
+                      <span className="text-xs text-gray-400">(זמין ב-POST/PUT/PATCH)</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onUpdate({ bodyMode: 'json' }); }}
+                        className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                          (action.bodyMode || 'json') === 'json' ? 'bg-white shadow text-gray-700' : 'text-gray-500'
+                        }`}
+                      >
+                        JSON
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onUpdate({ bodyMode: 'keyvalue' }); }}
+                        className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                          action.bodyMode === 'keyvalue' ? 'bg-white shadow text-gray-700' : 'text-gray-500'
+                        }`}
+                      >
+                        Key-Value
+                      </button>
+                    </div>
+                    {showBody ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </div>
+                </button>
+                
+                {showBody && (
+                  <div className="p-4 space-y-3 bg-white">
+                    {!['POST', 'PUT', 'PATCH'].includes(action.method || 'GET') && (
+                      <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded-lg">
+                        💡 Body יישלח רק בבקשות POST, PUT או PATCH
+                      </p>
+                    )}
+                    
+                    {(action.bodyMode || 'json') === 'json' ? (
+                      <div className="space-y-2">
+                        <TextInputWithVariables
+                          value={action.body || ''}
+                          onChange={(v) => onUpdate({ body: v })}
+                          placeholder={'{\n  "name": "{{contact_name}}",\n  "phone": "{{phone}}"\n}'}
+                          multiline
+                          rows={6}
+                          dir="ltr"
+                        />
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {bodyParams.map((param, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={param.key}
+                              onChange={(e) => updateBodyParam(i, 'key', e.target.value)}
+                              placeholder="Key"
+                              className="w-[100px] px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm flex-shrink-0"
+                              dir="ltr"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <TextInputWithVariables
+                                value={param.value}
+                                onChange={(v) => updateBodyParam(i, 'value', v)}
+                                placeholder="Value - הקלד { למשתנים"
+                                dir="ltr"
+                                compact
+                                className="bg-gray-50"
+                              />
+                            </div>
+                            <button 
+                              type="button"
+                              onClick={() => removeBodyParam(i)}
+                              className="flex-shrink-0 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={addBodyParam}
+                          className="w-full py-2 text-sm text-orange-600 hover:bg-orange-50 rounded-lg border border-dashed border-orange-200"
+                        >
+                          + הוסף פרמטר
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              
+              {/* Test Button */}
+              <button
+                onClick={testApiCall}
+                disabled={!action.apiUrl || isTesting}
+                className="w-full flex items-center justify-center gap-2 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-medium disabled:opacity-50 transition-colors"
+              >
+                {isTesting ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    שולח בקשה...
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-5 h-5" />
+                    בדיקת API
+                  </>
+                )}
+              </button>
+            </div>
+            
+            {/* Right Column - Response & Mapping */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-gray-700 flex items-center gap-2">
+                <span className="w-6 h-6 bg-purple-100 text-purple-700 rounded-full flex items-center justify-center text-xs">2</span>
+                תגובה ומיפוי
+              </h3>
+              
+              {/* Test Result */}
+              {testResult && (
+                <div className={`rounded-xl overflow-hidden ${testResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                  <div className="flex items-center gap-2 px-4 py-3 border-b border-inherit">
+                    {testResult.success ? (
+                      <>
+                        <Check className="w-5 h-5 text-green-600" />
+                        <span className="font-medium text-green-700">הצלחה! סטטוס: {testResult.status}</span>
+                        <button
+                          onClick={() => addMapping('_full_response', 'api_response')}
+                          className="mr-auto px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                        >
+                          מפה תגובה מלאה
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle className="w-5 h-5 text-red-600" />
+                        <span className="font-medium text-red-700">שגיאה: {testResult.error}</span>
+                      </>
+                    )}
+                  </div>
+                  
+                  {testResult.success && testResult.data && (
+                    <div className="p-3">
+                      <p className="text-xs text-gray-500 mb-2">גרור שדות למיפוי או לחץ להוספה:</p>
+                      <div className="max-h-48 overflow-auto bg-white/50 rounded-lg p-2">
+                        {availablePaths.map(({ path, value }) => (
+                          <div
+                            key={path}
+                            draggable
+                            onDragStart={() => handleDragStart(path)}
+                            onClick={() => addMapping(path)}
+                            className="flex items-center justify-between py-1.5 px-2 hover:bg-orange-50 rounded cursor-grab active:cursor-grabbing text-xs font-mono border-b border-gray-100 last:border-0"
+                          >
+                            <span className="text-orange-600">{path}</span>
+                            <span className="text-gray-400 truncate max-w-[150px]" dir="ltr">
+                              {typeof value === 'object' ? '{...}' : String(value).substring(0, 30)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-red-700">
-              <AlertCircle className="w-4 h-4" />
-              שגיאה: {testResult.error}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Mappings */}
-      <div className="border border-gray-200 rounded-lg">
-        <button
-          onClick={() => setShowMapping(!showMapping)}
-          className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium hover:bg-gray-50"
-        >
-          <span>שמירה למשתנים {mappings.length > 0 && `(${mappings.length})`}</span>
-          {showMapping ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-        </button>
-        {showMapping && (
-          <div className="p-3 border-t border-gray-100 space-y-2">
-            {mappings.map((m, i) => (
-              <div key={i} className="flex gap-2 items-center">
-                <input
-                  value={m.path}
-                  onChange={(e) => {
-                    const newMappings = [...mappings];
-                    newMappings[i] = { ...m, path: e.target.value };
-                    onUpdate({ mappings: newMappings });
-                  }}
-                  placeholder="data.field"
-                  className="flex-1 px-2 py-1.5 border rounded text-sm"
-                  dir="ltr"
-                />
-                <span className="text-gray-400">→</span>
-                <input
-                  value={m.varName}
-                  onChange={(e) => {
-                    const newMappings = [...mappings];
-                    newMappings[i] = { ...m, varName: e.target.value };
-                    onUpdate({ mappings: newMappings });
-                  }}
-                  placeholder="שם_משתנה"
-                  className="flex-1 px-2 py-1.5 border rounded text-sm"
-                />
-                <button onClick={() => onUpdate({ mappings: mappings.filter((_, idx) => idx !== i) })} className="text-red-500 px-1">
-                  <X className="w-4 h-4" />
+              
+              {!testResult && (
+                <div className="bg-gray-50 rounded-xl p-8 text-center border-2 border-dashed border-gray-200">
+                  <div className="text-4xl mb-2">🧪</div>
+                  <p className="text-gray-500 text-sm">הרץ בדיקת API כדי לראות את התגובה</p>
+                </div>
+              )}
+              
+              {/* Response Mapping */}
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <button
+                  onClick={() => setShowMapping(!showMapping)}
+                  className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 text-sm font-medium"
+                >
+                  <span>מיפוי תגובה למשתנים</span>
+                  <div className="flex items-center gap-2">
+                    {mappings.length > 0 && (
+                      <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">{mappings.length}</span>
+                    )}
+                    {showMapping ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </div>
                 </button>
+                
+                {showMapping && (
+                  <div className="p-4 space-y-3 bg-white">
+                    {mappings.map((mapping, i) => (
+                      <div 
+                        key={i} 
+                        className="flex items-center gap-2"
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => handleDrop(e, i)}
+                      >
+                        <input
+                          type="text"
+                          value={mapping.path}
+                          onChange={(e) => updateMapping(i, 'path', e.target.value)}
+                          placeholder="data.user.name או _full_response"
+                          className="w-[160px] px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-mono"
+                          dir="ltr"
+                        />
+                        <span className="text-gray-400 font-bold flex-shrink-0">→</span>
+                        <input
+                          type="text"
+                          value={mapping.varName}
+                          onChange={(e) => updateMapping(i, 'varName', e.target.value)}
+                          placeholder="שם_המשתנה"
+                          className="flex-1 min-w-0 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                        />
+                        <button 
+                          type="button"
+                          onClick={() => removeMapping(i)} 
+                          className="flex-shrink-0 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                    
+                    <button
+                      type="button"
+                      onClick={() => addMapping()}
+                      className="w-full py-2 text-sm text-purple-600 hover:bg-purple-50 rounded-lg border border-dashed border-purple-200"
+                    >
+                      + הוסף מיפוי ידני
+                    </button>
+                    
+                    {mappings.length > 0 && (
+                      <p className="text-xs text-gray-400">
+                        השתמש ב-_full_response למיפוי כל התגובה. המשתנים יישמרו לאיש הקשר.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
-            ))}
-            <button
-              onClick={() => onUpdate({ mappings: [...mappings, { path: '', varName: '' }] })}
-              className="text-sm text-orange-600 hover:underline"
-            >
-              + הוסף מיפוי
-            </button>
+            </div>
           </div>
-        )}
+        </div>
+        
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="px-6 py-2.5 bg-orange-600 text-white rounded-xl font-medium hover:bg-orange-700 transition-colors"
+          >
+            סגור
+          </button>
+        </div>
       </div>
     </div>
   );
