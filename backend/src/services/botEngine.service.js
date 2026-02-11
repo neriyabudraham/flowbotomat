@@ -1821,16 +1821,18 @@ class BotEngine {
     const { variable, operator, value, varName } = condition;
     let checkValue = '';
     
+    console.log(`[BotEngine] Evaluating condition: variable=${variable}, varName="${varName}", value="${value}"`);
+    
     // Resolve value if it contains variables like {{varName}}
     let resolvedValue = value || '';
     if (resolvedValue.includes('{{')) {
       resolvedValue = await this.replaceAllVariables(resolvedValue, contact, message, '', userId);
     }
     
-    // Resolve varName if it contains variables
+    // Resolve varName if it contains variables (for has_tag)
     let resolvedVarName = varName || '';
     if (resolvedVarName.includes('{{')) {
-      // Extract just the variable name from {{varName}}
+      // Extract just the variable name from {{varName}} for tag checks
       resolvedVarName = resolvedVarName.replace(/\{\{|\}\}/g, '').trim();
     }
     
@@ -1887,18 +1889,25 @@ class BotEngine {
         }
         break;
       case 'contact_var':
-        // Get contact variable by name
-        if (resolvedVarName) {
-          try {
-            const varResult = await db.query(
-              'SELECT value FROM contact_variables WHERE contact_id = $1 AND key = $2',
-              [contact.id, resolvedVarName]
-            );
-            checkValue = varResult.rows[0]?.value || '';
-            console.log(`[BotEngine] Variable ${resolvedVarName} = "${checkValue}"`);
-          } catch (err) {
-            console.error('[BotEngine] Error getting variable:', err.message);
-            checkValue = '';
+        // Get variable value - support both {{varName}} syntax and plain variable names
+        if (varName) {
+          // If it contains {{...}}, resolve it using replaceAllVariables
+          if (varName.includes('{{')) {
+            checkValue = await this.replaceAllVariables(varName, contact, message, '', userId);
+            console.log(`[BotEngine] Variable ${varName} = "${checkValue}"`);
+          } else {
+            // Plain variable name - query from contact_variables table
+            try {
+              const varResult = await db.query(
+                'SELECT value FROM contact_variables WHERE contact_id = $1 AND key = $2',
+                [contact.id, varName]
+              );
+              checkValue = varResult.rows[0]?.value || '';
+              console.log(`[BotEngine] Variable ${varName} = "${checkValue}"`);
+            } catch (err) {
+              console.error('[BotEngine] Error getting variable:', err.message);
+              checkValue = '';
+            }
           }
         }
         break;
