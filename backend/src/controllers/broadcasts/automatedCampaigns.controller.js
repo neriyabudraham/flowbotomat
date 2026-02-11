@@ -83,6 +83,9 @@ async function ensureTables() {
   await db.query(`ALTER TABLE automated_campaign_steps ADD COLUMN IF NOT EXISTS send_time TIME`);
   await db.query(`ALTER TABLE automated_campaign_steps ADD COLUMN IF NOT EXISTS trigger_campaign_id UUID`);
   
+  // Add scheduled_start_at for manual campaigns with scheduled start
+  await db.query(`ALTER TABLE automated_campaigns ADD COLUMN IF NOT EXISTS scheduled_start_at TIMESTAMP`);
+  
   await db.query(`
     CREATE TABLE IF NOT EXISTS automated_campaign_runs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -353,6 +356,7 @@ const CAMPAIGN_SELECT_FIELDS = `
   ac.audience_id, ac.current_step, ac.total_sent,
   to_char(ac.next_run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as next_run_at,
   to_char(ac.last_run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_run_at,
+  to_char(ac.scheduled_start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as scheduled_start_at,
   to_char(ac.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
   to_char(ac.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
 `;
@@ -439,7 +443,8 @@ async function createAutomatedCampaign(req, res) {
       schedule_config, 
       send_time,
       settings,
-      steps 
+      steps,
+      scheduled_start_at  // For manual campaigns with scheduled start
     } = req.body;
     
     if (!name) {
@@ -454,15 +459,30 @@ async function createAutomatedCampaign(req, res) {
     const israelNow = await getNowInIsraelFromDB();
     
     // Calculate next run (returns Israel time string or null)
-    const nextRunIsrael = calculateNextRun(schedule_type, schedule_config || {}, send_time, israelNow);
+    let nextRunIsrael = calculateNextRun(schedule_type, schedule_config || {}, send_time, israelNow);
+    
+    // For manual campaigns with scheduled start, use the scheduled_start_at
+    let isActiveByDefault = false;
+    if (schedule_type === 'manual' && scheduled_start_at) {
+      // scheduled_start_at is in ISO format from frontend, convert to Israel time string
+      const startDate = new Date(scheduled_start_at);
+      const year = startDate.getFullYear();
+      const month = String(startDate.getMonth() + 1).padStart(2, '0');
+      const day = String(startDate.getDate()).padStart(2, '0');
+      const hours = String(startDate.getHours()).padStart(2, '0');
+      const minutes = String(startDate.getMinutes()).padStart(2, '0');
+      nextRunIsrael = `${year}-${month}-${day} ${hours}:${minutes}:00`;
+      isActiveByDefault = true;  // Auto-activate scheduled campaigns
+      console.log(`[AutomatedCampaigns] Manual campaign with scheduled start: ${nextRunIsrael}`);
+    }
     
     // Create campaign (without next_run_at - we'll set it separately)
     const result = await db.query(`
       INSERT INTO automated_campaigns 
-      (user_id, name, description, schedule_type, schedule_config, send_time, settings)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      (user_id, name, description, schedule_type, schedule_config, send_time, settings, scheduled_start_at, is_active)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING id
-    `, [userId, name, description, schedule_type, schedule_config || {}, send_time || '09:00', settings || {}]);
+    `, [userId, name, description, schedule_type, schedule_config || {}, send_time || '09:00', settings || {}, scheduled_start_at || null, isActiveByDefault]);
     
     const campaignId = result.rows[0].id;
     
@@ -520,23 +540,40 @@ async function updateAutomatedCampaign(req, res) {
       schedule_config, 
       send_time,
       settings,
-      steps 
+      steps,
+      scheduled_start_at  // For manual campaigns with scheduled start
     } = req.body;
     
     // Get current Israel time from PostgreSQL
     const israelNow = await getNowInIsraelFromDB();
     
     // Calculate new next run (returns Israel time string or null)
-    const nextRunIsrael = calculateNextRun(schedule_type, schedule_config || {}, send_time, israelNow);
+    let nextRunIsrael = calculateNextRun(schedule_type, schedule_config || {}, send_time, israelNow);
+    
+    // For manual campaigns with scheduled start, use the scheduled_start_at
+    let shouldActivate = false;
+    if (schedule_type === 'manual' && scheduled_start_at) {
+      const startDate = new Date(scheduled_start_at);
+      const year = startDate.getFullYear();
+      const month = String(startDate.getMonth() + 1).padStart(2, '0');
+      const day = String(startDate.getDate()).padStart(2, '0');
+      const hours = String(startDate.getHours()).padStart(2, '0');
+      const minutes = String(startDate.getMinutes()).padStart(2, '0');
+      nextRunIsrael = `${year}-${month}-${day} ${hours}:${minutes}:00`;
+      shouldActivate = true;
+      console.log(`[AutomatedCampaigns] Manual campaign with scheduled start: ${nextRunIsrael}`);
+    }
     
     // Update campaign (without next_run_at - we'll set it separately)
     const updateResult = await db.query(`
       UPDATE automated_campaigns
       SET name = $1, description = $2, schedule_type = $3, schedule_config = $4, 
-          send_time = $5, settings = $6, updated_at = NOW()
-      WHERE id = $7 AND user_id = $8
+          send_time = $5, settings = $6, scheduled_start_at = $7, 
+          is_active = CASE WHEN $8 THEN true ELSE is_active END,
+          updated_at = NOW()
+      WHERE id = $9 AND user_id = $10
       RETURNING id
-    `, [name, description, schedule_type, schedule_config || {}, send_time || '09:00', settings || {}, id, userId]);
+    `, [name, description, schedule_type, schedule_config || {}, send_time || '09:00', settings || {}, scheduled_start_at || null, shouldActivate, id, userId]);
     
     if (updateResult.rows.length === 0) {
       return res.status(404).json({ error: 'קמפיין לא נמצא' });

@@ -229,8 +229,8 @@ export default function AutomatedCampaignsTab() {
     setRunningAction(null);
   };
 
-  const formatNextRun = (nextRunAt, scheduleType) => {
-    if (scheduleType === 'manual') return 'הפעלה ידנית';
+  const formatNextRun = (nextRunAt, scheduleType, scheduledStartAt) => {
+    if (scheduleType === 'manual' && !scheduledStartAt && !nextRunAt) return 'הפעלה ידנית';
     if (!nextRunAt) return 'לא מתוזמן';
     
     const date = new Date(nextRunAt);
@@ -577,10 +577,14 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
         </div>
 
         {/* Next Run */}
-        {campaign.schedule_type !== 'manual' && campaign.is_active && campaign.next_run_at && (
+        {((campaign.schedule_type !== 'manual' && campaign.is_active && campaign.next_run_at) || 
+          (campaign.schedule_type === 'manual' && campaign.scheduled_start_at && campaign.next_run_at && campaign.is_active)) && (
           <div className="flex items-center gap-2 text-orange-600 bg-orange-50 rounded-lg px-3 py-2 text-sm font-medium">
             <Timer className="w-4 h-4" />
-            {formatNextRun(campaign.next_run_at, campaign.schedule_type)}
+            {formatNextRun(campaign.next_run_at, campaign.schedule_type, campaign.scheduled_start_at)}
+            {campaign.schedule_type === 'manual' && campaign.scheduled_start_at && (
+              <span className="text-xs text-orange-500">(הפעלה מתוזמנת)</span>
+            )}
           </div>
         )}
       </div>
@@ -600,7 +604,7 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
           הרץ עכשיו
         </button>
         
-        {campaign.schedule_type !== 'manual' && (
+        {(campaign.schedule_type !== 'manual' || campaign.scheduled_start_at) && (
           <button
             onClick={() => onToggle(campaign)}
             disabled={runningAction?.startsWith('toggle')}
@@ -852,6 +856,7 @@ function CampaignEditor({ campaign, audiences, templates, allCampaigns, onClose,
     schedule_type: campaign?.schedule_type || 'manual',
     schedule_config: campaign?.schedule_config || { value: 1, unit: 'days', day_times: {}, date_times: {} },
     send_time: campaign?.send_time?.substring(0, 5) || '09:00',
+    scheduled_start_at: campaign?.scheduled_start_at || '',  // For manual campaigns with scheduled start
     settings: campaign?.settings || {
       delay_between_messages: 2,
       delay_unit: 'seconds',
@@ -1143,6 +1148,49 @@ function CampaignEditor({ campaign, audiences, templates, allCampaigns, onClose,
                 </button>
               ))}
             </div>
+
+            {/* Scheduled Start for Manual Campaigns */}
+            {form.schedule_type === 'manual' && (
+              <div className="bg-white rounded-xl p-4 border border-gray-200 space-y-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="use_scheduled_start"
+                    checked={!!form.scheduled_start_at}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        // Set default to next Saturday at 20:00
+                        const now = new Date();
+                        const daysUntilSaturday = (6 - now.getDay() + 7) % 7 || 7;
+                        const nextSat = new Date(now);
+                        nextSat.setDate(now.getDate() + daysUntilSaturday);
+                        nextSat.setHours(20, 0, 0, 0);
+                        setForm(prev => ({ ...prev, scheduled_start_at: nextSat.toISOString().slice(0, 16) }));
+                      } else {
+                        setForm(prev => ({ ...prev, scheduled_start_at: '' }));
+                      }
+                    }}
+                    className="w-4 h-4 text-orange-500 rounded border-gray-300 focus:ring-orange-500"
+                  />
+                  <label htmlFor="use_scheduled_start" className="text-sm font-medium text-gray-700">
+                    הפעלה אוטומטית בתאריך מסוים
+                  </label>
+                </div>
+                {form.scheduled_start_at && (
+                  <div className="pr-6 space-y-2">
+                    <p className="text-xs text-gray-500">
+                      הקמפיין יופעל אוטומטית בתאריך ובשעה שתבחר, ואז ימשיך לפי השלבים שהגדרת (הודעה, המתנה, הודעה וכו')
+                    </p>
+                    <input
+                      type="datetime-local"
+                      value={form.scheduled_start_at}
+                      onChange={(e) => setForm(prev => ({ ...prev, scheduled_start_at: e.target.value }))}
+                      className="px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-200 text-sm"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Schedule Config */}
             {form.schedule_type !== 'manual' && (
