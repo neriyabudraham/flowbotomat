@@ -850,13 +850,30 @@ function CampaignStatsModal({ campaign, runs, loadingRuns, onClose, onRefresh, f
  * Campaign Editor Component
  */
 function CampaignEditor({ campaign, audiences, templates, allCampaigns, onClose, onSave, onRefreshData, showToast }) {
+  // Format scheduled_start_at for datetime-local input (needs YYYY-MM-DDTHH:MM format)
+  const formatScheduledStart = (isoString) => {
+    if (!isoString) return '';
+    try {
+      const date = new Date(isoString);
+      // Format to local datetime-local format
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      return `${year}-${month}-${day}T${hours}:${minutes}`;
+    } catch (e) {
+      return '';
+    }
+  };
+
   const [form, setForm] = useState({
     name: campaign?.name || '',
     description: campaign?.description || '',
     schedule_type: campaign?.schedule_type || 'manual',
     schedule_config: campaign?.schedule_config || { value: 1, unit: 'days', day_times: {}, date_times: {} },
     send_time: campaign?.send_time?.substring(0, 5) || '09:00',
-    scheduled_start_at: campaign?.scheduled_start_at || '',  // For manual campaigns with scheduled start
+    scheduled_start_at: formatScheduledStart(campaign?.scheduled_start_at),  // For manual campaigns with scheduled start
     settings: campaign?.settings || {
       delay_between_messages: 2,
       delay_unit: 'seconds',
