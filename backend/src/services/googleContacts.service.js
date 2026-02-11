@@ -146,6 +146,28 @@ async function getAuthenticatedClient(userId) {
 }
 
 /**
+ * Get total contacts count
+ */
+async function getTotalContactsCount(userId) {
+  try {
+    const google = getGoogle();
+    const auth = await getAuthenticatedClient(userId);
+    const people = google.people({ version: 'v1', auth });
+    
+    const response = await people.people.connections.list({
+      resourceName: 'people/me',
+      pageSize: 1,
+      personFields: 'metadata',
+    });
+    
+    return response.data.totalPeople || 0;
+  } catch (error) {
+    console.error('[GoogleContacts] Error getting contacts count:', error.message);
+    return null;
+  }
+}
+
+/**
  * Get connection status
  */
 async function getConnectionStatus(userId) {
@@ -160,11 +182,28 @@ async function getConnectionStatus(userId) {
   }
   
   const row = result.rows[0];
+  
+  if (row.status !== 'connected') {
+    return {
+      connected: false,
+      email: row.account_email,
+      name: row.account_name,
+    };
+  }
+  
+  // Get contacts count to check limit
+  const totalContacts = await getTotalContactsCount(userId);
+  const GOOGLE_CONTACTS_LIMIT = 25000;
+  
   return {
-    connected: row.status === 'connected',
+    connected: true,
     email: row.account_email,
     name: row.account_name,
     updatedAt: row.updated_at,
+    totalContacts,
+    contactsLimit: GOOGLE_CONTACTS_LIMIT,
+    isAtLimit: totalContacts !== null && totalContacts >= GOOGLE_CONTACTS_LIMIT,
+    isNearLimit: totalContacts !== null && totalContacts >= (GOOGLE_CONTACTS_LIMIT * 0.9), // 90% = 22,500
   };
 }
 

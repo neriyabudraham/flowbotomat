@@ -5,7 +5,7 @@ import {
   CreditCard, Crown, Check, Eye, EyeOff, Sparkles, ChevronRight,
   Mail, Phone, Building, Palette, Moon, Sun, Languages, Key, Share2,
   Loader2, MessageSquare, Clock, Bot, Hand, Puzzle, ExternalLink,
-  RefreshCw, Unplug, CheckCircle2, XCircle
+  RefreshCw, Unplug, CheckCircle2, XCircle, AlertTriangle
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
@@ -1032,7 +1032,7 @@ export default function SettingsPage() {
                       </div>
                       
                       {googleContactsStatus?.connected && (
-                        <div className="mt-4 pt-4 border-t border-gray-100">
+                        <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
                           <div className="flex items-center gap-6 text-sm text-gray-500">
                             <span className="flex items-center gap-1.5">
                               <Mail className="w-4 h-4" />
@@ -1045,9 +1045,61 @@ export default function SettingsPage() {
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-gray-400 mt-2">
-                            ניתן להשתמש בפעולות Google Contacts בבוטים שלך דרך עורך הבוט
-                          </p>
+                          
+                          {/* Contact count display */}
+                          {googleContactsStatus.totalContacts !== null && (
+                            <div className="flex items-center gap-2 text-sm">
+                              <span className="text-gray-500">
+                                אנשי קשר: {googleContactsStatus.totalContacts?.toLocaleString()} / {googleContactsStatus.contactsLimit?.toLocaleString()}
+                              </span>
+                              {googleContactsStatus.isAtLimit && (
+                                <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded-full font-medium">
+                                  מלא
+                                </span>
+                              )}
+                              {googleContactsStatus.isNearLimit && !googleContactsStatus.isAtLimit && (
+                                <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full font-medium">
+                                  כמעט מלא
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          
+                          {/* Warning if at limit */}
+                          {googleContactsStatus.isAtLimit && (
+                            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                              <div className="flex items-start gap-2">
+                                <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                                <div>
+                                  <p className="text-sm font-medium text-red-800">חשבון Google הגיע למגבלת אנשי קשר</p>
+                                  <p className="text-xs text-red-600 mt-1">
+                                    לא ניתן לשמור אנשי קשר חדשים בחשבון זה. יש למחוק אנשי קשר ישנים או להתחבר לחשבון אחר.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Warning if near limit */}
+                          {googleContactsStatus.isNearLimit && !googleContactsStatus.isAtLimit && (
+                            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                              <div className="flex items-start gap-2">
+                                <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                                <div>
+                                  <p className="text-sm font-medium text-amber-800">חשבון Google כמעט מלא</p>
+                                  <p className="text-xs text-amber-600 mt-1">
+                                    נותרו פחות מ-{((googleContactsStatus.contactsLimit - googleContactsStatus.totalContacts) || 0).toLocaleString()} מקומות פנויים. שקול למחוק אנשי קשר ישנים.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {!googleContactsStatus.isAtLimit && (
+                            <p className="text-xs text-gray-400">
+                              ניתן להשתמש בפעולות Google Contacts בבוטים שלך דרך עורך הבוט
+                            </p>
+                          )}
                         </div>
                       )}
                       
