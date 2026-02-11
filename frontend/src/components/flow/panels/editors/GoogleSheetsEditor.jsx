@@ -454,7 +454,7 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
                 className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-300"
               />
               <p className="text-xs text-gray-400 mt-1">
-                ניתן להשתמש ב-{'{{row_index}}'} שנשמר מחיפוש קודם
+                ניתן להשתמש ב-{'{{גיליון-מספר שורה}}'} שנשמר מחיפוש קודם
               </p>
             </div>
           )}
@@ -573,10 +573,10 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
                 </div>
               ))}
               
-              {/* Auto-save row_index and total_matches */}
+              {/* Auto-saved variables */}
               <div className="border-t border-purple-200 pt-2 mt-2">
                 <p className="text-xs text-purple-400">
-                  משתנים שנשמרים אוטומטית: <code className="bg-purple-100 px-1 rounded">sheets_row_index</code>, <code className="bg-purple-100 px-1 rounded">sheets_total_matches</code>, <code className="bg-purple-100 px-1 rounded">sheets_found</code>
+                  משתנים שנשמרים אוטומטית: <code className="bg-purple-100 px-1 rounded">גיליון-מספר שורה</code>, <code className="bg-purple-100 px-1 rounded">גיליון-סה"כ תוצאות</code>, <code className="bg-purple-100 px-1 rounded">גיליון-נמצא</code>
                 </p>
               </div>
             </div>

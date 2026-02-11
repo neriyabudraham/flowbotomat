@@ -383,39 +383,21 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
             <div className="bg-amber-50 rounded-lg p-3 space-y-2">
               <div className="flex items-center gap-2">
                 <Zap className="w-4 h-4 text-amber-600" />
-                <span className="text-sm font-medium text-amber-800">משתנים שנשמרים</span>
+                <span className="text-sm font-medium text-amber-800">משתנים שנשמרים אוטומטית</span>
               </div>
               
-              <div className="space-y-2 text-xs">
-                <p className="text-amber-600">
-                  משתנים שנשמרים אוטומטית:
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">google_contact_exists</code>
-                  <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">google_contact_id</code>
-                  <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">google_contact_name</code>
-                  <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">google_contact_phone</code>
-                  <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">google_contact_email</code>
-                </div>
+              <div className="flex flex-wrap gap-1.5 text-xs">
+                <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">גוגל-איש קשר קיים</code>
+                <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">גוגל-מזהה איש קשר</code>
+                <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">גוגל-שם איש קשר</code>
+                <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">גוגל-טלפון איש קשר</code>
+                <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">גוגל-אימייל איש קשר</code>
                 {action.operation === 'find_or_create' && (
-                  <p className="text-amber-500 mt-1">
-                    <code className="bg-amber-100 px-1 rounded">google_contact_action</code> = "found" או "created"
-                  </p>
+                  <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">גוגל-פעולה</code>
                 )}
               </div>
             </div>
           )}
-
-          {/* Help text per operation */}
-          <div className="text-xs text-gray-400 pt-2 border-t border-gray-100">
-            {action.operation === 'check_exists' && 'בודק אם איש קשר קיים ושומר את התוצאה במשתנה google_contact_exists'}
-            {action.operation === 'search_contact' && 'מחפש איש קשר ושומר את הפרטים שלו למשתנים'}
-            {action.operation === 'create_contact' && 'יוצר איש קשר חדש בגוגל עם הפרטים שהוגדרו'}
-            {action.operation === 'update_contact' && 'מעדכן את פרטי איש הקשר שנמצא בחיפוש'}
-            {action.operation === 'find_or_create' && 'מחפש לפי טלפון - אם לא נמצא, יוצר חדש'}
-            {action.operation === 'add_to_label' && 'מוסיף את איש הקשר שנמצא לתווית שנבחרה'}
-            {action.operation === 'remove_from_label' && 'מסיר את איש הקשר מהתווית שנבחרה'}
-          </div>
         </div>
       )}
     </div>
