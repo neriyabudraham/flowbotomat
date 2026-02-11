@@ -2707,26 +2707,40 @@ class BotEngine {
     }
   }
   
-  // Execute integration node (API requests)
+  // Execute integration node (API, Google Sheets, Google Contacts)
   async executeIntegrationNode(node, contact, userId) {
-    const actions = node.data?.actions || [];
-    console.log(`[BotEngine] Integration node has ${actions.length} action(s)`);
+    const data = node.data || {};
     
-    for (let i = 0; i < actions.length; i++) {
-      const action = actions[i];
+    // Execute API if configured
+    if (data.api?.apiUrl) {
+      console.log(`[BotEngine] Executing API request: ${data.api.method || 'GET'} ${data.api.apiUrl}`);
+      await this.executeHttpRequest(data.api, contact);
+    }
+    
+    // Execute Google Sheets if configured
+    if (data.sheets?.actions?.length > 0) {
+      console.log(`[BotEngine] Executing Google Sheets with ${data.sheets.actions.length} action(s)`);
+      const virtualNode = { data: { actions: data.sheets.actions } };
+      await this.executeGoogleSheetsNode(virtualNode, contact, userId);
+    }
+    
+    // Execute Google Contacts if configured
+    if (data.contacts?.actions?.length > 0) {
+      console.log(`[BotEngine] Executing Google Contacts with ${data.contacts.actions.length} action(s)`);
+      const virtualNode = { data: { actions: data.contacts.actions } };
+      await this.executeGoogleContactsNode(virtualNode, contact, userId);
+    }
+    
+    // Backward compatibility: support old 'actions' array format
+    const oldActions = data.actions || [];
+    for (const action of oldActions) {
       const actionType = action.type || 'http_request';
-      
       if (actionType === 'http_request') {
-        console.log(`[BotEngine] Executing API request ${i + 1}/${actions.length}: ${action.method || 'GET'} ${action.apiUrl}`);
         await this.executeHttpRequest(action, contact);
       } else if (actionType === 'google_sheets') {
-        console.log(`[BotEngine] Executing Google Sheets action ${i + 1}/${actions.length}`);
-        // Create a virtual node with the nested actions
         const virtualNode = { data: { actions: action.actions || [] } };
         await this.executeGoogleSheetsNode(virtualNode, contact, userId);
       } else if (actionType === 'google_contacts') {
-        console.log(`[BotEngine] Executing Google Contacts action ${i + 1}/${actions.length}`);
-        // Create a virtual node with the nested actions
         const virtualNode = { data: { actions: action.actions || [] } };
         await this.executeGoogleContactsNode(virtualNode, contact, userId);
       }
