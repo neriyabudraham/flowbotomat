@@ -90,6 +90,9 @@ async function ensureTables() {
   await db.query(`ALTER TABLE automated_campaigns ADD COLUMN IF NOT EXISTS resume_at TIMESTAMP`);
   await db.query(`ALTER TABLE automated_campaigns ADD COLUMN IF NOT EXISTS paused_at_step INTEGER`);
   
+  // Add execution_status for tracking campaign state: 'idle', 'running', 'waiting', 'completed'
+  await db.query(`ALTER TABLE automated_campaigns ADD COLUMN IF NOT EXISTS execution_status VARCHAR(50) DEFAULT 'idle'`);
+  
   await db.query(`
     CREATE TABLE IF NOT EXISTS automated_campaign_runs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -357,10 +360,12 @@ async function storeNextRunAt(campaignId, israelTimeStr) {
 const CAMPAIGN_SELECT_FIELDS = `
   ac.id, ac.user_id, ac.name, ac.description, ac.is_active,
   ac.schedule_type, ac.schedule_config, ac.send_time, ac.settings,
-  ac.audience_id, ac.current_step, ac.total_sent,
+  ac.audience_id, ac.current_step, ac.paused_at_step, ac.total_sent,
+  COALESCE(ac.execution_status, 'idle') as execution_status,
   to_char(ac.next_run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as next_run_at,
   to_char(ac.last_run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_run_at,
   to_char(ac.scheduled_start_at, 'YYYY-MM-DD"T"HH24:MI:SS') as scheduled_start_at,
+  to_char(ac.resume_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as resume_at,
   to_char(ac.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
   to_char(ac.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
 `;

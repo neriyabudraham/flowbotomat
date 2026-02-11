@@ -14,29 +14,31 @@ let schedulerInterval = null;
  */
 async function checkAndRunCampaigns() {
   try {
-    // Find campaigns that are due to run (new campaigns)
+    // Find campaigns that are due to run (NEW campaigns - idle status, not waiting)
     const result = await db.query(`
       SELECT 
         ac.*,
         a.name as audience_name,
-        a.id as audience_id
+        a.id as resolved_audience_id
       FROM automated_campaigns ac
       LEFT JOIN broadcast_audiences a ON a.id = ac.audience_id
       WHERE ac.is_active = true 
         AND ac.next_run_at IS NOT NULL 
         AND ac.next_run_at <= NOW()
+        AND (ac.execution_status IS NULL OR ac.execution_status = 'idle')
         AND ac.resume_at IS NULL
     `);
     
-    // Find campaigns that need to resume after a wait
+    // Find campaigns that need to resume after a wait (status = 'waiting')
     const resumeResult = await db.query(`
       SELECT 
         ac.*,
         a.name as audience_name,
-        a.id as audience_id
+        a.id as resolved_audience_id
       FROM automated_campaigns ac
       LEFT JOIN broadcast_audiences a ON a.id = ac.audience_id
       WHERE ac.is_active = true 
+        AND ac.execution_status = 'waiting'
         AND ac.resume_at IS NOT NULL 
         AND ac.resume_at <= NOW()
     `);
@@ -77,17 +79,18 @@ async function checkAndRunCampaigns() {
  */
 async function executeCampaign(campaign, options = {}) {
   const { isTriggered = false, startFromStep = 0, isResume = false } = options;
-  console.log(`[Scheduler] Running campaign: ${campaign.name} (${campaign.id})${isTriggered ? ' [TRIGGERED]' : ''}${isResume ? ' [RESUME]' : ''}`);
+  console.log(`[Scheduler] Running campaign: ${campaign.name} (${campaign.id})${isTriggered ? ' [TRIGGERED]' : ''}${isResume ? ' [RESUME]' : ''} starting from step ${startFromStep}`);
   
   try {
-    // Clear resume_at if resuming
-    if (isResume) {
-      await db.query(`
-        UPDATE automated_campaigns 
-        SET resume_at = NULL, paused_at_step = NULL 
-        WHERE id = $1
-      `, [campaign.id]);
-    }
+    // Mark as running
+    await db.query(`
+      UPDATE automated_campaigns 
+      SET execution_status = 'running', 
+          resume_at = NULL, 
+          paused_at_step = NULL,
+          current_step = $2
+      WHERE id = $1
+    `, [campaign.id, startFromStep]);
     
     // Get campaign steps
     const stepsResult = await db.query(`
@@ -100,13 +103,18 @@ async function executeCampaign(campaign, options = {}) {
     
     if (steps.length === 0) {
       console.log(`[Scheduler] Campaign ${campaign.id} has no steps, skipping`);
-      if (!isTriggered) await updateCampaignNextRun(campaign);
+      await finishCampaign(campaign, isTriggered);
       return;
     }
     
     // Process steps starting from startFromStep
     for (let i = startFromStep; i < steps.length; i++) {
       const step = steps[i];
+      
+      // Update current step
+      await db.query(`
+        UPDATE automated_campaigns SET current_step = $2 WHERE id = $1
+      `, [campaign.id, i]);
       
       if (step.step_type === 'trigger_campaign') {
         // Trigger another campaign
@@ -115,7 +123,7 @@ async function executeCampaign(campaign, options = {}) {
       }
       
       if (step.step_type === 'wait') {
-        // Wait step - check if we should pause and resume later
+        // Wait step - ALWAYS save to DB and exit (for persistence across restarts)
         const waitConfig = step.wait_config || {};
         const waitValue = waitConfig.value || 0;
         const waitUnit = waitConfig.unit || 'seconds';
@@ -125,25 +133,21 @@ async function executeCampaign(campaign, options = {}) {
         if (waitUnit === 'hours') waitMs = waitValue * 60 * 60 * 1000;
         if (waitUnit === 'days') waitMs = waitValue * 24 * 60 * 60 * 1000;
         
-        // For waits longer than 1 hour, save to DB and exit
-        const ONE_HOUR = 60 * 60 * 1000;
-        if (waitMs > ONE_HOUR) {
+        if (waitMs > 0) {
           const resumeAt = new Date(Date.now() + waitMs);
-          console.log(`[Scheduler] Campaign ${campaign.id} pausing for ${waitValue} ${waitUnit}, will resume at ${resumeAt.toISOString()}`);
+          console.log(`[Scheduler] Campaign ${campaign.id} pausing for ${waitValue} ${waitUnit}, will resume at ${resumeAt.toISOString()}, next step: ${i + 1}`);
           
+          // Save to DB - scheduler will pick up when resume_at is due
           await db.query(`
             UPDATE automated_campaigns 
-            SET resume_at = $1, paused_at_step = $2 
-            WHERE id = $3
-          `, [resumeAt, i + 1, campaign.id]);  // i + 1 because we want to continue AFTER this wait step
+            SET execution_status = 'waiting',
+                resume_at = $1, 
+                paused_at_step = $2,
+                current_step = $3
+            WHERE id = $4
+          `, [resumeAt, i + 1, i, campaign.id]);  // i + 1 = next step to execute after wait
           
           return; // Exit - scheduler will pick up later
-        }
-        
-        // For short waits, wait inline
-        if (waitMs > 0) {
-          console.log(`[Scheduler] Campaign ${campaign.id} waiting ${waitValue} ${waitUnit}...`);
-          await new Promise(resolve => setTimeout(resolve, waitMs));
         }
         continue;
       }
@@ -151,16 +155,23 @@ async function executeCampaign(campaign, options = {}) {
       if (step.step_type !== 'send') continue;
       
       // Process send step
+      console.log(`[Scheduler] Campaign ${campaign.id} executing send step ${i + 1}/${steps.length}`);
       await executeSendStep(step, campaign);
     }
     
-    // Only update next run for scheduled campaigns, NOT triggered ones
-    if (!isTriggered) {
-      await updateCampaignNextRun(campaign);
-    }
+    // All steps completed
+    console.log(`[Scheduler] Campaign ${campaign.id} completed all ${steps.length} steps`);
+    await finishCampaign(campaign, isTriggered);
     
   } catch (error) {
     console.error(`[Scheduler] Execute campaign error:`, error);
+    
+    // Mark campaign as failed/idle so it can be retried
+    await db.query(`
+      UPDATE automated_campaigns 
+      SET execution_status = 'idle'
+      WHERE id = $1
+    `, [campaign.id]);
     
     // Try to mark run as failed
     try {
@@ -174,6 +185,45 @@ async function executeCampaign(campaign, options = {}) {
     if (!isTriggered) {
       await updateCampaignNextRun(campaign);
     }
+  }
+}
+
+/**
+ * Finish a campaign after all steps are complete
+ */
+async function finishCampaign(campaign, isTriggered) {
+  // For triggered campaigns, just mark as idle (they don't have their own schedule)
+  if (isTriggered) {
+    await db.query(`
+      UPDATE automated_campaigns 
+      SET execution_status = 'idle'
+      WHERE id = $1
+    `, [campaign.id]);
+    return;
+  }
+  
+  // Check if this is a recurring campaign or one-time (manual/scheduled)
+  const scheduleType = campaign.schedule_type;
+  
+  if (scheduleType === 'manual') {
+    // Manual campaign - mark as completed, deactivate
+    console.log(`[Scheduler] Manual campaign ${campaign.id} completed - deactivating`);
+    await db.query(`
+      UPDATE automated_campaigns 
+      SET execution_status = 'completed',
+          is_active = false,
+          next_run_at = NULL
+      WHERE id = $1
+    `, [campaign.id]);
+  } else {
+    // Recurring campaign (interval, weekly, monthly) - calculate next run, mark as idle
+    await db.query(`
+      UPDATE automated_campaigns 
+      SET execution_status = 'idle'
+      WHERE id = $1
+    `, [campaign.id]);
+    
+    await updateCampaignNextRun(campaign);
   }
 }
 
@@ -485,17 +535,23 @@ async function updateCampaignNextRun(campaign) {
     
     if (nextRunIsrael) {
       // Store using PostgreSQL timezone conversion
+      // Also reset current_step for next iteration
       await storeNextRunAt(campaign.id, nextRunIsrael);
+      await db.query(`
+        UPDATE automated_campaigns 
+        SET current_step = 0, execution_status = 'idle'
+        WHERE id = $1
+      `, [campaign.id]);
       console.log(`[Scheduler] Campaign ${campaign.id} next run (Israel): ${nextRunIsrael}`);
     } else {
-      // No more scheduled runs
+      // No more scheduled runs - mark as completed
       await db.query(`
         UPDATE automated_campaigns
-        SET is_active = false, next_run_at = NULL
+        SET is_active = false, next_run_at = NULL, execution_status = 'completed'
         WHERE id = $1
       `, [campaign.id]);
       
-      console.log(`[Scheduler] Campaign ${campaign.id} deactivated - no more scheduled runs`);
+      console.log(`[Scheduler] Campaign ${campaign.id} completed - no more scheduled runs`);
     }
   } catch (error) {
     console.error(`[Scheduler] Error updating next run for campaign ${campaign.id}:`, error);

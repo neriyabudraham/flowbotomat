@@ -522,6 +522,55 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
   const scheduleConfig = SCHEDULE_TYPES[campaign.schedule_type] || SCHEDULE_TYPES.manual;
   const ScheduleIcon = scheduleConfig.icon;
   
+  // Get execution status display
+  const getExecutionStatusBadge = () => {
+    const status = campaign.execution_status || 'idle';
+    const currentStep = campaign.current_step || 0;
+    const totalSteps = campaign.steps_count || 0;
+    
+    switch (status) {
+      case 'running':
+        return (
+          <div className="flex items-center gap-2 text-blue-600 bg-blue-50 rounded-lg px-3 py-2 text-sm font-medium">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>פועל - שלב {currentStep + 1} מתוך {totalSteps}</span>
+          </div>
+        );
+      case 'waiting':
+        return (
+          <div className="flex items-center gap-2 text-amber-600 bg-amber-50 rounded-lg px-3 py-2 text-sm font-medium">
+            <Timer className="w-4 h-4" />
+            <span>ממתין - השלב הבא: {(campaign.paused_at_step || 0) + 1}</span>
+            {campaign.resume_at && (
+              <span className="text-xs">({formatResumeTime(campaign.resume_at)})</span>
+            )}
+          </div>
+        );
+      case 'completed':
+        return (
+          <div className="flex items-center gap-2 text-green-600 bg-green-50 rounded-lg px-3 py-2 text-sm font-medium">
+            <CheckCircle className="w-4 h-4" />
+            <span>הושלם - כל {totalSteps} השלבים בוצעו</span>
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+  
+  // Format resume time
+  const formatResumeTime = (resumeAt) => {
+    const date = new Date(resumeAt);
+    const now = new Date();
+    const diff = date - now;
+    
+    if (diff < 0) return 'מיד';
+    if (diff < 60000) return 'פחות מדקה';
+    if (diff < 3600000) return `עוד ${Math.round(diff / 60000)} דקות`;
+    if (diff < 86400000) return `עוד ${Math.round(diff / 3600000)} שעות`;
+    return `עוד ${Math.round(diff / 86400000)} ימים`;
+  };
+  
   return (
     <div 
       className="group bg-white border border-gray-200 rounded-2xl overflow-hidden hover:shadow-xl hover:border-orange-200 transition-all cursor-pointer"
@@ -531,11 +580,25 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-3">
             <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
+              campaign.execution_status === 'running' 
+                ? 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/20' :
+              campaign.execution_status === 'waiting'
+                ? 'bg-gradient-to-br from-amber-500 to-amber-600 shadow-amber-500/20' :
+              campaign.execution_status === 'completed'
+                ? 'bg-gradient-to-br from-green-500 to-green-600 shadow-green-500/20' :
               campaign.is_active 
                 ? 'bg-gradient-to-br from-orange-500 to-amber-500 shadow-orange-500/20' 
                 : 'bg-gradient-to-br from-gray-400 to-gray-500 shadow-gray-500/20'
             }`}>
-              <Zap className="w-6 h-6 text-white" />
+              {campaign.execution_status === 'running' ? (
+                <Loader2 className="w-6 h-6 text-white animate-spin" />
+              ) : campaign.execution_status === 'waiting' ? (
+                <Timer className="w-6 h-6 text-white" />
+              ) : campaign.execution_status === 'completed' ? (
+                <CheckCircle className="w-6 h-6 text-white" />
+              ) : (
+                <Zap className="w-6 h-6 text-white" />
+              )}
             </div>
             <div>
               <h3 className="font-semibold text-gray-900">{campaign.name}</h3>
@@ -550,11 +613,20 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
             </div>
           </div>
           <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+            campaign.execution_status === 'completed'
+              ? 'bg-green-100 text-green-700' :
+            campaign.execution_status === 'running'
+              ? 'bg-blue-100 text-blue-700' :
+            campaign.execution_status === 'waiting'
+              ? 'bg-amber-100 text-amber-700' :
             campaign.is_active 
               ? 'bg-green-100 text-green-700' 
               : 'bg-gray-100 text-gray-600'
           }`}>
-            {campaign.is_active ? 'פעיל' : 'כבוי'}
+            {campaign.execution_status === 'completed' ? 'הושלם' :
+             campaign.execution_status === 'running' ? 'פועל' :
+             campaign.execution_status === 'waiting' ? 'ממתין' :
+             campaign.is_active ? 'פעיל' : 'כבוי'}
           </span>
         </div>
         
@@ -576,10 +648,14 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
           </div>
         </div>
 
-        {/* Next Run */}
-        {((campaign.schedule_type !== 'manual' && campaign.is_active && campaign.next_run_at) || 
+        {/* Execution Status */}
+        {getExecutionStatusBadge()}
+
+        {/* Next Run - Only show if idle and not completed */}
+        {campaign.execution_status !== 'running' && campaign.execution_status !== 'waiting' && campaign.execution_status !== 'completed' &&
+         ((campaign.schedule_type !== 'manual' && campaign.is_active && campaign.next_run_at) || 
           (campaign.schedule_type === 'manual' && campaign.scheduled_start_at && campaign.next_run_at && campaign.is_active)) && (
-          <div className="flex items-center gap-2 text-orange-600 bg-orange-50 rounded-lg px-3 py-2 text-sm font-medium">
+          <div className="flex items-center gap-2 text-orange-600 bg-orange-50 rounded-lg px-3 py-2 text-sm font-medium mt-3">
             <Timer className="w-4 h-4" />
             {formatNextRun(campaign.next_run_at, campaign.schedule_type, campaign.scheduled_start_at)}
             {campaign.schedule_type === 'manual' && campaign.scheduled_start_at && (
