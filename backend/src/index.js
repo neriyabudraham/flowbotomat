@@ -73,20 +73,13 @@ cron.schedule('0 10 * * *', async () => {
 
 console.log('📅 Subscription expiry cron jobs scheduled');
 
-// Schedule campaign scheduler - run every minute
-const { processScheduledCampaigns } = require('./services/broadcasts/scheduler.service');
+// Schedule campaign scheduler - run every 30 seconds for precise timing
+const { startScheduler } = require('./services/broadcasts/scheduler.service');
 
-cron.schedule('* * * * *', async () => {
-  try {
-    await processScheduledCampaigns();
-  } catch (err) {
-    console.error('[Cron] Campaign scheduler failed:', err.message);
-  }
-}, {
-  timezone: 'Asia/Jerusalem'
-});
+// Start the scheduler with 30-second interval (more precise than 1-minute cron)
+startScheduler(30000);
 
-console.log('📅 Campaign scheduler cron job running every minute');
+console.log('📅 Campaign scheduler running every 30 seconds');
 
 // Schedule cleanup of old pending forward jobs - run every hour
 const { cleanupOldPendingJobs } = require('./controllers/groupForwards/jobs.controller');
