@@ -3,6 +3,38 @@ const { getWahaCredentials } = require('../../services/settings/system.service')
 const { decrypt } = require('../../services/crypto/encrypt.service');
 const wahaSession = require('../../services/waha/session.service');
 
+// Required webhook events - must match connect.controller.js
+const REQUIRED_WEBHOOK_EVENTS = [
+  'message',
+  'message.ack',
+  'session.status',
+  'call.received',
+  'call.accepted',
+  'call.rejected',
+  'label.upsert',
+  'label.deleted',
+  'label.chat.added',
+  'label.chat.deleted',
+  'poll.vote.failed',
+  'poll.vote',
+  'group.leave',
+  'group.join',
+  'group.v2.participants',
+  'group.v2.update',
+  'group.v2.leave',
+  'group.v2.join',
+  'presence.update',
+  'message.reaction',
+  'message.any',
+  'message.ack.group',
+  'message.waiting',
+  'message.revoked',
+  'message.edited',
+  'chat.archive',
+  'event.response',
+  'event.response.failed',
+];
+
 /**
  * Get user's WhatsApp connection status
  */
@@ -48,6 +80,13 @@ async function getStatus(req, res) {
           connection.phone_number = wahaStatus.me.id?.split('@')[0] || connection.phone_number;
           connection.display_name = wahaStatus.me.pushName || connection.display_name;
         }
+      }
+      
+      // If connected, verify webhook configuration in background
+      if (newStatus === 'connected') {
+        verifyAndUpdateWebhook(userId, baseUrl, apiKey, connection.session_name).catch(err => {
+          console.error('[Webhook] Verification failed:', err.message);
+        });
       }
     } catch (err) {
       console.error('WAHA status check failed:', err.message);
@@ -227,6 +266,45 @@ function mapWahaStatus(wahaStatus) {
     'FAILED': 'failed',
   };
   return map[wahaStatus] || 'disconnected';
+}
+
+/**
+ * Verify webhook exists with all required events, update if needed
+ */
+async function verifyAndUpdateWebhook(userId, baseUrl, apiKey, sessionName) {
+  try {
+    const appUrl = process.env.APP_URL || 'https://botomat.co.il';
+    const webhookUrl = `${appUrl}/api/webhook/waha/${userId}`;
+    
+    // Get current session config from WAHA
+    const sessionInfo = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+    const currentWebhooks = sessionInfo?.config?.webhooks || [];
+    
+    // Find our webhook
+    const ourWebhook = currentWebhooks.find(wh => wh.url === webhookUrl);
+    
+    if (!ourWebhook) {
+      // Webhook doesn't exist - create it
+      console.log(`[Webhook] Not found for user ${userId}, creating...`);
+      await wahaSession.addWebhook(baseUrl, apiKey, sessionName, webhookUrl, REQUIRED_WEBHOOK_EVENTS);
+      console.log(`[Webhook] ✅ Created for user ${userId}`);
+      return;
+    }
+    
+    // Webhook exists - check if all events are present
+    const existingEvents = ourWebhook.events || [];
+    const missingEvents = REQUIRED_WEBHOOK_EVENTS.filter(e => !existingEvents.includes(e));
+    
+    if (missingEvents.length > 0) {
+      console.log(`[Webhook] User ${userId} missing ${missingEvents.length} events: ${missingEvents.join(', ')}`);
+      await wahaSession.addWebhook(baseUrl, apiKey, sessionName, webhookUrl, REQUIRED_WEBHOOK_EVENTS);
+      console.log(`[Webhook] ✅ Updated for user ${userId}`);
+    } else {
+      console.log(`[Webhook] ✓ User ${userId} webhook OK (${existingEvents.length} events)`);
+    }
+  } catch (err) {
+    console.error(`[Webhook] Verify failed for user ${userId}:`, err.message);
+  }
 }
 
 // Helper: Update connection status in DB
