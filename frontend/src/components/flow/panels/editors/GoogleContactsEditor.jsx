@@ -22,6 +22,17 @@ const SEARCH_BY_OPTIONS = [
   { id: 'email', label: 'אימייל', icon: Mail },
 ];
 
+// Available result fields that can be mapped to variables
+const RESULT_FIELDS = [
+  { id: 'exists', label: 'האם קיים', description: 'true/false' },
+  { id: 'resourceName', label: 'מזהה איש קשר', description: 'people/xxx' },
+  { id: 'name', label: 'שם', description: 'שם מלא' },
+  { id: 'phone', label: 'טלפון', description: 'מספר טלפון' },
+  { id: 'email', label: 'אימייל', description: 'כתובת אימייל' },
+  { id: 'action', label: 'פעולה', description: 'found/created/updated' },
+  { id: 'error', label: 'שגיאה', description: 'הודעת שגיאה' },
+];
+
 export default function GoogleContactsEditor({ data, onUpdate }) {
   const actions = data.actions || [];
 
@@ -29,15 +40,15 @@ export default function GoogleContactsEditor({ data, onUpdate }) {
     const newAction = {
       operation: 'check_exists',
       searchBy: 'phone',
-      searchValue: '{{phone}}',
+      searchValue: '',
       name: '',
       firstName: '',
       lastName: '',
-      phone: '{{phone}}',
+      phone: '',
       email: '',
       labelId: '',
       labelName: '',
-      resourceNameVariable: 'google_contact_id',
+      resultMappings: [], // User defines their own variable mappings
     };
     onUpdate({ actions: [...actions, newAction] });
   };
@@ -145,7 +156,6 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
   const needsSearch = ['check_exists', 'search_contact', 'find_or_create', 'update_contact', 'add_to_label', 'remove_from_label'].includes(action.operation);
   const needsContactDetails = ['create_contact', 'update_contact', 'find_or_create'].includes(action.operation);
   const needsLabel = ['create_contact', 'find_or_create', 'add_to_label', 'remove_from_label'].includes(action.operation);
-  const needsResultMapping = ['check_exists', 'search_contact', 'find_or_create'].includes(action.operation);
 
   if (connected === false) {
     return (
@@ -378,26 +388,89 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
             </div>
           )}
 
-          {/* Result Mappings (for search/check operations) */}
-          {needsResultMapping && (
-            <div className="bg-amber-50 rounded-lg p-3 space-y-2">
+          {/* Result Mappings - User defines which results to save */}
+          <div className="bg-amber-50 rounded-lg p-3 space-y-3">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Zap className="w-4 h-4 text-amber-600" />
-                <span className="text-sm font-medium text-amber-800">משתנים שנשמרים אוטומטית</span>
+                <span className="text-sm font-medium text-amber-800">שמירת תוצאות למשתנים</span>
               </div>
-              
-              <div className="flex flex-wrap gap-1.5 text-xs">
-                <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">גוגל-איש קשר קיים</code>
-                <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">גוגל-מזהה איש קשר</code>
-                <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">גוגל-שם איש קשר</code>
-                <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">גוגל-טלפון איש קשר</code>
-                <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">גוגל-אימייל איש קשר</code>
-                {action.operation === 'find_or_create' && (
-                  <code className="bg-amber-100 px-1.5 py-0.5 rounded text-amber-700">גוגל-פעולה</code>
-                )}
-              </div>
+              <button
+                onClick={() => {
+                  const mappings = action.resultMappings || [];
+                  onUpdate({ resultMappings: [...mappings, { field: 'exists', varName: '', label: '' }] });
+                }}
+                className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700 px-2 py-1 bg-amber-100 hover:bg-amber-200 rounded-lg transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                הוסף משתנה
+              </button>
             </div>
-          )}
+            
+            {(action.resultMappings || []).length === 0 ? (
+              <p className="text-xs text-amber-600">
+                לחץ "הוסף משתנה" כדי לשמור תוצאות מהפעולה
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {(action.resultMappings || []).map((mapping, mIndex) => (
+                  <div key={mIndex} className="flex items-center gap-2 bg-white rounded-lg p-2 border border-amber-200">
+                    <select
+                      value={mapping.field || ''}
+                      onChange={(e) => {
+                        const newMappings = [...(action.resultMappings || [])];
+                        newMappings[mIndex] = { ...newMappings[mIndex], field: e.target.value };
+                        onUpdate({ resultMappings: newMappings });
+                      }}
+                      className="flex-1 p-1.5 text-xs border border-amber-200 rounded-lg bg-amber-50"
+                    >
+                      <option value="">בחר שדה...</option>
+                      {RESULT_FIELDS.map(f => (
+                        <option key={f.id} value={f.id}>{f.label} ({f.description})</option>
+                      ))}
+                    </select>
+                    <ArrowRight className="w-3 h-3 text-amber-400 flex-shrink-0" />
+                    <input
+                      type="text"
+                      value={mapping.varName || ''}
+                      onChange={(e) => {
+                        const newMappings = [...(action.resultMappings || [])];
+                        newMappings[mIndex] = { ...newMappings[mIndex], varName: e.target.value };
+                        onUpdate({ resultMappings: newMappings });
+                      }}
+                      placeholder="שם משתנה (באנגלית)"
+                      className="flex-1 p-1.5 text-xs border border-amber-200 rounded-lg"
+                      dir="ltr"
+                    />
+                    <input
+                      type="text"
+                      value={mapping.label || ''}
+                      onChange={(e) => {
+                        const newMappings = [...(action.resultMappings || [])];
+                        newMappings[mIndex] = { ...newMappings[mIndex], label: e.target.value };
+                        onUpdate({ resultMappings: newMappings });
+                      }}
+                      placeholder="תווית (בעברית)"
+                      className="flex-1 p-1.5 text-xs border border-amber-200 rounded-lg"
+                    />
+                    <button
+                      onClick={() => {
+                        const newMappings = (action.resultMappings || []).filter((_, i) => i !== mIndex);
+                        onUpdate({ resultMappings: newMappings });
+                      }}
+                      className="p-1 hover:bg-red-100 rounded text-red-400 hover:text-red-600"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <p className="text-[10px] text-amber-500">
+              💡 השתמש בשם משתנה באנגלית (לדוגמה: contact_exists) ותווית בעברית (לדוגמה: איש קשר קיים)
+            </p>
+          </div>
         </div>
       )}
     </div>

@@ -26,6 +26,15 @@ const SEARCH_OPERATORS = [
   { id: 'is_empty', label: 'ריק' },
 ];
 
+// Built-in result fields that can be saved
+const BUILTIN_FIELDS = [
+  { id: 'found', label: 'נמצא', description: 'true/false' },
+  { id: 'rowIndex', label: 'מספר שורה', description: 'מספר השורה שנמצאה' },
+  { id: 'totalMatches', label: 'סה"כ תוצאות', description: 'מספר התוצאות' },
+  { id: 'action', label: 'פעולה', description: 'updated/appended' },
+  { id: 'error', label: 'שגיאה', description: 'הודעת שגיאה' },
+];
+
 export default function GoogleSheetsEditor({ data, onUpdate }) {
   const actions = data.actions || [];
 
@@ -40,6 +49,7 @@ export default function GoogleSheetsEditor({ data, onUpdate }) {
       searchOperator: 'equals',
       searchValue: '',
       resultMappings: [],
+      builtInMappings: [], // User-defined mappings for built-in results (found, rowIndex, etc.)
       rowIndex: '',
     };
     onUpdate({ actions: [...actions, newAction] });
@@ -454,7 +464,7 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
                 className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-300"
               />
               <p className="text-xs text-gray-400 mt-1">
-                ניתן להשתמש ב-{'{{גיליון-מספר שורה}}'} שנשמר מחיפוש קודם
+                ניתן להשתמש במשתנה שהגדרת בחיפוש קודם (לדוגמה: {'{{row_index}}'})
               </p>
             </div>
           )}
@@ -523,13 +533,13 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
             </div>
           )}
 
-          {/* Result Mappings (for read/search operations) */}
+          {/* Column Result Mappings (for read/search operations) */}
           {needsResultMapping && action.sheetName && (
             <div className="bg-purple-50 rounded-lg p-3 space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Zap className="w-4 h-4 text-purple-600" />
-                  <span className="text-sm font-medium text-purple-800">שמירה למשתנים</span>
+                  <span className="text-sm font-medium text-purple-800">שמירת עמודות למשתנים</span>
                 </div>
                 <button
                   onClick={addResultMapping}
@@ -541,44 +551,131 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
               </div>
               
               <p className="text-xs text-purple-500">
-                שמור ערכים מהתוצאה הראשונה שנמצאה למשתני אנשי קשר
+                שמור ערכים מעמודות הגיליון למשתנים
               </p>
               
               {(action.resultMappings || []).map((mapping, i) => (
-                <div key={i} className="flex items-center gap-2">
+                <div key={i} className="flex items-center gap-2 bg-white rounded-lg p-2 border border-purple-200">
                   <select
                     value={mapping.column || ''}
                     onChange={(e) => updateResultMapping(i, { column: e.target.value })}
-                    className="flex-1 p-1.5 border border-purple-200 rounded text-sm bg-white"
+                    className="flex-1 p-1.5 border border-purple-200 rounded text-xs bg-purple-50"
                   >
                     <option value="">עמודה...</option>
                     {headers.map((h, hi) => (
                       <option key={hi} value={h}>{h}</option>
                     ))}
                   </select>
-                  <ArrowRight className="w-4 h-4 text-purple-400 flex-shrink-0" />
+                  <ArrowRight className="w-3 h-3 text-purple-400 flex-shrink-0" />
                   <input
                     type="text"
                     value={mapping.variable || ''}
                     onChange={(e) => updateResultMapping(i, { variable: e.target.value })}
-                    placeholder="שם משתנה"
-                    className="flex-1 p-1.5 border border-purple-200 rounded text-sm"
+                    placeholder="שם משתנה (באנגלית)"
+                    className="flex-1 p-1.5 border border-purple-200 rounded text-xs"
+                    dir="ltr"
+                  />
+                  <input
+                    type="text"
+                    value={mapping.label || ''}
+                    onChange={(e) => updateResultMapping(i, { label: e.target.value })}
+                    placeholder="תווית (בעברית)"
+                    className="flex-1 p-1.5 border border-purple-200 rounded text-xs"
                   />
                   <button
                     onClick={() => removeResultMapping(i)}
                     className="p-1 hover:bg-red-100 rounded text-red-400 hover:text-red-600"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-3 h-3" />
                   </button>
                 </div>
               ))}
-              
-              {/* Auto-saved variables */}
-              <div className="border-t border-purple-200 pt-2 mt-2">
-                <p className="text-xs text-purple-400">
-                  משתנים שנשמרים אוטומטית: <code className="bg-purple-100 px-1 rounded">גיליון-מספר שורה</code>, <code className="bg-purple-100 px-1 rounded">גיליון-סה"כ תוצאות</code>, <code className="bg-purple-100 px-1 rounded">גיליון-נמצא</code>
-                </p>
+            </div>
+          )}
+
+          {/* Built-in Results Mappings */}
+          {action.sheetName && (
+            <div className="bg-amber-50 rounded-lg p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Settings2 className="w-4 h-4 text-amber-600" />
+                  <span className="text-sm font-medium text-amber-800">שמירת תוצאות מובנות</span>
+                </div>
+                <button
+                  onClick={() => {
+                    const mappings = action.builtInMappings || [];
+                    onUpdate({ builtInMappings: [...mappings, { field: 'found', varName: '', label: '' }] });
+                  }}
+                  className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700 px-2 py-1 bg-amber-100 hover:bg-amber-200 rounded-lg transition-colors"
+                >
+                  <Plus className="w-3 h-3" />
+                  הוסף
+                </button>
               </div>
+              
+              {(action.builtInMappings || []).length === 0 ? (
+                <p className="text-xs text-amber-600">
+                  לחץ "הוסף" לשמור תוצאות כמו נמצא/לא נמצא, מספר שורה וכו׳
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {(action.builtInMappings || []).map((mapping, mIndex) => (
+                    <div key={mIndex} className="flex items-center gap-2 bg-white rounded-lg p-2 border border-amber-200">
+                      <select
+                        value={mapping.field || ''}
+                        onChange={(e) => {
+                          const newMappings = [...(action.builtInMappings || [])];
+                          newMappings[mIndex] = { ...newMappings[mIndex], field: e.target.value };
+                          onUpdate({ builtInMappings: newMappings });
+                        }}
+                        className="flex-1 p-1.5 text-xs border border-amber-200 rounded-lg bg-amber-50"
+                      >
+                        <option value="">בחר שדה...</option>
+                        {BUILTIN_FIELDS.map(f => (
+                          <option key={f.id} value={f.id}>{f.label} ({f.description})</option>
+                        ))}
+                      </select>
+                      <ArrowRight className="w-3 h-3 text-amber-400 flex-shrink-0" />
+                      <input
+                        type="text"
+                        value={mapping.varName || ''}
+                        onChange={(e) => {
+                          const newMappings = [...(action.builtInMappings || [])];
+                          newMappings[mIndex] = { ...newMappings[mIndex], varName: e.target.value };
+                          onUpdate({ builtInMappings: newMappings });
+                        }}
+                        placeholder="שם משתנה (באנגלית)"
+                        className="flex-1 p-1.5 text-xs border border-amber-200 rounded-lg"
+                        dir="ltr"
+                      />
+                      <input
+                        type="text"
+                        value={mapping.label || ''}
+                        onChange={(e) => {
+                          const newMappings = [...(action.builtInMappings || [])];
+                          newMappings[mIndex] = { ...newMappings[mIndex], label: e.target.value };
+                          onUpdate({ builtInMappings: newMappings });
+                        }}
+                        placeholder="תווית (בעברית)"
+                        className="flex-1 p-1.5 text-xs border border-amber-200 rounded-lg"
+                      />
+                      <button
+                        onClick={() => {
+                          const newMappings = (action.builtInMappings || []).filter((_, i) => i !== mIndex);
+                          onUpdate({ builtInMappings: newMappings });
+                        }}
+                        className="p-1 hover:bg-red-100 rounded text-red-400 hover:text-red-600"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              <p className="text-[10px] text-amber-500">
+                💡 שם משתנה באנגלית (לדוגמה: row_found) ותווית בעברית (לדוגמה: נמצאה שורה)
+              </p>
             </div>
           )}
         </div>

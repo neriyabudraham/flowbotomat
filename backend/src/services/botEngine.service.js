@@ -2241,6 +2241,16 @@ class BotEngine {
     const actions = node.data?.actions || [];
     console.log(`[BotEngine] Google Sheets node has ${actions.length} action(s)`);
     
+    // Helper to save built-in result variables (found, rowIndex, totalMatches)
+    const saveBuiltInResults = async (action, resultData) => {
+      const builtInMappings = action.builtInMappings || [];
+      for (const mapping of builtInMappings) {
+        if (mapping.varName && mapping.field && resultData[mapping.field] !== undefined) {
+          await this.setContactVariable(contact.id, mapping.varName, String(resultData[mapping.field]), mapping.label || mapping.varName);
+        }
+      }
+    };
+    
     for (let i = 0; i < actions.length; i++) {
       const action = actions[i];
       const { operation, spreadsheetId, sheetName } = action;
@@ -2263,7 +2273,7 @@ class BotEngine {
             }
             const result = await googleSheets.appendRow(userId, spreadsheetId, sheetName, values);
             console.log('[BotEngine] ✅ Google Sheets row appended:', result.updatedRange);
-            await this.setContactVariable(contact.id, 'גיליון-נמצא', 'true');
+            await saveBuiltInResults(action, { found: 'true', action: 'appended' });
             break;
           }
           
@@ -2272,6 +2282,7 @@ class BotEngine {
             const rowIndex = parseInt(resolvedRowIndex);
             if (!rowIndex || isNaN(rowIndex)) {
               console.log(`[BotEngine] ⚠️ Invalid row index for update: "${action.rowIndex}" resolved to "${resolvedRowIndex}"`);
+              await saveBuiltInResults(action, { found: 'false', error: 'מספר שורה לא תקין' });
               break;
             }
             const values = {};
@@ -2282,7 +2293,7 @@ class BotEngine {
             }
             const result = await googleSheets.updateCells(userId, spreadsheetId, sheetName, rowIndex, values);
             console.log('[BotEngine] ✅ Google Sheets row updated:', result.updated, 'cells');
-            await this.setContactVariable(contact.id, 'גיליון-נמצא', 'true');
+            await saveBuiltInResults(action, { found: 'true', action: 'updated', rowIndex: String(rowIndex) });
             break;
           }
           
@@ -2294,22 +2305,26 @@ class BotEngine {
             );
             console.log(`[BotEngine] 🔍 Google Sheets search: ${result.totalMatches} matches`);
             
-            await this.setContactVariable(contact.id, 'גיליון-סה"כ תוצאות', String(result.totalMatches));
-            await this.setContactVariable(contact.id, 'גיליון-נמצא', result.totalMatches > 0 ? 'true' : 'false');
+            const builtInData = {
+              totalMatches: String(result.totalMatches),
+              found: result.totalMatches > 0 ? 'true' : 'false',
+            };
             
             if (result.rows.length > 0) {
               const firstRow = result.rows[0];
-              await this.setContactVariable(contact.id, 'גיליון-מספר שורה', String(firstRow._rowIndex));
+              builtInData.rowIndex = String(firstRow._rowIndex);
               
-              // Apply result mappings
+              // Apply column result mappings
               for (const mapping of (action.resultMappings || [])) {
                 if (mapping.column && mapping.variable) {
                   const val = String(firstRow[mapping.column] || '');
-                  await this.setContactVariable(contact.id, mapping.variable, val);
+                  await this.setContactVariable(contact.id, mapping.variable, val, mapping.label || mapping.variable);
                   console.log(`[BotEngine] ✅ Mapped "${mapping.column}" → ${mapping.variable} = "${val.substring(0, 100)}"`);
                 }
               }
             }
+            
+            await saveBuiltInResults(action, builtInData);
             break;
           }
           
@@ -2317,21 +2332,25 @@ class BotEngine {
             const result = await googleSheets.readRows(userId, spreadsheetId, sheetName);
             console.log(`[BotEngine] 📖 Google Sheets read: ${result.rows.length} rows`);
             
-            await this.setContactVariable(contact.id, 'גיליון-סה"כ תוצאות', String(result.rows.length));
-            await this.setContactVariable(contact.id, 'גיליון-נמצא', result.rows.length > 0 ? 'true' : 'false');
+            const builtInData = {
+              totalMatches: String(result.rows.length),
+              found: result.rows.length > 0 ? 'true' : 'false',
+            };
             
             if (result.rows.length > 0) {
               const firstRow = result.rows[0];
-              await this.setContactVariable(contact.id, 'גיליון-מספר שורה', String(firstRow._rowIndex));
+              builtInData.rowIndex = String(firstRow._rowIndex);
               
               for (const mapping of (action.resultMappings || [])) {
                 if (mapping.column && mapping.variable) {
                   const val = String(firstRow[mapping.column] || '');
-                  await this.setContactVariable(contact.id, mapping.variable, val);
+                  await this.setContactVariable(contact.id, mapping.variable, val, mapping.label || mapping.variable);
                   console.log(`[BotEngine] ✅ Mapped "${mapping.column}" → ${mapping.variable} = "${val.substring(0, 100)}"`);
                 }
               }
             }
+            
+            await saveBuiltInResults(action, builtInData);
             break;
           }
           
@@ -2349,9 +2368,12 @@ class BotEngine {
             );
             console.log(`[BotEngine] 🔄 Google Sheets search & update: found=${result.found}, row=${result.rowIndex}`);
             
-            await this.setContactVariable(contact.id, 'גיליון-נמצא', result.found ? 'true' : 'false');
+            const builtInData = {
+              found: result.found ? 'true' : 'false',
+              action: result.found ? 'updated' : 'not_found',
+            };
             if (result.rowIndex) {
-              await this.setContactVariable(contact.id, 'גיליון-מספר שורה', String(result.rowIndex));
+              builtInData.rowIndex = String(result.rowIndex);
             }
             
             // Apply result mappings if found
@@ -2364,11 +2386,13 @@ class BotEngine {
                 for (const mapping of (action.resultMappings || [])) {
                   if (mapping.column && mapping.variable) {
                     const val = String(searchResult.rows[0][mapping.column] || '');
-                    await this.setContactVariable(contact.id, mapping.variable, val);
+                    await this.setContactVariable(contact.id, mapping.variable, val, mapping.label || mapping.variable);
                   }
                 }
               }
             }
+            
+            await saveBuiltInResults(action, builtInData);
             break;
           }
           
@@ -2386,10 +2410,15 @@ class BotEngine {
             );
             console.log(`[BotEngine] 🔎 Google Sheets search or append: action=${result.action}`);
             
-            await this.setContactVariable(contact.id, 'גיליון-נמצא', result.action === 'updated' ? 'true' : 'false');
+            const builtInData = {
+              found: result.action === 'updated' ? 'true' : 'false',
+              action: result.action, // 'updated' or 'appended'
+            };
             if (result.rowIndex) {
-              await this.setContactVariable(contact.id, 'גיליון-מספר שורה', String(result.rowIndex));
+              builtInData.rowIndex = String(result.rowIndex);
             }
+            
+            await saveBuiltInResults(action, builtInData);
             break;
           }
           
@@ -2415,8 +2444,12 @@ class BotEngine {
           errorMessage = 'שם הגיליון או הטווח לא תקינים.';
         }
         
-        await this.setContactVariable(contact.id, 'גיליון-נמצא', 'false');
-        await this.setContactVariable(contact.id, 'גיליון-שגיאה', errorMessage);
+        // Save error to user-defined error variable if specified
+        const errorMapping = (action.builtInMappings || []).find(m => m.field === 'error');
+        if (errorMapping && errorMapping.varName) {
+          await this.setContactVariable(contact.id, errorMapping.varName, errorMessage, errorMapping.label || errorMapping.varName);
+        }
+        await saveBuiltInResults(action, { found: 'false' });
       }
     }
   }
@@ -2426,6 +2459,17 @@ class BotEngine {
     const googleContacts = require('./googleContacts.service');
     const actions = node.data?.actions || [];
     console.log(`[BotEngine] Google Contacts node has ${actions.length} action(s)`);
+    
+    // Helper to save result variables with user-defined mappings
+    const saveResultVariables = async (resultData, action) => {
+      const mappings = action.resultMappings || [];
+      for (const mapping of mappings) {
+        if (mapping.varName && mapping.field) {
+          const value = resultData[mapping.field] || '';
+          await this.setContactVariable(contact.id, mapping.varName, String(value), mapping.label || mapping.varName);
+        }
+      }
+    };
     
     for (let i = 0; i < actions.length; i++) {
       const action = actions[i];
@@ -2442,14 +2486,16 @@ class BotEngine {
             const result = await googleContacts.exists(userId, searchValue, searchBy);
             console.log(`[BotEngine] 🔍 Google Contacts exists check: ${result.exists}`);
             
-            await this.setContactVariable(contact.id, 'גוגל-איש קשר קיים', result.exists ? 'true' : 'false');
+            // Prepare result data for mapping
+            const resultData = {
+              exists: result.exists ? 'true' : 'false',
+              resourceName: result.contact?.resourceName || '',
+              name: result.contact?.name || '',
+              phone: result.contact?.primaryPhone || '',
+              email: result.contact?.primaryEmail || '',
+            };
             
-            if (result.contact) {
-              await this.setContactVariable(contact.id, 'גוגל-מזהה איש קשר', result.contact.resourceName);
-              await this.setContactVariable(contact.id, 'גוגל-שם איש קשר', result.contact.name || '');
-              await this.setContactVariable(contact.id, 'גוגל-טלפון איש קשר', result.contact.primaryPhone || '');
-              await this.setContactVariable(contact.id, 'גוגל-אימייל איש קשר', result.contact.primaryEmail || '');
-            }
+            await saveResultVariables(resultData, action);
             break;
           }
           
@@ -2466,14 +2512,15 @@ class BotEngine {
             
             console.log(`[BotEngine] 🔍 Google Contacts search: ${foundContact ? 'found' : 'not found'}`);
             
-            await this.setContactVariable(contact.id, 'גוגל-איש קשר קיים', foundContact ? 'true' : 'false');
+            const resultData = {
+              exists: foundContact ? 'true' : 'false',
+              resourceName: foundContact?.resourceName || '',
+              name: foundContact?.name || '',
+              phone: foundContact?.primaryPhone || '',
+              email: foundContact?.primaryEmail || '',
+            };
             
-            if (foundContact) {
-              await this.setContactVariable(contact.id, 'גוגל-מזהה איש קשר', foundContact.resourceName);
-              await this.setContactVariable(contact.id, 'גוגל-שם איש קשר', foundContact.name || '');
-              await this.setContactVariable(contact.id, 'גוגל-טלפון איש קשר', foundContact.primaryPhone || '');
-              await this.setContactVariable(contact.id, 'גוגל-אימייל איש קשר', foundContact.primaryEmail || '');
-            }
+            await saveResultVariables(resultData, action);
             break;
           }
           
@@ -2490,17 +2537,20 @@ class BotEngine {
             const newContact = await googleContacts.createContact(userId, contactData);
             console.log(`[BotEngine] ➕ Google Contact created: ${newContact.resourceName}`);
             
-            await this.setContactVariable(contact.id, 'גוגל-איש קשר קיים', 'true');
-            await this.setContactVariable(contact.id, 'גוגל-מזהה איש קשר', newContact.resourceName);
-            await this.setContactVariable(contact.id, 'גוגל-שם איש קשר', newContact.name || '');
-            await this.setContactVariable(contact.id, 'גוגל-טלפון איש קשר', newContact.primaryPhone || '');
-            await this.setContactVariable(contact.id, 'גוגל-אימייל איש קשר', newContact.primaryEmail || '');
-            await this.setContactVariable(contact.id, 'גוגל-פעולה', 'created');
+            const resultData = {
+              exists: 'true',
+              action: 'created',
+              resourceName: newContact.resourceName,
+              name: newContact.name || '',
+              phone: newContact.primaryPhone || '',
+              email: newContact.primaryEmail || '',
+            };
+            
+            await saveResultVariables(resultData, action);
             break;
           }
           
           case 'update_contact': {
-            // First, find the contact
             const searchValue = await this.replaceAllVariables(action.searchValue || '', contact, '', '', userId);
             const searchBy = action.searchBy || 'phone';
             
@@ -2513,7 +2563,7 @@ class BotEngine {
             
             if (!foundContact) {
               console.log('[BotEngine] ⚠️ Google Contact not found for update');
-              await this.setContactVariable(contact.id, 'גוגל-איש קשר קיים', 'false');
+              await saveResultVariables({ exists: 'false' }, action);
               break;
             }
             
@@ -2527,12 +2577,16 @@ class BotEngine {
             const updatedContact = await googleContacts.updateContact(userId, foundContact.resourceName, updateData);
             console.log(`[BotEngine] ✏️ Google Contact updated: ${updatedContact.resourceName}`);
             
-            await this.setContactVariable(contact.id, 'גוגל-איש קשר קיים', 'true');
-            await this.setContactVariable(contact.id, 'גוגל-מזהה איש קשר', updatedContact.resourceName);
-            await this.setContactVariable(contact.id, 'גוגל-שם איש קשר', updatedContact.name || '');
-            await this.setContactVariable(contact.id, 'גוגל-טלפון איש קשר', updatedContact.primaryPhone || '');
-            await this.setContactVariable(contact.id, 'גוגל-אימייל איש קשר', updatedContact.primaryEmail || '');
-            await this.setContactVariable(contact.id, 'גוגל-פעולה', 'updated');
+            const resultData = {
+              exists: 'true',
+              action: 'updated',
+              resourceName: updatedContact.resourceName,
+              name: updatedContact.name || '',
+              phone: updatedContact.primaryPhone || '',
+              email: updatedContact.primaryEmail || '',
+            };
+            
+            await saveResultVariables(resultData, action);
             break;
           }
           
@@ -2549,12 +2603,16 @@ class BotEngine {
             const result = await googleContacts.findOrCreate(userId, phone, contactData);
             console.log(`[BotEngine] 🔎 Google Contact find or create: ${result.action}`);
             
-            await this.setContactVariable(contact.id, 'גוגל-איש קשר קיים', 'true');
-            await this.setContactVariable(contact.id, 'גוגל-מזהה איש קשר', result.contact.resourceName);
-            await this.setContactVariable(contact.id, 'גוגל-שם איש קשר', result.contact.name || '');
-            await this.setContactVariable(contact.id, 'גוגל-טלפון איש קשר', result.contact.primaryPhone || '');
-            await this.setContactVariable(contact.id, 'גוגל-אימייל איש קשר', result.contact.primaryEmail || '');
-            await this.setContactVariable(contact.id, 'גוגל-פעולה', result.action);
+            const resultData = {
+              exists: 'true',
+              action: result.action, // 'found' or 'created'
+              resourceName: result.contact.resourceName,
+              name: result.contact.name || '',
+              phone: result.contact.primaryPhone || '',
+              email: result.contact.primaryEmail || '',
+            };
+            
+            await saveResultVariables(resultData, action);
             break;
           }
           
@@ -2577,15 +2635,14 @@ class BotEngine {
             
             if (!foundContact) {
               console.log('[BotEngine] ⚠️ Google Contact not found for label operation');
-              await this.setContactVariable(contact.id, 'גוגל-איש קשר קיים', 'false');
+              await saveResultVariables({ exists: 'false' }, action);
               break;
             }
             
             await googleContacts.addToLabel(userId, foundContact.resourceName, labelId);
             console.log(`[BotEngine] 🏷️ Google Contact added to label`);
             
-            await this.setContactVariable(contact.id, 'גוגל-איש קשר קיים', 'true');
-            await this.setContactVariable(contact.id, 'גוגל-מזהה איש קשר', foundContact.resourceName);
+            await saveResultVariables({ exists: 'true', resourceName: foundContact.resourceName }, action);
             break;
           }
           
@@ -2608,15 +2665,14 @@ class BotEngine {
             
             if (!foundContact) {
               console.log('[BotEngine] ⚠️ Google Contact not found for label operation');
-              await this.setContactVariable(contact.id, 'גוגל-איש קשר קיים', 'false');
+              await saveResultVariables({ exists: 'false' }, action);
               break;
             }
             
             await googleContacts.removeFromLabel(userId, foundContact.resourceName, labelId);
             console.log(`[BotEngine] 🗑️ Google Contact removed from label`);
             
-            await this.setContactVariable(contact.id, 'גוגל-איש קשר קיים', 'true');
-            await this.setContactVariable(contact.id, 'גוגל-מזהה איש קשר', foundContact.resourceName);
+            await saveResultVariables({ exists: 'true', resourceName: foundContact.resourceName }, action);
             break;
           }
           
@@ -2642,8 +2698,11 @@ class BotEngine {
           errorMessage = 'חרגת ממכסת הבקשות של גוגל. נסה שוב מאוחר יותר.';
         }
         
-        await this.setContactVariable(contact.id, 'גוגל-איש קשר קיים', 'false');
-        await this.setContactVariable(contact.id, 'גוגל-שגיאה', errorMessage);
+        // Save error to user-defined error variable if specified
+        const errorMapping = (action.resultMappings || []).find(m => m.field === 'error');
+        if (errorMapping && errorMapping.varName) {
+          await this.setContactVariable(contact.id, errorMapping.varName, errorMessage, errorMapping.label || errorMapping.varName);
+        }
       }
     }
   }
@@ -3639,7 +3698,7 @@ class BotEngine {
   }
   
   // Helper: Set contact variable
-  async setContactVariable(contactId, key, value) {
+  async setContactVariable(contactId, key, value, label = null) {
     // Reserved system variable names - never add these to user_variable_definitions
     const RESERVED_VARIABLES = [
       'name', 'contact_phone', 'last_message', 'bot_name', 
@@ -3669,15 +3728,16 @@ class BotEngine {
       const contactRes = await db.query('SELECT user_id FROM contacts WHERE id = $1', [contactId]);
       if (contactRes.rows[0]) {
         const userId = contactRes.rows[0].user_id;
+        const displayLabel = label || key; // Use provided label or default to key
         const result = await db.query(
           `INSERT INTO user_variable_definitions (user_id, name, label, var_type)
-           VALUES ($1, $2, $2, 'text')
+           VALUES ($1, $2, $3, 'text')
            ON CONFLICT (user_id, name) DO NOTHING
            RETURNING id`,
-          [userId, key]
+          [userId, key, displayLabel]
         );
         if (result.rows.length > 0) {
-          console.log(`[BotEngine] ✅ New variable definition added for user ${userId}: ${key}`);
+          console.log(`[BotEngine] ✅ New variable definition added for user ${userId}: ${key} (${displayLabel})`);
         } else {
           console.log(`[BotEngine] Variable definition already exists: ${key}`);
         }
