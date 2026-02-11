@@ -235,19 +235,48 @@ async function pullWhatsAppContacts(req, res) {
   try {
     const userId = req.user.id;
     
-    // Get user's contact limit from subscription (with fallback if table doesn't exist)
+    // Get user's contact limit from feature overrides and subscription
     let maxContacts = 1000; // Default limit
     try {
-      const limitResult = await pool.query(`
-        SELECT sp.max_contacts
-        FROM users u
-        LEFT JOIN subscriptions s ON u.id = s.user_id AND s.status = 'active'
-        LEFT JOIN subscription_plans sp ON s.plan_id = sp.id
-        WHERE u.id = $1
-      `, [userId]);
-      maxContacts = limitResult.rows[0]?.max_contacts || 1000;
+      // First check user's feature_overrides (takes precedence)
+      const userResult = await pool.query(
+        'SELECT feature_overrides FROM users WHERE id = $1',
+        [userId]
+      );
+      const featureOverrides = userResult.rows[0]?.feature_overrides;
+      
+      console.log(`[Contacts] User ${userId} feature_overrides:`, JSON.stringify(featureOverrides));
+      
+      if (featureOverrides?.max_contacts !== null && featureOverrides?.max_contacts !== undefined) {
+        if (featureOverrides.max_contacts === -1) {
+          maxContacts = Infinity;
+          console.log(`[Contacts] User ${userId} has unlimited contacts via feature_overrides`);
+        } else {
+          maxContacts = featureOverrides.max_contacts;
+        }
+      } else {
+        // Check subscription plan
+        const subResult = await pool.query(`
+          SELECT sp.max_contacts
+          FROM user_subscriptions us
+          JOIN subscription_plans sp ON us.plan_id = sp.id
+          WHERE us.user_id = $1 
+            AND (us.status IN ('active', 'trial') 
+                 OR (us.status = 'cancelled' AND (us.expires_at > NOW() OR us.next_charge_date > NOW())))
+          ORDER BY us.started_at DESC
+          LIMIT 1
+        `, [userId]);
+        
+        const planMaxContacts = subResult.rows[0]?.max_contacts;
+        if (planMaxContacts === -1) {
+          maxContacts = Infinity;
+        } else if (planMaxContacts) {
+          maxContacts = planMaxContacts;
+        }
+      }
+      console.log(`[Contacts] User ${userId} contact limit: ${maxContacts === Infinity ? 'unlimited' : maxContacts}`);
     } catch (e) {
-      console.log('[Contacts] Subscriptions table not found, using default limit');
+      console.log('[Contacts] Error getting contact limit:', e.message);
     }
     
     // Get current contact count
@@ -479,19 +508,48 @@ async function importGroupParticipants(req, res) {
       return res.status(400).json({ error: 'לא נבחרו אנשי קשר לייבוא' });
     }
     
-    // Get user's contact limit (with fallback if table doesn't exist)
+    // Get user's contact limit from feature overrides and subscription
     let maxContacts = 1000; // Default limit
     try {
-      const limitResult = await pool.query(`
-        SELECT sp.max_contacts
-        FROM users u
-        LEFT JOIN subscriptions s ON u.id = s.user_id AND s.status = 'active'
-        LEFT JOIN subscription_plans sp ON s.plan_id = sp.id
-        WHERE u.id = $1
-      `, [userId]);
-      maxContacts = limitResult.rows[0]?.max_contacts || 1000;
+      // First check user's feature_overrides (takes precedence)
+      const userResult = await pool.query(
+        'SELECT feature_overrides FROM users WHERE id = $1',
+        [userId]
+      );
+      const featureOverrides = userResult.rows[0]?.feature_overrides;
+      
+      console.log(`[Contacts] User ${userId} feature_overrides:`, JSON.stringify(featureOverrides));
+      
+      if (featureOverrides?.max_contacts !== null && featureOverrides?.max_contacts !== undefined) {
+        if (featureOverrides.max_contacts === -1) {
+          maxContacts = Infinity;
+          console.log(`[Contacts] User ${userId} has unlimited contacts via feature_overrides`);
+        } else {
+          maxContacts = featureOverrides.max_contacts;
+        }
+      } else {
+        // Check subscription plan
+        const subResult = await pool.query(`
+          SELECT sp.max_contacts
+          FROM user_subscriptions us
+          JOIN subscription_plans sp ON us.plan_id = sp.id
+          WHERE us.user_id = $1 
+            AND (us.status IN ('active', 'trial') 
+                 OR (us.status = 'cancelled' AND (us.expires_at > NOW() OR us.next_charge_date > NOW())))
+          ORDER BY us.started_at DESC
+          LIMIT 1
+        `, [userId]);
+        
+        const planMaxContacts = subResult.rows[0]?.max_contacts;
+        if (planMaxContacts === -1) {
+          maxContacts = Infinity;
+        } else if (planMaxContacts) {
+          maxContacts = planMaxContacts;
+        }
+      }
+      console.log(`[Contacts] User ${userId} contact limit: ${maxContacts === Infinity ? 'unlimited' : maxContacts}`);
     } catch (e) {
-      console.log('[Contacts] Subscriptions table not found, using default limit');
+      console.log('[Contacts] Error getting contact limit:', e.message);
     }
     
     // Get current contact count
