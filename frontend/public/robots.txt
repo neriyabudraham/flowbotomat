@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://botomat.co.il/sitemap.xml
+
+# Disallow private areas
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /app/
