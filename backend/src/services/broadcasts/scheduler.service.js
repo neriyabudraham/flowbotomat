@@ -14,6 +14,25 @@ let schedulerInterval = null;
  */
 async function checkAndRunCampaigns() {
   try {
+    // Debug: Check what campaigns exist and why they might not be picked up
+    const debugResult = await db.query(`
+      SELECT id, name, is_active, execution_status, 
+             next_run_at, resume_at,
+             next_run_at <= NOW() as is_due,
+             NOW() as current_time
+      FROM automated_campaigns 
+      WHERE is_active = true AND next_run_at IS NOT NULL
+      LIMIT 5
+    `);
+    
+    if (debugResult.rows.length > 0) {
+      for (const c of debugResult.rows) {
+        if (c.is_due && c.execution_status !== 'running' && c.execution_status !== 'waiting') {
+          console.log(`[Scheduler Debug] Campaign "${c.name}": status=${c.execution_status}, is_due=${c.is_due}, next_run=${c.next_run_at}, now=${c.current_time}`);
+        }
+      }
+    }
+    
     // Find campaigns that are due to run (NEW campaigns - idle status, not waiting)
     const result = await db.query(`
       SELECT 

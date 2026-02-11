@@ -572,7 +572,7 @@ async function updateAutomatedCampaign(req, res) {
       const minutes = String(startDate.getMinutes()).padStart(2, '0');
       nextRunIsrael = `${year}-${month}-${day} ${hours}:${minutes}:00`;
       shouldActivate = true;
-      console.log(`[AutomatedCampaigns] Manual campaign with scheduled start: ${nextRunIsrael}`);
+      console.log(`[AutomatedCampaigns] Manual campaign with scheduled start: ${nextRunIsrael}, shouldActivate=${shouldActivate} (will reset execution_status to idle)`);
     }
     
     // Update campaign (without next_run_at - we'll set it separately)
