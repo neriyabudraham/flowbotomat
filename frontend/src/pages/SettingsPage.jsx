@@ -76,6 +76,7 @@ export default function SettingsPage() {
   
   // Integrations
   const [googleSheetsStatus, setGoogleSheetsStatus] = useState(null);
+  const [googleContactsStatus, setGoogleContactsStatus] = useState(null);
   const [integrationLoading, setIntegrationLoading] = useState(false);
 
   // Live chat settings
@@ -123,6 +124,7 @@ export default function SettingsPage() {
     }
     if (activeTab === 'integrations') {
       loadGoogleSheetsStatus();
+      loadGoogleContactsStatus();
     }
   }, [activeTab]);
 
@@ -159,6 +161,41 @@ export default function SettingsPage() {
       setGoogleSheetsStatus({ connected: false });
     } catch (err) {
       console.error('Failed to disconnect Google Sheets:', err);
+    } finally {
+      setIntegrationLoading(false);
+    }
+  };
+
+  const loadGoogleContactsStatus = async () => {
+    try {
+      const { data } = await api.get('/google-contacts/status');
+      setGoogleContactsStatus(data);
+    } catch (err) {
+      console.error('Failed to load Google Contacts status:', err);
+    }
+  };
+
+  const connectGoogleContacts = async () => {
+    try {
+      setIntegrationLoading(true);
+      const { data } = await api.get('/google-contacts/auth-url');
+      window.location.href = data.url;
+    } catch (err) {
+      console.error('Failed to get auth URL:', err);
+      setMessage({ type: 'error', text: 'שגיאה בחיבור Google Contacts' });
+    } finally {
+      setIntegrationLoading(false);
+    }
+  };
+
+  const disconnectGoogleContacts = async () => {
+    if (!confirm('האם אתה בטוח שברצונך לנתק את Google Contacts?')) return;
+    try {
+      setIntegrationLoading(true);
+      await api.post('/google-contacts/disconnect');
+      setGoogleContactsStatus({ connected: false });
+    } catch (err) {
+      console.error('Failed to disconnect Google Contacts:', err);
     } finally {
       setIntegrationLoading(false);
     }
@@ -934,6 +971,100 @@ export default function SettingsPage() {
                             <div className="flex items-center gap-2">
                               <Check className="w-4 h-4 text-green-500" />
                               קריאת נתונים מגיליון
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Google Contacts Integration Card */}
+                    <div className="border border-gray-200 rounded-xl p-5 hover:border-blue-200 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center">
+                            <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none">
+                              <circle cx="12" cy="8" r="4" stroke="#4285F4" strokeWidth="2"/>
+                              <path d="M4 20C4 16.6863 7.58172 14 12 14C16.4183 14 20 16.6863 20 20" stroke="#4285F4" strokeWidth="2" strokeLinecap="round"/>
+                              <circle cx="18" cy="8" r="3" stroke="#4285F4" strokeWidth="1.5" strokeDasharray="2 1"/>
+                            </svg>
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-gray-900 text-lg">Google Contacts</h3>
+                            <p className="text-sm text-gray-500">
+                              {googleContactsStatus?.connected 
+                                ? `מחובר: ${googleContactsStatus.email}`
+                                : 'חפש, צור ועדכן אנשי קשר בגוגל'}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-3">
+                          {integrationLoading ? (
+                            <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                          ) : googleContactsStatus?.connected ? (
+                            <>
+                              <span className="flex items-center gap-1.5 text-sm text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg font-medium">
+                                <CheckCircle2 className="w-4 h-4" />
+                                מחובר
+                              </span>
+                              <button
+                                onClick={disconnectGoogleContacts}
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors font-medium"
+                              >
+                                <Unplug className="w-4 h-4" />
+                                נתק
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={connectGoogleContacts}
+                              className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-xl hover:from-blue-600 hover:to-indigo-600 transition-all shadow-sm font-medium"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                              חבר חשבון
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {googleContactsStatus?.connected && (
+                        <div className="mt-4 pt-4 border-t border-gray-100">
+                          <div className="flex items-center gap-6 text-sm text-gray-500">
+                            <span className="flex items-center gap-1.5">
+                              <Mail className="w-4 h-4" />
+                              {googleContactsStatus.email}
+                            </span>
+                            {googleContactsStatus.name && (
+                              <span className="flex items-center gap-1.5">
+                                <User className="w-4 h-4" />
+                                {googleContactsStatus.name}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-400 mt-2">
+                            ניתן להשתמש בפעולות Google Contacts בבוטים שלך דרך עורך הבוט
+                          </p>
+                        </div>
+                      )}
+                      
+                      {!googleContactsStatus?.connected && (
+                        <div className="mt-4 pt-4 border-t border-gray-100">
+                          <div className="grid grid-cols-2 gap-3 text-sm text-gray-500">
+                            <div className="flex items-center gap-2">
+                              <Check className="w-4 h-4 text-blue-500" />
+                              בדיקת קיום איש קשר
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Check className="w-4 h-4 text-blue-500" />
+                              יצירת איש קשר חדש
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Check className="w-4 h-4 text-blue-500" />
+                              עדכון פרטי איש קשר
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Check className="w-4 h-4 text-blue-500" />
+                              הוספה לתוויות/קבוצות
                             </div>
                           </div>
                         </div>

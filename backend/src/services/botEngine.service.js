@@ -1464,6 +1464,10 @@ class BotEngine {
         await this.executeGoogleSheetsNode(node, contact, userId);
         break;
         
+      case 'google_contacts':
+        await this.executeGoogleContactsNode(node, contact, userId);
+        break;
+        
       case 'note':
         // Note nodes are just for documentation, skip them
         console.log('[BotEngine] 📝 Note node (skipped):', node.data?.text?.substring(0, 50) || '');
@@ -2396,6 +2400,216 @@ class BotEngine {
         console.error(`[BotEngine] ❌ Google Sheets error (${operation}):`, error.message);
         await this.setContactVariable(contact.id, 'sheets_found', 'false');
         await this.setContactVariable(contact.id, 'sheets_error', error.message);
+      }
+    }
+  }
+  
+  // Execute Google Contacts node
+  async executeGoogleContactsNode(node, contact, userId) {
+    const googleContacts = require('./googleContacts.service');
+    const actions = node.data?.actions || [];
+    console.log(`[BotEngine] Google Contacts node has ${actions.length} action(s)`);
+    
+    for (let i = 0; i < actions.length; i++) {
+      const action = actions[i];
+      const { operation } = action;
+      
+      console.log(`[BotEngine] Executing Google Contacts: ${operation}`);
+      
+      try {
+        switch (operation) {
+          case 'check_exists': {
+            const searchValue = await this.replaceAllVariables(action.searchValue || '', contact, '', '', userId);
+            const searchBy = action.searchBy || 'phone';
+            
+            const result = await googleContacts.exists(userId, searchValue, searchBy);
+            console.log(`[BotEngine] 🔍 Google Contacts exists check: ${result.exists}`);
+            
+            await this.setContactVariable(contact.id, 'google_contact_exists', result.exists ? 'true' : 'false');
+            
+            if (result.contact) {
+              await this.setContactVariable(contact.id, 'google_contact_id', result.contact.resourceName);
+              await this.setContactVariable(contact.id, 'google_contact_name', result.contact.name || '');
+              await this.setContactVariable(contact.id, 'google_contact_phone', result.contact.primaryPhone || '');
+              await this.setContactVariable(contact.id, 'google_contact_email', result.contact.primaryEmail || '');
+            }
+            break;
+          }
+          
+          case 'search_contact': {
+            const searchValue = await this.replaceAllVariables(action.searchValue || '', contact, '', '', userId);
+            const searchBy = action.searchBy || 'phone';
+            
+            let foundContact = null;
+            if (searchBy === 'phone') {
+              foundContact = await googleContacts.findByPhone(userId, searchValue);
+            } else if (searchBy === 'email') {
+              foundContact = await googleContacts.findByEmail(userId, searchValue);
+            }
+            
+            console.log(`[BotEngine] 🔍 Google Contacts search: ${foundContact ? 'found' : 'not found'}`);
+            
+            await this.setContactVariable(contact.id, 'google_contact_exists', foundContact ? 'true' : 'false');
+            
+            if (foundContact) {
+              await this.setContactVariable(contact.id, 'google_contact_id', foundContact.resourceName);
+              await this.setContactVariable(contact.id, 'google_contact_name', foundContact.name || '');
+              await this.setContactVariable(contact.id, 'google_contact_phone', foundContact.primaryPhone || '');
+              await this.setContactVariable(contact.id, 'google_contact_email', foundContact.primaryEmail || '');
+            }
+            break;
+          }
+          
+          case 'create_contact': {
+            const contactData = {
+              name: await this.replaceAllVariables(action.name || '', contact, '', '', userId),
+              firstName: await this.replaceAllVariables(action.firstName || '', contact, '', '', userId),
+              lastName: await this.replaceAllVariables(action.lastName || '', contact, '', '', userId),
+              phone: await this.replaceAllVariables(action.phone || '', contact, '', '', userId),
+              email: await this.replaceAllVariables(action.email || '', contact, '', '', userId),
+              labelId: action.labelId || null,
+            };
+            
+            const newContact = await googleContacts.createContact(userId, contactData);
+            console.log(`[BotEngine] ➕ Google Contact created: ${newContact.resourceName}`);
+            
+            await this.setContactVariable(contact.id, 'google_contact_exists', 'true');
+            await this.setContactVariable(contact.id, 'google_contact_id', newContact.resourceName);
+            await this.setContactVariable(contact.id, 'google_contact_name', newContact.name || '');
+            await this.setContactVariable(contact.id, 'google_contact_phone', newContact.primaryPhone || '');
+            await this.setContactVariable(contact.id, 'google_contact_email', newContact.primaryEmail || '');
+            await this.setContactVariable(contact.id, 'google_contact_action', 'created');
+            break;
+          }
+          
+          case 'update_contact': {
+            // First, find the contact
+            const searchValue = await this.replaceAllVariables(action.searchValue || '', contact, '', '', userId);
+            const searchBy = action.searchBy || 'phone';
+            
+            let foundContact = null;
+            if (searchBy === 'phone') {
+              foundContact = await googleContacts.findByPhone(userId, searchValue);
+            } else if (searchBy === 'email') {
+              foundContact = await googleContacts.findByEmail(userId, searchValue);
+            }
+            
+            if (!foundContact) {
+              console.log('[BotEngine] ⚠️ Google Contact not found for update');
+              await this.setContactVariable(contact.id, 'google_contact_exists', 'false');
+              break;
+            }
+            
+            const updateData = {};
+            if (action.name) updateData.name = await this.replaceAllVariables(action.name, contact, '', '', userId);
+            if (action.firstName) updateData.firstName = await this.replaceAllVariables(action.firstName, contact, '', '', userId);
+            if (action.lastName) updateData.lastName = await this.replaceAllVariables(action.lastName, contact, '', '', userId);
+            if (action.phone) updateData.phone = await this.replaceAllVariables(action.phone, contact, '', '', userId);
+            if (action.email) updateData.email = await this.replaceAllVariables(action.email, contact, '', '', userId);
+            
+            const updatedContact = await googleContacts.updateContact(userId, foundContact.resourceName, updateData);
+            console.log(`[BotEngine] ✏️ Google Contact updated: ${updatedContact.resourceName}`);
+            
+            await this.setContactVariable(contact.id, 'google_contact_exists', 'true');
+            await this.setContactVariable(contact.id, 'google_contact_id', updatedContact.resourceName);
+            await this.setContactVariable(contact.id, 'google_contact_name', updatedContact.name || '');
+            await this.setContactVariable(contact.id, 'google_contact_phone', updatedContact.primaryPhone || '');
+            await this.setContactVariable(contact.id, 'google_contact_email', updatedContact.primaryEmail || '');
+            await this.setContactVariable(contact.id, 'google_contact_action', 'updated');
+            break;
+          }
+          
+          case 'find_or_create': {
+            const phone = await this.replaceAllVariables(action.phone || action.searchValue || '', contact, '', '', userId);
+            const contactData = {
+              name: await this.replaceAllVariables(action.name || '', contact, '', '', userId),
+              firstName: await this.replaceAllVariables(action.firstName || '', contact, '', '', userId),
+              lastName: await this.replaceAllVariables(action.lastName || '', contact, '', '', userId),
+              email: await this.replaceAllVariables(action.email || '', contact, '', '', userId),
+              labelId: action.labelId || null,
+            };
+            
+            const result = await googleContacts.findOrCreate(userId, phone, contactData);
+            console.log(`[BotEngine] 🔎 Google Contact find or create: ${result.action}`);
+            
+            await this.setContactVariable(contact.id, 'google_contact_exists', 'true');
+            await this.setContactVariable(contact.id, 'google_contact_id', result.contact.resourceName);
+            await this.setContactVariable(contact.id, 'google_contact_name', result.contact.name || '');
+            await this.setContactVariable(contact.id, 'google_contact_phone', result.contact.primaryPhone || '');
+            await this.setContactVariable(contact.id, 'google_contact_email', result.contact.primaryEmail || '');
+            await this.setContactVariable(contact.id, 'google_contact_action', result.action);
+            break;
+          }
+          
+          case 'add_to_label': {
+            const searchValue = await this.replaceAllVariables(action.searchValue || '', contact, '', '', userId);
+            const searchBy = action.searchBy || 'phone';
+            const labelId = action.labelId;
+            
+            if (!labelId) {
+              console.log('[BotEngine] ⚠️ No label specified for add_to_label');
+              break;
+            }
+            
+            let foundContact = null;
+            if (searchBy === 'phone') {
+              foundContact = await googleContacts.findByPhone(userId, searchValue);
+            } else if (searchBy === 'email') {
+              foundContact = await googleContacts.findByEmail(userId, searchValue);
+            }
+            
+            if (!foundContact) {
+              console.log('[BotEngine] ⚠️ Google Contact not found for label operation');
+              await this.setContactVariable(contact.id, 'google_contact_exists', 'false');
+              break;
+            }
+            
+            await googleContacts.addToLabel(userId, foundContact.resourceName, labelId);
+            console.log(`[BotEngine] 🏷️ Google Contact added to label`);
+            
+            await this.setContactVariable(contact.id, 'google_contact_exists', 'true');
+            await this.setContactVariable(contact.id, 'google_contact_id', foundContact.resourceName);
+            break;
+          }
+          
+          case 'remove_from_label': {
+            const searchValue = await this.replaceAllVariables(action.searchValue || '', contact, '', '', userId);
+            const searchBy = action.searchBy || 'phone';
+            const labelId = action.labelId;
+            
+            if (!labelId) {
+              console.log('[BotEngine] ⚠️ No label specified for remove_from_label');
+              break;
+            }
+            
+            let foundContact = null;
+            if (searchBy === 'phone') {
+              foundContact = await googleContacts.findByPhone(userId, searchValue);
+            } else if (searchBy === 'email') {
+              foundContact = await googleContacts.findByEmail(userId, searchValue);
+            }
+            
+            if (!foundContact) {
+              console.log('[BotEngine] ⚠️ Google Contact not found for label operation');
+              await this.setContactVariable(contact.id, 'google_contact_exists', 'false');
+              break;
+            }
+            
+            await googleContacts.removeFromLabel(userId, foundContact.resourceName, labelId);
+            console.log(`[BotEngine] 🗑️ Google Contact removed from label`);
+            
+            await this.setContactVariable(contact.id, 'google_contact_exists', 'true');
+            await this.setContactVariable(contact.id, 'google_contact_id', foundContact.resourceName);
+            break;
+          }
+          
+          default:
+            console.log(`[BotEngine] ⚠️ Unknown Google Contacts operation: ${operation}`);
+        }
+      } catch (error) {
+        console.error(`[BotEngine] ❌ Google Contacts error (${operation}):`, error.message);
+        await this.setContactVariable(contact.id, 'google_contact_exists', 'false');
+        await this.setContactVariable(contact.id, 'google_contact_error', error.message);
       }
     }
   }

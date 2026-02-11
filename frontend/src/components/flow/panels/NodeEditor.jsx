@@ -10,6 +10,7 @@ import NoteEditor from './editors/NoteEditor';
 import IntegrationEditor from './editors/IntegrationEditor';
 import SendOtherEditor from './editors/SendOtherEditor';
 import GoogleSheetsEditor from './editors/GoogleSheetsEditor';
+import GoogleContactsEditor from './editors/GoogleContactsEditor';
 
 const editors = {
   trigger: TriggerEditor,
@@ -23,6 +24,7 @@ const editors = {
   integration: IntegrationEditor,
   send_other: SendOtherEditor,
   google_sheets: GoogleSheetsEditor,
+  google_contacts: GoogleContactsEditor,
 };
 
 const titles = {
@@ -37,6 +39,7 @@ const titles = {
   integration: 'עריכת אינטגרציה',
   send_other: 'שליחה אחרת',
   google_sheets: 'Google Sheets',
+  google_contacts: 'Google Contacts',
 };
 
 const colors = {
@@ -51,6 +54,7 @@ const colors = {
   integration: 'bg-orange-50 border-orange-200',
   send_other: 'bg-violet-50 border-violet-200',
   google_sheets: 'bg-green-50 border-green-200',
+  google_contacts: 'bg-blue-50 border-blue-200',
 };
 
 export default function NodeEditor({ node, onUpdate, onClose, onDelete, isNodeConnected }) {
