@@ -768,6 +768,16 @@ async function runCampaignNow(req, res) {
     const userId = req.user.id;
     const { id } = req.params;
     
+    // Reset campaign execution state before running
+    await db.query(`
+      UPDATE automated_campaigns 
+      SET execution_status = 'idle',
+          current_step = 0,
+          resume_at = NULL,
+          paused_at_step = NULL
+      WHERE id = $1 AND user_id = $2
+    `, [id, userId]);
+    
     // Get campaign with user_id for execution
     // Use COALESCE to prefer step-level audience, then fall back to campaign-level
     const campaignResult = await db.query(`
