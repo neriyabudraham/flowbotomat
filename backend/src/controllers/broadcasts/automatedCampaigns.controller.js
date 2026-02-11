@@ -356,7 +356,7 @@ const CAMPAIGN_SELECT_FIELDS = `
   ac.audience_id, ac.current_step, ac.total_sent,
   to_char(ac.next_run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as next_run_at,
   to_char(ac.last_run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as last_run_at,
-  to_char(ac.scheduled_start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as scheduled_start_at,
+  to_char(ac.scheduled_start_at, 'YYYY-MM-DD"T"HH24:MI:SS') as scheduled_start_at,
   to_char(ac.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
   to_char(ac.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
 `;
