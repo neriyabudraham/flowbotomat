@@ -1,5 +1,7 @@
-import { Plus, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, X, RefreshCw } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
+import api from '../../../../services/api';
 
 const variables = [
   { id: 'message', label: 'תוכן ההודעה', group: 'הודעה' },
@@ -9,7 +11,7 @@ const variables = [
   { id: 'phone', label: 'מספר טלפון', group: 'איש קשר' },
   { id: 'is_first_contact', label: 'איש קשר חדש', group: 'איש קשר' },
   { id: 'has_tag', label: 'יש תגית', group: 'איש קשר' },
-  { id: 'contact_var', label: 'משתנה', group: 'משתנים' },
+  { id: 'contact_var', label: 'משתנה מהמערכת', group: 'משתנים' },
   { id: 'time', label: 'שעה נוכחית', group: 'זמן' },
   { id: 'day', label: 'יום בשבוע', group: 'זמן' },
   { id: 'date', label: 'תאריך', group: 'זמן' },
@@ -76,9 +78,18 @@ const groupedOperators = operators.reduce((acc, o) => {
 }, {});
 
 // Single condition component
-function ConditionRow({ condition, onChange, onRemove, canRemove }) {
+function ConditionRow({ condition, onChange, onRemove, canRemove, availableVars, loadingVars }) {
   const needsValue = !['is_empty', 'is_not_empty', 'is_true', 'is_false', 'is_text', 'is_number', 'is_email', 'is_phone', 'is_image', 'is_video', 'is_audio', 'is_document', 'is_pdf'].includes(condition.operator);
-  const needsVarName = ['has_tag', 'contact_var'].includes(condition.variable);
+  const needsVarName = condition.variable === 'has_tag';
+  const needsVarSelect = condition.variable === 'contact_var';
+
+  // Group available variables by category
+  const groupedAvailableVars = availableVars.reduce((acc, v) => {
+    const group = v.group || 'משתנים שלי';
+    if (!acc[group]) acc[group] = [];
+    acc[group].push(v);
+    return acc;
+  }, {});
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-3 space-y-2">
@@ -116,13 +127,34 @@ function ConditionRow({ condition, onChange, onRemove, canRemove }) {
         )}
       </div>
       
-      {/* Variable name input - with variable selector support */}
-      {needsVarName && (
-        <TextInputWithVariables
+      {/* Variable dropdown for contact_var */}
+      {needsVarSelect && (
+        <select
           value={condition.varName || ''}
-          onChange={(val) => onChange({ ...condition, varName: val })}
-          placeholder={condition.variable === 'has_tag' ? 'שם התגית' : 'שם המשתנה או {{משתנה}}'}
-          className="text-sm"
+          onChange={(e) => onChange({ ...condition, varName: e.target.value })}
+          className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+        >
+          <option value="">{loadingVars ? 'טוען משתנים...' : 'בחר משתנה...'}</option>
+          {Object.entries(groupedAvailableVars).map(([group, vars]) => (
+            <optgroup key={group} label={group}>
+              {vars.map(v => (
+                <option key={v.key} value={`{{${v.key}}}`}>
+                  {v.label} ({v.key})
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      )}
+      
+      {/* Tag name input */}
+      {needsVarName && (
+        <input
+          type="text"
+          value={condition.varName || ''}
+          onChange={(e) => onChange({ ...condition, varName: e.target.value })}
+          placeholder="שם התגית"
+          className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
         />
       )}
       
@@ -167,7 +199,7 @@ function ConditionRow({ condition, onChange, onRemove, canRemove }) {
 }
 
 // Condition group component
-function ConditionGroup({ group, onChange, onRemove, canRemove, isRoot = false }) {
+function ConditionGroup({ group, onChange, onRemove, canRemove, isRoot = false, availableVars, loadingVars }) {
   const conditions = group.conditions || [];
   const logic = group.logic || 'AND';
 
@@ -230,6 +262,8 @@ function ConditionGroup({ group, onChange, onRemove, canRemove, isRoot = false }
               onChange={(newGroup) => updateCondition(index, newGroup)}
               onRemove={() => removeCondition(index)}
               canRemove={conditions.length > 1 || !isRoot}
+              availableVars={availableVars}
+              loadingVars={loadingVars}
             />
           ) : (
             <ConditionRow
@@ -237,6 +271,8 @@ function ConditionGroup({ group, onChange, onRemove, canRemove, isRoot = false }
               onChange={(newCond) => updateCondition(index, newCond)}
               onRemove={() => removeCondition(index)}
               canRemove={conditions.length > 1 || !isRoot}
+              availableVars={availableVars}
+              loadingVars={loadingVars}
             />
           )}
         </div>
@@ -264,6 +300,56 @@ function ConditionGroup({ group, onChange, onRemove, canRemove, isRoot = false }
 }
 
 export default function ConditionEditor({ data, onUpdate }) {
+  const [availableVars, setAvailableVars] = useState([]);
+  const [loadingVars, setLoadingVars] = useState(false);
+
+  // Load variables from API
+  useEffect(() => {
+    loadVariables();
+  }, []);
+
+  const loadVariables = async () => {
+    try {
+      setLoadingVars(true);
+      const res = await api.get('/variables');
+      
+      const allVars = [];
+      
+      // System variables
+      (res.data.systemVariables || []).forEach(v => {
+        allVars.push({
+          key: v.name,
+          label: v.label,
+          group: 'משתני מערכת'
+        });
+      });
+      
+      // User variables
+      (res.data.userVariables || []).forEach(v => {
+        allVars.push({
+          key: v.name,
+          label: v.label || v.name,
+          group: 'משתנים שלי'
+        });
+      });
+      
+      // Constant variables
+      (res.data.customSystemVariables || []).forEach(v => {
+        allVars.push({
+          key: v.name,
+          label: v.label || v.name,
+          group: 'קבועים'
+        });
+      });
+      
+      setAvailableVars(allVars);
+    } catch (err) {
+      console.error('Failed to load variables:', err);
+    } finally {
+      setLoadingVars(false);
+    }
+  };
+
   // Convert old format to new format if needed
   const conditionGroup = data.conditionGroup || (
     data.variable 
@@ -304,9 +390,19 @@ export default function ConditionEditor({ data, onUpdate }) {
         </div>
       ) : (
         <>
-          <p className="text-sm text-gray-500">
-            הגדר תנאים מורכבים. לחץ על "וגם"/"או" לשינוי לוגיקה. לחץ "הוסף משתנה" להוספת משתנה לערך.
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-500">
+              לחץ על "וגם"/"או" לשינוי לוגיקה
+            </p>
+            <button
+              onClick={loadVariables}
+              disabled={loadingVars}
+              className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+            >
+              <RefreshCw className={`w-3 h-3 ${loadingVars ? 'animate-spin' : ''}`} />
+              רענן משתנים
+            </button>
+          </div>
           
           <ConditionGroup
             group={conditionGroup}
@@ -314,6 +410,8 @@ export default function ConditionEditor({ data, onUpdate }) {
             onRemove={() => {}}
             canRemove={false}
             isRoot={true}
+            availableVars={availableVars}
+            loadingVars={loadingVars}
           />
         </>
       )}
