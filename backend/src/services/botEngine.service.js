@@ -2398,8 +2398,25 @@ class BotEngine {
         }
       } catch (error) {
         console.error(`[BotEngine] ❌ Google Sheets error (${operation}):`, error.message);
+        
+        // Translate common Google Sheets errors to Hebrew
+        let errorMessage = error.message;
+        if (error.message.includes('PERMISSION_DENIED')) {
+          errorMessage = 'אין הרשאות לגשת לגיליון. וודא שהחשבון מחובר ויש גישה לגיליון.';
+        } else if (error.message.includes('UNAUTHENTICATED')) {
+          errorMessage = 'החיבור לגוגל פג תוקף. יש להתחבר מחדש בהגדרות.';
+        } else if (error.message.includes('NOT_FOUND') || error.message.includes('Requested entity was not found')) {
+          errorMessage = 'הגיליון לא נמצא. בדוק את מזהה הגיליון.';
+        } else if (error.message.includes('Invalid row index')) {
+          errorMessage = 'מספר השורה לא תקין. בדוק שהמשתנה מכיל מספר נכון.';
+        } else if (error.message.includes('QUOTA_EXCEEDED')) {
+          errorMessage = 'חרגת ממכסת הבקשות של גוגל. נסה שוב מאוחר יותר.';
+        } else if (error.message.includes('Unable to parse range')) {
+          errorMessage = 'שם הגיליון או הטווח לא תקינים.';
+        }
+        
         await this.setContactVariable(contact.id, 'גיליון-נמצא', 'false');
-        await this.setContactVariable(contact.id, 'גיליון-שגיאה', error.message);
+        await this.setContactVariable(contact.id, 'גיליון-שגיאה', errorMessage);
       }
     }
   }
@@ -2608,8 +2625,25 @@ class BotEngine {
         }
       } catch (error) {
         console.error(`[BotEngine] ❌ Google Contacts error (${operation}):`, error.message);
+        
+        // Translate common Google errors to Hebrew
+        let errorMessage = error.message;
+        if (error.message.includes('MY_CONTACTS_OVERFLOW_COUNT')) {
+          errorMessage = 'חשבון Google הגיע למגבלת אנשי הקשר (25,000). יש למחוק אנשי קשר ישנים.';
+        } else if (error.message.includes('PERMISSION_DENIED')) {
+          errorMessage = 'אין הרשאות לגשת לאנשי קשר. נסה להתחבר מחדש לחשבון Google.';
+        } else if (error.message.includes('UNAUTHENTICATED')) {
+          errorMessage = 'החיבור לגוגל פג תוקף. יש להתחבר מחדש בהגדרות.';
+        } else if (error.message.includes('INVALID_ARGUMENT')) {
+          errorMessage = 'נתונים לא תקינים נשלחו לגוגל. בדוק את הפרטים ונסה שוב.';
+        } else if (error.message.includes('NOT_FOUND')) {
+          errorMessage = 'איש הקשר לא נמצא בגוגל.';
+        } else if (error.message.includes('QUOTA_EXCEEDED')) {
+          errorMessage = 'חרגת ממכסת הבקשות של גוגל. נסה שוב מאוחר יותר.';
+        }
+        
         await this.setContactVariable(contact.id, 'גוגל-איש קשר קיים', 'false');
-        await this.setContactVariable(contact.id, 'גוגל-שגיאה', error.message);
+        await this.setContactVariable(contact.id, 'גוגל-שגיאה', errorMessage);
       }
     }
   }
