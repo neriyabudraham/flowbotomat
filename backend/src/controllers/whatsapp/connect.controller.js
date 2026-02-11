@@ -266,11 +266,12 @@ async function createManaged(req, res) {
       connectedAt = new Date();
     }
     
-    // Setup webhook for this user (adds to existing webhooks)
+    // Setup webhook for this user (adds/updates webhooks with all required events)
     const webhookUrl = getWebhookUrl(userId);
     try {
+      console.log(`[Webhook] Setting up webhook with ${WEBHOOK_EVENTS.length} events for user ${userId}`);
       await wahaSession.addWebhook(baseUrl, apiKey, sessionName, webhookUrl, WEBHOOK_EVENTS);
-      console.log(`[Webhook] Added for user ${userId}: ${webhookUrl}`);
+      console.log(`[Webhook] ✅ Configured for user ${userId}: ${webhookUrl}`);
     } catch (err) {
       console.error('[Webhook] Setup failed:', err.message);
     }
@@ -489,6 +490,12 @@ async function checkExisting(req, res) {
     
     if (existingSession && existingSession.status === 'WORKING') {
       console.log(`[WhatsApp] ✅ Found existing WORKING session: ${existingSession.name}`);
+      
+      // Verify and update webhooks in background
+      const webhookUrl = getWebhookUrl(userId);
+      wahaSession.addWebhook(baseUrl, apiKey, existingSession.name, webhookUrl, WEBHOOK_EVENTS)
+        .then(() => console.log(`[Webhook] ✅ Verified/updated for user ${userId}`))
+        .catch(err => console.error(`[Webhook] Update failed for ${userId}:`, err.message));
       
       return res.json({
         exists: true,
