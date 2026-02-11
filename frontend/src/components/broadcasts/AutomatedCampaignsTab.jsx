@@ -1053,7 +1053,7 @@ function CampaignEditor({ campaign, audiences, templates, allCampaigns, onClose,
       const { data } = await api.get('/broadcasts/templates');
       setLocalTemplates(data.templates || []);
     } catch (e) {}
-    onRefreshData?.();
+    // Don't call onRefreshData() - it would unmount the editor and lose form data
   };
 
   const handleAudienceCreated = async () => {
@@ -1062,7 +1062,7 @@ function CampaignEditor({ campaign, audiences, templates, allCampaigns, onClose,
       const { data } = await api.get('/broadcasts/audiences');
       setLocalAudiences(data.audiences || []);
     } catch (e) {}
-    onRefreshData?.();
+    // Don't call onRefreshData() - it would unmount the editor and lose form data
   };
 
   return (
