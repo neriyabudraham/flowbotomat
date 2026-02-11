@@ -1,5 +1,6 @@
-import { Plus, X, ChevronDown, ChevronUp } from 'lucide-react';
-import { useState } from 'react';
+import { Plus, X, ChevronDown, ChevronUp, RefreshCw, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import api from '../../../../services/api';
 
 const variables = [
   { id: 'message', label: 'תוכן ההודעה', group: 'הודעה' },
@@ -9,7 +10,8 @@ const variables = [
   { id: 'phone', label: 'מספר טלפון', group: 'איש קשר' },
   { id: 'is_first_contact', label: 'איש קשר חדש', group: 'איש קשר' },
   { id: 'has_tag', label: 'יש תגית', group: 'איש קשר' },
-  { id: 'contact_var', label: 'משתנה איש קשר', group: 'איש קשר' },
+  { id: 'user_variable', label: '📊 משתנה מהמערכת', group: 'משתנים' },
+  { id: 'contact_var', label: 'משתנה לפי שם (הקלד ידנית)', group: 'משתנים' },
   { id: 'time', label: 'שעה נוכחית', group: 'זמן' },
   { id: 'day', label: 'יום בשבוע', group: 'זמן' },
   { id: 'date', label: 'תאריך', group: 'זמן' },
@@ -26,6 +28,8 @@ const operators = [
   { id: 'matches_regex', label: 'תואם Regex', group: 'טקסט' },
   { id: 'greater_than', label: 'גדול מ', group: 'מספרים' },
   { id: 'less_than', label: 'קטן מ', group: 'מספרים' },
+  { id: 'greater_or_equal', label: 'גדול או שווה ל', group: 'מספרים' },
+  { id: 'less_or_equal', label: 'קטן או שווה ל', group: 'מספרים' },
   { id: 'is_empty', label: 'ריק', group: 'בדיקה' },
   { id: 'is_not_empty', label: 'לא ריק', group: 'בדיקה' },
   { id: 'is_true', label: 'קיים/אמת', group: 'בדיקה' },
@@ -74,9 +78,20 @@ const groupedOperators = operators.reduce((acc, o) => {
 }, {});
 
 // Single condition component
-function ConditionRow({ condition, onChange, onRemove, canRemove }) {
-  const needsValue = !['is_empty', 'is_not_empty', 'is_true', 'is_false'].includes(condition.operator);
+function ConditionRow({ condition, onChange, onRemove, canRemove, userVariables, loadingVars }) {
+  const needsValue = !['is_empty', 'is_not_empty', 'is_true', 'is_false', 'is_text', 'is_number', 'is_email', 'is_phone', 'is_image', 'is_video', 'is_audio', 'is_document', 'is_pdf'].includes(condition.operator);
   const needsVarName = ['has_tag', 'contact_var'].includes(condition.variable);
+  const needsUserVarSelect = condition.variable === 'user_variable';
+
+  // Group user variables by category
+  const groupedUserVars = userVariables.reduce((acc, v) => {
+    const group = v.label?.startsWith('גוגל') ? 'Google Contacts' 
+                : v.label?.startsWith('גיליון') ? 'Google Sheets' 
+                : 'משתנים שלי';
+    if (!acc[group]) acc[group] = [];
+    acc[group].push(v);
+    return acc;
+  }, {});
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-3 space-y-2">
@@ -84,7 +99,7 @@ function ConditionRow({ condition, onChange, onRemove, canRemove }) {
         <div className="flex-1 grid grid-cols-2 gap-2">
           <select
             value={condition.variable || 'message'}
-            onChange={(e) => onChange({ ...condition, variable: e.target.value })}
+            onChange={(e) => onChange({ ...condition, variable: e.target.value, varName: '', selectedVar: '' })}
             className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
           >
             {Object.entries(groupedVariables).map(([group, vars]) => (
@@ -114,13 +129,54 @@ function ConditionRow({ condition, onChange, onRemove, canRemove }) {
         )}
       </div>
       
+      {/* User variable selection from dropdown */}
+      {needsUserVarSelect && (
+        <div className="space-y-2">
+          {loadingVars ? (
+            <div className="flex items-center gap-2 text-xs text-gray-400 p-2">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              טוען משתנים...
+            </div>
+          ) : userVariables.length === 0 ? (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-center">
+              <p className="text-xs text-yellow-700">אין משתנים מוגדרים עדיין</p>
+              <p className="text-[10px] text-yellow-600 mt-1">משתנים נוצרים אוטומטית כשמשתמשים בפעולות כמו Google Sheets, הגדרת משתנה, וכו׳</p>
+            </div>
+          ) : (
+            <select
+              value={condition.selectedVar || ''}
+              onChange={(e) => onChange({ ...condition, selectedVar: e.target.value })}
+              className="w-full px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-300"
+            >
+              <option value="">בחר משתנה...</option>
+              {Object.entries(groupedUserVars).map(([group, vars]) => (
+                <optgroup key={group} label={group}>
+                  {vars.map(v => (
+                    <option key={v.name} value={v.name}>
+                      {v.label || v.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          )}
+          
+          {condition.selectedVar && (
+            <div className="flex items-center gap-2 px-2 py-1 bg-blue-100 rounded-lg">
+              <span className="text-xs text-blue-700 font-mono">{`{{${condition.selectedVar}}}`}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {needsVarName && (
         <input
           type="text"
           value={condition.varName || ''}
           onChange={(e) => onChange({ ...condition, varName: e.target.value })}
-          placeholder={condition.variable === 'has_tag' ? 'שם התגית' : 'שם המשתנה'}
+          placeholder={condition.variable === 'has_tag' ? 'שם התגית' : 'שם המשתנה (באנגלית)'}
           className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+          dir="ltr"
         />
       )}
       
@@ -165,7 +221,7 @@ function ConditionRow({ condition, onChange, onRemove, canRemove }) {
 }
 
 // Condition group component
-function ConditionGroup({ group, onChange, onRemove, canRemove, isRoot = false }) {
+function ConditionGroup({ group, onChange, onRemove, canRemove, isRoot = false, userVariables, loadingVars }) {
   const conditions = group.conditions || [];
   const logic = group.logic || 'AND';
 
@@ -228,6 +284,8 @@ function ConditionGroup({ group, onChange, onRemove, canRemove, isRoot = false }
               onChange={(newGroup) => updateCondition(index, newGroup)}
               onRemove={() => removeCondition(index)}
               canRemove={conditions.length > 1 || !isRoot}
+              userVariables={userVariables}
+              loadingVars={loadingVars}
             />
           ) : (
             <ConditionRow
@@ -235,6 +293,8 @@ function ConditionGroup({ group, onChange, onRemove, canRemove, isRoot = false }
               onChange={(newCond) => updateCondition(index, newCond)}
               onRemove={() => removeCondition(index)}
               canRemove={conditions.length > 1 || !isRoot}
+              userVariables={userVariables}
+              loadingVars={loadingVars}
             />
           )}
         </div>
@@ -262,6 +322,25 @@ function ConditionGroup({ group, onChange, onRemove, canRemove, isRoot = false }
 }
 
 export default function ConditionEditor({ data, onUpdate }) {
+  const [userVariables, setUserVariables] = useState([]);
+  const [loadingVars, setLoadingVars] = useState(false);
+
+  useEffect(() => {
+    loadUserVariables();
+  }, []);
+
+  const loadUserVariables = async () => {
+    try {
+      setLoadingVars(true);
+      const { data } = await api.get('/variables');
+      setUserVariables(data.variables || []);
+    } catch (err) {
+      console.error('Failed to load variables:', err);
+    } finally {
+      setLoadingVars(false);
+    }
+  };
+
   // Convert old format to new format if needed
   const conditionGroup = data.conditionGroup || (
     data.variable 
@@ -284,7 +363,7 @@ export default function ConditionEditor({ data, onUpdate }) {
 
   return (
     <div className="space-y-4">
-      {/* Empty State */}
+      {/* Quick add variable condition button */}
       {conditionGroup.conditions.length === 0 ? (
         <div className="text-center py-8 px-4 bg-gradient-to-b from-orange-50/50 to-white rounded-2xl border-2 border-dashed border-orange-200">
           <div className="w-14 h-14 bg-orange-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -292,19 +371,43 @@ export default function ConditionEditor({ data, onUpdate }) {
           </div>
           <p className="text-gray-700 font-medium mb-1">אין תנאים עדיין</p>
           <p className="text-sm text-gray-500 mb-4">הוסף תנאי להסתעפות הבוט</p>
-          <button
-            onClick={addFirstCondition}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-xl text-sm font-medium hover:bg-orange-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            הוסף תנאי
-          </button>
+          <div className="flex flex-col gap-2 max-w-xs mx-auto">
+            <button
+              onClick={addFirstCondition}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-xl text-sm font-medium hover:bg-orange-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              הוסף תנאי
+            </button>
+            <button
+              onClick={() => onUpdate({ 
+                conditionGroup: { 
+                  logic: 'AND', 
+                  conditions: [{ variable: 'user_variable', operator: 'equals', value: '', selectedVar: '' }] 
+                } 
+              })}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              בדיקת משתנה
+            </button>
+          </div>
         </div>
       ) : (
         <>
-          <p className="text-sm text-gray-500">
-            הגדר תנאים מורכבים עם קבוצות. לחץ על "וגם"/"או" כדי לשנות את הלוגיקה.
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-500">
+              הגדר תנאים מורכבים. לחץ על "וגם"/"או" לשינוי לוגיקה.
+            </p>
+            <button
+              onClick={loadUserVariables}
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
+              disabled={loadingVars}
+            >
+              <RefreshCw className={`w-3 h-3 ${loadingVars ? 'animate-spin' : ''}`} />
+              רענן משתנים
+            </button>
+          </div>
           
           <ConditionGroup
             group={conditionGroup}
@@ -312,6 +415,8 @@ export default function ConditionEditor({ data, onUpdate }) {
             onRemove={() => {}}
             canRemove={false}
             isRoot={true}
+            userVariables={userVariables}
+            loadingVars={loadingVars}
           />
         </>
       )}

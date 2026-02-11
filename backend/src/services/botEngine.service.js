@@ -1783,10 +1783,10 @@ class BotEngine {
     // Support new conditionGroup format or old single condition format
     let result;
     if (data.conditionGroup) {
-      result = this.evaluateConditionGroup(data.conditionGroup, contact, message);
+      result = await this.evaluateConditionGroup(data.conditionGroup, contact, message);
     } else {
       // Old format - single condition
-      result = this.evaluateSingleCondition(data, contact, message);
+      result = await this.evaluateSingleCondition(data, contact, message);
     }
     
     console.log('[BotEngine] Condition result:', result);
@@ -1794,19 +1794,20 @@ class BotEngine {
   }
   
   // Evaluate a group of conditions with AND/OR logic
-  evaluateConditionGroup(group, contact, message) {
+  async evaluateConditionGroup(group, contact, message) {
     const conditions = group.conditions || [];
     const logic = group.logic || 'AND';
     
     if (conditions.length === 0) return true;
     
-    const results = conditions.map(cond => {
+    const results = [];
+    for (const cond of conditions) {
       if (cond.isGroup) {
-        return this.evaluateConditionGroup(cond, contact, message);
+        results.push(await this.evaluateConditionGroup(cond, contact, message));
       } else {
-        return this.evaluateSingleCondition(cond, contact, message);
+        results.push(await this.evaluateSingleCondition(cond, contact, message));
       }
-    });
+    }
     
     if (logic === 'AND') {
       return results.every(r => r === true);
@@ -1816,8 +1817,8 @@ class BotEngine {
   }
   
   // Evaluate a single condition
-  evaluateSingleCondition(condition, contact, message) {
-    const { variable, operator, value, varName } = condition;
+  async evaluateSingleCondition(condition, contact, message) {
+    const { variable, operator, value, varName, selectedVar } = condition;
     let checkValue = '';
     
     // Israel timezone for time checks
@@ -1856,12 +1857,53 @@ class BotEngine {
         checkValue = String(Math.floor(Math.random() * 100) + 1);
         break;
       case 'has_tag':
-        // TODO: check if contact has tag
-        checkValue = 'false';
+        // Check if contact has tag
+        if (varName) {
+          try {
+            const tagResult = await db.query(
+              `SELECT 1 FROM contact_tags ct 
+               JOIN tags t ON ct.tag_id = t.id 
+               WHERE ct.contact_id = $1 AND LOWER(t.name) = LOWER($2)`,
+              [contact.id, varName]
+            );
+            checkValue = tagResult.rows.length > 0 ? 'true' : 'false';
+          } catch (err) {
+            console.error('[BotEngine] Error checking tag:', err.message);
+            checkValue = 'false';
+          }
+        }
+        break;
+      case 'user_variable':
+        // Get user variable from database using selectedVar
+        if (selectedVar) {
+          try {
+            const varResult = await db.query(
+              'SELECT value FROM contact_variables WHERE contact_id = $1 AND key = $2',
+              [contact.id, selectedVar]
+            );
+            checkValue = varResult.rows[0]?.value || '';
+            console.log(`[BotEngine] Variable ${selectedVar} = "${checkValue}"`);
+          } catch (err) {
+            console.error('[BotEngine] Error getting variable:', err.message);
+            checkValue = '';
+          }
+        }
         break;
       case 'contact_var':
-        // TODO: get contact variable
-        checkValue = '';
+        // Get contact variable by name
+        if (varName) {
+          try {
+            const varResult = await db.query(
+              'SELECT value FROM contact_variables WHERE contact_id = $1 AND key = $2',
+              [contact.id, varName]
+            );
+            checkValue = varResult.rows[0]?.value || '';
+            console.log(`[BotEngine] Variable ${varName} = "${checkValue}"`);
+          } catch (err) {
+            console.error('[BotEngine] Error getting variable:', err.message);
+            checkValue = '';
+          }
+        }
         break;
       default:
         checkValue = '';
@@ -1888,6 +1930,10 @@ class BotEngine {
         return parseFloat(checkValue) > parseFloat(value);
       case 'less_than':
         return parseFloat(checkValue) < parseFloat(value);
+      case 'greater_or_equal':
+        return parseFloat(checkValue) >= parseFloat(value);
+      case 'less_or_equal':
+        return parseFloat(checkValue) <= parseFloat(value);
       case 'is_empty':
         return (checkValue || '').trim() === '';
       case 'is_not_empty':
