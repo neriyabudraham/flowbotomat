@@ -990,19 +990,28 @@ function CampaignEditor({ campaign, audiences, templates, allCampaigns, onClose,
     setLoadingSteps(true);
     try {
       const { data } = await api.get(`/broadcasts/automated/${campaign.id}`);
-      if (data.campaign?.steps && data.campaign.steps.length > 0) {
+      const fetchedCampaign = data.campaign;
+      
+      // Update form with campaign data including audience_id
+      const updates = {};
+      
+      // Update audience_id from fetched campaign
+      if (fetchedCampaign?.audience_id) {
+        updates.audience_id = fetchedCampaign.audience_id;
+      }
+      
+      // Update steps
+      if (fetchedCampaign?.steps && fetchedCampaign.steps.length > 0) {
         // Map trigger_campaign_id to campaign_id for frontend compatibility
-        const mappedSteps = data.campaign.steps.map(step => ({
+        updates.steps = fetchedCampaign.steps.map(step => ({
           ...step,
           campaign_id: step.trigger_campaign_id || step.campaign_id || ''
         }));
-        setForm(prev => ({ ...prev, steps: mappedSteps }));
       } else {
-        setForm(prev => ({
-          ...prev,
-          steps: [{ step_type: 'send', template_id: '', audience_id: '', send_time: '' }]
-        }));
+        updates.steps = [{ step_type: 'send', template_id: '', audience_id: '', send_time: '' }];
       }
+      
+      setForm(prev => ({ ...prev, ...updates }));
     } catch (e) {
       console.error('Failed to load steps:', e);
     }
