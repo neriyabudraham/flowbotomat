@@ -77,7 +77,8 @@ export default function SettingsPage() {
   // Integrations
   const [googleSheetsStatus, setGoogleSheetsStatus] = useState(null);
   const [googleContactsStatus, setGoogleContactsStatus] = useState(null);
-  const [integrationLoading, setIntegrationLoading] = useState(false);
+  const [sheetsLoading, setSheetsLoading] = useState(false);
+  const [contactsLoading, setContactsLoading] = useState(false);
 
   // Live chat settings
   const [liveChatSettings, setLiveChatSettings] = useState({
@@ -130,74 +131,77 @@ export default function SettingsPage() {
 
   const loadGoogleSheetsStatus = async () => {
     try {
-      setIntegrationLoading(true);
+      setSheetsLoading(true);
       const { data } = await api.get('/google-sheets/status');
       setGoogleSheetsStatus(data);
     } catch (err) {
       console.error('Failed to load Google Sheets status:', err);
     } finally {
-      setIntegrationLoading(false);
+      setSheetsLoading(false);
     }
   };
 
   const connectGoogleSheets = async () => {
     try {
-      setIntegrationLoading(true);
+      setSheetsLoading(true);
       const { data } = await api.get('/google-sheets/auth-url');
       window.location.href = data.url;
     } catch (err) {
       console.error('Failed to get auth URL:', err);
       setMessage({ type: 'error', text: 'שגיאה בחיבור Google Sheets' });
     } finally {
-      setIntegrationLoading(false);
+      setSheetsLoading(false);
     }
   };
 
   const disconnectGoogleSheets = async () => {
     if (!confirm('האם אתה בטוח שברצונך לנתק את Google Sheets?')) return;
     try {
-      setIntegrationLoading(true);
+      setSheetsLoading(true);
       await api.post('/google-sheets/disconnect');
       setGoogleSheetsStatus({ connected: false });
     } catch (err) {
       console.error('Failed to disconnect Google Sheets:', err);
     } finally {
-      setIntegrationLoading(false);
+      setSheetsLoading(false);
     }
   };
 
   const loadGoogleContactsStatus = async () => {
     try {
+      setContactsLoading(true);
       const { data } = await api.get('/google-contacts/status');
       setGoogleContactsStatus(data);
     } catch (err) {
       console.error('Failed to load Google Contacts status:', err);
+    } finally {
+      setContactsLoading(false);
     }
   };
 
   const connectGoogleContacts = async () => {
     try {
-      setIntegrationLoading(true);
+      setContactsLoading(true);
       const { data } = await api.get('/google-contacts/auth-url');
       window.location.href = data.url;
     } catch (err) {
       console.error('Failed to get auth URL:', err);
       setMessage({ type: 'error', text: 'שגיאה בחיבור Google Contacts' });
     } finally {
-      setIntegrationLoading(false);
+      setContactsLoading(false);
     }
   };
 
   const disconnectGoogleContacts = async () => {
     if (!confirm('האם אתה בטוח שברצונך לנתק את Google Contacts?')) return;
     try {
-      setIntegrationLoading(true);
+      setContactsLoading(true);
       await api.post('/google-contacts/disconnect');
       setGoogleContactsStatus({ connected: false });
     } catch (err) {
       console.error('Failed to disconnect Google Contacts:', err);
     } finally {
-      setIntegrationLoading(false);
+      setContactsLoading(false);
     }
   };
 
@@ -905,7 +909,7 @@ export default function SettingsPage() {
                         </div>
                         
                         <div className="flex items-center gap-3">
-                          {integrationLoading ? (
+                          {sheetsLoading ? (
                             <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
                           ) : googleSheetsStatus?.connected ? (
                             <>
@@ -999,7 +1003,7 @@ export default function SettingsPage() {
                         </div>
                         
                         <div className="flex items-center gap-3">
-                          {integrationLoading ? (
+                          {contactsLoading ? (
                             <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
                           ) : googleContactsStatus?.connected ? (
                             <>
