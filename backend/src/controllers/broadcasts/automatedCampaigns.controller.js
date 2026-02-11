@@ -880,30 +880,13 @@ async function runCampaignNow(req, res) {
     
     const executionId = execResult.rows[0].id;
     
-    // Execute the campaign asynchronously with this execution
+    // Execute the campaign asynchronously with the created execution
     const scheduler = require('../../services/broadcasts/scheduler.service');
     
-    // Start execution in background - don't await
+    // Start execution in background - use executeWithExecution to avoid double creation
     setImmediate(async () => {
       try {
-        // Get campaign data again for execution
-        const campaignData = await db.query(`
-          SELECT ac.*, a.id as resolved_audience_id
-          FROM automated_campaigns ac
-          LEFT JOIN broadcast_audiences a ON a.id = ac.audience_id
-          WHERE ac.id = $1
-        `, [id]);
-        
-        if (campaignData.rows.length > 0) {
-          const camp = campaignData.rows[0];
-          if (camp.resolved_audience_id) {
-            camp.audience_id = camp.resolved_audience_id;
-          }
-          
-          // Use the internal function directly if exported, otherwise call executeCampaign
-          // The scheduler will create execution internally via executeCampaign
-          await scheduler.executeCampaign(camp, { startFromStep: 0 });
-        }
+        await scheduler.executeWithExecution(campaign, executionId, 0);
       } catch (err) {
         console.error(`[AutomatedCampaigns] Manual run failed for campaign ${id}:`, err);
         // Mark execution as failed
@@ -923,6 +906,52 @@ async function runCampaignNow(req, res) {
   }
 }
 
+/**
+ * Cancel/Stop an active execution
+ */
+async function cancelExecution(req, res) {
+  try {
+    const userId = req.user.id;
+    const { executionId } = req.params;
+    
+    // Verify ownership through campaign
+    const execResult = await db.query(`
+      SELECT ce.*, ac.user_id
+      FROM campaign_executions ce
+      JOIN automated_campaigns ac ON ac.id = ce.campaign_id
+      WHERE ce.id = $1
+    `, [executionId]);
+    
+    if (execResult.rows.length === 0) {
+      return res.status(404).json({ error: 'הרצה לא נמצאה' });
+    }
+    
+    if (execResult.rows[0].user_id !== userId) {
+      return res.status(403).json({ error: 'אין הרשאה' });
+    }
+    
+    const execution = execResult.rows[0];
+    
+    if (execution.status === 'completed' || execution.status === 'cancelled' || execution.status === 'failed') {
+      return res.status(400).json({ error: 'ההרצה כבר הסתיימה' });
+    }
+    
+    // Mark as cancelled
+    await db.query(`
+      UPDATE campaign_executions 
+      SET status = 'cancelled', completed_at = NOW()
+      WHERE id = $1
+    `, [executionId]);
+    
+    console.log(`[AutomatedCampaigns] Execution ${executionId} cancelled by user`);
+    
+    res.json({ success: true, message: 'ההרצה בוטלה' });
+  } catch (error) {
+    console.error('[AutomatedCampaigns] Cancel execution error:', error);
+    res.status(500).json({ error: 'שגיאה בביטול הרצה' });
+  }
+}
+
 module.exports = {
   getAutomatedCampaigns,
   getAutomatedCampaign,
@@ -932,6 +961,7 @@ module.exports = {
   deleteAutomatedCampaign,
   getCampaignRuns,
   getActiveExecutions,
+  cancelExecution,
   runCampaignNow,
   calculateNextRun,
   getNowInIsraelFromDB,

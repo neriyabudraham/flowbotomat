@@ -112,6 +112,7 @@ router.post('/import/cancel', importController.cancelImport);
 // ============================================
 router.get('/automated', automatedCampaignsController.getAutomatedCampaigns);
 router.get('/automated/executions', automatedCampaignsController.getActiveExecutions);
+router.post('/automated/executions/:executionId/cancel', automatedCampaignsController.cancelExecution);
 router.post('/automated', automatedCampaignsController.createAutomatedCampaign);
 router.get('/automated/:id', automatedCampaignsController.getAutomatedCampaign);
 router.put('/automated/:id', automatedCampaignsController.updateAutomatedCampaign);

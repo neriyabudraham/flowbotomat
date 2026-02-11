@@ -670,5 +670,6 @@ module.exports = {
   stopScheduler,
   checkAndRunCampaigns,
   processScheduledCampaigns,
-  executeCampaign
+  executeCampaign,
+  executeWithExecution
 };

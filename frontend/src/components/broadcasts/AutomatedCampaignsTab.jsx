@@ -266,6 +266,18 @@ export default function AutomatedCampaignsTab() {
     setRunningAction(null);
   };
 
+  const handleCancelExecution = async (executionId) => {
+    try {
+      await api.post(`/broadcasts/automated/executions/${executionId}/cancel`);
+      showToast('ההרצה בוטלה', 'success');
+      // Refresh executions
+      const executionsRes = await api.get('/broadcasts/automated/executions');
+      setExecutions(executionsRes.data.executions || []);
+    } catch (e) {
+      showToast(e.response?.data?.error || 'שגיאה בביטול הרצה', 'error');
+    }
+  };
+
   const formatNextRun = (nextRunAt, scheduleType, scheduledStartAt) => {
     if (scheduleType === 'manual' && !scheduledStartAt && !nextRunAt) return 'הפעלה ידנית';
     if (!nextRunAt) return 'לא מתוזמן';
@@ -477,6 +489,7 @@ export default function AutomatedCampaignsTab() {
               onView={() => openView(campaign)}
               onDelete={() => setDeleteConfirm(campaign)}
               onRunNow={() => setRunConfirm(campaign)}
+              onCancelExecution={handleCancelExecution}
               runningAction={runningAction}
               formatSchedule={formatSchedule}
               formatNextRun={formatNextRun}
@@ -556,7 +569,7 @@ export default function AutomatedCampaignsTab() {
 /**
  * Campaign Card Component - Supports multiple parallel executions
  */
-function CampaignCard({ campaign, campaignExecutions = [], onToggle, onEdit, onView, onDelete, onRunNow, runningAction, formatSchedule, formatNextRun }) {
+function CampaignCard({ campaign, campaignExecutions = [], onToggle, onEdit, onView, onDelete, onRunNow, onCancelExecution, runningAction, formatSchedule, formatNextRun }) {
   const scheduleConfig = SCHEDULE_TYPES[campaign.schedule_type] || SCHEDULE_TYPES.manual;
   const ScheduleIcon = scheduleConfig.icon;
   
@@ -711,7 +724,7 @@ function CampaignCard({ campaign, campaignExecutions = [], onToggle, onEdit, onV
                   execStatus === 'waiting' ? 'bg-amber-50' :
                   'bg-green-50'
                 }`}>
-                  {/* Progress info */}
+                  {/* Progress info with cancel button */}
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       {execStatus === 'running' && <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />}
@@ -732,13 +745,28 @@ function CampaignCard({ campaign, campaignExecutions = [], onToggle, onEdit, onV
                         </span>
                       )}
                     </div>
-                    <span className={`text-lg font-bold ${
-                      execStatus === 'running' ? 'text-blue-600' :
-                      execStatus === 'waiting' ? 'text-amber-600' :
-                      'text-green-600'
-                    }`}>
-                      {execProgress}%
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-lg font-bold ${
+                        execStatus === 'running' ? 'text-blue-600' :
+                        execStatus === 'waiting' ? 'text-amber-600' :
+                        'text-green-600'
+                      }`}>
+                        {execProgress}%
+                      </span>
+                      {/* Cancel button for running/waiting executions */}
+                      {(execStatus === 'running' || execStatus === 'waiting') && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onCancelExecution(exec.id);
+                          }}
+                          className="p-1 rounded hover:bg-white/50 text-red-500 hover:text-red-600 transition-colors"
+                          title="בטל הרצה"
+                        >
+                          <StopCircle className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   
                   {/* Progress bar */}
