@@ -183,7 +183,9 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
     if (!spreadsheetId || !sheetName) return;
     try {
       setLoading(prev => ({ ...prev, headers: true }));
-      const { data } = await api.get(`/google-sheets/spreadsheets/${spreadsheetId}/sheets/${encodeURIComponent(sheetName)}/headers`);
+      const { data } = await api.get(`/google-sheets/spreadsheets/${spreadsheetId}/headers`, {
+        params: { sheet: sheetName }
+      });
       setHeaders(data.headers || []);
     } catch (err) {
       console.error('Failed to load headers:', err);
