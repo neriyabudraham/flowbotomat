@@ -202,8 +202,12 @@ async function autoUpdateWebhookEvents(userId) {
     }
     
     const REQUIRED_EVENTS = [
-      'message', 'message.any', 'message.ack', 'message.reaction', 'session.status',
-      'group.v2.participants', 'call.received', 'call.rejected', 'call.accepted', 'poll.vote',
+      'message', 'message.ack', 'session.status', 'call.received', 'call.accepted', 'call.rejected',
+      'label.upsert', 'label.deleted', 'label.chat.added', 'label.chat.deleted',
+      'poll.vote.failed', 'poll.vote', 'group.leave', 'group.join', 'group.v2.participants',
+      'group.v2.update', 'group.v2.leave', 'group.v2.join', 'presence.update', 'message.reaction',
+      'message.any', 'message.ack.group', 'message.waiting', 'message.revoked', 'message.edited',
+      'chat.archive', 'event.response', 'event.response.failed',
     ];
     
     const appUrl = process.env.APP_URL || 'https://botomat.co.il';
