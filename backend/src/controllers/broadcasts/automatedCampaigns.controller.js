@@ -86,6 +86,10 @@ async function ensureTables() {
   // Add scheduled_start_at for manual campaigns with scheduled start
   await db.query(`ALTER TABLE automated_campaigns ADD COLUMN IF NOT EXISTS scheduled_start_at TIMESTAMP`);
   
+  // Add resume_at for long wait steps
+  await db.query(`ALTER TABLE automated_campaigns ADD COLUMN IF NOT EXISTS resume_at TIMESTAMP`);
+  await db.query(`ALTER TABLE automated_campaigns ADD COLUMN IF NOT EXISTS paused_at_step INTEGER`);
+  
   await db.query(`
     CREATE TABLE IF NOT EXISTS automated_campaign_runs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -444,7 +448,8 @@ async function createAutomatedCampaign(req, res) {
       send_time,
       settings,
       steps,
-      scheduled_start_at  // For manual campaigns with scheduled start
+      scheduled_start_at,  // For manual campaigns with scheduled start
+      audience_id  // Default audience for all steps
     } = req.body;
     
     if (!name) {
@@ -479,10 +484,10 @@ async function createAutomatedCampaign(req, res) {
     // Create campaign (without next_run_at - we'll set it separately)
     const result = await db.query(`
       INSERT INTO automated_campaigns 
-      (user_id, name, description, schedule_type, schedule_config, send_time, settings, scheduled_start_at, is_active)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      (user_id, name, description, schedule_type, schedule_config, send_time, settings, scheduled_start_at, is_active, audience_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING id
-    `, [userId, name, description, schedule_type, schedule_config || {}, send_time || '09:00', settings || {}, scheduled_start_at || null, isActiveByDefault]);
+    `, [userId, name, description, schedule_type, schedule_config || {}, send_time || '09:00', settings || {}, scheduled_start_at || null, isActiveByDefault, audience_id || null]);
     
     const campaignId = result.rows[0].id;
     
@@ -541,7 +546,8 @@ async function updateAutomatedCampaign(req, res) {
       send_time,
       settings,
       steps,
-      scheduled_start_at  // For manual campaigns with scheduled start
+      scheduled_start_at,  // For manual campaigns with scheduled start
+      audience_id  // Default audience for all steps
     } = req.body;
     
     // Get current Israel time from PostgreSQL
@@ -570,10 +576,11 @@ async function updateAutomatedCampaign(req, res) {
       SET name = $1, description = $2, schedule_type = $3, schedule_config = $4, 
           send_time = $5, settings = $6, scheduled_start_at = $7, 
           is_active = CASE WHEN $8 THEN true ELSE is_active END,
+          audience_id = $9,
           updated_at = NOW()
-      WHERE id = $9 AND user_id = $10
+      WHERE id = $10 AND user_id = $11
       RETURNING id
-    `, [name, description, schedule_type, schedule_config || {}, send_time || '09:00', settings || {}, scheduled_start_at || null, shouldActivate, id, userId]);
+    `, [name, description, schedule_type, schedule_config || {}, send_time || '09:00', settings || {}, scheduled_start_at || null, shouldActivate, audience_id || null, id, userId]);
     
     if (updateResult.rows.length === 0) {
       return res.status(404).json({ error: 'קמפיין לא נמצא' });

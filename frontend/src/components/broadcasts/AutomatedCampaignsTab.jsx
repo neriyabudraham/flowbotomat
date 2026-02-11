@@ -874,6 +874,7 @@ function CampaignEditor({ campaign, audiences, templates, allCampaigns, onClose,
     schedule_config: campaign?.schedule_config || { value: 1, unit: 'days', day_times: {}, date_times: {} },
     send_time: campaign?.send_time?.substring(0, 5) || '09:00',
     scheduled_start_at: formatScheduledStart(campaign?.scheduled_start_at),  // For manual campaigns with scheduled start
+    audience_id: campaign?.audience_id || '',  // Default audience for all steps
     settings: campaign?.settings || {
       delay_between_messages: 2,
       delay_unit: 'seconds',
@@ -1138,6 +1139,35 @@ function CampaignEditor({ campaign, audiences, templates, allCampaigns, onClose,
                   placeholder="תיאור קצר..."
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Default Audience */}
+          <div className="bg-gray-50 rounded-xl p-4 space-y-4">
+            <h4 className="font-semibold text-gray-900 flex items-center gap-2">
+              <Users className="w-4 h-4 text-gray-400" />
+              קהל יעד קבוע
+            </h4>
+            <p className="text-xs text-gray-500">
+              בחר קהל שישמש כברירת מחדל לכל השלבים. ניתן לשנות קהל בכל שלב בנפרד.
+            </p>
+            <div className="flex items-center gap-3">
+              <select
+                value={form.audience_id}
+                onChange={(e) => setForm(prev => ({ ...prev, audience_id: e.target.value }))}
+                className="flex-1 px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-200 text-sm"
+              >
+                <option value="">בחר קהל...</option>
+                {localAudiences.map(a => (
+                  <option key={a.id} value={a.id}>{a.name} ({a.contacts_count || 0} אנשי קשר)</option>
+                ))}
+              </select>
+              <button
+                onClick={() => setShowCreateAudience(true)}
+                className="px-3 py-2.5 bg-orange-100 text-orange-700 rounded-xl hover:bg-orange-200 transition-colors text-sm font-medium"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
             </div>
           </div>
 

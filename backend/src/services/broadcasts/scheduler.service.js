@@ -14,7 +14,7 @@ let schedulerInterval = null;
  */
 async function checkAndRunCampaigns() {
   try {
-    // Find campaigns that are due to run
+    // Find campaigns that are due to run (new campaigns)
     const result = await db.query(`
       SELECT 
         ac.*,
@@ -25,16 +25,43 @@ async function checkAndRunCampaigns() {
       WHERE ac.is_active = true 
         AND ac.next_run_at IS NOT NULL 
         AND ac.next_run_at <= NOW()
+        AND ac.resume_at IS NULL
     `);
     
-    if (result.rows.length === 0) {
+    // Find campaigns that need to resume after a wait
+    const resumeResult = await db.query(`
+      SELECT 
+        ac.*,
+        a.name as audience_name,
+        a.id as audience_id
+      FROM automated_campaigns ac
+      LEFT JOIN broadcast_audiences a ON a.id = ac.audience_id
+      WHERE ac.is_active = true 
+        AND ac.resume_at IS NOT NULL 
+        AND ac.resume_at <= NOW()
+    `);
+    
+    const newCampaigns = result.rows.length;
+    const resumeCampaigns = resumeResult.rows.length;
+    
+    if (newCampaigns === 0 && resumeCampaigns === 0) {
       return;
     }
     
-    console.log(`[Scheduler] Found ${result.rows.length} campaigns to run`);
+    if (newCampaigns > 0) {
+      console.log(`[Scheduler] Found ${newCampaigns} campaigns to run`);
+      for (const campaign of result.rows) {
+        await executeCampaign(campaign, { startFromStep: 0 });
+      }
+    }
     
-    for (const campaign of result.rows) {
-      await executeCampaign(campaign);
+    if (resumeCampaigns > 0) {
+      console.log(`[Scheduler] Found ${resumeCampaigns} campaigns to resume`);
+      for (const campaign of resumeResult.rows) {
+        const startStep = campaign.paused_at_step || 0;
+        console.log(`[Scheduler] Resuming campaign ${campaign.id} from step ${startStep}`);
+        await executeCampaign(campaign, { startFromStep: startStep, isResume: true });
+      }
     }
   } catch (error) {
     console.error('[Scheduler] Check error:', error);
@@ -46,13 +73,22 @@ async function checkAndRunCampaigns() {
  */
 /**
  * @param {object} campaign - campaign row from DB
- * @param {object} options - { isTriggered: bool } - if true, don't update next_run_at
+ * @param {object} options - { isTriggered: bool, startFromStep: number, isResume: bool }
  */
 async function executeCampaign(campaign, options = {}) {
-  const { isTriggered = false } = options;
-  console.log(`[Scheduler] Running campaign: ${campaign.name} (${campaign.id})${isTriggered ? ' [TRIGGERED]' : ''}`);
+  const { isTriggered = false, startFromStep = 0, isResume = false } = options;
+  console.log(`[Scheduler] Running campaign: ${campaign.name} (${campaign.id})${isTriggered ? ' [TRIGGERED]' : ''}${isResume ? ' [RESUME]' : ''}`);
   
   try {
+    // Clear resume_at if resuming
+    if (isResume) {
+      await db.query(`
+        UPDATE automated_campaigns 
+        SET resume_at = NULL, paused_at_step = NULL 
+        WHERE id = $1
+      `, [campaign.id]);
+    }
+    
     // Get campaign steps
     const stepsResult = await db.query(`
       SELECT * FROM automated_campaign_steps 
@@ -68,8 +104,10 @@ async function executeCampaign(campaign, options = {}) {
       return;
     }
     
-    // Process ALL steps in order (send, wait, trigger_campaign)
-    for (const step of steps) {
+    // Process steps starting from startFromStep
+    for (let i = startFromStep; i < steps.length; i++) {
+      const step = steps[i];
+      
       if (step.step_type === 'trigger_campaign') {
         // Trigger another campaign
         await executeTriggerStep(step, campaign);
@@ -77,14 +115,32 @@ async function executeCampaign(campaign, options = {}) {
       }
       
       if (step.step_type === 'wait') {
-        // Wait step - delay execution
+        // Wait step - check if we should pause and resume later
         const waitConfig = step.wait_config || {};
         const waitValue = waitConfig.value || 0;
         const waitUnit = waitConfig.unit || 'seconds';
+        
         let waitMs = waitValue * 1000; // default seconds
         if (waitUnit === 'minutes') waitMs = waitValue * 60 * 1000;
         if (waitUnit === 'hours') waitMs = waitValue * 60 * 60 * 1000;
+        if (waitUnit === 'days') waitMs = waitValue * 24 * 60 * 60 * 1000;
         
+        // For waits longer than 1 hour, save to DB and exit
+        const ONE_HOUR = 60 * 60 * 1000;
+        if (waitMs > ONE_HOUR) {
+          const resumeAt = new Date(Date.now() + waitMs);
+          console.log(`[Scheduler] Campaign ${campaign.id} pausing for ${waitValue} ${waitUnit}, will resume at ${resumeAt.toISOString()}`);
+          
+          await db.query(`
+            UPDATE automated_campaigns 
+            SET resume_at = $1, paused_at_step = $2 
+            WHERE id = $3
+          `, [resumeAt, i + 1, campaign.id]);  // i + 1 because we want to continue AFTER this wait step
+          
+          return; // Exit - scheduler will pick up later
+        }
+        
+        // For short waits, wait inline
         if (waitMs > 0) {
           console.log(`[Scheduler] Campaign ${campaign.id} waiting ${waitValue} ${waitUnit}...`);
           await new Promise(resolve => setTimeout(resolve, waitMs));
