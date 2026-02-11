@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { X, ChevronDown, ChevronUp, Play, Check, AlertCircle, Loader2, Globe, FileSpreadsheet, Users } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
+import GoogleSheetsEditor from './GoogleSheetsEditor';
+import GoogleContactsEditor from './GoogleContactsEditor';
 import api from '../../../../services/api';
 
 export default function IntegrationEditor({ data, onUpdate }) {
@@ -86,7 +88,7 @@ export default function IntegrationEditor({ data, onUpdate }) {
       
       {activeType === 'sheets' && (
         <div className="bg-white border border-green-200 rounded-xl p-4">
-          <GoogleSheetsInlineEditor data={sheetsData} onUpdate={updateSheetsData} />
+          <GoogleSheetsEditor data={sheetsData} onUpdate={updateSheetsData} />
         </div>
       )}
 
@@ -116,23 +118,13 @@ export default function IntegrationEditor({ data, onUpdate }) {
       
       {activeType === 'contacts' && (
         <div className="bg-white border border-blue-200 rounded-xl p-4">
-          <GoogleContactsInlineEditor data={contactsData} onUpdate={updateContactsData} />
+          <GoogleContactsEditor data={contactsData} onUpdate={updateContactsData} />
         </div>
       )}
     </div>
   );
 }
 
-// Lazy load the full editors
-function GoogleSheetsInlineEditor({ data, onUpdate }) {
-  const GoogleSheetsEditor = require('./GoogleSheetsEditor').default;
-  return <GoogleSheetsEditor data={data} onUpdate={onUpdate} />;
-}
-
-function GoogleContactsInlineEditor({ data, onUpdate }) {
-  const GoogleContactsEditor = require('./GoogleContactsEditor').default;
-  return <GoogleContactsEditor data={data} onUpdate={onUpdate} />;
-}
 
 // Simple API Editor
 function ApiEditor({ data, onUpdate }) {
