@@ -570,6 +570,14 @@ function ContactPicker({ selectedIds, onChange, loading }) {
     loadAllContactIds(contactTypeFilter);
   }, [contactTypeFilter]);
 
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadContacts(1, searchQuery, contactTypeFilter);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const loadContacts = async (page, search = '', typeFilter = 'chats') => {
     try {
       setLoadingContacts(true);
@@ -794,6 +802,30 @@ function ContactPicker({ selectedIds, onChange, loading }) {
             הכל
           </button>
         </div>
+        
+        {/* Refresh Groups Button */}
+        {contactTypeFilter === 'groups' && (
+          <button
+            onClick={async () => {
+              try {
+                setLoadingContacts(true);
+                await api.post('/whatsapp/contacts/pull');
+                await loadContacts(1, searchQuery, contactTypeFilter);
+                await loadAllContactIds(contactTypeFilter);
+              } catch (e) {
+                console.error('Failed to refresh groups:', e);
+              } finally {
+                setLoadingContacts(false);
+              }
+            }}
+            disabled={loadingContacts}
+            className="flex items-center gap-2 px-3 py-2 bg-green-100 text-green-700 hover:bg-green-200 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            title="רענן קבוצות מוואטסאפ"
+          >
+            <RefreshCw className={`w-4 h-4 ${loadingContacts ? 'animate-spin' : ''}`} />
+            רענן קבוצות
+          </button>
+        )}
         
         {/* Search */}
         <div className="relative flex-1 min-w-[200px]">
