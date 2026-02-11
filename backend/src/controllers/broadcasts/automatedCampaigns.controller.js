@@ -123,6 +123,36 @@ async function ensureTables() {
     CREATE INDEX IF NOT EXISTS idx_automated_campaigns_next_run 
     ON automated_campaigns(next_run_at) WHERE is_active = true
   `);
+  
+  // Campaign Executions - tracks full campaign runs independently (supports parallel runs)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS campaign_executions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      campaign_id UUID NOT NULL REFERENCES automated_campaigns(id) ON DELETE CASCADE,
+      
+      status VARCHAR(50) DEFAULT 'running',  -- running, waiting, completed, failed
+      current_step INTEGER DEFAULT 0,
+      total_steps INTEGER DEFAULT 0,
+      
+      resume_at TIMESTAMP,
+      paused_at_step INTEGER,
+      
+      started_at TIMESTAMP DEFAULT NOW(),
+      completed_at TIMESTAMP,
+      error_message TEXT,
+      
+      -- Track trigger source
+      trigger_type VARCHAR(50) DEFAULT 'scheduled',  -- scheduled, manual, triggered
+      
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  
+  // Index for fetching active executions
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS idx_campaign_executions_active 
+    ON campaign_executions(campaign_id, status) WHERE status IN ('running', 'waiting')
+  `);
 }
 
 // Initialize tables
@@ -766,22 +796,50 @@ async function getCampaignRuns(req, res) {
 }
 
 /**
- * Run campaign manually
+ * Get active executions for all user's campaigns
+ * Used for real-time progress display
+ */
+async function getActiveExecutions(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    const result = await db.query(`
+      SELECT 
+        ce.id,
+        ce.campaign_id,
+        ce.status,
+        ce.current_step,
+        ce.total_steps,
+        ce.trigger_type,
+        to_char(ce.resume_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as resume_at,
+        ce.paused_at_step,
+        to_char(ce.started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as started_at,
+        to_char(ce.completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as completed_at,
+        ac.name as campaign_name
+      FROM campaign_executions ce
+      JOIN automated_campaigns ac ON ac.id = ce.campaign_id
+      WHERE ac.user_id = $1 
+        AND (
+          ce.status IN ('running', 'waiting')
+          OR (ce.status = 'completed' AND ce.completed_at > NOW() - INTERVAL '5 minutes')
+        )
+      ORDER BY ce.started_at DESC
+    `, [userId]);
+    
+    res.json({ executions: result.rows });
+  } catch (error) {
+    console.error('[AutomatedCampaigns] Get active executions error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת הרצות פעילות' });
+  }
+}
+
+/**
+ * Run campaign manually - supports parallel runs
  */
 async function runCampaignNow(req, res) {
   try {
     const userId = req.user.id;
     const { id } = req.params;
-    
-    // Reset campaign execution state before running
-    await db.query(`
-      UPDATE automated_campaigns 
-      SET execution_status = 'idle',
-          current_step = 0,
-          resume_at = NULL,
-          paused_at_step = NULL
-      WHERE id = $1 AND user_id = $2
-    `, [id, userId]);
     
     // Get campaign with user_id for execution
     // Use COALESCE to prefer step-level audience, then fall back to campaign-level
@@ -807,19 +865,58 @@ async function runCampaignNow(req, res) {
       campaign.audience_id = campaign.resolved_audience_id;
     }
     
-    // Execute the campaign asynchronously
+    // Get total steps
+    const stepsResult = await db.query(`
+      SELECT COUNT(*) as total FROM automated_campaign_steps WHERE campaign_id = $1
+    `, [id]);
+    const totalSteps = parseInt(stepsResult.rows[0].total) || 0;
+    
+    // Create new execution record (allows parallel runs)
+    const execResult = await db.query(`
+      INSERT INTO campaign_executions (campaign_id, status, current_step, total_steps, trigger_type)
+      VALUES ($1, 'running', 0, $2, 'manual')
+      RETURNING id
+    `, [id, totalSteps]);
+    
+    const executionId = execResult.rows[0].id;
+    
+    // Execute the campaign asynchronously with this execution
     const scheduler = require('../../services/broadcasts/scheduler.service');
     
-    // Start execution in background
-    scheduler.executeCampaign(campaign).then(() => {
-      console.log(`[AutomatedCampaigns] Manual run completed for campaign ${id}`);
-    }).catch(err => {
-      console.error(`[AutomatedCampaigns] Manual run failed for campaign ${id}:`, err);
+    // Start execution in background - don't await
+    setImmediate(async () => {
+      try {
+        // Get campaign data again for execution
+        const campaignData = await db.query(`
+          SELECT ac.*, a.id as resolved_audience_id
+          FROM automated_campaigns ac
+          LEFT JOIN broadcast_audiences a ON a.id = ac.audience_id
+          WHERE ac.id = $1
+        `, [id]);
+        
+        if (campaignData.rows.length > 0) {
+          const camp = campaignData.rows[0];
+          if (camp.resolved_audience_id) {
+            camp.audience_id = camp.resolved_audience_id;
+          }
+          
+          // Use the internal function directly if exported, otherwise call executeCampaign
+          // The scheduler will create execution internally via executeCampaign
+          await scheduler.executeCampaign(camp, { startFromStep: 0 });
+        }
+      } catch (err) {
+        console.error(`[AutomatedCampaigns] Manual run failed for campaign ${id}:`, err);
+        // Mark execution as failed
+        await db.query(`
+          UPDATE campaign_executions SET status = 'failed', error_message = $1, completed_at = NOW()
+          WHERE id = $2
+        `, [err.message, executionId]);
+      }
     });
     
-    console.log(`[AutomatedCampaigns] Manual run triggered for campaign ${id}`);
+    console.log(`[AutomatedCampaigns] Manual run triggered for campaign ${id}, execution ${executionId}`);
     
-    res.json({ success: true, message: 'הקמפיין הופעל! ההודעות נשלחות ברקע.' });
+    res.json({ success: true, message: 'הקמפיין הופעל! ההודעות נשלחות ברקע.', executionId });
   } catch (error) {
     console.error('[AutomatedCampaigns] Run error:', error);
     res.status(500).json({ error: 'שגיאה בהפעלת קמפיין' });
@@ -834,6 +931,7 @@ module.exports = {
   toggleAutomatedCampaign,
   deleteAutomatedCampaign,
   getCampaignRuns,
+  getActiveExecutions,
   runCampaignNow,
   calculateNextRun,
   getNowInIsraelFromDB,

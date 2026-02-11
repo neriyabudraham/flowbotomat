@@ -113,6 +113,7 @@ router.post('/import/cancel', importController.cancelImport);
 router.get('/automated', automatedCampaignsController.getAutomatedCampaigns);
 router.get('/automated/:id', automatedCampaignsController.getAutomatedCampaign);
 router.post('/automated', automatedCampaignsController.createAutomatedCampaign);
+router.get('/automated/executions', automatedCampaignsController.getActiveExecutions);
 router.put('/automated/:id', automatedCampaignsController.updateAutomatedCampaign);
 router.patch('/automated/:id/toggle', automatedCampaignsController.toggleAutomatedCampaign);
 router.delete('/automated/:id', automatedCampaignsController.deleteAutomatedCampaign);

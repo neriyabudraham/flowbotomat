@@ -124,6 +124,7 @@ export default function AutomatedCampaignsTab() {
   const [campaigns, setCampaigns] = useState([]);
   const [audiences, setAudiences] = useState([]);
   const [templates, setTemplates] = useState([]);
+  const [executions, setExecutions] = useState([]); // Active executions for all campaigns
   const [loading, setLoading] = useState(true);
   const [showEditor, setShowEditor] = useState(false);
   const [editCampaign, setEditCampaign] = useState(null);
@@ -142,51 +143,52 @@ export default function AutomatedCampaignsTab() {
     fetchAll();
   }, []);
 
-  // Real-time ticker - updates every second for active campaigns
+  // Real-time ticker - updates every second for active executions or campaigns
   useEffect(() => {
-    const hasActiveCampaigns = campaigns.some(c => 
-      c.is_active && (
-        c.execution_status === 'running' || 
-        c.execution_status === 'waiting' ||
-        (c.next_run_at && (new Date(c.next_run_at) - new Date()) < 3600000)
-      )
+    const hasActiveExecutions = executions.some(e => 
+      e.status === 'running' || e.status === 'waiting'
     );
     
-    if (hasActiveCampaigns) {
+    const hasUpcomingCampaigns = campaigns.some(c => 
+      c.is_active && c.next_run_at && (new Date(c.next_run_at) - new Date()) < 3600000
+    );
+    
+    if (hasActiveExecutions || hasUpcomingCampaigns) {
       const interval = setInterval(() => setTick(t => t + 1), 1000);
       return () => clearInterval(interval);
     }
-  }, [campaigns]);
+  }, [executions, campaigns]);
   
-  // Auto-refresh campaigns data when there are running/waiting campaigns OR campaigns due to run
+  // Auto-refresh when there are active executions OR campaigns due to run
   useEffect(() => {
     const now = new Date();
-    const hasActiveOrDueCampaigns = campaigns.some(c => {
-      // Running or waiting - need to refresh to track progress
-      if (c.execution_status === 'running' || c.execution_status === 'waiting') return true;
-      
-      // Campaign is due (past next_run_at) but hasn't started yet - refresh to catch when it starts
-      if (c.is_active && c.next_run_at && new Date(c.next_run_at) <= now && 
-          c.execution_status !== 'completed') return true;
-      
-      // Campaign will be due soon (within 30 seconds) - refresh frequently
-      if (c.is_active && c.next_run_at) {
-        const timeTillRun = new Date(c.next_run_at) - now;
-        if (timeTillRun > 0 && timeTillRun < 30000) return true;
-      }
-      
-      return false;
+    
+    // Check if we have active executions
+    const hasActiveExecutions = executions.some(e => 
+      e.status === 'running' || e.status === 'waiting'
+    );
+    
+    // Check if campaigns are due to run soon
+    const hasDueCampaigns = campaigns.some(c => {
+      if (!c.is_active || !c.next_run_at) return false;
+      const timeTillRun = new Date(c.next_run_at) - now;
+      return timeTillRun <= 30000; // Within 30 seconds or past due
     });
     
-    if (hasActiveOrDueCampaigns) {
+    if (hasActiveExecutions || hasDueCampaigns) {
       const refreshInterval = setInterval(() => {
-        api.get('/broadcasts/automated').then(res => {
-          setCampaigns(res.data.campaigns || []);
+        // Fetch both campaigns and executions
+        Promise.all([
+          api.get('/broadcasts/automated'),
+          api.get('/broadcasts/automated/executions')
+        ]).then(([campaignsRes, executionsRes]) => {
+          setCampaigns(campaignsRes.data.campaigns || []);
+          setExecutions(executionsRes.data.executions || []);
         }).catch(console.error);
       }, 3000); // Refresh every 3 seconds for responsive UI
       return () => clearInterval(refreshInterval);
     }
-  }, [campaigns.map(c => `${c.execution_status}-${c.next_run_at}`).join(',')]);
+  }, [executions.map(e => `${e.id}-${e.status}`).join(','), campaigns.map(c => c.next_run_at).join(',')]);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -195,14 +197,16 @@ export default function AutomatedCampaignsTab() {
   const fetchAll = async () => {
     try {
       setLoading(true);
-      const [campaignsRes, audiencesRes, templatesRes] = await Promise.all([
+      const [campaignsRes, audiencesRes, templatesRes, executionsRes] = await Promise.all([
         api.get('/broadcasts/automated'),
         api.get('/broadcasts/audiences'),
-        api.get('/broadcasts/templates')
+        api.get('/broadcasts/templates'),
+        api.get('/broadcasts/automated/executions')
       ]);
       setCampaigns(campaignsRes.data.campaigns || []);
       setAudiences(audiencesRes.data.audiences || []);
       setTemplates(templatesRes.data.templates || []);
+      setExecutions(executionsRes.data.executions || []);
     } catch (e) {
       console.error('Failed to fetch:', e);
       showToast('שגיאה בטעינת נתונים', 'error');
@@ -467,6 +471,7 @@ export default function AutomatedCampaignsTab() {
             <CampaignCard
               key={campaign.id}
               campaign={campaign}
+              campaignExecutions={executions.filter(e => e.campaign_id === campaign.id)}
               onToggle={handleToggle}
               onEdit={() => { setEditCampaign(campaign); setShowEditor(true); }}
               onView={() => openView(campaign)}
@@ -549,33 +554,30 @@ export default function AutomatedCampaignsTab() {
 }
 
 /**
- * Campaign Card Component - Matching AudiencesTab style
+ * Campaign Card Component - Supports multiple parallel executions
  */
-function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, runningAction, formatSchedule, formatNextRun }) {
+function CampaignCard({ campaign, campaignExecutions = [], onToggle, onEdit, onView, onDelete, onRunNow, runningAction, formatSchedule, formatNextRun }) {
   const scheduleConfig = SCHEDULE_TYPES[campaign.schedule_type] || SCHEDULE_TYPES.manual;
   const ScheduleIcon = scheduleConfig.icon;
   
-  const status = campaign.execution_status || 'idle';
-  const currentStep = campaign.current_step || 0;
   const totalSteps = campaign.steps_count || 0;
-  const pausedAtStep = campaign.paused_at_step || 0;
   
-  // Calculate overall progress percentage
-  const getProgressPercent = () => {
-    if (totalSteps === 0) return 0;
-    if (status === 'completed') return 100;
-    if (status === 'running') {
-      // Currently executing step currentStep
-      return Math.round((currentStep / totalSteps) * 100);
-    }
-    if (status === 'waiting') {
-      // Waiting before step pausedAtStep
-      // Show progress as completed steps / total, with partial progress for current wait
-      const completedSteps = pausedAtStep > 0 ? pausedAtStep - 1 : 0;
-      return Math.round((completedSteps / totalSteps) * 100);
-    }
-    return 0;
+  // Filter active executions (running, waiting, or recently completed)
+  const activeExecutions = campaignExecutions.filter(e => 
+    e.status === 'running' || e.status === 'waiting' || 
+    (e.status === 'completed' && e.completed_at && 
+     (new Date() - new Date(e.completed_at)) < 5 * 60 * 1000)
+  );
+  
+  // Determine overall status for the card header
+  const getOverallStatus = () => {
+    if (activeExecutions.some(e => e.status === 'running')) return 'running';
+    if (activeExecutions.some(e => e.status === 'waiting')) return 'waiting';
+    if (activeExecutions.some(e => e.status === 'completed')) return 'completed';
+    return 'idle';
   };
+  
+  const overallStatus = getOverallStatus();
   
   // Format resume time with real-time countdown
   const formatResumeTimeRealtime = (resumeAt) => {
@@ -599,39 +601,22 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
   
-  // Get status info
-  const getStatusInfo = () => {
-    switch (status) {
-      case 'running':
-        return { color: 'blue', label: 'פועל', icon: Loader2 };
-      case 'waiting':
-        return { color: 'amber', label: 'ממתין', icon: Timer };
-      case 'completed':
-        return { color: 'green', label: 'הושלם', icon: CheckCircle };
-      default:
-        return campaign.is_active 
-          ? { color: 'green', label: 'פעיל', icon: CheckCircle }
-          : { color: 'gray', label: 'כבוי', icon: null };
+  // Calculate progress for a single execution
+  const getExecProgressPercent = (exec) => {
+    const total = exec.total_steps || totalSteps || 1;
+    if (exec.status === 'completed') return 100;
+    if (exec.status === 'running') {
+      return Math.round((exec.current_step / total) * 100);
     }
+    if (exec.status === 'waiting') {
+      const completedSteps = exec.paused_at_step > 0 ? exec.paused_at_step - 1 : exec.current_step;
+      return Math.round((completedSteps / total) * 100);
+    }
+    return 0;
   };
   
-  const statusInfo = getStatusInfo();
-  const progressPercent = getProgressPercent();
-  
-  // Check if completed status should be shown (only within 5 minutes of completion)
-  const shouldShowCompletedProgress = () => {
-    if (status !== 'completed') return false;
-    if (!campaign.last_run_at) return false;
-    
-    const lastRun = new Date(campaign.last_run_at);
-    const now = new Date();
-    const fiveMinutes = 5 * 60 * 1000; // 5 minutes in ms
-    
-    return (now - lastRun) < fiveMinutes;
-  };
-  
-  // Determine effective status for display (completed becomes idle after 5 min)
-  const displayStatus = status === 'completed' && !shouldShowCompletedProgress() ? 'idle' : status;
+  // Display status for card header
+  const displayStatus = overallStatus;
   
   return (
     <div 
@@ -710,65 +695,82 @@ function CampaignCard({ campaign, onToggle, onEdit, onView, onDelete, onRunNow, 
           </div>
         </div>
 
-        {/* Real-time Progress Bar - for running/waiting campaigns, and completed only within 5 minutes */}
-        {(displayStatus === 'running' || displayStatus === 'waiting' || (displayStatus === 'completed' && shouldShowCompletedProgress())) && totalSteps > 0 && (
-          <div className={`rounded-lg p-3 mb-3 ${
-            displayStatus === 'running' ? 'bg-blue-50' :
-            displayStatus === 'waiting' ? 'bg-amber-50' :
-            'bg-green-50'
-          }`}>
-            {/* Progress info */}
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                {displayStatus === 'running' && <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />}
-                {displayStatus === 'waiting' && <Timer className="w-4 h-4 text-amber-600" />}
-                {displayStatus === 'completed' && <CheckCircle className="w-4 h-4 text-green-600" />}
-                <span className={`text-sm font-medium ${
-                  displayStatus === 'running' ? 'text-blue-700' :
-                  displayStatus === 'waiting' ? 'text-amber-700' :
-                  'text-green-700'
+        {/* Real-time Progress Bars - one for each active execution */}
+        {activeExecutions.length > 0 && totalSteps > 0 && (
+          <div className="space-y-2 mb-3">
+            {activeExecutions.map((exec, idx) => {
+              const execStatus = exec.status;
+              const execProgress = getExecProgressPercent(exec);
+              const execTotalSteps = exec.total_steps || totalSteps;
+              const currentStep = exec.current_step || 0;
+              const pausedAtStep = exec.paused_at_step || 0;
+              
+              return (
+                <div key={exec.id} className={`rounded-lg p-3 ${
+                  execStatus === 'running' ? 'bg-blue-50' :
+                  execStatus === 'waiting' ? 'bg-amber-50' :
+                  'bg-green-50'
                 }`}>
-                  {displayStatus === 'running' && `מבצע שלב ${currentStep + 1} מתוך ${totalSteps}`}
-                  {displayStatus === 'waiting' && `ממתין לשלב ${pausedAtStep + 1} מתוך ${totalSteps}`}
-                  {displayStatus === 'completed' && `הושלם - ${totalSteps} שלבים`}
-                </span>
-              </div>
-              <span className={`text-lg font-bold ${
-                displayStatus === 'running' ? 'text-blue-600' :
-                displayStatus === 'waiting' ? 'text-amber-600' :
-                'text-green-600'
-              }`}>
-                {progressPercent}%
-              </span>
-            </div>
-            
-            {/* Progress bar */}
-            <div className="h-2 bg-white rounded-full overflow-hidden">
-              <div 
-                className={`h-full rounded-full transition-all duration-500 ${
-                  displayStatus === 'running' ? 'bg-gradient-to-r from-blue-500 to-blue-400' :
-                  displayStatus === 'waiting' ? 'bg-gradient-to-r from-amber-500 to-amber-400' :
-                  'bg-gradient-to-r from-green-500 to-green-400'
-                }`}
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-            
-            {/* Real-time countdown for waiting */}
-            {displayStatus === 'waiting' && campaign.resume_at && (
-              <div className="mt-2 flex items-center justify-center gap-2 text-amber-700">
-                <Clock className="w-4 h-4" />
-                <span className="text-sm">השלב הבא בעוד:</span>
-                <span className="font-mono font-bold text-base">
-                  {formatResumeTimeRealtime(campaign.resume_at)}
-                </span>
-              </div>
-            )}
+                  {/* Progress info */}
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      {execStatus === 'running' && <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />}
+                      {execStatus === 'waiting' && <Timer className="w-4 h-4 text-amber-600" />}
+                      {execStatus === 'completed' && <CheckCircle className="w-4 h-4 text-green-600" />}
+                      <span className={`text-sm font-medium ${
+                        execStatus === 'running' ? 'text-blue-700' :
+                        execStatus === 'waiting' ? 'text-amber-700' :
+                        'text-green-700'
+                      }`}>
+                        {execStatus === 'running' && `מבצע שלב ${currentStep + 1} מתוך ${execTotalSteps}`}
+                        {execStatus === 'waiting' && `ממתין לשלב ${pausedAtStep} מתוך ${execTotalSteps}`}
+                        {execStatus === 'completed' && `הושלם - ${execTotalSteps} שלבים`}
+                      </span>
+                      {activeExecutions.length > 1 && (
+                        <span className="text-xs px-1.5 py-0.5 bg-white/50 rounded text-gray-500">
+                          {exec.trigger_type === 'manual' ? 'ידני' : exec.trigger_type === 'scheduled' ? 'מתוזמן' : ''}
+                        </span>
+                      )}
+                    </div>
+                    <span className={`text-lg font-bold ${
+                      execStatus === 'running' ? 'text-blue-600' :
+                      execStatus === 'waiting' ? 'text-amber-600' :
+                      'text-green-600'
+                    }`}>
+                      {execProgress}%
+                    </span>
+                  </div>
+                  
+                  {/* Progress bar */}
+                  <div className="h-2 bg-white rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        execStatus === 'running' ? 'bg-gradient-to-r from-blue-500 to-blue-400' :
+                        execStatus === 'waiting' ? 'bg-gradient-to-r from-amber-500 to-amber-400' :
+                        'bg-gradient-to-r from-green-500 to-green-400'
+                      }`}
+                      style={{ width: `${execProgress}%` }}
+                    />
+                  </div>
+                  
+                  {/* Real-time countdown for waiting */}
+                  {execStatus === 'waiting' && exec.resume_at && (
+                    <div className="mt-2 flex items-center justify-center gap-2 text-amber-700">
+                      <Clock className="w-4 h-4" />
+                      <span className="text-sm">השלב הבא בעוד:</span>
+                      <span className="font-mono font-bold text-base">
+                        {formatResumeTimeRealtime(exec.resume_at)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 
-        {/* Next Run - Show when there's a scheduled time (even after completion) */}
-        {displayStatus !== 'running' && displayStatus !== 'waiting' && campaign.next_run_at && (
+        {/* Next Run - Show when there's a scheduled time and no running/waiting executions */}
+        {!activeExecutions.some(e => e.status === 'running' || e.status === 'waiting') && campaign.next_run_at && (
           <div className="flex items-center gap-2 text-orange-600 bg-orange-50 rounded-lg px-3 py-2 text-sm font-medium">
             <Timer className="w-4 h-4" />
             {formatNextRun(campaign.next_run_at, campaign.schedule_type, campaign.scheduled_start_at)}

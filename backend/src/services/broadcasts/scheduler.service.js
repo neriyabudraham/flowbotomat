@@ -4,18 +4,19 @@ const { calculateNextRun, getNowInIsraelFromDB, storeNextRunAt } = require('../.
 
 /**
  * Automated Campaign Scheduler
- * Checks for campaigns that need to run and executes them
+ * Supports parallel executions per campaign using campaign_executions table
  */
 
 let schedulerInterval = null;
 
 /**
- * Check and run due campaigns
+ * Check and run due campaigns + resume waiting executions
  */
 async function checkAndRunCampaigns() {
   try {
-    // Find campaigns that are due to run (NEW campaigns - idle status, not waiting)
-    const result = await db.query(`
+    // 1. Find campaigns that are due to run (check next_run_at)
+    // Only start new execution if there's no running/waiting execution for same campaign
+    const dueResult = await db.query(`
       SELECT 
         ac.*,
         a.name as audience_name,
@@ -25,44 +26,51 @@ async function checkAndRunCampaigns() {
       WHERE ac.is_active = true 
         AND ac.next_run_at IS NOT NULL 
         AND ac.next_run_at <= NOW()
-        AND (ac.execution_status IS NULL OR ac.execution_status = 'idle')
-        AND ac.resume_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM campaign_executions ce 
+          WHERE ce.campaign_id = ac.id 
+            AND ce.status IN ('running', 'waiting')
+            AND ce.trigger_type = 'scheduled'
+        )
     `);
     
-    // Find campaigns that need to resume after a wait (status = 'waiting')
+    // 2. Find waiting executions that need to resume
     const resumeResult = await db.query(`
       SELECT 
-        ac.*,
-        a.name as audience_name,
-        a.id as resolved_audience_id
-      FROM automated_campaigns ac
-      LEFT JOIN broadcast_audiences a ON a.id = ac.audience_id
-      WHERE ac.is_active = true 
-        AND ac.execution_status = 'waiting'
-        AND ac.resume_at IS NOT NULL 
-        AND ac.resume_at <= NOW()
+        ce.*,
+        ac.name as campaign_name,
+        ac.user_id,
+        ac.schedule_type,
+        ac.schedule_config,
+        ac.send_time,
+        ac.audience_id as campaign_audience_id
+      FROM campaign_executions ce
+      JOIN automated_campaigns ac ON ac.id = ce.campaign_id
+      WHERE ce.status = 'waiting'
+        AND ce.resume_at IS NOT NULL 
+        AND ce.resume_at <= NOW()
     `);
     
-    const newCampaigns = result.rows.length;
-    const resumeCampaigns = resumeResult.rows.length;
+    const newCampaigns = dueResult.rows.length;
+    const resumeExecutions = resumeResult.rows.length;
     
-    if (newCampaigns === 0 && resumeCampaigns === 0) {
+    if (newCampaigns === 0 && resumeExecutions === 0) {
       return;
     }
     
+    // Start new campaign executions
     if (newCampaigns > 0) {
       console.log(`[Scheduler] Found ${newCampaigns} campaigns to run`);
-      for (const campaign of result.rows) {
-        await executeCampaign(campaign, { startFromStep: 0 });
+      for (const campaign of dueResult.rows) {
+        await startNewExecution(campaign, 'scheduled');
       }
     }
     
-    if (resumeCampaigns > 0) {
-      console.log(`[Scheduler] Found ${resumeCampaigns} campaigns to resume`);
-      for (const campaign of resumeResult.rows) {
-        const startStep = campaign.paused_at_step || 0;
-        console.log(`[Scheduler] Resuming campaign ${campaign.id} from step ${startStep}`);
-        await executeCampaign(campaign, { startFromStep: startStep, isResume: true });
+    // Resume waiting executions
+    if (resumeExecutions > 0) {
+      console.log(`[Scheduler] Found ${resumeExecutions} executions to resume`);
+      for (const execution of resumeResult.rows) {
+        await resumeExecution(execution);
       }
     }
   } catch (error) {
@@ -71,27 +79,83 @@ async function checkAndRunCampaigns() {
 }
 
 /**
- * Execute a single automated campaign
+ * Start a new campaign execution
  */
-/**
- * @param {object} campaign - campaign row from DB
- * @param {object} options - { isTriggered: bool, startFromStep: number, isResume: bool }
- */
-async function executeCampaign(campaign, options = {}) {
-  const { isTriggered = false, startFromStep = 0, isResume = false } = options;
-  console.log(`[Scheduler] Running campaign: ${campaign.name} (${campaign.id})${isTriggered ? ' [TRIGGERED]' : ''}${isResume ? ' [RESUME]' : ''} starting from step ${startFromStep}`);
+async function startNewExecution(campaign, triggerType = 'scheduled') {
+  console.log(`[Scheduler] Starting new execution for campaign: ${campaign.name} (${campaign.id}) [${triggerType}]`);
   
   try {
+    // Get total steps count
+    const stepsResult = await db.query(`
+      SELECT COUNT(*) as total FROM automated_campaign_steps WHERE campaign_id = $1
+    `, [campaign.id]);
+    const totalSteps = parseInt(stepsResult.rows[0].total) || 0;
+    
+    // Create execution record
+    const execResult = await db.query(`
+      INSERT INTO campaign_executions (campaign_id, status, current_step, total_steps, trigger_type)
+      VALUES ($1, 'running', 0, $2, $3)
+      RETURNING id
+    `, [campaign.id, totalSteps, triggerType]);
+    
+    const executionId = execResult.rows[0].id;
+    
+    // Execute the campaign with this execution ID
+    await executeWithExecution(campaign, executionId, 0);
+    
+  } catch (error) {
+    console.error(`[Scheduler] Error starting execution:`, error);
+  }
+}
+
+/**
+ * Resume a waiting execution
+ */
+async function resumeExecution(execution) {
+  const startStep = execution.paused_at_step || 0;
+  console.log(`[Scheduler] Resuming execution ${execution.id} from step ${startStep}`);
+  
+  try {
+    // Get campaign data
+    const campaignResult = await db.query(`
+      SELECT ac.*, a.id as resolved_audience_id
+      FROM automated_campaigns ac
+      LEFT JOIN broadcast_audiences a ON a.id = ac.audience_id
+      WHERE ac.id = $1
+    `, [execution.campaign_id]);
+    
+    if (campaignResult.rows.length === 0) {
+      console.error(`[Scheduler] Campaign ${execution.campaign_id} not found`);
+      await db.query(`UPDATE campaign_executions SET status = 'failed', error_message = 'Campaign not found' WHERE id = $1`, [execution.id]);
+      return;
+    }
+    
+    const campaign = campaignResult.rows[0];
+    
     // Mark as running
     await db.query(`
-      UPDATE automated_campaigns 
-      SET execution_status = 'running', 
-          resume_at = NULL, 
-          paused_at_step = NULL,
-          current_step = $2
+      UPDATE campaign_executions 
+      SET status = 'running', resume_at = NULL, paused_at_step = NULL
       WHERE id = $1
-    `, [campaign.id, startFromStep]);
+    `, [execution.id]);
     
+    // Continue execution
+    await executeWithExecution(campaign, execution.id, startStep);
+    
+  } catch (error) {
+    console.error(`[Scheduler] Error resuming execution:`, error);
+    await db.query(`UPDATE campaign_executions SET status = 'failed', error_message = $1 WHERE id = $2`, [error.message, execution.id]);
+  }
+}
+
+/**
+ * Execute campaign with a specific execution ID
+ * This is the main execution logic that works with the execution record
+ */
+async function executeWithExecution(campaign, executionId, startFromStep = 0) {
+  console.log(`[Scheduler] Running campaign: ${campaign.name} (exec: ${executionId}) from step ${startFromStep}`);
+  
+  try {
     // Get campaign steps
     const stepsResult = await db.query(`
       SELECT * FROM automated_campaign_steps 
@@ -102,8 +166,8 @@ async function executeCampaign(campaign, options = {}) {
     const steps = stepsResult.rows;
     
     if (steps.length === 0) {
-      console.log(`[Scheduler] Campaign ${campaign.id} has no steps, skipping`);
-      await finishCampaign(campaign, isTriggered);
+      console.log(`[Scheduler] Campaign ${campaign.id} has no steps, completing`);
+      await finishExecution(executionId, campaign, 'completed');
       return;
     }
     
@@ -111,43 +175,41 @@ async function executeCampaign(campaign, options = {}) {
     for (let i = startFromStep; i < steps.length; i++) {
       const step = steps[i];
       
-      // Update current step
+      // Update current step in execution
       await db.query(`
-        UPDATE automated_campaigns SET current_step = $2 WHERE id = $1
-      `, [campaign.id, i]);
+        UPDATE campaign_executions SET current_step = $2 WHERE id = $1
+      `, [executionId, i]);
       
       if (step.step_type === 'trigger_campaign') {
-        // Trigger another campaign
         await executeTriggerStep(step, campaign);
         continue;
       }
       
       if (step.step_type === 'wait') {
-        // Wait step - ALWAYS save to DB and exit (for persistence across restarts)
         const waitConfig = step.wait_config || {};
         const waitValue = waitConfig.value || 0;
         const waitUnit = waitConfig.unit || 'seconds';
         
-        let waitMs = waitValue * 1000; // default seconds
+        let waitMs = waitValue * 1000;
         if (waitUnit === 'minutes') waitMs = waitValue * 60 * 1000;
         if (waitUnit === 'hours') waitMs = waitValue * 60 * 60 * 1000;
         if (waitUnit === 'days') waitMs = waitValue * 24 * 60 * 60 * 1000;
         
         if (waitMs > 0) {
           const resumeAt = new Date(Date.now() + waitMs);
-          console.log(`[Scheduler] Campaign ${campaign.id} pausing for ${waitValue} ${waitUnit}, will resume at ${resumeAt.toISOString()}, next step: ${i + 1}`);
+          console.log(`[Scheduler] Execution ${executionId} pausing for ${waitValue} ${waitUnit}, resume at ${resumeAt.toISOString()}`);
           
-          // Save to DB - scheduler will pick up when resume_at is due
+          // Save to execution record - scheduler will pick up when resume_at is due
           await db.query(`
-            UPDATE automated_campaigns 
-            SET execution_status = 'waiting',
+            UPDATE campaign_executions 
+            SET status = 'waiting',
                 resume_at = $1, 
                 paused_at_step = $2,
                 current_step = $3
             WHERE id = $4
-          `, [resumeAt, i + 1, i, campaign.id]);  // i + 1 = next step to execute after wait
+          `, [resumeAt, i + 1, i, executionId]);
           
-          return; // Exit - scheduler will pick up later
+          return; // Exit - scheduler will resume later
         }
         continue;
       }
@@ -155,76 +217,89 @@ async function executeCampaign(campaign, options = {}) {
       if (step.step_type !== 'send') continue;
       
       // Process send step
-      console.log(`[Scheduler] Campaign ${campaign.id} executing send step ${i + 1}/${steps.length}`);
+      console.log(`[Scheduler] Execution ${executionId} sending step ${i + 1}/${steps.length}`);
       await executeSendStep(step, campaign);
     }
     
     // All steps completed
-    console.log(`[Scheduler] Campaign ${campaign.id} completed all ${steps.length} steps`);
-    await finishCampaign(campaign, isTriggered);
+    console.log(`[Scheduler] Execution ${executionId} completed all ${steps.length} steps`);
+    await finishExecution(executionId, campaign, 'completed');
     
   } catch (error) {
-    console.error(`[Scheduler] Execute campaign error:`, error);
-    
-    // Mark campaign as failed/idle so it can be retried
+    console.error(`[Scheduler] Execution ${executionId} error:`, error);
     await db.query(`
-      UPDATE automated_campaigns 
-      SET execution_status = 'idle'
-      WHERE id = $1
-    `, [campaign.id]);
+      UPDATE campaign_executions 
+      SET status = 'failed', completed_at = NOW(), error_message = $1
+      WHERE id = $2
+    `, [error.message, executionId]);
+  }
+}
+
+/**
+ * Finish an execution
+ */
+async function finishExecution(executionId, campaign, status = 'completed') {
+  // Mark execution as complete
+  await db.query(`
+    UPDATE campaign_executions 
+    SET status = $1, completed_at = NOW()
+    WHERE id = $2
+  `, [status, executionId]);
+  
+  // Get execution details
+  const execResult = await db.query(`SELECT trigger_type FROM campaign_executions WHERE id = $1`, [executionId]);
+  const triggerType = execResult.rows[0]?.trigger_type || 'scheduled';
+  
+  // Update campaign stats
+  await db.query(`
+    UPDATE automated_campaigns
+    SET last_run_at = NOW(), total_sent = total_sent + 1
+    WHERE id = $1
+  `, [campaign.id]);
+  
+  // For scheduled executions, handle next run
+  if (triggerType === 'scheduled') {
+    const scheduleType = campaign.schedule_type;
     
-    // Try to mark run as failed
-    try {
+    if (scheduleType === 'manual') {
+      // Manual campaign completed - deactivate
+      console.log(`[Scheduler] Manual campaign ${campaign.id} completed - deactivating`);
       await db.query(`
-        UPDATE automated_campaign_runs
-        SET status = 'failed', completed_at = NOW(), error_message = $1
-        WHERE campaign_id = $2 AND status = 'running'
-      `, [error.message, campaign.id]);
-    } catch (e) {}
-    
-    if (!isTriggered) {
+        UPDATE automated_campaigns 
+        SET is_active = false, next_run_at = NULL
+        WHERE id = $1
+      `, [campaign.id]);
+    } else {
+      // Recurring - calculate next run
       await updateCampaignNextRun(campaign);
     }
   }
 }
 
 /**
- * Finish a campaign after all steps are complete
+ * Legacy function for backward compatibility
+ * Creates a new execution and runs it
  */
-async function finishCampaign(campaign, isTriggered) {
-  // For triggered campaigns, just mark as idle (they don't have their own schedule)
-  if (isTriggered) {
-    await db.query(`
-      UPDATE automated_campaigns 
-      SET execution_status = 'idle'
-      WHERE id = $1
-    `, [campaign.id]);
-    return;
-  }
+async function executeCampaign(campaign, options = {}) {
+  const { isTriggered = false, startFromStep = 0 } = options;
+  const triggerType = isTriggered ? 'triggered' : 'manual';
   
-  // Check if this is a recurring campaign or one-time (manual/scheduled)
-  const scheduleType = campaign.schedule_type;
+  // Get total steps
+  const stepsResult = await db.query(`
+    SELECT COUNT(*) as total FROM automated_campaign_steps WHERE campaign_id = $1
+  `, [campaign.id]);
+  const totalSteps = parseInt(stepsResult.rows[0].total) || 0;
   
-  if (scheduleType === 'manual') {
-    // Manual campaign - mark as completed, deactivate
-    console.log(`[Scheduler] Manual campaign ${campaign.id} completed - deactivating`);
-    await db.query(`
-      UPDATE automated_campaigns 
-      SET execution_status = 'completed',
-          is_active = false,
-          next_run_at = NULL
-      WHERE id = $1
-    `, [campaign.id]);
-  } else {
-    // Recurring campaign (interval, weekly, monthly) - calculate next run, mark as idle
-    await db.query(`
-      UPDATE automated_campaigns 
-      SET execution_status = 'idle'
-      WHERE id = $1
-    `, [campaign.id]);
-    
-    await updateCampaignNextRun(campaign);
-  }
+  // Create execution record
+  const execResult = await db.query(`
+    INSERT INTO campaign_executions (campaign_id, status, current_step, total_steps, trigger_type)
+    VALUES ($1, 'running', $2, $3, $4)
+    RETURNING id
+  `, [campaign.id, startFromStep, totalSteps, triggerType]);
+  
+  const executionId = execResult.rows[0].id;
+  
+  await executeWithExecution(campaign, executionId, startFromStep);
 }
 
 /**
