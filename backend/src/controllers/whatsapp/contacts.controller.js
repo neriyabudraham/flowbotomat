@@ -312,65 +312,114 @@ async function pullWhatsAppContacts(req, res) {
     console.log(`[Contacts] Pulling WhatsApp contacts for user ${userId}`);
     const waContacts = await wahaService.getWhatsAppContacts(connection);
     
-    if (!waContacts || waContacts.length === 0) {
-      return res.json({ imported: 0, message: 'לא נמצאו אנשי קשר לייבוא' });
-    }
+    // Also fetch WhatsApp groups
+    console.log(`[Contacts] Pulling WhatsApp groups for user ${userId}`);
+    const waGroups = await wahaService.getSessionGroups(connection);
+    console.log(`[Contacts] Found ${waGroups?.length || 0} groups`);
     
     // Filter and import contacts
     let imported = 0;
+    let groupsImported = 0;
     const skipped = [];
     
-    for (const waContact of waContacts) {
-      if (imported >= remaining) {
-        break; // Reached limit
-      }
-      
-      // Extract phone and name
-      const waId = waContact.id || '';
-      const phone = waId.replace(/@.*$/, '');
-      const displayName = waContact.name || waContact.pushname || '';
-      
-      // Skip groups, LIDs, and contacts without valid phone
-      if (!phone || waId.includes('lid') || waId.includes('@g.us')) {
-        continue;
-      }
-      
-      // Skip if no name
-      if (!displayName) {
-        continue;
-      }
-      
-      // Check if contact already exists
-      const existsResult = await pool.query(
-        `SELECT id FROM contacts WHERE user_id = $1 AND phone = $2`,
-        [userId, phone]
-      );
-      
-      if (existsResult.rows.length > 0) {
-        skipped.push(phone);
-        continue;
-      }
-      
-      // Insert new contact
-      try {
-        await pool.query(
-          `INSERT INTO contacts (user_id, phone, wa_id, display_name) VALUES ($1, $2, $3, $4)`,
-          [userId, phone, waId, displayName]
+    // Import regular contacts first
+    if (waContacts && waContacts.length > 0) {
+      for (const waContact of waContacts) {
+        if (imported >= remaining) {
+          break; // Reached limit
+        }
+        
+        // Extract phone and name
+        const waId = waContact.id || '';
+        const phone = waId.replace(/@.*$/, '');
+        const displayName = waContact.name || waContact.pushname || '';
+        
+        // Skip groups, LIDs, and contacts without valid phone
+        if (!phone || waId.includes('lid') || waId.includes('@g.us')) {
+          continue;
+        }
+        
+        // Skip if no name
+        if (!displayName) {
+          continue;
+        }
+        
+        // Check if contact already exists
+        const existsResult = await pool.query(
+          `SELECT id FROM contacts WHERE user_id = $1 AND phone = $2`,
+          [userId, phone]
         );
-        imported++;
-      } catch (err) {
-        console.error(`[Contacts] Error importing ${phone}:`, err.message);
+        
+        if (existsResult.rows.length > 0) {
+          skipped.push(phone);
+          continue;
+        }
+        
+        // Insert new contact
+        try {
+          await pool.query(
+            `INSERT INTO contacts (user_id, phone, wa_id, display_name) VALUES ($1, $2, $3, $4)`,
+            [userId, phone, waId, displayName]
+          );
+          imported++;
+        } catch (err) {
+          console.error(`[Contacts] Error importing ${phone}:`, err.message);
+        }
       }
     }
     
-    console.log(`[Contacts] Imported ${imported} contacts for user ${userId}`);
+    // Import groups (groups don't count towards contact limit)
+    if (waGroups && waGroups.length > 0) {
+      for (const group of waGroups) {
+        const groupJid = group.JID || group.id || '';
+        const groupName = group.Name || group.name || '';
+        
+        if (!groupJid || !groupJid.includes('@g.us')) {
+          continue;
+        }
+        
+        // Check if group already exists
+        const existsResult = await pool.query(
+          `SELECT id FROM contacts WHERE user_id = $1 AND phone = $2`,
+          [userId, groupJid]
+        );
+        
+        if (existsResult.rows.length > 0) {
+          // Update name if changed
+          if (groupName) {
+            await pool.query(
+              `UPDATE contacts SET display_name = $1 WHERE user_id = $2 AND phone = $3`,
+              [groupName, userId, groupJid]
+            );
+          }
+          continue;
+        }
+        
+        // Insert new group
+        try {
+          await pool.query(
+            `INSERT INTO contacts (user_id, phone, wa_id, display_name) VALUES ($1, $2, $3, $4)`,
+            [userId, groupJid, groupJid, groupName || 'קבוצה ללא שם']
+          );
+          groupsImported++;
+        } catch (err) {
+          console.error(`[Contacts] Error importing group ${groupJid}:`, err.message);
+        }
+      }
+    }
     
+    console.log(`[Contacts] Imported ${imported} contacts and ${groupsImported} groups for user ${userId}`);
+    
+    const totalImported = imported + groupsImported;
     res.json({
       imported,
+      groupsImported,
       skipped: skipped.length,
       remaining: remaining - imported,
       maxContacts,
-      message: imported > 0 ? `יובאו ${imported} אנשי קשר` : 'כל אנשי הקשר כבר קיימים במערכת'
+      message: totalImported > 0 
+        ? `יובאו ${imported} אנשי קשר ו-${groupsImported} קבוצות` 
+        : 'כל אנשי הקשר והקבוצות כבר קיימים במערכת'
     });
     
   } catch (error) {
