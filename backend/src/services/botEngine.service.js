@@ -2241,12 +2241,33 @@ class BotEngine {
     const actions = node.data?.actions || [];
     console.log(`[BotEngine] Google Sheets node has ${actions.length} action(s)`);
     
-    // Helper to save result variables using varNames mapping
+    // Default Hebrew labels for variables
+    const DEFAULT_LABELS = {
+      sheets_found: 'גיליון - נמצא',
+      sheets_row_index: 'גיליון - מספר שורה',
+      sheets_total_rows: 'גיליון - סה״כ שורות',
+      sheets_total_matches: 'גיליון - סה״כ תוצאות',
+      sheets_action: 'גיליון - פעולה שבוצעה',
+      sheets_success: 'גיליון - פעולה הצליחה',
+      sheets_error: 'גיליון - שגיאה',
+    };
+    
+    // Helper to save result variables using varNames mapping with Hebrew labels
     const saveVar = async (varNames, key, value) => {
-      const varName = varNames?.[key] || key;
+      const config = varNames?.[key];
+      let varName = key;
+      let label = DEFAULT_LABELS[key] || key;
+      
+      if (typeof config === 'object' && config !== null) {
+        varName = config.name || key;
+        label = config.label || DEFAULT_LABELS[key] || key;
+      } else if (typeof config === 'string') {
+        varName = config;
+      }
+      
       if (varName && value !== undefined && value !== null) {
-        await this.setContactVariable(contact.id, varName, String(value));
-        console.log(`[BotEngine] Setting ${varName} = ${String(value).substring(0, 50)}`);
+        await this.setContactVariable(contact.id, varName, String(value), label);
+        console.log(`[BotEngine] Setting ${varName} (${label}) = ${String(value).substring(0, 50)}`);
       }
     };
     
@@ -2454,12 +2475,34 @@ class BotEngine {
     const actions = node.data?.actions || [];
     console.log(`[BotEngine] Google Contacts node has ${actions.length} action(s)`);
     
-    // Helper to save result variables using varNames mapping
+    // Default Hebrew labels for variables
+    const DEFAULT_LABELS = {
+      contact_exists: 'גוגל - איש קשר קיים',
+      contact_id: 'גוגל - מזהה איש קשר',
+      contact_name: 'גוגל - שם איש קשר',
+      contact_phone: 'גוגל - טלפון איש קשר',
+      contact_email: 'גוגל - אימייל איש קשר',
+      contact_action: 'גוגל - פעולה שבוצעה',
+      contact_success: 'גוגל - פעולה הצליחה',
+      contact_error: 'גוגל - שגיאה',
+    };
+    
+    // Helper to save result variables using varNames mapping with Hebrew labels
     const saveVar = async (varNames, key, value) => {
-      const varName = varNames?.[key] || key;
+      const config = varNames?.[key];
+      let varName = key;
+      let label = DEFAULT_LABELS[key] || key;
+      
+      if (typeof config === 'object' && config !== null) {
+        varName = config.name || key;
+        label = config.label || DEFAULT_LABELS[key] || key;
+      } else if (typeof config === 'string') {
+        varName = config;
+      }
+      
       if (varName && value !== undefined && value !== null) {
-        await this.setContactVariable(contact.id, varName, String(value));
-        console.log(`[BotEngine] Setting ${varName} = ${String(value).substring(0, 50)}`);
+        await this.setContactVariable(contact.id, varName, String(value), label);
+        console.log(`[BotEngine] Setting ${varName} (${label}) = ${String(value).substring(0, 50)}`);
       }
     };
     

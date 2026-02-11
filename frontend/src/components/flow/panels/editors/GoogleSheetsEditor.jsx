@@ -22,15 +22,15 @@ const SEARCH_OPERATORS = [
   { id: 'ends_with', label: 'מסתיים ב' },
 ];
 
-// All result variables with descriptions
+// All result variables with descriptions and Hebrew labels
 const RESULT_VARIABLES = [
-  { key: 'sheets_found', label: 'נמצא', description: 'האם נמצאה שורה (true/false)', operations: ['search_rows', 'search_and_update', 'search_or_append'] },
-  { key: 'sheets_row_index', label: 'מספר שורה', description: 'מספר השורה שנמצאה/נוצרה', operations: ['append_row', 'search_rows', 'search_and_update', 'search_or_append'] },
-  { key: 'sheets_total_rows', label: 'סה״כ שורות', description: 'כמות השורות בגיליון', operations: ['read_rows'] },
-  { key: 'sheets_total_matches', label: 'סה״כ תוצאות', description: 'כמות התוצאות שנמצאו', operations: ['search_rows'] },
-  { key: 'sheets_action', label: 'פעולה', description: 'הפעולה שבוצעה (appended/updated/found)', operations: ['append_row', 'update_row', 'search_and_update', 'search_or_append'] },
-  { key: 'sheets_success', label: 'הצלחה', description: 'האם הפעולה הצליחה (true/false)', operations: ['append_row', 'update_row', 'search_and_update', 'search_or_append'] },
-  { key: 'sheets_error', label: 'שגיאה', description: 'הודעת שגיאה אם נכשל', operations: ['append_row', 'update_row', 'search_rows', 'read_rows', 'search_and_update', 'search_or_append'] },
+  { key: 'sheets_found', hebrewLabel: 'גיליון - נמצא', description: 'האם נמצאה שורה (true/false)', operations: ['search_rows', 'search_and_update', 'search_or_append'] },
+  { key: 'sheets_row_index', hebrewLabel: 'גיליון - מספר שורה', description: 'מספר השורה שנמצאה/נוצרה', operations: ['append_row', 'search_rows', 'search_and_update', 'search_or_append'] },
+  { key: 'sheets_total_rows', hebrewLabel: 'גיליון - סה״כ שורות', description: 'כמות השורות בגיליון', operations: ['read_rows'] },
+  { key: 'sheets_total_matches', hebrewLabel: 'גיליון - סה״כ תוצאות', description: 'כמות התוצאות שנמצאו', operations: ['search_rows'] },
+  { key: 'sheets_action', hebrewLabel: 'גיליון - פעולה שבוצעה', description: 'הפעולה שבוצעה (appended/updated/found)', operations: ['append_row', 'update_row', 'search_and_update', 'search_or_append'] },
+  { key: 'sheets_success', hebrewLabel: 'גיליון - פעולה הצליחה', description: 'האם הפעולה הצליחה (true/false)', operations: ['append_row', 'update_row', 'search_and_update', 'search_or_append'] },
+  { key: 'sheets_error', hebrewLabel: 'גיליון - שגיאה', description: 'הודעת שגיאה אם נכשל', operations: ['append_row', 'update_row', 'search_rows', 'read_rows', 'search_and_update', 'search_or_append'] },
 ];
 
 export default function GoogleSheetsEditor({ data, onUpdate }) {
@@ -49,15 +49,15 @@ export default function GoogleSheetsEditor({ data, onUpdate }) {
       rowIndex: '',
       // Column result mappings (column -> variable)
       resultMappings: [],
-      // System variable names
+      // System variable names with Hebrew labels
       varNames: {
-        sheets_found: 'sheets_found',
-        sheets_row_index: 'sheets_row_index',
-        sheets_total_rows: 'sheets_total_rows',
-        sheets_total_matches: 'sheets_total_matches',
-        sheets_action: 'sheets_action',
-        sheets_success: 'sheets_success',
-        sheets_error: 'sheets_error',
+        sheets_found: { name: 'sheets_found', label: 'גיליון - נמצא' },
+        sheets_row_index: { name: 'sheets_row_index', label: 'גיליון - מספר שורה' },
+        sheets_total_rows: { name: 'sheets_total_rows', label: 'גיליון - סה״כ שורות' },
+        sheets_total_matches: { name: 'sheets_total_matches', label: 'גיליון - סה״כ תוצאות' },
+        sheets_action: { name: 'sheets_action', label: 'גיליון - פעולה שבוצעה' },
+        sheets_success: { name: 'sheets_success', label: 'גיליון - פעולה הצליחה' },
+        sheets_error: { name: 'sheets_error', label: 'גיליון - שגיאה' },
       },
     };
     onUpdate({ actions: [...actions, newAction] });
@@ -251,6 +251,19 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
     });
   };
 
+  const getVarConfig = (key) => {
+    const config = (action.varNames || {})[key];
+    const defaultVar = RESULT_VARIABLES.find(v => v.key === key);
+    if (typeof config === 'object' && config !== null) {
+      return { name: config.name || key, label: config.label || defaultVar?.hebrewLabel || key };
+    }
+    // Backwards compatibility - if it's a string, use it as name
+    if (typeof config === 'string') {
+      return { name: config, label: defaultVar?.hebrewLabel || key };
+    }
+    return { name: key, label: defaultVar?.hebrewLabel || key };
+  };
+
   const copyVarName = (varName) => {
     navigator.clipboard.writeText(`{{${varName}}}`);
     setCopiedVar(varName);
@@ -258,8 +271,12 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
   };
 
   const updateVarName = (key, newName) => {
-    const varNames = { ...(action.varNames || {}), [key]: newName };
-    onUpdate({ varNames });
+    const currentConfig = getVarConfig(key);
+    const newVarNames = { 
+      ...(action.varNames || {}), 
+      [key]: { name: newName, label: currentConfig.label }
+    };
+    onUpdate({ varNames: newVarNames });
   };
 
   const operationInfo = OPERATIONS.find(op => op.id === action.operation);
@@ -668,8 +685,8 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
               
               <div className="space-y-2">
                 {relevantVars.map((v) => {
-                  const currentName = varNames[v.key] || v.key;
-                  const isCopied = copiedVar === currentName;
+                  const config = getVarConfig(v.key);
+                  const isCopied = copiedVar === config.name;
                   
                   return (
                     <div 
@@ -677,10 +694,10 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
                       className="bg-white rounded-lg border border-amber-200 overflow-hidden"
                     >
                       <div className="flex items-center gap-2 p-2">
-                        {/* Variable badge */}
+                        {/* Variable badge with copy */}
                         <button
-                          onClick={() => copyVarName(currentName)}
-                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono transition-all ${
+                          onClick={() => copyVarName(config.name)}
+                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono transition-all flex-shrink-0 ${
                             isCopied 
                               ? 'bg-green-500 text-white' 
                               : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
@@ -694,14 +711,15 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
                           ) : (
                             <>
                               <Copy className="w-3 h-3" />
-                              {`{{${currentName}}}`}
+                              {`{{${config.name}}}`}
                             </>
                           )}
                         </button>
                         
-                        {/* Description */}
+                        {/* Hebrew label and description */}
                         <div className="flex-1 min-w-0">
-                          <span className="text-xs text-gray-600">{v.description}</span>
+                          <span className="text-xs font-medium text-amber-800 block">{config.label}</span>
+                          <span className="text-[10px] text-gray-500">{v.description}</span>
                         </div>
                       </div>
                       
@@ -712,7 +730,7 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
                             <span className="text-[10px] text-amber-600 whitespace-nowrap">שם המשתנה:</span>
                             <input
                               type="text"
-                              value={currentName}
+                              value={config.name}
                               onChange={(e) => updateVarName(v.key, e.target.value)}
                               className="flex-1 px-2 py-1 text-xs border border-amber-200 rounded bg-white focus:ring-1 focus:ring-amber-400"
                               dir="ltr"

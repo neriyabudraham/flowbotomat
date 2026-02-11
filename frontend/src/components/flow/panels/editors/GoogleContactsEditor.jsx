@@ -22,16 +22,16 @@ const SEARCH_BY_OPTIONS = [
   { id: 'email', label: 'אימייל', icon: Mail },
 ];
 
-// All possible result variables with descriptions
+// All possible result variables with descriptions and Hebrew labels
 const RESULT_VARIABLES = [
-  { key: 'contact_exists', label: 'קיים', description: 'האם איש הקשר קיים (true/false)', operations: ['check_exists', 'search_contact', 'find_or_create'] },
-  { key: 'contact_id', label: 'מזהה', description: 'מזהה איש הקשר בגוגל', operations: ['check_exists', 'search_contact', 'create_contact', 'update_contact', 'find_or_create'] },
-  { key: 'contact_name', label: 'שם', description: 'שם מלא של איש הקשר', operations: ['search_contact', 'find_or_create'] },
-  { key: 'contact_phone', label: 'טלפון', description: 'מספר הטלפון שנמצא', operations: ['search_contact', 'find_or_create'] },
-  { key: 'contact_email', label: 'אימייל', description: 'כתובת האימייל שנמצאה', operations: ['search_contact', 'find_or_create'] },
-  { key: 'contact_action', label: 'פעולה', description: 'הפעולה שבוצעה (found/created/updated)', operations: ['create_contact', 'update_contact', 'find_or_create'] },
-  { key: 'contact_success', label: 'הצלחה', description: 'האם הפעולה הצליחה (true/false)', operations: ['add_to_label', 'remove_from_label'] },
-  { key: 'contact_error', label: 'שגיאה', description: 'הודעת שגיאה אם נכשל', operations: ['check_exists', 'search_contact', 'create_contact', 'update_contact', 'find_or_create', 'add_to_label', 'remove_from_label'] },
+  { key: 'contact_exists', hebrewLabel: 'גוגל - איש קשר קיים', description: 'האם איש הקשר קיים (true/false)', operations: ['check_exists', 'search_contact', 'find_or_create'] },
+  { key: 'contact_id', hebrewLabel: 'גוגל - מזהה איש קשר', description: 'מזהה איש הקשר בגוגל', operations: ['check_exists', 'search_contact', 'create_contact', 'update_contact', 'find_or_create'] },
+  { key: 'contact_name', hebrewLabel: 'גוגל - שם איש קשר', description: 'שם מלא של איש הקשר', operations: ['search_contact', 'find_or_create'] },
+  { key: 'contact_phone', hebrewLabel: 'גוגל - טלפון איש קשר', description: 'מספר הטלפון שנמצא', operations: ['search_contact', 'find_or_create'] },
+  { key: 'contact_email', hebrewLabel: 'גוגל - אימייל איש קשר', description: 'כתובת האימייל שנמצאה', operations: ['search_contact', 'find_or_create'] },
+  { key: 'contact_action', hebrewLabel: 'גוגל - פעולה שבוצעה', description: 'הפעולה שבוצעה (found/created/updated)', operations: ['create_contact', 'update_contact', 'find_or_create'] },
+  { key: 'contact_success', hebrewLabel: 'גוגל - פעולה הצליחה', description: 'האם הפעולה הצליחה (true/false)', operations: ['add_to_label', 'remove_from_label'] },
+  { key: 'contact_error', hebrewLabel: 'גוגל - שגיאה', description: 'הודעת שגיאה אם נכשל', operations: ['check_exists', 'search_contact', 'create_contact', 'update_contact', 'find_or_create', 'add_to_label', 'remove_from_label'] },
 ];
 
 export default function GoogleContactsEditor({ data, onUpdate }) {
@@ -49,16 +49,16 @@ export default function GoogleContactsEditor({ data, onUpdate }) {
       email: '',
       labelId: '',
       labelName: '',
-      // Default variable names (can be customized)
+      // Default variable names with Hebrew labels (can be customized)
       varNames: {
-        contact_exists: 'contact_exists',
-        contact_id: 'contact_id',
-        contact_name: 'contact_name',
-        contact_phone: 'contact_phone',
-        contact_email: 'contact_email',
-        contact_action: 'contact_action',
-        contact_success: 'contact_success',
-        contact_error: 'contact_error',
+        contact_exists: { name: 'contact_exists', label: 'גוגל - איש קשר קיים' },
+        contact_id: { name: 'contact_id', label: 'גוגל - מזהה איש קשר' },
+        contact_name: { name: 'contact_name', label: 'גוגל - שם איש קשר' },
+        contact_phone: { name: 'contact_phone', label: 'גוגל - טלפון איש קשר' },
+        contact_email: { name: 'contact_email', label: 'גוגל - אימייל איש קשר' },
+        contact_action: { name: 'contact_action', label: 'גוגל - פעולה שבוצעה' },
+        contact_success: { name: 'contact_success', label: 'גוגל - פעולה הצליחה' },
+        contact_error: { name: 'contact_error', label: 'גוגל - שגיאה' },
       },
     };
     onUpdate({ actions: [...actions, newAction] });
@@ -161,6 +161,19 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
     });
   };
 
+  const getVarConfig = (key) => {
+    const config = (action.varNames || {})[key];
+    const defaultVar = RESULT_VARIABLES.find(v => v.key === key);
+    if (typeof config === 'object' && config !== null) {
+      return { name: config.name || key, label: config.label || defaultVar?.hebrewLabel || key };
+    }
+    // Backwards compatibility - if it's a string, use it as name
+    if (typeof config === 'string') {
+      return { name: config, label: defaultVar?.hebrewLabel || key };
+    }
+    return { name: key, label: defaultVar?.hebrewLabel || key };
+  };
+
   const copyVarName = (varName) => {
     navigator.clipboard.writeText(`{{${varName}}}`);
     setCopiedVar(varName);
@@ -168,8 +181,12 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
   };
 
   const updateVarName = (key, newName) => {
-    const varNames = { ...(action.varNames || {}), [key]: newName };
-    onUpdate({ varNames });
+    const currentConfig = getVarConfig(key);
+    const newVarNames = { 
+      ...(action.varNames || {}), 
+      [key]: { name: newName, label: currentConfig.label }
+    };
+    onUpdate({ varNames: newVarNames });
   };
 
   const operationInfo = OPERATIONS.find(op => op.id === action.operation);
@@ -180,7 +197,6 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
   
   // Get relevant variables for current operation
   const relevantVars = RESULT_VARIABLES.filter(v => v.operations.includes(action.operation));
-  const varNames = action.varNames || {};
 
   if (connected === false) {
     return (
@@ -428,8 +444,8 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
             
             <div className="space-y-2">
               {relevantVars.map((v) => {
-                const currentName = varNames[v.key] || v.key;
-                const isCopied = copiedVar === currentName;
+                const config = getVarConfig(v.key);
+                const isCopied = copiedVar === config.name;
                 
                 return (
                   <div 
@@ -437,10 +453,10 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
                     className="bg-white rounded-lg border border-amber-200 overflow-hidden"
                   >
                     <div className="flex items-center gap-2 p-2">
-                      {/* Variable badge */}
+                      {/* Variable badge with copy */}
                       <button
-                        onClick={() => copyVarName(currentName)}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono transition-all ${
+                        onClick={() => copyVarName(config.name)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono transition-all flex-shrink-0 ${
                           isCopied 
                             ? 'bg-green-500 text-white' 
                             : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
@@ -454,14 +470,15 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
                         ) : (
                           <>
                             <Copy className="w-3 h-3" />
-                            {`{{${currentName}}}`}
+                            {`{{${config.name}}}`}
                           </>
                         )}
                       </button>
                       
-                      {/* Description */}
+                      {/* Hebrew label and description */}
                       <div className="flex-1 min-w-0">
-                        <span className="text-xs text-gray-600">{v.description}</span>
+                        <span className="text-xs font-medium text-amber-800 block">{config.label}</span>
+                        <span className="text-[10px] text-gray-500">{v.description}</span>
                       </div>
                     </div>
                     
@@ -472,7 +489,7 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
                           <span className="text-[10px] text-amber-600 whitespace-nowrap">שם המשתנה:</span>
                           <input
                             type="text"
-                            value={currentName}
+                            value={config.name}
                             onChange={(e) => updateVarName(v.key, e.target.value)}
                             className="flex-1 px-2 py-1 text-xs border border-amber-200 rounded bg-white focus:ring-1 focus:ring-amber-400"
                             dir="ltr"
