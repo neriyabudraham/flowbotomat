@@ -1,15 +1,32 @@
 import { useState } from 'react';
-import { X, GripVertical, ChevronDown, ChevronUp, Play, Check, AlertCircle, Loader2, Globe, Copy } from 'lucide-react';
+import { X, GripVertical, ChevronDown, ChevronUp, Play, Check, AlertCircle, Loader2, Globe, Copy, FileSpreadsheet, Users } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
+import GoogleSheetsEditor from './GoogleSheetsEditor';
+import GoogleContactsEditor from './GoogleContactsEditor';
 import api from '../../../../services/api';
+
+const ACTION_TYPES = [
+  { id: 'http_request', label: 'קריאת API', icon: '📡', color: 'orange' },
+  { id: 'google_sheets', label: 'Google Sheets', icon: '📊', color: 'green' },
+  { id: 'google_contacts', label: 'Google Contacts', icon: '👥', color: 'blue' },
+];
 
 export default function IntegrationEditor({ data, onUpdate }) {
   const actions = data.actions || [];
   const [dragIndex, setDragIndex] = useState(null);
+  const [showTypeSelector, setShowTypeSelector] = useState(false);
 
-  const addAction = () => {
-    const newAction = { type: 'http_request', method: 'GET', apiUrl: '', headers: [], body: '', bodyParams: [], mappings: [] };
+  const addAction = (type = 'http_request') => {
+    let newAction;
+    if (type === 'http_request') {
+      newAction = { type: 'http_request', method: 'GET', apiUrl: '', headers: [], body: '', bodyParams: [], mappings: [] };
+    } else if (type === 'google_sheets') {
+      newAction = { type: 'google_sheets', actions: [] };
+    } else if (type === 'google_contacts') {
+      newAction = { type: 'google_contacts', actions: [] };
+    }
     onUpdate({ actions: [...actions, newAction] });
+    setShowTypeSelector(false);
   };
 
   const removeAction = (index) => {
@@ -58,22 +75,51 @@ export default function IntegrationEditor({ data, onUpdate }) {
         </div>
       )}
 
-      {/* Add API call button - always visible */}
+      {/* Add action button */}
       <div className={actions.length > 0 ? "border-t border-gray-100 pt-4" : ""}>
-        <button
-          onClick={addAction}
-          className="w-full flex items-center gap-3 p-4 bg-orange-50 hover:bg-orange-100 rounded-xl transition-all border border-orange-200 hover:border-orange-300 hover:shadow-sm"
-        >
-          <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center">
-            <span className="text-2xl">📡</span>
+        {showTypeSelector ? (
+          <div className="space-y-2 p-3 bg-gray-50 rounded-xl border border-gray-200">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-600">בחר סוג פעולה</span>
+              <button onClick={() => setShowTypeSelector(false)} className="p-1 hover:bg-gray-200 rounded">
+                <X className="w-4 h-4 text-gray-400" />
+              </button>
+            </div>
+            {ACTION_TYPES.map(({ id, label, icon, color }) => (
+              <button
+                key={id}
+                onClick={() => addAction(id)}
+                className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all hover:shadow-sm ${
+                  color === 'orange' ? 'bg-orange-50 border-orange-200 hover:border-orange-300' :
+                  color === 'green' ? 'bg-green-50 border-green-200 hover:border-green-300' :
+                  'bg-blue-50 border-blue-200 hover:border-blue-300'
+                }`}
+              >
+                <span className="text-2xl">{icon}</span>
+                <span className={`font-medium ${
+                  color === 'orange' ? 'text-orange-700' :
+                  color === 'green' ? 'text-green-700' :
+                  'text-blue-700'
+                }`}>{label}</span>
+              </button>
+            ))}
           </div>
-          <div className="flex-1 text-right">
-            <span className="font-medium text-orange-700 block">
-              {actions.length > 0 ? 'הוסף קריאת API נוספת' : 'הוסף קריאת API'}
-            </span>
-            <p className="text-xs text-orange-500">שלח בקשות HTTP ומפה תגובות למשתנים</p>
-          </div>
-        </button>
+        ) : (
+          <button
+            onClick={() => setShowTypeSelector(true)}
+            className="w-full flex items-center gap-3 p-4 bg-gray-50 hover:bg-gray-100 rounded-xl transition-all border border-gray-200 hover:border-gray-300 hover:shadow-sm"
+          >
+            <div className="w-12 h-12 bg-gray-200 rounded-xl flex items-center justify-center">
+              <span className="text-2xl">➕</span>
+            </div>
+            <div className="flex-1 text-right">
+              <span className="font-medium text-gray-700 block">
+                {actions.length > 0 ? 'הוסף פעולה נוספת' : 'הוסף פעולת אינטגרציה'}
+              </span>
+              <p className="text-xs text-gray-500">API, Google Sheets או Google Contacts</p>
+            </div>
+          </button>
+        )}
       </div>
     </div>
   );
@@ -81,27 +127,105 @@ export default function IntegrationEditor({ data, onUpdate }) {
 
 function IntegrationItem({ action, onUpdate, onRemove }) {
   const [showModal, setShowModal] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  
+  const actionType = action.type || 'http_request';
+  
+  // Get config based on action type
+  const getConfig = () => {
+    switch (actionType) {
+      case 'google_sheets':
+        return { icon: '📊', label: 'Google Sheets', color: 'green', description: getGoogleSheetsDescription(action) };
+      case 'google_contacts':
+        return { icon: '👥', label: 'Google Contacts', color: 'blue', description: getGoogleContactsDescription(action) };
+      default:
+        return { icon: '📡', label: 'קריאת API', color: 'orange', description: action.apiUrl ? `${action.method || 'GET'} ${action.apiUrl}` : '' };
+    }
+  };
+  
+  const config = getConfig();
+  const colorClasses = {
+    orange: { border: 'border-orange-200', bg: 'bg-orange-50', text: 'text-orange-700', button: 'bg-orange-600 hover:bg-orange-700', desc: 'text-orange-500' },
+    green: { border: 'border-green-200', bg: 'bg-green-50', text: 'text-green-700', button: 'bg-green-600 hover:bg-green-700', desc: 'text-green-500' },
+    blue: { border: 'border-blue-200', bg: 'bg-blue-50', text: 'text-blue-700', button: 'bg-blue-600 hover:bg-blue-700', desc: 'text-blue-500' },
+  };
+  const colors = colorClasses[config.color];
 
-  return (
-    <>
-      <div className="rounded-xl border border-orange-200 overflow-hidden">
+  // For Google Sheets and Contacts, show inline editor
+  if (actionType === 'google_sheets' || actionType === 'google_contacts') {
+    return (
+      <div className={`rounded-xl border ${colors.border} overflow-hidden`}>
         {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-3 bg-orange-50">
+        <div className={`flex items-center gap-3 px-4 py-3 ${colors.bg}`}>
           <div className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500">
             <GripVertical className="w-4 h-4" />
           </div>
-          <span className="text-xl">📡</span>
+          <span className="text-xl">{config.icon}</span>
           <div className="flex-1 min-w-0">
-            <span className="font-medium text-sm text-orange-700">קריאת API</span>
-            {action.apiUrl && (
-              <p className="text-[10px] text-orange-500 truncate" dir="ltr">
-                {action.method || 'GET'} {action.apiUrl}
+            <span className={`font-medium text-sm ${colors.text}`}>{config.label}</span>
+            {config.description && (
+              <p className={`text-[10px] ${colors.desc} truncate`}>
+                {config.description}
+              </p>
+            )}
+          </div>
+          <button 
+            onClick={() => setExpanded(!expanded)}
+            className={`px-3 py-1 text-xs ${colors.button} text-white rounded-lg`}
+          >
+            {expanded ? 'סגור' : 'הגדרות'}
+          </button>
+          <button 
+            onClick={onRemove} 
+            className="p-1.5 hover:bg-red-100 rounded-lg transition-colors group"
+          >
+            <X className="w-4 h-4 text-gray-400 group-hover:text-red-500" />
+          </button>
+        </div>
+        
+        {/* Inline Editor */}
+        {expanded && (
+          <div className="p-4 bg-white border-t border-gray-100">
+            {actionType === 'google_sheets' ? (
+              <GoogleSheetsEditor 
+                data={{ actions: action.actions || [] }} 
+                onUpdate={(updates) => onUpdate({ ...action, actions: updates.actions })}
+                embedded={true}
+              />
+            ) : (
+              <GoogleContactsEditor 
+                data={{ actions: action.actions || [] }} 
+                onUpdate={(updates) => onUpdate({ ...action, actions: updates.actions })}
+                embedded={true}
+              />
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // HTTP Request - use modal
+  return (
+    <>
+      <div className={`rounded-xl border ${colors.border} overflow-hidden`}>
+        {/* Header */}
+        <div className={`flex items-center gap-3 px-4 py-3 ${colors.bg}`}>
+          <div className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500">
+            <GripVertical className="w-4 h-4" />
+          </div>
+          <span className="text-xl">{config.icon}</span>
+          <div className="flex-1 min-w-0">
+            <span className={`font-medium text-sm ${colors.text}`}>{config.label}</span>
+            {config.description && (
+              <p className={`text-[10px] ${colors.desc} truncate`} dir="ltr">
+                {config.description}
               </p>
             )}
           </div>
           <button 
             onClick={() => setShowModal(true)}
-            className="px-3 py-1 text-xs bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+            className={`px-3 py-1 text-xs ${colors.button} text-white rounded-lg`}
           >
             הגדרות
           </button>
@@ -119,6 +243,37 @@ function IntegrationItem({ action, onUpdate, onRemove }) {
       )}
     </>
   );
+}
+
+function getGoogleSheetsDescription(action) {
+  const subActions = action.actions || [];
+  if (subActions.length === 0) return 'לא הוגדרו פעולות';
+  const operations = subActions.map(a => {
+    switch (a.operation) {
+      case 'read': return 'קריאה';
+      case 'add': return 'הוספה';
+      case 'update': return 'עדכון';
+      case 'search': return 'חיפוש';
+      default: return a.operation;
+    }
+  });
+  return operations.join(', ');
+}
+
+function getGoogleContactsDescription(action) {
+  const subActions = action.actions || [];
+  if (subActions.length === 0) return 'לא הוגדרו פעולות';
+  const operations = subActions.map(a => {
+    switch (a.operation) {
+      case 'check_exists': return 'בדיקה';
+      case 'search_contact': return 'חיפוש';
+      case 'create_contact': return 'יצירה';
+      case 'find_or_create': return 'מצא/צור';
+      case 'add_to_label': return 'הוספה לתווית';
+      default: return a.operation;
+    }
+  });
+  return operations.join(', ');
 }
 
 // Full API Request Modal

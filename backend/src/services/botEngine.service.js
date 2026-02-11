@@ -2617,14 +2617,25 @@ class BotEngine {
   // Execute integration node (API requests)
   async executeIntegrationNode(node, contact, userId) {
     const actions = node.data?.actions || [];
-    console.log(`[BotEngine] Integration node has ${actions.length} API request(s)`);
+    console.log(`[BotEngine] Integration node has ${actions.length} action(s)`);
     
     for (let i = 0; i < actions.length; i++) {
       const action = actions[i];
-      console.log(`[BotEngine] Executing API request ${i + 1}/${actions.length}: ${action.method || 'GET'} ${action.apiUrl}`);
+      const actionType = action.type || 'http_request';
       
-      if (action.type === 'http_request') {
+      if (actionType === 'http_request') {
+        console.log(`[BotEngine] Executing API request ${i + 1}/${actions.length}: ${action.method || 'GET'} ${action.apiUrl}`);
         await this.executeHttpRequest(action, contact);
+      } else if (actionType === 'google_sheets') {
+        console.log(`[BotEngine] Executing Google Sheets action ${i + 1}/${actions.length}`);
+        // Create a virtual node with the nested actions
+        const virtualNode = { data: { actions: action.actions || [] } };
+        await this.executeGoogleSheetsNode(virtualNode, contact, userId);
+      } else if (actionType === 'google_contacts') {
+        console.log(`[BotEngine] Executing Google Contacts action ${i + 1}/${actions.length}`);
+        // Create a virtual node with the nested actions
+        const virtualNode = { data: { actions: action.actions || [] } };
+        await this.executeGoogleContactsNode(virtualNode, contact, userId);
       }
     }
   }

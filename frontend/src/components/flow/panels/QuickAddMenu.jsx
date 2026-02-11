@@ -1,6 +1,7 @@
-import { MessageSquare, GitBranch, Clock, Cog, List, X, ClipboardList, Globe, Send, FileSpreadsheet, Users } from 'lucide-react';
+import { MessageSquare, GitBranch, Clock, Cog, List, X, ClipboardList, Globe, Send } from 'lucide-react';
 
 // Note: 'note' is excluded from quick add menu - only available from palette
+// Google Sheets and Google Contacts are now part of the Integration node
 const nodeTypes = [
   { type: 'message', label: 'WhatsApp', icon: MessageSquare, color: 'teal', description: 'הודעות, מדיה וריאקציות' },
   { type: 'list', label: 'רשימה', icon: List, color: 'cyan', description: 'רשימת בחירה' },
@@ -8,9 +9,7 @@ const nodeTypes = [
   { type: 'condition', label: 'תנאי', icon: GitBranch, color: 'orange', description: 'בדוק תנאי' },
   { type: 'delay', label: 'השהייה', icon: Clock, color: 'blue', description: 'המתן' },
   { type: 'action', label: 'פעולה', icon: Cog, color: 'pink', description: 'תגיות ובקרה' },
-  { type: 'integration', label: 'אינטגרציה', icon: Globe, color: 'amber', description: 'Webhook וAPI' },
-  { type: 'google_sheets', label: 'Google Sheets', icon: FileSpreadsheet, color: 'green', description: 'קריאה וכתיבה בגיליון' },
-  { type: 'google_contacts', label: 'Google Contacts', icon: Users, color: 'sky', description: 'אנשי קשר בגוגל' },
+  { type: 'integration', label: 'אינטגרציה', icon: Globe, color: 'amber', description: 'API, Google Sheets, Contacts' },
   { type: 'send_other', label: 'שליחה אחרת', icon: Send, color: 'violet', description: 'שלח למספר/קבוצה' },
 ];
 
@@ -21,11 +20,8 @@ const colorClasses = {
   blue: 'hover:bg-blue-50 hover:border-blue-200',
   pink: 'hover:bg-pink-50 hover:border-pink-200',
   indigo: 'hover:bg-indigo-50 hover:border-indigo-200',
-  yellow: 'hover:bg-yellow-50 hover:border-yellow-200',
   amber: 'hover:bg-amber-50 hover:border-amber-200',
   violet: 'hover:bg-violet-50 hover:border-violet-200',
-  green: 'hover:bg-green-50 hover:border-green-200',
-  sky: 'hover:bg-sky-50 hover:border-sky-200',
 };
 
 const iconColors = {
@@ -35,11 +31,8 @@ const iconColors = {
   blue: 'bg-blue-500',
   pink: 'bg-pink-500',
   indigo: 'bg-indigo-500',
-  yellow: 'bg-yellow-500',
   amber: 'bg-amber-500',
   violet: 'bg-violet-500',
-  green: 'bg-green-500',
-  sky: 'bg-sky-500',
 };
 
 export default function QuickAddMenu({ position, onSelect, onClose }) {
@@ -50,21 +43,21 @@ export default function QuickAddMenu({ position, onSelect, onClose }) {
       <div className="fixed inset-0 z-40" onClick={onClose} />
       
       <div 
-        className="fixed z-50 bg-white rounded-2xl shadow-2xl border border-gray-200 p-2 min-w-[220px]"
+        className="fixed z-50 bg-white rounded-2xl shadow-2xl border border-gray-200 p-2 min-w-[220px] max-h-[70vh] flex flex-col"
         style={{ 
           left: position.x, 
           top: position.y,
           transform: 'translate(-50%, -50%)'
         }}
       >
-        <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 mb-2">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 mb-2 flex-shrink-0">
           <span className="font-semibold text-gray-700 text-sm">הוסף רכיב</span>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg transition-colors">
             <X className="w-4 h-4 text-gray-400" />
           </button>
         </div>
         
-        <div className="space-y-1">
+        <div className="space-y-1 overflow-y-auto flex-1">
           {nodeTypes.map(({ type, label, icon: Icon, color, description }) => (
             <button
               key={type}

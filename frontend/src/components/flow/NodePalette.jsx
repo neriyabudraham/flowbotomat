@@ -1,5 +1,6 @@
-import { MessageSquare, GitBranch, Clock, Cog, List, ClipboardList, ChevronLeft, StickyNote, Globe, Send, FileSpreadsheet, Users } from 'lucide-react';
+import { MessageSquare, GitBranch, Clock, Cog, List, ClipboardList, ChevronLeft, StickyNote, Globe, Send } from 'lucide-react';
 
+// Google Sheets and Google Contacts are now part of the Integration node
 const nodeTypes = [
   { type: 'message', label: 'WhatsApp', icon: MessageSquare, color: 'bg-teal-500', description: 'הודעות, מדיה וריאקציות' },
   { type: 'list', label: 'רשימה', icon: List, color: 'bg-cyan-500', description: 'רשימת בחירה עם כפתורים' },
@@ -7,9 +8,7 @@ const nodeTypes = [
   { type: 'condition', label: 'תנאי', icon: GitBranch, color: 'bg-orange-500', description: 'הסתעפות לפי תנאים' },
   { type: 'delay', label: 'השהייה', icon: Clock, color: 'bg-blue-500', description: 'המתנה לפני המשך' },
   { type: 'action', label: 'פעולה', icon: Cog, color: 'bg-pink-500', description: 'תגיות ובקרת בוטים' },
-  { type: 'integration', label: 'אינטגרציה', icon: Globe, color: 'bg-orange-500', description: 'Webhook וקריאות API' },
-  { type: 'google_sheets', label: 'Google Sheets', icon: FileSpreadsheet, color: 'bg-green-500', description: 'קריאה, כתיבה ועדכון בגיליון' },
-  { type: 'google_contacts', label: 'Google Contacts', icon: Users, color: 'bg-blue-500', description: 'חיפוש, יצירה ועדכון אנשי קשר' },
+  { type: 'integration', label: 'אינטגרציה', icon: Globe, color: 'bg-amber-500', description: 'API, Google Sheets, Contacts' },
   { type: 'note', label: 'הערה', icon: StickyNote, color: 'bg-yellow-500', description: 'הערות ותזכורות' },
   { type: 'send_other', label: 'שליחה אחרת', icon: Send, color: 'bg-violet-500', description: 'שלח למספר או קבוצה אחרת' },
 ];
