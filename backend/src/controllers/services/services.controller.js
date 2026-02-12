@@ -59,6 +59,13 @@ async function getMyServices(req, res) {
 
 /**
  * Subscribe to a service
+ * 
+ * Payment flow (identical to main subscription):
+ * - Always requires a payment method (sumit_customer_id)
+ * - Always creates a standing order in Sumit
+ * - For trials: first charge is scheduled for trial end date
+ * - For immediate: charges immediately
+ * - Cancellation removes the standing order from Sumit
  */
 async function subscribeToService(req, res) {
   try {
@@ -91,7 +98,7 @@ async function subscribeToService(req, res) {
       }
     }
     
-    // Get user's payment info from user_payment_methods (correct table)
+    // Get user's payment info from user_payment_methods
     const userResult = await db.query(`
       SELECT u.*, upm.sumit_customer_id, upm.last_4_digits, upm.card_brand
       FROM users u
@@ -101,6 +108,14 @@ async function subscribeToService(req, res) {
     `, [userId]);
     
     const user = userResult.rows[0];
+    
+    // Always require payment method for paid services
+    if (service.price > 0 && !user.sumit_customer_id) {
+      return res.status(400).json({ 
+        error: 'נדרש אמצעי תשלום',
+        needsPaymentMethod: true 
+      });
+    }
     
     // Check if user has custom trial for this service
     const customTrialResult = await db.query(
@@ -123,6 +138,7 @@ async function subscribeToService(req, res) {
     let isTrial = false;
     let trialEndsAt = null;
     let nextChargeDate = null;
+    let sumitStandingOrderId = null;
     
     if (trialDays > 0) {
       status = 'trial';
@@ -138,31 +154,35 @@ async function subscribeToService(req, res) {
       }
     }
     
-    // If no trial and price > 0, need to charge first
-    if (!isTrial && price > 0) {
-      // Check if user has payment method
-      if (!user.sumit_customer_id) {
-        return res.status(400).json({ 
-          error: 'נדרש אמצעי תשלום',
-          needsPaymentMethod: true 
-        });
-      }
-      
-      // Create standing order in Sumit for recurring charges
+    // Create standing order in Sumit (for both trial and immediate)
+    // For trial: startDate = trialEndsAt (first charge at trial end)
+    // For immediate: startDate = null (charge now)
+    if (price > 0 && user.sumit_customer_id) {
       try {
-        const standingOrderResponse = await sumitService.chargeRecurring(
-          user.sumit_customer_id,
-          price,
-          `מנוי ${service.name_he}`,
-          billingPeriod === 'yearly' ? 12 : 1 // Monthly interval
-        );
+        const durationMonths = billingPeriod === 'yearly' ? 12 : 1;
+        const startDate = isTrial ? trialEndsAt : null; // Trial = future, immediate = now
+        
+        console.log(`[Services] Creating standing order - Trial: ${isTrial}, StartDate: ${startDate?.toISOString() || 'immediate'}, Amount: ${price}`);
+        
+        const standingOrderResponse = await sumitService.chargeRecurring({
+          customerId: user.sumit_customer_id,
+          amount: price,
+          description: `מנוי ${service.name_he} - ${billingPeriod === 'yearly' ? 'שנתי' : 'חודשי'}`,
+          durationMonths: durationMonths,
+          recurrence: null, // unlimited
+          startDate: startDate, // null = immediate, future date = scheduled
+        });
         
         if (!standingOrderResponse.success) {
-          return res.status(400).json({ error: 'שגיאה ביצירת הוראת קבע' });
+          console.error('[Services] Sumit standing order failed:', standingOrderResponse.error);
+          return res.status(400).json({ 
+            error: standingOrderResponse.error || 'שגיאה ביצירת הוראת קבע'
+          });
         }
         
-        // Store standing order ID
-        var sumitStandingOrderId = standingOrderResponse.standingOrderId;
+        sumitStandingOrderId = standingOrderResponse.standingOrderId;
+        console.log(`[Services] ✅ Standing order created: ${sumitStandingOrderId}`);
+        
       } catch (err) {
         console.error('[Services] Sumit error:', err);
         return res.status(400).json({ error: 'שגיאה בתשלום' });
@@ -182,7 +202,7 @@ async function subscribeToService(req, res) {
         WHERE user_id = $7 AND service_id = $8
         RETURNING *
       `, [status, isTrial, trialEndsAt, nextChargeDate, billingPeriod, 
-          sumitStandingOrderId || null, userId, serviceId]);
+          sumitStandingOrderId, userId, serviceId]);
       subscription = updateResult.rows[0];
     } else {
       // Create new subscription
@@ -193,11 +213,11 @@ async function subscribeToService(req, res) {
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *
       `, [userId, serviceId, status, isTrial, trialEndsAt, 
-          nextChargeDate, billingPeriod, sumitStandingOrderId || null]);
+          nextChargeDate, billingPeriod, sumitStandingOrderId]);
       subscription = insertResult.rows[0];
     }
     
-    // If payment was made, log it
+    // If immediate payment was made (not trial), log it
     if (!isTrial && price > 0 && sumitStandingOrderId) {
       await db.query(`
         INSERT INTO service_payment_history 
@@ -218,7 +238,7 @@ async function subscribeToService(req, res) {
       success: true, 
       subscription,
       message: isTrial 
-        ? `התחלת תקופת ניסיון ל-${trialDays} ימים`
+        ? `התחלת תקופת ניסיון ל-${trialDays} ימים. החיוב יבוצע בתאריך ${trialEndsAt.toLocaleDateString('he-IL')}`
         : `נרשמת בהצלחה ל${service.name_he}`
     });
     
@@ -230,17 +250,20 @@ async function subscribeToService(req, res) {
 
 /**
  * Cancel service subscription
+ * 
+ * This cancels the standing order in Sumit and marks the subscription as cancelled
  */
 async function cancelSubscription(req, res) {
   try {
     const userId = req.user.id;
     const { serviceId } = req.params;
     
-    // Get subscription
+    // Get subscription with user's Sumit customer ID
     const subResult = await db.query(`
-      SELECT uss.*, s.name_he
+      SELECT uss.*, s.name_he, upm.sumit_customer_id
       FROM user_service_subscriptions uss
       JOIN additional_services s ON s.id = uss.service_id
+      LEFT JOIN user_payment_methods upm ON upm.user_id = uss.user_id AND upm.sumit_customer_id IS NOT NULL
       WHERE uss.user_id = $1 AND uss.service_id = $2
     `, [userId, serviceId]);
     
@@ -255,9 +278,20 @@ async function cancelSubscription(req, res) {
     }
     
     // Cancel standing order in Sumit if exists
-    if (subscription.sumit_standing_order_id) {
+    if (subscription.sumit_standing_order_id && subscription.sumit_customer_id) {
       try {
-        await sumitService.cancelRecurring(subscription.sumit_standing_order_id);
+        console.log(`[Services] Cancelling standing order ${subscription.sumit_standing_order_id} for customer ${subscription.sumit_customer_id}`);
+        const cancelResult = await sumitService.cancelRecurring(
+          subscription.sumit_standing_order_id,
+          subscription.sumit_customer_id
+        );
+        
+        if (cancelResult.success) {
+          console.log(`[Services] ✅ Standing order cancelled in Sumit`);
+        } else {
+          console.error('[Services] Sumit cancel warning:', cancelResult.error);
+          // Continue anyway - we'll cancel in our DB
+        }
       } catch (err) {
         console.error('[Services] Sumit cancel error:', err);
         // Continue anyway - we'll cancel in our DB
@@ -654,11 +688,13 @@ async function adminCancelSubscription(req, res) {
   try {
     const { serviceId, userId } = req.params;
     
-    // Get subscription
-    const subResult = await db.query(
-      'SELECT * FROM user_service_subscriptions WHERE user_id = $1 AND service_id = $2',
-      [userId, serviceId]
-    );
+    // Get subscription with Sumit customer ID
+    const subResult = await db.query(`
+      SELECT uss.*, upm.sumit_customer_id
+      FROM user_service_subscriptions uss
+      LEFT JOIN user_payment_methods upm ON upm.user_id = uss.user_id AND upm.sumit_customer_id IS NOT NULL
+      WHERE uss.user_id = $1 AND uss.service_id = $2
+    `, [userId, serviceId]);
     
     if (subResult.rows.length === 0) {
       return res.status(404).json({ error: 'מנוי לא נמצא' });
@@ -667,9 +703,14 @@ async function adminCancelSubscription(req, res) {
     const subscription = subResult.rows[0];
     
     // Cancel standing order if exists
-    if (subscription.sumit_standing_order_id) {
+    if (subscription.sumit_standing_order_id && subscription.sumit_customer_id) {
       try {
-        await sumitService.cancelRecurring(subscription.sumit_standing_order_id);
+        console.log(`[Admin Services] Cancelling standing order ${subscription.sumit_standing_order_id} for customer ${subscription.sumit_customer_id}`);
+        await sumitService.cancelRecurring(
+          subscription.sumit_standing_order_id,
+          subscription.sumit_customer_id
+        );
+        console.log(`[Admin Services] ✅ Standing order cancelled in Sumit`);
       } catch (err) {
         console.error('[Admin Services] Sumit cancel error:', err);
       }
