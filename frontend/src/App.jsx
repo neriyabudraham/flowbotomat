@@ -25,6 +25,9 @@ import AffiliateTermsPage from './pages/AffiliateTermsPage';
 import GroupForwardsPage from './pages/GroupForwardsPage';
 import BroadcastsPage from './pages/BroadcastsPage';
 import ServicesPage from './pages/ServicesPage';
+import StatusBotLandingPage from './pages/statusBot/StatusBotLandingPage';
+import StatusBotDashboardPage from './pages/statusBot/StatusBotDashboardPage';
+import StatusBotSubscribePage from './pages/statusBot/StatusBotSubscribePage';
 import SystemAlertOverlay from './components/notifications/SystemAlertOverlay';
 import SocketProvider from './components/providers/SocketProvider';
 import useThemeStore from './store/themeStore';
@@ -149,6 +152,9 @@ function App() {
           <Route path="/group-forwards" element={<GroupForwardsPage />} />
           <Route path="/broadcasts" element={<BroadcastsPage />} />
           <Route path="/services" element={<ServicesPage />} />
+          <Route path="/status-bot" element={<StatusBotLandingPage />} />
+          <Route path="/status-bot/dashboard" element={<StatusBotDashboardPage />} />
+          <Route path="/status-bot/subscribe" element={<StatusBotSubscribePage />} />
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />

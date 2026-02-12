@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2, Bell, Package
+  Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2, Bell, Package, Smartphone
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 
@@ -16,12 +16,14 @@ import AdminTemplates from '../components/admin/AdminTemplates';
 import AdminAffiliate from '../components/admin/AdminAffiliate';
 import AdminNotifications from '../components/admin/AdminNotifications';
 import AdminServices from '../components/admin/AdminServices';
+import AdminStatusBot from '../components/admin/AdminStatusBot';
 
 const TABS = [
   { id: 'dashboard', label: 'דשבורד', icon: BarChart3 },
   { id: 'users', label: 'משתמשים', icon: Users },
   { id: 'subscriptions', label: 'תמחור', icon: CreditCard },
   { id: 'services', label: 'שירותים נוספים', icon: Package },
+  { id: 'status-bot', label: 'בוט סטטוסים', icon: Smartphone },
   { id: 'affiliate', label: 'תוכנית שותפים', icon: Share2 },
   { id: 'notifications', label: 'התראות', icon: Bell },
   { id: 'templates', label: 'תבניות', icon: Grid },
@@ -79,6 +81,8 @@ export default function AdminPage() {
         return <AdminSubscriptions />;
       case 'services':
         return <AdminServices />;
+      case 'status-bot':
+        return <AdminStatusBot />;
       case 'affiliate':
         return <AdminAffiliate />;
       case 'notifications':

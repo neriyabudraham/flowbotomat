@@ -156,6 +156,12 @@ cron.schedule('*/30 * * * * *', async () => {
 
 console.log('📅 Session timeout checker running every 30 seconds');
 
+// Start Status Bot queue processor
+const { startQueueProcessor } = require('./services/statusBot/queue.service');
+startQueueProcessor();
+
+console.log('📅 Status Bot queue processor started');
+
 // Start server
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {

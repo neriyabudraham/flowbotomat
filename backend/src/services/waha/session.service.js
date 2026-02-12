@@ -896,7 +896,43 @@ async function getChatsByLabel(connection, labelId) {
   return response.data;
 }
 
+/**
+ * Generic WAHA API request helper
+ * @param {string} baseUrl - WAHA base URL
+ * @param {string} apiKey - WAHA API key
+ * @param {string} method - HTTP method (GET, POST, PUT, DELETE)
+ * @param {string} endpoint - API endpoint (e.g., '/session/status/text')
+ * @param {object} data - Request body (for POST/PUT)
+ * @returns {object} Response data
+ */
+async function makeRequest(baseUrl, apiKey, method, endpoint, data = null) {
+  const client = createClient(baseUrl, apiKey);
+  
+  let response;
+  const fullUrl = endpoint.startsWith('/api') ? endpoint : `/api${endpoint}`;
+  
+  switch (method.toUpperCase()) {
+    case 'GET':
+      response = await client.get(fullUrl);
+      break;
+    case 'POST':
+      response = await client.post(fullUrl, data);
+      break;
+    case 'PUT':
+      response = await client.put(fullUrl, data);
+      break;
+    case 'DELETE':
+      response = await client.delete(fullUrl);
+      break;
+    default:
+      throw new Error(`Unsupported method: ${method}`);
+  }
+  
+  return response.data;
+}
+
 module.exports = {
+  makeRequest,
   createSession,
   startSession,
   stopSession,

@@ -1,0 +1,1244 @@
+const db = require('../../config/database');
+const wahaSession = require('../../services/waha/session.service');
+const { getWahaCredentials } = require('../../services/settings/system.service');
+const crypto = require('crypto');
+
+// ============================================
+// INITIALIZATION - Create tables on load
+// ============================================
+
+async function initializeTables() {
+  try {
+    // Create tables if not exist
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS status_bot_connections (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        session_name VARCHAR(100),
+        connection_status VARCHAR(20) DEFAULT 'disconnected',
+        phone_number VARCHAR(20),
+        display_name VARCHAR(100),
+        last_qr_code TEXT,
+        last_qr_at TIMESTAMP,
+        first_connected_at TIMESTAMP,
+        restriction_lifted BOOLEAN DEFAULT false,
+        restriction_lifted_at TIMESTAMP,
+        restriction_lifted_by UUID,
+        default_text_color VARCHAR(10) DEFAULT '#38b42f',
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id)
+      )
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS status_bot_authorized_numbers (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        connection_id UUID NOT NULL REFERENCES status_bot_connections(id) ON DELETE CASCADE,
+        phone_number VARCHAR(20) NOT NULL,
+        name VARCHAR(100),
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(connection_id, phone_number)
+      )
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS status_bot_queue (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        connection_id UUID NOT NULL REFERENCES status_bot_connections(id) ON DELETE CASCADE,
+        status_type VARCHAR(20) NOT NULL,
+        content JSONB NOT NULL,
+        status_message_id VARCHAR(100),
+        queue_status VARCHAR(20) DEFAULT 'pending',
+        error_message TEXT,
+        retry_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW(),
+        scheduled_for TIMESTAMP,
+        processing_started_at TIMESTAMP,
+        sent_at TIMESTAMP,
+        source VARCHAR(20) DEFAULT 'web',
+        source_phone VARCHAR(20),
+        source_message_id VARCHAR(100)
+      )
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS status_bot_statuses (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        connection_id UUID NOT NULL REFERENCES status_bot_connections(id) ON DELETE CASCADE,
+        queue_id UUID,
+        status_type VARCHAR(20) NOT NULL,
+        content JSONB NOT NULL,
+        waha_message_id VARCHAR(100),
+        sent_at TIMESTAMP DEFAULT NOW(),
+        expires_at TIMESTAMP,
+        deleted_at TIMESTAMP,
+        source VARCHAR(20),
+        source_phone VARCHAR(20),
+        view_count INTEGER DEFAULT 0,
+        reaction_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS status_bot_views (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        status_id UUID NOT NULL REFERENCES status_bot_statuses(id) ON DELETE CASCADE,
+        viewer_phone VARCHAR(20) NOT NULL,
+        viewer_name VARCHAR(100),
+        viewed_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(status_id, viewer_phone)
+      )
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS status_bot_reactions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        status_id UUID NOT NULL REFERENCES status_bot_statuses(id) ON DELETE CASCADE,
+        reactor_phone VARCHAR(20) NOT NULL,
+        reactor_name VARCHAR(100),
+        reaction VARCHAR(10) NOT NULL,
+        reacted_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(status_id, reactor_phone)
+      )
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS status_bot_queue_lock (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        last_sent_at TIMESTAMP,
+        last_sent_connection_id UUID,
+        is_processing BOOLEAN DEFAULT false,
+        processing_started_at TIMESTAMP,
+        CONSTRAINT single_row CHECK (id = 1)
+      )
+    `);
+
+    await db.query(`INSERT INTO status_bot_queue_lock (id) VALUES (1) ON CONFLICT DO NOTHING`);
+
+    // Create indexes
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_status_bot_queue_status ON status_bot_queue(queue_status)`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_status_bot_statuses_waha_id ON status_bot_statuses(waha_message_id)`);
+
+    console.log('✅ Status Bot tables initialized');
+  } catch (error) {
+    console.error('[StatusBot] Table initialization error:', error.message);
+  }
+}
+
+initializeTables();
+
+// ============================================
+// CONNECTION MANAGEMENT
+// ============================================
+
+/**
+ * Get connection status
+ */
+async function getConnection(req, res) {
+  try {
+    const userId = req.user.id;
+
+    const result = await db.query(`
+      SELECT * FROM status_bot_connections WHERE user_id = $1
+    `, [userId]);
+
+    if (result.rows.length === 0) {
+      return res.json({ connection: null });
+    }
+
+    const connection = result.rows[0];
+
+    // Check 24-hour restriction
+    let isRestricted = false;
+    let restrictionEndsAt = null;
+
+    if (connection.first_connected_at && !connection.restriction_lifted) {
+      const firstConnected = new Date(connection.first_connected_at);
+      const restrictionEnd = new Date(firstConnected.getTime() + 24 * 60 * 60 * 1000);
+      
+      if (new Date() < restrictionEnd) {
+        isRestricted = true;
+        restrictionEndsAt = restrictionEnd;
+      }
+    }
+
+    res.json({
+      connection: {
+        ...connection,
+        isRestricted,
+        restrictionEndsAt,
+      }
+    });
+  } catch (error) {
+    console.error('[StatusBot] Get connection error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת החיבור' });
+  }
+}
+
+/**
+ * Start connection process (create session)
+ */
+async function startConnection(req, res) {
+  try {
+    const userId = req.user.id;
+    const userEmail = req.user.email;
+
+    // Check if already has connection
+    let connectionResult = await db.query(
+      'SELECT * FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+
+    let connection;
+    let sessionName;
+
+    if (connectionResult.rows.length > 0) {
+      connection = connectionResult.rows[0];
+      sessionName = connection.session_name;
+
+      // If already connected, just return
+      if (connection.connection_status === 'connected') {
+        return res.json({ 
+          status: 'already_connected',
+          connection 
+        });
+      }
+    } else {
+      // Create new connection record
+      sessionName = `status_${crypto.randomBytes(8).toString('hex')}`;
+
+      const insertResult = await db.query(`
+        INSERT INTO status_bot_connections (user_id, session_name, connection_status)
+        VALUES ($1, $2, 'qr_pending')
+        RETURNING *
+      `, [userId, sessionName]);
+
+      connection = insertResult.rows[0];
+    }
+
+    // Get WAHA credentials
+    const { baseUrl, apiKey } = await getWahaCredentials();
+
+    // Create/start session in WAHA
+    try {
+      // Check if session exists
+      const existingSession = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+      
+      if (existingSession) {
+        // Session exists, start if not running
+        if (existingSession.status === 'STOPPED' || existingSession.status === 'FAILED') {
+          await wahaSession.startSession(baseUrl, apiKey, sessionName);
+        }
+      } else {
+        // Create new session
+        await wahaSession.createSession(baseUrl, apiKey, sessionName, {
+          'user.email': userEmail,
+          'service': 'status-bot'
+        });
+        await wahaSession.startSession(baseUrl, apiKey, sessionName);
+      }
+
+      // Setup webhook
+      const webhookUrl = `${process.env.APP_URL}/api/webhook/status-bot/${userId}`;
+      await wahaSession.addWebhook(baseUrl, apiKey, sessionName, webhookUrl, [
+        'session.status',
+        'message.ack',
+        'message.reaction'
+      ]);
+
+      // Update status
+      await db.query(`
+        UPDATE status_bot_connections 
+        SET connection_status = 'qr_pending', updated_at = NOW()
+        WHERE id = $1
+      `, [connection.id]);
+
+      res.json({ 
+        status: 'qr_pending',
+        sessionName 
+      });
+
+    } catch (wahaError) {
+      console.error('[StatusBot] WAHA error:', wahaError);
+      
+      await db.query(`
+        UPDATE status_bot_connections 
+        SET connection_status = 'failed', updated_at = NOW()
+        WHERE id = $1
+      `, [connection.id]);
+
+      res.status(500).json({ error: 'שגיאה ביצירת חיבור' });
+    }
+
+  } catch (error) {
+    console.error('[StatusBot] Start connection error:', error);
+    res.status(500).json({ error: 'שגיאה בהתחלת חיבור' });
+  }
+}
+
+/**
+ * Get QR code for scanning
+ */
+async function getQR(req, res) {
+  try {
+    const userId = req.user.id;
+
+    const result = await db.query(
+      'SELECT * FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא חיבור' });
+    }
+
+    const connection = result.rows[0];
+
+    if (connection.connection_status === 'connected') {
+      return res.json({ status: 'connected' });
+    }
+
+    const { baseUrl, apiKey } = await getWahaCredentials();
+
+    // Get QR from WAHA
+    const qrData = await wahaSession.getQRCode(baseUrl, apiKey, connection.session_name);
+
+    if (!qrData || !qrData.value) {
+      return res.json({ status: 'waiting', message: 'ממתין ל-QR...' });
+    }
+
+    // Save QR to DB (just a reference, not the full image)
+    await db.query(`
+      UPDATE status_bot_connections 
+      SET last_qr_code = $1, last_qr_at = NOW(), updated_at = NOW()
+      WHERE id = $2
+    `, ['qr_generated', connection.id]);
+
+    res.json({ 
+      status: 'qr_ready',
+      qr: qrData.value 
+    });
+
+  } catch (error) {
+    console.error('[StatusBot] Get QR error:', error);
+    res.status(500).json({ error: 'שגיאה בקבלת QR' });
+  }
+}
+
+/**
+ * Disconnect WhatsApp
+ */
+async function disconnect(req, res) {
+  try {
+    const userId = req.user.id;
+
+    const result = await db.query(
+      'SELECT * FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא חיבור' });
+    }
+
+    const connection = result.rows[0];
+    const { baseUrl, apiKey } = await getWahaCredentials();
+
+    // Stop session in WAHA
+    try {
+      await wahaSession.stopSession(baseUrl, apiKey, connection.session_name);
+    } catch (e) {
+      console.error('[StatusBot] Stop session error:', e.message);
+    }
+
+    // Update DB
+    await db.query(`
+      UPDATE status_bot_connections 
+      SET connection_status = 'disconnected', phone_number = NULL, display_name = NULL, updated_at = NOW()
+      WHERE id = $1
+    `, [connection.id]);
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('[StatusBot] Disconnect error:', error);
+    res.status(500).json({ error: 'שגיאה בניתוק' });
+  }
+}
+
+// ============================================
+// AUTHORIZED NUMBERS
+// ============================================
+
+/**
+ * Get authorized numbers
+ */
+async function getAuthorizedNumbers(req, res) {
+  try {
+    const userId = req.user.id;
+
+    const connResult = await db.query(
+      'SELECT id FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+
+    if (connResult.rows.length === 0) {
+      return res.json({ numbers: [] });
+    }
+
+    const result = await db.query(`
+      SELECT * FROM status_bot_authorized_numbers 
+      WHERE connection_id = $1 AND is_active = true
+      ORDER BY created_at DESC
+    `, [connResult.rows[0].id]);
+
+    res.json({ numbers: result.rows });
+
+  } catch (error) {
+    console.error('[StatusBot] Get authorized numbers error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת מספרים' });
+  }
+}
+
+/**
+ * Add authorized number
+ */
+async function addAuthorizedNumber(req, res) {
+  try {
+    const userId = req.user.id;
+    const { phoneNumber, name } = req.body;
+
+    if (!phoneNumber) {
+      return res.status(400).json({ error: 'נדרש מספר טלפון' });
+    }
+
+    // Normalize phone number
+    const normalizedPhone = phoneNumber.replace(/\D/g, '');
+
+    const connResult = await db.query(
+      'SELECT id FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+
+    if (connResult.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא חיבור' });
+    }
+
+    const result = await db.query(`
+      INSERT INTO status_bot_authorized_numbers (connection_id, phone_number, name)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (connection_id, phone_number) 
+      DO UPDATE SET name = $3, is_active = true
+      RETURNING *
+    `, [connResult.rows[0].id, normalizedPhone, name || null]);
+
+    res.json({ number: result.rows[0] });
+
+  } catch (error) {
+    console.error('[StatusBot] Add authorized number error:', error);
+    res.status(500).json({ error: 'שגיאה בהוספת מספר' });
+  }
+}
+
+/**
+ * Remove authorized number
+ */
+async function removeAuthorizedNumber(req, res) {
+  try {
+    const userId = req.user.id;
+    const { numberId } = req.params;
+
+    const connResult = await db.query(
+      'SELECT id FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+
+    if (connResult.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא חיבור' });
+    }
+
+    await db.query(`
+      UPDATE status_bot_authorized_numbers 
+      SET is_active = false 
+      WHERE id = $1 AND connection_id = $2
+    `, [numberId, connResult.rows[0].id]);
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('[StatusBot] Remove authorized number error:', error);
+    res.status(500).json({ error: 'שגיאה במחיקת מספר' });
+  }
+}
+
+// ============================================
+// STATUS UPLOAD
+// ============================================
+
+/**
+ * Check if user can upload status (not restricted)
+ */
+async function checkCanUpload(connection) {
+  if (!connection) {
+    return { canUpload: false, reason: 'לא נמצא חיבור' };
+  }
+
+  if (connection.connection_status !== 'connected') {
+    return { canUpload: false, reason: 'WhatsApp לא מחובר' };
+  }
+
+  // Check 24-hour restriction
+  if (connection.first_connected_at && !connection.restriction_lifted) {
+    const firstConnected = new Date(connection.first_connected_at);
+    const restrictionEnd = new Date(firstConnected.getTime() + 24 * 60 * 60 * 1000);
+    
+    if (new Date() < restrictionEnd) {
+      const hoursLeft = Math.ceil((restrictionEnd - new Date()) / (1000 * 60 * 60));
+      return { 
+        canUpload: false, 
+        reason: `יש להמתין ${hoursLeft} שעות לאחר החיבור הראשון`,
+        restrictionEndsAt: restrictionEnd
+      };
+    }
+  }
+
+  return { canUpload: true };
+}
+
+/**
+ * Upload text status
+ */
+async function uploadTextStatus(req, res) {
+  try {
+    const userId = req.user.id;
+    const { text, backgroundColor, font = 0, linkPreview = true } = req.body;
+
+    if (!text) {
+      return res.status(400).json({ error: 'נדרש טקסט' });
+    }
+
+    const connResult = await db.query(
+      'SELECT * FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+
+    if (connResult.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא חיבור' });
+    }
+
+    const connection = connResult.rows[0];
+
+    // Check if can upload
+    const canUploadCheck = await checkCanUpload(connection);
+    if (!canUploadCheck.canUpload) {
+      return res.status(403).json({ 
+        error: canUploadCheck.reason,
+        restrictionEndsAt: canUploadCheck.restrictionEndsAt
+      });
+    }
+
+    // Add to queue
+    const content = {
+      text,
+      backgroundColor: backgroundColor || connection.default_text_color || '#38b42f',
+      font,
+      linkPreview,
+      linkPreviewHighQuality: false
+    };
+
+    const queueResult = await db.query(`
+      INSERT INTO status_bot_queue (connection_id, status_type, content, source)
+      VALUES ($1, 'text', $2, 'web')
+      RETURNING *
+    `, [connection.id, JSON.stringify(content)]);
+
+    res.json({ 
+      success: true, 
+      message: 'הסטטוס נוסף לתור',
+      queueId: queueResult.rows[0].id 
+    });
+
+  } catch (error) {
+    console.error('[StatusBot] Upload text status error:', error);
+    res.status(500).json({ error: 'שגיאה בהעלאת סטטוס' });
+  }
+}
+
+/**
+ * Upload image status
+ */
+async function uploadImageStatus(req, res) {
+  try {
+    const userId = req.user.id;
+    const { url, caption } = req.body;
+
+    if (!url) {
+      return res.status(400).json({ error: 'נדרש URL של תמונה' });
+    }
+
+    const connResult = await db.query(
+      'SELECT * FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+
+    if (connResult.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא חיבור' });
+    }
+
+    const connection = connResult.rows[0];
+
+    const canUploadCheck = await checkCanUpload(connection);
+    if (!canUploadCheck.canUpload) {
+      return res.status(403).json({ 
+        error: canUploadCheck.reason,
+        restrictionEndsAt: canUploadCheck.restrictionEndsAt
+      });
+    }
+
+    const content = {
+      file: {
+        mimetype: 'image/jpeg',
+        filename: 'status.jpg',
+        url
+      },
+      caption: caption || ''
+    };
+
+    const queueResult = await db.query(`
+      INSERT INTO status_bot_queue (connection_id, status_type, content, source)
+      VALUES ($1, 'image', $2, 'web')
+      RETURNING *
+    `, [connection.id, JSON.stringify(content)]);
+
+    res.json({ 
+      success: true, 
+      message: 'הסטטוס נוסף לתור',
+      queueId: queueResult.rows[0].id 
+    });
+
+  } catch (error) {
+    console.error('[StatusBot] Upload image status error:', error);
+    res.status(500).json({ error: 'שגיאה בהעלאת סטטוס' });
+  }
+}
+
+/**
+ * Upload video status
+ */
+async function uploadVideoStatus(req, res) {
+  try {
+    const userId = req.user.id;
+    const { url, caption } = req.body;
+
+    if (!url) {
+      return res.status(400).json({ error: 'נדרש URL של וידאו' });
+    }
+
+    const connResult = await db.query(
+      'SELECT * FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+
+    if (connResult.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא חיבור' });
+    }
+
+    const connection = connResult.rows[0];
+
+    const canUploadCheck = await checkCanUpload(connection);
+    if (!canUploadCheck.canUpload) {
+      return res.status(403).json({ 
+        error: canUploadCheck.reason,
+        restrictionEndsAt: canUploadCheck.restrictionEndsAt
+      });
+    }
+
+    const content = {
+      file: {
+        mimetype: 'video/mp4',
+        filename: 'status.mp4',
+        url
+      },
+      convert: true,
+      caption: caption || ''
+    };
+
+    const queueResult = await db.query(`
+      INSERT INTO status_bot_queue (connection_id, status_type, content, source)
+      VALUES ($1, 'video', $2, 'web')
+      RETURNING *
+    `, [connection.id, JSON.stringify(content)]);
+
+    res.json({ 
+      success: true, 
+      message: 'הסטטוס נוסף לתור',
+      queueId: queueResult.rows[0].id 
+    });
+
+  } catch (error) {
+    console.error('[StatusBot] Upload video status error:', error);
+    res.status(500).json({ error: 'שגיאה בהעלאת סטטוס' });
+  }
+}
+
+/**
+ * Upload voice status
+ */
+async function uploadVoiceStatus(req, res) {
+  try {
+    const userId = req.user.id;
+    const { url, backgroundColor } = req.body;
+
+    if (!url) {
+      return res.status(400).json({ error: 'נדרש URL של שמע' });
+    }
+
+    const connResult = await db.query(
+      'SELECT * FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+
+    if (connResult.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא חיבור' });
+    }
+
+    const connection = connResult.rows[0];
+
+    const canUploadCheck = await checkCanUpload(connection);
+    if (!canUploadCheck.canUpload) {
+      return res.status(403).json({ 
+        error: canUploadCheck.reason,
+        restrictionEndsAt: canUploadCheck.restrictionEndsAt
+      });
+    }
+
+    const content = {
+      file: {
+        mimetype: 'audio/ogg; codecs=opus',
+        url
+      },
+      convert: true,
+      backgroundColor: backgroundColor || connection.default_text_color || '#38b42f'
+    };
+
+    const queueResult = await db.query(`
+      INSERT INTO status_bot_queue (connection_id, status_type, content, source)
+      VALUES ($1, 'voice', $2, 'web')
+      RETURNING *
+    `, [connection.id, JSON.stringify(content)]);
+
+    res.json({ 
+      success: true, 
+      message: 'הסטטוס נוסף לתור',
+      queueId: queueResult.rows[0].id 
+    });
+
+  } catch (error) {
+    console.error('[StatusBot] Upload voice status error:', error);
+    res.status(500).json({ error: 'שגיאה בהעלאת סטטוס' });
+  }
+}
+
+/**
+ * Delete a status
+ */
+async function deleteStatus(req, res) {
+  try {
+    const userId = req.user.id;
+    const { statusId } = req.params;
+
+    const connResult = await db.query(
+      'SELECT * FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+
+    if (connResult.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא חיבור' });
+    }
+
+    const connection = connResult.rows[0];
+
+    // Get status
+    const statusResult = await db.query(`
+      SELECT * FROM status_bot_statuses 
+      WHERE id = $1 AND connection_id = $2
+    `, [statusId, connection.id]);
+
+    if (statusResult.rows.length === 0) {
+      return res.status(404).json({ error: 'סטטוס לא נמצא' });
+    }
+
+    const status = statusResult.rows[0];
+
+    if (!status.waha_message_id) {
+      return res.status(400).json({ error: 'לא ניתן למחוק סטטוס זה' });
+    }
+
+    // Delete via WAHA
+    const { baseUrl, apiKey } = await getWahaCredentials();
+
+    try {
+      await wahaSession.makeRequest(baseUrl, apiKey, 'POST', `/${connection.session_name}/status/delete`, {
+        id: status.waha_message_id,
+        contacts: null
+      });
+    } catch (wahaError) {
+      console.error('[StatusBot] WAHA delete error:', wahaError.message);
+    }
+
+    // Mark as deleted in DB
+    await db.query(`
+      UPDATE status_bot_statuses SET deleted_at = NOW() WHERE id = $1
+    `, [statusId]);
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('[StatusBot] Delete status error:', error);
+    res.status(500).json({ error: 'שגיאה במחיקת סטטוס' });
+  }
+}
+
+// ============================================
+// STATUS HISTORY
+// ============================================
+
+/**
+ * Get status history
+ */
+async function getStatusHistory(req, res) {
+  try {
+    const userId = req.user.id;
+    const { limit = 50, offset = 0 } = req.query;
+
+    const connResult = await db.query(
+      'SELECT id FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+
+    if (connResult.rows.length === 0) {
+      return res.json({ statuses: [], total: 0 });
+    }
+
+    const countResult = await db.query(`
+      SELECT COUNT(*) FROM status_bot_statuses 
+      WHERE connection_id = $1 AND deleted_at IS NULL
+    `, [connResult.rows[0].id]);
+
+    const result = await db.query(`
+      SELECT * FROM status_bot_statuses 
+      WHERE connection_id = $1 AND deleted_at IS NULL
+      ORDER BY sent_at DESC
+      LIMIT $2 OFFSET $3
+    `, [connResult.rows[0].id, limit, offset]);
+
+    res.json({ 
+      statuses: result.rows,
+      total: parseInt(countResult.rows[0].count)
+    });
+
+  } catch (error) {
+    console.error('[StatusBot] Get status history error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת היסטוריה' });
+  }
+}
+
+/**
+ * Get status details with views and reactions
+ */
+async function getStatusDetails(req, res) {
+  try {
+    const userId = req.user.id;
+    const { statusId } = req.params;
+
+    const connResult = await db.query(
+      'SELECT id FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+
+    if (connResult.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא חיבור' });
+    }
+
+    const statusResult = await db.query(`
+      SELECT * FROM status_bot_statuses 
+      WHERE id = $1 AND connection_id = $2
+    `, [statusId, connResult.rows[0].id]);
+
+    if (statusResult.rows.length === 0) {
+      return res.status(404).json({ error: 'סטטוס לא נמצא' });
+    }
+
+    const viewsResult = await db.query(`
+      SELECT * FROM status_bot_views WHERE status_id = $1 ORDER BY viewed_at DESC
+    `, [statusId]);
+
+    const reactionsResult = await db.query(`
+      SELECT * FROM status_bot_reactions WHERE status_id = $1 ORDER BY reacted_at DESC
+    `, [statusId]);
+
+    res.json({
+      status: statusResult.rows[0],
+      views: viewsResult.rows,
+      reactions: reactionsResult.rows
+    });
+
+  } catch (error) {
+    console.error('[StatusBot] Get status details error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת פרטי סטטוס' });
+  }
+}
+
+// ============================================
+// QUEUE STATUS
+// ============================================
+
+/**
+ * Get queue status
+ */
+async function getQueueStatus(req, res) {
+  try {
+    const userId = req.user.id;
+
+    const connResult = await db.query(
+      'SELECT id FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+
+    if (connResult.rows.length === 0) {
+      return res.json({ queue: [], position: null });
+    }
+
+    // Get user's pending items
+    const userQueue = await db.query(`
+      SELECT * FROM status_bot_queue 
+      WHERE connection_id = $1 AND queue_status IN ('pending', 'processing')
+      ORDER BY created_at ASC
+    `, [connResult.rows[0].id]);
+
+    // Get global queue position
+    const globalQueue = await db.query(`
+      SELECT COUNT(*) FROM status_bot_queue 
+      WHERE queue_status = 'pending'
+    `);
+
+    // Get last sent time
+    const lockResult = await db.query(`
+      SELECT * FROM status_bot_queue_lock WHERE id = 1
+    `);
+
+    res.json({
+      queue: userQueue.rows,
+      globalPending: parseInt(globalQueue.rows[0].count),
+      lastSentAt: lockResult.rows[0]?.last_sent_at
+    });
+
+  } catch (error) {
+    console.error('[StatusBot] Get queue status error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת תור' });
+  }
+}
+
+// ============================================
+// ADMIN ENDPOINTS
+// ============================================
+
+/**
+ * Get all status bot users (admin)
+ */
+async function adminGetUsers(req, res) {
+  try {
+    const result = await db.query(`
+      SELECT 
+        sbc.*,
+        u.email, u.name as user_name,
+        (SELECT COUNT(*) FROM status_bot_statuses WHERE connection_id = sbc.id) as total_statuses,
+        (SELECT COUNT(*) FROM status_bot_authorized_numbers WHERE connection_id = sbc.id AND is_active = true) as authorized_count
+      FROM status_bot_connections sbc
+      JOIN users u ON u.id = sbc.user_id
+      ORDER BY sbc.created_at DESC
+    `);
+
+    res.json({ users: result.rows });
+
+  } catch (error) {
+    console.error('[StatusBot Admin] Get users error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת משתמשים' });
+  }
+}
+
+/**
+ * Lift 24-hour restriction (admin)
+ */
+async function adminLiftRestriction(req, res) {
+  try {
+    const { connectionId } = req.params;
+    const adminId = req.user.id;
+
+    await db.query(`
+      UPDATE status_bot_connections 
+      SET restriction_lifted = true, restriction_lifted_at = NOW(), restriction_lifted_by = $1, updated_at = NOW()
+      WHERE id = $2
+    `, [adminId, connectionId]);
+
+    res.json({ success: true, message: 'החסימה הוסרה' });
+
+  } catch (error) {
+    console.error('[StatusBot Admin] Lift restriction error:', error);
+    res.status(500).json({ error: 'שגיאה בהסרת חסימה' });
+  }
+}
+
+/**
+ * Get status bot stats (admin)
+ */
+async function adminGetStats(req, res) {
+  try {
+    const stats = {};
+
+    // Total connections
+    const connResult = await db.query(`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE connection_status = 'connected') as connected,
+        COUNT(*) FILTER (WHERE restriction_lifted = false AND first_connected_at IS NOT NULL 
+          AND first_connected_at > NOW() - INTERVAL '24 hours') as restricted
+      FROM status_bot_connections
+    `);
+    stats.connections = connResult.rows[0];
+
+    // Total statuses today
+    const statusResult = await db.query(`
+      SELECT COUNT(*) FROM status_bot_statuses 
+      WHERE sent_at > NOW() - INTERVAL '24 hours'
+    `);
+    stats.statusesToday = parseInt(statusResult.rows[0].count);
+
+    // Queue status
+    const queueResult = await db.query(`
+      SELECT 
+        COUNT(*) FILTER (WHERE queue_status = 'pending') as pending,
+        COUNT(*) FILTER (WHERE queue_status = 'processing') as processing,
+        COUNT(*) FILTER (WHERE queue_status = 'failed') as failed
+      FROM status_bot_queue
+    `);
+    stats.queue = queueResult.rows[0];
+
+    res.json({ stats });
+
+  } catch (error) {
+    console.error('[StatusBot Admin] Get stats error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת סטטיסטיקות' });
+  }
+}
+
+// ============================================
+// WEBHOOK HANDLER
+// ============================================
+
+/**
+ * Handle WAHA webhook events for status bot
+ */
+async function handleWebhook(req, res) {
+  try {
+    const { userId } = req.params;
+    const { event, payload, session } = req.body;
+
+    console.log(`[StatusBot Webhook] Event: ${event} for user ${userId}`);
+
+    // Find connection by session name
+    const connResult = await db.query(
+      'SELECT * FROM status_bot_connections WHERE session_name = $1',
+      [session]
+    );
+
+    if (connResult.rows.length === 0) {
+      return res.json({ received: true });
+    }
+
+    const connection = connResult.rows[0];
+
+    switch (event) {
+      case 'session.status':
+        await handleSessionStatus(connection, payload);
+        break;
+
+      case 'message.ack':
+        // Handle status view
+        if (payload?.from === 'status@broadcast' && payload?.ackLevel >= 3) {
+          await handleStatusView(connection, payload);
+        }
+        break;
+
+      case 'message.reaction':
+        // Handle status reaction
+        if (payload?.from === 'status@broadcast') {
+          await handleStatusReaction(connection, payload);
+        }
+        break;
+    }
+
+    res.json({ received: true });
+
+  } catch (error) {
+    console.error('[StatusBot Webhook] Error:', error);
+    res.json({ received: true, error: error.message });
+  }
+}
+
+async function handleSessionStatus(connection, payload) {
+  try {
+    const { status } = payload;
+    
+    let newStatus = 'disconnected';
+    
+    if (status === 'WORKING') {
+      newStatus = 'connected';
+      
+      // Set first_connected_at if not set
+      if (!connection.first_connected_at) {
+        await db.query(`
+          UPDATE status_bot_connections 
+          SET first_connected_at = NOW() WHERE id = $1 AND first_connected_at IS NULL
+        `, [connection.id]);
+      }
+    } else if (status === 'SCAN_QR_CODE') {
+      newStatus = 'qr_pending';
+    } else if (status === 'FAILED') {
+      newStatus = 'failed';
+    }
+
+    // Get phone number if available
+    if (payload.me?.id) {
+      const phoneNumber = payload.me.id.split('@')[0];
+      const displayName = payload.me.pushName || null;
+
+      await db.query(`
+        UPDATE status_bot_connections 
+        SET connection_status = $1, phone_number = $2, display_name = $3, updated_at = NOW()
+        WHERE id = $4
+      `, [newStatus, phoneNumber, displayName, connection.id]);
+    } else {
+      await db.query(`
+        UPDATE status_bot_connections 
+        SET connection_status = $1, updated_at = NOW()
+        WHERE id = $2
+      `, [newStatus, connection.id]);
+    }
+
+  } catch (error) {
+    console.error('[StatusBot] Handle session status error:', error);
+  }
+}
+
+async function handleStatusView(connection, payload) {
+  try {
+    const { id: messageId, participant } = payload;
+
+    if (!messageId || !participant) return;
+
+    // Find the status by waha_message_id
+    const statusResult = await db.query(`
+      SELECT id FROM status_bot_statuses 
+      WHERE connection_id = $1 AND waha_message_id = $2
+    `, [connection.id, messageId]);
+
+    if (statusResult.rows.length === 0) return;
+
+    const statusId = statusResult.rows[0].id;
+    const viewerPhone = participant.split('@')[0];
+
+    // Insert view (ignore duplicate)
+    await db.query(`
+      INSERT INTO status_bot_views (status_id, viewer_phone)
+      VALUES ($1, $2)
+      ON CONFLICT (status_id, viewer_phone) DO NOTHING
+    `, [statusId, viewerPhone]);
+
+    // Update view count
+    await db.query(`
+      UPDATE status_bot_statuses 
+      SET view_count = (SELECT COUNT(*) FROM status_bot_views WHERE status_id = $1)
+      WHERE id = $1
+    `, [statusId]);
+
+  } catch (error) {
+    console.error('[StatusBot] Handle status view error:', error);
+  }
+}
+
+async function handleStatusReaction(connection, payload) {
+  try {
+    const { id: messageId, reaction, participant } = payload;
+
+    if (!messageId || !reaction || !participant) return;
+
+    // Find the status
+    const statusResult = await db.query(`
+      SELECT id FROM status_bot_statuses 
+      WHERE connection_id = $1 AND waha_message_id = $2
+    `, [connection.id, messageId]);
+
+    if (statusResult.rows.length === 0) return;
+
+    const statusId = statusResult.rows[0].id;
+    const reactorPhone = participant.split('@')[0];
+
+    // Insert/update reaction
+    await db.query(`
+      INSERT INTO status_bot_reactions (status_id, reactor_phone, reaction)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (status_id, reactor_phone) 
+      DO UPDATE SET reaction = $3, reacted_at = NOW()
+    `, [statusId, reactorPhone, reaction.text || '❤️']);
+
+    // Update reaction count
+    await db.query(`
+      UPDATE status_bot_statuses 
+      SET reaction_count = (SELECT COUNT(*) FROM status_bot_reactions WHERE status_id = $1)
+      WHERE id = $1
+    `, [statusId]);
+
+  } catch (error) {
+    console.error('[StatusBot] Handle status reaction error:', error);
+  }
+}
+
+module.exports = {
+  // Connection
+  getConnection,
+  startConnection,
+  getQR,
+  disconnect,
+  
+  // Authorized numbers
+  getAuthorizedNumbers,
+  addAuthorizedNumber,
+  removeAuthorizedNumber,
+  
+  // Status upload
+  uploadTextStatus,
+  uploadImageStatus,
+  uploadVideoStatus,
+  uploadVoiceStatus,
+  deleteStatus,
+  
+  // History
+  getStatusHistory,
+  getStatusDetails,
+  
+  // Queue
+  getQueueStatus,
+  
+  // Admin
+  adminGetUsers,
+  adminLiftRestriction,
+  adminGetStats,
+  
+  // Webhook
+  handleWebhook,
+};
