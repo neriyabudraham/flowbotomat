@@ -144,15 +144,17 @@ async function processTrialEndings() {
         console.log(`[Billing] Converting trial for user ${sub.user_email} - Plan: ${sub.name_he}, Period: ${sub.billing_period}`);
         
         if (sub.billing_period === 'yearly') {
-          // Yearly: charge full year with discount, one-time payment
+          // Yearly: charge full year with discount, recurring every 12 months
           chargeAmount = parseFloat(sub.price) * 12 * 0.8;
           nextChargeDate.setFullYear(nextChargeDate.getFullYear() + 1);
           expiresAt = new Date(nextChargeDate);
           
-          chargeResult = await sumitService.chargeOneTime({
+          chargeResult = await sumitService.chargeRecurring({
             customerId: sub.sumit_customer_id,
             amount: chargeAmount,
             description: `מנוי שנתי - ${sub.name_he}`,
+            durationMonths: 12,
+            recurrence: null, // unlimited
           });
         } else {
           // Monthly: set up recurring charge
