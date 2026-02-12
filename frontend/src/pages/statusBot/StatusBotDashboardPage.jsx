@@ -561,8 +561,8 @@ function StatusBotDashboardContent() {
               </li>
             </ul>
             <Link
-              to="/services/status-bot"
-              className="block w-full py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-xl hover:shadow-lg transition-all"
+              to="/status-bot/subscribe"
+              className="block w-full py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-xl hover:shadow-lg transition-all text-center"
             >
               הצטרף עכשיו
             </Link>
