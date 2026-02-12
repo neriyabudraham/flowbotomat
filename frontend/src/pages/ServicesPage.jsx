@@ -32,12 +32,14 @@ export default function ServicesPage() {
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
-    if (!token) {
-      navigate('/login');
-      return;
+    
+    // Load services for everyone (public page)
+    loadData(!!token);
+    
+    // Only fetch user data if logged in
+    if (token) {
+      fetchMe();
     }
-    fetchMe();
-    loadData();
     
     // Check hash for scroll to service
     if (location.hash) {
@@ -50,14 +52,22 @@ export default function ServicesPage() {
     }
   }, []);
 
-  const loadData = async () => {
+  const loadData = async (isLoggedIn = false) => {
     try {
-      const [servicesRes, myServicesRes] = await Promise.all([
-        api.get('/services'),
-        api.get('/services/my'),
-      ]);
+      // Always load public services
+      const servicesRes = await api.get('/services');
       setServices(servicesRes.data.services || []);
-      setMyServices(myServicesRes.data.subscriptions || []);
+      
+      // Only load user's subscriptions if logged in
+      if (isLoggedIn) {
+        try {
+          const myServicesRes = await api.get('/services/my');
+          setMyServices(myServicesRes.data.subscriptions || []);
+        } catch (e) {
+          // User might not have subscriptions, that's ok
+          setMyServices([]);
+        }
+      }
     } catch (err) {
       console.error('Failed to load services:', err);
       setError('שגיאה בטעינת שירותים');
@@ -67,6 +77,13 @@ export default function ServicesPage() {
   };
 
   const handleSubscribe = async (serviceId, billingPeriod = 'monthly') => {
+    // Check if user is logged in
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      navigate(`/login?redirect=/services`);
+      return;
+    }
+    
     try {
       setSubscribing(serviceId);
       setError(null);
@@ -75,7 +92,7 @@ export default function ServicesPage() {
       
       setSuccess(data.message);
       setTimeout(() => setSuccess(null), 5000);
-      loadData(); // Reload to show updated status
+      loadData(true); // Reload to show updated status
     } catch (err) {
       if (err.response?.data?.needsPaymentMethod) {
         navigate('/settings?tab=subscription');
@@ -94,7 +111,7 @@ export default function ServicesPage() {
       await api.post(`/services/${serviceId}/cancel`);
       setSuccess('המנוי בוטל בהצלחה');
       setTimeout(() => setSuccess(null), 5000);
-      loadData();
+      loadData(true);
     } catch (err) {
       setError(err.response?.data?.error || 'שגיאה בביטול');
     }
@@ -120,13 +137,30 @@ export default function ServicesPage() {
               <h1 className="text-lg font-bold text-gray-800">שירותים נוספים</h1>
             </div>
             
-            <button
-              onClick={() => navigate('/dashboard')}
-              className="flex items-center gap-2 text-gray-500 hover:text-gray-700 transition-colors"
-            >
-              <span>חזרה לדשבורד</span>
-              <ArrowLeft className="w-4 h-4" />
-            </button>
+            {user ? (
+              <button
+                onClick={() => navigate('/dashboard')}
+                className="flex items-center gap-2 text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                <span>חזרה לדשבורד</span>
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+            ) : (
+              <div className="flex items-center gap-3">
+                <Link
+                  to="/login"
+                  className="text-gray-500 hover:text-gray-700 transition-colors"
+                >
+                  התחברות
+                </Link>
+                <Link
+                  to="/signup"
+                  className="px-4 py-2 bg-teal-600 text-white rounded-xl font-medium hover:bg-teal-700 transition-colors"
+                >
+                  הרשמה
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       </header>
