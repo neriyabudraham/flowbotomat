@@ -136,7 +136,7 @@ initializeTables();
 // ============================================
 
 /**
- * Get connection status
+ * Get connection status (with live WAHA status)
  */
 async function getConnection(req, res) {
   try {
@@ -151,6 +151,45 @@ async function getConnection(req, res) {
     }
 
     const connection = result.rows[0];
+    
+    // Get live status from WAHA if we have a session
+    if (connection.session_name) {
+      try {
+        const { baseUrl, apiKey } = await getWahaCredentials();
+        const wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
+        
+        if (wahaStatus) {
+          // Map WAHA status to our status
+          let newStatus = connection.connection_status;
+          if (wahaStatus.status === 'WORKING') {
+            newStatus = 'connected';
+          } else if (wahaStatus.status === 'SCAN_QR_CODE' || wahaStatus.status === 'STARTING') {
+            newStatus = 'qr_pending';
+          } else if (wahaStatus.status === 'STOPPED' || wahaStatus.status === 'FAILED') {
+            newStatus = 'disconnected';
+          }
+          
+          // Update if changed
+          if (newStatus !== connection.connection_status) {
+            const phoneNumber = wahaStatus.me?.id?.split('@')[0] || connection.phone_number;
+            const displayName = wahaStatus.me?.pushName || connection.display_name;
+            
+            await db.query(`
+              UPDATE status_bot_connections 
+              SET connection_status = $1, phone_number = COALESCE($2, phone_number), 
+                  display_name = COALESCE($3, display_name), updated_at = NOW()
+              WHERE id = $4
+            `, [newStatus, phoneNumber, displayName, connection.id]);
+            
+            connection.connection_status = newStatus;
+            connection.phone_number = phoneNumber;
+            connection.display_name = displayName;
+          }
+        }
+      } catch (e) {
+        console.error('[StatusBot] WAHA status check error:', e.message);
+      }
+    }
 
     // Check 24-hour restriction
     let isRestricted = false;
@@ -180,100 +219,197 @@ async function getConnection(req, res) {
 }
 
 /**
- * Start connection process (create session)
+ * Check if user has existing WAHA session (by email)
+ * Similar to whatsapp/check-existing
+ */
+async function checkExisting(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    // Get user email
+    let userEmail = req.user.email;
+    if (!userEmail) {
+      const userResult = await db.query('SELECT email FROM users WHERE id = $1', [userId]);
+      userEmail = userResult.rows[0]?.email;
+    }
+    
+    if (!userEmail) {
+      return res.json({ exists: false });
+    }
+    
+    // Get WAHA credentials
+    const { baseUrl, apiKey } = await getWahaCredentials();
+    
+    if (!baseUrl || !apiKey) {
+      return res.json({ exists: false });
+    }
+    
+    // Search in WAHA by email for status-bot sessions
+    console.log(`[StatusBot] Checking existing session for: ${userEmail}`);
+    
+    // Find session by email in metadata with service=status-bot
+    const existingSession = await wahaSession.findSessionByEmailAndService(baseUrl, apiKey, userEmail, 'status-bot');
+    
+    if (existingSession && existingSession.status === 'WORKING') {
+      console.log(`[StatusBot] ✅ Found existing WORKING session: ${existingSession.name}`);
+      
+      // Update webhooks in background
+      const webhookUrl = `${process.env.APP_URL}/api/webhook/status-bot/${userId}`;
+      wahaSession.addWebhook(baseUrl, apiKey, existingSession.name, webhookUrl, [
+        'session.status', 'message.ack', 'message.reaction'
+      ]).catch(err => console.error(`[StatusBot Webhook] Update failed:`, err.message));
+      
+      return res.json({
+        exists: true,
+        sessionName: existingSession.name,
+        status: existingSession.status,
+        isConnected: true,
+        phoneNumber: existingSession.me?.id?.split('@')[0],
+        displayName: existingSession.me?.pushName,
+      });
+    }
+    
+    console.log(`[StatusBot] No active session found for: ${userEmail}`);
+    return res.json({ exists: false });
+    
+  } catch (error) {
+    console.error('[StatusBot] Check existing error:', error.message);
+    return res.json({ exists: false });
+  }
+}
+
+/**
+ * Start connection process (create/reuse session)
+ * Similar to whatsapp/connect/managed
  */
 async function startConnection(req, res) {
   try {
     const userId = req.user.id;
-    const userEmail = req.user.email;
-
-    // Check if already has connection
-    let connectionResult = await db.query(
-      'SELECT * FROM status_bot_connections WHERE user_id = $1',
-      [userId]
-    );
-
-    let connection;
-    let sessionName;
-
-    if (connectionResult.rows.length > 0) {
-      connection = connectionResult.rows[0];
-      sessionName = connection.session_name;
-
-      // If already connected, just return
-      if (connection.connection_status === 'connected') {
-        return res.json({ 
-          status: 'already_connected',
-          connection 
-        });
-      }
-    } else {
-      // Create new connection record
-      sessionName = `status_${crypto.randomBytes(8).toString('hex')}`;
-
-      const insertResult = await db.query(`
-        INSERT INTO status_bot_connections (user_id, session_name, connection_status)
-        VALUES ($1, $2, 'qr_pending')
-        RETURNING *
-      `, [userId, sessionName]);
-
-      connection = insertResult.rows[0];
+    
+    // Get user email
+    let userEmail = req.user.email;
+    if (!userEmail) {
+      const userResult = await db.query('SELECT email FROM users WHERE id = $1', [userId]);
+      userEmail = userResult.rows[0]?.email;
+    }
+    
+    if (!userEmail) {
+      return res.status(400).json({ error: 'לא נמצא מייל למשתמש' });
     }
 
     // Get WAHA credentials
     const { baseUrl, apiKey } = await getWahaCredentials();
+    
+    if (!baseUrl || !apiKey) {
+      return res.status(500).json({ error: 'WAHA לא מוגדר במערכת' });
+    }
 
-    // Create/start session in WAHA
+    let sessionName = null;
+    let wahaStatus = null;
+    let existingSession = null;
+    
+    // Step 1: Search in WAHA by email for existing status-bot session
+    console.log(`[StatusBot] Searching WAHA for session with email: ${userEmail}`);
+    
     try {
-      // Check if session exists
-      const existingSession = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+      existingSession = await wahaSession.findSessionByEmailAndService(baseUrl, apiKey, userEmail, 'status-bot');
       
       if (existingSession) {
-        // Session exists, start if not running
-        if (existingSession.status === 'STOPPED' || existingSession.status === 'FAILED') {
+        sessionName = existingSession.name;
+        console.log(`[StatusBot] ✅ Found existing session by email: ${sessionName}`);
+        
+        wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+        
+        // If stopped or failed, restart it
+        if (wahaStatus && (wahaStatus.status === 'STOPPED' || wahaStatus.status === 'FAILED')) {
+          console.log(`[StatusBot] Session is ${wahaStatus.status}, restarting...`);
+          try {
+            await wahaSession.stopSession(baseUrl, apiKey, sessionName);
+          } catch (e) { /* ignore */ }
           await wahaSession.startSession(baseUrl, apiKey, sessionName);
+          console.log(`[StatusBot] ✅ Restarted session: ${sessionName}`);
+          wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+        } else {
+          console.log(`[StatusBot] Session status: ${wahaStatus?.status}`);
         }
-      } else {
-        // Create new session
-        await wahaSession.createSession(baseUrl, apiKey, sessionName, {
-          'user.email': userEmail,
-          'service': 'status-bot'
-        });
-        await wahaSession.startSession(baseUrl, apiKey, sessionName);
       }
-
-      // Setup webhook
-      const webhookUrl = `${process.env.APP_URL}/api/webhook/status-bot/${userId}`;
+    } catch (err) {
+      console.log(`[StatusBot] Error searching sessions: ${err.message}`);
+    }
+    
+    // Step 2: If no session found in WAHA, create new one
+    if (!sessionName) {
+      sessionName = `status_${crypto.randomBytes(8).toString('hex')}`;
+      
+      const sessionMetadata = {
+        'user.email': userEmail,
+        'service': 'status-bot'
+      };
+      
+      console.log(`[StatusBot] Creating new session: ${sessionName}`);
+      
+      await wahaSession.createSession(baseUrl, apiKey, sessionName, sessionMetadata);
+      await wahaSession.startSession(baseUrl, apiKey, sessionName);
+      console.log(`[StatusBot] ✅ Created new session: ${sessionName}`);
+      
+      wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+    }
+    
+    // Map WAHA status to our status
+    const statusMap = {
+      'WORKING': 'connected',
+      'SCAN_QR_CODE': 'qr_pending',
+      'STARTING': 'qr_pending',
+      'STOPPED': 'disconnected',
+      'FAILED': 'failed',
+    };
+    const ourStatus = statusMap[wahaStatus?.status] || 'qr_pending';
+    
+    // Extract phone info if connected
+    let phoneNumber = null;
+    let displayName = null;
+    let connectedAt = null;
+    let firstConnectedAt = null;
+    
+    if (ourStatus === 'connected' && wahaStatus?.me) {
+      phoneNumber = wahaStatus.me.id?.split('@')[0] || null;
+      displayName = wahaStatus.me.pushName || null;
+      connectedAt = new Date();
+      firstConnectedAt = new Date(); // Will be set properly if not exists
+    }
+    
+    // Setup webhook for this user
+    const webhookUrl = `${process.env.APP_URL}/api/webhook/status-bot/${userId}`;
+    try {
       await wahaSession.addWebhook(baseUrl, apiKey, sessionName, webhookUrl, [
         'session.status',
         'message.ack',
         'message.reaction'
       ]);
-
-      // Update status
-      await db.query(`
-        UPDATE status_bot_connections 
-        SET connection_status = 'qr_pending', updated_at = NOW()
-        WHERE id = $1
-      `, [connection.id]);
-
-      res.json({ 
-        status: 'qr_pending',
-        sessionName 
-      });
-
-    } catch (wahaError) {
-      console.error('[StatusBot] WAHA error:', wahaError);
-      
-      await db.query(`
-        UPDATE status_bot_connections 
-        SET connection_status = 'failed', updated_at = NOW()
-        WHERE id = $1
-      `, [connection.id]);
-
-      res.status(500).json({ error: 'שגיאה ביצירת חיבור' });
+      console.log(`[StatusBot Webhook] ✅ Configured for user ${userId}`);
+    } catch (err) {
+      console.error('[StatusBot Webhook] Setup failed:', err.message);
     }
-
+    
+    // Delete any existing DB record for this user and create new one
+    await db.query('DELETE FROM status_bot_connections WHERE user_id = $1', [userId]);
+    
+    const result = await db.query(`
+      INSERT INTO status_bot_connections 
+      (user_id, session_name, connection_status, phone_number, display_name, first_connected_at)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `, [userId, sessionName, ourStatus, phoneNumber, displayName, 
+        ourStatus === 'connected' ? firstConnectedAt : null]);
+    
+    console.log(`[StatusBot] ✅ Saved to DB: ${sessionName}`);
+    
+    res.json({ 
+      success: true, 
+      connection: result.rows[0],
+      existingSession: !!existingSession,
+    });
+    
   } catch (error) {
     console.error('[StatusBot] Start connection error:', error);
     res.status(500).json({ error: 'שגיאה בהתחלת חיבור' });
@@ -1239,6 +1375,7 @@ async function handleStatusReaction(connection, payload) {
 module.exports = {
   // Connection
   getConnection,
+  checkExisting,
   startConnection,
   getQR,
   disconnect,

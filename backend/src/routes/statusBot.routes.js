@@ -17,6 +17,7 @@ router.post('/webhook/:userId', statusBotController.handleWebhook);
 
 // Connection management
 router.get('/connection', authMiddleware, statusBotController.getConnection);
+router.get('/check-existing', authMiddleware, statusBotController.checkExisting);
 router.post('/connect', authMiddleware, statusBotController.startConnection);
 router.get('/qr', authMiddleware, statusBotController.getQR);
 router.post('/disconnect', authMiddleware, statusBotController.disconnect);

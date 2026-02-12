@@ -140,6 +140,30 @@ async function findSessionByEmail(baseUrl, apiKey, email) {
 }
 
 /**
+ * Find session by user.email AND service in metadata
+ * Used to differentiate between different services (e.g., 'bots' vs 'status-bot')
+ * @returns session object with status or null
+ */
+async function findSessionByEmailAndService(baseUrl, apiKey, email, service) {
+  console.log(`[WAHA] Searching for session with email: ${email} and service: ${service}`);
+  
+  const sessions = await getAllSessions(baseUrl, apiKey);
+  console.log(`[WAHA] Found ${sessions.length} total sessions`);
+  
+  for (const session of sessions) {
+    const metadata = session.config?.metadata || {};
+    
+    if (metadata['user.email'] === email && metadata['service'] === service) {
+      console.log(`[WAHA] ✅ Match found: ${session.name}, status: ${session.status}`);
+      return session; // Returns full session object including status
+    }
+  }
+  
+  console.log(`[WAHA] ❌ No session found with email: ${email} and service: ${service}`);
+  return null;
+}
+
+/**
  * Add webhook to session (keeps ALL existing config)
  */
 async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
@@ -951,6 +975,7 @@ module.exports = {
   requestPairingCode,
   getAllSessions,
   findSessionByEmail,
+  findSessionByEmailAndService,
   addWebhook,
   sendMessage,
   sendImage,
