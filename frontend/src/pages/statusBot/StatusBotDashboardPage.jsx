@@ -86,7 +86,7 @@ function StatusBotDashboardContent() {
   const [caption, setCaption] = useState('');
   const [uploading, setUploading] = useState(false);
   const [mediaFile, setMediaFile] = useState(null);
-  const [mediaInputMode, setMediaInputMode] = useState('url'); // 'url' | 'file' | 'record'
+  const [mediaInputMode, setMediaInputMode] = useState('file'); // 'file' | 'url' | 'record'
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const [recordedAudio, setRecordedAudio] = useState(null); // For playback
@@ -468,7 +468,7 @@ function StatusBotDashboardContent() {
       setMediaUrl('');
       setCaption('');
       setMediaFile(null);
-      setMediaInputMode('url');
+      setMediaInputMode('file');
       if (recordedAudio) {
         URL.revokeObjectURL(recordedAudio);
         setRecordedAudio(null);
@@ -1272,16 +1272,6 @@ function StatusBotDashboardContent() {
                       {/* Input Mode Selector */}
                       <div className="flex gap-2 mb-4">
                         <button
-                          onClick={() => { setMediaInputMode('url'); setMediaFile(null); }}
-                          className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
-                            mediaInputMode === 'url' 
-                              ? 'bg-green-100 text-green-700 border-2 border-green-500' 
-                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border-2 border-transparent'
-                          }`}
-                        >
-                          קישור URL
-                        </button>
-                        <button
                           onClick={() => { setMediaInputMode('file'); setMediaUrl(''); }}
                           className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
                             mediaInputMode === 'file' 
@@ -1290,6 +1280,16 @@ function StatusBotDashboardContent() {
                           }`}
                         >
                           העלאת קובץ
+                        </button>
+                        <button
+                          onClick={() => { setMediaInputMode('url'); setMediaFile(null); }}
+                          className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                            mediaInputMode === 'url' 
+                              ? 'bg-green-100 text-green-700 border-2 border-green-500' 
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border-2 border-transparent'
+                          }`}
+                        >
+                          קישור URL
                         </button>
                         {statusType === 'voice' && (
                           <button
