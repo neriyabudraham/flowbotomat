@@ -1513,34 +1513,36 @@ function StatusBotDashboardContent() {
                 
                 return (
                   <>
-                    {/* Active Statuses Section */}
-                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                      <div className="p-4 border-b border-gray-100 bg-green-50">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                          <h3 className="font-bold text-gray-800">סטטוסים פעילים</h3>
-                          <span className="text-sm text-gray-500">(24 שעות אחרונות)</span>
+                    {/* Active Statuses Section - only show when there are statuses */}
+                    {statuses.length > 0 && (
+                      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                        <div className="p-4 border-b border-gray-100 bg-green-50">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                            <h3 className="font-bold text-gray-800">סטטוסים פעילים</h3>
+                            <span className="text-sm text-gray-500">(24 שעות אחרונות)</span>
+                          </div>
                         </div>
+                        
+                        {activeStatuses.length === 0 ? (
+                          <div className="text-center py-8 text-gray-500">
+                            <Upload className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                            <p className="text-sm">אין סטטוסים פעילים כרגע</p>
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-gray-100">
+                            {activeStatuses.map(status => (
+                              <StatusRow 
+                                key={status.id} 
+                                status={status}
+                                onDelete={() => handleDeleteStatus(status.id)}
+                                isActive={true}
+                              />
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      
-                      {activeStatuses.length === 0 ? (
-                        <div className="text-center py-8 text-gray-500">
-                          <Upload className="w-10 h-10 mx-auto mb-2 opacity-50" />
-                          <p className="text-sm">אין סטטוסים פעילים כרגע</p>
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-gray-100">
-                          {activeStatuses.map(status => (
-                            <StatusRow 
-                              key={status.id} 
-                              status={status}
-                              onDelete={() => handleDeleteStatus(status.id)}
-                              isActive={true}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    )}
                     
                     {/* Older Statuses Section */}
                     {olderStatuses.length > 0 && (
