@@ -1432,7 +1432,7 @@ function StatusBotDashboardContent() {
                             onChange={(e) => setCaption(e.target.value)}
                             rows={3}
                             className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
-                            placeholder="כיתוב לסטטוס... (תומך בירידות שורה)"
+                            placeholder="כיתוב לסטטוס..."
                           />
                         </div>
                       )}
