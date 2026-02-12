@@ -21,6 +21,7 @@ async function initializeTables() {
         last_qr_code TEXT,
         last_qr_at TIMESTAMP,
         first_connected_at TIMESTAMP,
+        last_connected_at TIMESTAMP,
         restriction_lifted BOOLEAN DEFAULT false,
         restriction_lifted_at TIMESTAMP,
         restriction_lifted_by UUID,
@@ -191,13 +192,14 @@ async function getConnection(req, res) {
       }
     }
 
-    // Check 24-hour restriction
+    // Check 24-hour restriction (use last_connected_at if available)
     let isRestricted = false;
     let restrictionEndsAt = null;
+    const connectionDate = connection.last_connected_at || connection.first_connected_at;
 
-    if (connection.first_connected_at && !connection.restriction_lifted) {
-      const firstConnected = new Date(connection.first_connected_at);
-      const restrictionEnd = new Date(firstConnected.getTime() + 24 * 60 * 60 * 1000);
+    if (connectionDate && !connection.restriction_lifted) {
+      const connectedAt = new Date(connectionDate);
+      const restrictionEnd = new Date(connectedAt.getTime() + 24 * 60 * 60 * 1000);
       
       if (new Date() < restrictionEnd) {
         isRestricted = true;
@@ -205,12 +207,45 @@ async function getConnection(req, res) {
       }
     }
 
+    // Check subscription status
+    let subscriptionInfo = null;
+    try {
+      const serviceResult = await db.query(
+        `SELECT id FROM additional_services WHERE slug = 'status-bot' AND is_active = true`
+      );
+      
+      if (serviceResult.rows.length > 0) {
+        const serviceId = serviceResult.rows[0].id;
+        const subResult = await db.query(`
+          SELECT uss.*, s.name_he
+          FROM user_service_subscriptions uss
+          JOIN additional_services s ON s.id = uss.service_id
+          WHERE uss.user_id = $1 AND uss.service_id = $2
+        `, [userId, serviceId]);
+        
+        if (subResult.rows.length > 0) {
+          const sub = subResult.rows[0];
+          subscriptionInfo = {
+            status: sub.status,
+            isTrial: sub.is_trial,
+            trialEndsAt: sub.trial_ends_at,
+            expiresAt: sub.expires_at || sub.next_charge_date,
+            cancelledAt: sub.cancelled_at,
+            nextChargeDate: sub.next_charge_date
+          };
+        }
+      }
+    } catch (subError) {
+      console.error('[StatusBot] Subscription check error:', subError.message);
+    }
+
     res.json({
       connection: {
         ...connection,
         isRestricted,
         restrictionEndsAt,
-      }
+      },
+      subscription: subscriptionInfo
     });
   } catch (error) {
     console.error('[StatusBot] Get connection error:', error);
@@ -647,9 +682,9 @@ async function removeAuthorizedNumber(req, res) {
 // ============================================
 
 /**
- * Check if user can upload status (not restricted)
+ * Check if user can upload status (not restricted and has valid subscription)
  */
-async function checkCanUpload(connection) {
+async function checkCanUpload(connection, userId) {
   if (!connection) {
     return { canUpload: false, reason: 'לא נמצא חיבור' };
   }
@@ -658,22 +693,104 @@ async function checkCanUpload(connection) {
     return { canUpload: false, reason: 'WhatsApp לא מחובר' };
   }
 
-  // Check 24-hour restriction
-  if (connection.first_connected_at && !connection.restriction_lifted) {
-    const firstConnected = new Date(connection.first_connected_at);
-    const restrictionEnd = new Date(firstConnected.getTime() + 24 * 60 * 60 * 1000);
+  // Check subscription status
+  const subscriptionCheck = await checkSubscriptionForUpload(userId);
+  if (!subscriptionCheck.canUpload) {
+    return subscriptionCheck;
+  }
+
+  // Check 24-hour restriction (based on last_connected_at, not first)
+  const connectionDate = connection.last_connected_at || connection.first_connected_at;
+  if (connectionDate && !connection.restriction_lifted) {
+    const connectedAt = new Date(connectionDate);
+    const restrictionEnd = new Date(connectedAt.getTime() + 24 * 60 * 60 * 1000);
     
     if (new Date() < restrictionEnd) {
       const hoursLeft = Math.ceil((restrictionEnd - new Date()) / (1000 * 60 * 60));
+      const minutesLeft = Math.ceil((restrictionEnd - new Date()) / (1000 * 60)) % 60;
       return { 
         canUpload: false, 
-        reason: `יש להמתין ${hoursLeft} שעות לאחר החיבור הראשון`,
-        restrictionEndsAt: restrictionEnd
+        reason: `יש להמתין ${hoursLeft} שעות ו-${minutesLeft} דקות לאחר החיבור`,
+        restrictionEndsAt: restrictionEnd,
+        isRestricted: true
       };
     }
   }
 
   return { canUpload: true };
+}
+
+/**
+ * Check if user has valid subscription for status bot
+ */
+async function checkSubscriptionForUpload(userId) {
+  try {
+    // Get status-bot service ID
+    const serviceResult = await db.query(
+      `SELECT id FROM additional_services WHERE slug = 'status-bot' AND is_active = true`
+    );
+    
+    if (serviceResult.rows.length === 0) {
+      return { canUpload: true }; // Service not configured, allow
+    }
+    
+    const serviceId = serviceResult.rows[0].id;
+    
+    // Check subscription
+    const subResult = await db.query(`
+      SELECT * FROM user_service_subscriptions 
+      WHERE user_id = $1 AND service_id = $2
+    `, [userId, serviceId]);
+    
+    if (subResult.rows.length === 0) {
+      return { 
+        canUpload: false, 
+        reason: 'אין לך מנוי פעיל לשירות העלאת סטטוסים',
+        noSubscription: true
+      };
+    }
+    
+    const sub = subResult.rows[0];
+    const now = new Date();
+    
+    // Check if subscription is active or trial
+    if (sub.status === 'active' || sub.status === 'trial') {
+      // Check if trial ended
+      if (sub.is_trial && sub.trial_ends_at && new Date(sub.trial_ends_at) < now) {
+        return { 
+          canUpload: false, 
+          reason: 'תקופת הניסיון הסתיימה. יש לשלם כדי להמשיך',
+          subscriptionExpired: true
+        };
+      }
+      return { canUpload: true };
+    }
+    
+    // Cancelled - check if still in paid period
+    if (sub.status === 'cancelled') {
+      const expiresAt = sub.expires_at || sub.next_charge_date;
+      if (expiresAt && new Date(expiresAt) > now) {
+        // Still in paid period
+        return { canUpload: true, expiresAt: new Date(expiresAt) };
+      }
+      return { 
+        canUpload: false, 
+        reason: 'המנוי שלך הסתיים. יש לחדש את המנוי כדי להמשיך',
+        subscriptionExpired: true
+      };
+    }
+    
+    // Expired or other status
+    return { 
+      canUpload: false, 
+      reason: 'המנוי שלך אינו פעיל',
+      subscriptionExpired: true
+    };
+    
+  } catch (error) {
+    console.error('[StatusBot] Check subscription error:', error);
+    return { canUpload: true }; // On error, allow (don't block user)
+  }
 }
 
 /**
@@ -700,11 +817,14 @@ async function uploadTextStatus(req, res) {
     const connection = connResult.rows[0];
 
     // Check if can upload
-    const canUploadCheck = await checkCanUpload(connection);
+    const canUploadCheck = await checkCanUpload(connection, userId);
     if (!canUploadCheck.canUpload) {
       return res.status(403).json({ 
         error: canUploadCheck.reason,
-        restrictionEndsAt: canUploadCheck.restrictionEndsAt
+        restrictionEndsAt: canUploadCheck.restrictionEndsAt,
+        isRestricted: canUploadCheck.isRestricted,
+        noSubscription: canUploadCheck.noSubscription,
+        subscriptionExpired: canUploadCheck.subscriptionExpired
       });
     }
 
@@ -760,11 +880,14 @@ async function uploadImageStatus(req, res) {
 
     const connection = connResult.rows[0];
 
-    const canUploadCheck = await checkCanUpload(connection);
+    const canUploadCheck = await checkCanUpload(connection, userId);
     if (!canUploadCheck.canUpload) {
       return res.status(403).json({ 
         error: canUploadCheck.reason,
-        restrictionEndsAt: canUploadCheck.restrictionEndsAt
+        restrictionEndsAt: canUploadCheck.restrictionEndsAt,
+        isRestricted: canUploadCheck.isRestricted,
+        noSubscription: canUploadCheck.noSubscription,
+        subscriptionExpired: canUploadCheck.subscriptionExpired
       });
     }
 
@@ -834,11 +957,14 @@ async function uploadVideoStatus(req, res) {
 
     const connection = connResult.rows[0];
 
-    const canUploadCheck = await checkCanUpload(connection);
+    const canUploadCheck = await checkCanUpload(connection, userId);
     if (!canUploadCheck.canUpload) {
       return res.status(403).json({ 
         error: canUploadCheck.reason,
-        restrictionEndsAt: canUploadCheck.restrictionEndsAt
+        restrictionEndsAt: canUploadCheck.restrictionEndsAt,
+        isRestricted: canUploadCheck.isRestricted,
+        noSubscription: canUploadCheck.noSubscription,
+        subscriptionExpired: canUploadCheck.subscriptionExpired
       });
     }
 
@@ -909,11 +1035,14 @@ async function uploadVoiceStatus(req, res) {
 
     const connection = connResult.rows[0];
 
-    const canUploadCheck = await checkCanUpload(connection);
+    const canUploadCheck = await checkCanUpload(connection, userId);
     if (!canUploadCheck.canUpload) {
       return res.status(403).json({ 
         error: canUploadCheck.reason,
-        restrictionEndsAt: canUploadCheck.restrictionEndsAt
+        restrictionEndsAt: canUploadCheck.restrictionEndsAt,
+        isRestricted: canUploadCheck.isRestricted,
+        noSubscription: canUploadCheck.noSubscription,
+        subscriptionExpired: canUploadCheck.subscriptionExpired
       });
     }
 
@@ -1315,17 +1444,30 @@ async function handleWebhook(req, res) {
 async function handleSessionStatus(connection, payload) {
   try {
     const { status } = payload;
+    const previousStatus = connection.connection_status;
     
     let newStatus = 'disconnected';
     
     if (status === 'WORKING') {
       newStatus = 'connected';
       
-      // Set first_connected_at if not set
+      // Set first_connected_at if not set, and always update last_connected_at
+      // Also reset restriction if reconnecting after disconnection
+      const wasDisconnected = previousStatus !== 'connected';
+      
       if (!connection.first_connected_at) {
         await db.query(`
           UPDATE status_bot_connections 
-          SET first_connected_at = NOW() WHERE id = $1 AND first_connected_at IS NULL
+          SET first_connected_at = NOW(), last_connected_at = NOW()
+          WHERE id = $1 AND first_connected_at IS NULL
+        `, [connection.id]);
+      } else if (wasDisconnected) {
+        // Reconnecting - update last_connected_at and reset restriction
+        console.log(`[StatusBot] Reconnection detected for ${connection.id}, resetting 24h restriction`);
+        await db.query(`
+          UPDATE status_bot_connections 
+          SET last_connected_at = NOW(), restriction_lifted = false
+          WHERE id = $1
         `, [connection.id]);
       }
     } else if (status === 'SCAN_QR_CODE') {

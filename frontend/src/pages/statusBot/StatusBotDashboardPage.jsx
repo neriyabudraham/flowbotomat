@@ -107,6 +107,7 @@ function StatusBotDashboardContent() {
         
         if (data.connection?.connection_status === 'connected') {
           setConnection(data.connection);
+          if (data.subscription) setSubscription(data.subscription);
           setStep('dashboard');
           loadDashboardData();
         } else {
@@ -154,6 +155,22 @@ function StatusBotDashboardContent() {
       setQueue(queueRes.data.queue || []);
     } catch (err) {
       console.error('Load dashboard data error:', err);
+    }
+  };
+
+  const fetchConnection = async () => {
+    try {
+      const { data } = await api.get('/status-bot/connection');
+      if (data.connection) {
+        setConnection(data.connection);
+      }
+      if (data.subscription) {
+        setSubscription(data.subscription);
+      }
+      return data;
+    } catch (err) {
+      console.error('Fetch connection error:', err);
+      return null;
     }
   };
 
@@ -214,9 +231,8 @@ function StatusBotDashboardContent() {
 
   const handleRefreshQR = async () => {
     try {
-      const { data } = await api.get('/status-bot/connection');
-      if (data.connection?.connection_status === 'connected') {
-        setConnection(data.connection);
+      const data = await fetchConnection();
+      if (data?.connection?.connection_status === 'connected') {
         setStep('dashboard');
         loadDashboardData();
       } else {
@@ -428,8 +444,61 @@ function StatusBotDashboardContent() {
 
   const isConnected = connection?.connection_status === 'connected';
   const isRestricted = connection?.isRestricted;
+  
+  // Timer states for countdown displays
+  const [restrictionCountdown, setRestrictionCountdown] = useState(null);
+  const [subscriptionCountdown, setSubscriptionCountdown] = useState(null);
 
   const clearError = () => setError(null);
+  
+  // Countdown timer for restriction and subscription expiry
+  useEffect(() => {
+    const updateCountdowns = () => {
+      // Restriction countdown
+      if (connection?.restrictionEndsAt) {
+        const end = new Date(connection.restrictionEndsAt);
+        const now = new Date();
+        const diff = end - now;
+        
+        if (diff > 0) {
+          const hours = Math.floor(diff / (1000 * 60 * 60));
+          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+          setRestrictionCountdown({ hours, minutes, seconds });
+        } else {
+          setRestrictionCountdown(null);
+          // Restriction ended - refresh connection data
+          fetchConnection();
+        }
+      } else {
+        setRestrictionCountdown(null);
+      }
+      
+      // Subscription expiry countdown (when cancelled but still in period)
+      if (subscription?.status === 'cancelled' && subscription?.expiresAt) {
+        const end = new Date(subscription.expiresAt);
+        const now = new Date();
+        const diff = end - now;
+        
+        if (diff > 0) {
+          const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+          const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          setSubscriptionCountdown({ days, hours, minutes });
+        } else {
+          setSubscriptionCountdown(null);
+          // Subscription ended - check access again
+          checkSubscriptionFirst();
+        }
+      } else {
+        setSubscriptionCountdown(null);
+      }
+    };
+    
+    updateCountdowns();
+    const interval = setInterval(updateCountdowns, 1000);
+    return () => clearInterval(interval);
+  }, [connection?.restrictionEndsAt, subscription]);
   
   // Polling for real-time updates when on dashboard
   useEffect(() => {
@@ -793,18 +862,44 @@ function StatusBotDashboardContent() {
       {/* Dashboard (when connected) */}
       {step === 'dashboard' && (
         <main className="max-w-7xl mx-auto px-6 py-8">
+          {/* Subscription Expiry Banner (when cancelled but still in period) */}
+          {subscription?.status === 'cancelled' && subscriptionCountdown && (
+            <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-2xl flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Clock className="w-6 h-6 text-orange-600 flex-shrink-0" />
+                <div>
+                  <p className="font-medium text-orange-800">המנוי בוטל</p>
+                  <p className="text-sm text-orange-600">
+                    הגישה שלך תסתיים בעוד: 
+                    <span className="font-bold mr-2 tabular-nums">
+                      {subscriptionCountdown.days > 0 && `${subscriptionCountdown.days} ימים `}
+                      {subscriptionCountdown.hours} שעות {subscriptionCountdown.minutes} דקות
+                    </span>
+                  </p>
+                </div>
+              </div>
+              <Link
+                to="/status-bot/subscribe"
+                className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-sm font-medium"
+              >
+                חידוש מנוי
+              </Link>
+            </div>
+          )}
+
           {/* Restriction Banner */}
           {isRestricted && (
             <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center gap-3">
               <AlertCircle className="w-6 h-6 text-amber-600 flex-shrink-0" />
-              <div>
-                <p className="font-medium text-amber-800">תקופת המתנה פעילה</p>
+              <div className="flex-1">
+                <p className="font-medium text-amber-800">תקופת המתנה פעילה (24 שעות מההתחברות)</p>
                 <p className="text-sm text-amber-600">
-                  יש להמתין 24 שעות מרגע החיבור הראשון לפני שניתן להעלות סטטוסים.
-                  {connection?.restrictionEndsAt && (
-                    <span className="font-medium mr-1">
-                      סיום: {new Date(connection.restrictionEndsAt).toLocaleString('he-IL')}
+                  {restrictionCountdown ? (
+                    <span className="font-bold tabular-nums">
+                      זמן שנותר: {restrictionCountdown.hours} שעות {restrictionCountdown.minutes} דקות {restrictionCountdown.seconds} שניות
                     </span>
+                  ) : (
+                    'יש להמתין 24 שעות מרגע החיבור לפני שניתן להעלות סטטוסים.'
                   )}
                 </p>
               </div>

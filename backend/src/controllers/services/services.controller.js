@@ -298,16 +298,22 @@ async function cancelSubscription(req, res) {
       }
     }
     
-    // Update subscription status
+    // Update subscription status - keep access until current period ends
+    // Set expires_at to next_charge_date or trial_ends_at
+    const expiresAt = subscription.is_trial 
+      ? subscription.trial_ends_at 
+      : subscription.next_charge_date;
+    
     await db.query(`
       UPDATE user_service_subscriptions
-      SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
+      SET status = 'cancelled', cancelled_at = NOW(), expires_at = $3, updated_at = NOW()
       WHERE user_id = $1 AND service_id = $2
-    `, [userId, serviceId]);
+    `, [userId, serviceId, expiresAt]);
     
     res.json({ 
       success: true, 
-      message: `המנוי ל${subscription.name_he} בוטל בהצלחה`
+      message: `המנוי ל${subscription.name_he} בוטל בהצלחה`,
+      expiresAt: expiresAt
     });
     
   } catch (error) {
