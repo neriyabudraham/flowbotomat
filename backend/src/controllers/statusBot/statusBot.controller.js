@@ -220,7 +220,7 @@ async function getConnection(req, res) {
 
 /**
  * Check if user has existing WAHA session (by email)
- * Similar to whatsapp/check-existing
+ * Uses same logic as whatsapp/check-existing - searches by email ONLY
  */
 async function checkExisting(req, res) {
   try {
@@ -244,11 +244,10 @@ async function checkExisting(req, res) {
       return res.json({ exists: false });
     }
     
-    // Search in WAHA by email for status-bot sessions
+    // Search in WAHA by email ONLY (same as main WhatsApp connection)
     console.log(`[StatusBot] Checking existing session for: ${userEmail}`);
     
-    // Find session by email in metadata with service=status-bot
-    const existingSession = await wahaSession.findSessionByEmailAndService(baseUrl, apiKey, userEmail, 'status-bot');
+    const existingSession = await wahaSession.findSessionByEmail(baseUrl, apiKey, userEmail);
     
     if (existingSession && existingSession.status === 'WORKING') {
       console.log(`[StatusBot] ✅ Found existing WORKING session: ${existingSession.name}`);
@@ -280,7 +279,7 @@ async function checkExisting(req, res) {
 
 /**
  * Start connection process (create/reuse session)
- * Similar to whatsapp/connect/managed
+ * Uses same logic as whatsapp/connect/managed - searches by email ONLY
  */
 async function startConnection(req, res) {
   try {
@@ -308,11 +307,11 @@ async function startConnection(req, res) {
     let wahaStatus = null;
     let existingSession = null;
     
-    // Step 1: Search in WAHA by email for existing status-bot session
+    // Step 1: Search in WAHA by email ONLY (same as main WhatsApp connection)
     console.log(`[StatusBot] Searching WAHA for session with email: ${userEmail}`);
     
     try {
-      existingSession = await wahaSession.findSessionByEmailAndService(baseUrl, apiKey, userEmail, 'status-bot');
+      existingSession = await wahaSession.findSessionByEmail(baseUrl, apiKey, userEmail);
       
       if (existingSession) {
         sessionName = existingSession.name;
@@ -339,11 +338,11 @@ async function startConnection(req, res) {
     
     // Step 2: If no session found in WAHA, create new one
     if (!sessionName) {
-      sessionName = `status_${crypto.randomBytes(8).toString('hex')}`;
+      sessionName = `session_${crypto.randomBytes(4).toString('hex')}`;
       
+      // Only email in metadata - same as main WhatsApp connection
       const sessionMetadata = {
         'user.email': userEmail,
-        'service': 'status-bot'
       };
       
       console.log(`[StatusBot] Creating new session: ${sessionName}`);
