@@ -304,24 +304,52 @@ async function getQR(req, res) {
 
     const { baseUrl, apiKey } = await getWahaCredentials();
 
-    // Get QR from WAHA
-    const qrData = await wahaSession.getQRCode(baseUrl, apiKey, connection.session_name);
-
-    if (!qrData || !qrData.value) {
-      return res.json({ status: 'waiting', message: 'ממתין ל-QR...' });
+    // First check if session exists
+    const sessionStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
+    
+    if (!sessionStatus) {
+      // Session doesn't exist - need to start connection first
+      return res.json({ 
+        status: 'not_started', 
+        message: 'החיבור לא הופעל. לחץ על "התחל חיבור" קודם.' 
+      });
     }
 
-    // Save QR to DB (just a reference, not the full image)
-    await db.query(`
-      UPDATE status_bot_connections 
-      SET last_qr_code = $1, last_qr_at = NOW(), updated_at = NOW()
-      WHERE id = $2
-    `, ['qr_generated', connection.id]);
+    // Check session status
+    if (sessionStatus.status === 'WORKING') {
+      // Already connected
+      await db.query(`
+        UPDATE status_bot_connections 
+        SET connection_status = 'connected', updated_at = NOW()
+        WHERE id = $1
+      `, [connection.id]);
+      return res.json({ status: 'connected' });
+    }
 
-    res.json({ 
-      status: 'qr_ready',
-      qr: qrData.value 
-    });
+    // Get QR from WAHA
+    try {
+      const qrData = await wahaSession.getQRCode(baseUrl, apiKey, connection.session_name);
+
+      if (!qrData || !qrData.value) {
+        return res.json({ status: 'waiting', message: 'ממתין ל-QR...' });
+      }
+
+      // Save QR to DB (just a reference, not the full image)
+      await db.query(`
+        UPDATE status_bot_connections 
+        SET last_qr_code = $1, last_qr_at = NOW(), updated_at = NOW()
+        WHERE id = $2
+      `, ['qr_generated', connection.id]);
+
+      res.json({ 
+        status: 'qr_ready',
+        qr: qrData.value 
+      });
+    } catch (qrError) {
+      console.error('[StatusBot] QR error:', qrError.message);
+      // Session exists but QR not ready yet
+      return res.json({ status: 'waiting', message: 'ממתין ל-QR...' });
+    }
 
   } catch (error) {
     console.error('[StatusBot] Get QR error:', error);

@@ -57,11 +57,19 @@ async function logoutSession(baseUrl, apiKey, sessionName) {
 
 /**
  * Get session status
+ * Returns null if session doesn't exist (404)
  */
 async function getSessionStatus(baseUrl, apiKey, sessionName) {
   const client = createClient(baseUrl, apiKey);
-  const response = await client.get(`/api/sessions/${sessionName}`);
-  return response.data;
+  try {
+    const response = await client.get(`/api/sessions/${sessionName}`);
+    return response.data;
+  } catch (error) {
+    if (error.response?.status === 404) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 /**
