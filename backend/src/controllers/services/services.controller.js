@@ -100,7 +100,7 @@ async function subscribeToService(req, res) {
     
     // Get user's payment info from user_payment_methods
     const userResult = await db.query(`
-      SELECT u.*, upm.sumit_customer_id, upm.last_4_digits, upm.card_brand
+      SELECT u.*, upm.sumit_customer_id, upm.card_last_digits, upm.card_holder_name
       FROM users u
       LEFT JOIN user_payment_methods upm ON upm.user_id = u.id AND upm.sumit_customer_id IS NOT NULL
       WHERE u.id = $1

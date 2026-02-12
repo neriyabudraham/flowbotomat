@@ -473,7 +473,7 @@ export default function StatusBotSubscribePage() {
                             {paymentMethod.card_brand || 'כרטיס אשראי'}
                           </p>
                           <p className="text-sm text-gray-500" dir="ltr">
-                            •••• {paymentMethod.last_4_digits}
+                            •••• {paymentMethod.card_last_digits}
                           </p>
                         </div>
                         <button
