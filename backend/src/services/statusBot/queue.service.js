@@ -184,7 +184,7 @@ async function sendStatus(queueItem) {
     try {
       const idResponse = await wahaSession.makeRequest(
         baseUrl, apiKey, 'GET', 
-        `/api/status/new-message-id?session=${sessionName}`
+        `/api/${sessionName}/status/new-message-id`
       );
       messageId = idResponse.id;
 
