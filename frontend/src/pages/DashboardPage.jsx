@@ -6,7 +6,7 @@ import {
   Plus, ArrowUpRight, Clock, CheckCircle, Crown, Bell,
   Sparkles, ArrowRight, BarChart3, Calendar, Phone, Star,
   Target, Rocket, Gift, AlertCircle, X, ExternalLink, Lightbulb,
-  Gauge, HardDrive, Code, Forward, Send
+  Gauge, HardDrive, Code, Forward, Send, Upload
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useWhatsappStore from '../store/whatsappStore';
@@ -654,6 +654,15 @@ export default function DashboardPage() {
               description="הגדרות החשבון"
               gradient="from-gray-500 to-slate-600"
             />
+            <QuickActionCard
+              to="/status-bot/dashboard"
+              icon={Upload}
+              title="העלאת סטטוסים"
+              description="סטטוסים אוטומטיים"
+              gradient="from-green-500 to-emerald-600"
+              badge="בתשלום נפרד"
+              badgeColor="teal"
+            />
           </div>
         </div>
 
@@ -866,7 +875,15 @@ function StatCard({ icon: Icon, label, value, gradient, bgColor, trend }) {
   );
 }
 
-function QuickActionCard({ to, icon: Icon, title, description, gradient, badge }) {
+function QuickActionCard({ to, icon: Icon, title, description, gradient, badge, badgeColor }) {
+  const badgeColors = {
+    purple: 'from-purple-500 to-pink-500',
+    teal: 'from-teal-500 to-cyan-500',
+    orange: 'from-orange-500 to-red-500',
+    blue: 'from-blue-500 to-indigo-500',
+  };
+  const badgeGradient = badgeColors[badgeColor] || badgeColors.purple;
+  
   return (
     <Link to={to} className="group relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-xl transition-all hover:-translate-y-1">
       <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${gradient} flex items-center justify-center mb-4 group-hover:scale-110 transition-transform shadow-lg`}>
@@ -875,7 +892,7 @@ function QuickActionCard({ to, icon: Icon, title, description, gradient, badge }
       <h3 className="font-bold text-gray-900 mb-1">{title}</h3>
       <p className="text-sm text-gray-500">{description}</p>
       {badge && (
-        <span className="absolute top-4 left-4 px-2.5 py-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-bold rounded-lg">
+        <span className={`absolute top-4 left-4 px-2.5 py-1 bg-gradient-to-r ${badgeGradient} text-white text-xs font-bold rounded-lg`}>
           {badge}
         </span>
       )}

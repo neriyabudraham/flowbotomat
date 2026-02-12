@@ -136,18 +136,15 @@ function ServiceMiniCard({ service, icon, isActive, subscription }) {
       
       <div className="mt-3">
         {isActive ? (
-          <a
-            href={service.external_url || `/services/${service.slug}`}
-            target={service.external_url ? '_blank' : undefined}
-            rel="noopener noreferrer"
+          <Link
+            to={service.slug === 'status-bot' ? '/status-bot/dashboard' : `/services/${service.slug}`}
             className="w-full flex items-center justify-center gap-1 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition-colors"
           >
             כניסה לשירות
-            {service.external_url && <ExternalLink className="w-3 h-3" />}
-          </a>
+          </Link>
         ) : (
           <Link
-            to={`/services#${service.slug}`}
+            to={service.slug === 'status-bot' ? '/status-bot' : `/services#${service.slug}`}
             className="w-full flex items-center justify-center gap-1 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300 transition-colors"
           >
             פרטים נוספים

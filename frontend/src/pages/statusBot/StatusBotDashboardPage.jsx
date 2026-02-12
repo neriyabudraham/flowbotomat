@@ -5,9 +5,10 @@ import {
   Check, Plus, Trash2, Eye, Heart, MessageCircle, Image,
   Video, Mic, Type, Palette, Send, AlertCircle, X, Loader,
   QrCode, Wifi, WifiOff, Phone, ChevronDown, List, ChevronLeft,
-  Loader2, Shield, Zap, HelpCircle, Mail
+  Loader2, Shield, Zap, HelpCircle, Mail, Home, Settings
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
+import useWhatsappStore from '../../store/whatsappStore';
 import Logo from '../../components/atoms/Logo';
 import api from '../../services/api';
 
@@ -16,6 +17,7 @@ const BOT_NUMBER = '+972 53-923-2960';
 export default function StatusBotDashboardPage() {
   const navigate = useNavigate();
   const { user, fetchMe } = useAuthStore();
+  const { connection: mainConnection, fetchStatus: fetchMainStatus } = useWhatsappStore();
   
   // State
   const [loading, setLoading] = useState(true);
@@ -52,6 +54,7 @@ export default function StatusBotDashboardPage() {
     }
     
     fetchMe();
+    fetchMainStatus(); // Check main WhatsApp connection
     checkStatus();
   }, []);
 
@@ -69,10 +72,16 @@ export default function StatusBotDashboardPage() {
         setStep('qr');
         fetchQR();
       } else {
-        setStep('select');
-        setIsCheckingExisting(true);
-        await checkExisting();
-        setIsCheckingExisting(false);
+        // Check if main WhatsApp is already connected - if so, auto-connect
+        const existingRes = await api.get('/status-bot/check-existing');
+        if (existingRes.data.exists && existingRes.data.isConnected) {
+          // Main WhatsApp is connected - auto connect to Status Bot
+          console.log('[StatusBot] Main WhatsApp connected, auto-connecting...');
+          await handleConnect();
+        } else {
+          setStep('select');
+          setExistingSession(existingRes.data);
+        }
       }
     } catch (err) {
       console.error('Check status error:', err);
@@ -305,27 +314,38 @@ export default function StatusBotDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-emerald-50" dir="rtl">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-green-50" dir="rtl">
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
-        <div className="max-w-4xl mx-auto px-6 py-4">
+        <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <button 
-                onClick={() => navigate('/dashboard')}
-                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
-              >
-                <ArrowLeft className="w-5 h-5 text-gray-600" />
-              </button>
-              <div className="h-8 w-px bg-gray-200" />
               <Logo />
+              <div className="hidden md:block h-8 w-px bg-gray-200" />
+              <div className="hidden md:flex items-center gap-2">
+                <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center">
+                  <Upload className="w-4 h-4 text-white" />
+                </div>
+                <span className="font-bold text-gray-800">בוט העלאת סטטוסים</span>
+                <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-xs font-bold rounded-full">Pro</span>
+              </div>
             </div>
-            <Link 
-              to="/dashboard"
-              className="text-sm text-gray-500 hover:text-gray-700"
-            >
-              חזרה לדשבורד
-            </Link>
+            
+            <div className="flex items-center gap-2">
+              <Link 
+                to="/dashboard"
+                className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-all text-sm font-medium"
+              >
+                <Home className="w-4 h-4" />
+                <span className="hidden sm:inline">דשבורד</span>
+              </Link>
+              <Link 
+                to="/settings"
+                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-all"
+              >
+                <Settings className="w-5 h-5" />
+              </Link>
+            </div>
           </div>
         </div>
       </header>
@@ -512,7 +532,7 @@ export default function StatusBotDashboardPage() {
 
       {/* Dashboard (when connected) */}
       {step === 'dashboard' && (
-        <main className="max-w-6xl mx-auto px-6 py-8">
+        <main className="max-w-7xl mx-auto px-6 py-8">
           {/* Restriction Banner */}
           {isRestricted && (
             <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center gap-3">
