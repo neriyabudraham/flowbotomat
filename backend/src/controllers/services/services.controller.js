@@ -354,12 +354,12 @@ async function checkServiceAccess(req, res) {
     const userId = req.user.id;
     const { slug } = req.params;
     
+    // Get subscription - including cancelled ones (they might still have access until expires_at)
     const result = await db.query(`
       SELECT uss.*, s.slug, s.name_he, s.external_url, s.features
       FROM user_service_subscriptions uss
       JOIN additional_services s ON s.id = uss.service_id
-      WHERE uss.user_id = $1 AND s.slug = $2 
-      AND uss.status IN ('active', 'trial')
+      WHERE uss.user_id = $1 AND s.slug = $2
     `, [userId, slug]);
     
     if (result.rows.length === 0) {
@@ -367,19 +367,50 @@ async function checkServiceAccess(req, res) {
     }
     
     const subscription = result.rows[0];
+    const now = new Date();
     
-    // Check if trial expired
-    if (subscription.is_trial && subscription.trial_ends_at) {
-      if (new Date(subscription.trial_ends_at) < new Date()) {
-        return res.json({ hasAccess: false, trialExpired: true });
-      }
+    // Active subscriptions always have access
+    if (subscription.status === 'active') {
+      return res.json({ 
+        hasAccess: true, 
+        subscription,
+        externalUrl: subscription.external_url 
+      });
     }
     
-    res.json({ 
-      hasAccess: true, 
-      subscription,
-      externalUrl: subscription.external_url 
-    });
+    // Trial subscriptions - check if trial is still valid
+    if (subscription.status === 'trial') {
+      if (subscription.trial_ends_at && new Date(subscription.trial_ends_at) < now) {
+        return res.json({ hasAccess: false, trialExpired: true, subscription });
+      }
+      return res.json({ 
+        hasAccess: true, 
+        subscription,
+        externalUrl: subscription.external_url 
+      });
+    }
+    
+    // Cancelled subscriptions - check if still within paid period (expires_at)
+    if (subscription.status === 'cancelled') {
+      const expiresAt = subscription.expires_at || subscription.next_charge_date;
+      if (expiresAt && new Date(expiresAt) > now) {
+        // Still within paid period
+        return res.json({ 
+          hasAccess: true, 
+          subscription: {
+            ...subscription,
+            expiresAt: expiresAt
+          },
+          externalUrl: subscription.external_url,
+          isCancelled: true
+        });
+      }
+      // Period ended
+      return res.json({ hasAccess: false, subscriptionExpired: true, subscription });
+    }
+    
+    // Other statuses (expired, etc.) - no access
+    return res.json({ hasAccess: false, subscription });
     
   } catch (error) {
     console.error('[Services] Check access error:', error);
