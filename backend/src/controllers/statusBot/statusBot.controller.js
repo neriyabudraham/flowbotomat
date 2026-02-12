@@ -1042,13 +1042,19 @@ async function getStatusHistory(req, res) {
 
     const countResult = await db.query(`
       SELECT COUNT(*) FROM status_bot_statuses 
-      WHERE connection_id = $1 AND deleted_at IS NULL
+      WHERE connection_id = $1
     `, [connResult.rows[0].id]);
 
+    // Get statuses with queue status
     const result = await db.query(`
-      SELECT * FROM status_bot_statuses 
-      WHERE connection_id = $1 AND deleted_at IS NULL
-      ORDER BY sent_at DESC
+      SELECT 
+        s.*,
+        s.deleted_at IS NOT NULL as is_deleted,
+        q.queue_status
+      FROM status_bot_statuses s
+      LEFT JOIN status_bot_queue q ON q.id = s.queue_id
+      WHERE s.connection_id = $1
+      ORDER BY COALESCE(s.sent_at, s.created_at) DESC
       LIMIT $2 OFFSET $3
     `, [connResult.rows[0].id, limit, offset]);
 

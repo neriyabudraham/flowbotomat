@@ -5,7 +5,8 @@ import {
   Check, Plus, Trash2, Eye, Heart, MessageCircle, Image,
   Video, Mic, Type, Palette, Send, AlertCircle, X, Loader,
   QrCode, Wifi, WifiOff, Phone, ChevronDown, List, ChevronLeft,
-  Loader2, Shield, Zap, HelpCircle, Mail, Home, Settings
+  Loader2, Shield, Zap, HelpCircle, Mail, Home, Settings, Crown,
+  CheckCircle, BarChart, Play, Pause, Volume2, History
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
 import useWhatsappStore from '../../store/whatsappStore';
@@ -31,8 +32,9 @@ function StatusBotDashboardContent() {
   
   // State
   const [loading, setLoading] = useState(true);
-  const [step, setStep] = useState('loading'); // loading, select, qr, connected, dashboard
+  const [step, setStep] = useState('loading'); // loading, select, qr, connected, dashboard, no_subscription
   const [connection, setConnection] = useState(null);
+  const [subscription, setSubscription] = useState(null);
   const [existingSession, setExistingSession] = useState(null);
   const [isCheckingExisting, setIsCheckingExisting] = useState(false);
   const [authorizedNumbers, setAuthorizedNumbers] = useState([]);
@@ -54,7 +56,7 @@ function StatusBotDashboardContent() {
   const [mediaInputMode, setMediaInputMode] = useState('url'); // 'url' | 'file' | 'record'
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
-  const [audioChunks, setAudioChunks] = useState([]);
+  const [recordedAudio, setRecordedAudio] = useState(null); // For playback
   
   // Add number modal
   const [showAddNumber, setShowAddNumber] = useState(false);
@@ -69,34 +71,53 @@ function StatusBotDashboardContent() {
     }
     
     fetchMe();
-    fetchMainStatus(); // Check main WhatsApp connection
-    checkStatus();
+    checkSubscriptionFirst();
   }, []);
+  
+  // First check if user has an active subscription
+  const checkSubscriptionFirst = async () => {
+    try {
+      const { data } = await api.get('/services/access/status-bot');
+      if (!data.hasAccess) {
+        setStep('no_subscription');
+        setLoading(false);
+        return;
+      }
+      setSubscription(data.subscription);
+      // Has subscription - proceed with normal flow
+      fetchMainStatus();
+      checkStatus();
+    } catch (err) {
+      console.error('Subscription check error:', err);
+      setStep('no_subscription');
+      setLoading(false);
+    }
+  };
 
   const checkStatus = async () => {
     try {
       setStep('loading');
-      const { data } = await api.get('/status-bot/connection');
       
-      if (data.connection?.connection_status === 'connected') {
-        setConnection(data.connection);
-        setStep('dashboard');
-        loadDashboardData();
-      } else if (data.connection?.connection_status === 'qr_pending') {
-        setConnection(data.connection);
-        setStep('qr');
-        fetchQR();
-      } else {
-        // Check if main WhatsApp is already connected - if so, auto-connect
-        const existingRes = await api.get('/status-bot/check-existing');
-        if (existingRes.data.exists && existingRes.data.isConnected) {
-          // Main WhatsApp is connected - auto connect to Status Bot
+      // First check if main WhatsApp is already connected
+      const existingRes = await api.get('/status-bot/check-existing');
+      
+      if (existingRes.data.exists && existingRes.data.isConnected) {
+        // Main WhatsApp is connected - check if Status Bot connection exists
+        const { data } = await api.get('/status-bot/connection');
+        
+        if (data.connection?.connection_status === 'connected') {
+          setConnection(data.connection);
+          setStep('dashboard');
+          loadDashboardData();
+        } else {
+          // Main WhatsApp connected but Status Bot not yet - auto connect
           console.log('[StatusBot] Main WhatsApp connected, auto-connecting...');
           await handleConnect();
-        } else {
-          setStep('select');
-          setExistingSession(existingRes.data);
         }
+      } else {
+        // No main WhatsApp connection - show select page
+        setStep('select');
+        setExistingSession(existingRes.data);
       }
     } catch (err) {
       console.error('Check status error:', err);
@@ -284,9 +305,13 @@ function StatusBotDashboardContent() {
       setCaption('');
       setMediaFile(null);
       setMediaInputMode('url');
+      if (recordedAudio) {
+        URL.revokeObjectURL(recordedAudio);
+        setRecordedAudio(null);
+      }
       
       loadDashboardData();
-      toast.success('הסטטוס נשלח!');
+      toast.success('הסטטוס נוסף לתור!');
     } catch (err) {
       toast.error(err.response?.data?.error || 'שגיאה בהעלאת סטטוס');
     } finally {
@@ -309,6 +334,10 @@ function StatusBotDashboardContent() {
 
   const startRecording = async () => {
     try {
+      // Clear previous recording
+      setRecordedAudio(null);
+      setMediaFile(null);
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
       const chunks = [];
@@ -323,12 +352,16 @@ function StatusBotDashboardContent() {
         const blob = new Blob(chunks, { type: 'audio/webm' });
         const file = new File([blob], 'recording.webm', { type: 'audio/webm' });
         setMediaFile(file);
+        
+        // Create URL for playback
+        const audioUrl = URL.createObjectURL(blob);
+        setRecordedAudio(audioUrl);
+        
         stream.getTracks().forEach(track => track.stop());
       };
 
       recorder.start();
       setMediaRecorder(recorder);
-      setAudioChunks(chunks);
       setIsRecording(true);
     } catch (err) {
       toast.error('לא ניתן לגשת למיקרופון');
@@ -341,6 +374,14 @@ function StatusBotDashboardContent() {
       setIsRecording(false);
       setMediaRecorder(null);
     }
+  };
+  
+  const clearRecording = () => {
+    if (recordedAudio) {
+      URL.revokeObjectURL(recordedAudio);
+    }
+    setRecordedAudio(null);
+    setMediaFile(null);
   };
 
   const handleAddNumber = async () => {
@@ -375,7 +416,11 @@ function StatusBotDashboardContent() {
     if (!confirm('האם למחוק את הסטטוס?')) return;
     try {
       await api.delete(`/status-bot/status/${statusId}`);
-      loadDashboardData();
+      // Update local state to mark as deleted instead of removing
+      setStatuses(prev => prev.map(s => 
+        s.id === statusId ? { ...s, is_deleted: true, deleted_at: new Date().toISOString() } : s
+      ));
+      toast.success('הסטטוס נמחק');
     } catch (err) {
       toast.error(err.response?.data?.error || 'שגיאה במחיקת סטטוס');
     }
@@ -385,6 +430,39 @@ function StatusBotDashboardContent() {
   const isRestricted = connection?.isRestricted;
 
   const clearError = () => setError(null);
+  
+  // Polling for real-time updates when on dashboard
+  useEffect(() => {
+    if (step !== 'dashboard') return;
+    
+    const pollInterval = setInterval(async () => {
+      try {
+        // Fetch queue and history updates
+        const [historyRes, queueRes] = await Promise.all([
+          api.get('/status-bot/history?limit=20'),
+          api.get('/status-bot/queue'),
+        ]);
+        
+        // Update statuses while preserving deleted state
+        setStatuses(prev => {
+          const newStatuses = historyRes.data.statuses || [];
+          return newStatuses.map(newStatus => {
+            const oldStatus = prev.find(s => s.id === newStatus.id);
+            if (oldStatus?.is_deleted) {
+              return { ...newStatus, is_deleted: true, deleted_at: oldStatus.deleted_at };
+            }
+            return newStatus;
+          });
+        });
+        
+        setQueue(queueRes.data.queue || []);
+      } catch (err) {
+        console.error('Polling error:', err);
+      }
+    }, 5000); // Poll every 5 seconds
+    
+    return () => clearInterval(pollInterval);
+  }, [step]);
 
   // Loading screen
   if (step === 'loading') {
@@ -394,6 +472,103 @@ function StatusBotDashboardContent() {
           <Loader2 className="w-12 h-12 text-green-500 animate-spin mx-auto mb-4" />
           <p className="text-gray-500">בודק סטטוס חיבור...</p>
         </div>
+      </div>
+    );
+  }
+
+  // No subscription - redirect to landing
+  if (step === 'no_subscription') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-emerald-50" dir="rtl">
+        <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
+          <div className="max-w-7xl mx-auto px-6 py-4">
+            <div className="flex items-center justify-between">
+              <Logo />
+              <div className="flex items-center gap-2">
+                <Link 
+                  to="/dashboard"
+                  className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-all text-sm font-medium"
+                >
+                  <Home className="w-4 h-4" />
+                  <span className="hidden sm:inline">דשבורד</span>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </header>
+        
+        <main className="max-w-4xl mx-auto px-6 py-12">
+          <div className="text-center mb-12">
+            <div className="w-24 h-24 bg-gradient-to-br from-green-500 to-emerald-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-xl">
+              <Upload className="w-12 h-12 text-white" />
+            </div>
+            <h1 className="text-4xl font-bold text-gray-900 mb-4">בוט העלאת סטטוסים</h1>
+            <p className="text-xl text-gray-500 mb-2">העלה סטטוסים בקלות מהאתר או מ-WhatsApp</p>
+            <p className="text-gray-400">ללא הגבלה, עם סטטיסטיקות מלאות</p>
+          </div>
+          
+          {/* Features */}
+          <div className="grid md:grid-cols-3 gap-6 mb-12">
+            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm text-center">
+              <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+                <Upload className="w-7 h-7 text-blue-600" />
+              </div>
+              <h3 className="font-bold text-gray-900 mb-2">העלאה מהירה</h3>
+              <p className="text-gray-500 text-sm">העלה סטטוסים ישירות מהאתר - טקסט, תמונות, סרטונים והקלטות</p>
+            </div>
+            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm text-center">
+              <div className="w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+                <MessageCircle className="w-7 h-7 text-green-600" />
+              </div>
+              <h3 className="font-bold text-gray-900 mb-2">שליחה מ-WhatsApp</h3>
+              <p className="text-gray-500 text-sm">שלח הודעה לבוט והיא תעלה כסטטוס אוטומטית</p>
+            </div>
+            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm text-center">
+              <div className="w-14 h-14 bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+                <BarChart className="w-7 h-7 text-purple-600" />
+              </div>
+              <h3 className="font-bold text-gray-900 mb-2">סטטיסטיקות</h3>
+              <p className="text-gray-500 text-sm">צפה בצפיות, לבבות ותגובות לכל סטטוס בזמן אמת</p>
+            </div>
+          </div>
+          
+          {/* Pricing */}
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-xl p-8 text-center max-w-md mx-auto">
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-green-100 text-green-700 text-sm font-medium rounded-full mb-4">
+              <Crown className="w-4 h-4" />
+              שירות פרימיום
+            </div>
+            <div className="mb-6">
+              <span className="text-5xl font-bold text-gray-900">₪250</span>
+              <span className="text-gray-500">/חודש</span>
+            </div>
+            <ul className="text-right space-y-3 mb-8">
+              <li className="flex items-center gap-3 text-gray-600">
+                <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
+                העלאת סטטוסים ללא הגבלה
+              </li>
+              <li className="flex items-center gap-3 text-gray-600">
+                <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
+                מספרים מורשים ללא הגבלה
+              </li>
+              <li className="flex items-center gap-3 text-gray-600">
+                <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
+                סטטיסטיקות מלאות בזמן אמת
+              </li>
+              <li className="flex items-center gap-3 text-gray-600">
+                <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
+                תמיכה מלאה
+              </li>
+            </ul>
+            <Link
+              to="/services/status-bot"
+              className="block w-full py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-xl hover:shadow-lg transition-all"
+            >
+              הצטרף עכשיו
+            </Link>
+            <p className="text-sm text-gray-400 mt-4">ביטול בכל עת, ללא התחייבות</p>
+          </div>
+        </main>
       </div>
     );
   }
@@ -891,17 +1066,33 @@ function StatusBotDashboardContent() {
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">הקלטת שמע</label>
                           <div className="flex flex-col items-center gap-4 py-6 border-2 border-dashed border-gray-300 rounded-xl">
-                            {mediaFile ? (
-                              <div className="text-center">
-                                <Check className="w-12 h-12 text-green-500 mx-auto mb-2" />
-                                <p className="font-medium text-gray-700">הקלטה שמורה</p>
-                                <p className="text-sm text-gray-500">{mediaFile.name}</p>
-                                <button
-                                  onClick={() => setMediaFile(null)}
-                                  className="mt-2 text-sm text-red-600 hover:underline"
-                                >
-                                  מחק והקלט שוב
-                                </button>
+                            {recordedAudio ? (
+                              <div className="text-center w-full px-4">
+                                <Check className="w-12 h-12 text-green-500 mx-auto mb-3" />
+                                <p className="font-medium text-gray-700 mb-4">הקלטה שמורה</p>
+                                
+                                {/* Audio Playback */}
+                                <audio 
+                                  controls 
+                                  src={recordedAudio}
+                                  className="w-full max-w-xs mx-auto mb-4"
+                                />
+                                
+                                <div className="flex items-center justify-center gap-3">
+                                  <button
+                                    onClick={clearRecording}
+                                    className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors"
+                                  >
+                                    מחק
+                                  </button>
+                                  <button
+                                    onClick={startRecording}
+                                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+                                  >
+                                    <Mic className="w-4 h-4" />
+                                    הקלט שוב
+                                  </button>
+                                </div>
                               </div>
                             ) : isRecording ? (
                               <div className="text-center">
@@ -934,12 +1125,12 @@ function StatusBotDashboardContent() {
                       {(statusType === 'image' || statusType === 'video') && (
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">כיתוב (אופציונלי)</label>
-                          <input
-                            type="text"
+                          <textarea
                             value={caption}
                             onChange={(e) => setCaption(e.target.value)}
-                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                            placeholder="כיתוב לסטטוס..."
+                            rows={3}
+                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
+                            placeholder="כיתוב לסטטוס... (תומך בירידות שורה)"
                           />
                         </div>
                       )}
@@ -977,8 +1168,31 @@ function StatusBotDashboardContent() {
                   </button>
 
                   {queue.length > 0 && (
-                    <div className="mt-4 p-3 bg-blue-50 rounded-xl text-blue-700 text-sm">
-                      יש {queue.length} סטטוסים בתור. הסטטוס יישלח בהקדם.
+                    <div className="mt-4 space-y-2">
+                      <p className="text-sm font-medium text-gray-700">סטטוסים בתור ({queue.length})</p>
+                      {queue.map((item, idx) => (
+                        <div key={item.id} className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl text-sm">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                            item.status === 'processing' ? 'bg-blue-200 animate-pulse' : 'bg-blue-100'
+                          }`}>
+                            {item.status === 'processing' ? (
+                              <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+                            ) : (
+                              <span className="text-blue-600 font-medium">{idx + 1}</span>
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-medium text-blue-800">
+                              {item.status_type === 'text' ? 'טקסט' : 
+                               item.status_type === 'image' ? 'תמונה' : 
+                               item.status_type === 'video' ? 'סרטון' : 'הקלטה'}
+                            </p>
+                            <p className="text-xs text-blue-600">
+                              {item.status === 'processing' ? 'שולח עכשיו...' : 'ממתין בתור'}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </>
@@ -987,27 +1201,78 @@ function StatusBotDashboardContent() {
           )}
 
           {activeTab === 'history' && (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-gray-100">
-                <h3 className="font-bold text-gray-800">היסטוריית סטטוסים</h3>
-              </div>
-              
-              {statuses.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
-                  <Upload className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>עדיין לא העלית סטטוסים</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-gray-100">
-                  {statuses.map(status => (
-                    <StatusRow 
-                      key={status.id} 
-                      status={status}
-                      onDelete={() => handleDeleteStatus(status.id)}
-                    />
-                  ))}
-                </div>
-              )}
+            <div className="space-y-6">
+              {/* Active Statuses - Last 24 Hours */}
+              {(() => {
+                const now = new Date();
+                const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                const activeStatuses = statuses.filter(s => new Date(s.sent_at) > dayAgo);
+                const olderStatuses = statuses.filter(s => new Date(s.sent_at) <= dayAgo);
+                
+                return (
+                  <>
+                    {/* Active Statuses Section */}
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                      <div className="p-4 border-b border-gray-100 bg-green-50">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                          <h3 className="font-bold text-gray-800">סטטוסים פעילים</h3>
+                          <span className="text-sm text-gray-500">(24 שעות אחרונות)</span>
+                        </div>
+                      </div>
+                      
+                      {activeStatuses.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          <Upload className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                          <p className="text-sm">אין סטטוסים פעילים כרגע</p>
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-gray-100">
+                          {activeStatuses.map(status => (
+                            <StatusRow 
+                              key={status.id} 
+                              status={status}
+                              onDelete={() => handleDeleteStatus(status.id)}
+                              isActive={true}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Older Statuses Section */}
+                    {olderStatuses.length > 0 && (
+                      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                        <div className="p-4 border-b border-gray-100">
+                          <div className="flex items-center gap-2">
+                            <History className="w-4 h-4 text-gray-400" />
+                            <h3 className="font-bold text-gray-800">היסטוריה</h3>
+                          </div>
+                        </div>
+                        
+                        <div className="divide-y divide-gray-100">
+                          {olderStatuses.map(status => (
+                            <StatusRow 
+                              key={status.id} 
+                              status={status}
+                              onDelete={() => handleDeleteStatus(status.id)}
+                              isActive={false}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Empty State */}
+                    {statuses.length === 0 && (
+                      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center text-gray-500">
+                        <Upload className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                        <p>עדיין לא העלית סטטוסים</p>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
 
@@ -1185,7 +1450,7 @@ function TypeButton({ active, onClick, icon: Icon, label }) {
   );
 }
 
-function StatusRow({ status, onDelete }) {
+function StatusRow({ status, onDelete, isActive }) {
   const typeIcons = {
     text: Type,
     image: Image,
@@ -1193,43 +1458,90 @@ function StatusRow({ status, onDelete }) {
     voice: Mic,
   };
   const Icon = typeIcons[status.status_type] || Type;
+  const isDeleted = status.is_deleted;
+  
+  // Get status label
+  const getStatusLabel = () => {
+    if (isDeleted) return { text: 'נמחק', color: 'text-gray-400' };
+    if (status.queue_status === 'pending') return { text: 'ממתין בתור', color: 'text-yellow-600' };
+    if (status.queue_status === 'processing') return { text: 'שולח...', color: 'text-blue-600' };
+    if (status.queue_status === 'sent') return { text: 'נשלח', color: 'text-green-600' };
+    if (status.queue_status === 'failed') return { text: 'נכשל', color: 'text-red-600' };
+    return null;
+  };
+  
+  const statusLabel = getStatusLabel();
 
   return (
-    <div className="p-4 flex items-center justify-between hover:bg-gray-50">
+    <div className={`p-4 flex items-center justify-between ${isDeleted ? 'opacity-50 bg-gray-50' : 'hover:bg-gray-50'}`}>
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
-          <Icon className="w-5 h-5 text-gray-600" />
+        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+          isDeleted ? 'bg-gray-200' : isActive ? 'bg-green-100' : 'bg-gray-100'
+        }`}>
+          <Icon className={`w-5 h-5 ${isDeleted ? 'text-gray-400' : isActive ? 'text-green-600' : 'text-gray-600'}`} />
         </div>
         <div>
-          <p className="font-medium text-gray-800">
-            {status.status_type === 'text' 
-              ? (status.content?.text?.substring(0, 50) + '...' || 'סטטוס טקסט')
-              : `סטטוס ${status.status_type}`
-            }
-          </p>
+          <div className="flex items-center gap-2">
+            <p className={`font-medium ${isDeleted ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+              {status.status_type === 'text' 
+                ? (status.content?.text?.substring(0, 40) || 'סטטוס טקסט') + (status.content?.text?.length > 40 ? '...' : '')
+                : `סטטוס ${status.status_type === 'image' ? 'תמונה' : status.status_type === 'video' ? 'סרטון' : status.status_type === 'voice' ? 'קול' : status.status_type}`
+              }
+            </p>
+            {statusLabel && (
+              <span className={`text-xs px-2 py-0.5 rounded-full ${statusLabel.color} ${
+                status.queue_status === 'pending' ? 'bg-yellow-50' :
+                status.queue_status === 'processing' ? 'bg-blue-50 animate-pulse' :
+                status.queue_status === 'sent' ? 'bg-green-50' :
+                status.queue_status === 'failed' ? 'bg-red-50' :
+                isDeleted ? 'bg-gray-100' : ''
+              }`}>
+                {statusLabel.text}
+              </span>
+            )}
+          </div>
           <p className="text-sm text-gray-500">
-            {new Date(status.sent_at).toLocaleString('he-IL')}
+            {new Date(status.sent_at || status.created_at).toLocaleString('he-IL')}
           </p>
         </div>
       </div>
       
       <div className="flex items-center gap-4">
-        <div className="flex items-center gap-3 text-sm text-gray-500">
-          <span className="flex items-center gap-1">
-            <Eye className="w-4 h-4" />
-            {status.view_count || 0}
+        {/* Stats - Only show if not deleted and has been sent */}
+        {!isDeleted && status.queue_status !== 'pending' && status.queue_status !== 'processing' && (
+          <div className="flex items-center gap-3 text-sm text-gray-500">
+            <span className="flex items-center gap-1" title="צפיות">
+              <Eye className="w-4 h-4" />
+              {status.view_count || 0}
+            </span>
+            <span className="flex items-center gap-1" title="לבבות">
+              <Heart className="w-4 h-4 text-red-400" />
+              {status.reaction_count || 0}
+            </span>
+            <span className="flex items-center gap-1" title="תגובות">
+              <MessageCircle className="w-4 h-4 text-blue-400" />
+              {status.reply_count || 0}
+            </span>
+          </div>
+        )}
+        
+        {/* Delete button - only if not deleted and active */}
+        {!isDeleted && isActive && (
+          <button
+            onClick={onDelete}
+            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+            title="מחק סטטוס"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
+        
+        {/* Deleted indicator */}
+        {isDeleted && (
+          <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
+            נמחק {status.deleted_at && new Date(status.deleted_at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
           </span>
-          <span className="flex items-center gap-1">
-            <Heart className="w-4 h-4" />
-            {status.reaction_count || 0}
-          </span>
-        </div>
-        <button
-          onClick={onDelete}
-          className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
+        )}
       </div>
     </div>
   );
