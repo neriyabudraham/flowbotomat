@@ -177,6 +177,12 @@ async function sendStatus(queueItem) {
   const sessionName = queueItem.session_name;
   const content = queueItem.content;
 
+  // Validate session name format
+  if (!sessionName || !sessionName.startsWith('session_')) {
+    console.error(`[StatusBot Queue] Invalid session name: ${sessionName} - should start with 'session_'`);
+    throw new Error(`Invalid session name: ${sessionName}. Please reconnect WhatsApp.`);
+  }
+
   // First, get a new message ID
   let messageId = queueItem.status_message_id;
   
