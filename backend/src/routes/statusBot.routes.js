@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const authMiddleware = require('../middlewares/auth.middleware');
 const { adminMiddleware, superadminMiddleware } = require('../middlewares/admin.middleware');
 const statusBotController = require('../controllers/statusBot/statusBot.controller');
+const settingsController = require('../controllers/admin/settings.controller');
 
 // Configure multer for status bot uploads
 const uploadsDir = path.join(__dirname, '../../uploads/status-bot');
@@ -43,11 +44,14 @@ const statusUpload = multer({
 }).single('file');
 
 // ============================================
-// PUBLIC WEBHOOK (no auth)
+// PUBLIC ROUTES (no auth)
 // ============================================
 
 // WAHA webhook endpoint
 router.post('/webhook/:userId', statusBotController.handleWebhook);
+
+// Get available status colors (public)
+router.get('/colors', settingsController.getStatusBotColors);
 
 // ============================================
 // USER ROUTES (auth required)

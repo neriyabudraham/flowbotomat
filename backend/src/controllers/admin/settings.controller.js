@@ -1,5 +1,57 @@
 const db = require('../../config/database');
 
+// Default status bot colors
+const DEFAULT_STATUS_BOT_COLORS = [
+  { id: '38b42f', title: 'ירוק וואטסאפ' },
+  { id: '0088cc', title: 'כחול' },
+  { id: '8e44ad', title: 'סגול' },
+  { id: 'e74c3c', title: 'אדום' },
+  { id: 'f39c12', title: 'כתום' },
+  { id: '2c3e50', title: 'כחול כהה' },
+  { id: '782138', title: 'בורדו' },
+  { id: '6e267d', title: 'סגול כהה' },
+  { id: '8d698f', title: 'סגול לילך' },
+  { id: 'c79ecc', title: 'סגול בהיר' },
+  { id: '8294c9', title: 'כחול אפרפר' },
+  { id: '7d8fa3', title: 'אפור' },
+  { id: '243740', title: 'תורכיז כהה' },
+  { id: 'ad8673', title: 'חום' },
+  { id: '73666b', title: 'חום-סגול' },
+  { id: '7acca7', title: 'ירוק בהיר' },
+];
+
+/**
+ * Get status bot colors (public endpoint)
+ */
+async function getStatusBotColors(req, res) {
+  try {
+    const result = await db.query(
+      "SELECT value FROM system_settings WHERE key = 'status_bot_colors'"
+    );
+    
+    let colors = DEFAULT_STATUS_BOT_COLORS;
+    
+    if (result.rows.length > 0 && result.rows[0].value) {
+      try {
+        const parsed = typeof result.rows[0].value === 'string' 
+          ? JSON.parse(result.rows[0].value) 
+          : result.rows[0].value;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          colors = parsed;
+        }
+      } catch (e) {
+        console.error('[Settings] Failed to parse status_bot_colors:', e);
+      }
+    }
+    
+    res.json({ colors });
+  } catch (error) {
+    console.error('[Settings] Get status bot colors error:', error);
+    // Return defaults on error
+    res.json({ colors: DEFAULT_STATUS_BOT_COLORS });
+  }
+}
+
 /**
  * Get all system settings
  */
@@ -109,4 +161,4 @@ async function getLogs(req, res) {
   }
 }
 
-module.exports = { getSettings, updateSetting, getLogs };
+module.exports = { getSettings, updateSetting, getLogs, getStatusBotColors };

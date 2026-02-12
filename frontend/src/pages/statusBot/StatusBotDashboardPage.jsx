@@ -91,6 +91,16 @@ function StatusBotDashboardContent() {
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const [recordedAudio, setRecordedAudio] = useState(null); // For playback
   
+  // Available colors (loaded from settings)
+  const [availableColors, setAvailableColors] = useState([
+    { id: '38b42f', title: 'ירוק וואטסאפ' },
+    { id: '0088cc', title: 'כחול' },
+    { id: '8e44ad', title: 'סגול' },
+    { id: 'e74c3c', title: 'אדום' },
+    { id: 'f39c12', title: 'כתום' },
+    { id: '2c3e50', title: 'כחול כהה' },
+  ]);
+  
   // Add number modal
   const [showAddNumber, setShowAddNumber] = useState(false);
   const [newNumber, setNewNumber] = useState('');
@@ -130,7 +140,22 @@ function StatusBotDashboardContent() {
     
     fetchMe();
     checkSubscriptionFirst();
+    loadAvailableColors();
   }, []);
+  
+  // Load available colors from settings
+  const loadAvailableColors = async () => {
+    try {
+      const { data } = await api.get('/status-bot/colors');
+      if (data.colors && data.colors.length > 0) {
+        setAvailableColors(data.colors);
+        // Set default color to first available
+        setBackgroundColor('#' + data.colors[0].id);
+      }
+    } catch (err) {
+      console.log('Failed to load colors, using defaults');
+    }
+  };
   
   // First check if user has an active subscription
   const checkSubscriptionFirst = async () => {
@@ -1159,15 +1184,19 @@ function StatusBotDashboardContent() {
                             onChange={(e) => setBackgroundColor(e.target.value)}
                             className="w-12 h-12 rounded-xl cursor-pointer border-2 border-gray-200"
                           />
-                          <div className="flex gap-2">
-                            {['#38b42f', '#0088cc', '#8e44ad', '#e74c3c', '#f39c12', '#2c3e50'].map(color => (
-                              <button
-                                key={color}
-                                onClick={() => setBackgroundColor(color)}
-                                className={`w-8 h-8 rounded-lg ${backgroundColor === color ? 'ring-2 ring-offset-2 ring-gray-400' : ''}`}
-                                style={{ backgroundColor: color }}
-                              />
-                            ))}
+                          <div className="flex gap-2 flex-wrap">
+                            {availableColors.map(colorObj => {
+                              const color = '#' + colorObj.id;
+                              return (
+                                <button
+                                  key={colorObj.id}
+                                  onClick={() => setBackgroundColor(color)}
+                                  title={colorObj.title}
+                                  className={`w-8 h-8 rounded-lg ${backgroundColor === color ? 'ring-2 ring-offset-2 ring-gray-400' : ''}`}
+                                  style={{ backgroundColor: color }}
+                                />
+                              );
+                            })}
                           </div>
                         </div>
                       </div>
