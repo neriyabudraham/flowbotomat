@@ -658,7 +658,7 @@ export default function DashboardPage() {
               title="העלאת סטטוסים"
               description="סטטוסים אוטומטיים"
               gradient="from-green-500 to-emerald-600"
-              badge="בתשלום נפרד"
+              badge="פרימיום"
               badgeColor="teal"
             />
           </div>

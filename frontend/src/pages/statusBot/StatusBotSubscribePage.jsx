@@ -423,6 +423,19 @@ export default function StatusBotSubscribePage() {
                     </div>
                   </div>
                   
+                  {/* Trial Info in Card Form */}
+                  {service?.trial_days > 0 && (
+                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                      <div className="flex items-center gap-2 text-blue-700 font-medium mb-1">
+                        <span>🎁</span>
+                        <span>{service.trial_days} ימי ניסיון חינם!</span>
+                      </div>
+                      <p className="text-sm text-blue-600">
+                        שמירת הכרטיס מאפשרת לנו לחייב אחרי תקופת הניסיון. החיוב הראשון יתבצע בתאריך {new Date(Date.now() + service.trial_days * 24 * 60 * 60 * 1000).toLocaleDateString('he-IL')}
+                      </p>
+                    </div>
+                  )}
+                  
                   <button
                     onClick={handleSaveCard}
                     disabled={savingCard}
@@ -432,6 +445,11 @@ export default function StatusBotSubscribePage() {
                       <>
                         <Loader className="w-5 h-5 animate-spin" />
                         שומר...
+                      </>
+                    ) : service?.trial_days > 0 ? (
+                      <>
+                        <Check className="w-5 h-5" />
+                        שמור והתחל ניסיון חינם
                       </>
                     ) : (
                       <>
@@ -476,6 +494,19 @@ export default function StatusBotSubscribePage() {
                     </div>
                   )}
 
+                  {/* Trial Info */}
+                  {service?.trial_days > 0 && (
+                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                      <div className="flex items-center gap-2 text-blue-700 font-medium mb-1">
+                        <span>🎁</span>
+                        <span>{service.trial_days} ימי ניסיון חינם!</span>
+                      </div>
+                      <p className="text-sm text-blue-600">
+                        החיוב הראשון יתבצע רק בתאריך {new Date(Date.now() + service.trial_days * 24 * 60 * 60 * 1000).toLocaleDateString('he-IL')}
+                      </p>
+                    </div>
+                  )}
+
                   {/* Subscribe Button */}
                   <button
                     onClick={handleSubscribe}
@@ -485,7 +516,12 @@ export default function StatusBotSubscribePage() {
                     {subscribing ? (
                       <>
                         <Loader className="w-5 h-5 animate-spin" />
-                        מעבד תשלום...
+                        {service?.trial_days > 0 ? 'יוצר מנוי...' : 'מעבד תשלום...'}
+                      </>
+                    ) : service?.trial_days > 0 ? (
+                      <>
+                        <Check className="w-5 h-5" />
+                        התחל ניסיון חינם
                       </>
                     ) : (
                       <>
