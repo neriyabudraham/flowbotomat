@@ -26,6 +26,10 @@ export default function StatusBotSubscribePage() {
   const [billingPeriod, setBillingPeriod] = useState('monthly');
   const [error, setError] = useState(null);
   
+  // Existing subscription state (for renewals)
+  const [existingSubscription, setExistingSubscription] = useState(null);
+  const [renewalMode, setRenewalMode] = useState(false);
+  
   // Payment method state
   const [paymentMethod, setPaymentMethod] = useState(null);
   const [showCardForm, setShowCardForm] = useState(false);
@@ -55,8 +59,17 @@ export default function StatusBotSubscribePage() {
     try {
       // Check if already subscribed
       const { data: accessData } = await api.get('/services/access/status-bot');
-      // Only redirect if has access AND not cancelled (cancelled users can renew)
-      if (accessData.hasAccess && !accessData.isCancelled && accessData.subscription?.status !== 'cancelled') {
+      
+      // If cancelled - allow renewal
+      if (accessData.isCancelled || accessData.subscription?.status === 'cancelled') {
+        setExistingSubscription(accessData.subscription);
+        setRenewalMode(true);
+        // Set billing period to match existing
+        if (accessData.subscription?.billing_period) {
+          setBillingPeriod(accessData.subscription.billing_period);
+        }
+      } else if (accessData.hasAccess) {
+        // Active subscription - redirect to dashboard
         navigate('/status-bot/dashboard');
         return;
       }
@@ -163,8 +176,43 @@ export default function StatusBotSubscribePage() {
     }
   };
 
+  const handleRenewal = async () => {
+    if (!existingSubscription) return;
+    
+    // If no payment method, show card form
+    if (!paymentMethod) {
+      setShowCardForm(true);
+      return;
+    }
+    
+    setSubscribing(true);
+    setError(null);
+    
+    try {
+      const { data } = await api.post('/payment/reactivate');
+
+      if (data.success) {
+        navigate('/status-bot/dashboard');
+      }
+    } catch (err) {
+      if (err.response?.data?.needsPaymentMethod) {
+        setShowCardForm(true);
+        setPaymentMethod(null);
+      } else {
+        setError(err.response?.data?.error || 'שגיאה בחידוש המנוי');
+      }
+    } finally {
+      setSubscribing(false);
+    }
+  };
+
   const handleSubscribe = async () => {
     if (!service) return;
+    
+    // If renewal mode, use renewal handler
+    if (renewalMode && existingSubscription) {
+      return handleRenewal();
+    }
     
     // If no payment method, show card form
     if (!paymentMethod) {
@@ -424,8 +472,25 @@ export default function StatusBotSubscribePage() {
                     </div>
                   </div>
                   
-                  {/* Trial Info in Card Form */}
-                  {service?.trial_days > 0 && (
+                  {/* Renewal Info in Card Form */}
+                  {renewalMode && existingSubscription && (
+                    <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+                      <div className="flex items-center gap-2 text-green-700 font-medium mb-1">
+                        <Check className="w-5 h-5" />
+                        <span>חידוש מנוי</span>
+                      </div>
+                      <p className="text-sm text-green-600">
+                        {existingSubscription.status === 'trial' ? (
+                          <>המנוי יחודש והתשלום יתבצע בתום תקופת הניסיון</>
+                        ) : (
+                          <>המנוי יחודש באופן מיידי</>
+                        )}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Trial Info in Card Form - only for new subscriptions */}
+                  {!renewalMode && service?.trial_days > 0 && (
                     <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
                       <div className="flex items-center gap-2 text-blue-700 font-medium mb-1">
                         <span>🎁</span>
@@ -495,8 +560,25 @@ export default function StatusBotSubscribePage() {
                     </div>
                   )}
 
-                  {/* Trial Info */}
-                  {service?.trial_days > 0 && (
+                  {/* Renewal Info */}
+                  {renewalMode && existingSubscription && (
+                    <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+                      <div className="flex items-center gap-2 text-green-700 font-medium mb-1">
+                        <Check className="w-5 h-5" />
+                        <span>חידוש מנוי</span>
+                      </div>
+                      <p className="text-sm text-green-600">
+                        {existingSubscription.status === 'trial' ? (
+                          <>המנוי יחודש והתשלום יתבצע בתום תקופת הניסיון ({new Date(existingSubscription.trial_ends_at || existingSubscription.current_period_end).toLocaleDateString('he-IL')})</>
+                        ) : (
+                          <>המנוי יחודש באופן מיידי</>
+                        )}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Trial Info - only for new subscriptions */}
+                  {!renewalMode && service?.trial_days > 0 && (
                     <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
                       <div className="flex items-center gap-2 text-blue-700 font-medium mb-1">
                         <span>🎁</span>
@@ -508,7 +590,7 @@ export default function StatusBotSubscribePage() {
                     </div>
                   )}
 
-                  {/* Subscribe Button */}
+                  {/* Subscribe/Renew Button */}
                   <button
                     onClick={handleSubscribe}
                     disabled={subscribing}
@@ -517,7 +599,12 @@ export default function StatusBotSubscribePage() {
                     {subscribing ? (
                       <>
                         <Loader className="w-5 h-5 animate-spin" />
-                        {service?.trial_days > 0 ? 'יוצר מנוי...' : 'מעבד תשלום...'}
+                        {renewalMode ? 'מחדש מנוי...' : (service?.trial_days > 0 ? 'יוצר מנוי...' : 'מעבד תשלום...')}
+                      </>
+                    ) : renewalMode ? (
+                      <>
+                        <Check className="w-5 h-5" />
+                        חדש מנוי
                       </>
                     ) : service?.trial_days > 0 ? (
                       <>

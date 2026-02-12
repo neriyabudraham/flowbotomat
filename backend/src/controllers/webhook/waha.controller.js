@@ -1072,8 +1072,64 @@ async function handleMessageAck(userId, event) {
         } catch (err) {
           console.error('[Webhook] Status view trigger error:', err.message);
         }
+        
+        // Sync view to status_bot_statuses table
+        await syncStatusBotView(userId, statusMsgId, phone);
       }
     }
+  }
+}
+
+/**
+ * Sync status view to status_bot_views table
+ */
+async function syncStatusBotView(userId, waMessageId, viewerPhone) {
+  try {
+    if (!waMessageId || !viewerPhone || viewerPhone === 'status') return;
+    
+    // Try to find matching status in status_bot_statuses
+    // Match by waha_message_id (try exact and partial match)
+    let statusResult = await pool.query(`
+      SELECT sbs.id FROM status_bot_statuses sbs
+      JOIN status_bot_connections sbc ON sbs.connection_id = sbc.id
+      WHERE sbc.user_id = $1 AND sbs.waha_message_id = $2
+    `, [userId, waMessageId]);
+    
+    // If not found, try partial match (extract hex ID)
+    if (statusResult.rows.length === 0 && waMessageId.includes('_')) {
+      const parts = waMessageId.split('_');
+      const hexId = parts[parts.length - 1]?.split('@')[0] || parts[parts.length - 1];
+      if (hexId) {
+        statusResult = await pool.query(`
+          SELECT sbs.id FROM status_bot_statuses sbs
+          JOIN status_bot_connections sbc ON sbs.connection_id = sbc.id
+          WHERE sbc.user_id = $1 AND sbs.waha_message_id LIKE $2
+        `, [userId, `%${hexId}%`]);
+      }
+    }
+    
+    if (statusResult.rows.length === 0) return;
+    
+    const statusId = statusResult.rows[0].id;
+    
+    // Insert view (ignore duplicates)
+    await pool.query(`
+      INSERT INTO status_bot_views (status_id, viewer_phone)
+      VALUES ($1, $2)
+      ON CONFLICT (status_id, viewer_phone) DO NOTHING
+    `, [statusId, viewerPhone]);
+    
+    // Update view count
+    await pool.query(`
+      UPDATE status_bot_statuses 
+      SET view_count = (SELECT COUNT(*) FROM status_bot_views WHERE status_id = $1)
+      WHERE id = $1
+    `, [statusId]);
+    
+    console.log(`[Webhook] ✅ Synced view to status_bot: status ${statusId}, viewer ${viewerPhone}`);
+  } catch (err) {
+    // Silently fail - this is optional sync
+    console.log(`[Webhook] Status bot view sync failed:`, err.message);
   }
 }
 
@@ -1143,10 +1199,66 @@ async function handleMessageReaction(userId, event) {
         messageId: reactionMsgId,
         fromMe: payload.fromMe
       });
+      
+      // Sync reaction to status_bot_reactions table
+      await syncStatusBotReaction(userId, reactionMsgId, reactorPhone, reactionText);
     }
     // Non-status reactions can be handled here in the future
   } catch (error) {
     console.error('[Webhook] Reaction handler error:', error.message);
+  }
+}
+
+/**
+ * Sync status reaction to status_bot_reactions table
+ */
+async function syncStatusBotReaction(userId, waMessageId, reactorPhone, reactionText) {
+  try {
+    if (!waMessageId || !reactorPhone || reactorPhone === 'status') return;
+    
+    // Try to find matching status in status_bot_statuses
+    let statusResult = await pool.query(`
+      SELECT sbs.id FROM status_bot_statuses sbs
+      JOIN status_bot_connections sbc ON sbs.connection_id = sbc.id
+      WHERE sbc.user_id = $1 AND sbs.waha_message_id = $2
+    `, [userId, waMessageId]);
+    
+    // If not found, try partial match (extract hex ID)
+    if (statusResult.rows.length === 0 && waMessageId.includes('_')) {
+      const parts = waMessageId.split('_');
+      const hexId = parts[parts.length - 1]?.split('@')[0] || parts[parts.length - 1];
+      if (hexId) {
+        statusResult = await pool.query(`
+          SELECT sbs.id FROM status_bot_statuses sbs
+          JOIN status_bot_connections sbc ON sbs.connection_id = sbc.id
+          WHERE sbc.user_id = $1 AND sbs.waha_message_id LIKE $2
+        `, [userId, `%${hexId}%`]);
+      }
+    }
+    
+    if (statusResult.rows.length === 0) return;
+    
+    const statusId = statusResult.rows[0].id;
+    
+    // Insert/update reaction
+    await pool.query(`
+      INSERT INTO status_bot_reactions (status_id, reactor_phone, reaction)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (status_id, reactor_phone) 
+      DO UPDATE SET reaction = $3, reacted_at = NOW()
+    `, [statusId, reactorPhone, reactionText || '❤️']);
+    
+    // Update reaction count
+    await pool.query(`
+      UPDATE status_bot_statuses 
+      SET reaction_count = (SELECT COUNT(*) FROM status_bot_reactions WHERE status_id = $1)
+      WHERE id = $1
+    `, [statusId]);
+    
+    console.log(`[Webhook] ✅ Synced reaction to status_bot: status ${statusId}, reactor ${reactorPhone}, reaction ${reactionText}`);
+  } catch (err) {
+    // Silently fail - this is optional sync
+    console.log(`[Webhook] Status bot reaction sync failed:`, err.message);
   }
 }
 

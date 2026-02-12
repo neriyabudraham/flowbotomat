@@ -554,9 +554,15 @@ function StatusBotDashboardContent() {
         setRestrictionCountdown(null);
       }
       
-      // Subscription expiry countdown (when cancelled but still in period)
-      if (subscription?.status === 'cancelled' && subscription?.expiresAt) {
-        const end = new Date(subscription.expiresAt);
+      // Subscription expiry countdown (for cancelled or trial subscriptions)
+      const endDate = subscription?.status === 'trial' 
+        ? (subscription?.trial_ends_at || subscription?.current_period_end)
+        : subscription?.status === 'cancelled' 
+          ? subscription?.expiresAt 
+          : null;
+          
+      if ((subscription?.status === 'cancelled' || subscription?.status === 'trial') && endDate) {
+        const end = new Date(endDate);
         const now = new Date();
         const diff = end - now;
         
@@ -568,7 +574,9 @@ function StatusBotDashboardContent() {
         } else {
           setSubscriptionCountdown(null);
           // Subscription ended - check access again
-          checkSubscriptionFirst();
+          if (subscription?.status === 'cancelled') {
+            checkSubscriptionFirst();
+          }
         }
       } else {
         setSubscriptionCountdown(null);
@@ -942,6 +950,27 @@ function StatusBotDashboardContent() {
       {/* Dashboard (when connected) */}
       {step === 'dashboard' && (
         <main className="max-w-7xl mx-auto px-6 py-8">
+          {/* Trial Period Banner */}
+          {subscription?.status === 'trial' && subscriptionCountdown && (
+            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-2xl flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Clock className="w-6 h-6 text-blue-600 flex-shrink-0" />
+                <div>
+                  <p className="font-medium text-blue-800">🎁 תקופת ניסיון פעילה</p>
+                  <p className="text-sm text-blue-600">
+                    תקופת הניסיון מסתיימת בעוד: 
+                    <span className="font-bold mr-2 tabular-nums">
+                      {subscriptionCountdown.days > 0 && `${subscriptionCountdown.days} ימים `}
+                      {subscriptionCountdown.hours} שעות {subscriptionCountdown.minutes} דקות
+                    </span>
+                    {' • '}
+                    <span>החיוב יתבצע בתאריך {new Date(subscription.trial_ends_at || subscription.current_period_end).toLocaleDateString('he-IL')}</span>
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Subscription Expiry Banner (when cancelled but still in period) */}
           {subscription?.status === 'cancelled' && subscriptionCountdown && (
             <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-2xl flex items-center justify-between">
