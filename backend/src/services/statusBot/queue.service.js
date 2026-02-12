@@ -177,10 +177,8 @@ async function sendStatus(queueItem) {
   const sessionName = queueItem.session_name;
   const content = queueItem.content;
 
-  // Validate session name format
-  if (!sessionName || !sessionName.startsWith('session_')) {
-    console.error(`[StatusBot Queue] Invalid session name: ${sessionName} - should start with 'session_'`);
-    throw new Error(`Invalid session name: ${sessionName}. Please reconnect WhatsApp.`);
+  if (!sessionName) {
+    throw new Error('Missing session name');
   }
 
   // First, get a new message ID
@@ -270,6 +268,8 @@ async function sendStatus(queueItem) {
   const sendPromise = wahaSession.makeRequest(baseUrl, apiKey, 'POST', endpoint, body);
 
   const response = await Promise.race([sendPromise, timeoutPromise]);
+  
+  console.log(`[StatusBot Queue] WAHA Response:`, JSON.stringify(response, null, 2));
 
   // Save to history
   await db.query(`
