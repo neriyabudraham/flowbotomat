@@ -24,6 +24,7 @@ import ApiPage from './pages/ApiPage';
 import AffiliateTermsPage from './pages/AffiliateTermsPage';
 import GroupForwardsPage from './pages/GroupForwardsPage';
 import BroadcastsPage from './pages/BroadcastsPage';
+import ServicesPage from './pages/ServicesPage';
 import SystemAlertOverlay from './components/notifications/SystemAlertOverlay';
 import SocketProvider from './components/providers/SocketProvider';
 import useThemeStore from './store/themeStore';
@@ -147,6 +148,7 @@ function App() {
           <Route path="/bots/:botId" element={<BotEditorPage />} />
           <Route path="/group-forwards" element={<GroupForwardsPage />} />
           <Route path="/broadcasts" element={<BroadcastsPage />} />
+          <Route path="/services" element={<ServicesPage />} />
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />

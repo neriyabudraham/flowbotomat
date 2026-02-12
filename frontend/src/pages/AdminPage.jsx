@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2, Bell
+  Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2, Bell, Package
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 
@@ -15,11 +15,13 @@ import AdminSubscriptions from '../components/admin/AdminSubscriptions';
 import AdminTemplates from '../components/admin/AdminTemplates';
 import AdminAffiliate from '../components/admin/AdminAffiliate';
 import AdminNotifications from '../components/admin/AdminNotifications';
+import AdminServices from '../components/admin/AdminServices';
 
 const TABS = [
   { id: 'dashboard', label: 'דשבורד', icon: BarChart3 },
   { id: 'users', label: 'משתמשים', icon: Users },
   { id: 'subscriptions', label: 'תמחור', icon: CreditCard },
+  { id: 'services', label: 'שירותים נוספים', icon: Package },
   { id: 'affiliate', label: 'תוכנית שותפים', icon: Share2 },
   { id: 'notifications', label: 'התראות', icon: Bell },
   { id: 'templates', label: 'תבניות', icon: Grid },
@@ -75,6 +77,8 @@ export default function AdminPage() {
         return <AdminUsers />;
       case 'subscriptions':
         return <AdminSubscriptions />;
+      case 'services':
+        return <AdminServices />;
       case 'affiliate':
         return <AdminAffiliate />;
       case 'notifications':

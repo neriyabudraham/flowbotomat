@@ -453,7 +453,7 @@ async function executeSendStep(sendStep, campaign) {
           // For dynamic audiences, use the filter service
           if (!audience.is_static && audience.filters) {
             try {
-              const { getAudienceContacts } = require('../../services/broadcasts/audienceFilter.service');
+              const { getAudienceContacts } = require('./audienceFilter.service');
               const dynamicContacts = await getAudienceContacts(campaign.user_id, audience);
               recipients = dynamicContacts.map(c => ({
                 id: c.id,

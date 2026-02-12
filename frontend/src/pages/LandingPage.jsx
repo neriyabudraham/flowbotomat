@@ -567,6 +567,7 @@ export default function LandingPage() {
             </div>
             <div className="flex items-center gap-8 text-sm">
               <Link to="/pricing" className="text-gray-400 hover:text-white transition-colors">תמחור</Link>
+              <Link to="/services" className="text-gray-400 hover:text-white transition-colors">שירותים נוספים</Link>
               <Link to="/privacy" className="text-gray-400 hover:text-white transition-colors">מדיניות פרטיות</Link>
               <Link to="/login" className="text-gray-400 hover:text-white transition-colors">התחברות</Link>
             </div>

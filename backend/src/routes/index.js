@@ -26,6 +26,7 @@ const groupForwardsRoutes = require('./groupForwards.routes');
 const broadcastsRoutes = require('./broadcasts.routes');
 const googleSheetsRoutes = require('./googleSheets.routes');
 const googleContactsRoutes = require('./googleContacts.routes');
+const servicesRoutes = require('./services.routes');
 
 // Mount routes
 router.use('/auth', authRoutes);
@@ -51,6 +52,7 @@ router.use('/group-forwards', groupForwardsRoutes);
 router.use('/broadcasts', broadcastsRoutes);
 router.use('/google-sheets', googleSheetsRoutes);
 router.use('/google-contacts', googleContactsRoutes);
+router.use('/services', servicesRoutes);
 
 // Public API (v1)
 router.use('/v1', publicApiRoutes);
