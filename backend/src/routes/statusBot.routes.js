@@ -50,9 +50,6 @@ const statusUpload = multer({
 // WAHA webhook endpoint
 router.post('/webhook/:userId', statusBotController.handleWebhook);
 
-// Get available status colors (public)
-router.get('/colors', settingsController.getStatusBotColors);
-
 // ============================================
 // USER ROUTES (auth required)
 // ============================================
@@ -82,6 +79,11 @@ router.get('/history/:statusId', authMiddleware, statusBotController.getStatusDe
 
 // Queue
 router.get('/queue', authMiddleware, statusBotController.getQueueStatus);
+
+// User colors management
+router.get('/colors', authMiddleware, settingsController.getStatusBotColors);
+router.put('/colors', authMiddleware, settingsController.updateStatusBotColors);
+router.delete('/colors', authMiddleware, settingsController.resetStatusBotColors);
 
 // ============================================
 // ADMIN ROUTES

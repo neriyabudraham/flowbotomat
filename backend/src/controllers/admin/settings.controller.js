@@ -1,13 +1,7 @@
 const db = require('../../config/database');
 
-// Default status bot colors
+// Default status bot colors (user's specified colors)
 const DEFAULT_STATUS_BOT_COLORS = [
-  { id: '38b42f', title: 'ירוק וואטסאפ' },
-  { id: '0088cc', title: 'כחול' },
-  { id: '8e44ad', title: 'סגול' },
-  { id: 'e74c3c', title: 'אדום' },
-  { id: 'f39c12', title: 'כתום' },
-  { id: '2c3e50', title: 'כחול כהה' },
   { id: '782138', title: 'בורדו' },
   { id: '6e267d', title: 'סגול כהה' },
   { id: '8d698f', title: 'סגול לילך' },
@@ -21,34 +15,102 @@ const DEFAULT_STATUS_BOT_COLORS = [
 ];
 
 /**
- * Get status bot colors (public endpoint)
+ * Get status bot colors for a user (requires auth)
  */
 async function getStatusBotColors(req, res) {
   try {
-    const result = await db.query(
-      "SELECT value FROM system_settings WHERE key = 'status_bot_colors'"
-    );
+    const userId = req.user?.id;
     
-    let colors = DEFAULT_STATUS_BOT_COLORS;
-    
-    if (result.rows.length > 0 && result.rows[0].value) {
-      try {
-        const parsed = typeof result.rows[0].value === 'string' 
-          ? JSON.parse(result.rows[0].value) 
-          : result.rows[0].value;
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          colors = parsed;
+    // If authenticated, try to get user-specific colors from connection
+    if (userId) {
+      const connResult = await db.query(
+        "SELECT custom_colors FROM status_bot_connections WHERE user_id = $1",
+        [userId]
+      );
+      
+      if (connResult.rows.length > 0 && connResult.rows[0].custom_colors) {
+        try {
+          const parsed = typeof connResult.rows[0].custom_colors === 'string' 
+            ? JSON.parse(connResult.rows[0].custom_colors) 
+            : connResult.rows[0].custom_colors;
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return res.json({ colors: parsed, isCustom: true });
+          }
+        } catch (e) {
+          console.error('[Settings] Failed to parse user colors:', e);
         }
-      } catch (e) {
-        console.error('[Settings] Failed to parse status_bot_colors:', e);
       }
     }
     
-    res.json({ colors });
+    // Return defaults
+    res.json({ colors: DEFAULT_STATUS_BOT_COLORS, isCustom: false });
   } catch (error) {
     console.error('[Settings] Get status bot colors error:', error);
-    // Return defaults on error
-    res.json({ colors: DEFAULT_STATUS_BOT_COLORS });
+    res.json({ colors: DEFAULT_STATUS_BOT_COLORS, isCustom: false });
+  }
+}
+
+/**
+ * Update user's status bot colors
+ */
+async function updateStatusBotColors(req, res) {
+  try {
+    const userId = req.user.id;
+    const { colors } = req.body;
+    
+    if (!Array.isArray(colors)) {
+      return res.status(400).json({ error: 'צבעים חייבים להיות מערך' });
+    }
+    
+    if (colors.length > 10) {
+      return res.status(400).json({ error: 'מקסימום 10 צבעים' });
+    }
+    
+    if (colors.length < 1) {
+      return res.status(400).json({ error: 'חייב להיות לפחות צבע אחד' });
+    }
+    
+    // Validate each color
+    for (const color of colors) {
+      if (!color.id || !color.title) {
+        return res.status(400).json({ error: 'כל צבע חייב לכלול id ו-title' });
+      }
+      if (!/^[0-9a-fA-F]{6}$/.test(color.id)) {
+        return res.status(400).json({ error: 'קוד צבע לא תקין' });
+      }
+    }
+    
+    // Update user's connection with custom colors
+    await db.query(`
+      UPDATE status_bot_connections 
+      SET custom_colors = $1, updated_at = NOW()
+      WHERE user_id = $2
+    `, [JSON.stringify(colors), userId]);
+    
+    res.json({ success: true, colors });
+  } catch (error) {
+    console.error('[Settings] Update status bot colors error:', error);
+    res.status(500).json({ error: 'שגיאה בשמירת צבעים' });
+  }
+}
+
+/**
+ * Reset user's status bot colors to defaults
+ */
+async function resetStatusBotColors(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    await db.query(`
+      UPDATE status_bot_connections 
+      SET custom_colors = NULL, updated_at = NOW()
+      WHERE user_id = $1
+    `, [userId]);
+    
+    res.json({ success: true, colors: DEFAULT_STATUS_BOT_COLORS });
+  } catch (error) {
+    console.error('[Settings] Reset status bot colors error:', error);
+    res.status(500).json({ error: 'שגיאה באיפוס צבעים' });
   }
 }
 
@@ -161,4 +223,11 @@ async function getLogs(req, res) {
   }
 }
 
-module.exports = { getSettings, updateSetting, getLogs, getStatusBotColors };
+module.exports = { 
+  getSettings, 
+  updateSetting, 
+  getLogs, 
+  getStatusBotColors,
+  updateStatusBotColors,
+  resetStatusBotColors 
+};

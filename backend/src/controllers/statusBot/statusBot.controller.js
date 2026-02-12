@@ -33,6 +33,12 @@ async function initializeTables() {
       )
     `);
 
+    // Add custom_colors column if not exists
+    await db.query(`
+      ALTER TABLE status_bot_connections 
+      ADD COLUMN IF NOT EXISTS custom_colors JSONB
+    `).catch(() => {});
+
     await db.query(`
       CREATE TABLE IF NOT EXISTS status_bot_authorized_numbers (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

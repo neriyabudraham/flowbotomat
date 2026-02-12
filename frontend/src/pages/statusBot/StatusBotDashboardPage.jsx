@@ -81,7 +81,7 @@ function StatusBotDashboardContent() {
   // Upload form state
   const [statusType, setStatusType] = useState('text');
   const [textContent, setTextContent] = useState('');
-  const [backgroundColor, setBackgroundColor] = useState('#38b42f');
+  const [backgroundColor, setBackgroundColor] = useState('#782138');
   const [mediaUrl, setMediaUrl] = useState('');
   const [caption, setCaption] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -93,13 +93,21 @@ function StatusBotDashboardContent() {
   
   // Available colors (loaded from settings)
   const [availableColors, setAvailableColors] = useState([
-    { id: '38b42f', title: 'ירוק וואטסאפ' },
-    { id: '0088cc', title: 'כחול' },
-    { id: '8e44ad', title: 'סגול' },
-    { id: 'e74c3c', title: 'אדום' },
-    { id: 'f39c12', title: 'כתום' },
-    { id: '2c3e50', title: 'כחול כהה' },
+    { id: '782138', title: 'בורדו' },
+    { id: '6e267d', title: 'סגול כהה' },
+    { id: '8d698f', title: 'סגול לילך' },
+    { id: 'c79ecc', title: 'סגול בהיר' },
+    { id: '8294c9', title: 'כחול אפרפר' },
+    { id: '7d8fa3', title: 'אפור' },
+    { id: '243740', title: 'תורכיז כהה' },
+    { id: 'ad8673', title: 'חום' },
+    { id: '73666b', title: 'חום-סגול' },
+    { id: '7acca7', title: 'ירוק בהיר' },
   ]);
+  const [showColorManager, setShowColorManager] = useState(false);
+  const [newColorHex, setNewColorHex] = useState('#782138');
+  const [newColorTitle, setNewColorTitle] = useState('');
+  const [savingColors, setSavingColors] = useState(false);
   
   // Add number modal
   const [showAddNumber, setShowAddNumber] = useState(false);
@@ -154,6 +162,56 @@ function StatusBotDashboardContent() {
       }
     } catch (err) {
       console.log('Failed to load colors, using defaults');
+    }
+  };
+
+  // Color management functions
+  const addColor = () => {
+    if (!newColorHex || !newColorTitle.trim()) {
+      toast.error('נא להזין שם וצבע');
+      return;
+    }
+    if (availableColors.length >= 10) {
+      toast.error('מקסימום 10 צבעים');
+      return;
+    }
+    
+    const hexId = newColorHex.replace('#', '').toLowerCase();
+    if (availableColors.some(c => c.id === hexId)) {
+      toast.error('צבע זה כבר קיים');
+      return;
+    }
+    
+    setAvailableColors([...availableColors, { id: hexId, title: newColorTitle.trim() }]);
+    setNewColorHex('#782138');
+    setNewColorTitle('');
+  };
+
+  const removeColor = (colorId) => {
+    if (availableColors.length <= 1) {
+      toast.error('חייב להישאר לפחות צבע אחד');
+      return;
+    }
+    setAvailableColors(availableColors.filter(c => c.id !== colorId));
+    // If current color was removed, switch to first available
+    if (backgroundColor === '#' + colorId) {
+      const remaining = availableColors.filter(c => c.id !== colorId);
+      if (remaining.length > 0) {
+        setBackgroundColor('#' + remaining[0].id);
+      }
+    }
+  };
+
+  const saveColors = async () => {
+    try {
+      setSavingColors(true);
+      await api.put('/status-bot/colors', { colors: availableColors });
+      toast.success('הצבעים נשמרו');
+      setShowColorManager(false);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'שגיאה בשמירת צבעים');
+    } finally {
+      setSavingColors(false);
     }
   };
   
@@ -1176,7 +1234,15 @@ function StatusBotDashboardContent() {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">צבע רקע</label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-sm font-medium text-gray-700">צבע רקע</label>
+                          <button
+                            onClick={() => setShowColorManager(true)}
+                            className="text-xs text-green-600 hover:text-green-700"
+                          >
+                            ניהול צבעים
+                          </button>
+                        </div>
                         <div className="flex items-center gap-3">
                           <input
                             type="color"
@@ -1653,6 +1719,90 @@ function StatusBotDashboardContent() {
                 }`}
               >
                 {confirmModal.confirmText}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Color Manager Modal */}
+      {showColorManager && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowColorManager(false)}>
+          <div 
+            className="bg-white rounded-2xl w-full max-w-lg p-6 animate-in fade-in zoom-in duration-200"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold text-gray-800 mb-4">ניהול צבעי רקע</h3>
+            <p className="text-sm text-gray-500 mb-4">ניתן להגדיר עד 10 צבעים ({availableColors.length}/10)</p>
+            
+            {/* Current Colors */}
+            <div className="mb-4">
+              <h4 className="text-sm font-medium text-gray-700 mb-2">צבעים שלי</h4>
+              <div className="flex flex-wrap gap-2">
+                {availableColors.map(colorObj => (
+                  <div
+                    key={colorObj.id}
+                    className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2"
+                  >
+                    <div
+                      className="w-6 h-6 rounded-md border border-gray-200"
+                      style={{ backgroundColor: '#' + colorObj.id }}
+                    />
+                    <span className="text-sm text-gray-700">{colorObj.title}</span>
+                    <button
+                      onClick={() => removeColor(colorObj.id)}
+                      className="p-1 text-red-500 hover:bg-red-100 rounded transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            {/* Add New Color */}
+            {availableColors.length < 10 && (
+              <div className="pt-4 border-t border-gray-100">
+                <h4 className="text-sm font-medium text-gray-700 mb-2">הוסף צבע חדש</h4>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={newColorHex}
+                    onChange={(e) => setNewColorHex(e.target.value)}
+                    className="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-200"
+                  />
+                  <input
+                    type="text"
+                    value={newColorTitle}
+                    onChange={(e) => setNewColorTitle(e.target.value)}
+                    placeholder="שם הצבע"
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg"
+                  />
+                  <button
+                    onClick={addColor}
+                    disabled={!newColorTitle.trim()}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                  >
+                    הוסף
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {/* Actions */}
+            <div className="flex gap-3 mt-6 pt-4 border-t border-gray-100">
+              <button
+                onClick={() => setShowColorManager(false)}
+                className="flex-1 py-3 border border-gray-200 rounded-xl font-medium hover:bg-gray-50 transition-colors"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={saveColors}
+                disabled={savingColors}
+                className="flex-1 py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 disabled:opacity-50"
+              >
+                {savingColors ? 'שומר...' : 'שמור צבעים'}
               </button>
             </div>
           </div>
