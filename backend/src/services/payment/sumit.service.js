@@ -6,10 +6,17 @@ const SUMIT_BASE_URL = 'https://api.sumit.co.il';
  * Get Sumit API credentials from environment
  */
 function getCredentials() {
+  const companyIdRaw = process.env.SUMIT_CompanyID?.trim();
+  const apiKeyRaw = process.env.SUMIT_APIKey?.trim();
+  const publicKeyRaw = process.env.SUMIT_APIPublicKey?.trim();
+  
+  // Debug log on first use
+  console.log('[Sumit] Credentials loaded - CompanyID:', companyIdRaw, 'APIKey first 8 chars:', apiKeyRaw?.substring(0, 8));
+  
   return {
-    CompanyID: parseInt(process.env.SUMIT_CompanyID) || 0,
-    APIKey: process.env.SUMIT_APIKey || '',
-    APIPublicKey: process.env.SUMIT_APIPublicKey || '',
+    CompanyID: parseInt(companyIdRaw) || 0,
+    APIKey: apiKeyRaw || '',
+    APIPublicKey: publicKeyRaw || '',
   };
 }
 
@@ -360,10 +367,10 @@ async function chargeRecurring({
     
     const periodLabel = durationMonths === 12 ? 'שנתי' : durationMonths === 1 ? 'חודשי' : `${durationMonths} חודשים`;
     
-    // Format start date if provided
-    const formattedStartDate = startDate 
-      ? (startDate instanceof Date ? startDate.toISOString() : startDate)
-      : null;
+    // Ensure amount is a number (PostgreSQL DECIMAL comes as string)
+    const numericAmount = parseFloat(amount);
+    
+    console.log('[Sumit] chargeRecurring - numericAmount:', numericAmount, 'original:', amount, 'type:', typeof amount);
     
     const itemData = {
       Item: {
@@ -371,15 +378,20 @@ async function chargeRecurring({
         Duration_Months: durationMonths,
       },
       Quantity: 1,
-      UnitPrice: amount,
+      UnitPrice: numericAmount,
       Currency: 'ILS',
       Duration_Months: durationMonths,
       Recurrence: recurrence, // null = unlimited
     };
     
-    // If start date is in the future, add Date_Start to schedule first payment
-    if (formattedStartDate) {
-      itemData.Date_Start = formattedStartDate;
+    // If start date is in the future, format it properly for Sumit
+    // Sumit expects: YYYY-MM-DD format, not ISO string
+    if (startDate) {
+      const dateObj = startDate instanceof Date ? startDate : new Date(startDate);
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      itemData.Date_Start = `${year}-${month}-${day}`;
     }
     
     const requestBody = {
@@ -400,26 +412,37 @@ async function chargeRecurring({
     };
     
     const periodText = durationMonths === 12 ? 'ILS/year' : durationMonths === 1 ? 'ILS/month' : `ILS/${durationMonths}mo`;
-    const startDateText = formattedStartDate ? `, Start: ${formattedStartDate}` : '';
-    console.log(`[Sumit] Creating recurring charge - Customer: ${customerId}, Amount: ${amount} ${periodText}, Duration: ${durationMonths} months${startDateText}`);
+    const startDateText = itemData.Date_Start ? `, Start: ${itemData.Date_Start}` : ' (immediate)';
+    console.log(`[Sumit] Creating recurring charge - Customer: ${customerId}, Amount: ${numericAmount} ${periodText}, Duration: ${durationMonths} months${startDateText}`);
     
     // DEBUG: Log full request body
     const safeRequestBody = JSON.parse(JSON.stringify(requestBody));
     safeRequestBody.Credentials.APIKey = safeRequestBody.Credentials.APIKey?.substring(0, 8) + '...';
     console.log('[Sumit] chargeRecurring REQUEST BODY:', JSON.stringify(safeRequestBody, null, 2));
     
-    const response = await axios.post(
-      `${SUMIT_BASE_URL}/billing/recurring/charge/`,
-      requestBody,
-      {
-        headers: {
-          'Content-Type': 'application/json-patch+json',
-          'accept': 'text/plain',
-        },
-        timeout: 60000,
-      }
-    );
+    console.log(`[Sumit] Making recurring charge request to: ${SUMIT_BASE_URL}/billing/recurring/charge/`);
+    console.log('[Sumit] Credentials check - CompanyID:', credentials.CompanyID, 'APIKey length:', credentials.APIKey?.length);
     
+    let response;
+    try {
+      response = await axios.post(
+        `${SUMIT_BASE_URL}/billing/recurring/charge/`,
+        requestBody,
+        {
+          headers: {
+            'Content-Type': 'application/json-patch+json',
+            'accept': 'text/plain',
+          },
+          timeout: 60000,
+        }
+      );
+    } catch (axiosError) {
+      console.error('[Sumit] HTTP error during chargeRecurring:', axiosError.response?.status, axiosError.response?.statusText);
+      console.error('[Sumit] Error response body:', JSON.stringify(axiosError.response?.data, null, 2));
+      throw axiosError;
+    }
+    
+    console.log('[Sumit] HTTP Response status:', response.status);
     console.log('[Sumit] Charge recurring response:', JSON.stringify(response.data, null, 2));
     
     if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
@@ -657,18 +680,29 @@ async function setPaymentMethodWithCard({
     }
     console.log('[Sumit] setPaymentMethodWithCard REQUEST BODY:', JSON.stringify(safeRequestBody, null, 2));
     
-    const response = await axios.post(
-      `${SUMIT_BASE_URL}/billing/paymentmethods/setforcustomer/`,
-      requestBody,
-      {
-        headers: {
-          'Content-Type': 'application/json-patch+json',
-          'accept': 'text/plain',
-        },
-        timeout: 30000,
-      }
-    );
+    console.log(`[Sumit] Making request to: ${SUMIT_BASE_URL}/billing/paymentmethods/setforcustomer/`);
+    console.log('[Sumit] Credentials check - CompanyID:', credentials.CompanyID, 'APIKey length:', credentials.APIKey?.length);
     
+    let response;
+    try {
+      response = await axios.post(
+        `${SUMIT_BASE_URL}/billing/paymentmethods/setforcustomer/`,
+        requestBody,
+        {
+          headers: {
+            'Content-Type': 'application/json-patch+json',
+            'accept': 'text/plain',
+          },
+          timeout: 30000,
+        }
+      );
+    } catch (axiosError) {
+      console.error('[Sumit] HTTP error:', axiosError.response?.status, axiosError.response?.statusText);
+      console.error('[Sumit] Response body:', JSON.stringify(axiosError.response?.data, null, 2));
+      throw axiosError;
+    }
+    
+    console.log('[Sumit] HTTP Response status:', response.status);
     console.log('[Sumit] Set payment method (card) response:', JSON.stringify(response.data, null, 2));
     
     if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
