@@ -742,9 +742,11 @@ async function uploadImageStatus(req, res) {
   try {
     const userId = req.user.id;
     const { url, caption } = req.body;
+    const file = req.file;
 
-    if (!url) {
-      return res.status(400).json({ error: 'נדרש URL של תמונה' });
+    // Either URL or file is required
+    if (!url && !file) {
+      return res.status(400).json({ error: 'נדרש URL או קובץ תמונה' });
     }
 
     const connResult = await db.query(
@@ -766,14 +768,29 @@ async function uploadImageStatus(req, res) {
       });
     }
 
-    const content = {
-      file: {
-        mimetype: 'image/jpeg',
-        filename: 'status.jpg',
-        url
-      },
-      caption: caption || ''
-    };
+    let content;
+    if (file) {
+      // File upload - build URL
+      const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 3000}/api`;
+      const fileUrl = `${baseUrl}/uploads/status-bot/${file.filename}`;
+      content = {
+        file: {
+          mimetype: file.mimetype,
+          filename: file.originalname,
+          url: fileUrl
+        },
+        caption: caption || ''
+      };
+    } else {
+      content = {
+        file: {
+          mimetype: 'image/jpeg',
+          filename: 'status.jpg',
+          url
+        },
+        caption: caption || ''
+      };
+    }
 
     const queueResult = await db.query(`
       INSERT INTO status_bot_queue (connection_id, status_type, content, source)
@@ -783,7 +800,7 @@ async function uploadImageStatus(req, res) {
 
     res.json({ 
       success: true, 
-      message: 'הסטטוס נוסף לתור',
+      message: 'הסטטוס נשלח',
       queueId: queueResult.rows[0].id 
     });
 
@@ -800,9 +817,10 @@ async function uploadVideoStatus(req, res) {
   try {
     const userId = req.user.id;
     const { url, caption } = req.body;
+    const file = req.file;
 
-    if (!url) {
-      return res.status(400).json({ error: 'נדרש URL של וידאו' });
+    if (!url && !file) {
+      return res.status(400).json({ error: 'נדרש URL או קובץ וידאו' });
     }
 
     const connResult = await db.query(
@@ -824,15 +842,30 @@ async function uploadVideoStatus(req, res) {
       });
     }
 
-    const content = {
-      file: {
-        mimetype: 'video/mp4',
-        filename: 'status.mp4',
-        url
-      },
-      convert: true,
-      caption: caption || ''
-    };
+    let content;
+    if (file) {
+      const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 3000}/api`;
+      const fileUrl = `${baseUrl}/uploads/status-bot/${file.filename}`;
+      content = {
+        file: {
+          mimetype: file.mimetype,
+          filename: file.originalname,
+          url: fileUrl
+        },
+        convert: true,
+        caption: caption || ''
+      };
+    } else {
+      content = {
+        file: {
+          mimetype: 'video/mp4',
+          filename: 'status.mp4',
+          url
+        },
+        convert: true,
+        caption: caption || ''
+      };
+    }
 
     const queueResult = await db.query(`
       INSERT INTO status_bot_queue (connection_id, status_type, content, source)
@@ -842,7 +875,7 @@ async function uploadVideoStatus(req, res) {
 
     res.json({ 
       success: true, 
-      message: 'הסטטוס נוסף לתור',
+      message: 'הסטטוס נשלח',
       queueId: queueResult.rows[0].id 
     });
 
@@ -859,9 +892,10 @@ async function uploadVoiceStatus(req, res) {
   try {
     const userId = req.user.id;
     const { url, backgroundColor } = req.body;
+    const file = req.file;
 
-    if (!url) {
-      return res.status(400).json({ error: 'נדרש URL של שמע' });
+    if (!url && !file) {
+      return res.status(400).json({ error: 'נדרש URL או קובץ שמע' });
     }
 
     const connResult = await db.query(
@@ -883,14 +917,29 @@ async function uploadVoiceStatus(req, res) {
       });
     }
 
-    const content = {
-      file: {
-        mimetype: 'audio/ogg; codecs=opus',
-        url
-      },
-      convert: true,
-      backgroundColor: backgroundColor || connection.default_text_color || '#38b42f'
-    };
+    let content;
+    if (file) {
+      const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 3000}/api`;
+      const fileUrl = `${baseUrl}/uploads/status-bot/${file.filename}`;
+      content = {
+        file: {
+          mimetype: file.mimetype,
+          filename: file.originalname,
+          url: fileUrl
+        },
+        convert: true,
+        backgroundColor: backgroundColor || connection.default_text_color || '#38b42f'
+      };
+    } else {
+      content = {
+        file: {
+          mimetype: 'audio/ogg; codecs=opus',
+          url
+        },
+        convert: true,
+        backgroundColor: backgroundColor || connection.default_text_color || '#38b42f'
+      };
+    }
 
     const queueResult = await db.query(`
       INSERT INTO status_bot_queue (connection_id, status_type, content, source)
@@ -900,7 +949,7 @@ async function uploadVoiceStatus(req, res) {
 
     res.json({ 
       success: true, 
-      message: 'הסטטוס נוסף לתור',
+      message: 'הסטטוס נשלח',
       queueId: queueResult.rows[0].id 
     });
 
@@ -949,7 +998,8 @@ async function deleteStatus(req, res) {
     const { baseUrl, apiKey } = await getWahaCredentials();
 
     try {
-      await wahaSession.makeRequest(baseUrl, apiKey, 'POST', `/${connection.session_name}/status/delete`, {
+      await wahaSession.makeRequest(baseUrl, apiKey, 'POST', `/api/deleteStatus`, {
+        session: connection.session_name,
         id: status.waha_message_id,
         contacts: null
       });

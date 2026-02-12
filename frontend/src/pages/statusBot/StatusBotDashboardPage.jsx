@@ -40,6 +40,11 @@ export default function StatusBotDashboardPage() {
   const [mediaUrl, setMediaUrl] = useState('');
   const [caption, setCaption] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [mediaFile, setMediaFile] = useState(null);
+  const [mediaInputMode, setMediaInputMode] = useState('url'); // 'url' | 'file' | 'record'
+  const [isRecording, setIsRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [audioChunks, setAudioChunks] = useState([]);
   
   // Add number modal
   const [showAddNumber, setShowAddNumber] = useState(false);
@@ -213,8 +218,8 @@ export default function StatusBotDashboardPage() {
       alert('נא להזין טקסט');
       return;
     }
-    if (statusType !== 'text' && !mediaUrl.trim()) {
-      alert('נא להזין URL של קובץ');
+    if (statusType !== 'text' && !mediaUrl.trim() && !mediaFile) {
+      alert('נא להזין URL או להעלות קובץ');
       return;
     }
 
@@ -222,39 +227,109 @@ export default function StatusBotDashboardPage() {
     try {
       let endpoint;
       let body;
+      let useFormData = false;
 
-      switch (statusType) {
-        case 'text':
-          endpoint = '/status-bot/status/text';
-          body = { text: textContent, backgroundColor };
-          break;
-        case 'image':
-          endpoint = '/status-bot/status/image';
-          body = { url: mediaUrl, caption };
-          break;
-        case 'video':
-          endpoint = '/status-bot/status/video';
-          body = { url: mediaUrl, caption };
-          break;
-        case 'voice':
-          endpoint = '/status-bot/status/voice';
-          body = { url: mediaUrl, backgroundColor };
-          break;
+      // If file is uploaded, use FormData
+      if (mediaFile && statusType !== 'text') {
+        useFormData = true;
+        const formData = new FormData();
+        formData.append('file', mediaFile);
+        if (caption) formData.append('caption', caption);
+        if (statusType === 'voice') formData.append('backgroundColor', backgroundColor);
+        
+        endpoint = `/status-bot/status/${statusType}`;
+        body = formData;
+      } else {
+        switch (statusType) {
+          case 'text':
+            endpoint = '/status-bot/status/text';
+            body = { text: textContent, backgroundColor };
+            break;
+          case 'image':
+            endpoint = '/status-bot/status/image';
+            body = { url: mediaUrl, caption };
+            break;
+          case 'video':
+            endpoint = '/status-bot/status/video';
+            body = { url: mediaUrl, caption };
+            break;
+          case 'voice':
+            endpoint = '/status-bot/status/voice';
+            body = { url: mediaUrl, backgroundColor };
+            break;
+        }
       }
 
-      await api.post(endpoint, body);
+      if (useFormData) {
+        await api.post(endpoint, body, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+      } else {
+        await api.post(endpoint, body);
+      }
       
       // Reset form
       setTextContent('');
       setMediaUrl('');
       setCaption('');
+      setMediaFile(null);
+      setMediaInputMode('url');
       
       loadDashboardData();
-      alert('הסטטוס נוסף לתור!');
+      alert('הסטטוס נשלח!');
     } catch (err) {
       alert(err.response?.data?.error || 'שגיאה בהעלאת סטטוס');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // Check file size (max 100MB)
+      if (file.size > 100 * 1024 * 1024) {
+        alert('הקובץ גדול מדי. גודל מקסימלי: 100MB');
+        return;
+      }
+      setMediaFile(file);
+      setMediaUrl('');
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        const file = new File([blob], 'recording.webm', { type: 'audio/webm' });
+        setMediaFile(file);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setAudioChunks(chunks);
+      setIsRecording(true);
+    } catch (err) {
+      alert('לא ניתן לגשת למיקרופון');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder) {
+      mediaRecorder.stop();
+      setIsRecording(false);
+      setMediaRecorder(null);
     }
   };
 
@@ -553,7 +628,10 @@ export default function StatusBotDashboardPage() {
 
           {/* Connection Status */}
           <div className="mb-6">
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-green-500 to-emerald-600">
+            <Link
+              to="/whatsapp"
+              className="block p-4 rounded-2xl bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 transition-all cursor-pointer"
+            >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4 text-white">
                   <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
@@ -561,23 +639,16 @@ export default function StatusBotDashboardPage() {
                   </div>
                   <div>
                     <h2 className="font-bold text-lg">WhatsApp מחובר</h2>
-                    {connection?.phone_number && (
-                      <p className="text-white/80 flex items-center gap-2">
-                        <Phone className="w-4 h-4" />
-                        <span dir="ltr">+{connection.phone_number}</span>
-                      </p>
-                    )}
+                    <p className="text-white/80 text-sm">לחץ לניהול החיבור</p>
                   </div>
                 </div>
                 
-                <button
-                  onClick={handleDisconnect}
-                  className="px-4 py-2 bg-white/20 text-white rounded-xl hover:bg-white/30 transition-colors"
-                >
-                  נתק
-                </button>
+                <div className="flex items-center gap-2 text-white/80">
+                  <span className="text-sm">ניהול חיבור</span>
+                  <ChevronLeft className="w-5 h-5" />
+                </div>
               </div>
-            </div>
+            </Link>
           </div>
 
           {/* Stats */}
@@ -711,20 +782,144 @@ export default function StatusBotDashboardPage() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          URL של {statusType === 'image' ? 'תמונה' : statusType === 'video' ? 'וידאו' : 'קובץ שמע'}
-                        </label>
-                        <input
-                          type="url"
-                          value={mediaUrl}
-                          onChange={(e) => setMediaUrl(e.target.value)}
-                          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                          placeholder="https://..."
-                          dir="ltr"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">גודל מקסימלי: 100MB</p>
+                      {/* Input Mode Selector */}
+                      <div className="flex gap-2 mb-4">
+                        <button
+                          onClick={() => { setMediaInputMode('url'); setMediaFile(null); }}
+                          className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                            mediaInputMode === 'url' 
+                              ? 'bg-green-100 text-green-700 border-2 border-green-500' 
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border-2 border-transparent'
+                          }`}
+                        >
+                          קישור URL
+                        </button>
+                        <button
+                          onClick={() => { setMediaInputMode('file'); setMediaUrl(''); }}
+                          className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                            mediaInputMode === 'file' 
+                              ? 'bg-green-100 text-green-700 border-2 border-green-500' 
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border-2 border-transparent'
+                          }`}
+                        >
+                          העלאת קובץ
+                        </button>
+                        {statusType === 'voice' && (
+                          <button
+                            onClick={() => { setMediaInputMode('record'); setMediaUrl(''); setMediaFile(null); }}
+                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                              mediaInputMode === 'record' 
+                                ? 'bg-green-100 text-green-700 border-2 border-green-500' 
+                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border-2 border-transparent'
+                            }`}
+                          >
+                            הקלטה
+                          </button>
+                        )}
                       </div>
+
+                      {/* URL Input */}
+                      {mediaInputMode === 'url' && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            URL של {statusType === 'image' ? 'תמונה' : statusType === 'video' ? 'וידאו' : 'קובץ שמע'}
+                          </label>
+                          <input
+                            type="url"
+                            value={mediaUrl}
+                            onChange={(e) => setMediaUrl(e.target.value)}
+                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                            placeholder="https://..."
+                            dir="ltr"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">גודל מקסימלי: 100MB</p>
+                        </div>
+                      )}
+
+                      {/* File Upload */}
+                      {mediaInputMode === 'file' && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            העלאת {statusType === 'image' ? 'תמונה' : statusType === 'video' ? 'וידאו' : 'קובץ שמע'}
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="file"
+                              accept={
+                                statusType === 'image' ? 'image/*' :
+                                statusType === 'video' ? 'video/*' :
+                                'audio/*'
+                              }
+                              onChange={handleFileChange}
+                              className="hidden"
+                              id="media-file-input"
+                            />
+                            <label
+                              htmlFor="media-file-input"
+                              className="flex items-center justify-center gap-2 w-full px-4 py-6 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-green-500 hover:bg-green-50 transition-colors"
+                            >
+                              {mediaFile ? (
+                                <div className="text-center">
+                                  <Check className="w-8 h-8 text-green-500 mx-auto mb-2" />
+                                  <p className="font-medium text-gray-700">{mediaFile.name}</p>
+                                  <p className="text-sm text-gray-500">{(mediaFile.size / (1024 * 1024)).toFixed(2)} MB</p>
+                                </div>
+                              ) : (
+                                <div className="text-center">
+                                  <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                                  <p className="font-medium text-gray-600">לחץ לבחירת קובץ</p>
+                                  <p className="text-sm text-gray-400">גודל מקסימלי: 100MB</p>
+                                </div>
+                              )}
+                            </label>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Voice Recording */}
+                      {mediaInputMode === 'record' && statusType === 'voice' && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">הקלטת שמע</label>
+                          <div className="flex flex-col items-center gap-4 py-6 border-2 border-dashed border-gray-300 rounded-xl">
+                            {mediaFile ? (
+                              <div className="text-center">
+                                <Check className="w-12 h-12 text-green-500 mx-auto mb-2" />
+                                <p className="font-medium text-gray-700">הקלטה שמורה</p>
+                                <p className="text-sm text-gray-500">{mediaFile.name}</p>
+                                <button
+                                  onClick={() => setMediaFile(null)}
+                                  className="mt-2 text-sm text-red-600 hover:underline"
+                                >
+                                  מחק והקלט שוב
+                                </button>
+                              </div>
+                            ) : isRecording ? (
+                              <div className="text-center">
+                                <div className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center mx-auto mb-3 animate-pulse">
+                                  <Mic className="w-8 h-8 text-white" />
+                                </div>
+                                <p className="font-medium text-red-600 mb-3">מקליט...</p>
+                                <button
+                                  onClick={stopRecording}
+                                  className="px-6 py-2 bg-red-600 text-white rounded-xl font-medium hover:bg-red-700 transition-colors"
+                                >
+                                  עצור הקלטה
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="text-center">
+                                <button
+                                  onClick={startRecording}
+                                  className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-3 hover:bg-green-600 transition-colors"
+                                >
+                                  <Mic className="w-8 h-8 text-white" />
+                                </button>
+                                <p className="font-medium text-gray-600">לחץ להתחלת הקלטה</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       
                       {(statusType === 'image' || statusType === 'video') && (
                         <div>
@@ -766,7 +961,7 @@ export default function StatusBotDashboardPage() {
                     ) : (
                       <>
                         <Send className="w-5 h-5" />
-                        הוסף לתור
+                        שליחה
                       </>
                     )}
                   </button>

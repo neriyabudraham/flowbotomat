@@ -184,7 +184,7 @@ async function sendStatus(queueItem) {
     try {
       const idResponse = await wahaSession.makeRequest(
         baseUrl, apiKey, 'GET', 
-        `/${sessionName}/status/new-message-id`
+        `/api/status/new-message-id?session=${sessionName}`
       );
       messageId = idResponse.id;
 
@@ -200,13 +200,15 @@ async function sendStatus(queueItem) {
   }
 
   // Build request body based on status type
+  // WAHA uses /api/sendStatus format with session in body
   let endpoint;
   let body;
 
   switch (queueItem.status_type) {
     case 'text':
-      endpoint = `/${sessionName}/status/text`;
+      endpoint = `/api/sendStatus`;
       body = {
+        session: sessionName,
         id: messageId,
         contacts: null,
         text: content.text,
@@ -218,8 +220,9 @@ async function sendStatus(queueItem) {
       break;
 
     case 'image':
-      endpoint = `/${sessionName}/status/image`;
+      endpoint = `/api/sendImageStatus`;
       body = {
+        session: sessionName,
         id: messageId,
         contacts: null,
         file: content.file,
@@ -228,8 +231,9 @@ async function sendStatus(queueItem) {
       break;
 
     case 'video':
-      endpoint = `/${sessionName}/status/video`;
+      endpoint = `/api/sendVideoStatus`;
       body = {
+        session: sessionName,
         id: messageId,
         contacts: null,
         file: content.file,
@@ -239,8 +243,9 @@ async function sendStatus(queueItem) {
       break;
 
     case 'voice':
-      endpoint = `/${sessionName}/status/voice`;
+      endpoint = `/api/sendVoiceStatus`;
       body = {
+        session: sessionName,
         id: messageId,
         contacts: null,
         file: content.file,
