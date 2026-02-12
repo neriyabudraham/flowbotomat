@@ -16,7 +16,7 @@ import NotificationsDropdown from '../components/notifications/NotificationsDrop
 import AccountSwitcher from '../components/AccountSwitcher';
 import { Copy, Share2 } from 'lucide-react';
 import ReferralBonusBanner from '../components/ReferralBonusBanner';
-import AdditionalServicesWidget from '../components/services/AdditionalServicesWidget';
+// AdditionalServicesWidget removed - using quick action card instead
 import api from '../services/api';
 
 // Tips content data
@@ -561,8 +561,6 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Additional Services Widget */}
-        <AdditionalServicesWidget />
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
