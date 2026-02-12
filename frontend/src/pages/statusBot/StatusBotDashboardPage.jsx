@@ -214,6 +214,33 @@ function StatusBotDashboardContent() {
       setSavingColors(false);
     }
   };
+
+  const DEFAULT_COLORS = [
+    { id: '782138', title: 'בורדו' },
+    { id: '6e267d', title: 'סגול כהה' },
+    { id: '8d698f', title: 'סגול לילך' },
+    { id: 'c79ecc', title: 'סגול בהיר' },
+    { id: '8294c9', title: 'כחול אפרפר' },
+    { id: '7d8fa3', title: 'אפור' },
+    { id: '243740', title: 'תורכיז כהה' },
+    { id: 'ad8673', title: 'חום' },
+    { id: '73666b', title: 'חום-סגול' },
+    { id: '7acca7', title: 'ירוק בהיר' },
+  ];
+
+  const resetColors = async () => {
+    try {
+      setSavingColors(true);
+      await api.delete('/status-bot/colors');
+      setAvailableColors(DEFAULT_COLORS);
+      toast.success('הצבעים אופסו לברירת מחדל');
+      setShowColorManager(false);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'שגיאה באיפוס צבעים');
+    } finally {
+      setSavingColors(false);
+    }
+  };
   
   // First check if user has an active subscription
   const checkSubscriptionFirst = async () => {
@@ -1734,8 +1761,19 @@ function StatusBotDashboardContent() {
             className="bg-white rounded-2xl w-full max-w-lg p-6 animate-in fade-in zoom-in duration-200"
             onClick={e => e.stopPropagation()}
           >
-            <h3 className="text-lg font-bold text-gray-800 mb-4">ניהול צבעי רקע</h3>
-            <p className="text-sm text-gray-500 mb-4">ניתן להגדיר עד 10 צבעים ({availableColors.length}/10)</p>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-800">ניהול צבעי רקע</h3>
+                <p className="text-sm text-gray-500">ניתן להגדיר עד 10 צבעים ({availableColors.length}/10)</p>
+              </div>
+              <button
+                onClick={resetColors}
+                disabled={savingColors}
+                className="text-sm text-gray-500 hover:text-gray-700 underline"
+              >
+                איפוס לברירת מחדל
+              </button>
+            </div>
             
             {/* Current Colors */}
             <div className="mb-4">
