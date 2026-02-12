@@ -28,7 +28,10 @@ export default function LoginPage() {
   const [focusedField, setFocusedField] = useState(null);
   const [googleLoading, setGoogleLoading] = useState(false);
 
-  const returnTo = location.state?.returnTo || '/dashboard';
+  // Get redirect from query params or state
+  const searchParams = new URLSearchParams(location.search);
+  const redirectParam = searchParams.get('redirect');
+  const returnTo = redirectParam || location.state?.returnTo || '/dashboard';
 
   const handleGoogleLogin = () => {
     if (!GOOGLE_CLIENT_ID) {
@@ -52,8 +55,11 @@ export default function LoginPage() {
     
     console.log('[Login] Referral check:', { referralCode, isValidByExpiry, isValidByTimestamp, isValidReferral });
     
-    // Build state with referral code
-    const state = isValidReferral ? JSON.stringify({ referral: referralCode }) : '';
+    // Build state with referral code and redirect
+    const stateObj = {};
+    if (isValidReferral) stateObj.referral = referralCode;
+    if (returnTo && returnTo !== '/dashboard') stateObj.redirect = returnTo;
+    const state = Object.keys(stateObj).length > 0 ? JSON.stringify(stateObj) : '';
     
     // Build Google OAuth URL - redirect directly (no popup)
     const redirectUri = `${window.location.origin}/api/auth/google/callback`;

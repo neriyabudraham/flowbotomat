@@ -84,10 +84,14 @@ export default function SignupPage() {
     
     console.log('[Signup] Referral check:', { referralCode, isValidByExpiry, isValidByTimestamp, isValidReferral });
     
-    // Build state with referral code and link code
+    // Get redirect from URL
+    const redirectParam = searchParams.get('redirect');
+    
+    // Build state with referral code, link code and redirect
     const stateObj = {};
     if (isValidReferral) stateObj.referral = referralCode;
     if (linkCode) stateObj.linkCode = linkCode;
+    if (redirectParam) stateObj.redirect = redirectParam;
     const state = Object.keys(stateObj).length > 0 ? JSON.stringify(stateObj) : '';
     
     // Build Google OAuth URL - redirect directly (no popup)

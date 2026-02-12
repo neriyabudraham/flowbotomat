@@ -19,6 +19,11 @@ const SERVICE_ICONS = {
   'default': '⚡',
 };
 
+// Services with dedicated landing pages
+const SERVICE_LANDING_PAGES = {
+  'status-bot': '/status-bot',
+};
+
 export default function ServicesPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -351,6 +356,7 @@ function ActiveServiceCard({ service, subscription, onCancel }) {
 }
 
 function AvailableServiceCard({ service, onSubscribe, subscribing }) {
+  const navigate = useNavigate();
   const [billingPeriod, setBillingPeriod] = useState('monthly');
   const icon = SERVICE_ICONS[service.icon] || SERVICE_ICONS.default;
   
@@ -360,10 +366,22 @@ function AvailableServiceCard({ service, onSubscribe, subscribing }) {
   
   const currentPrice = billingPeriod === 'yearly' ? yearlyPrice : monthlyPrice;
   
+  // Check if service has a dedicated landing page
+  const landingPage = SERVICE_LANDING_PAGES[service.slug];
+  
+  const handleClick = () => {
+    if (landingPage) {
+      navigate(landingPage);
+    } else {
+      onSubscribe(billingPeriod);
+    }
+  };
+  
   return (
     <div 
       id={service.slug}
-      className="bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-lg transition-shadow overflow-hidden"
+      className="bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-lg transition-shadow overflow-hidden cursor-pointer"
+      onClick={landingPage ? handleClick : undefined}
     >
       <div className={`p-6 ${
         service.color ? `bg-gradient-to-br ${service.color}` : 'bg-gradient-to-br from-gray-100 to-gray-200'
@@ -389,11 +407,11 @@ function AvailableServiceCard({ service, onSubscribe, subscribing }) {
           <p className="text-gray-600 mb-4">{service.description_he}</p>
         )}
         
-        {/* Billing Toggle */}
-        {yearlyPrice && monthlyPrice > 0 && (
+        {/* Billing Toggle - only show if no landing page */}
+        {!landingPage && yearlyPrice && monthlyPrice > 0 && (
           <div className="flex items-center justify-center gap-2 mb-4 p-1 bg-gray-100 rounded-xl">
             <button
-              onClick={() => setBillingPeriod('monthly')}
+              onClick={(e) => { e.stopPropagation(); setBillingPeriod('monthly'); }}
               className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
                 billingPeriod === 'monthly' 
                   ? 'bg-white text-gray-800 shadow-sm' 
@@ -403,7 +421,7 @@ function AvailableServiceCard({ service, onSubscribe, subscribing }) {
               חודשי
             </button>
             <button
-              onClick={() => setBillingPeriod('yearly')}
+              onClick={(e) => { e.stopPropagation(); setBillingPeriod('yearly'); }}
               className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
                 billingPeriod === 'yearly' 
                   ? 'bg-white text-gray-800 shadow-sm' 
@@ -424,16 +442,16 @@ function AvailableServiceCard({ service, onSubscribe, subscribing }) {
             <span className="text-3xl font-bold text-gray-800">₪{currentPrice}</span>
             <span className="text-gray-500">/{billingPeriod === 'yearly' ? 'שנה' : 'חודש'}</span>
           </div>
-          {billingPeriod === 'yearly' && (
+          {billingPeriod === 'yearly' && !landingPage && (
             <p className="text-sm text-gray-500">
               ₪{Math.round(yearlyPrice / 12)} לחודש
             </p>
           )}
         </div>
         
-        {/* Subscribe Button */}
+        {/* Action Button */}
         <button
-          onClick={() => onSubscribe(billingPeriod)}
+          onClick={(e) => { e.stopPropagation(); handleClick(); }}
           disabled={subscribing}
           className="w-full py-3 bg-gradient-to-r from-teal-500 to-cyan-600 text-white font-bold rounded-xl hover:from-teal-600 hover:to-cyan-700 transition-all disabled:opacity-50"
         >
@@ -442,10 +460,12 @@ function AvailableServiceCard({ service, onSubscribe, subscribing }) {
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               מתחבר...
             </span>
+          ) : landingPage ? (
+            'למידע נוסף'
           ) : service.trial_days > 0 ? (
-            `התחל ניסיון חינם`
+            'התחל ניסיון חינם'
           ) : (
-            `הרשם עכשיו`
+            'הרשם עכשיו'
           )}
         </button>
       </div>

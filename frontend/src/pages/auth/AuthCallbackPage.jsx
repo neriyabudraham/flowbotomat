@@ -10,12 +10,13 @@ export default function AuthCallbackPage() {
   useEffect(() => {
     const accessToken = searchParams.get('accessToken');
     const refreshToken = searchParams.get('refreshToken');
+    const redirect = searchParams.get('redirect');
     
     if (accessToken && refreshToken) {
       // Store tokens
       setTokens(accessToken, refreshToken);
-      // Redirect to dashboard
-      navigate('/dashboard', { replace: true });
+      // Redirect to specified path or dashboard
+      navigate(redirect || '/dashboard', { replace: true });
     } else {
       // No tokens, redirect to login
       navigate('/login', { replace: true });

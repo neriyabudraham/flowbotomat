@@ -30,14 +30,16 @@ const googleCallback = async (req, res) => {
       return res.redirect(`${frontendUrl}/login?error=no_code`);
     }
     
-    // Parse state to get referral code and link code
+    // Parse state to get referral code, link code and redirect
     let referralCode = null;
     let linkCode = null;
+    let redirectPath = null;
     if (state) {
       try {
         const stateData = JSON.parse(decodeURIComponent(state));
         referralCode = stateData.referral;
         linkCode = stateData.linkCode;
+        redirectPath = stateData.redirect;
       } catch (e) {
         // Ignore invalid state
       }
@@ -83,7 +85,11 @@ const googleCallback = async (req, res) => {
     }
     
     // Redirect to frontend with tokens in URL (will be stored and cleared)
-    res.redirect(`${frontendUrl}/auth/callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}&isNewUser=${result.isNewUser}`);
+    let callbackUrl = `${frontendUrl}/auth/callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}&isNewUser=${result.isNewUser}`;
+    if (redirectPath) {
+      callbackUrl += `&redirect=${encodeURIComponent(redirectPath)}`;
+    }
+    res.redirect(callbackUrl);
   } catch (error) {
     console.error('Google callback error:', error.message);
     
