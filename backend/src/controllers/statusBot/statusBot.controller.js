@@ -288,7 +288,7 @@ async function checkExisting(req, res) {
       console.log(`[StatusBot] ✅ Found existing WORKING session: ${existingSession.name}`);
       
       // Update webhooks in background
-      const webhookUrl = `${process.env.APP_URL}/api/webhook/status-bot/${userId}`;
+      const webhookUrl = `${process.env.APP_URL}/api/status-bot/webhook/${userId}`;
       wahaSession.addWebhook(baseUrl, apiKey, existingSession.name, webhookUrl, [
         'session.status', 'message.ack', 'message.reaction'
       ]).catch(err => console.error(`[StatusBot Webhook] Update failed:`, err.message));
@@ -413,7 +413,7 @@ async function startConnection(req, res) {
     }
     
     // Setup webhook for this user
-    const webhookUrl = `${process.env.APP_URL}/api/webhook/status-bot/${userId}`;
+    const webhookUrl = `${process.env.APP_URL}/api/status-bot/webhook/${userId}`;
     try {
       await wahaSession.addWebhook(baseUrl, apiKey, sessionName, webhookUrl, [
         'session.status',

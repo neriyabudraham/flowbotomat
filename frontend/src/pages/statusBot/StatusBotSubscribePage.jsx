@@ -55,7 +55,8 @@ export default function StatusBotSubscribePage() {
     try {
       // Check if already subscribed
       const { data: accessData } = await api.get('/services/access/status-bot');
-      if (accessData.hasAccess) {
+      // Only redirect if has access AND not cancelled (cancelled users can renew)
+      if (accessData.hasAccess && !accessData.isCancelled && accessData.subscription?.status !== 'cancelled') {
         navigate('/status-bot/dashboard');
         return;
       }

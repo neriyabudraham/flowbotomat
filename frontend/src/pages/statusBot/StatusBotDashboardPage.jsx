@@ -95,6 +95,31 @@ function StatusBotDashboardContent() {
   const [showAddNumber, setShowAddNumber] = useState(false);
   const [newNumber, setNewNumber] = useState('');
   const [newNumberName, setNewNumberName] = useState('');
+  
+  // Confirmation modal state
+  const [confirmModal, setConfirmModal] = useState({
+    show: false,
+    title: '',
+    message: '',
+    onConfirm: null,
+    confirmText: 'אישור',
+    danger: false
+  });
+
+  const showConfirm = (title, message, onConfirm, options = {}) => {
+    setConfirmModal({
+      show: true,
+      title,
+      message,
+      onConfirm,
+      confirmText: options.confirmText || 'אישור',
+      danger: options.danger || false
+    });
+  };
+
+  const hideConfirm = () => {
+    setConfirmModal(prev => ({ ...prev, show: false }));
+  };
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -277,20 +302,27 @@ function StatusBotDashboardContent() {
   };
 
   const handleDisconnect = async () => {
-    if (!confirm('האם לנתק את החיבור?')) return;
-    setIsLoading(true);
-    try {
-      await api.post('/status-bot/disconnect');
-      setConnection(null);
-      setStep('select');
-      setIsCheckingExisting(true);
-      await checkExisting();
-      setIsCheckingExisting(false);
-    } catch (err) {
-      setError(err.response?.data?.error || 'שגיאה בניתוק');
-    } finally {
-      setIsLoading(false);
-    }
+    showConfirm(
+      'ניתוק WhatsApp',
+      'האם אתה בטוח שברצונך לנתק את החיבור?',
+      async () => {
+        hideConfirm();
+        setIsLoading(true);
+        try {
+          await api.post('/status-bot/disconnect');
+          setConnection(null);
+          setStep('select');
+          setIsCheckingExisting(true);
+          await checkExisting();
+          setIsCheckingExisting(false);
+        } catch (err) {
+          setError(err.response?.data?.error || 'שגיאה בניתוק');
+        } finally {
+          setIsLoading(false);
+        }
+      },
+      { confirmText: 'נתק', danger: true }
+    );
   };
 
   const handleUploadStatus = async () => {
@@ -452,27 +484,42 @@ function StatusBotDashboardContent() {
   };
 
   const handleRemoveNumber = async (numberId) => {
-    if (!confirm('האם להסיר את המספר?')) return;
-    try {
-      await api.delete(`/status-bot/authorized-numbers/${numberId}`);
-      loadDashboardData();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'שגיאה במחיקת מספר');
-    }
+    showConfirm(
+      'הסרת מספר מורשה',
+      'האם להסיר את המספר מרשימת המספרים המורשים?',
+      async () => {
+        hideConfirm();
+        try {
+          await api.delete(`/status-bot/authorized-numbers/${numberId}`);
+          loadDashboardData();
+          toast.success('המספר הוסר');
+        } catch (err) {
+          toast.error(err.response?.data?.error || 'שגיאה במחיקת מספר');
+        }
+      },
+      { confirmText: 'הסר', danger: true }
+    );
   };
 
   const handleDeleteStatus = async (statusId) => {
-    if (!confirm('האם למחוק את הסטטוס?')) return;
-    try {
-      await api.delete(`/status-bot/status/${statusId}`);
-      // Update local state to mark as deleted instead of removing
-      setStatuses(prev => prev.map(s => 
-        s.id === statusId ? { ...s, is_deleted: true, deleted_at: new Date().toISOString() } : s
-      ));
-      toast.success('הסטטוס נמחק');
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'שגיאה במחיקת סטטוס');
-    }
+    showConfirm(
+      'מחיקת סטטוס',
+      'האם אתה בטוח שברצונך למחוק את הסטטוס? הפעולה תסיר את הסטטוס גם מהווצאפ.',
+      async () => {
+        hideConfirm();
+        try {
+          await api.delete(`/status-bot/status/${statusId}`);
+          // Update local state to mark as deleted instead of removing
+          setStatuses(prev => prev.map(s => 
+            s.id === statusId ? { ...s, is_deleted: true, deleted_at: new Date().toISOString() } : s
+          ));
+          toast.success('הסטטוס נמחק');
+        } catch (err) {
+          toast.error(err.response?.data?.error || 'שגיאה במחיקת סטטוס');
+        }
+      },
+      { confirmText: 'מחק סטטוס', danger: true }
+    );
   };
 
   const isConnected = connection?.connection_status === 'connected';
@@ -1520,6 +1567,38 @@ function StatusBotDashboardContent() {
             </div>
           )}
         </main>
+      )}
+
+      {/* Confirmation Modal */}
+      {confirmModal.show && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={hideConfirm}>
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold text-gray-800 mb-2">{confirmModal.title}</h3>
+            <p className="text-gray-600 mb-6">{confirmModal.message}</p>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={hideConfirm}
+                className="flex-1 py-3 border border-gray-200 rounded-xl font-medium hover:bg-gray-50 transition-colors"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={confirmModal.onConfirm}
+                className={`flex-1 py-3 rounded-xl font-medium transition-colors ${
+                  confirmModal.danger 
+                    ? 'bg-red-500 text-white hover:bg-red-600' 
+                    : 'bg-green-600 text-white hover:bg-green-700'
+                }`}
+              >
+                {confirmModal.confirmText}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
