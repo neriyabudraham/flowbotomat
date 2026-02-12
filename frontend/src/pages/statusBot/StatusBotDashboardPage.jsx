@@ -16,6 +16,39 @@ import { ToastProvider, useToast } from '../../components/ui/Toast';
 
 const BOT_NUMBER = '+972 53-923-2960';
 
+// Format phone number for display: 050-000-0000 or +972-50-000-0000
+function formatPhoneNumber(phone) {
+  if (!phone) return '';
+  
+  // Remove all non-digit characters
+  const digits = phone.replace(/\D/g, '');
+  
+  // Israeli number with country code (972...)
+  if (digits.startsWith('972') && digits.length >= 12) {
+    const local = digits.slice(3); // Remove 972
+    if (local.length === 9) {
+      return `0${local.slice(0, 2)}-${local.slice(2, 5)}-${local.slice(5)}`;
+    }
+  }
+  
+  // Local Israeli number (05x...)
+  if (digits.startsWith('0') && digits.length === 10) {
+    return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  
+  // 9-digit number (assume Israeli, add 0)
+  if (digits.length === 9 && digits.startsWith('5')) {
+    return `0${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5)}`;
+  }
+  
+  // Fallback - return as is with + if has country code
+  if (digits.length > 10) {
+    return `+${digits}`;
+  }
+  
+  return phone;
+}
+
 export default function StatusBotDashboardPage() {
   return (
     <ToastProvider>
@@ -919,7 +952,10 @@ function StatusBotDashboardContent() {
                   </div>
                   <div>
                     <h2 className="font-bold text-lg">WhatsApp מחובר</h2>
-                    <p className="text-white/80 text-sm">לחץ לניהול החיבור</p>
+                    <p className="text-white/80 text-sm flex items-center gap-2">
+                      <Phone className="w-4 h-4" />
+                      <span dir="ltr">{formatPhoneNumber(connection?.phone_number)}</span>
+                    </p>
                   </div>
                 </div>
                 
@@ -1406,7 +1442,7 @@ function StatusBotDashboardContent() {
                           <Phone className="w-5 h-5 text-green-600" />
                         </div>
                         <div>
-                          <p className="font-medium text-gray-800" dir="ltr">+{num.phone_number}</p>
+                          <p className="font-medium text-gray-800" dir="ltr">{formatPhoneNumber(num.phone_number)}</p>
                           {num.name && <p className="text-sm text-gray-500">{num.name}</p>}
                         </div>
                       </div>

@@ -1419,15 +1419,20 @@ async function handleWebhook(req, res) {
         break;
 
       case 'message.ack':
-        // Handle status view
-        if (payload?.from === 'status@broadcast' && payload?.ackLevel >= 3) {
+        // Handle status view - ack=3 means READ (someone viewed our status)
+        // fromMe=true means it's our own status being acknowledged
+        const ackLevel = payload?.ack || payload?.ackLevel;
+        if (payload?.from === 'status@broadcast' && payload?.fromMe === true && ackLevel >= 3) {
+          console.log(`[StatusBot Webhook] Status view detected - ack: ${ackLevel}, participant: ${payload?.participant}`);
           await handleStatusView(connection, payload);
         }
         break;
 
       case 'message.reaction':
         // Handle status reaction
-        if (payload?.from === 'status@broadcast') {
+        // Reactions on our status come from status@broadcast
+        if (payload?.from === 'status@broadcast' || payload?.to === 'status@broadcast') {
+          console.log(`[StatusBot Webhook] Status reaction detected:`, payload?.reaction);
           await handleStatusReaction(connection, payload);
         }
         break;
@@ -1501,20 +1506,51 @@ async function handleSessionStatus(connection, payload) {
 
 async function handleStatusView(connection, payload) {
   try {
-    const { id: messageId, participant } = payload;
+    // Message ID can be in different formats
+    const messageId = payload?.id?._serialized || payload?.id;
+    const participant = payload?.participant;
 
-    if (!messageId || !participant) return;
+    if (!messageId) {
+      console.log('[StatusBot] handleStatusView - no messageId');
+      return;
+    }
 
-    // Find the status by waha_message_id
-    const statusResult = await db.query(`
+    console.log(`[StatusBot] Looking for status with waha_message_id: ${messageId}`);
+
+    // Find the status by waha_message_id (try multiple formats)
+    let statusResult = await db.query(`
       SELECT id FROM status_bot_statuses 
       WHERE connection_id = $1 AND waha_message_id = $2
     `, [connection.id, messageId]);
 
-    if (statusResult.rows.length === 0) return;
+    // If not found, try without the prefix (true_status@broadcast_)
+    if (statusResult.rows.length === 0 && messageId.includes('_')) {
+      const shortId = messageId.split('_').pop();
+      statusResult = await db.query(`
+        SELECT id FROM status_bot_statuses 
+        WHERE connection_id = $1 AND waha_message_id LIKE $2
+      `, [connection.id, `%${shortId}`]);
+    }
+
+    if (statusResult.rows.length === 0) {
+      console.log(`[StatusBot] Status not found for messageId: ${messageId}`);
+      return;
+    }
 
     const statusId = statusResult.rows[0].id;
-    const viewerPhone = participant.split('@')[0];
+    
+    // Get viewer phone - might be in participant or elsewhere
+    let viewerPhone = participant?.split('@')[0];
+    if (!viewerPhone && payload?.to) {
+      viewerPhone = payload.to.split('@')[0];
+    }
+    
+    if (!viewerPhone || viewerPhone === 'status') {
+      console.log('[StatusBot] No valid viewer phone');
+      return;
+    }
+
+    console.log(`[StatusBot] Recording view from ${viewerPhone} for status ${statusId}`);
 
     // Insert view (ignore duplicate)
     await db.query(`
@@ -1529,6 +1565,8 @@ async function handleStatusView(connection, payload) {
       SET view_count = (SELECT COUNT(*) FROM status_bot_views WHERE status_id = $1)
       WHERE id = $1
     `, [statusId]);
+    
+    console.log(`[StatusBot] ✅ View recorded for status ${statusId}`);
 
   } catch (error) {
     console.error('[StatusBot] Handle status view error:', error);
@@ -1537,20 +1575,50 @@ async function handleStatusView(connection, payload) {
 
 async function handleStatusReaction(connection, payload) {
   try {
-    const { id: messageId, reaction, participant } = payload;
+    // Message ID can be in different formats
+    const messageId = payload?.id?._serialized || payload?.id || payload?.msgId?._serialized || payload?.msgId;
+    const reaction = payload?.reaction;
+    const participant = payload?.participant || payload?.from;
 
-    if (!messageId || !reaction || !participant) return;
+    console.log(`[StatusBot] handleStatusReaction - msgId: ${messageId}, reaction:`, reaction);
 
-    // Find the status
-    const statusResult = await db.query(`
+    if (!messageId) {
+      console.log('[StatusBot] handleStatusReaction - no messageId');
+      return;
+    }
+
+    // Find the status (try multiple formats)
+    let statusResult = await db.query(`
       SELECT id FROM status_bot_statuses 
       WHERE connection_id = $1 AND waha_message_id = $2
     `, [connection.id, messageId]);
 
-    if (statusResult.rows.length === 0) return;
+    if (statusResult.rows.length === 0 && messageId.includes('_')) {
+      const shortId = messageId.split('_').pop();
+      statusResult = await db.query(`
+        SELECT id FROM status_bot_statuses 
+        WHERE connection_id = $1 AND waha_message_id LIKE $2
+      `, [connection.id, `%${shortId}`]);
+    }
+
+    if (statusResult.rows.length === 0) {
+      console.log(`[StatusBot] Status not found for reaction, msgId: ${messageId}`);
+      return;
+    }
 
     const statusId = statusResult.rows[0].id;
-    const reactorPhone = participant.split('@')[0];
+    
+    // Get reactor phone
+    let reactorPhone = participant?.split('@')[0];
+    if (!reactorPhone || reactorPhone === 'status') {
+      console.log('[StatusBot] No valid reactor phone');
+      return;
+    }
+
+    // Get reaction text (emoji)
+    const reactionText = reaction?.text || reaction?.emoji || reaction || '❤️';
+    
+    console.log(`[StatusBot] Recording reaction ${reactionText} from ${reactorPhone} for status ${statusId}`);
 
     // Insert/update reaction
     await db.query(`
@@ -1558,7 +1626,7 @@ async function handleStatusReaction(connection, payload) {
       VALUES ($1, $2, $3)
       ON CONFLICT (status_id, reactor_phone) 
       DO UPDATE SET reaction = $3, reacted_at = NOW()
-    `, [statusId, reactorPhone, reaction.text || '❤️']);
+    `, [statusId, reactorPhone, reactionText]);
 
     // Update reaction count
     await db.query(`
@@ -1566,6 +1634,8 @@ async function handleStatusReaction(connection, payload) {
       SET reaction_count = (SELECT COUNT(*) FROM status_bot_reactions WHERE status_id = $1)
       WHERE id = $1
     `, [statusId]);
+    
+    console.log(`[StatusBot] ✅ Reaction recorded for status ${statusId}`);
 
   } catch (error) {
     console.error('[StatusBot] Handle status reaction error:', error);
