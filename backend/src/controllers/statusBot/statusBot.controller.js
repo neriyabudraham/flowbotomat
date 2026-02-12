@@ -428,7 +428,8 @@ async function getQR(req, res) {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'לא נמצא חיבור' });
+      // No connection record - need to start connection
+      return res.json({ status: 'need_connect' });
     }
 
     const connection = result.rows[0];
@@ -443,21 +444,24 @@ async function getQR(req, res) {
     const sessionStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
     
     if (!sessionStatus) {
-      // Session doesn't exist - need to start connection first
-      return res.json({ 
-        status: 'not_started', 
-        message: 'החיבור לא הופעל. לחץ על "התחל חיבור" קודם.' 
-      });
+      // Session doesn't exist in WAHA - clean up stale DB record
+      console.log(`[StatusBot] Session ${connection.session_name} not found in WAHA, cleaning up DB`);
+      await db.query('DELETE FROM status_bot_connections WHERE id = $1', [connection.id]);
+      return res.json({ status: 'need_connect' });
     }
 
     // Check session status
     if (sessionStatus.status === 'WORKING') {
-      // Already connected
+      // Already connected - update DB
+      const phoneNumber = sessionStatus.me?.id?.split('@')[0] || null;
+      const displayName = sessionStatus.me?.pushName || null;
+      
       await db.query(`
         UPDATE status_bot_connections 
-        SET connection_status = 'connected', updated_at = NOW()
+        SET connection_status = 'connected', phone_number = $2, display_name = $3,
+            first_connected_at = COALESCE(first_connected_at, NOW()), updated_at = NOW()
         WHERE id = $1
-      `, [connection.id]);
+      `, [connection.id, phoneNumber, displayName]);
       return res.json({ status: 'connected' });
     }
 

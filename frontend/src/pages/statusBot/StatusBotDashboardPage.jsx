@@ -146,6 +146,13 @@ export default function StatusBotDashboardPage() {
         return;
       }
       
+      if (data.status === 'need_connect') {
+        // Session doesn't exist - trigger connection
+        console.log('[StatusBot] Session not found, triggering connection...');
+        await handleConnect();
+        return;
+      }
+      
       if (data.status === 'not_started') {
         setError(data.message);
         setStep('select');
