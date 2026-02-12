@@ -91,12 +91,13 @@ async function subscribeToService(req, res) {
       }
     }
     
-    // Get user's payment info
+    // Get user's payment info from user_payment_methods (correct table)
     const userResult = await db.query(`
-      SELECT u.*, us.sumit_customer_id 
+      SELECT u.*, upm.sumit_customer_id, upm.last_4_digits, upm.card_brand
       FROM users u
-      LEFT JOIN user_subscriptions us ON us.user_id = u.id
+      LEFT JOIN user_payment_methods upm ON upm.user_id = u.id AND upm.sumit_customer_id IS NOT NULL
       WHERE u.id = $1
+      LIMIT 1
     `, [userId]);
     
     const user = userResult.rows[0];

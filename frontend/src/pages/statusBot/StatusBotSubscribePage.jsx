@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { 
   Check, ArrowLeft, CreditCard, Shield, Loader,
-  Upload, Eye, Heart, Users, Smartphone
+  Upload, Eye, Heart, Users, Smartphone, Lock, AlertCircle
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
 import Logo from '../../components/atoms/Logo';
@@ -24,6 +24,21 @@ export default function StatusBotSubscribePage() {
   const [subscribing, setSubscribing] = useState(false);
   const [service, setService] = useState(null);
   const [billingPeriod, setBillingPeriod] = useState('monthly');
+  const [error, setError] = useState(null);
+  
+  // Payment method state
+  const [paymentMethod, setPaymentMethod] = useState(null);
+  const [showCardForm, setShowCardForm] = useState(false);
+  const [savingCard, setSavingCard] = useState(false);
+  const [cardForm, setCardForm] = useState({
+    cardNumber: '',
+    cardHolder: '',
+    expiryMonth: '',
+    expiryYear: '',
+    cvv: '',
+    citizenId: '',
+    phone: '',
+  });
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -33,10 +48,10 @@ export default function StatusBotSubscribePage() {
     }
     
     fetchMe();
-    loadService();
+    loadData();
   }, []);
 
-  const loadService = async () => {
+  const loadData = async () => {
     try {
       // Check if already subscribed
       const { data: accessData } = await api.get('/services/access/status-bot');
@@ -50,7 +65,6 @@ export default function StatusBotSubscribePage() {
       const statusBotService = servicesData.services?.find(s => s.slug === 'status-bot');
       
       if (!statusBotService) {
-        // Service not found, might not be set up yet
         setService({
           price: 250,
           yearly_price: 2500,
@@ -59,9 +73,15 @@ export default function StatusBotSubscribePage() {
       } else {
         setService(statusBotService);
       }
+      
+      // Load payment method
+      await loadPaymentMethod();
+      
+      // Load user defaults for card form
+      await loadPaymentDefaults();
+      
     } catch (e) {
-      console.error('Load service error:', e);
-      // Default fallback
+      console.error('Load data error:', e);
       setService({
         price: 250,
         yearly_price: 2500,
@@ -71,19 +91,95 @@ export default function StatusBotSubscribePage() {
       setLoading(false);
     }
   };
+  
+  const loadPaymentMethod = async () => {
+    try {
+      const { data } = await api.get('/payment/methods');
+      if (data.paymentMethods?.length > 0) {
+        setPaymentMethod(data.paymentMethods[0]);
+      } else {
+        setShowCardForm(true);
+      }
+    } catch (err) {
+      console.error('Failed to load payment method:', err);
+      setShowCardForm(true);
+    }
+  };
+  
+  const loadPaymentDefaults = async () => {
+    try {
+      const { data } = await api.get('/payment/defaults');
+      setCardForm(prev => ({
+        ...prev,
+        cardHolder: data.name || prev.cardHolder,
+        citizenId: data.citizenId || prev.citizenId,
+        phone: data.phone || prev.phone,
+      }));
+    } catch (err) {
+      // Silently fail
+    }
+  };
+  
+  const formatCardNumber = (value) => {
+    const v = value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
+    const matches = v.match(/\d{4,16}/g);
+    const match = (matches && matches[0]) || '';
+    const parts = [];
+    for (let i = 0, len = match.length; i < len; i += 4) {
+      parts.push(match.substring(i, i + 4));
+    }
+    return parts.length ? parts.join(' ') : value;
+  };
+  
+  const handleSaveCard = async () => {
+    try {
+      setSavingCard(true);
+      setError(null);
+      
+      if (!cardForm.cardNumber || !cardForm.cardHolder || !cardForm.expiryMonth || 
+          !cardForm.expiryYear || !cardForm.cvv || !cardForm.citizenId || !cardForm.phone) {
+        setError('נא למלא את כל השדות (כולל טלפון ות.ז.)');
+        setSavingCard(false);
+        return;
+      }
+      
+      const { data } = await api.post('/payment/methods', {
+        cardNumber: cardForm.cardNumber.replace(/\s/g, ''),
+        cardHolderName: cardForm.cardHolder,
+        expiryMonth: cardForm.expiryMonth,
+        expiryYear: cardForm.expiryYear,
+        cvv: cardForm.cvv,
+        citizenId: cardForm.citizenId,
+        phone: cardForm.phone,
+      });
+      
+      setPaymentMethod(data.paymentMethod);
+      setShowCardForm(false);
+    } catch (err) {
+      setError(err.response?.data?.error || 'שגיאה בשמירת פרטי האשראי');
+    } finally {
+      setSavingCard(false);
+    }
+  };
 
   const handleSubscribe = async () => {
     if (!service) return;
     
+    // If no payment method, show card form
+    if (!paymentMethod) {
+      setShowCardForm(true);
+      return;
+    }
+    
     setSubscribing(true);
+    setError(null);
+    
     try {
-      // First check if service exists in DB
       const { data: servicesData } = await api.get('/services');
       const statusBotService = servicesData.services?.find(s => s.slug === 'status-bot');
       
       if (!statusBotService) {
-        // Service doesn't exist yet - redirect to contact or manual setup
-        alert('השירות עדיין לא זמין להרשמה אוטומטית. אנא צור קשר.');
+        setError('השירות עדיין לא זמין להרשמה אוטומטית. אנא צור קשר.');
         return;
       }
 
@@ -96,11 +192,11 @@ export default function StatusBotSubscribePage() {
       }
     } catch (err) {
       if (err.response?.data?.needsPaymentMethod) {
-        // Redirect to add payment method
-        navigate('/settings?tab=subscription&redirect=/status-bot/subscribe');
-        return;
+        setShowCardForm(true);
+        setPaymentMethod(null);
+      } else {
+        setError(err.response?.data?.error || 'שגיאה בביצוע התשלום');
       }
-      alert(err.response?.data?.error || 'שגיאה בהרשמה');
     } finally {
       setSubscribing(false);
     }
@@ -170,86 +266,241 @@ export default function StatusBotSubscribePage() {
               <div>
                 <p className="font-medium text-gray-800">תשלום מאובטח</p>
                 <p className="text-sm text-gray-600">
-                  התשלום מתבצע דרך המערכת המאובטחת של Botomat
+                  התשלום מתבצע דרך המערכת המאובטחת של Botomat. ניתן לבטל בכל עת.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Pricing Card */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-xl p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">בחר את המסלול שלך</h2>
-            
-            {/* Billing Toggle */}
-            <div className="flex items-center gap-2 p-1 bg-gray-100 rounded-xl mb-6">
-              <button
-                onClick={() => setBillingPeriod('monthly')}
-                className={`flex-1 py-3 text-sm font-medium rounded-lg transition-colors ${
-                  billingPeriod === 'monthly' 
-                    ? 'bg-white text-gray-800 shadow-sm' 
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                חודשי
-              </button>
-              <button
-                onClick={() => setBillingPeriod('yearly')}
-                className={`flex-1 py-3 text-sm font-medium rounded-lg transition-colors ${
-                  billingPeriod === 'yearly' 
-                    ? 'bg-white text-gray-800 shadow-sm' 
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                שנתי
-                {yearlyDiscount > 0 && (
-                  <span className="mr-1 text-green-600 text-xs">({yearlyDiscount}% הנחה)</span>
-                )}
-              </button>
-            </div>
-
-            {/* Price */}
-            <div className="text-center mb-6">
-              <div className="flex items-baseline justify-center gap-1">
-                <span className="text-5xl font-bold text-gray-900">₪{currentPrice}</span>
-                <span className="text-gray-500">/{billingPeriod === 'yearly' ? 'שנה' : 'חודש'}</span>
+          {/* Pricing & Payment Card */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-xl overflow-hidden">
+            {/* Price Header */}
+            <div className="bg-gradient-to-r from-green-600 to-emerald-600 p-6 text-white">
+              <h2 className="text-xl font-bold mb-2">בחר את המסלול שלך</h2>
+              <div className="flex items-baseline gap-2">
+                <span className="text-4xl font-bold">₪{currentPrice}</span>
+                <span className="text-white/80">/{billingPeriod === 'yearly' ? 'שנה' : 'חודש'}</span>
               </div>
               {billingPeriod === 'yearly' && (
-                <p className="text-sm text-gray-500 mt-1">
-                  ₪{Math.round(yearlyPrice / 12)} לחודש
-                </p>
+                <p className="text-white/70 text-sm mt-1">₪{Math.round(yearlyPrice / 12)} לחודש</p>
               )}
             </div>
-
-            {/* User Info */}
-            {user && (
-              <div className="mb-6 p-3 bg-gray-50 rounded-xl">
-                <p className="text-sm text-gray-500">נרשם כ:</p>
-                <p className="font-medium text-gray-800">{user.email}</p>
+            
+            <div className="p-6 space-y-5">
+              {/* Error */}
+              {error && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 text-red-700">
+                  <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                  <span className="text-sm">{error}</span>
+                </div>
+              )}
+              
+              {/* Billing Toggle */}
+              <div className="flex items-center gap-2 p-1 bg-gray-100 rounded-xl">
+                <button
+                  onClick={() => setBillingPeriod('monthly')}
+                  className={`flex-1 py-3 text-sm font-medium rounded-lg transition-colors ${
+                    billingPeriod === 'monthly' 
+                      ? 'bg-white text-gray-800 shadow-sm' 
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  חודשי
+                </button>
+                <button
+                  onClick={() => setBillingPeriod('yearly')}
+                  className={`flex-1 py-3 text-sm font-medium rounded-lg transition-colors ${
+                    billingPeriod === 'yearly' 
+                      ? 'bg-white text-gray-800 shadow-sm' 
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  שנתי
+                  {yearlyDiscount > 0 && (
+                    <span className="mr-1 text-green-600 text-xs">({yearlyDiscount}% הנחה)</span>
+                  )}
+                </button>
               </div>
-            )}
 
-            {/* Subscribe Button */}
-            <button
-              onClick={handleSubscribe}
-              disabled={subscribing}
-              className="w-full py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-lg font-bold rounded-xl hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {subscribing ? (
-                <>
-                  <Loader className="w-5 h-5 animate-spin" />
-                  מעבד...
-                </>
+              {/* Payment Method or Card Form */}
+              {showCardForm ? (
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                    <CreditCard className="w-5 h-5 text-green-600" />
+                    פרטי כרטיס אשראי
+                  </h3>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">מספר כרטיס</label>
+                    <input
+                      type="text"
+                      value={cardForm.cardNumber}
+                      onChange={(e) => setCardForm({ ...cardForm, cardNumber: formatCardNumber(e.target.value) })}
+                      placeholder="1234 5678 9012 3456"
+                      maxLength={19}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/30 focus:border-green-400 transition-all"
+                      dir="ltr"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">שם בעל הכרטיס</label>
+                    <input
+                      type="text"
+                      value={cardForm.cardHolder}
+                      onChange={(e) => setCardForm({ ...cardForm, cardHolder: e.target.value })}
+                      placeholder="ישראל ישראלי"
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/30 focus:border-green-400 transition-all"
+                    />
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">חודש</label>
+                      <select
+                        value={cardForm.expiryMonth}
+                        onChange={(e) => setCardForm({ ...cardForm, expiryMonth: e.target.value })}
+                        className="w-full px-3 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/30 focus:border-green-400 transition-all"
+                      >
+                        <option value="">MM</option>
+                        {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                          <option key={m} value={m.toString().padStart(2, '0')}>
+                            {m.toString().padStart(2, '0')}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">שנה</label>
+                      <select
+                        value={cardForm.expiryYear}
+                        onChange={(e) => setCardForm({ ...cardForm, expiryYear: e.target.value })}
+                        className="w-full px-3 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/30 focus:border-green-400 transition-all"
+                      >
+                        <option value="">YY</option>
+                        {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() + i).map(y => (
+                          <option key={y} value={y.toString().slice(-2)}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">CVV</label>
+                      <input
+                        type="text"
+                        value={cardForm.cvv}
+                        onChange={(e) => setCardForm({ ...cardForm, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) })}
+                        placeholder="123"
+                        maxLength={4}
+                        className="w-full px-3 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/30 focus:border-green-400 transition-all"
+                        dir="ltr"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">תעודת זהות</label>
+                      <input
+                        type="text"
+                        value={cardForm.citizenId}
+                        onChange={(e) => setCardForm({ ...cardForm, citizenId: e.target.value.replace(/\D/g, '').slice(0, 9) })}
+                        placeholder="012345678"
+                        maxLength={9}
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/30 focus:border-green-400 transition-all"
+                        dir="ltr"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">טלפון</label>
+                      <input
+                        type="tel"
+                        value={cardForm.phone}
+                        onChange={(e) => setCardForm({ ...cardForm, phone: e.target.value.replace(/[^\d-]/g, '') })}
+                        placeholder="050-1234567"
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/30 focus:border-green-400 transition-all"
+                        dir="ltr"
+                      />
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={handleSaveCard}
+                    disabled={savingCard}
+                    className="w-full py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-lg font-bold rounded-xl hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {savingCard ? (
+                      <>
+                        <Loader className="w-5 h-5 animate-spin" />
+                        שומר...
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-5 h-5" />
+                        שמור ואשר תשלום ₪{currentPrice}
+                      </>
+                    )}
+                  </button>
+                </div>
               ) : (
                 <>
-                  <CreditCard className="w-5 h-5" />
-                  הרשם עכשיו
+                  {/* Existing Payment Method */}
+                  {paymentMethod && (
+                    <div className="p-4 bg-gray-50 rounded-xl">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-white rounded-lg shadow-sm">
+                          <CreditCard className="w-5 h-5 text-green-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-800">
+                            {paymentMethod.card_brand || 'כרטיס אשראי'}
+                          </p>
+                          <p className="text-sm text-gray-500" dir="ltr">
+                            •••• {paymentMethod.last_4_digits}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setShowCardForm(true)}
+                          className="text-sm text-green-600 hover:text-green-700"
+                        >
+                          החלף
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* User Info */}
+                  {user && (
+                    <div className="p-3 bg-gray-50 rounded-xl">
+                      <p className="text-sm text-gray-500">נרשם כ:</p>
+                      <p className="font-medium text-gray-800">{user.email}</p>
+                    </div>
+                  )}
+
+                  {/* Subscribe Button */}
+                  <button
+                    onClick={handleSubscribe}
+                    disabled={subscribing}
+                    className="w-full py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-lg font-bold rounded-xl hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {subscribing ? (
+                      <>
+                        <Loader className="w-5 h-5 animate-spin" />
+                        מעבד תשלום...
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-5 h-5" />
+                        אשר תשלום ₪{currentPrice}{billingPeriod === 'yearly' ? '/שנה' : '/חודש'}
+                      </>
+                    )}
+                  </button>
                 </>
               )}
-            </button>
 
-            <p className="text-center text-sm text-gray-500 mt-4">
-              ניתן לבטל בכל עת דרך הגדרות החשבון
-            </p>
+              <p className="text-center text-sm text-gray-500">
+                ניתן לבטל בכל עת דרך הגדרות החשבון
+              </p>
+            </div>
           </div>
         </div>
       </main>
