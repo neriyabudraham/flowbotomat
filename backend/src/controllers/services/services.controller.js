@@ -793,6 +793,35 @@ async function initializeTables() {
     await db.query(`CREATE INDEX IF NOT EXISTS idx_user_service_subs_status ON user_service_subscriptions(status)`);
     await db.query(`CREATE INDEX IF NOT EXISTS idx_additional_services_slug ON additional_services(slug)`);
     
+    // Seed Status Bot service
+    await db.query(`
+      INSERT INTO additional_services (
+        slug, name, name_he, description, description_he,
+        price, yearly_price, billing_period,
+        trial_days, allow_custom_trial,
+        icon, color, external_url, features,
+        is_active, is_coming_soon, sort_order
+      ) VALUES (
+        'status-bot',
+        'Status Upload Bot',
+        'בוט העלאת סטטוסים',
+        'Upload WhatsApp statuses easily via web or WhatsApp message',
+        'העלה סטטוסים לווצאפ בקלות מממשק אחד, עקוב אחרי צפיות ותגובות, והעלה סטטוסים גם דרך הודעת WhatsApp',
+        250,
+        2500,
+        'monthly',
+        0,
+        true,
+        'sms',
+        'from-green-500 to-emerald-600',
+        '/status-bot/dashboard',
+        '{"unlimited_uploads": true, "view_tracking": true, "reaction_tracking": true, "authorized_numbers": true}',
+        true,
+        false,
+        1
+      ) ON CONFLICT (slug) DO NOTHING
+    `);
+    
     console.log('✅ Additional services tables initialized');
   } catch (error) {
     console.error('[Services] Table initialization error:', error.message);
