@@ -11,11 +11,21 @@ import useAuthStore from '../../store/authStore';
 import useWhatsappStore from '../../store/whatsappStore';
 import Logo from '../../components/atoms/Logo';
 import api from '../../services/api';
+import { ToastProvider, useToast } from '../../components/ui/Toast';
 
 const BOT_NUMBER = '+972 53-923-2960';
 
 export default function StatusBotDashboardPage() {
+  return (
+    <ToastProvider>
+      <StatusBotDashboardContent />
+    </ToastProvider>
+  );
+}
+
+function StatusBotDashboardContent() {
   const navigate = useNavigate();
+  const toast = useToast();
   const { user, fetchMe } = useAuthStore();
   const { connection: mainConnection, fetchStatus: fetchMainStatus } = useWhatsappStore();
   
@@ -215,11 +225,11 @@ export default function StatusBotDashboardPage() {
 
   const handleUploadStatus = async () => {
     if (statusType === 'text' && !textContent.trim()) {
-      alert('נא להזין טקסט');
+      toast.warning('נא להזין טקסט');
       return;
     }
     if (statusType !== 'text' && !mediaUrl.trim() && !mediaFile) {
-      alert('נא להזין URL או להעלות קובץ');
+      toast.warning('נא להזין URL או להעלות קובץ');
       return;
     }
 
@@ -276,9 +286,9 @@ export default function StatusBotDashboardPage() {
       setMediaInputMode('url');
       
       loadDashboardData();
-      alert('הסטטוס נשלח!');
+      toast.success('הסטטוס נשלח!');
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בהעלאת סטטוס');
+      toast.error(err.response?.data?.error || 'שגיאה בהעלאת סטטוס');
     } finally {
       setUploading(false);
     }
@@ -289,7 +299,7 @@ export default function StatusBotDashboardPage() {
     if (file) {
       // Check file size (max 100MB)
       if (file.size > 100 * 1024 * 1024) {
-        alert('הקובץ גדול מדי. גודל מקסימלי: 100MB');
+        toast.error('הקובץ גדול מדי. גודל מקסימלי: 100MB');
         return;
       }
       setMediaFile(file);
@@ -321,7 +331,7 @@ export default function StatusBotDashboardPage() {
       setAudioChunks(chunks);
       setIsRecording(true);
     } catch (err) {
-      alert('לא ניתן לגשת למיקרופון');
+      toast.error('לא ניתן לגשת למיקרופון');
     }
   };
 
@@ -347,7 +357,7 @@ export default function StatusBotDashboardPage() {
       setShowAddNumber(false);
       loadDashboardData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בהוספת מספר');
+      toast.error(err.response?.data?.error || 'שגיאה בהוספת מספר');
     }
   };
 
@@ -357,7 +367,7 @@ export default function StatusBotDashboardPage() {
       await api.delete(`/status-bot/authorized-numbers/${numberId}`);
       loadDashboardData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה במחיקת מספר');
+      toast.error(err.response?.data?.error || 'שגיאה במחיקת מספר');
     }
   };
 
@@ -367,7 +377,7 @@ export default function StatusBotDashboardPage() {
       await api.delete(`/status-bot/status/${statusId}`);
       loadDashboardData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה במחיקת סטטוס');
+      toast.error(err.response?.data?.error || 'שגיאה במחיקת סטטוס');
     }
   };
 

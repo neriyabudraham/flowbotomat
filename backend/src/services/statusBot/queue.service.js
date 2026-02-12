@@ -200,15 +200,14 @@ async function sendStatus(queueItem) {
   }
 
   // Build request body based on status type
-  // WAHA uses /api/sendStatus format with session in body
+  // WAHA uses /api/{session}/status/... format
   let endpoint;
   let body;
 
   switch (queueItem.status_type) {
     case 'text':
-      endpoint = `/api/sendStatus`;
+      endpoint = `/api/${sessionName}/status/text`;
       body = {
-        session: sessionName,
         id: messageId,
         contacts: null,
         text: content.text,
@@ -220,9 +219,8 @@ async function sendStatus(queueItem) {
       break;
 
     case 'image':
-      endpoint = `/api/sendImageStatus`;
+      endpoint = `/api/${sessionName}/status/image`;
       body = {
-        session: sessionName,
         id: messageId,
         contacts: null,
         file: content.file,
@@ -231,9 +229,8 @@ async function sendStatus(queueItem) {
       break;
 
     case 'video':
-      endpoint = `/api/sendVideoStatus`;
+      endpoint = `/api/${sessionName}/status/video`;
       body = {
-        session: sessionName,
         id: messageId,
         contacts: null,
         file: content.file,
@@ -243,9 +240,8 @@ async function sendStatus(queueItem) {
       break;
 
     case 'voice':
-      endpoint = `/api/sendVoiceStatus`;
+      endpoint = `/api/${sessionName}/status/voice`;
       body = {
-        session: sessionName,
         id: messageId,
         contacts: null,
         file: content.file,
@@ -257,6 +253,8 @@ async function sendStatus(queueItem) {
     default:
       throw new Error(`Unknown status type: ${queueItem.status_type}`);
   }
+
+  console.log(`[StatusBot Queue] Sending to ${endpoint}`, JSON.stringify(body, null, 2));
 
   // Send the status with timeout
   const timeoutPromise = new Promise((_, reject) => {

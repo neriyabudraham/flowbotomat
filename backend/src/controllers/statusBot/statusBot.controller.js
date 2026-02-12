@@ -998,8 +998,7 @@ async function deleteStatus(req, res) {
     const { baseUrl, apiKey } = await getWahaCredentials();
 
     try {
-      await wahaSession.makeRequest(baseUrl, apiKey, 'POST', `/api/deleteStatus`, {
-        session: connection.session_name,
+      await wahaSession.makeRequest(baseUrl, apiKey, 'POST', `/api/${connection.session_name}/status/delete`, {
         id: status.waha_message_id,
         contacts: null
       });
