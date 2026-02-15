@@ -106,7 +106,7 @@ services:
     networks:
       - flowbotomat_network
     entrypoint: /bin/sh
-    command: -c "chmod +x /backup.sh && echo '0 3 * * * /backup.sh >> /var/log/backup.log 2>&1' | crontab - && crond -f -l 2"
+    command: -c "echo '0 3 * * * /bin/sh /backup.sh >> /var/log/backup.log 2>&1' | crontab - && crond -f -l 2"
 
 networks:
   flowbotomat_network:
