@@ -1536,7 +1536,26 @@ class BotEngine {
             if (action.content) {
               const text = await this.replaceAllVariables(action.content, contact, originalMessage, botName, userId);
               console.log('[BotEngine] Sending text:', text.substring(0, 50) + '...');
-              const result = await wahaService.sendMessage(connection, contact.phone, text);
+              
+              let result;
+              // Check if custom link preview is configured
+              if (action.customLinkPreview && action.linkPreviewUrl) {
+                const previewImage = action.linkPreviewImage 
+                  ? await this.replaceAllVariables(action.linkPreviewImage, contact, originalMessage, botName, userId)
+                  : null;
+                const preview = {
+                  url: await this.replaceAllVariables(action.linkPreviewUrl, contact, originalMessage, botName, userId),
+                  title: action.linkPreviewTitle ? await this.replaceAllVariables(action.linkPreviewTitle, contact, originalMessage, botName, userId) : undefined,
+                  description: action.linkPreviewDescription ? await this.replaceAllVariables(action.linkPreviewDescription, contact, originalMessage, botName, userId) : undefined,
+                };
+                if (previewImage) {
+                  preview.image = { url: previewImage };
+                }
+                result = await wahaService.sendLinkPreview(connection, contact.phone, text, preview);
+                console.log('[BotEngine] ✅ Text with custom link preview sent');
+              } else {
+                result = await wahaService.sendMessage(connection, contact.phone, text);
+              }
               // Save outgoing message to DB
               await this.saveOutgoingMessage(userId, contact.id, text, 'text', null, result?.id?.id);
               console.log('[BotEngine] ✅ Text sent and saved');
@@ -2974,7 +2993,25 @@ class BotEngine {
             if (action.content) {
               const text = await this.replaceAllVariables(action.content, contact, '', '', userId);
               console.log('[BotEngine] Sending text to', targetChatId.substring(0, 20) + '...');
-              await wahaService.sendMessage(connection, targetChatId, text);
+              
+              // Check if custom link preview is configured
+              if (action.customLinkPreview && action.linkPreviewUrl) {
+                const previewImage = action.linkPreviewImage 
+                  ? await this.replaceAllVariables(action.linkPreviewImage, contact, '', '', userId)
+                  : null;
+                const preview = {
+                  url: await this.replaceAllVariables(action.linkPreviewUrl, contact, '', '', userId),
+                  title: action.linkPreviewTitle ? await this.replaceAllVariables(action.linkPreviewTitle, contact, '', '', userId) : undefined,
+                  description: action.linkPreviewDescription ? await this.replaceAllVariables(action.linkPreviewDescription, contact, '', '', userId) : undefined,
+                };
+                if (previewImage) {
+                  preview.image = { url: previewImage };
+                }
+                await wahaService.sendLinkPreview(connection, targetChatId, text, preview);
+                console.log('[BotEngine] ✅ Text with custom link preview sent to other recipient');
+              } else {
+                await wahaService.sendMessage(connection, targetChatId, text);
+              }
               console.log('[BotEngine] ✅ Text sent to other recipient');
             }
             break;

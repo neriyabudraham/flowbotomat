@@ -10,7 +10,8 @@ async function sendMessage(req, res) {
   try {
     const userId = req.user.id;
     const { contactId } = req.params;
-    const { content, message_type = 'text' } = req.body;
+    const { content, message_type = 'text', linkPreview } = req.body;
+    // linkPreview: { url, title, description, image }
     
     if (!content) {
       return res.status(400).json({ error: 'נדרש תוכן הודעה' });
@@ -57,11 +58,30 @@ async function sendMessage(req, res) {
     
     let wahaResponse;
     try {
-      wahaResponse = await client.post(`/api/sendText`, {
-        session: connection.session_name,
-        chatId: chatId,
-        text: content,
-      });
+      // Check if custom link preview is provided
+      if (linkPreview && linkPreview.url) {
+        const preview = {
+          url: linkPreview.url,
+          title: linkPreview.title || undefined,
+          description: linkPreview.description || undefined,
+        };
+        if (linkPreview.image) {
+          preview.image = { url: linkPreview.image };
+        }
+        wahaResponse = await client.post(`/api/send/link-custom-preview`, {
+          session: connection.session_name,
+          chatId: chatId,
+          text: content,
+          linkPreviewHighQuality: true,
+          preview: preview,
+        });
+      } else {
+        wahaResponse = await client.post(`/api/sendText`, {
+          session: connection.session_name,
+          chatId: chatId,
+          text: content,
+        });
+      }
     } catch (err) {
       console.error('WAHA send error:', err.response?.data || err.message);
       return res.status(500).json({ error: 'שגיאה בשליחת הודעה' });
