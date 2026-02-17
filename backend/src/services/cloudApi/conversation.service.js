@@ -748,11 +748,25 @@ async function handleAfterSendMenuState(phone, message, state) {
     return;
   }
   
+  // Helper to get the actual status_bot_statuses ID from queue ID
+  const getStatusIdFromQueueId = async (queueId) => {
+    const result = await db.query(
+      `SELECT id FROM status_bot_statuses WHERE queue_id = $1`,
+      [queueId]
+    );
+    return result.rows[0]?.id;
+  };
+
   // Views count
   if (selectedId.startsWith('queued_views_count_')) {
+    const realStatusId = await getStatusIdFromQueueId(statusId);
+    if (!realStatusId) {
+      await cloudApi.sendTextMessage(phone, '👁️ הסטטוס עדיין לא נשלח או שלא נמצא.');
+      return;
+    }
     const views = await db.query(
       `SELECT COUNT(*) as count FROM status_bot_views WHERE status_id = $1`,
-      [statusId]
+      [realStatusId]
     );
     const count = views.rows[0]?.count || 0;
     await cloudApi.sendTextMessage(phone, `👁️ כמות צפיות: ${count}`);
@@ -761,9 +775,14 @@ async function handleAfterSendMenuState(phone, message, state) {
   
   // Views list
   if (selectedId.startsWith('queued_views_list_')) {
+    const realStatusId = await getStatusIdFromQueueId(statusId);
+    if (!realStatusId) {
+      await cloudApi.sendTextMessage(phone, '👥 הסטטוס עדיין לא נשלח או שלא נמצא.');
+      return;
+    }
     const views = await db.query(
       `SELECT viewer_phone, viewed_at FROM status_bot_views WHERE status_id = $1 ORDER BY viewed_at DESC LIMIT 50`,
-      [statusId]
+      [realStatusId]
     );
     
     if (views.rows.length === 0) {
@@ -777,9 +796,14 @@ async function handleAfterSendMenuState(phone, message, state) {
   
   // Hearts count
   if (selectedId.startsWith('queued_hearts_count_')) {
+    const realStatusId = await getStatusIdFromQueueId(statusId);
+    if (!realStatusId) {
+      await cloudApi.sendTextMessage(phone, '❤️ הסטטוס עדיין לא נשלח או שלא נמצא.');
+      return;
+    }
     const hearts = await db.query(
-      `SELECT COUNT(*) as count FROM status_bot_reactions WHERE status_id = $1 AND reaction_text = '❤️'`,
-      [statusId]
+      `SELECT COUNT(*) as count FROM status_bot_reactions WHERE status_id = $1 AND reaction = '❤️'`,
+      [realStatusId]
     );
     const count = hearts.rows[0]?.count || 0;
     await cloudApi.sendTextMessage(phone, `❤️ כמות לבבות: ${count}`);
@@ -788,9 +812,14 @@ async function handleAfterSendMenuState(phone, message, state) {
   
   // Hearts list
   if (selectedId.startsWith('queued_hearts_list_')) {
+    const realStatusId = await getStatusIdFromQueueId(statusId);
+    if (!realStatusId) {
+      await cloudApi.sendTextMessage(phone, '💕 הסטטוס עדיין לא נשלח או שלא נמצא.');
+      return;
+    }
     const hearts = await db.query(
-      `SELECT reactor_phone, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction_text = '❤️' ORDER BY reacted_at DESC LIMIT 50`,
-      [statusId]
+      `SELECT reactor_phone, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction = '❤️' ORDER BY reacted_at DESC LIMIT 50`,
+      [realStatusId]
     );
     
     if (hearts.rows.length === 0) {
@@ -804,9 +833,14 @@ async function handleAfterSendMenuState(phone, message, state) {
   
   // Reactions count (non-heart)
   if (selectedId.startsWith('queued_reactions_count_')) {
+    const realStatusId = await getStatusIdFromQueueId(statusId);
+    if (!realStatusId) {
+      await cloudApi.sendTextMessage(phone, '😊 הסטטוס עדיין לא נשלח או שלא נמצא.');
+      return;
+    }
     const reactions = await db.query(
-      `SELECT COUNT(*) as count FROM status_bot_reactions WHERE status_id = $1 AND reaction_text != '❤️'`,
-      [statusId]
+      `SELECT COUNT(*) as count FROM status_bot_reactions WHERE status_id = $1 AND reaction != '❤️'`,
+      [realStatusId]
     );
     const count = reactions.rows[0]?.count || 0;
     await cloudApi.sendTextMessage(phone, `😊 כמות תגובות: ${count}`);
@@ -815,15 +849,20 @@ async function handleAfterSendMenuState(phone, message, state) {
   
   // Reactions list
   if (selectedId.startsWith('queued_reactions_list_')) {
+    const realStatusId = await getStatusIdFromQueueId(statusId);
+    if (!realStatusId) {
+      await cloudApi.sendTextMessage(phone, '💬 הסטטוס עדיין לא נשלח או שלא נמצא.');
+      return;
+    }
     const reactions = await db.query(
-      `SELECT reactor_phone, reaction_text, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction_text != '❤️' ORDER BY reacted_at DESC LIMIT 50`,
-      [statusId]
+      `SELECT reactor_phone, reaction, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction != '❤️' ORDER BY reacted_at DESC LIMIT 50`,
+      [realStatusId]
     );
     
     if (reactions.rows.length === 0) {
       await cloudApi.sendTextMessage(phone, '💬 אין תגובות עדיין.');
     } else {
-      const reactionsList = reactions.rows.map(r => `• ${r.reactor_phone}: ${r.reaction_text}`).join('\n');
+      const reactionsList = reactions.rows.map(r => `• ${r.reactor_phone}: ${r.reaction}`).join('\n');
       await cloudApi.sendTextMessage(phone, `💬 הגיבו (${reactions.rows.length}):\n\n${reactionsList}`);
     }
     return;
