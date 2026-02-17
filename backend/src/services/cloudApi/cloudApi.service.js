@@ -186,7 +186,7 @@ async function downloadMedia(mediaId) {
 async function uploadMediaToStorage(buffer, mimeType, originalFilename) {
   const crypto = require('crypto');
   
-  // Determine extension from mime type
+  // Determine extension and type from mime type
   const extMap = {
     'image/jpeg': 'jpg',
     'image/png': 'png',
@@ -198,12 +198,18 @@ async function uploadMediaToStorage(buffer, mimeType, originalFilename) {
     'audio/aac': 'aac',
   };
   
-  const ext = extMap[mimeType] || 'bin';
-  const uniqueId = crypto.randomBytes(16).toString('hex');
-  const filename = `cloud_${uniqueId}.${ext}`;
+  // Get type folder
+  let type = 'misc';
+  if (mimeType.startsWith('image/')) type = 'image';
+  else if (mimeType.startsWith('video/')) type = 'video';
+  else if (mimeType.startsWith('audio/')) type = 'audio';
   
-  // Save directly to uploads folder
-  const uploadsDir = path.join(__dirname, '../../..', 'uploads');
+  const ext = extMap[mimeType] || 'bin';
+  const uniqueId = crypto.randomBytes(8).toString('hex');
+  const filename = `${Date.now()}-${uniqueId}.${ext}`;
+  
+  // Save to uploads/type folder (same as upload.controller.js)
+  const uploadsDir = path.join(__dirname, '../../..', 'uploads', type);
   
   // Ensure uploads directory exists
   if (!fs.existsSync(uploadsDir)) {
@@ -215,8 +221,9 @@ async function uploadMediaToStorage(buffer, mimeType, originalFilename) {
   try {
     fs.writeFileSync(filePath, buffer);
     
-    const appUrl = process.env.APP_URL || 'https://botomat.co.il';
-    const fileUrl = `${appUrl}/uploads/${filename}`;
+    // Use API_URL same as upload.controller.js
+    const baseUrl = process.env.API_URL || 'https://botomat.co.il/api';
+    const fileUrl = `${baseUrl}/uploads/${type}/${filename}`;
     
     console.log(`[CloudAPI] Saved media to storage: ${fileUrl}`);
     return fileUrl;

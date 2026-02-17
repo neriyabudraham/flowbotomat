@@ -567,18 +567,28 @@ async function handleSelectActionState(phone, message, state) {
     
     // Show success message with action list
     const sections = [{
-      title: 'פעולות',
+      title: 'פעולות על הסטטוס',
       rows: [
-        { id: `queued_delete_${queuedStatusId}`, title: 'מחק סטטוס', description: 'הסר מתור השליחה' },
-        { id: 'queued_view_all', title: 'צפה בכל הסטטוסים', description: 'סטטוסים מתוזמנים ופעילים' },
-        { id: 'queued_new_status', title: 'שלח סטטוס נוסף', description: 'העלה תוכן חדש' },
-        { id: 'queued_menu', title: 'תפריט ראשי', description: 'חזור לתפריט' }
+        { id: `queued_delete_${queuedStatusId}`, title: '🗑️ מחק סטטוס', description: 'הסר מתור השליחה' },
+        { id: `queued_views_count_${queuedStatusId}`, title: '👁️ כמות צפיות', description: 'מספר הצופים בסטטוס' },
+        { id: `queued_views_list_${queuedStatusId}`, title: '👥 מי צפה', description: 'רשימת הצופים' },
+        { id: `queued_hearts_count_${queuedStatusId}`, title: '❤️ כמות לבבות', description: 'מספר סימוני הלב' },
+        { id: `queued_hearts_list_${queuedStatusId}`, title: '💕 סימנו לב', description: 'רשימת מי שסימן לב' },
+        { id: `queued_reactions_count_${queuedStatusId}`, title: '😊 כמות תגובות', description: 'מספר התגובות' },
+        { id: `queued_reactions_list_${queuedStatusId}`, title: '💬 הגיבו', description: 'רשימת המגיבים' }
+      ]
+    }, {
+      title: 'פעולות נוספות',
+      rows: [
+        { id: 'queued_new_status', title: '➕ שלח סטטוס נוסף', description: 'העלה תוכן חדש' },
+        { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים מתוזמנים ופעילים' },
+        { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
       ]
     }];
     
     await cloudApi.sendListMessage(
       phone,
-      '✅ הסטטוס נוסף לתור השליחה!\n\nמה תרצה לעשות?',
+      '✅ הסטטוס נוסף לתור השליחה!\n\nבחר פעולה:',
       'בחר פעולה',
       sections
     );
@@ -699,11 +709,20 @@ async function handleAfterSendMenuState(phone, message, state) {
   }
   
   const selectedId = message.interactive.list_reply.id;
+  const stateData = state.state_data || {};
   
+  // Extract status ID from action
+  let statusId = stateData.queuedStatusId;
+  if (selectedId.includes('_')) {
+    const parts = selectedId.split('_');
+    const lastPart = parts[parts.length - 1];
+    if (lastPart.includes('-')) {
+      statusId = lastPart;
+    }
+  }
+  
+  // Delete action
   if (selectedId.startsWith('queued_delete_')) {
-    const statusId = selectedId.replace('queued_delete_', '');
-    
-    // Check if status is still in queue
     const result = await db.query(
       `SELECT * FROM status_bot_queue WHERE id = $1`,
       [statusId]
@@ -713,16 +732,13 @@ async function handleAfterSendMenuState(phone, message, state) {
       const status = result.rows[0];
       
       if (status.queue_status === 'pending' || status.queue_status === 'scheduled') {
-        // Remove from queue
         await db.query(
           `UPDATE status_bot_queue SET queue_status = 'cancelled' WHERE id = $1`,
           [statusId]
         );
         await cloudApi.sendTextMessage(phone, '✅ הסטטוס הוסר מתור השליחה.');
-      } else if (status.queue_status === 'sent' && status.wa_message_id) {
-        // Status was sent - try to delete it
-        // Note: This would require calling WAHA to delete the status
-        await cloudApi.sendTextMessage(phone, 'הסטטוס כבר נשלח. מחיקת סטטוסים שנשלחו דורשת גישה לחשבון.');
+      } else if (status.queue_status === 'sent') {
+        await cloudApi.sendTextMessage(phone, 'הסטטוס כבר נשלח. לא ניתן למחוק.');
       } else {
         await cloudApi.sendTextMessage(phone, 'לא ניתן למחוק את הסטטוס.');
       }
@@ -733,6 +749,94 @@ async function handleAfterSendMenuState(phone, message, state) {
     return;
   }
   
+  // Views count
+  if (selectedId.startsWith('queued_views_count_')) {
+    const views = await db.query(
+      `SELECT COUNT(*) as count FROM status_bot_views WHERE status_id = $1`,
+      [statusId]
+    );
+    const count = views.rows[0]?.count || 0;
+    await cloudApi.sendTextMessage(phone, `👁️ כמות צפיות: ${count}`);
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+  
+  // Views list
+  if (selectedId.startsWith('queued_views_list_')) {
+    const views = await db.query(
+      `SELECT viewer_phone, viewed_at FROM status_bot_views WHERE status_id = $1 ORDER BY viewed_at DESC LIMIT 50`,
+      [statusId]
+    );
+    
+    if (views.rows.length === 0) {
+      await cloudApi.sendTextMessage(phone, '👥 אין צפיות עדיין.');
+    } else {
+      const viewersList = views.rows.map(v => `• ${v.viewer_phone}`).join('\n');
+      await cloudApi.sendTextMessage(phone, `👥 צפו בסטטוס (${views.rows.length}):\n\n${viewersList}`);
+    }
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+  
+  // Hearts count
+  if (selectedId.startsWith('queued_hearts_count_')) {
+    const hearts = await db.query(
+      `SELECT COUNT(*) as count FROM status_bot_reactions WHERE status_id = $1 AND reaction_text = '❤️'`,
+      [statusId]
+    );
+    const count = hearts.rows[0]?.count || 0;
+    await cloudApi.sendTextMessage(phone, `❤️ כמות לבבות: ${count}`);
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+  
+  // Hearts list
+  if (selectedId.startsWith('queued_hearts_list_')) {
+    const hearts = await db.query(
+      `SELECT reactor_phone, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction_text = '❤️' ORDER BY reacted_at DESC LIMIT 50`,
+      [statusId]
+    );
+    
+    if (hearts.rows.length === 0) {
+      await cloudApi.sendTextMessage(phone, '💕 אין סימוני לב עדיין.');
+    } else {
+      const heartsList = hearts.rows.map(h => `• ${h.reactor_phone}`).join('\n');
+      await cloudApi.sendTextMessage(phone, `💕 סימנו לב (${hearts.rows.length}):\n\n${heartsList}`);
+    }
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+  
+  // Reactions count (non-heart)
+  if (selectedId.startsWith('queued_reactions_count_')) {
+    const reactions = await db.query(
+      `SELECT COUNT(*) as count FROM status_bot_reactions WHERE status_id = $1 AND reaction_text != '❤️'`,
+      [statusId]
+    );
+    const count = reactions.rows[0]?.count || 0;
+    await cloudApi.sendTextMessage(phone, `😊 כמות תגובות: ${count}`);
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+  
+  // Reactions list
+  if (selectedId.startsWith('queued_reactions_list_')) {
+    const reactions = await db.query(
+      `SELECT reactor_phone, reaction_text, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction_text != '❤️' ORDER BY reacted_at DESC LIMIT 50`,
+      [statusId]
+    );
+    
+    if (reactions.rows.length === 0) {
+      await cloudApi.sendTextMessage(phone, '💬 אין תגובות עדיין.');
+    } else {
+      const reactionsList = reactions.rows.map(r => `• ${r.reactor_phone}: ${r.reaction_text}`).join('\n');
+      await cloudApi.sendTextMessage(phone, `💬 הגיבו (${reactions.rows.length}):\n\n${reactionsList}`);
+    }
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+  
+  // Other actions
   if (selectedId === 'queued_view_all') {
     await handleStatusesCommand(phone, state);
     return;
