@@ -798,7 +798,7 @@ async function handleAfterSendMenuState(phone, message, state) {
     return;
   }
   
-  // Hearts count
+  // Hearts count (all heart emojis)
   if (selectedId.startsWith('queued_hearts_count_')) {
     const realStatusId = await getStatusIdFromQueueId(statusId);
     if (!realStatusId) {
@@ -807,7 +807,7 @@ async function handleAfterSendMenuState(phone, message, state) {
       return;
     }
     const hearts = await db.query(
-      `SELECT COUNT(*) as count FROM status_bot_reactions WHERE status_id = $1 AND reaction = '❤️'`,
+      `SELECT COUNT(*) as count FROM status_bot_reactions WHERE status_id = $1 AND reaction IN ('❤️', '💚', '💙', '💜', '🖤', '🤍', '💛', '🧡', '🤎', '💗', '💖', '💕', '💓', '💞', '💘', '❣️')`,
       [realStatusId]
     );
     const count = hearts.rows[0]?.count || 0;
@@ -816,7 +816,7 @@ async function handleAfterSendMenuState(phone, message, state) {
     return;
   }
   
-  // Hearts list
+  // Hearts list (all heart emojis)
   if (selectedId.startsWith('queued_hearts_list_')) {
     const realStatusId = await getStatusIdFromQueueId(statusId);
     if (!realStatusId) {
@@ -825,21 +825,21 @@ async function handleAfterSendMenuState(phone, message, state) {
       return;
     }
     const hearts = await db.query(
-      `SELECT reactor_phone, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction = '❤️' ORDER BY reacted_at DESC LIMIT 50`,
+      `SELECT reactor_phone, reaction, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction IN ('❤️', '💚', '💙', '💜', '🖤', '🤍', '💛', '🧡', '🤎', '💗', '💖', '💕', '💓', '💞', '💘', '❣️') ORDER BY reacted_at DESC LIMIT 50`,
       [realStatusId]
     );
     
     if (hearts.rows.length === 0) {
       await cloudApi.sendTextMessage(phone, '💕 אין סימוני לב עדיין.');
     } else {
-      const heartsList = hearts.rows.map(h => `• ${h.reactor_phone}`).join('\n');
+      const heartsList = hearts.rows.map(h => `${h.reaction} ${h.reactor_phone}`).join('\n');
       await cloudApi.sendTextMessage(phone, `💕 סימנו לב (${hearts.rows.length}):\n\n${heartsList}`);
     }
     await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
     return;
   }
   
-  // Reactions count (non-heart)
+  // Reactions count (non-heart emojis)
   if (selectedId.startsWith('queued_reactions_count_')) {
     const realStatusId = await getStatusIdFromQueueId(statusId);
     if (!realStatusId) {
@@ -848,7 +848,7 @@ async function handleAfterSendMenuState(phone, message, state) {
       return;
     }
     const reactions = await db.query(
-      `SELECT COUNT(*) as count FROM status_bot_reactions WHERE status_id = $1 AND reaction != '❤️'`,
+      `SELECT COUNT(*) as count FROM status_bot_reactions WHERE status_id = $1 AND reaction NOT IN ('❤️', '💚', '💙', '💜', '🖤', '🤍', '💛', '🧡', '🤎', '💗', '💖', '💕', '💓', '💞', '💘', '❣️')`,
       [realStatusId]
     );
     const count = reactions.rows[0]?.count || 0;
@@ -857,7 +857,7 @@ async function handleAfterSendMenuState(phone, message, state) {
     return;
   }
   
-  // Reactions list
+  // Reactions list (non-heart emojis)
   if (selectedId.startsWith('queued_reactions_list_')) {
     const realStatusId = await getStatusIdFromQueueId(statusId);
     if (!realStatusId) {
@@ -866,14 +866,14 @@ async function handleAfterSendMenuState(phone, message, state) {
       return;
     }
     const reactions = await db.query(
-      `SELECT reactor_phone, reaction, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction != '❤️' ORDER BY reacted_at DESC LIMIT 50`,
+      `SELECT reactor_phone, reaction, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction NOT IN ('❤️', '💚', '💙', '💜', '🖤', '🤍', '💛', '🧡', '🤎', '💗', '💖', '💕', '💓', '💞', '💘', '❣️') ORDER BY reacted_at DESC LIMIT 50`,
       [realStatusId]
     );
     
     if (reactions.rows.length === 0) {
       await cloudApi.sendTextMessage(phone, '💬 אין תגובות עדיין.');
     } else {
-      const reactionsList = reactions.rows.map(r => `• ${r.reactor_phone}: ${r.reaction}`).join('\n');
+      const reactionsList = reactions.rows.map(r => `${r.reaction} ${r.reactor_phone}`).join('\n');
       await cloudApi.sendTextMessage(phone, `💬 הגיבו (${reactions.rows.length}):\n\n${reactionsList}`);
     }
     await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
