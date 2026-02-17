@@ -1449,9 +1449,10 @@ async function handleWebhook(req, res) {
 
       case 'message.ack':
         // Handle status view - ack=3 means READ (someone viewed our status)
-        // fromMe=true means it's our own status being acknowledged
         const ackLevel = payload?.ack || payload?.ackLevel;
-        if (payload?.from === 'status@broadcast' && payload?.fromMe === true && ackLevel >= 3) {
+        console.log(`[StatusBot Webhook] ACK details - from: ${payload?.from}, fromMe: ${payload?.fromMe}, ack: ${ackLevel}, participant: ${payload?.participant}, id: ${payload?.id}`);
+        
+        if (payload?.from === 'status@broadcast' && ackLevel >= 3) {
           console.log(`[StatusBot Webhook] Status view detected - ack: ${ackLevel}, participant: ${payload?.participant}`);
           await handleStatusView(connection, payload);
         }
