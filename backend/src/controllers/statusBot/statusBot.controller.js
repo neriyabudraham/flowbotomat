@@ -132,9 +132,26 @@ async function initializeTables() {
 
     await db.query(`INSERT INTO status_bot_queue_lock (id) VALUES (1) ON CONFLICT DO NOTHING`);
 
+    // Cloud API conversation states for WhatsApp Business API bot
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS cloud_api_conversation_states (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        phone_number VARCHAR(20) NOT NULL UNIQUE,
+        connection_id UUID REFERENCES status_bot_connections(id) ON DELETE SET NULL,
+        state VARCHAR(50) NOT NULL DEFAULT 'idle',
+        state_data JSONB,
+        pending_status JSONB,
+        last_message_at TIMESTAMP DEFAULT NOW(),
+        blocked_until TIMESTAMP,
+        notified_not_authorized BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
     // Create indexes
     await db.query(`CREATE INDEX IF NOT EXISTS idx_status_bot_queue_status ON status_bot_queue(queue_status)`);
     await db.query(`CREATE INDEX IF NOT EXISTS idx_status_bot_statuses_waha_id ON status_bot_statuses(waha_message_id)`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_cloud_api_conv_phone ON cloud_api_conversation_states(phone_number)`);
 
     console.log('✅ Status Bot tables initialized');
   } catch (error) {
