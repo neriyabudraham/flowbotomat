@@ -526,21 +526,27 @@ async function handleSelectActionState(phone, message, state) {
     const pendingStatus = state.pending_status;
     const content = buildStatusContent(pendingStatus);
     
-    await addToQueue(state.connection_id, pendingStatus.type, content, null, phone);
+    const queueResult = await addToQueue(state.connection_id, pendingStatus.type, content, null, phone);
+    const queuedStatusId = queueResult?.id;
     
-    await cloudApi.sendTextMessage(phone, '✅ הסטטוס נוסף לתור השליחה!');
-    
-    // Show action buttons
-    await cloudApi.sendButtonMessage(
-      phone,
-      'מה תרצה לעשות עכשיו?',
-      [
-        { id: 'menu_new_status', title: 'שלח סטטוס נוסף' },
-        { id: 'menu_view_statuses', title: 'צפה בסטטוסים' },
-        { id: 'menu_main', title: 'תפריט ראשי' }
+    // Show success message with action list
+    const sections = [{
+      title: 'פעולות',
+      rows: [
+        { id: `queued_delete_${queuedStatusId}`, title: 'מחק סטטוס', description: 'הסר מתור השליחה' },
+        { id: 'queued_view_all', title: 'צפה בכל הסטטוסים', description: 'סטטוסים מתוזמנים ופעילים' },
+        { id: 'queued_new_status', title: 'שלח סטטוס נוסף', description: 'העלה תוכן חדש' },
+        { id: 'queued_menu', title: 'תפריט ראשי', description: 'חזור לתפריט' }
       ]
+    }];
+    
+    await cloudApi.sendListMessage(
+      phone,
+      '✅ הסטטוס נוסף לתור השליחה!\n\nמה תרצה לעשות?',
+      'בחר פעולה',
+      sections
     );
-    await setState(phone, 'after_send_menu', null, null, state.connection_id);
+    await setState(phone, 'after_send_menu', { queuedStatusId }, null, state.connection_id);
     return;
   }
   
@@ -649,34 +655,79 @@ async function handleSelectScheduleTimeState(phone, message, state) {
  * Handle after send menu state
  */
 async function handleAfterSendMenuState(phone, message, state) {
-  if (message.type !== 'interactive' || message.interactive.type !== 'button_reply') {
-    await cloudApi.sendButtonMessage(
-      phone,
-      'מה תרצה לעשות עכשיו?',
-      [
-        { id: 'menu_new_status', title: 'שלח סטטוס נוסף' },
-        { id: 'menu_view_statuses', title: 'צפה בסטטוסים' },
-        { id: 'menu_main', title: 'תפריט ראשי' }
+  if (message.type !== 'interactive' || message.interactive.type !== 'list_reply') {
+    // Re-send the list
+    const stateData = state.state_data || {};
+    const queuedStatusId = stateData.queuedStatusId;
+    
+    const sections = [{
+      title: 'פעולות',
+      rows: [
+        { id: `queued_delete_${queuedStatusId}`, title: 'מחק סטטוס', description: 'הסר מתור השליחה' },
+        { id: 'queued_view_all', title: 'צפה בכל הסטטוסים', description: 'סטטוסים מתוזמנים ופעילים' },
+        { id: 'queued_new_status', title: 'שלח סטטוס נוסף', description: 'העלה תוכן חדש' },
+        { id: 'queued_menu', title: 'תפריט ראשי', description: 'חזור לתפריט' }
       ]
+    }];
+    
+    await cloudApi.sendListMessage(
+      phone,
+      'מה תרצה לעשות?',
+      'בחר פעולה',
+      sections
     );
     return;
   }
   
-  const buttonId = message.interactive.button_reply.id;
+  const selectedId = message.interactive.list_reply.id;
   
-  if (buttonId === 'menu_new_status') {
+  if (selectedId.startsWith('queued_delete_')) {
+    const statusId = selectedId.replace('queued_delete_', '');
+    
+    // Check if status is still in queue
+    const result = await db.query(
+      `SELECT * FROM status_bot_queue WHERE id = $1`,
+      [statusId]
+    );
+    
+    if (result.rows.length > 0) {
+      const status = result.rows[0];
+      
+      if (status.queue_status === 'pending' || status.queue_status === 'scheduled') {
+        // Remove from queue
+        await db.query(
+          `UPDATE status_bot_queue SET queue_status = 'cancelled' WHERE id = $1`,
+          [statusId]
+        );
+        await cloudApi.sendTextMessage(phone, '✅ הסטטוס הוסר מתור השליחה.');
+      } else if (status.queue_status === 'sent' && status.wa_message_id) {
+        // Status was sent - try to delete it
+        // Note: This would require calling WAHA to delete the status
+        await cloudApi.sendTextMessage(phone, 'הסטטוס כבר נשלח. מחיקת סטטוסים שנשלחו דורשת גישה לחשבון.');
+      } else {
+        await cloudApi.sendTextMessage(phone, 'לא ניתן למחוק את הסטטוס.');
+      }
+    } else {
+      await cloudApi.sendTextMessage(phone, 'סטטוס לא נמצא.');
+    }
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+  
+  if (selectedId === 'queued_view_all') {
+    await handleStatusesCommand(phone, state);
+    return;
+  }
+  
+  if (selectedId === 'queued_new_status') {
     await cloudApi.sendTextMessage(phone, 'שלח טקסט, תמונה, סרטון או הקלטה להעלאת סטטוס:');
     await setState(phone, 'idle', null, null);
     return;
   }
   
-  if (buttonId === 'menu_view_statuses') {
-    await handleStatusesCommand(phone, state);
-    return;
-  }
-  
-  if (buttonId === 'menu_main') {
+  if (selectedId === 'queued_menu') {
     await handleMenuCommand(phone, state);
+    await setState(phone, 'idle', null, null);
     return;
   }
   
@@ -771,13 +822,14 @@ function buildStatusContent(pendingStatus) {
 
 /**
  * Show scheduled statuses list
+ * Returns true if statuses were shown, false if empty
  */
 async function showScheduledList(phone, connectionId) {
   const scheduled = await getScheduledStatuses(connectionId);
   
   if (scheduled.length === 0) {
-    await cloudApi.sendTextMessage(phone, 'אין סטטוסים מתוזמנים.');
-    return;
+    await cloudApi.sendTextMessage(phone, 'אין סטטוסים מתוזמנים.\n\nשלח טקסט, תמונה, סרטון או הקלטה להעלאת סטטוס חדש.');
+    return false;
   }
   
   const sections = [{
@@ -807,6 +859,7 @@ async function showScheduledList(phone, connectionId) {
     'בחר סטטוס',
     sections
   );
+  return true;
 }
 
 /**
@@ -993,8 +1046,12 @@ async function handleStatusesCommand(phone, state) {
     }
   }
   
-  await showScheduledList(phone, connectionId);
-  await setState(phone, 'view_scheduled', null, null, connectionId);
+  const hasStatuses = await showScheduledList(phone, connectionId);
+  if (hasStatuses) {
+    await setState(phone, 'view_scheduled', null, null, connectionId);
+  } else {
+    await setState(phone, 'idle', null, null);
+  }
 }
 
 /**
