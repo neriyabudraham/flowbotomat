@@ -1448,21 +1448,35 @@ async function handleWebhook(req, res) {
         break;
 
       case 'message.ack':
-        // Handle status view - ack=3 means READ (someone viewed our status)
-        const ackLevel = payload?.ack || payload?.ackLevel;
-        console.log(`[StatusBot Webhook] ACK details - from: ${payload?.from}, fromMe: ${payload?.fromMe}, ack: ${ackLevel}, participant: ${payload?.participant}, id: ${payload?.id}`);
+        // Log ALL ACK payloads for debugging
+        console.log(`[StatusBot Webhook] ACK FULL PAYLOAD:`, JSON.stringify(payload, null, 2));
         
-        if (payload?.from === 'status@broadcast' && ackLevel >= 3) {
-          console.log(`[StatusBot Webhook] Status view detected - ack: ${ackLevel}, participant: ${payload?.participant}`);
+        const ackLevel = payload?.ack || payload?.ackLevel;
+        
+        // Check if this is a status view - try multiple conditions
+        const isStatusView = 
+          payload?.from === 'status@broadcast' || 
+          payload?.chatId === 'status@broadcast' ||
+          (payload?.id && typeof payload.id === 'string' && payload.id.includes('status@broadcast'));
+        
+        if (isStatusView && ackLevel >= 3) {
+          console.log(`[StatusBot Webhook] ✅ Status view detected - ack: ${ackLevel}`);
           await handleStatusView(connection, payload);
         }
         break;
 
       case 'message.reaction':
-        // Handle status reaction
-        // Reactions on our status come from status@broadcast
-        if (payload?.from === 'status@broadcast' || payload?.to === 'status@broadcast') {
-          console.log(`[StatusBot Webhook] Status reaction detected:`, payload?.reaction);
+        // Log ALL reaction payloads for debugging
+        console.log(`[StatusBot Webhook] REACTION FULL PAYLOAD:`, JSON.stringify(payload, null, 2));
+        
+        // Handle status reaction - try multiple conditions
+        const isStatusReaction = 
+          payload?.from === 'status@broadcast' || 
+          payload?.to === 'status@broadcast' ||
+          payload?.chatId === 'status@broadcast';
+        
+        if (isStatusReaction) {
+          console.log(`[StatusBot Webhook] ✅ Status reaction detected`);
           await handleStatusReaction(connection, payload);
         }
         break;
