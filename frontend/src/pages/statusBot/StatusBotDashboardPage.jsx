@@ -1930,7 +1930,7 @@ function StatusBotDashboardContent() {
                 }`}
               >
                 <Heart className="w-4 h-4" />
-                לבבות ({statusDetailsModal.reactions.length})
+                לבבות ({new Set(statusDetailsModal.reactions.map(r => r.reactor_phone)).size})
               </button>
               <button
                 onClick={() => setStatusDetailsModal(prev => ({ ...prev, activeTab: 'replies' }))}
@@ -1991,19 +1991,39 @@ function StatusBotDashboardContent() {
                           <p>אין לבבות עדיין</p>
                         </div>
                       ) : (
-                        statusDetailsModal.reactions.map((reaction, i) => (
+                        // Group reactions by user
+                        Object.values(statusDetailsModal.reactions.reduce((acc, reaction) => {
+                          if (!acc[reaction.reactor_phone]) {
+                            acc[reaction.reactor_phone] = {
+                              reactor_phone: reaction.reactor_phone,
+                              reactor_name: reaction.reactor_name,
+                              reactions: [],
+                              latest_at: reaction.reacted_at
+                            };
+                          }
+                          acc[reaction.reactor_phone].reactions.push({
+                            emoji: reaction.reaction,
+                            at: reaction.reacted_at
+                          });
+                          if (new Date(reaction.reacted_at) > new Date(acc[reaction.reactor_phone].latest_at)) {
+                            acc[reaction.reactor_phone].latest_at = reaction.reacted_at;
+                          }
+                          return acc;
+                        }, {})).sort((a, b) => new Date(b.latest_at) - new Date(a.latest_at)).map((group, i) => (
                           <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                             <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center text-xl">
-                                {reaction.reaction}
+                              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center text-lg">
+                                {group.reactions.map(r => r.emoji).slice(0, 3).join('')}
+                                {group.reactions.length > 3 && '...'}
                               </div>
                               <div>
-                                <p className="font-medium text-gray-800">{formatPhoneNumber(reaction.reactor_phone)}</p>
-                                {reaction.reactor_name && <p className="text-sm text-gray-500">{reaction.reactor_name}</p>}
+                                <p className="font-medium text-gray-800">{formatPhoneNumber(group.reactor_phone)}</p>
+                                {group.reactor_name && <p className="text-sm text-gray-500">{group.reactor_name}</p>}
+                                <p className="text-xs text-gray-400">{group.reactions.length} תגובות</p>
                               </div>
                             </div>
                             <span className="text-xs text-gray-400">
-                              {new Date(reaction.reacted_at).toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
+                              {new Date(group.latest_at).toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
                             </span>
                           </div>
                         ))

@@ -480,8 +480,10 @@ export default function StatusBotSubscribePage() {
                         <span>חידוש מנוי</span>
                       </div>
                       <p className="text-sm text-green-600">
-                        {existingSubscription.status === 'trial' ? (
-                          <>המנוי יחודש והתשלום יתבצע בתום תקופת הניסיון</>
+                        {(existingSubscription.status === 'trial' || (existingSubscription.is_trial && existingSubscription.trial_ends_at && new Date(existingSubscription.trial_ends_at) > new Date())) ? (
+                          <>המנוי יחודש והתשלום יתבצע בתום תקופת הניסיון ({new Date(existingSubscription.trial_ends_at || existingSubscription.current_period_end).toLocaleDateString('he-IL')})</>
+                        ) : existingSubscription.expires_at && new Date(existingSubscription.expires_at) > new Date() ? (
+                          <>המנוי יחודש בתאריך {new Date(existingSubscription.expires_at).toLocaleDateString('he-IL')}</>
                         ) : (
                           <>המנוי יחודש באופן מיידי</>
                         )}
@@ -568,8 +570,10 @@ export default function StatusBotSubscribePage() {
                         <span>חידוש מנוי</span>
                       </div>
                       <p className="text-sm text-green-600">
-                        {existingSubscription.status === 'trial' ? (
+                        {(existingSubscription.status === 'trial' || (existingSubscription.is_trial && existingSubscription.trial_ends_at && new Date(existingSubscription.trial_ends_at) > new Date())) ? (
                           <>המנוי יחודש והתשלום יתבצע בתום תקופת הניסיון ({new Date(existingSubscription.trial_ends_at || existingSubscription.current_period_end).toLocaleDateString('he-IL')})</>
+                        ) : existingSubscription.expires_at && new Date(existingSubscription.expires_at) > new Date() ? (
+                          <>המנוי יחודש בתאריך {new Date(existingSubscription.expires_at).toLocaleDateString('he-IL')}</>
                         ) : (
                           <>המנוי יחודש באופן מיידי</>
                         )}

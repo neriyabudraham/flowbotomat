@@ -384,9 +384,10 @@ async function updateUserSubscription(req, res) {
       if (trialEndsAt !== undefined) {
         updates.push(`trial_ends_at = $${paramIndex++}`);
         values.push(trialEndsAt || null);
-        // If setting trial end date, mark as trial
+        // If setting trial end date, mark as trial and set status to 'trial'
         if (trialEndsAt) {
           updates.push(`is_trial = true`);
+          updates.push(`status = 'trial'`);
         }
       }
     }

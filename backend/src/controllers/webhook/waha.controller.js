@@ -1275,18 +1275,16 @@ async function syncStatusBotReaction(userId, waMessageId, reactorPhone, reaction
     
     const statusId = statusResult.rows[0].id;
     
-    // Insert/update reaction
+    // Insert reaction (allow multiple from same user)
     await pool.query(`
       INSERT INTO status_bot_reactions (status_id, reactor_phone, reaction)
       VALUES ($1, $2, $3)
-      ON CONFLICT (status_id, reactor_phone) 
-      DO UPDATE SET reaction = $3, reacted_at = NOW()
     `, [statusId, reactorPhone, reactionText || '❤️']);
     
-    // Update reaction count
+    // Update reaction count (count unique users, not total reactions)
     await pool.query(`
       UPDATE status_bot_statuses 
-      SET reaction_count = (SELECT COUNT(*) FROM status_bot_reactions WHERE status_id = $1)
+      SET reaction_count = (SELECT COUNT(DISTINCT reactor_phone) FROM status_bot_reactions WHERE status_id = $1)
       WHERE id = $1
     `, [statusId]);
     

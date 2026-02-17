@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS status_bot_views (
   UNIQUE(status_id, viewer_phone)
 );
 
--- תגובות (לבבות) לסטטוסים
+-- תגובות (לבבות) לסטטוסים - אפשר מספר תגובות מאותו משתמש
 CREATE TABLE IF NOT EXISTS status_bot_reactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   status_id UUID NOT NULL REFERENCES status_bot_statuses(id) ON DELETE CASCADE,
@@ -128,9 +128,8 @@ CREATE TABLE IF NOT EXISTS status_bot_reactions (
   reactor_phone VARCHAR(20) NOT NULL, -- מי הגיב
   reactor_name VARCHAR(100), -- שם (אם ידוע)
   reaction VARCHAR(10) NOT NULL, -- האימוג'י (בד"כ ❤️)
-  reacted_at TIMESTAMP DEFAULT NOW(),
-  
-  UNIQUE(status_id, reactor_phone)
+  reacted_at TIMESTAMP DEFAULT NOW()
+  -- No UNIQUE constraint - allow multiple reactions from same user
 );
 
 -- תגובות טקסט לסטטוסים (מישהו הגיב עם הודעה)
