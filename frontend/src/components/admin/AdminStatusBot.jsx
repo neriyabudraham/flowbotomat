@@ -55,13 +55,14 @@ export default function AdminStatusBot() {
     u.phone_number?.includes(search)
   );
 
-  // Check if user is in 24h restriction period
+  // Check if user is in 24h restriction period (uses last_connected_at, falls back to first_connected_at)
   const isRestricted = (user) => {
     if (user.restriction_lifted) return false;
-    if (!user.first_connected_at) return false;
+    const connectionDate = user.last_connected_at || user.first_connected_at;
+    if (!connectionDate) return false;
     
-    const firstConnected = new Date(user.first_connected_at);
-    const restrictionEnd = new Date(firstConnected.getTime() + 24 * 60 * 60 * 1000);
+    const connectedAt = new Date(connectionDate);
+    const restrictionEnd = new Date(connectedAt.getTime() + 24 * 60 * 60 * 1000);
     return new Date() < restrictionEnd;
   };
 
