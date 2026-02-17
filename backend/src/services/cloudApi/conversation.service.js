@@ -475,7 +475,8 @@ async function sendColorSelection(phone, connectionId) {
  */
 async function handleSelectColorState(phone, message, state) {
   if (message.type !== 'interactive' || message.interactive.type !== 'list_reply') {
-    await cloudApi.sendTextMessage(phone, 'אנא בחר צבע מהרשימה.');
+    // Re-send the color list
+    await sendColorSelection(phone, state.connection_id);
     return;
   }
   
