@@ -184,8 +184,7 @@ async function downloadMedia(mediaId) {
  * Upload media to Botomat storage and return URL
  */
 async function uploadMediaToStorage(buffer, mimeType, originalFilename) {
-  const FormData = require('form-data');
-  const formData = new FormData();
+  const crypto = require('crypto');
   
   // Determine extension from mime type
   const extMap = {
@@ -200,29 +199,29 @@ async function uploadMediaToStorage(buffer, mimeType, originalFilename) {
   };
   
   const ext = extMap[mimeType] || 'bin';
-  const filename = originalFilename || `cloud_media_${Date.now()}.${ext}`;
+  const uniqueId = crypto.randomBytes(16).toString('hex');
+  const filename = `cloud_${uniqueId}.${ext}`;
   
-  formData.append('file', buffer, {
-    filename: filename,
-    contentType: mimeType
-  });
+  // Save directly to uploads folder
+  const uploadsDir = path.join(__dirname, '../../..', 'uploads');
   
-  // Upload to local storage service
-  const uploadUrl = `${process.env.APP_URL || 'http://localhost:4000'}/api/upload`;
+  // Ensure uploads directory exists
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+  
+  const filePath = path.join(uploadsDir, filename);
   
   try {
-    const response = await axios.post(uploadUrl, formData, {
-      headers: {
-        ...formData.getHeaders(),
-      },
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity
-    });
+    fs.writeFileSync(filePath, buffer);
     
-    console.log(`[CloudAPI] Uploaded media to storage: ${response.data.url}`);
-    return response.data.url;
+    const appUrl = process.env.APP_URL || 'https://botomat.co.il';
+    const fileUrl = `${appUrl}/uploads/${filename}`;
+    
+    console.log(`[CloudAPI] Saved media to storage: ${fileUrl}`);
+    return fileUrl;
   } catch (error) {
-    console.error('[CloudAPI] Upload error:', error.message);
+    console.error('[CloudAPI] Save error:', error.message);
     throw error;
   }
 }
