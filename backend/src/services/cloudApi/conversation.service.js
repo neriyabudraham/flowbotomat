@@ -304,6 +304,9 @@ async function handleMessage(phone, message) {
       case 'view_status_actions':
         return await handleViewStatusActionsState(phone, message, state);
       
+      case 'after_send_menu':
+        return await handleAfterSendMenuState(phone, message, state);
+      
       default:
         // Reset to idle on unknown state
         await setState(phone, 'idle', null, null);
@@ -526,7 +529,18 @@ async function handleSelectActionState(phone, message, state) {
     await addToQueue(state.connection_id, pendingStatus.type, content, null, phone);
     
     await cloudApi.sendTextMessage(phone, '✅ הסטטוס נוסף לתור השליחה!');
-    await setState(phone, 'idle', null, null);
+    
+    // Show action buttons
+    await cloudApi.sendButtonMessage(
+      phone,
+      'מה תרצה לעשות עכשיו?',
+      [
+        { id: 'menu_new_status', title: 'שלח סטטוס נוסף' },
+        { id: 'menu_view_statuses', title: 'צפה בסטטוסים' },
+        { id: 'menu_main', title: 'תפריט ראשי' }
+      ]
+    );
+    await setState(phone, 'after_send_menu', null, null, state.connection_id);
     return;
   }
   
@@ -628,6 +642,44 @@ async function handleSelectScheduleTimeState(phone, message, state) {
   
   // Show scheduled list
   await showScheduledList(phone, state.connection_id);
+  await setState(phone, 'idle', null, null);
+}
+
+/**
+ * Handle after send menu state
+ */
+async function handleAfterSendMenuState(phone, message, state) {
+  if (message.type !== 'interactive' || message.interactive.type !== 'button_reply') {
+    await cloudApi.sendButtonMessage(
+      phone,
+      'מה תרצה לעשות עכשיו?',
+      [
+        { id: 'menu_new_status', title: 'שלח סטטוס נוסף' },
+        { id: 'menu_view_statuses', title: 'צפה בסטטוסים' },
+        { id: 'menu_main', title: 'תפריט ראשי' }
+      ]
+    );
+    return;
+  }
+  
+  const buttonId = message.interactive.button_reply.id;
+  
+  if (buttonId === 'menu_new_status') {
+    await cloudApi.sendTextMessage(phone, 'שלח טקסט, תמונה, סרטון או הקלטה להעלאת סטטוס:');
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+  
+  if (buttonId === 'menu_view_statuses') {
+    await handleStatusesCommand(phone, state);
+    return;
+  }
+  
+  if (buttonId === 'menu_main') {
+    await handleMenuCommand(phone, state);
+    return;
+  }
+  
   await setState(phone, 'idle', null, null);
 }
 
