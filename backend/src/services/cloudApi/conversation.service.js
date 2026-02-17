@@ -749,6 +749,32 @@ async function handleAfterSendMenuState(phone, message, state) {
     return;
   }
   
+  // Helper to re-send the action menu
+  const resendActionMenu = async () => {
+    const sections = [{
+      title: 'פעולות על הסטטוס',
+      rows: [
+        { id: `queued_delete_${statusId}`, title: '🗑️ מחק סטטוס', description: 'הסר מתור השליחה' },
+        { id: `queued_views_count_${statusId}`, title: '👁️ כמות צפיות', description: 'מספר הצופים בסטטוס' },
+        { id: `queued_views_list_${statusId}`, title: '👥 מי צפה', description: 'רשימת הצופים' },
+        { id: `queued_hearts_count_${statusId}`, title: '❤️ כמות לבבות', description: 'מספר סימוני הלב' },
+        { id: `queued_hearts_list_${statusId}`, title: '💕 סימנו לב', description: 'רשימת מי שסימן לב' },
+        { id: `queued_reactions_count_${statusId}`, title: '😊 כמות תגובות', description: 'מספר התגובות' },
+        { id: `queued_reactions_list_${statusId}`, title: '💬 הגיבו', description: 'רשימת המגיבים' }
+      ]
+    }, {
+      title: 'פעולות נוספות',
+      rows: [
+        { id: 'queued_new_status', title: '➕ שלח סטטוס נוסף', description: 'העלה תוכן חדש' },
+        { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים מתוזמנים ופעילים' },
+        { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
+      ]
+    }];
+    
+    await cloudApi.sendListMessage(phone, 'בחר פעולה נוספת:', 'בחר פעולה', sections);
+    await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
+  };
+
   // Views count
   if (selectedId.startsWith('queued_views_count_')) {
     const views = await db.query(
@@ -757,7 +783,7 @@ async function handleAfterSendMenuState(phone, message, state) {
     );
     const count = views.rows[0]?.count || 0;
     await cloudApi.sendTextMessage(phone, `👁️ כמות צפיות: ${count}`);
-    await setState(phone, 'idle', null, null);
+    await resendActionMenu();
     return;
   }
   
@@ -774,7 +800,7 @@ async function handleAfterSendMenuState(phone, message, state) {
       const viewersList = views.rows.map(v => `• ${v.viewer_phone}`).join('\n');
       await cloudApi.sendTextMessage(phone, `👥 צפו בסטטוס (${views.rows.length}):\n\n${viewersList}`);
     }
-    await setState(phone, 'idle', null, null);
+    await resendActionMenu();
     return;
   }
   
@@ -786,7 +812,7 @@ async function handleAfterSendMenuState(phone, message, state) {
     );
     const count = hearts.rows[0]?.count || 0;
     await cloudApi.sendTextMessage(phone, `❤️ כמות לבבות: ${count}`);
-    await setState(phone, 'idle', null, null);
+    await resendActionMenu();
     return;
   }
   
@@ -803,7 +829,7 @@ async function handleAfterSendMenuState(phone, message, state) {
       const heartsList = hearts.rows.map(h => `• ${h.reactor_phone}`).join('\n');
       await cloudApi.sendTextMessage(phone, `💕 סימנו לב (${hearts.rows.length}):\n\n${heartsList}`);
     }
-    await setState(phone, 'idle', null, null);
+    await resendActionMenu();
     return;
   }
   
@@ -815,7 +841,7 @@ async function handleAfterSendMenuState(phone, message, state) {
     );
     const count = reactions.rows[0]?.count || 0;
     await cloudApi.sendTextMessage(phone, `😊 כמות תגובות: ${count}`);
-    await setState(phone, 'idle', null, null);
+    await resendActionMenu();
     return;
   }
   
@@ -832,7 +858,7 @@ async function handleAfterSendMenuState(phone, message, state) {
       const reactionsList = reactions.rows.map(r => `• ${r.reactor_phone}: ${r.reaction_text}`).join('\n');
       await cloudApi.sendTextMessage(phone, `💬 הגיבו (${reactions.rows.length}):\n\n${reactionsList}`);
     }
-    await setState(phone, 'idle', null, null);
+    await resendActionMenu();
     return;
   }
   
@@ -919,22 +945,31 @@ function buildStatusContent(pendingStatus) {
     
     case 'image':
       return {
-        url: pendingStatus.url,
-        mimetype: 'image/jpeg',
+        file: {
+          mimetype: 'image/jpeg',
+          filename: 'status.jpg',
+          url: pendingStatus.url
+        },
         caption: pendingStatus.caption || ''
       };
     
     case 'video':
       return {
-        url: pendingStatus.url,
-        mimetype: 'video/mp4',
+        file: {
+          mimetype: 'video/mp4',
+          filename: 'status.mp4',
+          url: pendingStatus.url
+        },
         caption: pendingStatus.caption || ''
       };
     
     case 'voice':
       return {
-        url: pendingStatus.url,
-        mimetype: 'audio/ogg',
+        file: {
+          mimetype: 'audio/ogg',
+          filename: 'voice.ogg',
+          url: pendingStatus.url
+        },
         backgroundColor: pendingStatus.backgroundColor || '#782138'
       };
     
