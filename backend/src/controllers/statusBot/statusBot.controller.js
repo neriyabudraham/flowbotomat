@@ -846,7 +846,7 @@ async function checkSubscriptionForUpload(userId) {
 async function uploadTextStatus(req, res) {
   try {
     const userId = req.user.id;
-    const { text, backgroundColor, font = 0, linkPreview = true } = req.body;
+    const { text, backgroundColor, font = 0, linkPreview = true, scheduled_for } = req.body;
 
     if (!text) {
       return res.status(400).json({ error: 'נדרש טקסט' });
@@ -863,16 +863,18 @@ async function uploadTextStatus(req, res) {
 
     const connection = connResult.rows[0];
 
-    // Check if can upload
-    const canUploadCheck = await checkCanUpload(connection, userId);
-    if (!canUploadCheck.canUpload) {
-      return res.status(403).json({ 
-        error: canUploadCheck.reason,
-        restrictionEndsAt: canUploadCheck.restrictionEndsAt,
-        isRestricted: canUploadCheck.isRestricted,
-        noSubscription: canUploadCheck.noSubscription,
-        subscriptionExpired: canUploadCheck.subscriptionExpired
-      });
+    // Check if can upload (skip for scheduled statuses)
+    if (!scheduled_for) {
+      const canUploadCheck = await checkCanUpload(connection, userId);
+      if (!canUploadCheck.canUpload) {
+        return res.status(403).json({ 
+          error: canUploadCheck.reason,
+          restrictionEndsAt: canUploadCheck.restrictionEndsAt,
+          isRestricted: canUploadCheck.isRestricted,
+          noSubscription: canUploadCheck.noSubscription,
+          subscriptionExpired: canUploadCheck.subscriptionExpired
+        });
+      }
     }
 
     // Add to queue
@@ -885,15 +887,16 @@ async function uploadTextStatus(req, res) {
     };
 
     const queueResult = await db.query(`
-      INSERT INTO status_bot_queue (connection_id, status_type, content, source)
-      VALUES ($1, 'text', $2, 'web')
+      INSERT INTO status_bot_queue (connection_id, status_type, content, source, scheduled_for)
+      VALUES ($1, 'text', $2, 'web', $3)
       RETURNING *
-    `, [connection.id, JSON.stringify(content)]);
+    `, [connection.id, JSON.stringify(content), scheduled_for || null]);
 
     res.json({ 
       success: true, 
-      message: 'הסטטוס נוסף לתור',
-      queueId: queueResult.rows[0].id 
+      message: scheduled_for ? 'הסטטוס תוזמן בהצלחה' : 'הסטטוס נוסף לתור',
+      queueId: queueResult.rows[0].id,
+      scheduled_for: scheduled_for || null
     });
 
   } catch (error) {
@@ -908,7 +911,7 @@ async function uploadTextStatus(req, res) {
 async function uploadImageStatus(req, res) {
   try {
     const userId = req.user.id;
-    const { url, caption } = req.body;
+    const { url, caption, scheduled_for } = req.body;
     const file = req.file;
 
     // Either URL or file is required
@@ -927,15 +930,18 @@ async function uploadImageStatus(req, res) {
 
     const connection = connResult.rows[0];
 
-    const canUploadCheck = await checkCanUpload(connection, userId);
-    if (!canUploadCheck.canUpload) {
-      return res.status(403).json({ 
-        error: canUploadCheck.reason,
-        restrictionEndsAt: canUploadCheck.restrictionEndsAt,
-        isRestricted: canUploadCheck.isRestricted,
-        noSubscription: canUploadCheck.noSubscription,
-        subscriptionExpired: canUploadCheck.subscriptionExpired
-      });
+    // Check if can upload (skip for scheduled statuses)
+    if (!scheduled_for) {
+      const canUploadCheck = await checkCanUpload(connection, userId);
+      if (!canUploadCheck.canUpload) {
+        return res.status(403).json({ 
+          error: canUploadCheck.reason,
+          restrictionEndsAt: canUploadCheck.restrictionEndsAt,
+          isRestricted: canUploadCheck.isRestricted,
+          noSubscription: canUploadCheck.noSubscription,
+          subscriptionExpired: canUploadCheck.subscriptionExpired
+        });
+      }
     }
 
     let content;
@@ -963,15 +969,16 @@ async function uploadImageStatus(req, res) {
     }
 
     const queueResult = await db.query(`
-      INSERT INTO status_bot_queue (connection_id, status_type, content, source)
-      VALUES ($1, 'image', $2, 'web')
+      INSERT INTO status_bot_queue (connection_id, status_type, content, source, scheduled_for)
+      VALUES ($1, 'image', $2, 'web', $3)
       RETURNING *
-    `, [connection.id, JSON.stringify(content)]);
+    `, [connection.id, JSON.stringify(content), scheduled_for || null]);
 
     res.json({ 
       success: true, 
-      message: 'הסטטוס נשלח',
-      queueId: queueResult.rows[0].id 
+      message: scheduled_for ? 'הסטטוס תוזמן בהצלחה' : 'הסטטוס נשלח',
+      queueId: queueResult.rows[0].id,
+      scheduled_for: scheduled_for || null
     });
 
   } catch (error) {
@@ -986,7 +993,7 @@ async function uploadImageStatus(req, res) {
 async function uploadVideoStatus(req, res) {
   try {
     const userId = req.user.id;
-    const { url, caption } = req.body;
+    const { url, caption, scheduled_for } = req.body;
     const file = req.file;
 
     if (!url && !file) {
@@ -1004,15 +1011,18 @@ async function uploadVideoStatus(req, res) {
 
     const connection = connResult.rows[0];
 
-    const canUploadCheck = await checkCanUpload(connection, userId);
-    if (!canUploadCheck.canUpload) {
-      return res.status(403).json({ 
-        error: canUploadCheck.reason,
-        restrictionEndsAt: canUploadCheck.restrictionEndsAt,
-        isRestricted: canUploadCheck.isRestricted,
-        noSubscription: canUploadCheck.noSubscription,
-        subscriptionExpired: canUploadCheck.subscriptionExpired
-      });
+    // Check if can upload (skip for scheduled statuses)
+    if (!scheduled_for) {
+      const canUploadCheck = await checkCanUpload(connection, userId);
+      if (!canUploadCheck.canUpload) {
+        return res.status(403).json({ 
+          error: canUploadCheck.reason,
+          restrictionEndsAt: canUploadCheck.restrictionEndsAt,
+          isRestricted: canUploadCheck.isRestricted,
+          noSubscription: canUploadCheck.noSubscription,
+          subscriptionExpired: canUploadCheck.subscriptionExpired
+        });
+      }
     }
 
     let content;
@@ -1041,15 +1051,16 @@ async function uploadVideoStatus(req, res) {
     }
 
     const queueResult = await db.query(`
-      INSERT INTO status_bot_queue (connection_id, status_type, content, source)
-      VALUES ($1, 'video', $2, 'web')
+      INSERT INTO status_bot_queue (connection_id, status_type, content, source, scheduled_for)
+      VALUES ($1, 'video', $2, 'web', $3)
       RETURNING *
-    `, [connection.id, JSON.stringify(content)]);
+    `, [connection.id, JSON.stringify(content), scheduled_for || null]);
 
     res.json({ 
       success: true, 
-      message: 'הסטטוס נשלח',
-      queueId: queueResult.rows[0].id 
+      message: scheduled_for ? 'הסטטוס תוזמן בהצלחה' : 'הסטטוס נשלח',
+      queueId: queueResult.rows[0].id,
+      scheduled_for: scheduled_for || null
     });
 
   } catch (error) {
@@ -1064,7 +1075,7 @@ async function uploadVideoStatus(req, res) {
 async function uploadVoiceStatus(req, res) {
   try {
     const userId = req.user.id;
-    const { url, backgroundColor } = req.body;
+    const { url, backgroundColor, scheduled_for } = req.body;
     const file = req.file;
 
     if (!url && !file) {
@@ -1082,15 +1093,18 @@ async function uploadVoiceStatus(req, res) {
 
     const connection = connResult.rows[0];
 
-    const canUploadCheck = await checkCanUpload(connection, userId);
-    if (!canUploadCheck.canUpload) {
-      return res.status(403).json({ 
-        error: canUploadCheck.reason,
-        restrictionEndsAt: canUploadCheck.restrictionEndsAt,
-        isRestricted: canUploadCheck.isRestricted,
-        noSubscription: canUploadCheck.noSubscription,
-        subscriptionExpired: canUploadCheck.subscriptionExpired
-      });
+    // Check if can upload (skip for scheduled statuses)
+    if (!scheduled_for) {
+      const canUploadCheck = await checkCanUpload(connection, userId);
+      if (!canUploadCheck.canUpload) {
+        return res.status(403).json({ 
+          error: canUploadCheck.reason,
+          restrictionEndsAt: canUploadCheck.restrictionEndsAt,
+          isRestricted: canUploadCheck.isRestricted,
+          noSubscription: canUploadCheck.noSubscription,
+          subscriptionExpired: canUploadCheck.subscriptionExpired
+        });
+      }
     }
 
     let content;
@@ -1118,15 +1132,16 @@ async function uploadVoiceStatus(req, res) {
     }
 
     const queueResult = await db.query(`
-      INSERT INTO status_bot_queue (connection_id, status_type, content, source)
-      VALUES ($1, 'voice', $2, 'web')
+      INSERT INTO status_bot_queue (connection_id, status_type, content, source, scheduled_for)
+      VALUES ($1, 'voice', $2, 'web', $3)
       RETURNING *
-    `, [connection.id, JSON.stringify(content)]);
+    `, [connection.id, JSON.stringify(content), scheduled_for || null]);
 
     res.json({ 
       success: true, 
-      message: 'הסטטוס נשלח',
-      queueId: queueResult.rows[0].id 
+      message: scheduled_for ? 'הסטטוס תוזמן בהצלחה' : 'הסטטוס נשלח',
+      queueId: queueResult.rows[0].id,
+      scheduled_for: scheduled_for || null
     });
 
   } catch (error) {
@@ -1337,14 +1352,21 @@ async function getQueueStatus(req, res) {
     );
 
     if (connResult.rows.length === 0) {
-      return res.json({ queue: [], position: null });
+      return res.json({ queue: [], scheduled: [], position: null });
     }
 
-    // Get user's pending items
+    // Get user's pending items (no scheduled_for)
     const userQueue = await db.query(`
       SELECT * FROM status_bot_queue 
-      WHERE connection_id = $1 AND queue_status IN ('pending', 'processing')
+      WHERE connection_id = $1 AND queue_status IN ('pending', 'processing') AND scheduled_for IS NULL
       ORDER BY created_at ASC
+    `, [connResult.rows[0].id]);
+
+    // Get user's scheduled items
+    const scheduledQueue = await db.query(`
+      SELECT * FROM status_bot_queue 
+      WHERE connection_id = $1 AND queue_status = 'pending' AND scheduled_for IS NOT NULL
+      ORDER BY scheduled_for ASC
     `, [connResult.rows[0].id]);
 
     // Get global queue position
@@ -1360,6 +1382,7 @@ async function getQueueStatus(req, res) {
 
     res.json({
       queue: userQueue.rows,
+      scheduled: scheduledQueue.rows,
       globalPending: parseInt(globalQueue.rows[0].count),
       lastSentAt: lockResult.rows[0]?.last_sent_at
     });
@@ -1367,6 +1390,47 @@ async function getQueueStatus(req, res) {
   } catch (error) {
     console.error('[StatusBot] Get queue status error:', error);
     res.status(500).json({ error: 'שגיאה בטעינת תור' });
+  }
+}
+
+/**
+ * Delete/cancel a queue item
+ */
+async function deleteQueueItem(req, res) {
+  try {
+    const userId = req.user.id;
+    const { queueId } = req.params;
+
+    // Verify the queue item belongs to the user
+    const result = await db.query(`
+      SELECT q.* FROM status_bot_queue q
+      JOIN status_bot_connections c ON c.id = q.connection_id
+      WHERE q.id = $1 AND c.user_id = $2
+    `, [queueId, userId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא פריט בתור' });
+    }
+
+    const queueItem = result.rows[0];
+
+    // Only allow cancelling pending items
+    if (queueItem.queue_status !== 'pending') {
+      return res.status(400).json({ error: 'לא ניתן לבטל פריט שכבר בעיבוד' });
+    }
+
+    // Update status to cancelled
+    await db.query(`
+      UPDATE status_bot_queue 
+      SET queue_status = 'cancelled', updated_at = NOW()
+      WHERE id = $1
+    `, [queueId]);
+
+    res.json({ success: true, message: 'התזמון בוטל' });
+
+  } catch (error) {
+    console.error('[StatusBot] Delete queue item error:', error);
+    res.status(500).json({ error: 'שגיאה בביטול התזמון' });
   }
 }
 
@@ -1805,6 +1869,7 @@ module.exports = {
   
   // Queue
   getQueueStatus,
+  deleteQueueItem,
   
   // Admin
   adminGetUsers,

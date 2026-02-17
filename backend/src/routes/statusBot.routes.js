@@ -80,6 +80,7 @@ router.get('/status/:statusId/details', authMiddleware, statusBotController.getS
 
 // Queue
 router.get('/queue', authMiddleware, statusBotController.getQueueStatus);
+router.delete('/queue/:queueId', authMiddleware, statusBotController.deleteQueueItem);
 
 // User colors management
 router.get('/colors', authMiddleware, settingsController.getStatusBotColors);

@@ -73,7 +73,8 @@ function StatusBotDashboardContent() {
   const [authorizedNumbers, setAuthorizedNumbers] = useState([]);
   const [statuses, setStatuses] = useState([]);
   const [queue, setQueue] = useState([]);
-  const [activeTab, setActiveTab] = useState('upload'); // upload, history, numbers
+  const [scheduled, setScheduled] = useState([]);
+  const [activeTab, setActiveTab] = useState('upload'); // upload, history, scheduled, numbers
   const [qrCode, setQrCode] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -90,6 +91,11 @@ function StatusBotDashboardContent() {
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const [recordedAudio, setRecordedAudio] = useState(null); // For playback
+  
+  // Scheduling state
+  const [scheduleMode, setScheduleMode] = useState('now'); // 'now' | 'schedule'
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('');
   
   // Available colors (loaded from settings)
   const [availableColors, setAvailableColors] = useState([
@@ -122,7 +128,7 @@ function StatusBotDashboardContent() {
     reactions: [],
     replies: [],
     loading: false,
-    activeTab: 'views' // 'views' | 'reactions' | 'replies'
+    activeTab: 'content' // 'content' | 'views' | 'reactions' | 'replies'
   });
   
   // Confirmation modal state
@@ -332,6 +338,7 @@ function StatusBotDashboardContent() {
       setAuthorizedNumbers(numbersRes.data.numbers || []);
       setStatuses(historyRes.data.statuses || []);
       setQueue(queueRes.data.queue || []);
+      setScheduled(queueRes.data.scheduled || []);
     } catch (err) {
       console.error('Load dashboard data error:', err);
     }
@@ -364,7 +371,7 @@ function StatusBotDashboardContent() {
       reactions: [],
       replies: [],
       loading: false,
-      activeTab: 'views'
+      activeTab: 'content'
     });
   };
 
@@ -486,12 +493,22 @@ function StatusBotDashboardContent() {
       toast.warning('נא להזין URL או להעלות קובץ');
       return;
     }
+    if (scheduleMode === 'schedule' && (!scheduleDate || !scheduleTime)) {
+      toast.warning('נא לבחור תאריך ושעה לתזמון');
+      return;
+    }
 
     setUploading(true);
     try {
       let endpoint;
       let body;
       let useFormData = false;
+      
+      // Calculate scheduled_for if scheduling
+      let scheduledFor = null;
+      if (scheduleMode === 'schedule') {
+        scheduledFor = new Date(`${scheduleDate}T${scheduleTime}`).toISOString();
+      }
 
       // If file is uploaded, use FormData
       if (mediaFile && statusType !== 'text') {
@@ -500,6 +517,7 @@ function StatusBotDashboardContent() {
         formData.append('file', mediaFile);
         if (caption) formData.append('caption', caption);
         if (statusType === 'voice') formData.append('backgroundColor', backgroundColor);
+        if (scheduledFor) formData.append('scheduled_for', scheduledFor);
         
         endpoint = `/status-bot/status/${statusType}`;
         body = formData;
@@ -507,19 +525,19 @@ function StatusBotDashboardContent() {
         switch (statusType) {
           case 'text':
             endpoint = '/status-bot/status/text';
-            body = { text: textContent, backgroundColor };
+            body = { text: textContent, backgroundColor, scheduled_for: scheduledFor };
             break;
           case 'image':
             endpoint = '/status-bot/status/image';
-            body = { url: mediaUrl, caption };
+            body = { url: mediaUrl, caption, scheduled_for: scheduledFor };
             break;
           case 'video':
             endpoint = '/status-bot/status/video';
-            body = { url: mediaUrl, caption };
+            body = { url: mediaUrl, caption, scheduled_for: scheduledFor };
             break;
           case 'voice':
             endpoint = '/status-bot/status/voice';
-            body = { url: mediaUrl, backgroundColor };
+            body = { url: mediaUrl, backgroundColor, scheduled_for: scheduledFor };
             break;
         }
       }
@@ -538,13 +556,16 @@ function StatusBotDashboardContent() {
       setCaption('');
       setMediaFile(null);
       setMediaInputMode('file');
+      setScheduleMode('now');
+      setScheduleDate('');
+      setScheduleTime('');
       if (recordedAudio) {
         URL.revokeObjectURL(recordedAudio);
         setRecordedAudio(null);
       }
       
       loadDashboardData();
-      toast.success('הסטטוס נוסף לתור!');
+      toast.success(scheduleMode === 'schedule' ? 'הסטטוס תוזמן בהצלחה!' : 'הסטטוס נוסף לתור!');
     } catch (err) {
       toast.error(err.response?.data?.error || 'שגיאה בהעלאת סטטוס');
     } finally {
@@ -671,6 +692,24 @@ function StatusBotDashboardContent() {
         }
       },
       { confirmText: 'מחק סטטוס', danger: true }
+    );
+  };
+
+  const handleCancelScheduled = async (queueId) => {
+    showConfirm(
+      'ביטול תזמון',
+      'האם אתה בטוח שברצונך לבטל את התזמון?',
+      async () => {
+        hideConfirm();
+        try {
+          await api.delete(`/status-bot/queue/${queueId}`);
+          setScheduled(prev => prev.filter(s => s.id !== queueId));
+          toast.success('התזמון בוטל');
+        } catch (err) {
+          toast.error(err.response?.data?.error || 'שגיאה בביטול תזמון');
+        }
+      },
+      { confirmText: 'בטל תזמון', danger: true }
     );
   };
 
@@ -1242,6 +1281,12 @@ function StatusBotDashboardContent() {
               label="היסטוריה"
             />
             <TabButton 
+              active={activeTab === 'scheduled'} 
+              onClick={() => setActiveTab('scheduled')}
+              icon={Clock}
+              label={`מתוזמנים ${scheduled.length > 0 ? `(${scheduled.length})` : ''}`}
+            />
+            <TabButton 
               active={activeTab === 'numbers'} 
               onClick={() => setActiveTab('numbers')}
               icon={Users}
@@ -1517,18 +1562,77 @@ function StatusBotDashboardContent() {
                           />
                         </div>
                       )}
+
+                      {/* Scheduling Options */}
+                      <div className="pt-4 border-t border-gray-100">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">מתי לשלוח?</label>
+                        <div className="flex gap-2 mb-3">
+                          <button
+                            type="button"
+                            onClick={() => setScheduleMode('now')}
+                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                              scheduleMode === 'now'
+                                ? 'bg-green-100 text-green-700 border-2 border-green-500'
+                                : 'bg-gray-50 text-gray-600 border-2 border-transparent hover:bg-gray-100'
+                            }`}
+                          >
+                            עכשיו
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setScheduleMode('schedule')}
+                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                              scheduleMode === 'schedule'
+                                ? 'bg-green-100 text-green-700 border-2 border-green-500'
+                                : 'bg-gray-50 text-gray-600 border-2 border-transparent hover:bg-gray-100'
+                            }`}
+                          >
+                            <Clock className="w-4 h-4 inline ml-1" />
+                            תזמון
+                          </button>
+                        </div>
+                        
+                        {scheduleMode === 'schedule' && (
+                          <div className="flex gap-3">
+                            <div className="flex-1">
+                              <label className="block text-xs text-gray-500 mb-1">תאריך</label>
+                              <input
+                                type="date"
+                                value={scheduleDate}
+                                onChange={(e) => setScheduleDate(e.target.value)}
+                                min={new Date().toISOString().split('T')[0]}
+                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                              />
+                            </div>
+                            <div className="flex-1">
+                              <label className="block text-xs text-gray-500 mb-1">שעה</label>
+                              <input
+                                type="time"
+                                value={scheduleTime}
+                                onChange={(e) => setScheduleTime(e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
 
                   <button
                     onClick={handleUploadStatus}
-                    disabled={uploading}
+                    disabled={uploading || (scheduleMode === 'schedule' && (!scheduleDate || !scheduleTime))}
                     className="w-full mt-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-xl hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {uploading ? (
                       <>
                         <Loader className="w-5 h-5 animate-spin" />
-                        שולח...
+                        {scheduleMode === 'schedule' ? 'מתזמן...' : 'שולח...'}
+                      </>
+                    ) : scheduleMode === 'schedule' ? (
+                      <>
+                        <Clock className="w-5 h-5" />
+                        תזמן סטטוס
                       </>
                     ) : (
                       <>
@@ -1648,6 +1752,82 @@ function StatusBotDashboardContent() {
                   </>
                 );
               })()}
+            </div>
+          )}
+
+          {activeTab === 'scheduled' && (
+            <div className="space-y-6">
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="p-4 border-b border-gray-100 bg-blue-50">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-blue-500" />
+                    <h3 className="font-bold text-gray-800">סטטוסים מתוזמנים</h3>
+                  </div>
+                </div>
+                
+                {scheduled.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <Clock className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">אין סטטוסים מתוזמנים</p>
+                    <p className="text-xs text-gray-400 mt-1">תזמן סטטוסים מלשונית "העלאת סטטוס"</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-100">
+                    {scheduled.map(item => (
+                      <div key={item.id} className="p-4 hover:bg-gray-50">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                              item.status_type === 'text' ? 'bg-purple-100' :
+                              item.status_type === 'image' ? 'bg-blue-100' :
+                              item.status_type === 'video' ? 'bg-pink-100' : 'bg-green-100'
+                            }`}>
+                              {item.status_type === 'text' && <Type className="w-5 h-5 text-purple-600" />}
+                              {item.status_type === 'image' && <Image className="w-5 h-5 text-blue-600" />}
+                              {item.status_type === 'video' && <Video className="w-5 h-5 text-pink-600" />}
+                              {item.status_type === 'voice' && <Mic className="w-5 h-5 text-green-600" />}
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-800">
+                                {item.status_type === 'text' ? 'טקסט' : 
+                                 item.status_type === 'image' ? 'תמונה' : 
+                                 item.status_type === 'video' ? 'סרטון' : 'הקלטה'}
+                              </p>
+                              <p className="text-sm text-gray-500">
+                                {item.content?.text?.substring(0, 50) || item.content?.caption?.substring(0, 50) || ''}
+                                {(item.content?.text?.length > 50 || item.content?.caption?.length > 50) && '...'}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-left">
+                            <div className="flex items-center gap-2 text-blue-600 font-medium">
+                              <Clock className="w-4 h-4" />
+                              {new Date(item.scheduled_for).toLocaleDateString('he-IL', { 
+                                weekday: 'short', 
+                                month: 'short', 
+                                day: 'numeric'
+                              })}
+                            </div>
+                            <p className="text-sm text-gray-500">
+                              {new Date(item.scheduled_for).toLocaleTimeString('he-IL', { 
+                                hour: '2-digit', 
+                                minute: '2-digit'
+                              })}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => handleCancelScheduled(item.id)}
+                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg mr-2"
+                            title="בטל תזמון"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -1909,10 +2089,24 @@ function StatusBotDashboardContent() {
             </div>
 
             {/* Tabs */}
-            <div className="flex border-b border-gray-100">
+            <div className="flex border-b border-gray-100 overflow-x-auto">
+              <button
+                onClick={() => setStatusDetailsModal(prev => ({ ...prev, activeTab: 'content' }))}
+                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors whitespace-nowrap px-2 ${
+                  statusDetailsModal.activeTab === 'content' 
+                    ? 'text-purple-600 border-b-2 border-purple-600' 
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {statusDetailsModal.status?.status_type === 'text' && <Type className="w-4 h-4" />}
+                {statusDetailsModal.status?.status_type === 'image' && <Image className="w-4 h-4" />}
+                {statusDetailsModal.status?.status_type === 'video' && <Video className="w-4 h-4" />}
+                {statusDetailsModal.status?.status_type === 'voice' && <Mic className="w-4 h-4" />}
+                תוכן
+              </button>
               <button
                 onClick={() => setStatusDetailsModal(prev => ({ ...prev, activeTab: 'views' }))}
-                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors whitespace-nowrap px-2 ${
                   statusDetailsModal.activeTab === 'views' 
                     ? 'text-green-600 border-b-2 border-green-600' 
                     : 'text-gray-500 hover:text-gray-700'
@@ -1923,7 +2117,7 @@ function StatusBotDashboardContent() {
               </button>
               <button
                 onClick={() => setStatusDetailsModal(prev => ({ ...prev, activeTab: 'reactions' }))}
-                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors whitespace-nowrap px-2 ${
                   statusDetailsModal.activeTab === 'reactions' 
                     ? 'text-red-500 border-b-2 border-red-500' 
                     : 'text-gray-500 hover:text-gray-700'
@@ -1934,7 +2128,7 @@ function StatusBotDashboardContent() {
               </button>
               <button
                 onClick={() => setStatusDetailsModal(prev => ({ ...prev, activeTab: 'replies' }))}
-                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors whitespace-nowrap px-2 ${
                   statusDetailsModal.activeTab === 'replies' 
                     ? 'text-blue-500 border-b-2 border-blue-500' 
                     : 'text-gray-500 hover:text-gray-700'
@@ -1953,6 +2147,106 @@ function StatusBotDashboardContent() {
                 </div>
               ) : (
                 <>
+                  {/* Content Tab */}
+                  {statusDetailsModal.activeTab === 'content' && statusDetailsModal.status && (
+                    <div className="space-y-4">
+                      {/* Status Type Badge */}
+                      <div className="flex items-center gap-2">
+                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                          statusDetailsModal.status.status_type === 'text' ? 'bg-purple-100 text-purple-700' :
+                          statusDetailsModal.status.status_type === 'image' ? 'bg-blue-100 text-blue-700' :
+                          statusDetailsModal.status.status_type === 'video' ? 'bg-pink-100 text-pink-700' :
+                          'bg-green-100 text-green-700'
+                        }`}>
+                          {statusDetailsModal.status.status_type === 'text' ? 'טקסט' : 
+                           statusDetailsModal.status.status_type === 'image' ? 'תמונה' : 
+                           statusDetailsModal.status.status_type === 'video' ? 'סרטון' : 'הקלטה'}
+                        </span>
+                        <span className="text-sm text-gray-500">
+                          {new Date(statusDetailsModal.status.sent_at || statusDetailsModal.status.created_at).toLocaleString('he-IL')}
+                        </span>
+                      </div>
+                      
+                      {/* Text Status */}
+                      {statusDetailsModal.status.status_type === 'text' && (
+                        <div 
+                          className="p-4 rounded-xl text-white text-center min-h-[150px] flex items-center justify-center"
+                          style={{ 
+                            backgroundColor: statusDetailsModal.status.content?.backgroundColor || '#782138'
+                          }}
+                        >
+                          <p className="text-lg whitespace-pre-wrap">{statusDetailsModal.status.content?.text}</p>
+                        </div>
+                      )}
+                      
+                      {/* Image Status */}
+                      {statusDetailsModal.status.status_type === 'image' && (
+                        <div className="space-y-3">
+                          {statusDetailsModal.status.content?.file?.url && (
+                            <img 
+                              src={statusDetailsModal.status.content.file.url} 
+                              alt="סטטוס" 
+                              className="w-full rounded-xl max-h-[300px] object-contain bg-gray-100"
+                            />
+                          )}
+                          {statusDetailsModal.status.content?.caption && (
+                            <p className="text-gray-700">{statusDetailsModal.status.content.caption}</p>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* Video Status */}
+                      {statusDetailsModal.status.status_type === 'video' && (
+                        <div className="space-y-3">
+                          {statusDetailsModal.status.content?.file?.url && (
+                            <video 
+                              src={statusDetailsModal.status.content.file.url} 
+                              controls
+                              className="w-full rounded-xl max-h-[300px] bg-gray-100"
+                            />
+                          )}
+                          {statusDetailsModal.status.content?.caption && (
+                            <p className="text-gray-700">{statusDetailsModal.status.content.caption}</p>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* Voice Status */}
+                      {statusDetailsModal.status.status_type === 'voice' && (
+                        <div 
+                          className="p-4 rounded-xl flex items-center justify-center min-h-[100px]"
+                          style={{ 
+                            backgroundColor: statusDetailsModal.status.content?.backgroundColor || '#782138'
+                          }}
+                        >
+                          {statusDetailsModal.status.content?.file?.url && (
+                            <audio 
+                              src={statusDetailsModal.status.content.file.url} 
+                              controls
+                              className="w-full"
+                            />
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* Stats Summary */}
+                      <div className="flex items-center justify-around p-4 bg-gray-50 rounded-xl">
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-gray-800">{statusDetailsModal.status.view_count || 0}</p>
+                          <p className="text-sm text-gray-500">צפיות</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-red-500">{statusDetailsModal.status.reaction_count || 0}</p>
+                          <p className="text-sm text-gray-500">לבבות</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-blue-500">{statusDetailsModal.status.reply_count || 0}</p>
+                          <p className="text-sm text-gray-500">תגובות</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Views Tab */}
                   {statusDetailsModal.activeTab === 'views' && (
                     <div className="space-y-2">
@@ -2162,22 +2456,25 @@ function StatusRow({ status, onDelete, isActive, onShowDetails }) {
 
   return (
     <div className={`p-4 flex items-center justify-between ${isDeleted ? 'opacity-50 bg-gray-50' : 'hover:bg-gray-50'}`}>
-      <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+      <button 
+        onClick={() => onShowDetails(status.id, 'content')}
+        className="flex items-center gap-3 text-right flex-1 min-w-0"
+      >
+        <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
           isDeleted ? 'bg-gray-200' : isActive ? 'bg-green-100' : 'bg-gray-100'
         }`}>
           <Icon className={`w-5 h-5 ${isDeleted ? 'text-gray-400' : isActive ? 'text-green-600' : 'text-gray-600'}`} />
         </div>
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <p className={`font-medium ${isDeleted ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+            <p className={`font-medium truncate ${isDeleted ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
               {status.status_type === 'text' 
                 ? (status.content?.text?.substring(0, 40) || 'סטטוס טקסט') + (status.content?.text?.length > 40 ? '...' : '')
                 : `סטטוס ${status.status_type === 'image' ? 'תמונה' : status.status_type === 'video' ? 'סרטון' : status.status_type === 'voice' ? 'קול' : status.status_type}`
               }
             </p>
             {statusLabel && (
-              <span className={`text-xs px-2 py-0.5 rounded-full ${statusLabel.color} ${
+              <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${statusLabel.color} ${
                 status.queue_status === 'pending' ? 'bg-yellow-50' :
                 status.queue_status === 'processing' ? 'bg-blue-50 animate-pulse' :
                 status.queue_status === 'sent' ? 'bg-green-50' :
@@ -2192,7 +2489,7 @@ function StatusRow({ status, onDelete, isActive, onShowDetails }) {
             {new Date(status.sent_at || status.created_at).toLocaleString('he-IL')}
           </p>
         </div>
-      </div>
+      </button>
       
       <div className="flex items-center gap-4">
         {/* Stats - show even for deleted statuses */}
