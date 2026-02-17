@@ -85,12 +85,17 @@ async function processQueue() {
     }
 
     // Get next pending item
+    // Include 'scheduled' status for backwards compatibility
+    // Only process if scheduled_for is null (send now) or scheduled_for <= NOW()
+    // Order by scheduled_for first (nulls first = send now items), then by created_at
     const queueResult = await db.query(`
       SELECT q.*, c.session_name, c.connection_status
       FROM status_bot_queue q
       JOIN status_bot_connections c ON c.id = q.connection_id
-      WHERE q.queue_status = 'pending' AND c.connection_status = 'connected'
-      ORDER BY q.created_at ASC
+      WHERE q.queue_status IN ('pending', 'scheduled') 
+        AND c.connection_status = 'connected'
+        AND (q.scheduled_for IS NULL OR q.scheduled_for <= NOW())
+      ORDER BY COALESCE(q.scheduled_for, '1970-01-01'::timestamp) ASC, q.created_at ASC
       LIMIT 1
     `);
 

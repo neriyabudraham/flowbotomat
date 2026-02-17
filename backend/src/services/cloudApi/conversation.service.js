@@ -184,18 +184,18 @@ async function getColorsForConnection(connectionId) {
 
 /**
  * Add status to queue
+ * Note: queue_status is always 'pending' - scheduler will pick them up by scheduled_for time
  */
 async function addToQueue(connectionId, statusType, content, scheduledFor = null, sourcePhone = null) {
   const result = await db.query(
     `INSERT INTO status_bot_queue 
      (connection_id, status_type, content, queue_status, scheduled_for, source, source_phone)
-     VALUES ($1, $2, $3, $4, $5, 'whatsapp', $6)
+     VALUES ($1, $2, $3, 'pending', $4, 'whatsapp', $5)
      RETURNING *`,
     [
       connectionId,
       statusType,
       JSON.stringify(content),
-      scheduledFor ? 'scheduled' : 'pending',
       scheduledFor,
       sourcePhone
     ]
@@ -211,7 +211,7 @@ async function getScheduledStatuses(connectionId) {
   const result = await db.query(
     `SELECT * FROM status_bot_queue 
      WHERE connection_id = $1 
-       AND queue_status IN ('pending', 'scheduled')
+       AND queue_status IN ('pending', 'scheduled', 'processing')
        AND (scheduled_for IS NULL OR scheduled_for > NOW())
      ORDER BY COALESCE(scheduled_for, created_at) ASC
      LIMIT 10`,
@@ -429,8 +429,24 @@ async function handleIdleState(phone, message, state) {
   }
   
   // For text/voice - go to color selection
-  await setState(phone, 'select_color', null, pendingStatus, connection.connection_id);
-  await sendColorSelection(phone, connection.connection_id);
+  const singleColor = await sendColorSelection(phone, connection.connection_id);
+  
+  if (singleColor) {
+    // Only one color - skip selection, set it directly and go to action
+    pendingStatus.backgroundColor = `#${singleColor.id}`;
+    await setState(phone, 'select_action', null, pendingStatus, connection.connection_id);
+    await cloudApi.sendButtonMessage(
+      phone,
+      'מה תרצה לעשות עם הסטטוס?',
+      [
+        { id: 'action_send', title: 'שלח כעת' },
+        { id: 'action_schedule', title: 'תזמן' },
+        { id: 'action_cancel', title: 'בטל' }
+      ]
+    );
+  } else {
+    await setState(phone, 'select_color', null, pendingStatus, connection.connection_id);
+  }
 }
 
 /**
@@ -482,15 +498,37 @@ async function handleSelectAccountState(phone, message, state) {
   }
   
   // For text/voice - go to color selection
-  await setState(phone, 'select_color', null, pendingStatus, connectionId);
-  await sendColorSelection(phone, connectionId);
+  const singleColor = await sendColorSelection(phone, connectionId);
+  
+  if (singleColor) {
+    // Only one color - skip selection, set it directly and go to action
+    pendingStatus.backgroundColor = `#${singleColor.id}`;
+    await setState(phone, 'select_action', null, pendingStatus, connectionId);
+    await cloudApi.sendButtonMessage(
+      phone,
+      'מה תרצה לעשות עם הסטטוס?',
+      [
+        { id: 'action_send', title: 'שלח כעת' },
+        { id: 'action_schedule', title: 'תזמן' },
+        { id: 'action_cancel', title: 'בטל' }
+      ]
+    );
+  } else {
+    await setState(phone, 'select_color', null, pendingStatus, connectionId);
+  }
 }
 
 /**
  * Send color selection list
+ * Returns the single color if only one available, null otherwise
  */
 async function sendColorSelection(phone, connectionId) {
   const colors = await getColorsForConnection(connectionId);
+  
+  // If only one color, skip selection and return it
+  if (colors.length === 1) {
+    return colors[0];
+  }
   
   const sections = [{
     title: 'צבעים',
@@ -502,10 +540,12 @@ async function sendColorSelection(phone, connectionId) {
   
   await cloudApi.sendListMessage(
     phone,
-    'בחר צבע רקע לסטטוס:',
+    'בחר צבע מהרשימה:',
     'בחר צבע',
     sections
   );
+  
+  return null;
 }
 
 /**
@@ -565,21 +605,18 @@ async function handleSelectActionState(phone, message, state) {
     const queueResult = await addToQueue(state.connection_id, pendingStatus.type, content, null, phone);
     const queuedStatusId = queueResult?.id;
     
-    // Show success message with action list
+    // Show success message with action list (simplified - combined count+list)
     const sections = [{
-      title: 'פעולות על הסטטוס',
+      title: 'סטטיסטיקות',
       rows: [
-        { id: `queued_delete_${queuedStatusId}`, title: '🗑️ מחק סטטוס', description: 'הסר מתור השליחה' },
-        { id: `queued_views_count_${queuedStatusId}`, title: '👁️ כמות צפיות', description: 'מספר הצופים בסטטוס' },
-        { id: `queued_views_list_${queuedStatusId}`, title: '👥 מי צפה', description: 'רשימת הצופים' },
-        { id: `queued_hearts_count_${queuedStatusId}`, title: '❤️ כמות לבבות', description: 'מספר סימוני הלב' },
-        { id: `queued_hearts_list_${queuedStatusId}`, title: '💕 סימנו לב', description: 'רשימת מי שסימן לב' },
-        { id: `queued_reactions_count_${queuedStatusId}`, title: '😊 כמות תגובות', description: 'מספר התגובות' },
-        { id: `queued_reactions_list_${queuedStatusId}`, title: '💬 הגיבו', description: 'רשימת המגיבים' }
+        { id: `queued_views_${queuedStatusId}`, title: '👁️ צפיות', description: 'רשימת הצופים בסטטוס' },
+        { id: `queued_hearts_${queuedStatusId}`, title: '❤️ סימוני לב', description: 'רשימת מי שסימן לב' },
+        { id: `queued_reactions_${queuedStatusId}`, title: '💬 תגובות', description: 'רשימת המגיבים' }
       ]
     }, {
-      title: 'פעולות נוספות',
+      title: 'פעולות',
       rows: [
+        { id: `queued_delete_${queuedStatusId}`, title: '🗑️ מחק סטטוס', description: 'הסר מתור השליחה' },
         { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים מתוזמנים ופעילים' },
         { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
       ]
@@ -603,22 +640,28 @@ async function handleSelectActionState(phone, message, state) {
 }
 
 /**
- * Send day selection list for scheduling
+ * Send day selection list for scheduling - 8 days
  */
 async function sendDaySelection(phone) {
-  const today = new Date();
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const dayAfter = new Date(today);
-  dayAfter.setDate(dayAfter.getDate() + 2);
+  const dayLabels = ['היום', 'מחר', 'מחרתיים', 'בעוד 3 ימים', 'בעוד 4 ימים', 'בעוד 5 ימים', 'בעוד 6 ימים', 'בעוד שבוע'];
+  
+  const rows = [];
+  for (let i = 0; i < 8; i++) {
+    const date = new Date();
+    date.setDate(date.getDate() + i);
+    const dayName = DAY_NAMES[date.getDay()];
+    const dateStr = `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+    
+    rows.push({
+      id: `day_${i}`,
+      title: dayLabels[i],
+      description: `יום ${dayName}, ${dateStr}`
+    });
+  }
   
   const sections = [{
     title: 'בחר יום',
-    rows: [
-      { id: 'day_0', title: 'היום', description: `יום ${DAY_NAMES[today.getDay()]}` },
-      { id: 'day_1', title: 'מחר', description: `יום ${DAY_NAMES[tomorrow.getDay()]}` },
-      { id: 'day_2', title: 'בעוד יומיים', description: `יום ${DAY_NAMES[dayAfter.getDay()]}` }
-    ]
+    rows: rows
   }];
   
   await cloudApi.sendListMessage(
@@ -651,7 +694,7 @@ async function handleSelectScheduleDayState(phone, message, state) {
   };
   
   await setState(phone, 'select_schedule_time', stateData, state.pending_status, state.connection_id);
-  await cloudApi.sendTextMessage(phone, 'הזן שעת שליחה (לדוגמא: 13:00, 1300, 13):');
+  await cloudApi.sendTextMessage(phone, 'הזן שעת שליחה (לדוגמא: 13:00):');
 }
 
 /**
@@ -659,7 +702,7 @@ async function handleSelectScheduleDayState(phone, message, state) {
  */
 async function handleSelectScheduleTimeState(phone, message, state) {
   if (message.type !== 'text') {
-    await cloudApi.sendTextMessage(phone, 'אנא הזן שעה בפורמט מספרי (לדוגמא: 13:00, 1300, 13)');
+    await cloudApi.sendTextMessage(phone, 'אנא הזן שעה (לדוגמא: 13:00)');
     return;
   }
   
@@ -667,7 +710,7 @@ async function handleSelectScheduleTimeState(phone, message, state) {
   const parsedTime = parseTimeInput(timeInput);
   
   if (!parsedTime) {
-    await cloudApi.sendTextMessage(phone, 'פורמט שעה לא תקין. אנא נסה שוב (לדוגמא: 13:00, 1300, 13):');
+    await cloudApi.sendTextMessage(phone, 'פורמט שעה לא תקין. אנא נסה שוב (לדוגמא: 13:00):');
     return;
   }
   
@@ -681,20 +724,29 @@ async function handleSelectScheduleTimeState(phone, message, state) {
     return;
   }
   
-  // Add to queue with schedule
-  const pendingStatus = state.pending_status;
-  const content = buildStatusContent(pendingStatus);
+  // Check if this is a reschedule
+  const stateDataObj = state.state_data || {};
+  const rescheduleId = stateDataObj.rescheduleId;
   
-  await addToQueue(state.connection_id, pendingStatus.type, content, scheduledDate, phone);
+  if (rescheduleId) {
+    // Update existing scheduled status
+    await db.query(
+      `UPDATE status_bot_queue SET scheduled_for = $1, queue_status = 'pending' WHERE id = $2`,
+      [scheduledDate, rescheduleId]
+    );
+  } else {
+    // Add new to queue with schedule
+    const pendingStatus = state.pending_status;
+    const content = buildStatusContent(pendingStatus);
+    await addToQueue(state.connection_id, pendingStatus.type, content, scheduledDate, phone);
+  }
   
   const formattedTime = `${String(parsedTime.hours).padStart(2, '0')}:${String(parsedTime.minutes).padStart(2, '0')}`;
   const formattedDate = formatDateHebrew(scheduledDate);
   
-  await cloudApi.sendTextMessage(phone, `✅ הסטטוס תוזמן ל-${formattedDate} בשעה ${formattedTime}`);
-  
-  // Show scheduled list
-  await showScheduledList(phone, state.connection_id);
-  await setState(phone, 'idle', null, null);
+  // Show combined confirmation + scheduled list
+  await showScheduledListWithConfirmation(phone, state.connection_id, formattedDate, formattedTime);
+  await setState(phone, 'view_scheduled', null, null, state.connection_id);
 }
 
 /**
@@ -757,29 +809,11 @@ async function handleAfterSendMenuState(phone, message, state) {
     return result.rows[0]?.id;
   };
 
-  // Views count
-  if (selectedId.startsWith('queued_views_count_')) {
+  // Views - combined count + list
+  if (selectedId.startsWith('queued_views_') && !selectedId.includes('view_all')) {
     const realStatusId = await getStatusIdFromQueueId(statusId);
     if (!realStatusId) {
       await cloudApi.sendTextMessage(phone, '👁️ הסטטוס עדיין לא נשלח או שלא נמצא.');
-      await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
-      return;
-    }
-    const views = await db.query(
-      `SELECT COUNT(*) as count FROM status_bot_views WHERE status_id = $1`,
-      [realStatusId]
-    );
-    const count = views.rows[0]?.count || 0;
-    await cloudApi.sendTextMessage(phone, `👁️ כמות צפיות: ${count}`);
-    await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
-    return;
-  }
-  
-  // Views list
-  if (selectedId.startsWith('queued_views_list_')) {
-    const realStatusId = await getStatusIdFromQueueId(statusId);
-    if (!realStatusId) {
-      await cloudApi.sendTextMessage(phone, '👥 הסטטוס עדיין לא נשלח או שלא נמצא.');
       await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
       return;
     }
@@ -789,40 +823,22 @@ async function handleAfterSendMenuState(phone, message, state) {
     );
     
     if (views.rows.length === 0) {
-      await cloudApi.sendTextMessage(phone, '👥 אין צפיות עדיין.');
+      await cloudApi.sendTextMessage(phone, '👁️ 0 צפיות - אין צפיות עדיין.');
     } else {
-      // Send as TXT file
+      // Send as TXT file with count in caption
       const viewersList = views.rows.map(v => v.viewer_phone).join('\n');
       const fileContent = `רשימת צופים (${views.rows.length})\n${'='.repeat(30)}\n\n${viewersList}`;
-      await cloudApi.sendDocumentMessage(phone, fileContent, `צפיות_${views.rows.length}.txt`, `👥 ${views.rows.length} צפו בסטטוס`);
+      await cloudApi.sendDocumentMessage(phone, fileContent, `צפיות_${views.rows.length}.txt`, `👁️ ${views.rows.length} צפיות`);
     }
     await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
     return;
   }
   
-  // Hearts count (all heart emojis)
-  if (selectedId.startsWith('queued_hearts_count_')) {
+  // Hearts - combined count + list (all heart emojis)
+  if (selectedId.startsWith('queued_hearts_')) {
     const realStatusId = await getStatusIdFromQueueId(statusId);
     if (!realStatusId) {
       await cloudApi.sendTextMessage(phone, '❤️ הסטטוס עדיין לא נשלח או שלא נמצא.');
-      await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
-      return;
-    }
-    const hearts = await db.query(
-      `SELECT COUNT(*) as count FROM status_bot_reactions WHERE status_id = $1 AND reaction IN ('❤️', '💚', '💙', '💜', '🖤', '🤍', '💛', '🧡', '🤎', '💗', '💖', '💕', '💓', '💞', '💘', '❣️')`,
-      [realStatusId]
-    );
-    const count = hearts.rows[0]?.count || 0;
-    await cloudApi.sendTextMessage(phone, `❤️ כמות לבבות: ${count}`);
-    await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
-    return;
-  }
-  
-  // Hearts list (all heart emojis)
-  if (selectedId.startsWith('queued_hearts_list_')) {
-    const realStatusId = await getStatusIdFromQueueId(statusId);
-    if (!realStatusId) {
-      await cloudApi.sendTextMessage(phone, '💕 הסטטוס עדיין לא נשלח או שלא נמצא.');
       await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
       return;
     }
@@ -832,37 +848,19 @@ async function handleAfterSendMenuState(phone, message, state) {
     );
     
     if (hearts.rows.length === 0) {
-      await cloudApi.sendTextMessage(phone, '💕 אין סימוני לב עדיין.');
+      await cloudApi.sendTextMessage(phone, '❤️ 0 סימוני לב - אין סימוני לב עדיין.');
     } else {
-      // Send as TXT file
+      // Send as TXT file with count in caption
       const heartsList = hearts.rows.map(h => `${h.reaction} ${h.reactor_phone}`).join('\n');
       const fileContent = `רשימת סימוני לב (${hearts.rows.length})\n${'='.repeat(30)}\n\n${heartsList}`;
-      await cloudApi.sendDocumentMessage(phone, fileContent, `לבבות_${hearts.rows.length}.txt`, `💕 ${hearts.rows.length} סימנו לב`);
+      await cloudApi.sendDocumentMessage(phone, fileContent, `לבבות_${hearts.rows.length}.txt`, `❤️ ${hearts.rows.length} סימוני לב`);
     }
     await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
     return;
   }
   
-  // Reactions count (non-heart emojis)
-  if (selectedId.startsWith('queued_reactions_count_')) {
-    const realStatusId = await getStatusIdFromQueueId(statusId);
-    if (!realStatusId) {
-      await cloudApi.sendTextMessage(phone, '😊 הסטטוס עדיין לא נשלח או שלא נמצא.');
-      await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
-      return;
-    }
-    const reactions = await db.query(
-      `SELECT COUNT(*) as count FROM status_bot_reactions WHERE status_id = $1 AND reaction NOT IN ('❤️', '💚', '💙', '💜', '🖤', '🤍', '💛', '🧡', '🤎', '💗', '💖', '💕', '💓', '💞', '💘', '❣️')`,
-      [realStatusId]
-    );
-    const count = reactions.rows[0]?.count || 0;
-    await cloudApi.sendTextMessage(phone, `😊 כמות תגובות: ${count}`);
-    await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
-    return;
-  }
-  
-  // Reactions list (non-heart emojis)
-  if (selectedId.startsWith('queued_reactions_list_')) {
+  // Reactions - combined count + list (non-heart emojis)
+  if (selectedId.startsWith('queued_reactions_')) {
     const realStatusId = await getStatusIdFromQueueId(statusId);
     if (!realStatusId) {
       await cloudApi.sendTextMessage(phone, '💬 הסטטוס עדיין לא נשלח או שלא נמצא.');
@@ -875,12 +873,12 @@ async function handleAfterSendMenuState(phone, message, state) {
     );
     
     if (reactions.rows.length === 0) {
-      await cloudApi.sendTextMessage(phone, '💬 אין תגובות עדיין.');
+      await cloudApi.sendTextMessage(phone, '💬 0 תגובות - אין תגובות עדיין.');
     } else {
-      // Send as TXT file
+      // Send as TXT file with count in caption
       const reactionsList = reactions.rows.map(r => `${r.reaction} ${r.reactor_phone}`).join('\n');
       const fileContent = `רשימת תגובות (${reactions.rows.length})\n${'='.repeat(30)}\n\n${reactionsList}`;
-      await cloudApi.sendDocumentMessage(phone, fileContent, `תגובות_${reactions.rows.length}.txt`, `💬 ${reactions.rows.length} הגיבו`);
+      await cloudApi.sendDocumentMessage(phone, fileContent, `תגובות_${reactions.rows.length}.txt`, `💬 ${reactions.rows.length} תגובות`);
     }
     await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
     return;
@@ -1007,7 +1005,7 @@ async function showScheduledList(phone, connectionId) {
   }
   
   const sections = [{
-    title: 'סטטוסים מתוזמנים',
+    title: 'סטטוסים',
     rows: scheduled.map((status, index) => {
       const scheduledFor = status.scheduled_for ? new Date(status.scheduled_for) : null;
       const timeStr = scheduledFor ? 
@@ -1029,11 +1027,48 @@ async function showScheduledList(phone, connectionId) {
   
   await cloudApi.sendListMessage(
     phone,
-    'סטטוסים מתוזמנים:',
+    `📋 ${scheduled.length} סטטוסים בתור:`,
     'בחר סטטוס',
     sections
   );
   return true;
+}
+
+/**
+ * Show scheduled list with confirmation message
+ */
+async function showScheduledListWithConfirmation(phone, connectionId, formattedDate, formattedTime) {
+  const scheduled = await getScheduledStatuses(connectionId);
+  
+  const rows = scheduled.map((status) => {
+    const scheduledFor = status.scheduled_for ? new Date(status.scheduled_for) : null;
+    const timeStr = scheduledFor ? 
+      `${formatDateHebrew(scheduledFor)} ${String(scheduledFor.getHours()).padStart(2, '0')}:${String(scheduledFor.getMinutes()).padStart(2, '0')}` :
+      'בתור';
+    
+    const content = status.content;
+    const preview = status.status_type === 'text' ? 
+      (content.text || '').substring(0, 30) :
+      status.status_type;
+    
+    return {
+      id: `scheduled_${status.id}`,
+      title: preview + (preview.length >= 30 ? '...' : ''),
+      description: timeStr
+    };
+  });
+  
+  const sections = [{
+    title: 'סטטוסים בתור',
+    rows: rows
+  }];
+  
+  await cloudApi.sendListMessage(
+    phone,
+    `✅ תוזמן ל-${formattedDate} ${formattedTime}\n\n📋 ${scheduled.length} סטטוסים בתור:`,
+    'בחר סטטוס',
+    sections
+  );
 }
 
 /**

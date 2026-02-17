@@ -1362,10 +1362,10 @@ async function getQueueStatus(req, res) {
       ORDER BY created_at ASC
     `, [connResult.rows[0].id]);
 
-    // Get user's scheduled items
+    // Get user's scheduled items (including 'scheduled' status for backwards compatibility)
     const scheduledQueue = await db.query(`
       SELECT * FROM status_bot_queue 
-      WHERE connection_id = $1 AND queue_status = 'pending' AND scheduled_for IS NOT NULL
+      WHERE connection_id = $1 AND queue_status IN ('pending', 'scheduled') AND scheduled_for IS NOT NULL
       ORDER BY scheduled_for ASC
     `, [connResult.rows[0].id]);
 
