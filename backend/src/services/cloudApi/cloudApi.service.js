@@ -25,24 +25,36 @@ function getCredentials() {
 async function sendTextMessage(to, text) {
   const { phoneId, accessToken } = getCredentials();
   
-  const response = await axios.post(
-    `${GRAPH_API_BASE}/${phoneId}/messages`,
-    {
-      messaging_product: 'whatsapp',
-      to: to,
-      type: 'text',
-      text: { body: text }
-    },
-    {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    }
-  );
+  console.log(`[CloudAPI] Sending text message to ${to}, phoneId: ${phoneId}, hasToken: ${!!accessToken}`);
   
-  console.log(`[CloudAPI] Sent text message to ${to}`);
-  return response.data;
+  if (!phoneId || !accessToken) {
+    console.error('[CloudAPI] Missing credentials! phoneId:', phoneId, 'hasToken:', !!accessToken);
+    throw new Error('Missing Cloud API credentials');
+  }
+  
+  try {
+    const response = await axios.post(
+      `${GRAPH_API_BASE}/${phoneId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to: to,
+        type: 'text',
+        text: { body: text }
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    
+    console.log(`[CloudAPI] ✅ Sent text message to ${to}, response:`, response.data);
+    return response.data;
+  } catch (error) {
+    console.error(`[CloudAPI] ❌ Failed to send text message to ${to}:`, error.response?.data || error.message);
+    throw error;
+  }
 }
 
 /**
@@ -50,6 +62,8 @@ async function sendTextMessage(to, text) {
  */
 async function sendButtonMessage(to, bodyText, buttons) {
   const { phoneId, accessToken } = getCredentials();
+  
+  console.log(`[CloudAPI] Sending button message to ${to}`);
   
   // Buttons format: [{ id: 'btn_id', title: 'Button Text' }]
   const formattedButtons = buttons.map(btn => ({
@@ -60,30 +74,35 @@ async function sendButtonMessage(to, bodyText, buttons) {
     }
   }));
   
-  const response = await axios.post(
-    `${GRAPH_API_BASE}/${phoneId}/messages`,
-    {
-      messaging_product: 'whatsapp',
-      to: to,
-      type: 'interactive',
-      interactive: {
-        type: 'button',
-        body: { text: bodyText },
-        action: {
-          buttons: formattedButtons
+  try {
+    const response = await axios.post(
+      `${GRAPH_API_BASE}/${phoneId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to: to,
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: { text: bodyText },
+          action: {
+            buttons: formattedButtons
+          }
+        }
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
         }
       }
-    },
-    {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    }
-  );
-  
-  console.log(`[CloudAPI] Sent button message to ${to}`);
-  return response.data;
+    );
+    
+    console.log(`[CloudAPI] ✅ Sent button message to ${to}`);
+    return response.data;
+  } catch (error) {
+    console.error(`[CloudAPI] ❌ Failed to send button message to ${to}:`, error.response?.data || error.message);
+    throw error;
+  }
 }
 
 /**
@@ -92,32 +111,39 @@ async function sendButtonMessage(to, bodyText, buttons) {
 async function sendListMessage(to, bodyText, buttonText, sections) {
   const { phoneId, accessToken } = getCredentials();
   
+  console.log(`[CloudAPI] Sending list message to ${to}`);
+  
   // Sections format: [{ title: 'Section', rows: [{ id: 'row_id', title: 'Row', description: 'desc' }] }]
-  const response = await axios.post(
-    `${GRAPH_API_BASE}/${phoneId}/messages`,
-    {
-      messaging_product: 'whatsapp',
-      to: to,
-      type: 'interactive',
-      interactive: {
-        type: 'list',
-        body: { text: bodyText },
-        action: {
-          button: buttonText.substring(0, 20), // Max 20 chars
-          sections: sections
+  try {
+    const response = await axios.post(
+      `${GRAPH_API_BASE}/${phoneId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to: to,
+        type: 'interactive',
+        interactive: {
+          type: 'list',
+          body: { text: bodyText },
+          action: {
+            button: buttonText.substring(0, 20), // Max 20 chars
+            sections: sections
+          }
+        }
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
         }
       }
-    },
-    {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    }
-  );
-  
-  console.log(`[CloudAPI] Sent list message to ${to}`);
-  return response.data;
+    );
+    
+    console.log(`[CloudAPI] ✅ Sent list message to ${to}`);
+    return response.data;
+  } catch (error) {
+    console.error(`[CloudAPI] ❌ Failed to send list message to ${to}:`, error.response?.data || error.message);
+    throw error;
+  }
 }
 
 /**

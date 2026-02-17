@@ -36,6 +36,8 @@ async function handleWebhook(req, res) {
   try {
     const body = req.body;
     
+    console.log('[CloudAPI Webhook] Received webhook:', JSON.stringify(body, null, 2));
+    
     // Verify signature if configured
     const signature = req.headers['x-hub-signature-256'];
     if (signature && process.env.CLOUD_API_APP_SECRET) {
@@ -48,15 +50,20 @@ async function handleWebhook(req, res) {
     
     // Process messages
     if (body.object !== 'whatsapp_business_account') {
+      console.log('[CloudAPI Webhook] Not a whatsapp_business_account, object:', body.object);
       return;
     }
     
     const entries = body.entry || [];
+    console.log(`[CloudAPI Webhook] Processing ${entries.length} entries`);
     
     for (const entry of entries) {
       const changes = entry.changes || [];
+      console.log(`[CloudAPI Webhook] Entry has ${changes.length} changes`);
       
       for (const change of changes) {
+        console.log(`[CloudAPI Webhook] Change field: ${change.field}`);
+        
         if (change.field !== 'messages') {
           continue;
         }
@@ -64,6 +71,8 @@ async function handleWebhook(req, res) {
         const value = change.value;
         const messages = value.messages || [];
         const contacts = value.contacts || [];
+        
+        console.log(`[CloudAPI Webhook] Found ${messages.length} messages`);
         
         for (const message of messages) {
           await processMessage(message, contacts, value);

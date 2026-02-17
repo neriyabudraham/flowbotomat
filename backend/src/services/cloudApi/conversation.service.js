@@ -242,8 +242,11 @@ async function getSentStatuses(connectionId) {
  * Main message handler - routes to appropriate handler based on state
  */
 async function handleMessage(phone, message) {
+  console.log(`[CloudAPI Conv] handleMessage called for phone: ${phone}, message type: ${message.type}`);
+  
   try {
     const state = await getState(phone);
+    console.log(`[CloudAPI Conv] Current state for ${phone}: ${state.state}`);
     
     // Check if blocked
     if (state.blocked_until && new Date(state.blocked_until) > new Date()) {
@@ -255,19 +258,25 @@ async function handleMessage(phone, message) {
     if (message.type === 'text') {
       const text = message.text.body.trim();
       const lowerText = text.toLowerCase();
+      console.log(`[CloudAPI Conv] Text message: "${text}"`);
       
       if (lowerText === 'תפריט' || lowerText === 'menu') {
+        console.log(`[CloudAPI Conv] Menu command detected`);
         return await handleMenuCommand(phone, state);
       }
       
       if (lowerText === 'סטטוסים' || lowerText === 'statuses') {
+        console.log(`[CloudAPI Conv] Statuses command detected`);
         return await handleStatusesCommand(phone, state);
       }
       
       if (lowerText === 'בטל' || lowerText === 'cancel') {
+        console.log(`[CloudAPI Conv] Cancel command detected`);
         return await handleCancelCommand(phone, state);
       }
     }
+    
+    console.log(`[CloudAPI Conv] Routing to state handler: ${state.state}`);
     
     // Route based on current state
     switch (state.state) {
@@ -311,12 +320,17 @@ async function handleMessage(phone, message) {
  * Handle message in idle state - new status creation
  */
 async function handleIdleState(phone, message, state) {
+  console.log(`[CloudAPI Conv] handleIdleState for ${phone}`);
+  
   // Check authorization
   const authorizedConnections = await checkAuthorization(phone);
+  console.log(`[CloudAPI Conv] Found ${authorizedConnections.length} authorized connections for ${phone}`);
   
   if (authorizedConnections.length === 0) {
+    console.log(`[CloudAPI Conv] Phone ${phone} is not authorized, notified_not_authorized: ${state.notified_not_authorized}`);
     // Not authorized - send one-time message if not already notified
     if (!state.notified_not_authorized) {
+      console.log(`[CloudAPI Conv] Sending not authorized message to ${phone}`);
       await cloudApi.sendTextMessage(phone, 
         `שלום! על מנת להעלות סטטוסים דרך המספר הזה, יש להגדיר אותו כמספר מורשה בבוט העלאת הסטטוסים.\n\nלהרשמה: https://botomat.co.il/`
       );
