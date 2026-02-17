@@ -438,8 +438,9 @@ async function handleIdleState(phone, message, state) {
  */
 async function handleSelectAccountState(phone, message, state) {
   if (message.type !== 'interactive' || message.interactive.type !== 'list_reply') {
-    await cloudApi.sendTextMessage(phone, 'אנא בחר חשבון מהרשימה.');
-    return;
+    // User sent new content - treat as new status
+    await setState(phone, 'idle', null, null);
+    return await handleIdleState(phone, message, { state: 'idle' });
   }
   
   const selectedId = message.interactive.list_reply.id;
@@ -512,9 +513,9 @@ async function sendColorSelection(phone, connectionId) {
  */
 async function handleSelectColorState(phone, message, state) {
   if (message.type !== 'interactive' || message.interactive.type !== 'list_reply') {
-    // Re-send the color list
-    await sendColorSelection(phone, state.connection_id);
-    return;
+    // User sent new content - treat as new status
+    await setState(phone, 'idle', null, null);
+    return await handleIdleState(phone, message, { state: 'idle' });
   }
   
   const selectedId = message.interactive.list_reply.id;
@@ -543,8 +544,9 @@ async function handleSelectColorState(phone, message, state) {
  */
 async function handleSelectActionState(phone, message, state) {
   if (message.type !== 'interactive' || message.interactive.type !== 'button_reply') {
-    await cloudApi.sendTextMessage(phone, 'אנא בחר פעולה מהכפתורים.');
-    return;
+    // User sent new content - treat as new status
+    await setState(phone, 'idle', null, null);
+    return await handleIdleState(phone, message, { state: 'idle' });
   }
   
   const actionId = message.interactive.button_reply.id;
@@ -623,8 +625,9 @@ async function sendDaySelection(phone) {
  */
 async function handleSelectScheduleDayState(phone, message, state) {
   if (message.type !== 'interactive' || message.interactive.type !== 'list_reply') {
-    await cloudApi.sendTextMessage(phone, 'אנא בחר יום מהרשימה.');
-    return;
+    // User sent new content - treat as new status
+    await setState(phone, 'idle', null, null);
+    return await handleIdleState(phone, message, { state: 'idle' });
   }
   
   const selectedId = message.interactive.list_reply.id;
@@ -883,8 +886,9 @@ async function showScheduledList(phone, connectionId) {
  */
 async function handleViewScheduledState(phone, message, state) {
   if (message.type !== 'interactive' || message.interactive.type !== 'list_reply') {
-    await cloudApi.sendTextMessage(phone, 'אנא בחר סטטוס מהרשימה.');
-    return;
+    // User sent new content - treat as new status
+    await setState(phone, 'idle', null, null);
+    return await handleIdleState(phone, message, { state: 'idle' });
   }
   
   const selectedId = message.interactive.list_reply.id;
@@ -908,8 +912,9 @@ async function handleViewScheduledState(phone, message, state) {
  */
 async function handleViewStatusActionsState(phone, message, state) {
   if (message.type !== 'interactive' || message.interactive.type !== 'button_reply') {
-    await cloudApi.sendTextMessage(phone, 'אנא בחר פעולה מהכפתורים.');
-    return;
+    // User sent new content - treat as new status
+    await setState(phone, 'idle', null, null);
+    return await handleIdleState(phone, message, { state: 'idle' });
   }
   
   const actionId = message.interactive.button_reply.id;
