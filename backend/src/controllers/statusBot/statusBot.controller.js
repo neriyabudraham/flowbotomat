@@ -120,6 +120,24 @@ async function initializeTables() {
     `);
 
     await db.query(`
+      CREATE TABLE IF NOT EXISTS status_bot_replies (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        status_id UUID NOT NULL REFERENCES status_bot_statuses(id) ON DELETE CASCADE,
+        replier_phone VARCHAR(20) NOT NULL,
+        replier_name VARCHAR(100),
+        reply_text TEXT,
+        replied_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(status_id, replier_phone)
+      )
+    `);
+
+    // Add reply_count column if not exists
+    await db.query(`
+      ALTER TABLE status_bot_statuses 
+      ADD COLUMN IF NOT EXISTS reply_count INTEGER DEFAULT 0
+    `).catch(() => {});
+
+    await db.query(`
       CREATE TABLE IF NOT EXISTS status_bot_queue_lock (
         id INTEGER PRIMARY KEY DEFAULT 1,
         last_sent_at TIMESTAMP,
@@ -1119,6 +1137,7 @@ async function uploadVoiceStatus(req, res) {
 
 /**
  * Delete a status
+ * Handles both queued (not yet sent) and sent statuses
  */
 async function deleteStatus(req, res) {
   try {
@@ -1136,10 +1155,12 @@ async function deleteStatus(req, res) {
 
     const connection = connResult.rows[0];
 
-    // Get status
+    // Get status with queue info
     const statusResult = await db.query(`
-      SELECT * FROM status_bot_statuses 
-      WHERE id = $1 AND connection_id = $2
+      SELECT s.*, q.queue_status 
+      FROM status_bot_statuses s
+      LEFT JOIN status_bot_queue q ON q.id = s.queue_id
+      WHERE s.id = $1 AND s.connection_id = $2
     `, [statusId, connection.id]);
 
     if (statusResult.rows.length === 0) {
@@ -1147,21 +1168,33 @@ async function deleteStatus(req, res) {
     }
 
     const status = statusResult.rows[0];
+    let deletedFromWhatsApp = false;
+    let cancelledFromQueue = false;
 
-    if (!status.waha_message_id) {
-      return res.status(400).json({ error: 'לא ניתן למחוק סטטוס זה' });
+    // If status is pending in queue, cancel it
+    if (status.queue_id && (status.queue_status === 'pending' || status.queue_status === 'processing')) {
+      await db.query(`
+        UPDATE status_bot_queue SET queue_status = 'cancelled' WHERE id = $1
+      `, [status.queue_id]);
+      cancelledFromQueue = true;
+      console.log(`[StatusBot] Cancelled queued status ${statusId}`);
     }
 
-    // Delete via WAHA
-    const { baseUrl, apiKey } = await getWahaCredentials();
+    // If status was sent and has waha_message_id, delete from WhatsApp
+    if (status.waha_message_id) {
+      const { baseUrl, apiKey } = await getWahaCredentials();
 
-    try {
-      await wahaSession.makeRequest(baseUrl, apiKey, 'POST', `/api/${connection.session_name}/status/delete`, {
-        id: status.waha_message_id,
-        contacts: null
-      });
-    } catch (wahaError) {
-      console.error('[StatusBot] WAHA delete error:', wahaError.message);
+      try {
+        await wahaSession.makeRequest(baseUrl, apiKey, 'POST', `/api/${connection.session_name}/status/delete`, {
+          id: status.waha_message_id,
+          contacts: null
+        });
+        deletedFromWhatsApp = true;
+        console.log(`[StatusBot] Deleted status ${statusId} from WhatsApp`);
+      } catch (wahaError) {
+        console.error('[StatusBot] WAHA delete error:', wahaError.message);
+        // Continue anyway - mark as deleted in DB
+      }
     }
 
     // Mark as deleted in DB
@@ -1169,7 +1202,16 @@ async function deleteStatus(req, res) {
       UPDATE status_bot_statuses SET deleted_at = NOW() WHERE id = $1
     `, [statusId]);
 
-    res.json({ success: true });
+    res.json({ 
+      success: true, 
+      deletedFromWhatsApp,
+      cancelledFromQueue,
+      message: cancelledFromQueue 
+        ? 'הסטטוס הוסר מהתור' 
+        : deletedFromWhatsApp 
+          ? 'הסטטוס נמחק מווצאפ' 
+          : 'הסטטוס סומן כנמחק'
+    });
 
   } catch (error) {
     console.error('[StatusBot] Delete status error:', error);
@@ -1261,10 +1303,15 @@ async function getStatusDetails(req, res) {
       SELECT * FROM status_bot_reactions WHERE status_id = $1 ORDER BY reacted_at DESC
     `, [statusId]);
 
+    const repliesResult = await db.query(`
+      SELECT * FROM status_bot_replies WHERE status_id = $1 ORDER BY replied_at DESC
+    `, [statusId]);
+
     res.json({
       status: statusResult.rows[0],
       views: viewsResult.rows,
-      reactions: reactionsResult.rows
+      reactions: reactionsResult.rows,
+      replies: repliesResult.rows
     });
 
   } catch (error) {
@@ -1500,24 +1547,32 @@ async function handleSessionStatus(connection, payload) {
     if (status === 'WORKING') {
       newStatus = 'connected';
       
-      // Set first_connected_at if not set, and always update last_connected_at
-      // Also reset restriction if reconnecting after disconnection
-      const wasDisconnected = previousStatus !== 'connected';
+      // Only reset 24h restriction if:
+      // 1. First time connecting (no first_connected_at)
+      // 2. Previous status was qr_pending or failed (user had to re-authenticate)
+      // Don't reset for temporary disconnections that auto-recover
+      
+      const requiresReauthentication = previousStatus === 'qr_pending' || previousStatus === 'failed';
       
       if (!connection.first_connected_at) {
+        // First time connecting
+        console.log(`[StatusBot] First connection for ${connection.id}`);
         await db.query(`
           UPDATE status_bot_connections 
           SET first_connected_at = NOW(), last_connected_at = NOW()
           WHERE id = $1 AND first_connected_at IS NULL
         `, [connection.id]);
-      } else if (wasDisconnected) {
-        // Reconnecting - update last_connected_at and reset restriction
-        console.log(`[StatusBot] Reconnection detected for ${connection.id}, resetting 24h restriction`);
+      } else if (requiresReauthentication) {
+        // Re-authentication required (QR scan or failure recovery) - reset restriction
+        console.log(`[StatusBot] Re-authentication detected for ${connection.id} (was: ${previousStatus}), resetting 24h restriction`);
         await db.query(`
           UPDATE status_bot_connections 
           SET last_connected_at = NOW(), restriction_lifted = false
           WHERE id = $1
         `, [connection.id]);
+      } else {
+        // Just a regular reconnection (network hiccup) - don't reset restriction
+        console.log(`[StatusBot] Auto-reconnection for ${connection.id} (was: ${previousStatus}), NOT resetting restriction`);
       }
     } else if (status === 'SCAN_QR_CODE') {
       newStatus = 'qr_pending';

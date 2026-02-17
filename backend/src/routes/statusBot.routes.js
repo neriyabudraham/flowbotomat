@@ -76,6 +76,7 @@ router.delete('/status/:statusId', authMiddleware, statusBotController.deleteSta
 // History
 router.get('/history', authMiddleware, statusBotController.getStatusHistory);
 router.get('/history/:statusId', authMiddleware, statusBotController.getStatusDetails);
+router.get('/status/:statusId/details', authMiddleware, statusBotController.getStatusDetails);
 
 // Queue
 router.get('/queue', authMiddleware, statusBotController.getQueueStatus);

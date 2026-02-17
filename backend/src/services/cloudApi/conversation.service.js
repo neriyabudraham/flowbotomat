@@ -784,15 +784,17 @@ async function handleAfterSendMenuState(phone, message, state) {
       return;
     }
     const views = await db.query(
-      `SELECT viewer_phone, viewed_at FROM status_bot_views WHERE status_id = $1 ORDER BY viewed_at DESC LIMIT 50`,
+      `SELECT viewer_phone, viewed_at FROM status_bot_views WHERE status_id = $1 ORDER BY viewed_at DESC`,
       [realStatusId]
     );
     
     if (views.rows.length === 0) {
       await cloudApi.sendTextMessage(phone, '👥 אין צפיות עדיין.');
     } else {
-      const viewersList = views.rows.map(v => `• ${v.viewer_phone}`).join('\n');
-      await cloudApi.sendTextMessage(phone, `👥 צפו בסטטוס (${views.rows.length}):\n\n${viewersList}`);
+      // Send as TXT file
+      const viewersList = views.rows.map(v => v.viewer_phone).join('\n');
+      const fileContent = `רשימת צופים (${views.rows.length})\n${'='.repeat(30)}\n\n${viewersList}`;
+      await cloudApi.sendDocumentMessage(phone, fileContent, `צפיות_${views.rows.length}.txt`, `👥 ${views.rows.length} צפו בסטטוס`);
     }
     await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
     return;
@@ -825,15 +827,17 @@ async function handleAfterSendMenuState(phone, message, state) {
       return;
     }
     const hearts = await db.query(
-      `SELECT reactor_phone, reaction, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction IN ('❤️', '💚', '💙', '💜', '🖤', '🤍', '💛', '🧡', '🤎', '💗', '💖', '💕', '💓', '💞', '💘', '❣️') ORDER BY reacted_at DESC LIMIT 50`,
+      `SELECT reactor_phone, reaction, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction IN ('❤️', '💚', '💙', '💜', '🖤', '🤍', '💛', '🧡', '🤎', '💗', '💖', '💕', '💓', '💞', '💘', '❣️') ORDER BY reacted_at DESC`,
       [realStatusId]
     );
     
     if (hearts.rows.length === 0) {
       await cloudApi.sendTextMessage(phone, '💕 אין סימוני לב עדיין.');
     } else {
+      // Send as TXT file
       const heartsList = hearts.rows.map(h => `${h.reaction} ${h.reactor_phone}`).join('\n');
-      await cloudApi.sendTextMessage(phone, `💕 סימנו לב (${hearts.rows.length}):\n\n${heartsList}`);
+      const fileContent = `רשימת סימוני לב (${hearts.rows.length})\n${'='.repeat(30)}\n\n${heartsList}`;
+      await cloudApi.sendDocumentMessage(phone, fileContent, `לבבות_${hearts.rows.length}.txt`, `💕 ${hearts.rows.length} סימנו לב`);
     }
     await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
     return;
@@ -866,15 +870,17 @@ async function handleAfterSendMenuState(phone, message, state) {
       return;
     }
     const reactions = await db.query(
-      `SELECT reactor_phone, reaction, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction NOT IN ('❤️', '💚', '💙', '💜', '🖤', '🤍', '💛', '🧡', '🤎', '💗', '💖', '💕', '💓', '💞', '💘', '❣️') ORDER BY reacted_at DESC LIMIT 50`,
+      `SELECT reactor_phone, reaction, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction NOT IN ('❤️', '💚', '💙', '💜', '🖤', '🤍', '💛', '🧡', '🤎', '💗', '💖', '💕', '💓', '💞', '💘', '❣️') ORDER BY reacted_at DESC`,
       [realStatusId]
     );
     
     if (reactions.rows.length === 0) {
       await cloudApi.sendTextMessage(phone, '💬 אין תגובות עדיין.');
     } else {
+      // Send as TXT file
       const reactionsList = reactions.rows.map(r => `${r.reaction} ${r.reactor_phone}`).join('\n');
-      await cloudApi.sendTextMessage(phone, `💬 הגיבו (${reactions.rows.length}):\n\n${reactionsList}`);
+      const fileContent = `רשימת תגובות (${reactions.rows.length})\n${'='.repeat(30)}\n\n${reactionsList}`;
+      await cloudApi.sendDocumentMessage(phone, fileContent, `תגובות_${reactions.rows.length}.txt`, `💬 ${reactions.rows.length} הגיבו`);
     }
     await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
     return;

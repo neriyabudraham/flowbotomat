@@ -737,6 +737,41 @@ async function handleIncomingMessage(userId, event) {
           messageType: messageData.type,
           statusMessageId: statusStanzaId
         });
+        
+        // Also record the reply in status_bot_replies for stats
+        if (statusStanzaId) {
+          try {
+            // Find the status by hex ID
+            const statusResult = await pool.query(`
+              SELECT id FROM status_bot_statuses 
+              WHERE waha_message_id LIKE $1
+            `, [`%${statusStanzaId}%`]);
+            
+            if (statusResult.rows.length > 0) {
+              const statusId = statusResult.rows[0].id;
+              const replyText = messageData.type === 'text' ? messageData.content : `[${messageData.type}]`;
+              
+              // Insert reply (upsert)
+              await pool.query(`
+                INSERT INTO status_bot_replies (status_id, replier_phone, reply_text)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (status_id, replier_phone) 
+                DO UPDATE SET reply_text = $3, replied_at = NOW()
+              `, [statusId, senderPhone, replyText]);
+              
+              // Update reply count
+              await pool.query(`
+                UPDATE status_bot_statuses 
+                SET reply_count = (SELECT COUNT(*) FROM status_bot_replies WHERE status_id = $1)
+                WHERE id = $1
+              `, [statusId]);
+              
+              console.log(`[Webhook] ✓ Synced reply to status_bot: status ${statusId}, replier ${senderPhone}`);
+            }
+          } catch (replyErr) {
+            console.error('[Webhook] Error syncing status reply:', replyErr.message);
+          }
+        }
       }
     }
   } catch (statusReplyErr) {

@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS status_bot_statuses (
   -- Stats (מתעדכן מ-webhooks)
   view_count INTEGER DEFAULT 0,
   reaction_count INTEGER DEFAULT 0,
+  reply_count INTEGER DEFAULT 0,
   
   created_at TIMESTAMP DEFAULT NOW()
 );
@@ -132,6 +133,19 @@ CREATE TABLE IF NOT EXISTS status_bot_reactions (
   UNIQUE(status_id, reactor_phone)
 );
 
+-- תגובות טקסט לסטטוסים (מישהו הגיב עם הודעה)
+CREATE TABLE IF NOT EXISTS status_bot_replies (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  status_id UUID NOT NULL REFERENCES status_bot_statuses(id) ON DELETE CASCADE,
+  
+  replier_phone VARCHAR(20) NOT NULL, -- מי הגיב
+  replier_name VARCHAR(100), -- שם (אם ידוע)
+  reply_text TEXT, -- תוכן התגובה
+  replied_at TIMESTAMP DEFAULT NOW(),
+  
+  UNIQUE(status_id, replier_phone)
+);
+
 -- Global queue lock - להבטיח 30 שניות בין סטטוסים
 CREATE TABLE IF NOT EXISTS status_bot_queue_lock (
   id INTEGER PRIMARY KEY DEFAULT 1,
@@ -156,6 +170,7 @@ CREATE INDEX IF NOT EXISTS idx_status_bot_statuses_connection ON status_bot_stat
 CREATE INDEX IF NOT EXISTS idx_status_bot_statuses_waha_id ON status_bot_statuses(waha_message_id);
 CREATE INDEX IF NOT EXISTS idx_status_bot_views_status ON status_bot_views(status_id);
 CREATE INDEX IF NOT EXISTS idx_status_bot_reactions_status ON status_bot_reactions(status_id);
+CREATE INDEX IF NOT EXISTS idx_status_bot_replies_status ON status_bot_replies(status_id);
 
 -- Migration: Add last_connected_at column if it doesn't exist
 DO $$ 
@@ -165,5 +180,16 @@ BEGIN
     WHERE table_name = 'status_bot_connections' AND column_name = 'last_connected_at'
   ) THEN
     ALTER TABLE status_bot_connections ADD COLUMN last_connected_at TIMESTAMP;
+  END IF;
+END $$;
+
+-- Migration: Add reply_count column if it doesn't exist
+DO $$ 
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'status_bot_statuses' AND column_name = 'reply_count'
+  ) THEN
+    ALTER TABLE status_bot_statuses ADD COLUMN reply_count INTEGER DEFAULT 0;
   END IF;
 END $$;

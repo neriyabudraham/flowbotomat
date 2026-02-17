@@ -281,6 +281,78 @@ function verifyWebhookSignature(payload, signature) {
   return signature === expectedSignature;
 }
 
+/**
+ * Send a document (file) to a phone number
+ * For TXT files, we create a temporary file and upload it
+ */
+async function sendDocumentMessage(to, content, filename, caption = '') {
+  const { phoneId, accessToken } = getCredentials();
+  
+  console.log(`[CloudAPI] Sending document to ${to}: ${filename}`);
+  
+  try {
+    // Create a temporary file
+    const tempDir = path.join(__dirname, '../../../uploads/temp');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    const tempFilePath = path.join(tempDir, `${Date.now()}_${filename}`);
+    fs.writeFileSync(tempFilePath, content, 'utf8');
+    
+    // Upload the file to Meta's servers using multipart form
+    const FormData = require('form-data');
+    const form = new FormData();
+    form.append('file', fs.createReadStream(tempFilePath));
+    form.append('type', 'text/plain');
+    form.append('messaging_product', 'whatsapp');
+    
+    const uploadResponse = await axios.post(
+      `${GRAPH_API_BASE}/${phoneId}/media`,
+      form,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          ...form.getHeaders()
+        }
+      }
+    );
+    
+    const mediaId = uploadResponse.data.id;
+    console.log(`[CloudAPI] Uploaded document, mediaId: ${mediaId}`);
+    
+    // Clean up temp file
+    fs.unlinkSync(tempFilePath);
+    
+    // Send the document message
+    const response = await axios.post(
+      `${GRAPH_API_BASE}/${phoneId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to: to,
+        type: 'document',
+        document: {
+          id: mediaId,
+          caption: caption || undefined,
+          filename: filename
+        }
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    
+    console.log(`[CloudAPI] ✅ Sent document to ${to}`);
+    return response.data;
+  } catch (error) {
+    console.error(`[CloudAPI] ❌ Failed to send document to ${to}:`, error.response?.data || error.message);
+    throw error;
+  }
+}
+
 module.exports = {
   getCredentials,
   sendTextMessage,
@@ -290,4 +362,5 @@ module.exports = {
   uploadMediaToStorage,
   markAsRead,
   verifyWebhookSignature,
+  sendDocumentMessage,
 };

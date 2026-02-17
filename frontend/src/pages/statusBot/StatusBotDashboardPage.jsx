@@ -114,6 +114,17 @@ function StatusBotDashboardContent() {
   const [newNumber, setNewNumber] = useState('');
   const [newNumberName, setNewNumberName] = useState('');
   
+  // Status details modal state
+  const [statusDetailsModal, setStatusDetailsModal] = useState({
+    show: false,
+    status: null,
+    views: [],
+    reactions: [],
+    replies: [],
+    loading: false,
+    activeTab: 'views' // 'views' | 'reactions' | 'replies'
+  });
+  
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState({
     show: false,
@@ -324,6 +335,37 @@ function StatusBotDashboardContent() {
     } catch (err) {
       console.error('Load dashboard data error:', err);
     }
+  };
+
+  const fetchStatusDetails = async (statusId, initialTab = 'views') => {
+    setStatusDetailsModal(prev => ({ ...prev, show: true, loading: true, activeTab: initialTab }));
+    try {
+      const { data } = await api.get(`/status-bot/status/${statusId}/details`);
+      setStatusDetailsModal(prev => ({
+        ...prev,
+        status: data.status,
+        views: data.views || [],
+        reactions: data.reactions || [],
+        replies: data.replies || [],
+        loading: false
+      }));
+    } catch (err) {
+      console.error('Fetch status details error:', err);
+      setStatusDetailsModal(prev => ({ ...prev, show: false, loading: false }));
+      toast.error('שגיאה בטעינת פרטי סטטוס');
+    }
+  };
+
+  const closeStatusDetailsModal = () => {
+    setStatusDetailsModal({
+      show: false,
+      status: null,
+      views: [],
+      reactions: [],
+      replies: [],
+      loading: false,
+      activeTab: 'views'
+    });
   };
 
   const fetchConnection = async () => {
@@ -1564,6 +1606,7 @@ function StatusBotDashboardContent() {
                                 status={status}
                                 onDelete={() => handleDeleteStatus(status.id)}
                                 isActive={true}
+                                onShowDetails={fetchStatusDetails}
                               />
                             ))}
                           </div>
@@ -1588,6 +1631,7 @@ function StatusBotDashboardContent() {
                               status={status}
                               onDelete={() => handleDeleteStatus(status.id)}
                               isActive={false}
+                              onShowDetails={fetchStatusDetails}
                             />
                           ))}
                         </div>
@@ -1848,6 +1892,159 @@ function StatusBotDashboardContent() {
           </div>
         </div>
       )}
+
+      {/* Status Details Modal */}
+      {statusDetailsModal.show && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-bold text-lg">פרטי סטטוס</h3>
+              <button 
+                onClick={closeStatusDetailsModal}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-gray-100">
+              <button
+                onClick={() => setStatusDetailsModal(prev => ({ ...prev, activeTab: 'views' }))}
+                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                  statusDetailsModal.activeTab === 'views' 
+                    ? 'text-green-600 border-b-2 border-green-600' 
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <Eye className="w-4 h-4" />
+                צפיות ({statusDetailsModal.views.length})
+              </button>
+              <button
+                onClick={() => setStatusDetailsModal(prev => ({ ...prev, activeTab: 'reactions' }))}
+                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                  statusDetailsModal.activeTab === 'reactions' 
+                    ? 'text-red-500 border-b-2 border-red-500' 
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <Heart className="w-4 h-4" />
+                לבבות ({statusDetailsModal.reactions.length})
+              </button>
+              <button
+                onClick={() => setStatusDetailsModal(prev => ({ ...prev, activeTab: 'replies' }))}
+                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                  statusDetailsModal.activeTab === 'replies' 
+                    ? 'text-blue-500 border-b-2 border-blue-500' 
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <MessageCircle className="w-4 h-4" />
+                תגובות ({statusDetailsModal.replies.length})
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-4">
+              {statusDetailsModal.loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-8 h-8 animate-spin text-green-600" />
+                </div>
+              ) : (
+                <>
+                  {/* Views Tab */}
+                  {statusDetailsModal.activeTab === 'views' && (
+                    <div className="space-y-2">
+                      {statusDetailsModal.views.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          <Eye className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                          <p>אין צפיות עדיין</p>
+                        </div>
+                      ) : (
+                        statusDetailsModal.views.map((view, i) => (
+                          <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                                <Users className="w-5 h-5 text-green-600" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-gray-800">{formatPhoneNumber(view.viewer_phone)}</p>
+                                {view.viewer_name && <p className="text-sm text-gray-500">{view.viewer_name}</p>}
+                              </div>
+                            </div>
+                            <span className="text-xs text-gray-400">
+                              {new Date(view.viewed_at).toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+
+                  {/* Reactions Tab */}
+                  {statusDetailsModal.activeTab === 'reactions' && (
+                    <div className="space-y-2">
+                      {statusDetailsModal.reactions.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          <Heart className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                          <p>אין לבבות עדיין</p>
+                        </div>
+                      ) : (
+                        statusDetailsModal.reactions.map((reaction, i) => (
+                          <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center text-xl">
+                                {reaction.reaction}
+                              </div>
+                              <div>
+                                <p className="font-medium text-gray-800">{formatPhoneNumber(reaction.reactor_phone)}</p>
+                                {reaction.reactor_name && <p className="text-sm text-gray-500">{reaction.reactor_name}</p>}
+                              </div>
+                            </div>
+                            <span className="text-xs text-gray-400">
+                              {new Date(reaction.reacted_at).toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+
+                  {/* Replies Tab */}
+                  {statusDetailsModal.activeTab === 'replies' && (
+                    <div className="space-y-2">
+                      {statusDetailsModal.replies.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          <MessageCircle className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                          <p>אין תגובות עדיין</p>
+                        </div>
+                      ) : (
+                        statusDetailsModal.replies.map((reply, i) => (
+                          <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                                <MessageCircle className="w-5 h-5 text-blue-600" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-gray-800">{formatPhoneNumber(reply.replier_phone)}</p>
+                                {reply.reply_text && <p className="text-sm text-gray-600">{reply.reply_text}</p>}
+                              </div>
+                            </div>
+                            <span className="text-xs text-gray-400">
+                              {new Date(reply.replied_at).toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1908,7 +2105,7 @@ function TypeButton({ active, onClick, icon: Icon, label }) {
   );
 }
 
-function StatusRow({ status, onDelete, isActive }) {
+function StatusRow({ status, onDelete, isActive, onShowDetails }) {
   const typeIcons = {
     text: Type,
     image: Image,
@@ -1929,6 +2126,7 @@ function StatusRow({ status, onDelete, isActive }) {
   };
   
   const statusLabel = getStatusLabel();
+  const canShowStats = status.queue_status !== 'pending' && status.queue_status !== 'processing';
 
   return (
     <div className={`p-4 flex items-center justify-between ${isDeleted ? 'opacity-50 bg-gray-50' : 'hover:bg-gray-50'}`}>
@@ -1965,21 +2163,33 @@ function StatusRow({ status, onDelete, isActive }) {
       </div>
       
       <div className="flex items-center gap-4">
-        {/* Stats - Only show if not deleted and has been sent */}
-        {!isDeleted && status.queue_status !== 'pending' && status.queue_status !== 'processing' && (
+        {/* Stats - show even for deleted statuses */}
+        {canShowStats && (
           <div className="flex items-center gap-3 text-sm text-gray-500">
-            <span className="flex items-center gap-1" title="צפיות">
+            <button 
+              onClick={() => onShowDetails(status.id, 'views')}
+              className="flex items-center gap-1 hover:text-gray-700 hover:bg-gray-100 px-2 py-1 rounded transition-colors"
+              title="צפיות - לחץ לפרטים"
+            >
               <Eye className="w-4 h-4" />
               {status.view_count || 0}
-            </span>
-            <span className="flex items-center gap-1" title="לבבות">
+            </button>
+            <button 
+              onClick={() => onShowDetails(status.id, 'reactions')}
+              className="flex items-center gap-1 hover:text-red-500 hover:bg-red-50 px-2 py-1 rounded transition-colors"
+              title="לבבות - לחץ לפרטים"
+            >
               <Heart className="w-4 h-4 text-red-400" />
               {status.reaction_count || 0}
-            </span>
-            <span className="flex items-center gap-1" title="תגובות">
+            </button>
+            <button 
+              onClick={() => onShowDetails(status.id, 'replies')}
+              className="flex items-center gap-1 hover:text-blue-500 hover:bg-blue-50 px-2 py-1 rounded transition-colors"
+              title="תגובות - לחץ לפרטים"
+            >
               <MessageCircle className="w-4 h-4 text-blue-400" />
               {status.reply_count || 0}
-            </span>
+            </button>
           </div>
         )}
         
