@@ -487,7 +487,7 @@ async function handleSelectColorState(phone, message, state) {
   const pendingStatus = state.pending_status || {};
   pendingStatus.backgroundColor = `#${colorId}`;
   
-  await setState(phone, 'select_action', null, pendingStatus);
+  await setState(phone, 'select_action', null, pendingStatus, state.connection_id);
   
   // Send action buttons
   await cloudApi.sendButtonMessage(
@@ -833,7 +833,8 @@ async function handleViewStatusActionsState(phone, message, state) {
       return;
     }
     
-    await setState(phone, 'select_schedule_day', { rescheduleId: statusId }, null);
+    const statusConnectionId = result.rows[0].connection_id;
+    await setState(phone, 'select_schedule_day', { rescheduleId: statusId }, null, statusConnectionId);
     await sendDaySelection(phone);
     return;
   }
