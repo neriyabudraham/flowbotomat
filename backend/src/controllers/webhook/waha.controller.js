@@ -751,12 +751,10 @@ async function handleIncomingMessage(userId, event) {
               const statusId = statusResult.rows[0].id;
               const replyText = messageData.type === 'text' ? messageData.content : `[${messageData.type}]`;
               
-              // Insert reply (upsert)
+              // Insert reply (allow multiple replies from same user)
               await pool.query(`
                 INSERT INTO status_bot_replies (status_id, replier_phone, reply_text)
                 VALUES ($1, $2, $3)
-                ON CONFLICT (status_id, replier_phone) 
-                DO UPDATE SET reply_text = $3, replied_at = NOW()
               `, [statusId, senderPhone, replyText]);
               
               // Update reply count
@@ -1275,16 +1273,16 @@ async function syncStatusBotReaction(userId, waMessageId, reactorPhone, reaction
     
     const statusId = statusResult.rows[0].id;
     
-    // Insert reaction (allow multiple from same user)
+    // Insert reaction (allow multiple reactions from same user)
     await pool.query(`
       INSERT INTO status_bot_reactions (status_id, reactor_phone, reaction)
       VALUES ($1, $2, $3)
     `, [statusId, reactorPhone, reactionText || '❤️']);
     
-    // Update reaction count (count unique users, not total reactions)
+    // Update reaction count
     await pool.query(`
       UPDATE status_bot_statuses 
-      SET reaction_count = (SELECT COUNT(DISTINCT reactor_phone) FROM status_bot_reactions WHERE status_id = $1)
+      SET reaction_count = (SELECT COUNT(*) FROM status_bot_reactions WHERE status_id = $1)
       WHERE id = $1
     `, [statusId]);
     

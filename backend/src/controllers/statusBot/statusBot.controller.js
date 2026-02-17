@@ -114,14 +114,10 @@ async function initializeTables() {
         reactor_phone VARCHAR(20) NOT NULL,
         reactor_name VARCHAR(100),
         reaction VARCHAR(10) NOT NULL,
-        reacted_at TIMESTAMP DEFAULT NOW()
+        reacted_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(status_id, reactor_phone)
       )
     `);
-    
-    // Drop old unique constraint if exists (migration for multiple reactions)
-    await db.query(`
-      ALTER TABLE status_bot_reactions DROP CONSTRAINT IF EXISTS status_bot_reactions_status_id_reactor_phone_key
-    `).catch(() => {});
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS status_bot_replies (
@@ -1566,21 +1562,6 @@ async function handleSessionStatus(connection, payload) {
           SET first_connected_at = NOW(), last_connected_at = NOW()
           WHERE id = $1 AND first_connected_at IS NULL
         `, [connection.id]);
-        
-        // Auto-add the connected phone number to authorized numbers
-        const connectedPhone = payload?.me?.id?.split('@')[0];
-        if (connectedPhone) {
-          try {
-            await db.query(`
-              INSERT INTO status_bot_authorized_numbers (connection_id, phone_number, name, is_active)
-              VALUES ($1, $2, 'מספר מחובר', true)
-              ON CONFLICT (connection_id, phone_number) DO NOTHING
-            `, [connection.id, connectedPhone]);
-            console.log(`[StatusBot] Auto-added connected phone ${connectedPhone} to authorized numbers`);
-          } catch (e) {
-            console.log(`[StatusBot] Could not auto-add phone: ${e.message}`);
-          }
-        }
       } else if (requiresReauthentication) {
         // Re-authentication required (QR scan or failure recovery) - reset restriction
         console.log(`[StatusBot] Re-authentication detected for ${connection.id} (was: ${previousStatus}), resetting 24h restriction`);
@@ -1609,6 +1590,20 @@ async function handleSessionStatus(connection, payload) {
         SET connection_status = $1, phone_number = $2, display_name = $3, updated_at = NOW()
         WHERE id = $4
       `, [newStatus, phoneNumber, displayName, connection.id]);
+
+      // Auto-add connected phone to authorized numbers (if not already exists)
+      if (newStatus === 'connected' && phoneNumber) {
+        try {
+          await db.query(`
+            INSERT INTO status_bot_authorized_numbers (connection_id, phone_number, name, is_active)
+            VALUES ($1, $2, $3, true)
+            ON CONFLICT (connection_id, phone_number) DO NOTHING
+          `, [connection.id, phoneNumber, displayName || 'המספר המחובר']);
+          console.log(`[StatusBot] Auto-added connected phone ${phoneNumber} to authorized numbers`);
+        } catch (authErr) {
+          console.log(`[StatusBot] Phone ${phoneNumber} may already be in authorized numbers`);
+        }
+      }
     } else {
       await db.query(`
         UPDATE status_bot_connections 
@@ -1764,16 +1759,16 @@ async function handleStatusReaction(connection, payload) {
     
     console.log(`[StatusBot] Recording reaction ${reactionText} from ${reactorPhone} for status ${statusId}`);
 
-    // Insert reaction (allow multiple from same user)
+    // Insert reaction (allow multiple reactions from same user)
     await db.query(`
       INSERT INTO status_bot_reactions (status_id, reactor_phone, reaction)
       VALUES ($1, $2, $3)
     `, [statusId, reactorPhone, reactionText]);
 
-    // Update reaction count (count unique users, not total reactions)
+    // Update reaction count
     await db.query(`
       UPDATE status_bot_statuses 
-      SET reaction_count = (SELECT COUNT(DISTINCT reactor_phone) FROM status_bot_reactions WHERE status_id = $1)
+      SET reaction_count = (SELECT COUNT(*) FROM status_bot_reactions WHERE status_id = $1)
       WHERE id = $1
     `, [statusId]);
     

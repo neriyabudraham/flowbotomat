@@ -1941,7 +1941,7 @@ function StatusBotDashboardContent() {
                 }`}
               >
                 <MessageCircle className="w-4 h-4" />
-                תגובות ({statusDetailsModal.replies.length})
+                תגובות ({new Set(statusDetailsModal.replies.map(r => r.replier_phone)).size})
               </button>
             </div>
 
@@ -1982,78 +1982,90 @@ function StatusBotDashboardContent() {
                     </div>
                   )}
 
-                  {/* Reactions Tab */}
+                  {/* Reactions Tab - Grouped by phone */}
                   {statusDetailsModal.activeTab === 'reactions' && (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       {statusDetailsModal.reactions.length === 0 ? (
                         <div className="text-center py-8 text-gray-500">
                           <Heart className="w-10 h-10 mx-auto mb-2 opacity-50" />
                           <p>אין לבבות עדיין</p>
                         </div>
                       ) : (
-                        // Group reactions by user
-                        Object.values(statusDetailsModal.reactions.reduce((acc, reaction) => {
-                          if (!acc[reaction.reactor_phone]) {
-                            acc[reaction.reactor_phone] = {
-                              reactor_phone: reaction.reactor_phone,
-                              reactor_name: reaction.reactor_name,
-                              reactions: [],
-                              latest_at: reaction.reacted_at
-                            };
-                          }
-                          acc[reaction.reactor_phone].reactions.push({
-                            emoji: reaction.reaction,
-                            at: reaction.reacted_at
-                          });
-                          if (new Date(reaction.reacted_at) > new Date(acc[reaction.reactor_phone].latest_at)) {
-                            acc[reaction.reactor_phone].latest_at = reaction.reacted_at;
-                          }
-                          return acc;
-                        }, {})).sort((a, b) => new Date(b.latest_at) - new Date(a.latest_at)).map((group, i) => (
-                          <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center text-lg">
-                                {group.reactions.map(r => r.emoji).slice(0, 3).join('')}
-                                {group.reactions.length > 3 && '...'}
-                              </div>
-                              <div>
-                                <p className="font-medium text-gray-800">{formatPhoneNumber(group.reactor_phone)}</p>
-                                {group.reactor_name && <p className="text-sm text-gray-500">{group.reactor_name}</p>}
-                                <p className="text-xs text-gray-400">{group.reactions.length} תגובות</p>
+                        // Group reactions by phone
+                        Object.entries(
+                          statusDetailsModal.reactions.reduce((acc, r) => {
+                            if (!acc[r.reactor_phone]) acc[r.reactor_phone] = [];
+                            acc[r.reactor_phone].push(r);
+                            return acc;
+                          }, {})
+                        ).map(([phone, reactions]) => (
+                          <div key={phone} className="bg-gray-50 rounded-lg overflow-hidden">
+                            <div className="flex items-center justify-between p-3 border-b border-gray-100">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                                  <Heart className="w-5 h-5 text-red-500" />
+                                </div>
+                                <div>
+                                  <p className="font-medium text-gray-800">{formatPhoneNumber(phone)}</p>
+                                  <p className="text-xs text-gray-500">{reactions.length} תגובות</p>
+                                </div>
                               </div>
                             </div>
-                            <span className="text-xs text-gray-400">
-                              {new Date(group.latest_at).toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
-                            </span>
+                            <div className="p-2 flex flex-wrap gap-2">
+                              {reactions.map((r, i) => (
+                                <div key={i} className="flex items-center gap-1 bg-white px-2 py-1 rounded-lg text-sm">
+                                  <span className="text-lg">{r.reaction}</span>
+                                  <span className="text-xs text-gray-400">
+                                    {new Date(r.reacted_at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         ))
                       )}
                     </div>
                   )}
 
-                  {/* Replies Tab */}
+                  {/* Replies Tab - Grouped by phone */}
                   {statusDetailsModal.activeTab === 'replies' && (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       {statusDetailsModal.replies.length === 0 ? (
                         <div className="text-center py-8 text-gray-500">
                           <MessageCircle className="w-10 h-10 mx-auto mb-2 opacity-50" />
                           <p>אין תגובות עדיין</p>
                         </div>
                       ) : (
-                        statusDetailsModal.replies.map((reply, i) => (
-                          <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                                <MessageCircle className="w-5 h-5 text-blue-600" />
-                              </div>
-                              <div>
-                                <p className="font-medium text-gray-800">{formatPhoneNumber(reply.replier_phone)}</p>
-                                {reply.reply_text && <p className="text-sm text-gray-600">{reply.reply_text}</p>}
+                        // Group replies by phone
+                        Object.entries(
+                          statusDetailsModal.replies.reduce((acc, r) => {
+                            if (!acc[r.replier_phone]) acc[r.replier_phone] = [];
+                            acc[r.replier_phone].push(r);
+                            return acc;
+                          }, {})
+                        ).map(([phone, replies]) => (
+                          <div key={phone} className="bg-gray-50 rounded-lg overflow-hidden">
+                            <div className="flex items-center justify-between p-3 border-b border-gray-100">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                                  <MessageCircle className="w-5 h-5 text-blue-600" />
+                                </div>
+                                <div>
+                                  <p className="font-medium text-gray-800">{formatPhoneNumber(phone)}</p>
+                                  <p className="text-xs text-gray-500">{replies.length} תגובות</p>
+                                </div>
                               </div>
                             </div>
-                            <span className="text-xs text-gray-400">
-                              {new Date(reply.replied_at).toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
-                            </span>
+                            <div className="p-2 space-y-1">
+                              {replies.map((r, i) => (
+                                <div key={i} className="flex items-center justify-between bg-white px-3 py-2 rounded-lg">
+                                  <p className="text-sm text-gray-700">{r.reply_text}</p>
+                                  <span className="text-xs text-gray-400 whitespace-nowrap mr-2">
+                                    {new Date(r.replied_at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         ))
                       )}

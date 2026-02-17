@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS status_bot_views (
   UNIQUE(status_id, viewer_phone)
 );
 
--- תגובות (לבבות) לסטטוסים - אפשר מספר תגובות מאותו משתמש
+-- תגובות (לבבות) לסטטוסים - מאפשר תגובות מרובות מאותו משתמש
 CREATE TABLE IF NOT EXISTS status_bot_reactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   status_id UUID NOT NULL REFERENCES status_bot_statuses(id) ON DELETE CASCADE,
@@ -129,10 +129,10 @@ CREATE TABLE IF NOT EXISTS status_bot_reactions (
   reactor_name VARCHAR(100), -- שם (אם ידוע)
   reaction VARCHAR(10) NOT NULL, -- האימוג'י (בד"כ ❤️)
   reacted_at TIMESTAMP DEFAULT NOW()
-  -- No UNIQUE constraint - allow multiple reactions from same user
+  -- אין UNIQUE - מאפשר מספר תגובות מאותו משתמש
 );
 
--- תגובות טקסט לסטטוסים (מישהו הגיב עם הודעה)
+-- תגובות טקסט לסטטוסים (מישהו הגיב עם הודעה) - מאפשר תגובות מרובות
 CREATE TABLE IF NOT EXISTS status_bot_replies (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   status_id UUID NOT NULL REFERENCES status_bot_statuses(id) ON DELETE CASCADE,
@@ -140,9 +140,8 @@ CREATE TABLE IF NOT EXISTS status_bot_replies (
   replier_phone VARCHAR(20) NOT NULL, -- מי הגיב
   replier_name VARCHAR(100), -- שם (אם ידוע)
   reply_text TEXT, -- תוכן התגובה
-  replied_at TIMESTAMP DEFAULT NOW(),
-  
-  UNIQUE(status_id, replier_phone)
+  replied_at TIMESTAMP DEFAULT NOW()
+  -- אין UNIQUE - מאפשר מספר תגובות מאותו משתמש
 );
 
 -- Global queue lock - להבטיח 30 שניות בין סטטוסים
@@ -190,5 +189,23 @@ BEGIN
     WHERE table_name = 'status_bot_statuses' AND column_name = 'reply_count'
   ) THEN
     ALTER TABLE status_bot_statuses ADD COLUMN reply_count INTEGER DEFAULT 0;
+  END IF;
+END $$;
+
+-- Migration: Drop UNIQUE constraints on reactions and replies to allow multiple per user
+DO $$ 
+BEGIN
+  -- Drop UNIQUE constraint on reactions if exists
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'status_bot_reactions_status_id_reactor_phone_key'
+  ) THEN
+    ALTER TABLE status_bot_reactions DROP CONSTRAINT status_bot_reactions_status_id_reactor_phone_key;
+  END IF;
+  
+  -- Drop UNIQUE constraint on replies if exists
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'status_bot_replies_status_id_replier_phone_key'
+  ) THEN
+    ALTER TABLE status_bot_replies DROP CONSTRAINT status_bot_replies_status_id_replier_phone_key;
   END IF;
 END $$;
