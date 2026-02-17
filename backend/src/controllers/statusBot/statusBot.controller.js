@@ -1567,13 +1567,27 @@ async function handleStatusView(connection, payload) {
       WHERE connection_id = $1 AND waha_message_id = $2
     `, [connection.id, messageId]);
 
-    // If not found, try without the prefix (true_status@broadcast_)
-    if (statusResult.rows.length === 0 && messageId.includes('_')) {
-      const shortId = messageId.split('_').pop();
-      statusResult = await db.query(`
-        SELECT id FROM status_bot_statuses 
-        WHERE connection_id = $1 AND waha_message_id LIKE $2
-      `, [connection.id, `%${shortId}`]);
+    // If not found, try extracting the hex ID from the full message ID
+    // Format: true_status@broadcast_3EB045A56403626C1E6CE9_972553180071@c.us
+    // The hex ID is the 3rd segment (index 2) after splitting by _
+    if (statusResult.rows.length === 0 && messageId.includes('status@broadcast')) {
+      const parts = messageId.split('_');
+      // Find the hex ID - it's usually 24 chars and comes after status@broadcast
+      let hexId = null;
+      for (const part of parts) {
+        if (/^[A-F0-9]{20,}$/i.test(part)) {
+          hexId = part;
+          break;
+        }
+      }
+      
+      if (hexId) {
+        console.log(`[StatusBot] Trying to match hex ID: ${hexId}`);
+        statusResult = await db.query(`
+          SELECT id FROM status_bot_statuses 
+          WHERE connection_id = $1 AND waha_message_id LIKE $2
+        `, [connection.id, `%${hexId}%`]);
+      }
     }
 
     if (statusResult.rows.length === 0) {
@@ -1619,12 +1633,12 @@ async function handleStatusView(connection, payload) {
 
 async function handleStatusReaction(connection, payload) {
   try {
-    // Message ID can be in different formats
-    const messageId = payload?.id?._serialized || payload?.id || payload?.msgId?._serialized || payload?.msgId;
-    const reaction = payload?.reaction;
+    // For reactions, the actual status message ID is in reaction.messageId
+    const reactionData = payload?.reaction;
+    const messageId = reactionData?.messageId || payload?.id?._serialized || payload?.id;
     const participant = payload?.participant || payload?.from;
 
-    console.log(`[StatusBot] handleStatusReaction - msgId: ${messageId}, reaction:`, reaction);
+    console.log(`[StatusBot] handleStatusReaction - msgId: ${messageId}, reaction:`, reactionData);
 
     if (!messageId) {
       console.log('[StatusBot] handleStatusReaction - no messageId');
@@ -1637,12 +1651,24 @@ async function handleStatusReaction(connection, payload) {
       WHERE connection_id = $1 AND waha_message_id = $2
     `, [connection.id, messageId]);
 
-    if (statusResult.rows.length === 0 && messageId.includes('_')) {
-      const shortId = messageId.split('_').pop();
-      statusResult = await db.query(`
-        SELECT id FROM status_bot_statuses 
-        WHERE connection_id = $1 AND waha_message_id LIKE $2
-      `, [connection.id, `%${shortId}`]);
+    // If not found, try extracting the hex ID
+    if (statusResult.rows.length === 0 && messageId.includes('status@broadcast')) {
+      const parts = messageId.split('_');
+      let hexId = null;
+      for (const part of parts) {
+        if (/^[A-F0-9]{20,}$/i.test(part)) {
+          hexId = part;
+          break;
+        }
+      }
+      
+      if (hexId) {
+        console.log(`[StatusBot] Trying to match hex ID for reaction: ${hexId}`);
+        statusResult = await db.query(`
+          SELECT id FROM status_bot_statuses 
+          WHERE connection_id = $1 AND waha_message_id LIKE $2
+        `, [connection.id, `%${hexId}%`]);
+      }
     }
 
     if (statusResult.rows.length === 0) {
@@ -1660,7 +1686,7 @@ async function handleStatusReaction(connection, payload) {
     }
 
     // Get reaction text (emoji)
-    const reactionText = reaction?.text || reaction?.emoji || reaction || '❤️';
+    const reactionText = reactionData?.text || reactionData?.emoji || reactionData || '❤️';
     
     console.log(`[StatusBot] Recording reaction ${reactionText} from ${reactorPhone} for status ${statusId}`);
 
