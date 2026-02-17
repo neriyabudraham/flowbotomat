@@ -403,7 +403,7 @@ async function handleIdleState(phone, message, state) {
     return;
   }
   
-  // Single account - validate and go to color selection
+  // Single account - validate and proceed
   const connection = authorizedConnections[0];
   
   // Validate connection status
@@ -413,6 +413,22 @@ async function handleIdleState(phone, message, state) {
     return;
   }
   
+  // For media (image/video), skip color selection and go to action
+  if (pendingStatus.type === 'image' || pendingStatus.type === 'video') {
+    await setState(phone, 'select_action', null, pendingStatus, connection.connection_id);
+    await cloudApi.sendButtonMessage(
+      phone,
+      'מה תרצה לעשות עם הסטטוס?',
+      [
+        { id: 'action_send', title: 'שלח כעת' },
+        { id: 'action_schedule', title: 'תזמן' },
+        { id: 'action_cancel', title: 'בטל' }
+      ]
+    );
+    return;
+  }
+  
+  // For text/voice - go to color selection
   await setState(phone, 'select_color', null, pendingStatus, connection.connection_id);
   await sendColorSelection(phone, connection.connection_id);
 }
@@ -447,7 +463,25 @@ async function handleSelectAccountState(phone, message, state) {
     return;
   }
   
-  await setState(phone, 'select_color', null, state.pending_status, connectionId);
+  const pendingStatus = state.pending_status;
+  
+  // For media (image/video), skip color selection and go to action
+  if (pendingStatus.type === 'image' || pendingStatus.type === 'video') {
+    await setState(phone, 'select_action', null, pendingStatus, connectionId);
+    await cloudApi.sendButtonMessage(
+      phone,
+      'מה תרצה לעשות עם הסטטוס?',
+      [
+        { id: 'action_send', title: 'שלח כעת' },
+        { id: 'action_schedule', title: 'תזמן' },
+        { id: 'action_cancel', title: 'בטל' }
+      ]
+    );
+    return;
+  }
+  
+  // For text/voice - go to color selection
+  await setState(phone, 'select_color', null, pendingStatus, connectionId);
   await sendColorSelection(phone, connectionId);
 }
 
