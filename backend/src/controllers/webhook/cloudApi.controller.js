@@ -93,6 +93,9 @@ async function processMessage(message, contacts, value) {
     const messageId = message.id;
     
     console.log(`[CloudAPI Webhook] Message from ${phone}, type: ${message.type}`);
+    if (message.type === 'interactive') {
+      console.log(`[CloudAPI Webhook] Interactive type: ${message.interactive?.type}, id: ${message.interactive?.button_reply?.id || message.interactive?.list_reply?.id}`);
+    }
     
     // Mark as read
     await cloudApiService.markAsRead(messageId);

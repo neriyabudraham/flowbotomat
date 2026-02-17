@@ -533,7 +533,7 @@ async function handleSelectActionState(phone, message, state) {
   if (actionId === 'action_schedule') {
     // Show day selection
     await sendDaySelection(phone);
-    await setState(phone, 'select_schedule_day', null, state.pending_status);
+    await setState(phone, 'select_schedule_day', null, state.pending_status, state.connection_id);
   }
 }
 
@@ -584,7 +584,7 @@ async function handleSelectScheduleDayState(phone, message, state) {
     daysOffset: daysOffset
   };
   
-  await setState(phone, 'select_schedule_time', stateData, state.pending_status);
+  await setState(phone, 'select_schedule_time', stateData, state.pending_status, state.connection_id);
   await cloudApi.sendTextMessage(phone, 'הזן שעת שליחה (לדוגמא: 13:00, 1300, 13):');
 }
 
