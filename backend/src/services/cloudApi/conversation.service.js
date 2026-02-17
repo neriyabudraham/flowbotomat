@@ -103,6 +103,9 @@ async function checkAuthorization(phone) {
        sbc.phone_number as connection_phone,
        sbc.connection_status,
        sbc.custom_colors,
+       sbc.first_connected_at,
+       sbc.last_connected_at,
+       sbc.restriction_lifted,
        sban.name as authorized_name,
        u.name as user_name,
        u.email as user_email
@@ -116,6 +119,51 @@ async function checkAuthorization(phone) {
   );
   
   return result.rows;
+}
+
+/**
+ * Validate connection can send statuses
+ * Returns { valid: boolean, error: string | null }
+ */
+function validateConnectionStatus(connection) {
+  // Check if disconnected
+  if (connection.connection_status !== 'connected') {
+    return {
+      valid: false,
+      error: `החשבון "${connection.display_name || connection.connection_phone}" מנותק כרגע.\n\nיש להתחבר מחדש דרך האתר לפני שליחת סטטוסים.`
+    };
+  }
+  
+  // Check 24-hour restriction
+  if (!connection.restriction_lifted) {
+    const connectionDate = connection.last_connected_at || connection.first_connected_at;
+    
+    if (connectionDate) {
+      const connectedAt = new Date(connectionDate);
+      const restrictionEnd = new Date(connectedAt.getTime() + 24 * 60 * 60 * 1000);
+      const now = new Date();
+      
+      if (now < restrictionEnd) {
+        const remainingMs = restrictionEnd - now;
+        const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
+        const remainingMinutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
+        
+        let timeStr;
+        if (remainingHours > 0) {
+          timeStr = `${remainingHours} שעות ו-${remainingMinutes} דקות`;
+        } else {
+          timeStr = `${remainingMinutes} דקות`;
+        }
+        
+        return {
+          valid: false,
+          error: `לא ניתן לשלוח סטטוסים עדיין.\n\nיש להמתין ${timeStr} מרגע ההתחברות לפני שליחת הסטטוס הראשון.\n\n(הגבלה זו נועדה למנוע חסימה מצד WhatsApp)`
+        };
+      }
+    }
+  }
+  
+  return { valid: true, error: null };
 }
 
 /**
@@ -338,8 +386,16 @@ async function handleIdleState(phone, message, state) {
     return;
   }
   
-  // Single account - go directly to color selection
+  // Single account - validate and go to color selection
   const connection = authorizedConnections[0];
+  
+  // Validate connection status
+  const validation = validateConnectionStatus(connection);
+  if (!validation.valid) {
+    await cloudApi.sendTextMessage(phone, validation.error);
+    return;
+  }
+  
   await setState(phone, 'select_color', null, pendingStatus, connection.connection_id);
   await sendColorSelection(phone, connection.connection_id);
 }
@@ -362,6 +418,14 @@ async function handleSelectAccountState(phone, message, state) {
   
   if (!selectedAccount) {
     await cloudApi.sendTextMessage(phone, 'חשבון לא נמצא. אנא נסה שוב.');
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+  
+  // Validate connection status
+  const validation = validateConnectionStatus(selectedAccount);
+  if (!validation.valid) {
+    await cloudApi.sendTextMessage(phone, validation.error);
     await setState(phone, 'idle', null, null);
     return;
   }
