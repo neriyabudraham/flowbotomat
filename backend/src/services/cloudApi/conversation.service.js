@@ -656,27 +656,9 @@ async function handleSelectScheduleTimeState(phone, message, state) {
  */
 async function handleAfterSendMenuState(phone, message, state) {
   if (message.type !== 'interactive' || message.interactive.type !== 'list_reply') {
-    // Re-send the list
-    const stateData = state.state_data || {};
-    const queuedStatusId = stateData.queuedStatusId;
-    
-    const sections = [{
-      title: 'פעולות',
-      rows: [
-        { id: `queued_delete_${queuedStatusId}`, title: 'מחק סטטוס', description: 'הסר מתור השליחה' },
-        { id: 'queued_view_all', title: 'צפה בכל הסטטוסים', description: 'סטטוסים מתוזמנים ופעילים' },
-        { id: 'queued_new_status', title: 'שלח סטטוס נוסף', description: 'העלה תוכן חדש' },
-        { id: 'queued_menu', title: 'תפריט ראשי', description: 'חזור לתפריט' }
-      ]
-    }];
-    
-    await cloudApi.sendListMessage(
-      phone,
-      'מה תרצה לעשות?',
-      'בחר פעולה',
-      sections
-    );
-    return;
+    // User sent new content - treat as new status, go back to idle flow
+    await setState(phone, 'idle', null, null);
+    return await handleIdleState(phone, message, { state: 'idle' });
   }
   
   const selectedId = message.interactive.list_reply.id;
