@@ -87,14 +87,21 @@ async function processQueue() {
     // Get next pending item
     // Include 'scheduled' status for backwards compatibility
     // Only process if scheduled_for is null (send now) or scheduled_for <= NOW()
+    // Skip connections that are in restriction period (24h after first connection unless lifted, or short 30min restriction)
     // Order by scheduled_for first (nulls first = send now items), then by created_at
     const queueResult = await db.query(`
-      SELECT q.*, c.session_name, c.connection_status
+      SELECT q.*, c.session_name, c.connection_status, c.first_connected_at, c.last_connected_at, c.restriction_lifted, c.short_restriction_until
       FROM status_bot_queue q
       JOIN status_bot_connections c ON c.id = q.connection_id
       WHERE q.queue_status IN ('pending', 'scheduled') 
         AND c.connection_status = 'connected'
         AND (q.scheduled_for IS NULL OR q.scheduled_for <= NOW())
+        AND (c.short_restriction_until IS NULL OR c.short_restriction_until <= NOW())
+        AND (
+          c.restriction_lifted = true 
+          OR c.first_connected_at IS NULL
+          OR (COALESCE(c.last_connected_at, c.first_connected_at) + INTERVAL '24 hours') <= NOW()
+        )
       ORDER BY COALESCE(q.scheduled_for, '1970-01-01'::timestamp) ASC, q.created_at ASC
       LIMIT 1
     `);

@@ -239,18 +239,28 @@ async function getConnection(req, res) {
       }
     }
 
-    // Check 24-hour restriction (use last_connected_at if available)
+    // Check restrictions (24-hour or short 30-min "system updates")
     let isRestricted = false;
     let restrictionEndsAt = null;
-    const connectionDate = connection.last_connected_at || connection.first_connected_at;
-
-    if (connectionDate && !connection.restriction_lifted) {
-      const connectedAt = new Date(connectionDate);
-      const restrictionEnd = new Date(connectedAt.getTime() + 24 * 60 * 60 * 1000);
-      
-      if (new Date() < restrictionEnd) {
-        isRestricted = true;
-        restrictionEndsAt = restrictionEnd;
+    let restrictionType = null; // 'full' (24h) or 'short' (30 min system updates)
+    
+    // First check short restriction (system updates)
+    if (connection.short_restriction_until && new Date(connection.short_restriction_until) > new Date()) {
+      isRestricted = true;
+      restrictionEndsAt = new Date(connection.short_restriction_until);
+      restrictionType = 'short';
+    } else {
+      // Check full 24-hour restriction
+      const connectionDate = connection.last_connected_at || connection.first_connected_at;
+      if (connectionDate && !connection.restriction_lifted) {
+        const connectedAt = new Date(connectionDate);
+        const restrictionEnd = new Date(connectedAt.getTime() + 24 * 60 * 60 * 1000);
+        
+        if (new Date() < restrictionEnd) {
+          isRestricted = true;
+          restrictionEndsAt = restrictionEnd;
+          restrictionType = 'full';
+        }
       }
     }
 
@@ -304,6 +314,7 @@ async function getConnection(req, res) {
         ...connection,
         isRestricted,
         restrictionEndsAt,
+        restrictionType, // 'full' (24h) or 'short' (30 min system updates)
       },
       subscription: subscriptionInfo
     });
@@ -339,15 +350,16 @@ async function checkExisting(req, res) {
       return res.json({ exists: false });
     }
     
-    // Search in WAHA by email ONLY (same as main WhatsApp connection)
+    // Search in WAHA by email, preferring sessions with status-bot webhook configured
     console.log(`[StatusBot] Checking existing session for: ${userEmail}`);
+    const webhookPattern = `/api/status-bot/webhook/${userId}`;
     
-    const existingSession = await wahaSession.findSessionByEmail(baseUrl, apiKey, userEmail);
+    const existingSession = await wahaSession.findSessionByEmailWithWebhookPriority(baseUrl, apiKey, userEmail, webhookPattern);
     
     if (existingSession && existingSession.status === 'WORKING') {
       console.log(`[StatusBot] ✅ Found existing WORKING session: ${existingSession.name}`);
       
-      // Update webhooks in background
+      // Ensure webhook is configured for this session
       const webhookUrl = `${process.env.APP_URL}/api/status-bot/webhook/${userId}`;
       wahaSession.addWebhook(baseUrl, apiKey, existingSession.name, webhookUrl, [
         'session.status', 'message.ack', 'message.reaction'
@@ -402,11 +414,12 @@ async function startConnection(req, res) {
     let wahaStatus = null;
     let existingSession = null;
     
-    // Step 1: Search in WAHA by email ONLY (same as main WhatsApp connection)
+    // Step 1: Search in WAHA by email, preferring sessions with webhook configured
     console.log(`[StatusBot] Searching WAHA for session with email: ${userEmail}`);
+    const webhookPattern = `/api/status-bot/webhook/${userId}`;
     
     try {
-      existingSession = await wahaSession.findSessionByEmail(baseUrl, apiKey, userEmail);
+      existingSession = await wahaSession.findSessionByEmailWithWebhookPriority(baseUrl, apiKey, userEmail, webhookPattern);
       
       if (existingSession) {
         sessionName = existingSession.name;
@@ -1733,7 +1746,7 @@ async function handleSessionStatus(connection, payload) {
     if (status === 'WORKING') {
       newStatus = 'connected';
       
-      // Only reset 24h restriction if:
+      // Only reset restriction if:
       // 1. First time connecting (no first_connected_at)
       // 2. Previous status was qr_pending or failed (user had to re-authenticate)
       // Don't reset for temporary disconnections that auto-recover
@@ -1745,17 +1758,33 @@ async function handleSessionStatus(connection, payload) {
         console.log(`[StatusBot] First connection for ${connection.id}`);
         await db.query(`
           UPDATE status_bot_connections 
-          SET first_connected_at = NOW(), last_connected_at = NOW()
+          SET first_connected_at = NOW(), last_connected_at = NOW(), short_restriction_until = NULL
           WHERE id = $1 AND first_connected_at IS NULL
         `, [connection.id]);
       } else if (requiresReauthentication) {
-        // Re-authentication required (QR scan or failure recovery) - reset restriction
-        console.log(`[StatusBot] Re-authentication detected for ${connection.id} (was: ${previousStatus}), resetting 24h restriction`);
-        await db.query(`
-          UPDATE status_bot_connections 
-          SET last_connected_at = NOW(), restriction_lifted = false
-          WHERE id = $1
-        `, [connection.id]);
+        // Re-authentication required - check how long the disconnection was
+        const disconnectionDuration = connection.updated_at 
+          ? (Date.now() - new Date(connection.updated_at).getTime()) / 1000 
+          : 999999;
+        
+        if (disconnectionDuration < 60) {
+          // Short disconnection (< 1 minute) - use 30 min "system updates" restriction instead of 24h
+          console.log(`[StatusBot] Short disconnection (${Math.round(disconnectionDuration)}s) for ${connection.id}, setting 30 min system updates restriction`);
+          const shortRestrictionUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
+          await db.query(`
+            UPDATE status_bot_connections 
+            SET last_connected_at = last_connected_at, restriction_lifted = true, short_restriction_until = $2
+            WHERE id = $1
+          `, [connection.id, shortRestrictionUntil]);
+        } else {
+          // Normal re-authentication - reset 24h restriction
+          console.log(`[StatusBot] Re-authentication detected for ${connection.id} (was: ${previousStatus}, disconnected for ${Math.round(disconnectionDuration)}s), resetting 24h restriction`);
+          await db.query(`
+            UPDATE status_bot_connections 
+            SET last_connected_at = NOW(), restriction_lifted = false, short_restriction_until = NULL
+            WHERE id = $1
+          `, [connection.id]);
+        }
       } else {
         // Just a regular reconnection (network hiccup) - don't reset restriction
         console.log(`[StatusBot] Auto-reconnection for ${connection.id} (was: ${previousStatus}), NOT resetting restriction`);

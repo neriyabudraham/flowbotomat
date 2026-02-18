@@ -1265,14 +1265,20 @@ function StatusBotDashboardContent() {
             <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center gap-3">
               <AlertCircle className="w-6 h-6 text-amber-600 flex-shrink-0" />
               <div className="flex-1">
-                <p className="font-medium text-amber-800">תקופת המתנה פעילה (24 שעות מההתחברות)</p>
+                <p className="font-medium text-amber-800">
+                  {connection?.restrictionType === 'short' 
+                    ? 'עדכוני מערכת בתהליך'
+                    : 'תקופת המתנה פעילה (24 שעות מההתחברות)'}
+                </p>
                 <p className="text-sm text-amber-600">
                   {restrictionCountdown ? (
                     <span className="font-bold tabular-nums">
-                      זמן שנותר: {restrictionCountdown.hours} שעות {restrictionCountdown.minutes} דקות {restrictionCountdown.seconds} שניות
+                      זמן שנותר: {restrictionCountdown.hours > 0 ? `${restrictionCountdown.hours} שעות ` : ''}{restrictionCountdown.minutes} דקות {restrictionCountdown.seconds} שניות
                     </span>
                   ) : (
-                    'יש להמתין 24 שעות מרגע החיבור לפני שניתן להעלות סטטוסים.'
+                    connection?.restrictionType === 'short' 
+                      ? 'אנא המתן מספר דקות עד לסיום עדכוני המערכת.'
+                      : 'יש להמתין 24 שעות מרגע החיבור לפני שניתן להעלות סטטוסים.'
                   )}
                 </p>
               </div>

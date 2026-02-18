@@ -209,3 +209,14 @@ BEGIN
     ALTER TABLE status_bot_replies DROP CONSTRAINT status_bot_replies_status_id_replier_phone_key;
   END IF;
 END $$;
+
+-- Migration: Add short_restriction_until column for 30-min "system updates" restriction
+DO $$ 
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'status_bot_connections' AND column_name = 'short_restriction_until'
+  ) THEN
+    ALTER TABLE status_bot_connections ADD COLUMN short_restriction_until TIMESTAMP;
+  END IF;
+END $$;

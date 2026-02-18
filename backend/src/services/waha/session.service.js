@@ -164,6 +164,61 @@ async function findSessionByEmailAndService(baseUrl, apiKey, email, service) {
 }
 
 /**
+ * Find session by email, preferring sessions with status-bot webhook configured
+ * If multiple sessions exist, prioritize the one that has the webhook for the given userId
+ * @returns session object with status or null
+ */
+async function findSessionByEmailWithWebhookPriority(baseUrl, apiKey, email, webhookUrlPattern) {
+  console.log(`[WAHA] Searching for session with email: ${email}, prioritizing webhook: ${webhookUrlPattern}`);
+  
+  const sessions = await getAllSessions(baseUrl, apiKey);
+  console.log(`[WAHA] Found ${sessions.length} total sessions`);
+  
+  const matchingSessions = [];
+  let sessionWithWebhook = null;
+  
+  for (const session of sessions) {
+    const metadata = session.config?.metadata || {};
+    
+    if (metadata['user.email'] === email) {
+      console.log(`[WAHA] Match found: ${session.name}, status: ${session.status}`);
+      matchingSessions.push(session);
+      
+      // Check if this session has the webhook configured
+      const webhooks = session.config?.webhooks || [];
+      const hasWebhook = webhooks.some(wh => wh.url && wh.url.includes(webhookUrlPattern));
+      
+      if (hasWebhook && session.status === 'WORKING') {
+        console.log(`[WAHA] ✅ Session ${session.name} has webhook configured!`);
+        sessionWithWebhook = session;
+      }
+    }
+  }
+  
+  // If we found a session with webhook, prefer it
+  if (sessionWithWebhook) {
+    console.log(`[WAHA] ✅ Returning session with webhook: ${sessionWithWebhook.name}`);
+    return sessionWithWebhook;
+  }
+  
+  // Otherwise return first WORKING session
+  const workingSession = matchingSessions.find(s => s.status === 'WORKING');
+  if (workingSession) {
+    console.log(`[WAHA] Returning first WORKING session without webhook: ${workingSession.name}`);
+    return workingSession;
+  }
+  
+  // Otherwise return first session (may need to be started)
+  if (matchingSessions.length > 0) {
+    console.log(`[WAHA] Returning first session (not WORKING): ${matchingSessions[0].name}`);
+    return matchingSessions[0];
+  }
+  
+  console.log(`[WAHA] ❌ No session found with email: ${email}`);
+  return null;
+}
+
+/**
  * Add webhook to session (keeps ALL existing config)
  */
 async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
@@ -976,6 +1031,7 @@ module.exports = {
   getAllSessions,
   findSessionByEmail,
   findSessionByEmailAndService,
+  findSessionByEmailWithWebhookPriority,
   addWebhook,
   sendMessage,
   sendImage,
