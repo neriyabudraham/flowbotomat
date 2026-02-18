@@ -557,16 +557,37 @@ async function startConnection(req, res) {
       console.error('[StatusBot Webhook] Setup failed:', err.message);
     }
     
-    // Delete any existing DB record for this user and create new one
-    await db.query('DELETE FROM status_bot_connections WHERE user_id = $1', [userId]);
+    // Check if connection record exists
+    const existingConn = await db.query(
+      'SELECT * FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
     
-    const result = await db.query(`
-      INSERT INTO status_bot_connections 
-      (user_id, session_name, connection_status, phone_number, display_name, first_connected_at)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING *
-    `, [userId, sessionName, ourStatus, phoneNumber, displayName, 
-        ourStatus === 'connected' ? firstConnectedAt : null]);
+    let result;
+    if (existingConn.rows.length > 0) {
+      // Update existing record - preserve first_connected_at and restriction history
+      console.log(`[StatusBot] Updating existing connection record`);
+      result = await db.query(`
+        UPDATE status_bot_connections 
+        SET session_name = $2, 
+            connection_status = $3, 
+            phone_number = COALESCE($4, phone_number),
+            display_name = COALESCE($5, display_name),
+            updated_at = NOW()
+        WHERE user_id = $1
+        RETURNING *
+      `, [userId, sessionName, ourStatus, phoneNumber, displayName]);
+    } else {
+      // Create new record
+      console.log(`[StatusBot] Creating new connection record`);
+      result = await db.query(`
+        INSERT INTO status_bot_connections 
+        (user_id, session_name, connection_status, phone_number, display_name, first_connected_at)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING *
+      `, [userId, sessionName, ourStatus, phoneNumber, displayName, 
+          ourStatus === 'connected' ? firstConnectedAt : null]);
+    }
     
     console.log(`[StatusBot] ✅ Saved to DB: ${sessionName}`);
     
