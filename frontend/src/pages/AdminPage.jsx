@@ -41,6 +41,25 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [loading, setLoading] = useState(true);
 
+  // Check if user is admin (either directly or viewing as another account)
+  const checkIsAdmin = () => {
+    // Direct admin check
+    if (user && ['admin', 'superadmin'].includes(user.role)) return true;
+    
+    // Check if viewing as another user (means original user is admin)
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.viewingAs) return true; // Only admins can view as others
+      }
+    } catch (e) {}
+    
+    return false;
+  };
+
+  const isAdmin = checkIsAdmin();
+
   // Fetch user data on mount
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -52,14 +71,12 @@ export default function AdminPage() {
     fetchMe().finally(() => setLoading(false));
   }, []);
 
-  const isAdmin = user && ['admin', 'superadmin'].includes(user.role);
-
   // Redirect non-admin users after loading
   useEffect(() => {
-    if (!loading && !isAdmin) {
+    if (!loading && !checkIsAdmin()) {
       navigate('/dashboard', { replace: true });
     }
-  }, [user, loading, isAdmin, navigate]);
+  }, [user, loading, navigate]);
 
   // Show loading while fetching user data
   if (loading) {
@@ -70,7 +87,7 @@ export default function AdminPage() {
     );
   }
 
-  if (!isAdmin) {
+  if (!checkIsAdmin()) {
     return null; // Will redirect via useEffect
   }
 
