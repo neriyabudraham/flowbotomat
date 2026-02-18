@@ -49,6 +49,39 @@ function formatPhoneNumber(phone) {
   return phone;
 }
 
+// Convert phone to WhatsApp URL
+function getWhatsAppUrl(phone) {
+  if (!phone) return null;
+  // Remove all non-digit characters and ensure it has country code
+  let digits = phone.replace(/\D/g, '');
+  // If it's an Israeli number without country code, add 972
+  if (digits.startsWith('0')) {
+    digits = '972' + digits.slice(1);
+  } else if (digits.length === 9 && digits.startsWith('5')) {
+    digits = '972' + digits;
+  }
+  return `https://wa.me/${digits}`;
+}
+
+// Clickable phone number component
+function ClickablePhone({ phone, className = '' }) {
+  const url = getWhatsAppUrl(phone);
+  const display = formatPhoneNumber(phone);
+  
+  if (!url) return <span className={className}>{display}</span>;
+  
+  return (
+    <a 
+      href={url} 
+      target="_blank" 
+      rel="noopener noreferrer" 
+      className={`hover:underline ${className}`}
+    >
+      {display}
+    </a>
+  );
+}
+
 export default function StatusBotDashboardPage() {
   return (
     <ToastProvider>
@@ -129,6 +162,15 @@ function StatusBotDashboardContent() {
     replies: [],
     loading: false,
     activeTab: 'content' // 'content' | 'views' | 'reactions' | 'replies'
+  });
+  
+  // Scheduled status details modal
+  const [scheduledDetailsModal, setScheduledDetailsModal] = useState({
+    show: false,
+    item: null,
+    editMode: false,
+    newScheduleDate: '',
+    newScheduleTime: ''
   });
   
   // Confirmation modal state
@@ -713,6 +755,37 @@ function StatusBotDashboardContent() {
     );
   };
 
+  const handleSendScheduledNow = async (queueId) => {
+    showConfirm(
+      'שליחה מיידית',
+      'האם לשלוח את הסטטוס עכשיו?',
+      async () => {
+        hideConfirm();
+        try {
+          await api.post(`/status-bot/queue/${queueId}/send-now`);
+          setScheduled(prev => prev.filter(s => s.id !== queueId));
+          toast.success('הסטטוס נשלח');
+          fetchQueueStatus();
+        } catch (err) {
+          toast.error(err.response?.data?.error || 'שגיאה בשליחת הסטטוס');
+        }
+      },
+      { confirmText: 'שלח עכשיו' }
+    );
+  };
+
+  const handleReschedule = async (queueId, newDate, newTime) => {
+    try {
+      const scheduledFor = new Date(`${newDate}T${newTime}:00`);
+      await api.patch(`/status-bot/queue/${queueId}`, { scheduled_for: scheduledFor.toISOString() });
+      setScheduledDetailsModal(prev => ({ ...prev, show: false, editMode: false }));
+      toast.success('התזמון עודכן');
+      fetchQueueStatus();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'שגיאה בעדכון התזמון');
+    }
+  };
+
   const isConnected = connection?.connection_status === 'connected';
   const isRestricted = connection?.isRestricted;
   
@@ -1290,7 +1363,7 @@ function StatusBotDashboardContent() {
               active={activeTab === 'numbers'} 
               onClick={() => setActiveTab('numbers')}
               icon={Users}
-              label="מספרים מורשים"
+              label={`מספרים מורשים ${authorizedNumbers.length > 0 ? `(${authorizedNumbers.length})` : ''}`}
             />
           </div>
 
@@ -1553,71 +1626,95 @@ function StatusBotDashboardContent() {
 
                       {statusType === 'voice' && (
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">צבע רקע</label>
-                          <input
-                            type="color"
-                            value={backgroundColor}
-                            onChange={(e) => setBackgroundColor(e.target.value)}
-                            className="w-12 h-12 rounded-xl cursor-pointer border-2 border-gray-200"
-                          />
-                        </div>
-                      )}
-
-                      {/* Scheduling Options */}
-                      <div className="pt-4 border-t border-gray-100">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">מתי לשלוח?</label>
-                        <div className="flex gap-2 mb-3">
-                          <button
-                            type="button"
-                            onClick={() => setScheduleMode('now')}
-                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
-                              scheduleMode === 'now'
-                                ? 'bg-green-100 text-green-700 border-2 border-green-500'
-                                : 'bg-gray-50 text-gray-600 border-2 border-transparent hover:bg-gray-100'
-                            }`}
-                          >
-                            עכשיו
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setScheduleMode('schedule')}
-                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
-                              scheduleMode === 'schedule'
-                                ? 'bg-green-100 text-green-700 border-2 border-green-500'
-                                : 'bg-gray-50 text-gray-600 border-2 border-transparent hover:bg-gray-100'
-                            }`}
-                          >
-                            <Clock className="w-4 h-4 inline ml-1" />
-                            תזמון
-                          </button>
-                        </div>
-                        
-                        {scheduleMode === 'schedule' && (
-                          <div className="flex gap-3">
-                            <div className="flex-1">
-                              <label className="block text-xs text-gray-500 mb-1">תאריך</label>
-                              <input
-                                type="date"
-                                value={scheduleDate}
-                                onChange={(e) => setScheduleDate(e.target.value)}
-                                min={new Date().toISOString().split('T')[0]}
-                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                              />
-                            </div>
-                            <div className="flex-1">
-                              <label className="block text-xs text-gray-500 mb-1">שעה</label>
-                              <input
-                                type="time"
-                                value={scheduleTime}
-                                onChange={(e) => setScheduleTime(e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                              />
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-sm font-medium text-gray-700">צבע רקע</label>
+                            <button
+                              onClick={() => setShowColorManager(true)}
+                              className="text-xs text-green-600 hover:text-green-700"
+                            >
+                              ניהול צבעים
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="color"
+                              value={backgroundColor}
+                              onChange={(e) => setBackgroundColor(e.target.value)}
+                              className="w-12 h-12 rounded-xl cursor-pointer border-2 border-gray-200"
+                            />
+                            <div className="flex gap-2 flex-wrap">
+                              {availableColors.map(colorObj => {
+                                const color = '#' + colorObj.id;
+                                return (
+                                  <button
+                                    key={colorObj.id}
+                                    onClick={() => setBackgroundColor(color)}
+                                    title={colorObj.title}
+                                    className={`w-8 h-8 rounded-lg ${backgroundColor === color ? 'ring-2 ring-offset-2 ring-gray-400' : ''}`}
+                                    style={{ backgroundColor: color }}
+                                  />
+                                );
+                              })}
                             </div>
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </div>
                   )}
+
+                  {/* Scheduling Options - outside the ternary so it shows for all status types */}
+                  <div className="pt-4 border-t border-gray-100">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">מתי לשלוח?</label>
+                    <div className="flex gap-2 mb-3">
+                      <button
+                        type="button"
+                        onClick={() => setScheduleMode('now')}
+                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                          scheduleMode === 'now'
+                            ? 'bg-green-100 text-green-700 border-2 border-green-500'
+                            : 'bg-gray-50 text-gray-600 border-2 border-transparent hover:bg-gray-100'
+                        }`}
+                      >
+                        עכשיו
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setScheduleMode('schedule')}
+                        className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                          scheduleMode === 'schedule'
+                            ? 'bg-green-100 text-green-700 border-2 border-green-500'
+                            : 'bg-gray-50 text-gray-600 border-2 border-transparent hover:bg-gray-100'
+                        }`}
+                      >
+                        <Clock className="w-4 h-4 inline ml-1" />
+                        תזמון
+                      </button>
+                    </div>
+                    
+                    {scheduleMode === 'schedule' && (
+                      <div className="flex gap-3">
+                        <div className="flex-1">
+                          <label className="block text-xs text-gray-500 mb-1">תאריך</label>
+                          <input
+                            type="date"
+                            value={scheduleDate}
+                            onChange={(e) => setScheduleDate(e.target.value)}
+                            min={new Date().toISOString().split('T')[0]}
+                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-xs text-gray-500 mb-1">שעה</label>
+                          <input
+                            type="time"
+                            value={scheduleTime}
+                            onChange={(e) => setScheduleTime(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   <button
                     onClick={handleUploadStatus}
@@ -1775,9 +1872,13 @@ function StatusBotDashboardContent() {
                   <div className="divide-y divide-gray-100">
                     {scheduled.map(item => (
                       <div key={item.id} className="p-4 hover:bg-gray-50">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                        <div className="flex items-center gap-3">
+                          {/* Click to view details */}
+                          <button 
+                            onClick={() => setScheduledDetailsModal({ show: true, item })}
+                            className="flex items-center gap-3 flex-1 text-right"
+                          >
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
                               item.status_type === 'text' ? 'bg-purple-100' :
                               item.status_type === 'image' ? 'bg-blue-100' :
                               item.status_type === 'video' ? 'bg-pink-100' : 'bg-green-100'
@@ -1787,25 +1888,27 @@ function StatusBotDashboardContent() {
                               {item.status_type === 'video' && <Video className="w-5 h-5 text-pink-600" />}
                               {item.status_type === 'voice' && <Mic className="w-5 h-5 text-green-600" />}
                             </div>
-                            <div>
+                            <div className="flex-1 min-w-0">
                               <p className="font-medium text-gray-800">
                                 {item.status_type === 'text' ? 'טקסט' : 
                                  item.status_type === 'image' ? 'תמונה' : 
                                  item.status_type === 'video' ? 'סרטון' : 'הקלטה'}
                               </p>
-                              <p className="text-sm text-gray-500">
+                              <p className="text-sm text-gray-500 truncate">
                                 {item.content?.text?.substring(0, 50) || item.content?.caption?.substring(0, 50) || ''}
                                 {(item.content?.text?.length > 50 || item.content?.caption?.length > 50) && '...'}
                               </p>
                             </div>
-                          </div>
-                          <div className="text-left">
-                            <div className="flex items-center gap-2 text-blue-600 font-medium">
+                          </button>
+                          
+                          {/* Schedule time */}
+                          <div className="text-left flex-shrink-0">
+                            <div className="flex items-center gap-2 text-blue-600 font-medium text-sm">
                               <Clock className="w-4 h-4" />
                               {new Date(item.scheduled_for).toLocaleDateString('he-IL', { 
                                 weekday: 'short', 
-                                month: 'short', 
-                                day: 'numeric'
+                                day: 'numeric',
+                                month: 'numeric'
                               })}
                             </div>
                             <p className="text-sm text-gray-500">
@@ -1815,13 +1918,24 @@ function StatusBotDashboardContent() {
                               })}
                             </p>
                           </div>
-                          <button
-                            onClick={() => handleCancelScheduled(item.id)}
-                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg mr-2"
-                            title="בטל תזמון"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          
+                          {/* Action buttons */}
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <button
+                              onClick={() => handleSendScheduledNow(item.id)}
+                              className="p-2 text-green-600 hover:bg-green-50 rounded-lg"
+                              title="שלח עכשיו"
+                            >
+                              <Send className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleCancelScheduled(item.id)}
+                              className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                              title="בטל תזמון"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -1866,7 +1980,7 @@ function StatusBotDashboardContent() {
                           <Phone className="w-5 h-5 text-green-600" />
                         </div>
                         <div>
-                          <p className="font-medium text-gray-800" dir="ltr">{formatPhoneNumber(num.phone_number)}</p>
+                          <ClickablePhone phone={num.phone_number} className="font-medium text-gray-800" />
                           {num.name && <p className="text-sm text-gray-500">{num.name}</p>}
                         </div>
                       </div>
@@ -2263,7 +2377,7 @@ function StatusBotDashboardContent() {
                                 <Users className="w-5 h-5 text-green-600" />
                               </div>
                               <div>
-                                <p className="font-medium text-gray-800">{formatPhoneNumber(view.viewer_phone)}</p>
+                                <ClickablePhone phone={view.viewer_phone} className="font-medium text-gray-800" />
                                 {view.viewer_name && <p className="text-sm text-gray-500">{view.viewer_name}</p>}
                               </div>
                             </div>
@@ -2300,7 +2414,7 @@ function StatusBotDashboardContent() {
                                   <Heart className="w-5 h-5 text-red-500" />
                                 </div>
                                 <div>
-                                  <p className="font-medium text-gray-800">{formatPhoneNumber(phone)}</p>
+                                  <ClickablePhone phone={phone} className="font-medium text-gray-800" />
                                   <p className="text-xs text-gray-500">{reactions.length} תגובות</p>
                                 </div>
                               </div>
@@ -2345,7 +2459,7 @@ function StatusBotDashboardContent() {
                                   <MessageCircle className="w-5 h-5 text-blue-600" />
                                 </div>
                                 <div>
-                                  <p className="font-medium text-gray-800">{formatPhoneNumber(phone)}</p>
+                                  <ClickablePhone phone={phone} className="font-medium text-gray-800" />
                                   <p className="text-xs text-gray-500">{replies.length} תגובות</p>
                                 </div>
                               </div>
@@ -2367,6 +2481,199 @@ function StatusBotDashboardContent() {
                   )}
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Scheduled Status Details Modal */}
+      {scheduledDetailsModal.show && scheduledDetailsModal.item && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-bold text-lg">פרטי סטטוס מתוזמן</h3>
+              <button 
+                onClick={() => setScheduledDetailsModal({ show: false, item: null, editMode: false, newScheduleDate: '', newScheduleTime: '' })}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* Status Type Badge */}
+              <div className="flex items-center gap-2">
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  scheduledDetailsModal.item.status_type === 'text' ? 'bg-purple-100 text-purple-700' :
+                  scheduledDetailsModal.item.status_type === 'image' ? 'bg-blue-100 text-blue-700' :
+                  scheduledDetailsModal.item.status_type === 'video' ? 'bg-pink-100 text-pink-700' :
+                  'bg-green-100 text-green-700'
+                }`}>
+                  {scheduledDetailsModal.item.status_type === 'text' ? 'טקסט' : 
+                   scheduledDetailsModal.item.status_type === 'image' ? 'תמונה' : 
+                   scheduledDetailsModal.item.status_type === 'video' ? 'סרטון' : 'הקלטה'}
+                </span>
+              </div>
+              
+              {/* Text Status */}
+              {scheduledDetailsModal.item.status_type === 'text' && (
+                <div 
+                  className="p-4 rounded-xl text-white text-center min-h-[150px] flex items-center justify-center"
+                  style={{ 
+                    backgroundColor: scheduledDetailsModal.item.content?.backgroundColor || '#782138'
+                  }}
+                >
+                  <p className="text-lg whitespace-pre-wrap">{scheduledDetailsModal.item.content?.text}</p>
+                </div>
+              )}
+              
+              {/* Image Status */}
+              {scheduledDetailsModal.item.status_type === 'image' && (
+                <div className="space-y-3">
+                  {scheduledDetailsModal.item.content?.file?.url && (
+                    <img 
+                      src={scheduledDetailsModal.item.content.file.url} 
+                      alt="סטטוס" 
+                      className="w-full rounded-xl max-h-[300px] object-contain bg-gray-100"
+                    />
+                  )}
+                  {scheduledDetailsModal.item.content?.caption && (
+                    <p className="text-gray-700">{scheduledDetailsModal.item.content.caption}</p>
+                  )}
+                </div>
+              )}
+              
+              {/* Video Status */}
+              {scheduledDetailsModal.item.status_type === 'video' && (
+                <div className="space-y-3">
+                  {scheduledDetailsModal.item.content?.file?.url && (
+                    <video 
+                      src={scheduledDetailsModal.item.content.file.url} 
+                      controls
+                      className="w-full rounded-xl max-h-[300px] bg-gray-100"
+                    />
+                  )}
+                  {scheduledDetailsModal.item.content?.caption && (
+                    <p className="text-gray-700">{scheduledDetailsModal.item.content.caption}</p>
+                  )}
+                </div>
+              )}
+              
+              {/* Voice Status */}
+              {scheduledDetailsModal.item.status_type === 'voice' && (
+                <div 
+                  className="p-4 rounded-xl flex items-center justify-center min-h-[100px]"
+                  style={{ 
+                    backgroundColor: scheduledDetailsModal.item.content?.backgroundColor || '#782138'
+                  }}
+                >
+                  {scheduledDetailsModal.item.content?.file?.url && (
+                    <audio 
+                      src={scheduledDetailsModal.item.content.file.url} 
+                      controls
+                      className="w-full"
+                    />
+                  )}
+                </div>
+              )}
+              
+              {/* Schedule Time */}
+              <div className="bg-blue-50 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Clock className="w-5 h-5 text-blue-600" />
+                  <span className="font-medium text-blue-800">מתוזמן ל</span>
+                </div>
+                
+                {scheduledDetailsModal.editMode ? (
+                  <div className="space-y-3">
+                    <div className="flex gap-2">
+                      <input
+                        type="date"
+                        value={scheduledDetailsModal.newScheduleDate}
+                        onChange={(e) => setScheduledDetailsModal(prev => ({ ...prev, newScheduleDate: e.target.value }))}
+                        min={new Date().toISOString().split('T')[0]}
+                        className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <input
+                        type="time"
+                        value={scheduledDetailsModal.newScheduleTime}
+                        onChange={(e) => setScheduledDetailsModal(prev => ({ ...prev, newScheduleTime: e.target.value }))}
+                        className="w-24 px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleReschedule(
+                          scheduledDetailsModal.item.id, 
+                          scheduledDetailsModal.newScheduleDate, 
+                          scheduledDetailsModal.newScheduleTime
+                        )}
+                        className="flex-1 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
+                      >
+                        שמור
+                      </button>
+                      <button
+                        onClick={() => setScheduledDetailsModal(prev => ({ ...prev, editMode: false }))}
+                        className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg font-medium hover:bg-gray-200"
+                      >
+                        ביטול
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <p className="text-blue-900 text-lg font-bold">
+                      {new Date(scheduledDetailsModal.item.scheduled_for).toLocaleString('he-IL', {
+                        weekday: 'long',
+                        day: 'numeric',
+                        month: 'long',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </p>
+                    <button
+                      onClick={() => {
+                        const date = new Date(scheduledDetailsModal.item.scheduled_for);
+                        setScheduledDetailsModal(prev => ({
+                          ...prev,
+                          editMode: true,
+                          newScheduleDate: date.toISOString().split('T')[0],
+                          newScheduleTime: date.toTimeString().slice(0, 5)
+                        }));
+                      }}
+                      className="text-blue-600 hover:underline text-sm"
+                    >
+                      שנה תזמון
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="p-4 border-t border-gray-100 flex gap-2">
+              <button
+                onClick={() => {
+                  handleSendScheduledNow(scheduledDetailsModal.item.id);
+                  setScheduledDetailsModal({ show: false, item: null, editMode: false, newScheduleDate: '', newScheduleTime: '' });
+                }}
+                className="flex-1 py-2 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 flex items-center justify-center gap-2"
+              >
+                <Send className="w-4 h-4" />
+                שלח עכשיו
+              </button>
+              <button
+                onClick={() => {
+                  handleCancelScheduled(scheduledDetailsModal.item.id);
+                  setScheduledDetailsModal({ show: false, item: null, editMode: false, newScheduleDate: '', newScheduleTime: '' });
+                }}
+                className="flex-1 py-2 bg-red-100 text-red-600 rounded-xl font-medium hover:bg-red-200 flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                בטל תזמון
+              </button>
             </div>
           </div>
         </div>

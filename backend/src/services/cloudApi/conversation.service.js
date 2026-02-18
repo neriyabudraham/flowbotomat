@@ -5,6 +5,8 @@
 
 const db = require('../../config/database');
 const cloudApi = require('./cloudApi.service');
+const wahaSession = require('../statusBot/waha-session.service');
+const { getWahaCredentials } = require('../settings/system.service');
 
 // Default colors (same as in dashboard)
 const DEFAULT_COLORS = [
@@ -22,6 +24,35 @@ const DEFAULT_COLORS = [
 
 // Hebrew day names
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+
+/**
+ * Convert Israel time string to UTC Date
+ * @param {string} israelDateTimeStr - Date time string in format "YYYY-MM-DDTHH:MM:SS"
+ * @returns {Date} UTC Date object
+ */
+function convertIsraelTimeToUTC(israelDateTimeStr) {
+  // Parse the date components
+  const [datePart, timePart] = israelDateTimeStr.split('T');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hours, minutes, seconds = 0] = timePart.split(':').map(Number);
+  
+  // Create a reference point to determine Israel's UTC offset for that specific date
+  // Israel observes DST (UTC+3 in summer, UTC+2 in winter)
+  const refDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  
+  // Get the offset by comparing UTC time to Israel time
+  const israelStr = refDate.toLocaleString('en-US', { 
+    timeZone: 'Asia/Jerusalem',
+    hour: '2-digit',
+    hour12: false 
+  });
+  const israelHour = parseInt(israelStr);
+  const utcHour = refDate.getUTCHours();
+  const offsetHours = israelHour - utcHour;
+  
+  // Create the UTC time by subtracting Israel's offset from the requested time
+  return new Date(Date.UTC(year, month - 1, day, hours - offsetHours, minutes, seconds));
+}
 
 /**
  * Get conversation state for a phone number
@@ -314,7 +345,7 @@ async function handleMessage(phone, message) {
     }
   } catch (error) {
     console.error(`[CloudAPI Conv] Error handling message from ${phone}:`, error);
-    await cloudApi.sendTextMessage(phone, 'אירעה שגיאה. אנא נסה שוב.');
+    await cloudApi.sendTextMessage(phone, 'אירעה שגיאה, אנא נסה שוב');
     await setState(phone, 'idle', null, null);
   }
 }
@@ -377,7 +408,7 @@ async function handleIdleState(phone, message, state) {
       url: url
     };
   } else {
-    await cloudApi.sendTextMessage(phone, 'סוג הודעה לא נתמך. אנא שלח טקסט, תמונה, סרטון או הקלטה קולית.');
+    await cloudApi.sendTextMessage(phone, 'סוג הודעה לא נתמך, אנא שלח טקסט, תמונה, סרטון או הקלטה קולית');
     return;
   }
   
@@ -394,7 +425,7 @@ async function handleIdleState(phone, message, state) {
     
     await cloudApi.sendListMessage(
       phone,
-      'נמצאו מספר חשבונות מקושרים למספר שלך.\nבחר את החשבון שאליו תרצה להעלות:',
+      'נמצאו מספר חשבונות מקושרים למספר שלך\nבחר את החשבון שאליו תרצה להעלות',
       'בחר חשבון',
       sections
     );
@@ -467,7 +498,7 @@ async function handleSelectAccountState(phone, message, state) {
   const selectedAccount = accounts.find(a => a.connection_id === connectionId);
   
   if (!selectedAccount) {
-    await cloudApi.sendTextMessage(phone, 'חשבון לא נמצא. אנא נסה שוב.');
+    await cloudApi.sendTextMessage(phone, 'חשבון לא נמצא, אנא נסה שוב');
     await setState(phone, 'idle', null, null);
     return;
   }
@@ -540,7 +571,7 @@ async function sendColorSelection(phone, connectionId) {
   
   await cloudApi.sendListMessage(
     phone,
-    'בחר צבע מהרשימה:',
+    'בחר צבע מהרשימה',
     'בחר צבע',
     sections
   );
@@ -592,7 +623,7 @@ async function handleSelectActionState(phone, message, state) {
   const actionId = message.interactive.button_reply.id;
   
   if (actionId === 'action_cancel') {
-    await cloudApi.sendTextMessage(phone, 'הסטטוס בוטל.');
+    await cloudApi.sendTextMessage(phone, 'הסטטוס בוטל');
     await setState(phone, 'idle', null, null);
     return;
   }
@@ -624,7 +655,7 @@ async function handleSelectActionState(phone, message, state) {
     
     await cloudApi.sendListMessage(
       phone,
-      '✅ הסטטוס נוסף לתור השליחה!\n\nבחר פעולה:',
+      '✅ הסטטוס נוסף לתור השליחה!\n\nבחר פעולה',
       'בחר פעולה',
       sections
     );
@@ -666,7 +697,7 @@ async function sendDaySelection(phone) {
   
   await cloudApi.sendListMessage(
     phone,
-    'בחר יום לשליחה:',
+    'בחר יום לשליחה',
     'בחר יום',
     sections
   );
@@ -694,7 +725,7 @@ async function handleSelectScheduleDayState(phone, message, state) {
   };
   
   await setState(phone, 'select_schedule_time', stateData, state.pending_status, state.connection_id);
-  await cloudApi.sendTextMessage(phone, 'הזן שעת שליחה (לדוגמא: 13:00):');
+  await cloudApi.sendTextMessage(phone, 'הזן שעת שליחה (לדוגמא 13:00)');
 }
 
 /**
@@ -702,7 +733,7 @@ async function handleSelectScheduleDayState(phone, message, state) {
  */
 async function handleSelectScheduleTimeState(phone, message, state) {
   if (message.type !== 'text') {
-    await cloudApi.sendTextMessage(phone, 'אנא הזן שעה (לדוגמא: 13:00)');
+    await cloudApi.sendTextMessage(phone, 'אנא הזן שעה, לדוגמא 13:00');
     return;
   }
   
@@ -710,17 +741,23 @@ async function handleSelectScheduleTimeState(phone, message, state) {
   const parsedTime = parseTimeInput(timeInput);
   
   if (!parsedTime) {
-    await cloudApi.sendTextMessage(phone, 'פורמט שעה לא תקין. אנא נסה שוב (לדוגמא: 13:00):');
+    await cloudApi.sendTextMessage(phone, 'פורמט שעה לא תקין, אנא נסה שוב (לדוגמא 13:00)');
     return;
   }
   
   const stateData = state.state_data || {};
-  const scheduledDate = new Date(stateData.scheduledDate);
-  scheduledDate.setHours(parsedTime.hours, parsedTime.minutes, 0, 0);
+  
+  // Create date in Israel timezone (Asia/Jerusalem)
+  const dateStr = stateData.scheduledDate; // YYYY-MM-DD
+  const timeStr = `${String(parsedTime.hours).padStart(2, '0')}:${String(parsedTime.minutes).padStart(2, '0')}:00`;
+  
+  // Create date string and convert from Israel timezone to UTC
+  const israelDateTimeStr = `${dateStr}T${timeStr}`;
+  const scheduledDate = convertIsraelTimeToUTC(israelDateTimeStr);
   
   // Check if time is in the past
   if (scheduledDate <= new Date()) {
-    await cloudApi.sendTextMessage(phone, 'לא ניתן לתזמן לזמן שעבר. אנא בחר שעה עתידית:');
+    await cloudApi.sendTextMessage(phone, 'לא ניתן לתזמן לזמן שעבר, אנא בחר שעה עתידית');
     return;
   }
   
@@ -775,26 +812,48 @@ async function handleAfterSendMenuState(phone, message, state) {
   // Delete action
   if (selectedId.startsWith('queued_delete_')) {
     const result = await db.query(
-      `SELECT * FROM status_bot_queue WHERE id = $1`,
+      `SELECT q.*, s.waha_message_id, s.id as status_id, c.session_name
+       FROM status_bot_queue q
+       LEFT JOIN status_bot_statuses s ON s.queue_id = q.id
+       LEFT JOIN status_bot_connections c ON c.id = q.connection_id
+       WHERE q.id = $1`,
       [statusId]
     );
     
     if (result.rows.length > 0) {
-      const status = result.rows[0];
+      const queueItem = result.rows[0];
       
-      if (status.queue_status === 'pending' || status.queue_status === 'scheduled') {
+      if (queueItem.queue_status === 'pending' || queueItem.queue_status === 'scheduled') {
+        // Cancel queued status
         await db.query(
           `UPDATE status_bot_queue SET queue_status = 'cancelled' WHERE id = $1`,
           [statusId]
         );
-        await cloudApi.sendTextMessage(phone, '✅ הסטטוס הוסר מתור השליחה.');
-      } else if (status.queue_status === 'sent') {
-        await cloudApi.sendTextMessage(phone, 'הסטטוס כבר נשלח. לא ניתן למחוק.');
+        await cloudApi.sendTextMessage(phone, '✅ הסטטוס הוסר מתור השליחה');
+      } else if (queueItem.queue_status === 'sent' && queueItem.waha_message_id) {
+        // Delete sent status from WhatsApp
+        try {
+          const { baseUrl, apiKey } = await getWahaCredentials();
+          await wahaSession.makeRequest(baseUrl, apiKey, 'POST', `/api/${queueItem.session_name}/status/delete`, {
+            id: queueItem.waha_message_id,
+            contacts: null
+          });
+          
+          // Mark as deleted in DB
+          if (queueItem.status_id) {
+            await db.query(`UPDATE status_bot_statuses SET deleted_at = NOW() WHERE id = $1`, [queueItem.status_id]);
+          }
+          
+          await cloudApi.sendTextMessage(phone, '✅ הסטטוס נמחק מווצאפ');
+        } catch (deleteErr) {
+          console.error('[CloudAPI] Error deleting status from WhatsApp:', deleteErr.message);
+          await cloudApi.sendTextMessage(phone, 'לא הצלחנו למחוק את הסטטוס מווצאפ');
+        }
       } else {
-        await cloudApi.sendTextMessage(phone, 'לא ניתן למחוק את הסטטוס.');
+        await cloudApi.sendTextMessage(phone, 'לא ניתן למחוק את הסטטוס');
       }
     } else {
-      await cloudApi.sendTextMessage(phone, 'סטטוס לא נמצא.');
+      await cloudApi.sendTextMessage(phone, 'סטטוס לא נמצא');
     }
     await setState(phone, 'idle', null, null);
     return;
@@ -813,7 +872,7 @@ async function handleAfterSendMenuState(phone, message, state) {
   if (selectedId.startsWith('queued_views_') && !selectedId.includes('view_all')) {
     const realStatusId = await getStatusIdFromQueueId(statusId);
     if (!realStatusId) {
-      await cloudApi.sendTextMessage(phone, '👁️ הסטטוס עדיין לא נשלח או שלא נמצא.');
+      await cloudApi.sendTextMessage(phone, '👁️ הסטטוס עדיין לא נשלח או שלא נמצא');
       await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
       return;
     }
@@ -823,7 +882,7 @@ async function handleAfterSendMenuState(phone, message, state) {
     );
     
     if (views.rows.length === 0) {
-      await cloudApi.sendTextMessage(phone, '👁️ 0 צפיות - אין צפיות עדיין.');
+      await cloudApi.sendTextMessage(phone, '👁️ 0 צפיות - אין צפיות עדיין');
     } else {
       // Send as TXT file with count in caption
       const viewersList = views.rows.map(v => v.viewer_phone).join('\n');
@@ -838,7 +897,7 @@ async function handleAfterSendMenuState(phone, message, state) {
   if (selectedId.startsWith('queued_hearts_')) {
     const realStatusId = await getStatusIdFromQueueId(statusId);
     if (!realStatusId) {
-      await cloudApi.sendTextMessage(phone, '❤️ הסטטוס עדיין לא נשלח או שלא נמצא.');
+      await cloudApi.sendTextMessage(phone, '❤️ הסטטוס עדיין לא נשלח או שלא נמצא');
       await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
       return;
     }
@@ -848,7 +907,7 @@ async function handleAfterSendMenuState(phone, message, state) {
     );
     
     if (hearts.rows.length === 0) {
-      await cloudApi.sendTextMessage(phone, '❤️ 0 סימוני לב - אין סימוני לב עדיין.');
+      await cloudApi.sendTextMessage(phone, '❤️ 0 סימוני לב - אין סימוני לב עדיין');
     } else {
       // Send as TXT file with count in caption
       const heartsList = hearts.rows.map(h => `${h.reaction} ${h.reactor_phone}`).join('\n');
@@ -863,7 +922,7 @@ async function handleAfterSendMenuState(phone, message, state) {
   if (selectedId.startsWith('queued_reactions_')) {
     const realStatusId = await getStatusIdFromQueueId(statusId);
     if (!realStatusId) {
-      await cloudApi.sendTextMessage(phone, '💬 הסטטוס עדיין לא נשלח או שלא נמצא.');
+      await cloudApi.sendTextMessage(phone, '💬 הסטטוס עדיין לא נשלח או שלא נמצא');
       await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
       return;
     }
@@ -873,7 +932,7 @@ async function handleAfterSendMenuState(phone, message, state) {
     );
     
     if (reactions.rows.length === 0) {
-      await cloudApi.sendTextMessage(phone, '💬 0 תגובות - אין תגובות עדיין.');
+      await cloudApi.sendTextMessage(phone, '💬 0 תגובות - אין תגובות עדיין');
     } else {
       // Send as TXT file with count in caption
       const reactionsList = reactions.rows.map(r => `${r.reaction} ${r.reactor_phone}`).join('\n');
@@ -980,10 +1039,11 @@ function buildStatusContent(pendingStatus) {
     case 'voice':
       return {
         file: {
-          mimetype: 'audio/ogg',
+          mimetype: 'audio/ogg; codecs=opus',
           filename: 'voice.ogg',
           url: pendingStatus.url
         },
+        convert: true,
         backgroundColor: pendingStatus.backgroundColor || '#782138'
       };
     
@@ -1000,7 +1060,7 @@ async function showScheduledList(phone, connectionId) {
   const scheduled = await getScheduledStatuses(connectionId);
   
   if (scheduled.length === 0) {
-    await cloudApi.sendTextMessage(phone, 'אין סטטוסים מתוזמנים.\n\nשלח טקסט, תמונה, סרטון או הקלטה להעלאת סטטוס חדש.');
+    await cloudApi.sendTextMessage(phone, 'אין סטטוסים מתוזמנים\n\nשלח טקסט, תמונה, סרטון או הקלטה להעלאת סטטוס חדש');
     return false;
   }
   
@@ -1027,7 +1087,7 @@ async function showScheduledList(phone, connectionId) {
   
   await cloudApi.sendListMessage(
     phone,
-    `📋 ${scheduled.length} סטטוסים בתור:`,
+    `📋 ${scheduled.length} סטטוסים בתור`,
     'בחר סטטוס',
     sections
   );
@@ -1065,7 +1125,7 @@ async function showScheduledListWithConfirmation(phone, connectionId, formattedD
   
   await cloudApi.sendListMessage(
     phone,
-    `✅ תוזמן ל-${formattedDate} ${formattedTime}\n\n📋 ${scheduled.length} סטטוסים בתור:`,
+    `✅ תוזמן ל-${formattedDate} ${formattedTime}\n\n📋 ${scheduled.length} סטטוסים בתור`,
     'בחר סטטוס',
     sections
   );
@@ -1118,7 +1178,7 @@ async function handleViewStatusActionsState(phone, message, state) {
         `UPDATE status_bot_queue SET queue_status = 'cancelled' WHERE id = $1`,
         [statusId]
       );
-      await cloudApi.sendTextMessage(phone, '✅ התזמון בוטל.');
+      await cloudApi.sendTextMessage(phone, '✅ התזמון בוטל');
     }
     await setState(phone, 'idle', null, null);
     return;
@@ -1144,7 +1204,7 @@ async function handleViewStatusActionsState(phone, message, state) {
     );
     
     if (result.rows.length === 0) {
-      await cloudApi.sendTextMessage(phone, 'סטטוס לא נמצא.');
+      await cloudApi.sendTextMessage(phone, 'סטטוס לא נמצא');
       await setState(phone, 'idle', null, null);
       return;
     }
@@ -1163,7 +1223,7 @@ async function handleViewStatusActionsState(phone, message, state) {
     );
     
     if (views.rows.length === 0) {
-      await cloudApi.sendTextMessage(phone, 'אין צפיות בסטטוס זה.');
+      await cloudApi.sendTextMessage(phone, 'אין צפיות בסטטוס זה');
     } else {
       const viewersList = views.rows.map(v => v.viewer_phone).join('\n');
       await cloudApi.sendTextMessage(phone, `👁 ${views.rows.length} צפיות:\n\n${viewersList}`);
@@ -1179,7 +1239,7 @@ async function handleViewStatusActionsState(phone, message, state) {
     );
     
     if (reactions.rows.length === 0) {
-      await cloudApi.sendTextMessage(phone, 'אין תגובות לסטטוס זה.');
+      await cloudApi.sendTextMessage(phone, 'אין תגובות לסטטוס זה');
     } else {
       const reactionsList = reactions.rows.map(r => `${r.reaction} - ${r.reactor_phone}`).join('\n');
       await cloudApi.sendTextMessage(phone, `💬 ${reactions.rows.length} תגובות:\n\n${reactionsList}`);
@@ -1194,7 +1254,7 @@ async function handleViewStatusActionsState(phone, message, state) {
       `UPDATE status_bot_statuses SET deleted_at = NOW() WHERE id = $1`,
       [statusId]
     );
-    await cloudApi.sendTextMessage(phone, '✅ הסטטוס נמחק.');
+    await cloudApi.sendTextMessage(phone, '✅ הסטטוס נמחק');
     await setState(phone, 'idle', null, null);
     return;
   }
@@ -1224,7 +1284,7 @@ async function handleStatusesCommand(phone, state) {
   const authorizedConnections = await checkAuthorization(phone);
   
   if (authorizedConnections.length === 0) {
-    await cloudApi.sendTextMessage(phone, 'לא נמצאו חשבונות מקושרים למספר שלך.');
+    await cloudApi.sendTextMessage(phone, 'לא נמצאו חשבונות מקושרים למספר שלך');
     return;
   }
   
@@ -1247,7 +1307,7 @@ async function handleStatusesCommand(phone, state) {
       
       await cloudApi.sendListMessage(
         phone,
-        'בחר חשבון לצפייה בסטטוסים:',
+        'בחר חשבון לצפייה בסטטוסים',
         'בחר חשבון',
         sections
       );
@@ -1269,7 +1329,7 @@ async function handleStatusesCommand(phone, state) {
  * Handle cancel command
  */
 async function handleCancelCommand(phone, state) {
-  await cloudApi.sendTextMessage(phone, 'הפעולה בוטלה.');
+  await cloudApi.sendTextMessage(phone, 'הפעולה בוטלה');
   await setState(phone, 'idle', null, null);
 }
 

@@ -81,6 +81,8 @@ router.get('/status/:statusId/details', authMiddleware, statusBotController.getS
 // Queue
 router.get('/queue', authMiddleware, statusBotController.getQueueStatus);
 router.delete('/queue/:queueId', authMiddleware, statusBotController.deleteQueueItem);
+router.post('/queue/:queueId/send-now', authMiddleware, statusBotController.sendQueueItemNow);
+router.patch('/queue/:queueId', authMiddleware, statusBotController.updateQueueItem);
 
 // User colors management
 router.get('/colors', authMiddleware, settingsController.getStatusBotColors);

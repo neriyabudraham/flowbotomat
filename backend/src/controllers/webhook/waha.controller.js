@@ -752,9 +752,11 @@ async function handleIncomingMessage(userId, event) {
               const replyText = messageData.type === 'text' ? messageData.content : `[${messageData.type}]`;
               
               // Insert reply (allow multiple replies from same user)
+              // Use unique ID + timestamp to avoid any duplicate conflicts
               await pool.query(`
-                INSERT INTO status_bot_replies (status_id, replier_phone, reply_text)
-                VALUES ($1, $2, $3)
+                INSERT INTO status_bot_replies (status_id, replier_phone, reply_text, replied_at)
+                VALUES ($1, $2, $3, NOW())
+                ON CONFLICT DO NOTHING
               `, [statusId, senderPhone, replyText]);
               
               // Update reply count

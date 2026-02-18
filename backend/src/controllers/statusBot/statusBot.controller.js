@@ -286,6 +286,19 @@ async function getConnection(req, res) {
       console.error('[StatusBot] Subscription check error:', subError.message);
     }
 
+    // Auto-add connected phone to authorized numbers if missing (self-healing)
+    if (connection.connection_status === 'connected' && connection.phone_number) {
+      try {
+        await db.query(`
+          INSERT INTO status_bot_authorized_numbers (connection_id, phone_number, name, is_active)
+          VALUES ($1, $2, $3, true)
+          ON CONFLICT (connection_id, phone_number) DO NOTHING
+        `, [connection.id, connection.phone_number, connection.display_name || 'המספר המחובר']);
+      } catch (authErr) {
+        // Ignore - phone may already be in authorized numbers
+      }
+    }
+
     res.json({
       connection: {
         ...connection,
@@ -631,7 +644,7 @@ async function getAuthorizedNumbers(req, res) {
     const userId = req.user.id;
 
     const connResult = await db.query(
-      'SELECT id FROM status_bot_connections WHERE user_id = $1',
+      'SELECT id, phone_number, display_name, connection_status FROM status_bot_connections WHERE user_id = $1',
       [userId]
     );
 
@@ -639,11 +652,26 @@ async function getAuthorizedNumbers(req, res) {
       return res.json({ numbers: [] });
     }
 
+    const connection = connResult.rows[0];
+
+    // Auto-add connected phone to authorized numbers if missing (self-healing)
+    if (connection.connection_status === 'connected' && connection.phone_number) {
+      try {
+        await db.query(`
+          INSERT INTO status_bot_authorized_numbers (connection_id, phone_number, name, is_active)
+          VALUES ($1, $2, $3, true)
+          ON CONFLICT (connection_id, phone_number) DO NOTHING
+        `, [connection.id, connection.phone_number, connection.display_name || 'המספר המחובר']);
+      } catch (authErr) {
+        // Ignore - phone may already be in authorized numbers
+      }
+    }
+
     const result = await db.query(`
       SELECT * FROM status_bot_authorized_numbers 
       WHERE connection_id = $1 AND is_active = true
       ORDER BY created_at DESC
-    `, [connResult.rows[0].id]);
+    `, [connection.id]);
 
     res.json({ numbers: result.rows });
 
@@ -1414,9 +1442,9 @@ async function deleteQueueItem(req, res) {
 
     const queueItem = result.rows[0];
 
-    // Only allow cancelling pending items
-    if (queueItem.queue_status !== 'pending') {
-      return res.status(400).json({ error: 'לא ניתן לבטל פריט שכבר בעיבוד' });
+    // Allow cancelling pending or scheduled items (not processing or sent)
+    if (!['pending', 'scheduled'].includes(queueItem.queue_status)) {
+      return res.status(400).json({ error: 'לא ניתן לבטל פריט שכבר בעיבוד או נשלח' });
     }
 
     // Update status to cancelled
@@ -1431,6 +1459,100 @@ async function deleteQueueItem(req, res) {
   } catch (error) {
     console.error('[StatusBot] Delete queue item error:', error);
     res.status(500).json({ error: 'שגיאה בביטול התזמון' });
+  }
+}
+
+/**
+ * Send a queued item immediately (removes scheduled time)
+ */
+async function sendQueueItemNow(req, res) {
+  try {
+    const userId = req.user.id;
+    const { queueId } = req.params;
+
+    // Verify the queue item belongs to the user
+    const result = await db.query(`
+      SELECT q.* FROM status_bot_queue q
+      JOIN status_bot_connections c ON c.id = q.connection_id
+      WHERE q.id = $1 AND c.user_id = $2
+    `, [queueId, userId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא פריט בתור' });
+    }
+
+    const queueItem = result.rows[0];
+
+    // Allow for pending or scheduled items (not processing or sent)
+    if (!['pending', 'scheduled'].includes(queueItem.queue_status)) {
+      return res.status(400).json({ error: 'לא ניתן לשלוח פריט שכבר בעיבוד או נשלח' });
+    }
+
+    // Remove scheduled_for to make it send immediately
+    await db.query(`
+      UPDATE status_bot_queue 
+      SET scheduled_for = NULL, queue_status = 'pending', updated_at = NOW()
+      WHERE id = $1
+    `, [queueId]);
+
+    res.json({ success: true, message: 'הסטטוס יישלח בקרוב' });
+
+  } catch (error) {
+    console.error('[StatusBot] Send queue item now error:', error);
+    res.status(500).json({ error: 'שגיאה בשליחת הסטטוס' });
+  }
+}
+
+/**
+ * Update a queue item (e.g., reschedule)
+ */
+async function updateQueueItem(req, res) {
+  try {
+    const userId = req.user.id;
+    const { queueId } = req.params;
+    const { scheduled_for } = req.body;
+
+    // Verify the queue item belongs to the user
+    const result = await db.query(`
+      SELECT q.* FROM status_bot_queue q
+      JOIN status_bot_connections c ON c.id = q.connection_id
+      WHERE q.id = $1 AND c.user_id = $2
+    `, [queueId, userId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא פריט בתור' });
+    }
+
+    const queueItem = result.rows[0];
+
+    // Allow for pending or scheduled items (not processing or sent)
+    if (!['pending', 'scheduled'].includes(queueItem.queue_status)) {
+      return res.status(400).json({ error: 'לא ניתן לעדכן פריט שכבר בעיבוד או נשלח' });
+    }
+
+    // Validate scheduled_for if provided
+    if (scheduled_for) {
+      const scheduledDate = new Date(scheduled_for);
+      if (isNaN(scheduledDate.getTime())) {
+        return res.status(400).json({ error: 'תאריך לא תקין' });
+      }
+      if (scheduledDate < new Date()) {
+        return res.status(400).json({ error: 'לא ניתן לתזמן לעבר' });
+      }
+    }
+
+    // Update the queue item
+    await db.query(`
+      UPDATE status_bot_queue 
+      SET scheduled_for = $1, updated_at = NOW()
+      WHERE id = $2
+    `, [scheduled_for || null, queueId]);
+
+    res.json({ success: true, message: 'התזמון עודכן' });
+
+  } catch (error) {
+    console.error('[StatusBot] Update queue item error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון התזמון' });
   }
 }
 
@@ -1870,6 +1992,8 @@ module.exports = {
   // Queue
   getQueueStatus,
   deleteQueueItem,
+  sendQueueItemNow,
+  updateQueueItem,
   
   // Admin
   adminGetUsers,
