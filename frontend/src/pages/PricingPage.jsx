@@ -9,6 +9,9 @@ import {
 import api from '../services/api';
 import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
+import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
+import AccountSwitcher from '../components/AccountSwitcher';
+import ViewingAsBanner from '../components/layout/ViewingAsBanner';
 
 const PLAN_ICONS = {
   'Free': Star,
@@ -293,6 +296,8 @@ export default function PricingPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-purple-50" dir="rtl">
+      {isAuthenticated && <ViewingAsBanner />}
+      
       {/* Premium Header */}
       <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 py-4">
@@ -311,10 +316,12 @@ export default function PricingPage() {
             <div className="flex items-center gap-3">
               {isAuthenticated ? (
                 <>
-                  <span className="text-gray-600 hidden sm:block">שלום, {user?.name || 'משתמש'}</span>
+                  <NotificationsDropdown />
+                  <div className="h-8 w-px bg-gray-200" />
+                  <AccountSwitcher />
                   <button
                     onClick={() => navigate('/dashboard')}
-                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+                    className="hidden md:flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-xl font-medium hover:shadow-lg transition-all"
                   >
                     <ArrowRight className="w-4 h-4" />
                     לדשבורד

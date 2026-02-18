@@ -13,6 +13,8 @@ import ContactsList from '../components/organisms/ContactsList';
 import ChatView from '../components/organisms/ChatView';
 import ContactProfile from '../components/organisms/ContactProfile';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
+import AccountSwitcher from '../components/AccountSwitcher';
+import ViewingAsBanner from '../components/layout/ViewingAsBanner';
 import api from '../services/api';
 
 export default function ContactsPage() {
@@ -151,6 +153,8 @@ export default function ContactsPage() {
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 via-white to-blue-50" dir="rtl">
+      <ViewingAsBanner />
+      
       {/* Premium Header */}
       <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
         <div className="px-4 lg:px-6 py-3">
@@ -196,19 +200,10 @@ export default function ContactsPage() {
               </button>
               <NotificationsDropdown />
               <div className="hidden sm:block h-8 w-px bg-gray-200" />
-              <div className="flex items-center gap-2">
-                {user?.avatar_url ? (
-                  <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-lg object-cover" />
-                ) : (
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm">
-                    {(user?.name || user?.email || 'U')[0].toUpperCase()}
-                  </div>
-                )}
-                <span className="text-gray-500 text-sm hidden md:block">{user?.name || user?.email}</span>
-              </div>
+              <AccountSwitcher />
               <button 
                 onClick={handleLogout}
-                className="px-3 py-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg text-sm font-medium transition-colors"
+                className="hidden md:block px-3 py-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg text-sm font-medium transition-colors"
               >
                 התנתק
               </button>

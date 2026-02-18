@@ -10,7 +10,9 @@ import {
 import useAuthStore from '../store/authStore';
 import Button from '../components/atoms/Button';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
+import AccountSwitcher from '../components/AccountSwitcher';
 import Logo from '../components/atoms/Logo';
+import ViewingAsBanner from '../components/layout/ViewingAsBanner';
 import api from '../services/api';
 import GroupForwardEditor from '../components/groupForwards/GroupForwardEditor';
 import JobHistoryTab from '../components/groupForwards/JobHistoryTab';
@@ -206,6 +208,8 @@ export default function GroupForwardsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-purple-50/30" dir="rtl">
+      <ViewingAsBanner />
+      
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 py-4">
@@ -224,16 +228,10 @@ export default function GroupForwardsPage() {
             <div className="flex items-center gap-3">
               <NotificationsDropdown />
               <div className="h-8 w-px bg-gray-200" />
-              {user?.avatar_url ? (
-                <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-lg object-cover" />
-              ) : (
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white font-bold text-sm">
-                  {(user?.name || user?.email || 'U')[0].toUpperCase()}
-                </div>
-              )}
+              <AccountSwitcher />
               <button 
                 onClick={() => { localStorage.removeItem('accessToken'); navigate('/login'); }}
-                className="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl text-sm font-medium transition-colors"
+                className="hidden md:block px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl text-sm font-medium transition-colors"
               >
                 התנתק
               </button>

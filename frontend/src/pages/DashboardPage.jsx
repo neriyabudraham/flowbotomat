@@ -3,7 +3,7 @@ import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { 
   MessageCircle, Workflow, Users, Settings, Bot, MessageSquare, 
   TrendingUp, Shield, ChevronLeft, Zap, Activity, 
-  Plus, ArrowUpRight, Clock, CheckCircle, Crown, Bell,
+  Plus, ArrowUpRight, CheckCircle, Crown, Bell,
   Sparkles, ArrowRight, BarChart3, Calendar, Phone, Star,
   Target, Rocket, Gift, AlertCircle, X, ExternalLink, Lightbulb,
   Gauge, HardDrive, Code, Forward, Send, Upload
@@ -16,7 +16,7 @@ import NotificationsDropdown from '../components/notifications/NotificationsDrop
 import AccountSwitcher from '../components/AccountSwitcher';
 import { Copy, Share2 } from 'lucide-react';
 import ReferralBonusBanner from '../components/ReferralBonusBanner';
-// AdditionalServicesWidget removed - using quick action card instead
+import ViewingAsBanner from '../components/layout/ViewingAsBanner';
 import api from '../services/api';
 
 // Tips content data
@@ -158,11 +158,9 @@ export default function DashboardPage() {
   const { connection, fetchStatus } = useWhatsappStore();
   const { stats, activity, fetchDashboardStats } = useStatsStore();
   const [greeting, setGreeting] = useState('');
-  const [currentTime, setCurrentTime] = useState('');
   const [showMessage, setShowMessage] = useState(location.state?.message || null);
   const [selectedTip, setSelectedTip] = useState(null);
   const [usage, setUsage] = useState(null);
-  const [viewingAs, setViewingAs] = useState(null);
   const [setupDismissed, setSetupDismissed] = useState(() => localStorage.getItem('setupDismissed') === 'true');
   const [showCompletionMessage, setShowCompletionMessage] = useState(false);
 
@@ -172,17 +170,6 @@ export default function DashboardPage() {
       navigate('/login');
       return;
     }
-    
-    // Check if viewing another account
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      if (payload.viewingAs) {
-        setViewingAs({
-          originalUserId: payload.viewingAs,
-          accessType: payload.accessType
-        });
-      }
-    } catch (e) {}
     
     fetchMe();
     fetchStatus();
@@ -196,21 +183,11 @@ export default function DashboardPage() {
     else if (hour < 21) setGreeting('ערב טוב');
     else setGreeting('לילה טוב');
     
-    // Update time
-    const updateTime = () => {
-      const now = new Date();
-      setCurrentTime(now.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }));
-    };
-    updateTime();
-    const interval = setInterval(updateTime, 1000);
-    
     // Clear message after showing
     if (location.state?.message) {
       setTimeout(() => setShowMessage(null), 5000);
       window.history.replaceState({}, document.title);
     }
-    
-    return () => clearInterval(interval);
   }, []);
 
   const loadUsage = async () => {
@@ -256,26 +233,7 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50" dir="rtl">
       {/* Viewing As Banner */}
-      {viewingAs && (
-        <div className="bg-gradient-to-r from-orange-500 to-amber-500 text-white py-2 px-4 text-center text-sm">
-          <div className="max-w-7xl mx-auto flex items-center justify-center gap-3">
-            <span>אתה צופה בחשבון של {user?.name || user?.email}</span>
-            <button
-              onClick={() => {
-                const originalToken = localStorage.getItem('originalAccessToken');
-                if (originalToken) {
-                  localStorage.setItem('accessToken', originalToken);
-                  localStorage.removeItem('originalAccessToken');
-                  window.location.reload();
-                }
-              }}
-              className="px-3 py-1 bg-white/20 hover:bg-white/30 rounded-lg font-medium"
-            >
-              חזור לחשבון שלי
-            </button>
-          </div>
-        </div>
-      )}
+      <ViewingAsBanner />
       
       {/* Referral Bonus Banner */}
       <ReferralBonusBanner />
@@ -307,11 +265,6 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <Logo />
-              <div className="hidden md:block h-8 w-px bg-gray-200" />
-              <div className="hidden md:flex items-center gap-2 text-sm text-gray-500">
-                <Clock className="w-4 h-4" />
-                <span>{currentTime}</span>
-              </div>
             </div>
             
             <div className="flex items-center gap-3">
@@ -625,18 +578,20 @@ export default function DashboardPage() {
               badge="חדש"
             />
             <QuickActionCard
+              to="/status-bot/dashboard"
+              icon={Upload}
+              title="העלאת סטטוסים"
+              description="סטטוסים אוטומטיים"
+              gradient="from-green-500 to-emerald-600"
+              badge="פרימיום"
+              badgeColor="teal"
+            />
+            <QuickActionCard
               to="/contacts"
               icon={Users}
               title="לייב צ'אט"
               description="צפייה בשיחות"
               gradient="from-emerald-500 to-teal-600"
-            />
-            <QuickActionCard
-              to="/pricing"
-              icon={Crown}
-              title="תמחור"
-              description="תכניות ומנויים"
-              gradient="from-amber-500 to-orange-600"
             />
             <QuickActionCard
               to="/developers"
@@ -646,20 +601,18 @@ export default function DashboardPage() {
               gradient="from-violet-500 to-purple-600"
             />
             <QuickActionCard
+              to="/pricing"
+              icon={Crown}
+              title="תמחור"
+              description="תכניות ומנויים"
+              gradient="from-amber-500 to-orange-600"
+            />
+            <QuickActionCard
               to="/settings"
               icon={Settings}
               title="הגדרות"
               description="הגדרות החשבון"
               gradient="from-gray-500 to-slate-600"
-            />
-            <QuickActionCard
-              to="/status-bot/dashboard"
-              icon={Upload}
-              title="העלאת סטטוסים"
-              description="סטטוסים אוטומטיים"
-              gradient="from-green-500 to-emerald-600"
-              badge="פרימיום"
-              badgeColor="teal"
             />
           </div>
         </div>
