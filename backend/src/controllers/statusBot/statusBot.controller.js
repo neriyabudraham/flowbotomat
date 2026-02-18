@@ -1450,7 +1450,7 @@ async function deleteQueueItem(req, res) {
     // Update status to cancelled
     await db.query(`
       UPDATE status_bot_queue 
-      SET queue_status = 'cancelled', updated_at = NOW()
+      SET queue_status = 'cancelled'
       WHERE id = $1
     `, [queueId]);
 
@@ -1491,7 +1491,7 @@ async function sendQueueItemNow(req, res) {
     // Remove scheduled_for to make it send immediately
     await db.query(`
       UPDATE status_bot_queue 
-      SET scheduled_for = NULL, queue_status = 'pending', updated_at = NOW()
+      SET scheduled_for = NULL, queue_status = 'pending'
       WHERE id = $1
     `, [queueId]);
 
@@ -1544,7 +1544,7 @@ async function updateQueueItem(req, res) {
     // Update the queue item
     await db.query(`
       UPDATE status_bot_queue 
-      SET scheduled_for = $1, updated_at = NOW()
+      SET scheduled_for = $1
       WHERE id = $2
     `, [scheduled_for || null, queueId]);
 
