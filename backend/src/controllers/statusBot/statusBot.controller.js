@@ -391,6 +391,12 @@ async function checkExisting(req, res) {
   try {
     const userId = req.user.id;
     
+    // First check if we have a connection record in DB
+    const dbConnection = await db.query(
+      'SELECT * FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+    
     // Get user email
     let userEmail = req.user.email;
     if (!userEmail) {
@@ -415,8 +421,8 @@ async function checkExisting(req, res) {
     
     const existingSession = await wahaSession.findSessionByEmailWithWebhookPriority(baseUrl, apiKey, userEmail, webhookPattern);
     
-    if (existingSession && existingSession.status === 'WORKING') {
-      console.log(`[StatusBot] ✅ Found existing WORKING session: ${existingSession.name}`);
+    if (existingSession) {
+      console.log(`[StatusBot] ✅ Found existing session: ${existingSession.name} (status: ${existingSession.status})`);
       
       // Ensure webhook is configured for this session
       const webhookUrl = `${process.env.APP_URL}/api/status-bot/webhook/${userId}`;
@@ -424,14 +430,78 @@ async function checkExisting(req, res) {
         'session.status', 'message.ack', 'message.reaction'
       ]).catch(err => console.error(`[StatusBot Webhook] Update failed:`, err.message));
       
-      return res.json({
-        exists: true,
-        sessionName: existingSession.name,
-        status: existingSession.status,
-        isConnected: true,
-        phoneNumber: existingSession.me?.id?.split('@')[0],
-        displayName: existingSession.me?.pushName,
-      });
+      // If WORKING - return connected
+      if (existingSession.status === 'WORKING') {
+        // Update DB if needed
+        if (dbConnection.rows.length > 0 && dbConnection.rows[0].connection_status !== 'connected') {
+          await db.query(`
+            UPDATE status_bot_connections 
+            SET connection_status = 'connected', 
+                session_name = $2,
+                phone_number = COALESCE($3, phone_number),
+                display_name = COALESCE($4, display_name),
+                updated_at = NOW()
+            WHERE user_id = $1
+          `, [userId, existingSession.name, 
+              existingSession.me?.id?.split('@')[0],
+              existingSession.me?.pushName]);
+        }
+        
+        return res.json({
+          exists: true,
+          sessionName: existingSession.name,
+          status: existingSession.status,
+          isConnected: true,
+          phoneNumber: existingSession.me?.id?.split('@')[0],
+          displayName: existingSession.me?.pushName,
+        });
+      }
+      
+      // If STARTING - return exists but not connected yet (let frontend poll)
+      if (existingSession.status === 'STARTING') {
+        console.log(`[StatusBot] Session is STARTING, returning exists=true`);
+        return res.json({
+          exists: true,
+          sessionName: existingSession.name,
+          status: existingSession.status,
+          isConnected: false,
+          isStarting: true,
+        });
+      }
+      
+      // If STOPPED - restart it and return exists
+      if (existingSession.status === 'STOPPED') {
+        console.log(`[StatusBot] Session is STOPPED, restarting...`);
+        try {
+          await wahaSession.startSession(baseUrl, apiKey, existingSession.name);
+          console.log(`[StatusBot] ✅ Restarted session: ${existingSession.name}`);
+        } catch (e) {
+          console.error(`[StatusBot] Restart failed:`, e.message);
+        }
+        return res.json({
+          exists: true,
+          sessionName: existingSession.name,
+          status: 'STARTING',
+          isConnected: false,
+          isStarting: true,
+        });
+      }
+      
+      // If SCAN_QR_CODE - return needs QR
+      if (existingSession.status === 'SCAN_QR_CODE') {
+        return res.json({
+          exists: true,
+          sessionName: existingSession.name,
+          status: existingSession.status,
+          isConnected: false,
+          needsQR: true,
+        });
+      }
+    }
+    
+    // No session in WAHA - check if we have DB record with session_name
+    if (dbConnection.rows.length > 0 && dbConnection.rows[0].session_name) {
+      console.log(`[StatusBot] DB has session_name but not found in WAHA, may need reconnection`);
     }
     
     console.log(`[StatusBot] No active session found for: ${userEmail}`);
