@@ -473,21 +473,27 @@ export default function StatusBotSubscribePage() {
                   </div>
                   
                   {/* Renewal Info in Card Form */}
-                  {renewalMode && existingSubscription && (
-                    <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
-                      <div className="flex items-center gap-2 text-green-700 font-medium mb-1">
-                        <Check className="w-5 h-5" />
-                        <span>חידוש מנוי</span>
+                  {renewalMode && existingSubscription && (() => {
+                    const expiresAt = existingSubscription.expires_at || existingSubscription.trial_ends_at;
+                    const hasRemainingTime = expiresAt && new Date(expiresAt) > new Date();
+                    const daysLeft = hasRemainingTime ? Math.ceil((new Date(expiresAt) - new Date()) / (1000 * 60 * 60 * 24)) : 0;
+                    
+                    return (
+                      <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+                        <div className="flex items-center gap-2 text-green-700 font-medium mb-1">
+                          <Check className="w-5 h-5" />
+                          <span>חידוש מנוי</span>
+                        </div>
+                        <p className="text-sm text-green-600">
+                          {hasRemainingTime && daysLeft > 1 ? (
+                            <>המנוי יחודש והתשלום יתבצע בעוד {daysLeft} ימים ({new Date(expiresAt).toLocaleDateString('he-IL')})</>
+                          ) : (
+                            <>המנוי יחודש באופן מיידי</>
+                          )}
+                        </p>
                       </div>
-                      <p className="text-sm text-green-600">
-                        {(existingSubscription.status === 'trial' || (existingSubscription.trial_ends_at && new Date(existingSubscription.trial_ends_at) > new Date())) ? (
-                          <>המנוי יחודש והתשלום יתבצע בעוד {Math.ceil((new Date(existingSubscription.trial_ends_at) - new Date()) / (1000 * 60 * 60 * 24))} ימים</>
-                        ) : (
-                          <>המנוי יחודש באופן מיידי</>
-                        )}
-                      </p>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Trial Info in Card Form - only for new subscriptions */}
                   {!renewalMode && service?.trial_days > 0 && (
@@ -561,21 +567,27 @@ export default function StatusBotSubscribePage() {
                   )}
 
                   {/* Renewal Info */}
-                  {renewalMode && existingSubscription && (
-                    <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
-                      <div className="flex items-center gap-2 text-green-700 font-medium mb-1">
-                        <Check className="w-5 h-5" />
-                        <span>חידוש מנוי</span>
+                  {renewalMode && existingSubscription && (() => {
+                    const expiresAt = existingSubscription.expires_at || existingSubscription.trial_ends_at;
+                    const hasRemainingTime = expiresAt && new Date(expiresAt) > new Date();
+                    const daysLeft = hasRemainingTime ? Math.ceil((new Date(expiresAt) - new Date()) / (1000 * 60 * 60 * 24)) : 0;
+                    
+                    return (
+                      <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+                        <div className="flex items-center gap-2 text-green-700 font-medium mb-1">
+                          <Check className="w-5 h-5" />
+                          <span>חידוש מנוי</span>
+                        </div>
+                        <p className="text-sm text-green-600">
+                          {hasRemainingTime && daysLeft > 1 ? (
+                            <>המנוי יחודש והתשלום יתבצע בעוד {daysLeft} ימים ({new Date(expiresAt).toLocaleDateString('he-IL')})</>
+                          ) : (
+                            <>המנוי יחודש באופן מיידי</>
+                          )}
+                        </p>
                       </div>
-                      <p className="text-sm text-green-600">
-                        {(existingSubscription.status === 'trial' || (existingSubscription.trial_ends_at && new Date(existingSubscription.trial_ends_at) > new Date())) ? (
-                          <>המנוי יחודש והתשלום יתבצע בעוד {Math.ceil((new Date(existingSubscription.trial_ends_at) - new Date()) / (1000 * 60 * 60 * 24))} ימים ({new Date(existingSubscription.trial_ends_at).toLocaleDateString('he-IL')})</>
-                        ) : (
-                          <>המנוי יחודש באופן מיידי</>
-                        )}
-                      </p>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Trial Info - only for new subscriptions */}
                   {!renewalMode && service?.trial_days > 0 && (

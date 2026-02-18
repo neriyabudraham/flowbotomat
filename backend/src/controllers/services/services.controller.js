@@ -91,10 +91,15 @@ async function subscribeToService(req, res) {
       [userId, serviceId]
     );
     
+    let existingWithRemainingTime = null;
     if (existingResult.rows.length > 0) {
       const existing = existingResult.rows[0];
       if (existing.status === 'active' || existing.status === 'trial') {
         return res.status(400).json({ error: 'כבר יש לך מנוי פעיל לשירות זה' });
+      }
+      // Check if cancelled but has remaining time
+      if (existing.status === 'cancelled' && existing.expires_at && new Date(existing.expires_at) > new Date()) {
+        existingWithRemainingTime = existing;
       }
     }
     
@@ -139,8 +144,28 @@ async function subscribeToService(req, res) {
     let trialEndsAt = null;
     let nextChargeDate = null;
     let sumitStandingOrderId = null;
+    let futureStartDate = null; // For renewals with remaining time
     
-    if (trialDays > 0) {
+    // Check if renewing a cancelled subscription with remaining time
+    if (existingWithRemainingTime) {
+      // Renewal - schedule payment for when current period expires
+      const expiresAt = new Date(existingWithRemainingTime.expires_at);
+      const daysRemaining = Math.ceil((expiresAt - now) / (1000 * 60 * 60 * 24));
+      
+      if (daysRemaining > 1) {
+        // More than 1 day remaining - schedule future payment
+        futureStartDate = expiresAt;
+        nextChargeDate = expiresAt;
+        console.log(`[Services] Renewal with ${daysRemaining} days remaining - scheduling payment for ${expiresAt.toISOString()}`);
+      } else {
+        // Less than 1 day - immediate payment
+        if (billingPeriod === 'yearly') {
+          nextChargeDate = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+        } else {
+          nextChargeDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        }
+      }
+    } else if (trialDays > 0) {
       status = 'trial';
       isTrial = true;
       trialEndsAt = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
@@ -156,13 +181,14 @@ async function subscribeToService(req, res) {
     
     // Create standing order in Sumit (for both trial and immediate)
     // For trial: startDate = trialEndsAt (first charge at trial end)
+    // For renewal with remaining time: startDate = expires_at (first charge when period ends)
     // For immediate: startDate = null (charge now)
     if (price > 0 && user.sumit_customer_id) {
       try {
         const durationMonths = billingPeriod === 'yearly' ? 12 : 1;
-        const startDate = isTrial ? trialEndsAt : null; // Trial = future, immediate = now
+        const startDate = futureStartDate || (isTrial ? trialEndsAt : null);
         
-        console.log(`[Services] Creating standing order - Trial: ${isTrial}, StartDate: ${startDate?.toISOString() || 'immediate'}, Amount: ${price}`);
+        console.log(`[Services] Creating standing order - Trial: ${isTrial}, FutureRenewal: ${!!futureStartDate}, StartDate: ${startDate?.toISOString() || 'immediate'}, Amount: ${price}`);
         
         const standingOrderResponse = await sumitService.chargeRecurring({
           customerId: user.sumit_customer_id,
@@ -193,16 +219,19 @@ async function subscribeToService(req, res) {
     let subscription;
     if (existingResult.rows.length > 0) {
       // Reactivate existing subscription
+      // If renewing with remaining time, keep expires_at and don't reset started_at
       const updateResult = await db.query(`
         UPDATE user_service_subscriptions
         SET status = $1, is_trial = $2, trial_ends_at = $3, 
             next_charge_date = $4, billing_period = $5,
-            started_at = NOW(), cancelled_at = NULL,
+            started_at = CASE WHEN $9 THEN started_at ELSE NOW() END, 
+            cancelled_at = NULL,
+            expires_at = CASE WHEN $9 THEN expires_at ELSE NULL END,
             sumit_standing_order_id = $6, updated_at = NOW()
         WHERE user_id = $7 AND service_id = $8
         RETURNING *
       `, [status, isTrial, trialEndsAt, nextChargeDate, billingPeriod, 
-          sumitStandingOrderId, userId, serviceId]);
+          sumitStandingOrderId, userId, serviceId, !!futureStartDate]);
       subscription = updateResult.rows[0];
     } else {
       // Create new subscription
