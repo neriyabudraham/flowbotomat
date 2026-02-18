@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Menu, X, ArrowLeft, Users, Search, MessageSquare, Bot, 
   Settings, Phone, Sparkles, TrendingUp, Clock, UserCheck,
-  Activity, Send, Filter
+  Activity, Send, Filter, Shield
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useContactsStore from '../store/contactsStore';
@@ -28,6 +28,19 @@ export default function ContactsPage() {
     takeoverConversation, loadMoreMessages, updateMessageReaction,
     loadMoreContacts, hasMoreContacts, loadingMoreContacts, total,
   } = useContactsStore();
+
+  // Check if user is admin (either directly or viewing as another account)
+  const isAdmin = (() => {
+    if (user && ['admin', 'superadmin'].includes(user.role)) return true;
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.viewingAs) return true;
+      }
+    } catch (e) {}
+    return false;
+  })();
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -189,6 +202,15 @@ export default function ContactsPage() {
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3">
+              {isAdmin && (
+                <button
+                  onClick={() => navigate('/admin')}
+                  className="p-2 hover:bg-red-50 rounded-xl transition-colors group"
+                  title="ממשק ניהול"
+                >
+                  <Shield className="w-5 h-5 text-red-500 group-hover:text-red-600" />
+                </button>
+              )}
               <button 
                 onClick={() => navigate('/settings?tab=livechat')}
                 className="p-2 rounded-xl hover:bg-gray-100 transition-colors"

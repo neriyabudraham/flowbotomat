@@ -15,6 +15,19 @@ import api from '../services/api';
 export default function ApiPage() {
   const navigate = useNavigate();
   const { user, fetchMe, logout } = useAuthStore();
+
+  // Check if user is admin (either directly or viewing as another account)
+  const isAdmin = (() => {
+    if (user && ['admin', 'superadmin'].includes(user.role)) return true;
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.viewingAs) return true;
+      }
+    } catch (e) {}
+    return false;
+  })();
   const [apiKeys, setApiKeys] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -302,6 +315,15 @@ export default function ApiPage() {
               <Logo />
             </div>
             <div className="flex items-center gap-3">
+              {isAdmin && (
+                <button
+                  onClick={() => navigate('/admin')}
+                  className="p-2 hover:bg-red-50 rounded-xl transition-colors group"
+                  title="ממשק ניהול"
+                >
+                  <Shield className="w-5 h-5 text-red-500 group-hover:text-red-600" />
+                </button>
+              )}
               <NotificationsDropdown />
               <div className="h-8 w-px bg-gray-200" />
               <AccountSwitcher />

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { 
   Bell, CheckCheck, Trash2, Share2, AlertTriangle, Info, Settings,
-  Check, X, Megaphone, Gift, Sparkles, ArrowRight, CreditCard
+  Check, X, Megaphone, Gift, Sparkles, ArrowRight, CreditCard, Shield
 } from 'lucide-react';
 import useNotificationsStore from '../store/notificationsStore';
 import useAuthStore from '../store/authStore';
@@ -37,9 +37,22 @@ function formatTime(date) {
 
 export default function NotificationsPage() {
   const navigate = useNavigate();
-  const { logout } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const [selectedIds, setSelectedIds] = useState([]);
   const [selectionMode, setSelectionMode] = useState(false);
+
+  // Check if user is admin (either directly or viewing as another account)
+  const isAdmin = (() => {
+    if (user && ['admin', 'superadmin'].includes(user.role)) return true;
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.viewingAs) return true;
+      }
+    } catch (e) {}
+    return false;
+  })();
   
   const { 
     notifications, 
@@ -159,6 +172,15 @@ export default function NotificationsPage() {
                 >
                   <Settings className="w-5 h-5 text-gray-600" />
                 </Link>
+                {isAdmin && (
+                  <button
+                    onClick={() => navigate('/admin')}
+                    className="p-2 hover:bg-red-50 rounded-xl transition-colors group"
+                    title="ממשק ניהול"
+                  >
+                    <Shield className="w-5 h-5 text-red-500 group-hover:text-red-600" />
+                  </button>
+                )}
                 <NotificationsDropdown />
                 <div className="h-8 w-px bg-gray-200" />
                 <AccountSwitcher />

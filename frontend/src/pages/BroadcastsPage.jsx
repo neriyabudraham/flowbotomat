@@ -5,7 +5,7 @@ import {
   Trash2, Edit2, X, Search, MoreHorizontal, CheckCircle, 
   Loader2, RefreshCw, ArrowLeft, Target, FileText, Settings,
   LayoutGrid, History, Zap, Copy, Filter, ChevronDown, Eye, Sparkles,
-  TrendingUp, BarChart3, Crown, Lock
+  TrendingUp, BarChart3, Crown, Lock, Shield
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
@@ -27,6 +27,19 @@ export default function BroadcastsPage() {
   const [activeTab, setActiveTab] = useState('campaigns');
   const [stats, setStats] = useState(null);
   const [hasAccess, setHasAccess] = useState(null); // null = loading, true/false = checked
+
+  // Check if user is admin (either directly or viewing as another account)
+  const isAdmin = (() => {
+    if (user && ['admin', 'superadmin'].includes(user.role)) return true;
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.viewingAs) return true;
+      }
+    } catch (e) {}
+    return false;
+  })();
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -110,6 +123,15 @@ export default function BroadcastsPage() {
               </div>
               
               <div className="flex items-center gap-3">
+                {isAdmin && (
+                  <button
+                    onClick={() => navigate('/admin')}
+                    className="p-2 hover:bg-red-50 rounded-xl transition-colors group"
+                    title="ממשק ניהול"
+                  >
+                    <Shield className="w-5 h-5 text-red-500 group-hover:text-red-600" />
+                  </button>
+                )}
                 <NotificationsDropdown />
                 <div className="h-8 w-px bg-gray-200" />
                 <AccountSwitcher />
@@ -229,6 +251,15 @@ export default function BroadcastsPage() {
             </div>
             
             <div className="flex items-center gap-3">
+              {isAdmin && (
+                <button
+                  onClick={() => navigate('/admin')}
+                  className="p-2 hover:bg-red-50 rounded-xl transition-colors group"
+                  title="ממשק ניהול"
+                >
+                  <Shield className="w-5 h-5 text-red-500 group-hover:text-red-600" />
+                </button>
+              )}
               <NotificationsDropdown />
               <div className="h-8 w-px bg-gray-200" />
               <AccountSwitcher />

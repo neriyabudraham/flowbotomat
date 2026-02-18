@@ -5,7 +5,7 @@ import {
   Search, MoreHorizontal, Copy, ChevronRight, MessageSquare, Send, Phone,
   CheckCircle, AlertCircle, Loader2, ChevronDown, Filter, RefreshCw,
   ArrowLeft, Zap, Target, Crown, UserCheck, Image, Video, Mic, FileText,
-  History, LayoutGrid, Sparkles
+  History, LayoutGrid, Sparkles, Shield
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Button from '../components/atoms/Button';
@@ -36,6 +36,19 @@ export default function GroupForwardsPage() {
   const [quickSendForward, setQuickSendForward] = useState(null);
   const [activeTab, setActiveTab] = useState('forwards'); // 'forwards' | 'history'
   const [errorMessage, setErrorMessage] = useState(null);
+
+  // Check if user is admin (either directly or viewing as another account)
+  const isAdmin = (() => {
+    if (user && ['admin', 'superadmin'].includes(user.role)) return true;
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.viewingAs) return true;
+      }
+    } catch (e) {}
+    return false;
+  })();
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -223,6 +236,15 @@ export default function GroupForwardsPage() {
             </div>
             
             <div className="flex items-center gap-3">
+              {isAdmin && (
+                <button
+                  onClick={() => navigate('/admin')}
+                  className="p-2 hover:bg-red-50 rounded-xl transition-colors group"
+                  title="ממשק ניהול"
+                >
+                  <Shield className="w-5 h-5 text-red-500 group-hover:text-red-600" />
+                </button>
+              )}
               <NotificationsDropdown />
               <div className="h-8 w-px bg-gray-200" />
               <AccountSwitcher />
