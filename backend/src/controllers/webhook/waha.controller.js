@@ -449,10 +449,44 @@ async function handleIncomingMessage(userId, event) {
     return;
   }
   
-  // Determine if this is a group message
+  // Determine if this is a group message or channel message
   const chatId = payload.from || payload.chatId;
   const isGroupMessage = chatId?.includes('@g.us') || false;
   const groupId = isGroupMessage ? chatId : null;
+  
+  // Detect channel (newsletter) messages
+  const isChannelMessage = chatId?.includes('@newsletter') || false;
+  const channelId = isChannelMessage ? chatId : null;
+  
+  // Log channel webhook for debugging
+  if (isChannelMessage) {
+    console.log(`[Webhook] 📢 CHANNEL MESSAGE DETECTED`);
+    console.log(`[Webhook] Channel ID: ${channelId}`);
+    console.log(`[Webhook] Full payload:`, JSON.stringify(payload, null, 2));
+  }
+  
+  // Extract entry point info for Facebook campaigns and other sources
+  const msg = payload._data?.Message || {};
+  const contextInfo = msg.extendedTextMessage?.contextInfo ||
+                      msg.imageMessage?.contextInfo ||
+                      msg.videoMessage?.contextInfo ||
+                      msg.audioMessage?.contextInfo ||
+                      msg.documentMessage?.contextInfo ||
+                      msg.stickerMessage?.contextInfo ||
+                      msg.conversation?.contextInfo ||
+                      payload._data?.contextInfo ||
+                      null;
+  
+  const entryPointSource = contextInfo?.entryPointConversionSource || '';
+  const externalAdReply = contextInfo?.externalAdReply || null;
+  
+  // Log Facebook campaign / ad entry point for debugging
+  if (entryPointSource || externalAdReply) {
+    console.log(`[Webhook] 📣 ENTRY POINT DETECTED`);
+    console.log(`[Webhook] Entry Point Source: ${entryPointSource}`);
+    console.log(`[Webhook] External Ad Reply:`, externalAdReply ? JSON.stringify(externalAdReply) : 'null');
+    console.log(`[Webhook] Full contextInfo:`, JSON.stringify(contextInfo, null, 2));
+  }
   
   // Extract sender's phone number and name
   const senderPhone = extractRealPhone(payload);
@@ -686,6 +720,28 @@ async function handleIncomingMessage(userId, event) {
   // SECOND: Process with bot engine ONLY if not handled by forwards
   if (!handledByForwards) {
     try {
+      // Get channel name if this is a channel message
+      let channelName = null;
+      if (isChannelMessage) {
+        channelName = payload._data?.Info?.Subject || 
+                      payload._data?.Info?.VerifiedName?.Details?.verifiedName ||
+                      payload.notifyName || payload.pushName || null;
+      }
+      
+      // Get bot's phone number from the connection
+      let botPhoneNumber = null;
+      try {
+        const connResult = await pool.query(
+          `SELECT phone_number FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' ORDER BY connected_at DESC LIMIT 1`,
+          [userId]
+        );
+        if (connResult.rows.length > 0) {
+          botPhoneNumber = connResult.rows[0].phone_number;
+        }
+      } catch (e) {
+        // Ignore - phone_bot will be empty
+      }
+      
       await botEngine.processMessage(
         userId, 
         phoneForProcessing, 
@@ -694,7 +750,16 @@ async function handleIncomingMessage(userId, event) {
         messageData.selectedRowId,
         messageData.quotedListTitle, // Pass the original list title for verification
         isGroupMessage, // Pass whether this is a group message
-        groupId // Pass the group ID if it's a group message
+        groupId, // Pass the group ID if it's a group message
+        {
+          isChannel: isChannelMessage,
+          channelId,
+          channelName,
+          botPhoneNumber,
+          // Facebook campaign / ad entry point info
+          entryPointSource,
+          externalAdReply
+        }
       );
     } catch (botError) {
       console.error('[Webhook] Bot engine error:', botError);

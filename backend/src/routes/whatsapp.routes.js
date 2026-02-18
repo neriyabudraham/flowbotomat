@@ -5,6 +5,7 @@ const { createManaged, createExternal, checkExisting } = require('../controllers
 const { getStatus, getQR, requestCode, getUserStatuses } = require('../controllers/whatsapp/status.controller');
 const { disconnect, deleteConnection } = require('../controllers/whatsapp/disconnect.controller');
 const { getGroups } = require('../controllers/whatsapp/groups.controller');
+const { getChannels } = require('../controllers/whatsapp/channels.controller');
 const { getLabels } = require('../controllers/whatsapp/labels.controller');
 const { checkAndSync, pullWhatsAppContacts, getGroupParticipants, importGroupParticipants } = require('../controllers/whatsapp/contacts.controller');
 
@@ -40,6 +41,9 @@ router.post('/request-code', requestCode);
 
 // Get WhatsApp groups
 router.get('/groups', getGroups);
+
+// Get WhatsApp channels (newsletters)
+router.get('/channels', getChannels);
 
 // Get WhatsApp Business labels
 router.get('/labels', getLabels);

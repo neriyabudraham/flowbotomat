@@ -68,7 +68,7 @@ class BotEngine {
   }
   
   // Process incoming message
-  async processMessage(userId, contactPhone, message, messageType = 'text', selectedRowId = null, quotedListTitle = null, isGroupMessage = false, groupId = null) {
+  async processMessage(userId, contactPhone, message, messageType = 'text', selectedRowId = null, quotedListTitle = null, isGroupMessage = false, groupId = null, extraContext = {}) {
     try {
       // Get all active bots for this user
       const botsResult = await db.query(
@@ -111,9 +111,19 @@ class BotEngine {
       contact._groupId = groupId;
       contact._senderPhone = contactPhone;
       
+      // Add channel context to contact for variable replacement
+      contact._isChannel = extraContext.isChannel || false;
+      contact._channelId = extraContext.channelId || null;
+      contact._channelName = extraContext.channelName || null;
+      contact._botPhoneNumber = extraContext.botPhoneNumber || null;
+      
+      // Add Facebook campaign / ad info
+      contact._entryPointSource = extraContext.entryPointSource || null;
+      contact._externalAdReply = extraContext.externalAdReply || null;
+      
       // Process each active bot
       for (const bot of botsResult.rows) {
-        await this.processBot(bot, contact, message, messageType, userId, selectedRowId, quotedListTitle, isGroupMessage);
+        await this.processBot(bot, contact, message, messageType, userId, selectedRowId, quotedListTitle, isGroupMessage, extraContext);
       }
       
     } catch (error) {
@@ -457,7 +467,7 @@ class BotEngine {
   }
   
   // Process single bot
-  async processBot(bot, contact, message, messageType, userId, selectedRowId = null, quotedListTitle = null, isGroupMessage = false) {
+  async processBot(bot, contact, message, messageType, userId, selectedRowId = null, quotedListTitle = null, isGroupMessage = false, extraContext = {}) {
     try {
       // Check if this specific bot is disabled for this contact
       try {
@@ -987,19 +997,27 @@ class BotEngine {
         if (conditions.length === 0) continue;
         
         // Check message source settings
-        // By default: direct messages allowed, group messages not allowed
+        // By default: direct messages allowed, group/channel messages not allowed
         const allowDirectMessages = group.allowDirectMessages !== false; // default true
         const allowGroupMessages = group.allowGroupMessages || false; // default false
+        const allowChannelMessages = group.allowChannelMessages || false; // default false
         
-        if (isGroupMessage && !allowGroupMessages) {
+        // Get channel info from contact context
+        const isChannelMessage = contact._isChannel || false;
+        
+        if (isChannelMessage && !allowChannelMessages) {
+          console.log('[BotEngine] Skipping trigger group - channel messages not allowed');
+          continue; // Try next group
+        }
+        if (isGroupMessage && !isChannelMessage && !allowGroupMessages) {
           console.log('[BotEngine] Skipping trigger group - group messages not allowed');
           continue; // Try next group
         }
-        if (!isGroupMessage && !allowDirectMessages) {
+        if (!isGroupMessage && !isChannelMessage && !allowDirectMessages) {
           console.log('[BotEngine] Skipping trigger group - direct messages not allowed');
           continue; // Try next group
         }
-        console.log('[BotEngine] Message source check passed - isGroup:', isGroupMessage, 'allowDirect:', allowDirectMessages, 'allowGroup:', allowGroupMessages);
+        console.log('[BotEngine] Message source check passed - isGroup:', isGroupMessage, 'isChannel:', isChannelMessage, 'allowDirect:', allowDirectMessages, 'allowGroup:', allowGroupMessages, 'allowChannel:', allowChannelMessages);
         
         // All conditions in this group must match (AND)
         let groupMatches = true;
@@ -1326,6 +1344,37 @@ class BotEngine {
     // tag_added / tag_removed - only matches when explicitly triggered
     if (type === 'tag_added' || type === 'tag_removed') {
       return false;
+    }
+    
+    // channel_message - check if this is a channel message
+    if (type === 'channel_message') {
+      const isChannel = contact._isChannel || false;
+      if (!isChannel) return false;
+      
+      // If specific channel filter is set, check it
+      if (condition.filterByChannel && condition.specificChannelId) {
+        const channelId = contact._channelId || '';
+        return channelId === condition.specificChannelId;
+      }
+      
+      return true; // Any channel message matches
+    }
+    
+    // facebook_campaign - check if this message came from a Facebook ad/campaign
+    if (type === 'facebook_campaign') {
+      const entryPointSource = contact._entryPointSource || '';
+      const externalAdReply = contact._externalAdReply || null;
+      
+      // Check for Facebook campaign indicators
+      // - entryPointSource might be 'facebook_paid_ad', 'facebook_ad', etc.
+      // - externalAdReply contains ad info if clicked through an ad
+      const isFacebookCampaign = 
+        (entryPointSource && entryPointSource.toLowerCase().includes('facebook')) ||
+        (externalAdReply && (externalAdReply.title || externalAdReply.body));
+      
+      console.log(`[BotEngine] facebook_campaign check: entryPoint=${entryPointSource}, hasExternalAdReply=${!!externalAdReply}, result=${isFacebookCampaign}`);
+      
+      return isFacebookCampaign;
     }
     
     // no_message_in - check if contact hasn't sent a message in X time
@@ -3589,13 +3638,25 @@ class BotEngine {
     const senderPhone = contact._senderPhone || contact.phone || '';
     const isGroup = contact._isGroupMessage ? 'true' : 'false';
     
+    // Channel context variables (if available from _channelId property)
+    const channelId = contact._channelId || '';
+    const channelName = contact._channelName || '';
+    const isChannel = contact._isChannel ? 'true' : 'false';
+    
+    // Bot phone number
+    const botPhoneNumber = contact._botPhoneNumber || '';
+    
     // Basic replacements (system variables)
     let result = text
       .replace(/\{\{name\}\}/gi, contact.display_name || '')
       .replace(/\{\{contact_phone\}\}/gi, contact.phone || '')
       .replace(/\{\{sender_phone\}\}/gi, senderPhone)
+      .replace(/\{\{phone_bot\}\}/gi, botPhoneNumber)
       .replace(/\{\{group_id\}\}/gi, groupId)
       .replace(/\{\{is_group\}\}/gi, isGroup)
+      .replace(/\{\{channel_id\}\}/gi, channelId)
+      .replace(/\{\{channel_name\}\}/gi, channelName)
+      .replace(/\{\{is_channel\}\}/gi, isChannel)
       .replace(/\{\{last_message\}\}/gi, message || '')
       .replace(/\{\{bot_name\}\}/gi, botName || '')
       .replace(/\{\{date\}\}/gi, now.toLocaleDateString('he-IL'))

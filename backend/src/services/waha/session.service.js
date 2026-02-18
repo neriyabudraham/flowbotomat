@@ -888,6 +888,23 @@ async function getGroups(sessionName) {
 }
 
 /**
+ * Get all channels (newsletters) for a session
+ */
+async function getChannels(connection) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const sessionName = connection.session_name || 'default';
+  
+  try {
+    const response = await client.get(`/api/${sessionName}/channels`);
+    console.log(`[WAHA] Got ${(response.data || []).length} channels`);
+    return response.data || [];
+  } catch (error) {
+    console.error(`[WAHA] Error getting channels:`, error.message);
+    return [];
+  }
+}
+
+/**
  * Delete a message
  * @param {Object|string} connectionOrUserId - Either connection object with base_url, api_key, session_name or user ID
  * @param {string} chatId - Chat/group ID to delete message from
@@ -1057,6 +1074,7 @@ module.exports = {
   updateGroupDescription,
   getGroups,
   getGroupInfo,
+  getChannels,
   deleteMessage,
   // Labels (WhatsApp Business)
   getLabels,

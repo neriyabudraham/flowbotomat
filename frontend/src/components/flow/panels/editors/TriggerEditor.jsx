@@ -19,6 +19,8 @@ const triggerTypes = [
   { id: 'status_reply', label: 'תגובה על סטטוס', icon: '💬', category: 'status', hasStatusFilter: true },
   { id: 'group_join', label: 'משתמש הצטרף לקבוצה', icon: '📥', category: 'group', hasGroupFilter: true },
   { id: 'group_leave', label: 'משתמש יצא מקבוצה', icon: '📤', category: 'group', hasGroupFilter: true },
+  { id: 'channel_message', label: 'הודעה מערוץ (Newsletter)', icon: '📢', category: 'channel', hasChannelFilter: true },
+  { id: 'facebook_campaign', label: 'הודעה מקמפיין פייסבוק', icon: '📣', category: 'campaign' },
   { id: 'call_received', label: 'שיחה נכנסת', icon: '📞', hasCallType: true, category: 'call' },
   { id: 'call_rejected', label: 'שיחה שנדחתה / לא נענתה', icon: '📵', hasCallType: true, category: 'call' },
   { id: 'call_accepted', label: 'שיחה שנענתה', icon: '✅', hasCallType: true, category: 'call' },
@@ -58,6 +60,8 @@ export default function TriggerEditor({ data, onUpdate }) {
   const [loadingStatuses, setLoadingStatuses] = useState(false);
   const [whatsappGroups, setWhatsappGroups] = useState([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
+  const [whatsappChannels, setWhatsappChannels] = useState([]);
+  const [loadingChannels, setLoadingChannels] = useState(false);
 
   // Load available tags
   useEffect(() => {
@@ -84,6 +88,16 @@ export default function TriggerEditor({ data, onUpdate }) {
     }
   }, [groups]);
 
+  // Load channels if any channel trigger exists
+  useEffect(() => {
+    const hasChannelTrigger = groups.some(g => 
+      g.conditions?.some(c => ['channel_message'].includes(c.type))
+    );
+    if (hasChannelTrigger && whatsappChannels.length === 0 && !loadingChannels) {
+      loadChannels();
+    }
+  }, [groups]);
+
   const loadStatuses = async () => {
     setLoadingStatuses(true);
     try {
@@ -106,6 +120,18 @@ export default function TriggerEditor({ data, onUpdate }) {
       setWhatsappGroups([]);
     }
     setLoadingGroups(false);
+  };
+
+  const loadChannels = async () => {
+    setLoadingChannels(true);
+    try {
+      const response = await api.get('/whatsapp/channels');
+      setWhatsappChannels(response.data?.channels || []);
+    } catch (err) {
+      console.error('Error loading channels:', err);
+      setWhatsappChannels([]);
+    }
+    setLoadingChannels(false);
   };
 
   const loadTags = async () => {
@@ -333,6 +359,16 @@ export default function TriggerEditor({ data, onUpdate }) {
                             </optgroup>
                             <optgroup label="קבוצות">
                               {triggerTypes.filter(t => t.category === 'group').map(t => (
+                                <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="ערוצים">
+                              {triggerTypes.filter(t => t.category === 'channel').map(t => (
+                                <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="קמפיינים">
+                              {triggerTypes.filter(t => t.category === 'campaign').map(t => (
                                 <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
                               ))}
                             </optgroup>
@@ -568,6 +604,77 @@ export default function TriggerEditor({ data, onUpdate }) {
                             </div>
                           )}
                           
+                          {/* Specific channel filter for channel triggers */}
+                          {triggerInfo.hasChannelFilter && (
+                            <div className="space-y-2">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={condition.filterByChannel || false}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    const newGroups = groups.map(gr => {
+                                      if (gr.id === group.id) {
+                                        return {
+                                          ...gr,
+                                          conditions: gr.conditions.map((c, i) =>
+                                            i === conditionIndex
+                                              ? { ...c, filterByChannel: checked, ...(!checked ? { specificChannelId: '' } : {}) }
+                                              : c
+                                          )
+                                        };
+                                      }
+                                      return gr;
+                                    });
+                                    onUpdate({ triggerGroups: newGroups });
+                                    if (checked && whatsappChannels.length === 0) {
+                                      loadChannels();
+                                    }
+                                  }}
+                                  className="w-4 h-4 rounded border-gray-300 text-purple-600"
+                                />
+                                <span className="text-sm text-gray-700">ערוץ ספציפי בלבד</span>
+                              </label>
+                              
+                              {condition.filterByChannel && (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <select
+                                      value={condition.specificChannelId || ''}
+                                      onChange={(e) => updateCondition(group.id, conditionIndex, 'specificChannelId', e.target.value)}
+                                      className="flex-1 px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                                    >
+                                      <option value="">-- בחר ערוץ --</option>
+                                      {whatsappChannels.map(ch => (
+                                        <option key={ch.id} value={ch.id}>
+                                          📢 {ch.name} {ch.verified ? '✓' : ''}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <button
+                                      type="button"
+                                      onClick={loadChannels}
+                                      disabled={loadingChannels}
+                                      className="p-2.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+                                      title="רענן רשימת ערוצים"
+                                    >
+                                      <RefreshCw className={`w-4 h-4 ${loadingChannels ? 'animate-spin' : ''}`} />
+                                    </button>
+                                  </div>
+                                  {whatsappChannels.length === 0 && !loadingChannels && (
+                                    <p className="text-xs text-gray-500 flex items-center gap-1">
+                                      <Clock className="w-3 h-3" />
+                                      לא נמצאו ערוצים. וודא שהווצאפ מחובר והנך עוקב אחרי ערוצים.
+                                    </p>
+                                  )}
+                                  {loadingChannels && (
+                                    <p className="text-xs text-gray-400">טוען ערוצים...</p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          
                           {/* Field selector for contact_field */}
                           {triggerInfo.hasField && (
                             <select
@@ -755,6 +862,20 @@ export default function TriggerEditor({ data, onUpdate }) {
                           <div>
                             <div className="text-sm font-medium text-gray-700">👥 הפעלה בקבוצות</div>
                             <div className="text-xs text-gray-500">הפעל את הטריגר בהודעות מקבוצות</div>
+                          </div>
+                        </label>
+
+                        {/* Allow channel messages */}
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={group.allowChannelMessages || false}
+                            onChange={(e) => updateGroupSetting(group.id, 'allowChannelMessages', e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-300 text-purple-600"
+                          />
+                          <div>
+                            <div className="text-sm font-medium text-gray-700">📢 הפעלה בערוצים</div>
+                            <div className="text-xs text-gray-500">הפעל את הטריגר בהודעות מערוצים (Newsletters)</div>
                           </div>
                         </label>
                       </div>
