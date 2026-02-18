@@ -78,20 +78,22 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+        VITE_SUMIT_PUBLIC_KEY: ${SUMIT_APIPublicKey}
     container_name: flowbotomat_frontend
     restart: unless-stopped
-    environment:
-      VITE_API_URL: ${VITE_API_URL}
-      VITE_SUMIT_PUBLIC_KEY: ${SUMIT_APIPublicKey}
     ports:
-      - "3748:5173"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
+      - "3748:80"
     depends_on:
       - backend
     networks:
       - flowbotomat_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   backup:
     image: postgres:15-alpine

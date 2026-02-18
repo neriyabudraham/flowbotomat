@@ -29,6 +29,7 @@ import StatusBotLandingPage from './pages/statusBot/StatusBotLandingPage';
 import StatusBotDashboardPage from './pages/statusBot/StatusBotDashboardPage';
 import StatusBotSubscribePage from './pages/statusBot/StatusBotSubscribePage';
 import SystemAlertOverlay from './components/notifications/SystemAlertOverlay';
+import MaintenanceOverlay from './components/MaintenanceOverlay';
 import SocketProvider from './components/providers/SocketProvider';
 import useThemeStore from './store/themeStore';
 import api from './services/api';
@@ -130,6 +131,7 @@ function App() {
       <SocketProvider>
         <ReferralTracker />
         <SystemAlertOverlay />
+        <MaintenanceOverlay />
         <div className="min-h-screen bg-gray-50 transition-colors">
           <Routes>
           <Route path="/" element={<LandingPage />} />
