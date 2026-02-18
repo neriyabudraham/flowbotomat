@@ -145,7 +145,7 @@ export default function SettingsPage() {
     try {
       setSheetsLoading(true);
       const { data } = await api.get('/google-sheets/auth-url');
-      window.location.href = data.url;
+      window.location.replace(data.url);
     } catch (err) {
       console.error('Failed to get auth URL:', err);
       setMessage({ type: 'error', text: 'שגיאה בחיבור Google Sheets' });
@@ -183,7 +183,7 @@ export default function SettingsPage() {
     try {
       setContactsLoading(true);
       const { data } = await api.get('/google-contacts/auth-url');
-      window.location.href = data.url;
+      window.location.replace(data.url);
     } catch (err) {
       console.error('Failed to get auth URL:', err);
       setMessage({ type: 'error', text: 'שגיאה בחיבור Google Contacts' });
