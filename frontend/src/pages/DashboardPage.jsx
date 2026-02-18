@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { 
   MessageCircle, Workflow, Users, Settings, Bot, MessageSquare, 
-  TrendingUp, Shield, ChevronLeft, Zap, Activity, 
+  TrendingUp, Shield, ChevronLeft, Zap, Activity, Clock,
   Plus, ArrowUpRight, CheckCircle, Crown, Bell,
   Sparkles, ArrowRight, BarChart3, Calendar, Phone, Star,
   Target, Rocket, Gift, AlertCircle, X, ExternalLink, Lightbulb,
