@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
-  MessageCircle, Zap, Users, Check, ChevronLeft, Play, 
+  Bot, MessageCircle, Zap, Users, Check, ChevronLeft, Play, 
   List, Clock, BarChart3, Shield, Sparkles,
   Globe, Headphones, Workflow, Database, RefreshCw, X,
   ArrowRight, Star, TrendingUp, Award, Heart
