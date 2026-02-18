@@ -126,6 +126,23 @@ export default function SettingsPage() {
     if (activeTab === 'integrations') {
       loadGoogleSheetsStatus();
       loadGoogleContactsStatus();
+      
+      // Clean up URL after OAuth callback and fix browser history
+      const googleSheets = searchParams.get('google_sheets');
+      const googleContacts = searchParams.get('google_contacts');
+      if (googleSheets || googleContacts) {
+        // Show success message
+        if (googleSheets === 'connected') {
+          setMessage({ type: 'success', text: 'Google Sheets חובר בהצלחה!' });
+        }
+        if (googleContacts === 'connected') {
+          setMessage({ type: 'success', text: 'Google Contacts חובר בהצלחה!' });
+        }
+        
+        // Replace current URL and history to remove Google OAuth from back button
+        // Using navigate with replace: true
+        navigate('/settings?tab=integrations', { replace: true });
+      }
     }
   }, [activeTab]);
 
