@@ -5,7 +5,7 @@
 
 const db = require('../../config/database');
 const cloudApi = require('./cloudApi.service');
-const wahaSession = require('../statusBot/waha-session.service');
+const wahaSession = require('../waha/session.service');
 const { getWahaCredentials } = require('../settings/system.service');
 
 // Default colors (same as in dashboard)
