@@ -635,7 +635,11 @@ async function adminGrantTrial(req, res) {
       return res.status(400).json({ error: 'נדרש userId ו-trialDays' });
     }
     
-    // Upsert trial grant
+    // Calculate trial end date
+    const trialEndsAt = new Date();
+    trialEndsAt.setDate(trialEndsAt.getDate() + parseInt(trialDays));
+    
+    // Upsert trial grant record
     await db.query(`
       INSERT INTO user_service_trials (user_id, service_id, custom_trial_days, reason, granted_by)
       VALUES ($1, $2, $3, $4, $5)
@@ -643,9 +647,36 @@ async function adminGrantTrial(req, res) {
       DO UPDATE SET custom_trial_days = $3, reason = $4, granted_by = $5, granted_at = NOW()
     `, [userId, serviceId, trialDays, reason || null, adminId]);
     
+    // Create or update subscription with trial status
+    const existingResult = await db.query(
+      'SELECT * FROM user_service_subscriptions WHERE user_id = $1 AND service_id = $2',
+      [userId, serviceId]
+    );
+    
+    if (existingResult.rows.length > 0) {
+      // Update existing subscription to trial
+      await db.query(`
+        UPDATE user_service_subscriptions SET
+          status = 'trial',
+          is_trial = true,
+          trial_ends_at = $1,
+          is_manual = true,
+          admin_notes = COALESCE(admin_notes, '') || E'\n' || $2,
+          updated_at = NOW()
+        WHERE user_id = $3 AND service_id = $4
+      `, [trialEndsAt, `הוקצה ניסיון ${trialDays} ימים ע"י אדמין: ${reason || 'ללא סיבה'}`, userId, serviceId]);
+    } else {
+      // Create new subscription with trial status
+      await db.query(`
+        INSERT INTO user_service_subscriptions 
+        (user_id, service_id, status, is_trial, trial_ends_at, is_manual, admin_notes)
+        VALUES ($1, $2, 'trial', true, $3, true, $4)
+      `, [userId, serviceId, trialEndsAt, `הוקצה ניסיון ${trialDays} ימים ע"י אדמין: ${reason || 'ללא סיבה'}`]);
+    }
+    
     res.json({ 
       success: true, 
-      message: `הוקצה תקופת ניסיון של ${trialDays} ימים` 
+      message: `הוקצה תקופת ניסיון של ${trialDays} ימים עד ${trialEndsAt.toLocaleDateString('he-IL')}` 
     });
     
   } catch (error) {
