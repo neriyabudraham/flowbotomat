@@ -1677,14 +1677,19 @@ async function handleWebhook(req, res) {
     console.log(`[StatusBot Webhook] Event: ${event} for user ${userId}`);
 
     // Find connection by session name
+    console.log(`[StatusBot Webhook] Looking for connection with session_name: ${session}`);
+    
     const connResult = await db.query(
       'SELECT * FROM status_bot_connections WHERE session_name = $1',
       [session]
     );
 
     if (connResult.rows.length === 0) {
+      console.log(`[StatusBot Webhook] ❌ No connection found for session: ${session}`);
       return res.json({ received: true });
     }
+    
+    console.log(`[StatusBot Webhook] ✅ Found connection ID: ${connResult.rows[0].id}`)
 
     const connection = connResult.rows[0];
 
@@ -1808,11 +1813,21 @@ async function handleSessionStatus(connection, payload) {
       }
     } else if (status === 'SCAN_QR_CODE') {
       newStatus = 'qr_pending';
+      console.log(`[StatusBot] ➡️ Status changed to: qr_pending`);
     } else if (status === 'FAILED') {
       newStatus = 'failed';
+      console.log(`[StatusBot] ➡️ Status changed to: failed`);
+    } else if (status === 'STOPPED') {
+      newStatus = 'disconnected';
+      console.log(`[StatusBot] ➡️ Status changed to: disconnected (STOPPED received)`);
+    } else {
+      console.log(`[StatusBot] ➡️ Unknown WAHA status "${status}", defaulting to disconnected`);
     }
 
     // Get phone number if available
+    const now = new Date();
+    console.log(`[StatusBot] 💾 Saving to DB: status=${newStatus}, timestamp=${now.toISOString()}`);
+    
     if (payload.me?.id) {
       const phoneNumber = payload.me.id.split('@')[0];
       const displayName = payload.me.pushName || null;
@@ -1843,6 +1858,8 @@ async function handleSessionStatus(connection, payload) {
         WHERE id = $2
       `, [newStatus, connection.id]);
     }
+    
+    console.log(`[StatusBot] ========== END handleSessionStatus ==========`);
 
   } catch (error) {
     console.error('[StatusBot] Handle session status error:', error);
