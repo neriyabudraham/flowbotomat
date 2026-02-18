@@ -222,12 +222,71 @@ async function getConnection(req, res) {
             const phoneNumber = wahaStatus.me?.id?.split('@')[0] || connection.phone_number;
             const displayName = wahaStatus.me?.pushName || connection.display_name;
             
-            await db.query(`
-              UPDATE status_bot_connections 
-              SET connection_status = $1, phone_number = COALESCE($2, phone_number), 
-                  display_name = COALESCE($3, display_name), updated_at = NOW()
-              WHERE id = $4
-            `, [newStatus, phoneNumber, displayName, connection.id]);
+            // Check if reconnecting from disconnected state - apply short restriction logic
+            const wasDisconnected = connection.connection_status === 'disconnected' || 
+                                   connection.connection_status === 'failed' || 
+                                   connection.connection_status === 'qr_pending';
+            
+            if (newStatus === 'connected' && wasDisconnected && connection.first_connected_at) {
+              // Calculate disconnection duration
+              const disconnectionDuration = connection.updated_at 
+                ? (Date.now() - new Date(connection.updated_at).getTime()) / 1000 
+                : 999999;
+              
+              console.log(`[StatusBot] getConnection detected reconnection: was ${connection.connection_status}, disconnection was ${Math.round(disconnectionDuration)}s`);
+              
+              if (disconnectionDuration < 60) {
+                // Short disconnection - apply 30 min restriction
+                const shortRestrictionUntil = new Date(Date.now() + 30 * 60 * 1000);
+                console.log(`[StatusBot] Applying 30 min short restriction until ${shortRestrictionUntil.toISOString()}`);
+                
+                await db.query(`
+                  UPDATE status_bot_connections 
+                  SET connection_status = $1, phone_number = COALESCE($2, phone_number), 
+                      display_name = COALESCE($3, display_name), updated_at = NOW(),
+                      short_restriction_until = $5
+                  WHERE id = $4
+                `, [newStatus, phoneNumber, displayName, connection.id, shortRestrictionUntil]);
+                
+                connection.short_restriction_until = shortRestrictionUntil;
+              } else {
+                // Longer disconnection - check if re-auth was needed
+                const requiresReauthentication = connection.connection_status === 'qr_pending' || 
+                                                 connection.connection_status === 'failed';
+                
+                if (requiresReauthentication) {
+                  // Apply 24h restriction
+                  console.log(`[StatusBot] Applying 24h restriction (re-auth required, disconnection was ${Math.round(disconnectionDuration)}s)`);
+                  await db.query(`
+                    UPDATE status_bot_connections 
+                    SET connection_status = $1, phone_number = COALESCE($2, phone_number), 
+                        display_name = COALESCE($3, display_name), updated_at = NOW(),
+                        last_connected_at = NOW(), restriction_lifted = false, short_restriction_until = NULL
+                    WHERE id = $4
+                  `, [newStatus, phoneNumber, displayName, connection.id]);
+                  
+                  connection.last_connected_at = new Date();
+                  connection.restriction_lifted = false;
+                } else {
+                  // Regular reconnection without re-auth - no new restriction
+                  console.log(`[StatusBot] No new restriction (auto-reconnection after ${Math.round(disconnectionDuration)}s)`);
+                  await db.query(`
+                    UPDATE status_bot_connections 
+                    SET connection_status = $1, phone_number = COALESCE($2, phone_number), 
+                        display_name = COALESCE($3, display_name), updated_at = NOW()
+                    WHERE id = $4
+                  `, [newStatus, phoneNumber, displayName, connection.id]);
+                }
+              }
+            } else {
+              // Status change that's not a reconnection - just update
+              await db.query(`
+                UPDATE status_bot_connections 
+                SET connection_status = $1, phone_number = COALESCE($2, phone_number), 
+                    display_name = COALESCE($3, display_name), updated_at = NOW()
+                WHERE id = $4
+              `, [newStatus, phoneNumber, displayName, connection.id]);
+            }
             
             connection.connection_status = newStatus;
             connection.phone_number = phoneNumber;
