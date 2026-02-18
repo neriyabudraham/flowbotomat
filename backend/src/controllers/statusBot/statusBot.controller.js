@@ -1746,45 +1746,39 @@ async function handleSessionStatus(connection, payload) {
     if (status === 'WORKING') {
       newStatus = 'connected';
       
-      // Only reset restriction if:
-      // 1. First time connecting (no first_connected_at)
-      // 2. Previous status was qr_pending or failed (user had to re-authenticate)
-      // Don't reset for temporary disconnections that auto-recover
+      // Check how long the connection was down
+      const disconnectionDuration = connection.updated_at 
+        ? (Date.now() - new Date(connection.updated_at).getTime()) / 1000 
+        : 999999;
       
       const requiresReauthentication = previousStatus === 'qr_pending' || previousStatus === 'failed';
+      const wasDisconnected = previousStatus === 'disconnected' || previousStatus === 'failed' || previousStatus === 'qr_pending';
       
       if (!connection.first_connected_at) {
-        // First time connecting
+        // First time connecting - 24h restriction
         console.log(`[StatusBot] First connection for ${connection.id}`);
         await db.query(`
           UPDATE status_bot_connections 
           SET first_connected_at = NOW(), last_connected_at = NOW(), short_restriction_until = NULL
           WHERE id = $1 AND first_connected_at IS NULL
         `, [connection.id]);
+      } else if (wasDisconnected && disconnectionDuration < 60) {
+        // Short disconnection (< 1 minute) - use 30 min "system updates" restriction
+        console.log(`[StatusBot] Short disconnection (${Math.round(disconnectionDuration)}s) for ${connection.id}, setting 30 min system updates restriction`);
+        const shortRestrictionUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
+        await db.query(`
+          UPDATE status_bot_connections 
+          SET restriction_lifted = true, short_restriction_until = $2
+          WHERE id = $1
+        `, [connection.id, shortRestrictionUntil]);
       } else if (requiresReauthentication) {
-        // Re-authentication required - check how long the disconnection was
-        const disconnectionDuration = connection.updated_at 
-          ? (Date.now() - new Date(connection.updated_at).getTime()) / 1000 
-          : 999999;
-        
-        if (disconnectionDuration < 60) {
-          // Short disconnection (< 1 minute) - use 30 min "system updates" restriction instead of 24h
-          console.log(`[StatusBot] Short disconnection (${Math.round(disconnectionDuration)}s) for ${connection.id}, setting 30 min system updates restriction`);
-          const shortRestrictionUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
-          await db.query(`
-            UPDATE status_bot_connections 
-            SET last_connected_at = last_connected_at, restriction_lifted = true, short_restriction_until = $2
-            WHERE id = $1
-          `, [connection.id, shortRestrictionUntil]);
-        } else {
-          // Normal re-authentication - reset 24h restriction
-          console.log(`[StatusBot] Re-authentication detected for ${connection.id} (was: ${previousStatus}, disconnected for ${Math.round(disconnectionDuration)}s), resetting 24h restriction`);
-          await db.query(`
-            UPDATE status_bot_connections 
-            SET last_connected_at = NOW(), restriction_lifted = false, short_restriction_until = NULL
-            WHERE id = $1
-          `, [connection.id]);
-        }
+        // Re-authentication required (QR scan) with longer disconnection - 24h restriction
+        console.log(`[StatusBot] Re-authentication detected for ${connection.id} (was: ${previousStatus}, disconnected for ${Math.round(disconnectionDuration)}s), resetting 24h restriction`);
+        await db.query(`
+          UPDATE status_bot_connections 
+          SET last_connected_at = NOW(), restriction_lifted = false, short_restriction_until = NULL
+          WHERE id = $1
+        `, [connection.id]);
       } else {
         // Just a regular reconnection (network hiccup) - don't reset restriction
         console.log(`[StatusBot] Auto-reconnection for ${connection.id} (was: ${previousStatus}), NOT resetting restriction`);
