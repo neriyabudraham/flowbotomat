@@ -13,7 +13,6 @@ import useWhatsappStore from '../../store/whatsappStore';
 import Logo from '../../components/atoms/Logo';
 import NotificationsDropdown from '../../components/notifications/NotificationsDropdown';
 import AccountSwitcher from '../../components/AccountSwitcher';
-import ViewingAsBanner from '../../components/layout/ViewingAsBanner';
 import api from '../../services/api';
 import { ToastProvider, useToast } from '../../components/ui/Toast';
 
@@ -935,8 +934,6 @@ function StatusBotDashboardContent() {
   if (step === 'no_subscription') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-emerald-50" dir="rtl">
-        <ViewingAsBanner />
-        
         <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
           <div className="max-w-7xl mx-auto px-6 py-4">
             <div className="flex items-center justify-between">
@@ -954,6 +951,12 @@ function StatusBotDashboardContent() {
                 <NotificationsDropdown />
                 <div className="h-8 w-px bg-gray-200" />
                 <AccountSwitcher />
+                <button 
+                  onClick={() => { logout(); navigate('/login'); }}
+                  className="hidden md:block px-4 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors"
+                >
+                  התנתק
+                </button>
               </div>
             </div>
           </div>
@@ -1037,8 +1040,6 @@ function StatusBotDashboardContent() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-green-50" dir="rtl">
-      <ViewingAsBanner />
-      
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 py-4">
@@ -1052,26 +1053,18 @@ function StatusBotDashboardContent() {
               </button>
               <div className="h-8 w-px bg-gray-200" />
               <Logo />
-              <div className="hidden md:block h-8 w-px bg-gray-200" />
-              <div className="hidden md:flex items-center gap-2">
-                <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center">
-                  <Upload className="w-4 h-4 text-white" />
-                </div>
-                <span className="font-bold text-gray-800">בוט העלאת סטטוסים</span>
-                <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-xs font-bold rounded-full">Pro</span>
-              </div>
             </div>
             
             <div className="flex items-center gap-3">
               <NotificationsDropdown />
-              <Link 
-                to="/settings"
-                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-all"
-              >
-                <Settings className="w-5 h-5" />
-              </Link>
               <div className="h-8 w-px bg-gray-200" />
               <AccountSwitcher />
+              <button 
+                onClick={() => { logout(); navigate('/login'); }}
+                className="hidden md:block px-4 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors"
+              >
+                התנתק
+              </button>
             </div>
           </div>
         </div>

@@ -5,10 +5,10 @@ import {
   Check, X, Megaphone, Gift, Sparkles, ArrowRight, CreditCard
 } from 'lucide-react';
 import useNotificationsStore from '../store/notificationsStore';
+import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
-import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
 import AccountSwitcher from '../components/AccountSwitcher';
-import ViewingAsBanner from '../components/layout/ViewingAsBanner';
+import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
 
 const NOTIFICATION_ICONS = {
   share_received: { icon: Share2, color: 'text-purple-500', bg: 'bg-purple-100' },
@@ -37,6 +37,7 @@ function formatTime(date) {
 
 export default function NotificationsPage() {
   const navigate = useNavigate();
+  const { logout } = useAuthStore();
   const [selectedIds, setSelectedIds] = useState([]);
   const [selectionMode, setSelectionMode] = useState(false);
   
@@ -89,8 +90,6 @@ export default function NotificationsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100" dir="rtl">
-      <ViewingAsBanner />
-      
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-lg border-b border-gray-200 sticky top-0 z-40">
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -160,8 +159,15 @@ export default function NotificationsPage() {
                 >
                   <Settings className="w-5 h-5 text-gray-600" />
                 </Link>
+                <NotificationsDropdown />
                 <div className="h-8 w-px bg-gray-200" />
                 <AccountSwitcher />
+                <button 
+                  onClick={() => { logout(); navigate('/login'); }}
+                  className="hidden md:block px-4 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors"
+                >
+                  התנתק
+                </button>
               </>
             )}
           </div>

@@ -8,11 +8,15 @@ import {
   Mail, HelpCircle, Hash
 } from 'lucide-react';
 import useWhatsappStore from '../store/whatsappStore';
+import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
+import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
+import AccountSwitcher from '../components/AccountSwitcher';
 import PaymentRequiredModal from '../components/payment/PaymentRequiredModal';
 
 export default function WhatsappSetupPage() {
   const navigate = useNavigate();
+  const { logout } = useAuthStore();
   const [step, setStep] = useState('loading');
   const [isCheckingExisting, setIsCheckingExisting] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -161,7 +165,7 @@ export default function WhatsappSetupPage() {
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-emerald-50" dir="rtl">
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
-        <div className="max-w-4xl mx-auto px-6 py-4">
+        <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button 
@@ -173,12 +177,17 @@ export default function WhatsappSetupPage() {
               <div className="h-8 w-px bg-gray-200" />
               <Logo />
             </div>
-            <Link 
-              to="/dashboard"
-              className="text-sm text-gray-500 hover:text-gray-700"
-            >
-              חזרה לדשבורד
-            </Link>
+            <div className="flex items-center gap-3">
+              <NotificationsDropdown />
+              <div className="h-8 w-px bg-gray-200" />
+              <AccountSwitcher />
+              <button 
+                onClick={() => { logout(); navigate('/login'); }}
+                className="hidden md:block px-4 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors"
+              >
+                התנתק
+              </button>
+            </div>
           </div>
         </div>
       </header>

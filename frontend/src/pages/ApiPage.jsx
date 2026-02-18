@@ -10,7 +10,6 @@ import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
 import AccountSwitcher from '../components/AccountSwitcher';
-import ViewingAsBanner from '../components/layout/ViewingAsBanner';
 import api from '../services/api';
 
 export default function ApiPage() {
@@ -288,8 +287,6 @@ export default function ApiPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-purple-50" dir="rtl">
-      <ViewingAsBanner />
-      
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 py-4">

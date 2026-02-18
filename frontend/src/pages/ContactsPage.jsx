@@ -14,7 +14,6 @@ import ChatView from '../components/organisms/ChatView';
 import ContactProfile from '../components/organisms/ContactProfile';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
 import AccountSwitcher from '../components/AccountSwitcher';
-import ViewingAsBanner from '../components/layout/ViewingAsBanner';
 import api from '../services/api';
 
 export default function ContactsPage() {
@@ -153,7 +152,6 @@ export default function ContactsPage() {
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 via-white to-blue-50" dir="rtl">
-      <ViewingAsBanner />
       
       {/* Premium Header */}
       <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">

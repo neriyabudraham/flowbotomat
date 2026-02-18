@@ -73,7 +73,7 @@ export default function NotificationsDropdown() {
       >
         <Bell className={`w-5 h-5 ${unreadCount > 0 ? 'text-gray-800' : 'text-gray-600'}`} />
         {unreadCount > 0 && (
-          <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full" />
+          <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-blue-500 rounded-full border-2 border-white" />
         )}
       </button>
 

@@ -11,7 +11,6 @@ import useAuthStore from '../store/authStore';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
 import AccountSwitcher from '../components/AccountSwitcher';
 import Logo from '../components/atoms/Logo';
-import ViewingAsBanner from '../components/layout/ViewingAsBanner';
 import api from '../services/api';
 
 // Tab Components
@@ -95,8 +94,6 @@ export default function BroadcastsPage() {
   if (hasAccess === false) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-orange-50/30" dir="rtl">
-        <ViewingAsBanner />
-        
         {/* Header */}
         <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
           <div className="max-w-7xl mx-auto px-6 py-4">
@@ -216,8 +213,6 @@ export default function BroadcastsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/30" dir="rtl">
-      <ViewingAsBanner />
-      
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 py-4">
