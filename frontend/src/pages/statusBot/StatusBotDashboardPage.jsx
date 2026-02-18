@@ -342,6 +342,37 @@ function StatusBotDashboardContent() {
           console.log('[StatusBot] Main WhatsApp connected, auto-connecting...');
           await handleConnect();
         }
+      } else if (existingRes.data.exists && existingRes.data.isStarting) {
+        // Session is starting/restarting - wait and retry
+        console.log('[StatusBot] Session is starting, waiting...');
+        setStep('loading');
+        // Poll every 2 seconds until connected
+        const pollInterval = setInterval(async () => {
+          try {
+            const { data: pollData } = await api.get('/status-bot/check-existing');
+            if (pollData.isConnected) {
+              clearInterval(pollInterval);
+              const { data } = await api.get('/status-bot/connection');
+              if (data.connection?.connection_status === 'connected') {
+                setConnection(data.connection);
+                if (data.subscription) setSubscription(data.subscription);
+                setStep('dashboard');
+                loadDashboardData();
+              } else {
+                await handleConnect();
+              }
+            } else if (!pollData.isStarting) {
+              // No longer starting but not connected - might need QR
+              clearInterval(pollInterval);
+              setStep('select');
+              setExistingSession(pollData);
+            }
+          } catch (e) {
+            console.error('Poll error:', e);
+          }
+        }, 2000);
+        // Stop polling after 30 seconds
+        setTimeout(() => clearInterval(pollInterval), 30000);
       } else {
         // No main WhatsApp connection - show select page
         setStep('select');
