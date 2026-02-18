@@ -177,7 +177,7 @@ export default function StatusBotSubscribePage() {
   };
 
   const handleRenewal = async () => {
-    if (!existingSubscription) return;
+    if (!existingSubscription || !service) return;
     
     // If no payment method, show card form
     if (!paymentMethod) {
@@ -189,9 +189,13 @@ export default function StatusBotSubscribePage() {
     setError(null);
     
     try {
-      const { data } = await api.post('/payment/reactivate');
+      // Use the services subscribe endpoint (same as new subscription)
+      // It handles renewals with remaining time automatically
+      const { data } = await api.post(`/services/${service.id}/subscribe`, {
+        billingPeriod
+      });
 
-      if (data.success) {
+      if (data.success || data.subscription) {
         navigate('/status-bot/dashboard');
       }
     } catch (err) {
