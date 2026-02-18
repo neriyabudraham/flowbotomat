@@ -1879,6 +1879,67 @@ async function handleSessionStatus(connection, payload) {
     } else if (status === 'STOPPED') {
       newStatus = 'disconnected';
       console.log(`[StatusBot] ➡️ Status changed to: disconnected (STOPPED received)`);
+      
+      // Schedule a check after 60 seconds to determine restriction type
+      if (connection.first_connected_at) {
+        const connectionId = connection.id;
+        const sessionName = connection.session_name;
+        console.log(`[StatusBot] ⏰ Scheduling reconnection check in 60 seconds for connection ${connectionId}`);
+        
+        setTimeout(async () => {
+          try {
+            console.log(`[StatusBot] ⏰ Running scheduled reconnection check for ${connectionId}`);
+            
+            // Get fresh connection data
+            const connResult = await db.query('SELECT * FROM status_bot_connections WHERE id = $1', [connectionId]);
+            if (connResult.rows.length === 0) {
+              console.log(`[StatusBot] ⏰ Connection ${connectionId} no longer exists, skipping check`);
+              return;
+            }
+            
+            const freshConnection = connResult.rows[0];
+            
+            // If already reconnected via webhook, skip
+            if (freshConnection.connection_status === 'connected') {
+              console.log(`[StatusBot] ⏰ Connection ${connectionId} already reconnected (via webhook), skipping`);
+              return;
+            }
+            
+            // Check WAHA status
+            const { baseUrl, apiKey } = await getWahaCredentials();
+            const wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+            
+            console.log(`[StatusBot] ⏰ WAHA status for ${sessionName}: ${wahaStatus?.status}`);
+            
+            if (wahaStatus?.status === 'WORKING') {
+              // Reconnected without webhook! Apply 30 min restriction
+              const shortRestrictionUntil = new Date(Date.now() + 30 * 60 * 1000);
+              console.log(`[StatusBot] ⏰ WAHA is WORKING but no webhook received - applying 30 min restriction`);
+              
+              const phoneNumber = wahaStatus.me?.id?.split('@')[0] || freshConnection.phone_number;
+              const displayName = wahaStatus.me?.pushName || freshConnection.display_name;
+              
+              await db.query(`
+                UPDATE status_bot_connections 
+                SET connection_status = 'connected', 
+                    phone_number = COALESCE($2, phone_number),
+                    display_name = COALESCE($3, display_name),
+                    short_restriction_until = $4,
+                    restriction_lifted = true,
+                    updated_at = NOW()
+                WHERE id = $1
+              `, [connectionId, phoneNumber, displayName, shortRestrictionUntil]);
+              
+              console.log(`[StatusBot] ⏰ Applied 30 min restriction until ${shortRestrictionUntil.toISOString()}`);
+            } else {
+              // Still disconnected after 60 seconds - will get full restriction when reconnects
+              console.log(`[StatusBot] ⏰ Still disconnected after 60s, will get full restriction on reconnect`);
+            }
+          } catch (err) {
+            console.error(`[StatusBot] ⏰ Error in scheduled reconnection check:`, err);
+          }
+        }, 60 * 1000); // 60 seconds
+      }
     } else {
       console.log(`[StatusBot] ➡️ Unknown WAHA status "${status}", defaulting to disconnected`);
     }
