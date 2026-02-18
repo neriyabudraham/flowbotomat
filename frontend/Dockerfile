@@ -12,7 +12,7 @@ ENV VITE_SUMIT_PUBLIC_KEY=$VITE_SUMIT_PUBLIC_KEY
 
 # Install dependencies
 COPY package*.json ./
-RUN npm ci
+RUN npm install
 
 # Copy source code and build
 COPY . .
