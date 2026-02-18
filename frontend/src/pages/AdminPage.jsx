@@ -4,6 +4,9 @@ import {
   Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2, Bell, Package, Smartphone
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
+import Logo from '../components/atoms/Logo';
+import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
+import AccountSwitcher from '../components/AccountSwitcher';
 
 // Admin Components
 import AdminDashboard from '../components/admin/AdminDashboard';
@@ -34,7 +37,7 @@ const TABS = [
 
 export default function AdminPage() {
   const navigate = useNavigate();
-  const { user, fetchMe } = useAuthStore();
+  const { user, fetchMe, logout } = useAuthStore();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [loading, setLoading] = useState(true);
 
@@ -103,26 +106,43 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-red-100 rounded-xl">
-              <Shield className="w-6 h-6 text-red-600" />
+      <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
+        <div className="max-w-full mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={() => navigate('/dashboard')}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+              </button>
+              <div className="h-8 w-px bg-gray-200" />
+              <Logo />
+              <div className="hidden md:block h-8 w-px bg-gray-200" />
+              <div className="hidden md:flex items-center gap-2">
+                <div className="p-2 bg-red-100 rounded-xl">
+                  <Shield className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <span className="font-bold text-gray-800">ניהול מערכת</span>
+                  <span className="text-xs text-gray-500 mr-2">
+                    ({user?.role === 'superadmin' ? 'סופר-אדמין' : 'אדמין'})
+                  </span>
+                </div>
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-800">ניהול מערכת</h1>
-              <p className="text-sm text-gray-500">
-                {user?.role === 'superadmin' ? 'סופר-אדמין' : 'אדמין'}
-              </p>
+            <div className="flex items-center gap-3">
+              <NotificationsDropdown />
+              <div className="h-8 w-px bg-gray-200" />
+              <AccountSwitcher />
+              <button 
+                onClick={() => { logout(); navigate('/login'); }}
+                className="hidden md:block px-4 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors"
+              >
+                התנתק
+              </button>
             </div>
           </div>
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="flex items-center gap-2 text-gray-500 hover:text-gray-700 transition-colors"
-          >
-            <span>חזרה לדשבורד</span>
-            <ArrowLeft className="w-4 h-4" />
-          </button>
         </div>
       </header>
 

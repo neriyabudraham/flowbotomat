@@ -1,15 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { 
-  ChevronDown, Plus, Check,
+  ChevronDown, Plus, Check, Shield,
   UserPlus, ArrowLeftRight, X, Mail, Copy, ExternalLink, Link2
 } from 'lucide-react';
 import api from '../services/api';
 import useAuthStore from '../store/authStore';
 
 export default function AccountSwitcher() {
+  const navigate = useNavigate();
   const { user, setTokens } = useAuthStore();
   const [isOpen, setIsOpen] = useState(false);
+  
+  const isAdmin = user && ['admin', 'superadmin'].includes(user.role);
   const [accounts, setAccounts] = useState({ current: null, original: null, clients: [], linked: [], isViewingAs: false });
   const [loading, setLoading] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -264,6 +268,21 @@ export default function AccountSwitcher() {
                 <span className="text-sm">{creatingLink ? 'פותח...' : 'צור חשבון מקושר'}</span>
               </button>
             </div>
+
+            {/* Admin Panel Link */}
+            {isAdmin && (
+              <div className="px-4 py-2 border-t border-gray-100">
+                <button
+                  onClick={() => { navigate('/admin'); setIsOpen(false); }}
+                  className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-red-50 text-gray-700 transition-colors"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
+                    <Shield className="w-4 h-4 text-red-600" />
+                  </div>
+                  <span className="text-sm font-medium text-red-700">ממשק ניהול</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

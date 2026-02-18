@@ -14,7 +14,7 @@ import api from '../services/api';
 
 export default function ApiPage() {
   const navigate = useNavigate();
-  const { user, fetchMe } = useAuthStore();
+  const { user, fetchMe, logout } = useAuthStore();
   const [apiKeys, setApiKeys] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -305,6 +305,12 @@ export default function ApiPage() {
               <NotificationsDropdown />
               <div className="h-8 w-px bg-gray-200" />
               <AccountSwitcher />
+              <button 
+                onClick={() => { logout(); navigate('/login'); }}
+                className="hidden md:block px-4 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors"
+              >
+                התנתק
+              </button>
             </div>
           </div>
         </div>
