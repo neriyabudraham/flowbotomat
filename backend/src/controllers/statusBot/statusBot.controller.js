@@ -1748,7 +1748,7 @@ async function adminGetUsers(req, res) {
 }
 
 /**
- * Lift 24-hour restriction (admin)
+ * Lift restriction (admin) - works for both 24h and 30min restrictions
  */
 async function adminLiftRestriction(req, res) {
   try {
@@ -1757,7 +1757,11 @@ async function adminLiftRestriction(req, res) {
 
     await db.query(`
       UPDATE status_bot_connections 
-      SET restriction_lifted = true, restriction_lifted_at = NOW(), restriction_lifted_by = $1, updated_at = NOW()
+      SET restriction_lifted = true, 
+          restriction_lifted_at = NOW(), 
+          restriction_lifted_by = $1, 
+          short_restriction_until = NULL,
+          updated_at = NOW()
       WHERE id = $2
     `, [adminId, connectionId]);
 

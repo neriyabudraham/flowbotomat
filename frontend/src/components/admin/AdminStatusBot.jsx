@@ -35,7 +35,7 @@ export default function AdminStatusBot() {
   };
 
   const handleLiftRestriction = async (connectionId) => {
-    if (!confirm('האם להסיר את חסימת 24 השעות?')) return;
+    if (!confirm('האם להסיר את החסימה?')) return;
     
     setLiftingRestriction(connectionId);
     try {
@@ -55,16 +55,28 @@ export default function AdminStatusBot() {
     u.phone_number?.includes(search)
   );
 
-  // Check if user is in 24h restriction period (uses last_connected_at, falls back to first_connected_at)
-  const isRestricted = (user) => {
-    if (user.restriction_lifted) return false;
+  // Check if user is in restriction period (24h or 30min short restriction)
+  const getRestrictionInfo = (user) => {
+    // First check short restriction (30 min "system updates")
+    if (user.short_restriction_until && new Date(user.short_restriction_until) > new Date()) {
+      return { restricted: true, type: 'short', endsAt: new Date(user.short_restriction_until) };
+    }
+    
+    // Then check 24h restriction
+    if (user.restriction_lifted) return { restricted: false };
     const connectionDate = user.last_connected_at || user.first_connected_at;
-    if (!connectionDate) return false;
+    if (!connectionDate) return { restricted: false };
     
     const connectedAt = new Date(connectionDate);
     const restrictionEnd = new Date(connectedAt.getTime() + 24 * 60 * 60 * 1000);
-    return new Date() < restrictionEnd;
+    if (new Date() < restrictionEnd) {
+      return { restricted: true, type: 'full', endsAt: restrictionEnd };
+    }
+    
+    return { restricted: false };
   };
+  
+  const isRestricted = (user) => getRestrictionInfo(user).restricted;
 
   return (
     <div className="space-y-6">
@@ -220,30 +232,42 @@ export default function AdminStatusBot() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        {user.restriction_lifted ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-green-600">
-                            <Shield className="w-3 h-3" />
-                            שוחרר
-                          </span>
-                        ) : restricted ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-amber-600">
-                            <AlertCircle className="w-3 h-3" />
-                            פעיל
-                          </span>
-                        ) : (
-                          <span className="text-gray-400 text-xs">—</span>
-                        )}
+                        {(() => {
+                          const info = getRestrictionInfo(user);
+                          if (user.restriction_lifted && !info.restricted) {
+                            return (
+                              <span className="inline-flex items-center gap-1 text-xs text-green-600">
+                                <Shield className="w-3 h-3" />
+                                שוחרר
+                              </span>
+                            );
+                          } else if (info.restricted) {
+                            return (
+                              <span className="inline-flex items-center gap-1 text-xs text-amber-600">
+                                <AlertCircle className="w-3 h-3" />
+                                {info.type === 'short' ? '30 דק׳' : '24 שעות'}
+                              </span>
+                            );
+                          }
+                          return <span className="text-gray-400 text-xs">—</span>;
+                        })()}
                       </td>
                       <td className="px-4 py-3">
-                        {restricted && !user.restriction_lifted && (
-                          <button
-                            onClick={() => handleLiftRestriction(user.id)}
-                            disabled={liftingRestriction === user.id}
-                            className="px-3 py-1.5 text-sm bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 disabled:opacity-50"
-                          >
-                            {liftingRestriction === user.id ? 'מסיר...' : 'הסר חסימה'}
-                          </button>
-                        )}
+                        {(() => {
+                          const info = getRestrictionInfo(user);
+                          if (info.restricted) {
+                            return (
+                              <button
+                                onClick={() => handleLiftRestriction(user.id)}
+                                disabled={liftingRestriction === user.id}
+                                className="px-3 py-1.5 text-sm bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 disabled:opacity-50"
+                              >
+                                {liftingRestriction === user.id ? 'מסיר...' : 'הסר חסימה'}
+                              </button>
+                            );
+                          }
+                          return null;
+                        })()}
                       </td>
                     </tr>
                   );
