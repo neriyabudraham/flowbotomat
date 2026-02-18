@@ -1,11 +1,12 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
-  Bot, MessageCircle, Zap, Users, Check, ChevronLeft, Play, 
+  MessageCircle, Zap, Users, Check, ChevronLeft, Play, 
   List, Clock, BarChart3, Shield, Sparkles,
   Globe, Headphones, Workflow, Database, RefreshCw, X,
   ArrowRight, Star, TrendingUp, Award, Heart
 } from 'lucide-react';
+import api from '../services/api';
 import {
   ReactFlow,
   Background,
@@ -190,6 +191,16 @@ function InteractiveFlowDemo() {
 
 export default function LandingPage() {
   const navigate = useNavigate();
+  const [trialDays, setTrialDays] = useState(14);
+
+  useEffect(() => {
+    api.get('/subscriptions/plans').then(({ data }) => {
+      const basicPlan = data.plans?.find(p => p.name === 'basic');
+      if (basicPlan?.trial_days) {
+        setTrialDays(basicPlan.trial_days);
+      }
+    }).catch(() => {});
+  }, []);
 
   const services = [
     {
@@ -270,11 +281,8 @@ export default function LandingPage() {
       <header className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-xl border-b border-gray-100/50">
         <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
           <div className="flex items-center gap-4">
-            <Link to="/" className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25">
-                <Bot className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-xl font-bold text-gray-900">Botomat</span>
+            <Link to="/">
+              <Logo size="md" />
             </Link>
           </div>
           <div className="hidden md:flex items-center gap-8">
@@ -306,7 +314,7 @@ export default function LandingPage() {
             {/* Badge */}
             <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 shadow-lg rounded-full text-sm font-medium mb-8">
               <Sparkles className="w-4 h-4 text-yellow-500" />
-              <span className="text-gray-700">14 ימי ניסיון חינם</span>
+              <span className="text-gray-700">{trialDays} ימי ניסיון חינם</span>
               <span className="w-1.5 h-1.5 bg-gray-300 rounded-full" />
               <span className="text-gray-500">ביטול בכל עת</span>
             </div>
@@ -542,12 +550,12 @@ export default function LandingPage() {
               to="/signup"
               className="inline-flex items-center justify-center gap-2 px-10 py-5 bg-white text-gray-900 rounded-2xl font-bold text-lg hover:bg-gray-100 transition-all shadow-2xl hover:-translate-y-0.5"
             >
-              התחל 14 ימי ניסיון חינם
+              התחל {trialDays} ימי ניסיון חינם
               <ChevronLeft className="w-5 h-5" />
             </Link>
           </div>
           <p className="text-white/60 text-sm mt-6">
-            ביטול בכל עת • תשלום רק אחרי 14 יום
+            ביטול בכל עת • תשלום רק אחרי {trialDays} יום
           </p>
         </div>
       </section>
@@ -557,13 +565,8 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col md:flex-row items-center justify-between gap-8 pb-8 border-b border-gray-800">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
-                <Bot className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <div className="text-white font-bold">Botomat</div>
-                <div className="text-gray-500 text-sm">שירותי אוטומציה</div>
-              </div>
+              <Logo size="md" />
+              <div className="text-gray-500 text-sm">שירותי אוטומציה</div>
             </div>
             <div className="flex items-center gap-8 text-sm">
               <Link to="/pricing" className="text-gray-400 hover:text-white transition-colors">תמחור</Link>

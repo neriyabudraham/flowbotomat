@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
+import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
+import AccountSwitcher from '../components/AccountSwitcher';
 import api from '../services/api';
 
 const SERVICE_ICONS = {
@@ -27,7 +29,7 @@ const SERVICE_LANDING_PAGES = {
 export default function ServicesPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, fetchMe } = useAuthStore();
+  const { user, fetchMe, logout } = useAuthStore();
   const [services, setServices] = useState([]);
   const [myServices, setMyServices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -137,19 +139,32 @@ export default function ServicesPage() {
         <div className="max-w-6xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
+              {user && (
+                <>
+                  <button 
+                    onClick={() => navigate('/dashboard')}
+                    className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+                  >
+                    <ArrowLeft className="w-5 h-5 text-gray-600" />
+                  </button>
+                  <div className="h-8 w-px bg-gray-200" />
+                </>
+              )}
               <Logo />
-              <div className="h-8 w-px bg-gray-200" />
-              <h1 className="text-lg font-bold text-gray-800">שירותים נוספים</h1>
             </div>
             
             {user ? (
-              <button
-                onClick={() => navigate('/dashboard')}
-                className="flex items-center gap-2 text-gray-500 hover:text-gray-700 transition-colors"
-              >
-                <span>חזרה לדשבורד</span>
-                <ArrowLeft className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-3">
+                <NotificationsDropdown />
+                <div className="h-8 w-px bg-gray-200" />
+                <AccountSwitcher />
+                <button 
+                  onClick={() => { logout(); navigate('/login'); }}
+                  className="hidden md:block px-4 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors"
+                >
+                  התנתק
+                </button>
+              </div>
             ) : (
               <div className="flex items-center gap-3">
                 <Link
