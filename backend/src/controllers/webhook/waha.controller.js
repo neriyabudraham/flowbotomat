@@ -628,6 +628,23 @@ async function handleIncomingMessage(userId, event) {
       }
     }
     
+  } else if (isChannelMessage) {
+    // Channel message: contact is the CHANNEL itself
+    contactPhone = channelId;  // e.g., "120363288101086546@newsletter"
+    contactWaId = channelId;
+    
+    // Get channel name from payload - try multiple sources
+    contactName = payload._data?.Info?.Subject ||
+                  payload._data?.Info?.VerifiedName?.Details?.verifiedName ||
+                  payload._data?.NewsletterMeta?.name ||
+                  payload.notifyName || payload.pushName || null;
+    
+    console.log(`[Webhook] 📢 Channel contact: phone=${contactPhone}, name=${contactName}`);
+    
+    // If we couldn't get the name, we'll try to fetch it later
+    if (!contactName) {
+      contactName = 'ערוץ';
+    }
   } else {
     // Direct message: contact is the sender
     contactPhone = senderPhone;
@@ -636,19 +653,22 @@ async function handleIncomingMessage(userId, event) {
   }
   
   if (!contactPhone) {
-    console.log('[Webhook] Could not extract contact identifier');
+    console.log('[Webhook] Could not extract contact identifier - chatId:', chatId, 'senderPhone:', senderPhone);
     return;
   }
   
-  // Get or create contact (group or individual)
+  // Get or create contact (group, channel, or individual)
   const contact = await getOrCreateContact(userId, contactPhone, {
     ...payload,
     _contactOverride: {
       name: contactName,
       waId: contactWaId,
-      isGroup: isGroupMessage
+      isGroup: isGroupMessage,
+      isChannel: isChannelMessage
     }
   });
+  
+  console.log(`[Webhook] Contact ${isGroupMessage ? '(group)' : isChannelMessage ? '(channel)' : '(direct)'}: id=${contact.id}, phone=${contactPhone}`);
   
   // Parse message content
   const messageData = parseMessage(payload);

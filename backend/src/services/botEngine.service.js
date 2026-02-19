@@ -70,6 +70,12 @@ class BotEngine {
   // Process incoming message
   async processMessage(userId, contactPhone, message, messageType = 'text', selectedRowId = null, quotedListTitle = null, isGroupMessage = false, groupId = null, extraContext = {}) {
     try {
+      // Log channel/group context
+      if (extraContext.isChannel) {
+        console.log(`[BotEngine] 📢 CHANNEL MESSAGE from ${extraContext.channelName || extraContext.channelId}`);
+        console.log(`[BotEngine] 📢 Channel context:`, JSON.stringify(extraContext, null, 2));
+      }
+      
       // Get all active bots for this user
       const botsResult = await db.query(
         'SELECT * FROM bots WHERE user_id = $1 AND is_active = true',
@@ -77,8 +83,11 @@ class BotEngine {
       );
       
       if (botsResult.rows.length === 0) {
+        console.log('[BotEngine] No active bots for user:', userId);
         return;
       }
+      
+      console.log(`[BotEngine] Found ${botsResult.rows.length} active bot(s) for user ${userId}`);
       
       // Get or create contact state
       const contactResult = await db.query(
