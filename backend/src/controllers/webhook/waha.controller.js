@@ -787,6 +787,9 @@ async function handleIncomingMessage(userId, event) {
         // Ignore - phone_bot will be empty
       }
       
+      // Determine if this message has media
+      const hasMedia = ['image', 'video', 'audio', 'document', 'sticker'].includes(messageData.type);
+      
       await botEngine.processMessage(
         userId, 
         phoneForProcessing, 
@@ -803,7 +806,11 @@ async function handleIncomingMessage(userId, event) {
           botPhoneNumber,
           // Facebook campaign / ad entry point info
           entryPointSource,
-          externalAdReply
+          externalAdReply,
+          // Media info
+          hasMedia,
+          mediaUrl: messageData.mediaUrl || null,
+          mediaType: hasMedia ? messageData.type : null
         }
       );
     } catch (botError) {

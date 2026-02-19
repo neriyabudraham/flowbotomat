@@ -121,6 +121,11 @@ class BotEngine {
       contact._entryPointSource = extraContext.entryPointSource || null;
       contact._externalAdReply = extraContext.externalAdReply || null;
       
+      // Add media info
+      contact._hasMedia = extraContext.hasMedia || false;
+      contact._mediaUrl = extraContext.mediaUrl || null;
+      contact._mediaType = extraContext.mediaType || null;
+      
       // Process each active bot
       for (const bot of botsResult.rows) {
         await this.processBot(bot, contact, message, messageType, userId, selectedRowId, quotedListTitle, isGroupMessage, extraContext);
@@ -3646,6 +3651,11 @@ class BotEngine {
     // Bot phone number
     const botPhoneNumber = contact._botPhoneNumber || '';
     
+    // Media context variables
+    const hasMedia = contact._hasMedia ? 'true' : 'false';
+    const mediaUrl = contact._mediaUrl || '';
+    const mediaType = contact._mediaType || '';
+    
     // Basic replacements (system variables)
     let result = text
       .replace(/\{\{name\}\}/gi, contact.display_name || '')
@@ -3657,6 +3667,9 @@ class BotEngine {
       .replace(/\{\{channel_id\}\}/gi, channelId)
       .replace(/\{\{channel_name\}\}/gi, channelName)
       .replace(/\{\{is_channel\}\}/gi, isChannel)
+      .replace(/\{\{has_media\}\}/gi, hasMedia)
+      .replace(/\{\{media_url\}\}/gi, mediaUrl)
+      .replace(/\{\{media_type\}\}/gi, mediaType)
       .replace(/\{\{last_message\}\}/gi, message || '')
       .replace(/\{\{bot_name\}\}/gi, botName || '')
       .replace(/\{\{date\}\}/gi, now.toLocaleDateString('he-IL'))
