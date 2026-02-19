@@ -1,4 +1,5 @@
 const db = require('../../config/database');
+const { checkBotRunsUsageAndAlert } = require('../../services/usageAlerts.service');
 
 /**
  * Get current user's subscription
@@ -22,10 +23,14 @@ async function getMySubscription(req, res) {
         sp.allow_export,
         sp.allow_api_access,
         sp.priority_support,
+        sp.upgrade_plan_id,
+        up.name_he as upgrade_plan_name,
+        up.price as upgrade_plan_price,
         (SELECT MAX(created_at) FROM payment_history ph WHERE ph.user_id = us.user_id AND ph.status = 'success') as last_charge_date,
         (SELECT COUNT(*) > 0 FROM user_payment_methods pm WHERE pm.user_id = us.user_id AND pm.is_active = true) as has_payment_method
       FROM user_subscriptions us
       JOIN subscription_plans sp ON us.plan_id = sp.id
+      LEFT JOIN subscription_plans up ON sp.upgrade_plan_id = up.id
       WHERE us.user_id = $1 
       AND (
         us.status IN ('active', 'trial')
@@ -398,9 +403,31 @@ async function checkLimit(userId, limitType) {
     `, [userId, year, month]);
     
     const used = usageResult.rows[0]?.bot_runs || 0;
+    let currentLimit = limits.max_bot_runs_per_month;
+    
+    // If at or over limit, check for alerts and possible auto-upgrade
+    if (used >= currentLimit) {
+      try {
+        const alertResult = await checkBotRunsUsageAndAlert(userId, used, currentLimit);
+        
+        // If auto-upgrade was performed, use the new limit
+        if (alertResult.upgraded && alertResult.newLimit) {
+          console.log(`[Subscriptions] Auto-upgrade performed for user ${userId}, new limit: ${alertResult.newLimit}`);
+          currentLimit = alertResult.newLimit;
+        }
+      } catch (err) {
+        console.error('[Subscriptions] Error checking usage alerts:', err);
+      }
+    } else if (used >= currentLimit * 0.8) {
+      // At 80% - send warning (async, don't block)
+      checkBotRunsUsageAndAlert(userId, used, currentLimit).catch(err => 
+        console.error('[Subscriptions] Error sending 80% alert:', err)
+      );
+    }
+    
     return {
-      allowed: used < limits.max_bot_runs_per_month,
-      limit: limits.max_bot_runs_per_month,
+      allowed: used < currentLimit,
+      limit: currentLimit,
       used
     };
   }
@@ -571,6 +598,49 @@ async function alertAdminIfOverLimit(userId, limitType) {
   }
 }
 
+/**
+ * Update auto-upgrade setting for user
+ */
+async function updateAutoUpgrade(req, res) {
+  try {
+    const userId = req.user.id;
+    const { allow_auto_upgrade } = req.body;
+    
+    if (typeof allow_auto_upgrade !== 'boolean') {
+      return res.status(400).json({ error: 'ערך לא תקין' });
+    }
+    
+    // Check if user has subscription
+    const subCheck = await db.query(
+      `SELECT id FROM user_subscriptions WHERE user_id = $1 AND status IN ('active', 'trial')`,
+      [userId]
+    );
+    
+    if (subCheck.rows.length === 0) {
+      return res.status(400).json({ error: 'אין מנוי פעיל' });
+    }
+    
+    // Update setting
+    await db.query(
+      `UPDATE user_subscriptions SET allow_auto_upgrade = $1, updated_at = NOW() WHERE user_id = $2`,
+      [allow_auto_upgrade, userId]
+    );
+    
+    console.log(`[Subscriptions] Auto-upgrade ${allow_auto_upgrade ? 'enabled' : 'disabled'} for user ${userId}`);
+    
+    res.json({ 
+      success: true, 
+      allow_auto_upgrade,
+      message: allow_auto_upgrade 
+        ? 'שדרוג אוטומטי הופעל' 
+        : 'שדרוג אוטומטי כובה'
+    });
+  } catch (error) {
+    console.error('[Subscriptions] Update auto-upgrade error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון ההגדרה' });
+  }
+}
+
 module.exports = {
   getMySubscription,
   getMyUsage,
@@ -579,5 +649,6 @@ module.exports = {
   cancelSubscription,
   incrementBotRuns,
   checkLimit,
-  alertAdminIfOverLimit
+  alertAdminIfOverLimit,
+  updateAutoUpgrade
 };

@@ -4,7 +4,7 @@ const { sendMail } = require('./mail/transport.service');
 /**
  * Usage alert thresholds
  */
-const ALERT_THRESHOLDS = [50, 80, 100]; // percentages
+const ALERT_THRESHOLDS = [80, 100]; // percentages - removed 50%, keeping 80% and 100%
 
 /**
  * Check user usage and create alerts if needed
@@ -555,8 +555,309 @@ async function updateNotificationPreferences(userId, preferences) {
   }
 }
 
+/**
+ * Check bot runs usage and send alerts if needed
+ * Called from checkLimit during bot execution
+ * Returns true if auto-upgrade was performed
+ */
+async function checkBotRunsUsageAndAlert(userId, used, limit) {
+  try {
+    if (limit === -1) return { upgraded: false }; // Unlimited
+    
+    const percentage = Math.round((used / limit) * 100);
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    
+    // Get user info
+    const userResult = await db.query(
+      'SELECT id, email, name FROM users WHERE id = $1',
+      [userId]
+    );
+    
+    if (userResult.rows.length === 0) return { upgraded: false };
+    const user = userResult.rows[0];
+    
+    // Get subscription info including auto-upgrade settings
+    const subResult = await db.query(`
+      SELECT us.*, sp.name_he as plan_name, sp.upgrade_plan_id,
+             up.name_he as upgrade_plan_name, up.price as upgrade_plan_price, up.max_bot_runs_per_month as upgrade_plan_runs
+      FROM user_subscriptions us
+      JOIN subscription_plans sp ON us.plan_id = sp.id
+      LEFT JOIN subscription_plans up ON sp.upgrade_plan_id = up.id
+      WHERE us.user_id = $1 AND us.status IN ('active', 'trial')
+    `, [userId]);
+    
+    const subscription = subResult.rows[0];
+    const planName = subscription?.plan_name || 'חינם';
+    
+    const usageData = {
+      used,
+      limit,
+      type: 'bot_runs',
+      label: 'הרצות בוט'
+    };
+    
+    // Check 80% threshold
+    if (percentage >= 80 && percentage < 100) {
+      await createAlertIfNeeded(user, usageData, 80, percentage, planName);
+    }
+    
+    // Check 100% threshold - may trigger auto-upgrade
+    if (percentage >= 100) {
+      // Check if user has auto-upgrade enabled and there's an upgrade plan
+      if (subscription?.allow_auto_upgrade && subscription?.upgrade_plan_id) {
+        // Try auto-upgrade
+        const upgradeResult = await performAutoUpgrade(userId, subscription);
+        if (upgradeResult.success) {
+          // Send upgrade success notification
+          await sendAutoUpgradeEmail(user, subscription, upgradeResult);
+          return { 
+            upgraded: true, 
+            newLimit: subscription.upgrade_plan_runs,
+            chargedAmount: upgradeResult.chargedAmount
+          };
+        }
+      }
+      
+      // No auto-upgrade or upgrade failed - send 100% alert
+      await createAlertIfNeeded(user, usageData, 100, percentage, planName);
+    }
+    
+    return { upgraded: false };
+    
+  } catch (error) {
+    console.error('[UsageAlerts] Check bot runs usage error:', error);
+    return { upgraded: false };
+  }
+}
+
+/**
+ * Perform auto-upgrade for user
+ */
+async function performAutoUpgrade(userId, currentSub) {
+  try {
+    const upgradePlanId = currentSub.upgrade_plan_id;
+    const autoUpgradePlanId = currentSub.auto_upgrade_plan_id;
+    const targetPlanId = autoUpgradePlanId || upgradePlanId;
+    
+    if (!targetPlanId) {
+      return { success: false, error: 'No upgrade plan available' };
+    }
+    
+    // Get target plan details
+    const planResult = await db.query(
+      'SELECT * FROM subscription_plans WHERE id = $1 AND is_active = true',
+      [targetPlanId]
+    );
+    
+    if (planResult.rows.length === 0) {
+      return { success: false, error: 'Upgrade plan not found or inactive' };
+    }
+    
+    const newPlan = planResult.rows[0];
+    const currentPrice = parseFloat(currentSub.discounted_price || currentSub.original_price || 0);
+    const newPrice = parseFloat(newPlan.price);
+    
+    // Calculate prorated charge
+    const now = new Date();
+    const nextChargeDate = new Date(currentSub.next_charge_date);
+    const daysInMonth = 30;
+    const daysLeft = Math.max(1, Math.ceil((nextChargeDate - now) / (1000 * 60 * 60 * 24)));
+    
+    const proratedAmount = Math.round(((newPrice - currentPrice) / daysInMonth) * daysLeft * 100) / 100;
+    
+    // Only charge if there's a positive difference
+    if (proratedAmount > 0) {
+      // Try to charge using Sumit
+      const chargeResult = await chargeProrata(userId, proratedAmount, currentSub, newPlan);
+      
+      if (!chargeResult.success) {
+        console.error('[AutoUpgrade] Charge failed:', chargeResult.error);
+        return { success: false, error: 'Payment failed' };
+      }
+    }
+    
+    // Update subscription to new plan
+    await db.query(`
+      UPDATE user_subscriptions 
+      SET plan_id = $1, 
+          original_price = $2,
+          discounted_price = $2,
+          updated_at = NOW()
+      WHERE user_id = $3
+    `, [targetPlanId, newPrice, userId]);
+    
+    // Log the upgrade
+    console.log(`[AutoUpgrade] User ${userId} upgraded from ${currentSub.plan_name} to ${newPlan.name_he}. Charged: ${proratedAmount} ILS`);
+    
+    // Record in payment history
+    if (proratedAmount > 0) {
+      await db.query(`
+        INSERT INTO payment_history (user_id, amount, currency, status, description, metadata)
+        VALUES ($1, $2, 'ILS', 'completed', $3, $4)
+      `, [
+        userId, 
+        proratedAmount, 
+        `שדרוג אוטומטי ל${newPlan.name_he}`,
+        JSON.stringify({
+          type: 'auto_upgrade',
+          from_plan: currentSub.plan_id,
+          to_plan: targetPlanId,
+          prorated_days: daysLeft
+        })
+      ]);
+    }
+    
+    return { 
+      success: true, 
+      chargedAmount: proratedAmount,
+      newPlan: newPlan.name_he,
+      newLimit: newPlan.max_bot_runs_per_month
+    };
+    
+  } catch (error) {
+    console.error('[AutoUpgrade] Error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Charge prorated amount using Sumit
+ */
+async function chargeProrata(userId, amount, currentSub, newPlan) {
+  try {
+    // Get payment method
+    const paymentResult = await db.query(`
+      SELECT * FROM user_payment_methods 
+      WHERE user_id = $1 AND is_active = true 
+      ORDER BY is_default DESC, created_at DESC 
+      LIMIT 1
+    `, [userId]);
+    
+    if (paymentResult.rows.length === 0) {
+      return { success: false, error: 'No payment method' };
+    }
+    
+    const paymentMethod = paymentResult.rows[0];
+    
+    // If amount is very small (less than 1 ILS), skip charge
+    if (amount < 1) {
+      console.log(`[AutoUpgrade] Amount ${amount} too small, skipping charge`);
+      return { success: true, skipped: true };
+    }
+    
+    // Use Sumit to charge
+    const sumitService = require('./payment/sumit.service');
+    
+    const chargeResult = await sumitService.chargeToken(
+      paymentMethod.token,
+      Math.round(amount * 100) / 100, // Round to 2 decimals
+      `שדרוג אוטומטי ל${newPlan.name_he}`
+    );
+    
+    if (!chargeResult.success) {
+      return { success: false, error: chargeResult.error || 'Charge failed' };
+    }
+    
+    return { success: true, transactionId: chargeResult.transactionId };
+    
+  } catch (error) {
+    console.error('[AutoUpgrade] Charge prorata error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Send auto-upgrade success email
+ */
+async function sendAutoUpgradeEmail(user, oldSub, upgradeResult) {
+  try {
+    const subject = `✅ המנוי שלך שודרג אוטומטית - Botomat`;
+    
+    const html = `
+      <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #4F46E5; margin: 0;">Botomat</h1>
+        </div>
+        
+        <div style="background: #ECFDF5; border-radius: 16px; padding: 24px; margin-bottom: 24px;">
+          <h2 style="color: #059669; margin: 0 0 12px 0;">
+            ✅ המנוי שלך שודרג!
+          </h2>
+          <p style="color: #1F2937; margin: 0;">
+            שלום ${user.name || 'משתמש'},<br><br>
+            הגעת למגבלת ההרצות החודשית, ולכן המנוי שלך שודרג אוטומטית לתוכנית <strong>${upgradeResult.newPlan}</strong>.
+          </p>
+        </div>
+        
+        <div style="background: #F3F4F6; border-radius: 16px; padding: 24px; margin-bottom: 24px;">
+          <h3 style="color: #374151; margin: 0 0 16px 0;">📋 פרטי השדרוג</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 8px 0; color: #6B7280;">תוכנית קודמת:</td>
+              <td style="padding: 8px 0; text-align: left; font-weight: bold;">${oldSub.plan_name}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #6B7280;">תוכנית חדשה:</td>
+              <td style="padding: 8px 0; text-align: left; font-weight: bold; color: #059669;">${upgradeResult.newPlan}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #6B7280;">הרצות חדשות:</td>
+              <td style="padding: 8px 0; text-align: left; font-weight: bold;">${upgradeResult.newLimit === -1 ? 'ללא הגבלה' : upgradeResult.newLimit.toLocaleString()}</td>
+            </tr>
+            ${upgradeResult.chargedAmount > 0 ? `
+            <tr>
+              <td style="padding: 8px 0; color: #6B7280;">חיוב יחסי:</td>
+              <td style="padding: 8px 0; text-align: left; font-weight: bold;">₪${upgradeResult.chargedAmount}</td>
+            </tr>
+            ` : ''}
+          </table>
+        </div>
+        
+        <div style="text-align: center;">
+          <a href="https://botomat.co.il/settings?tab=subscription" 
+             style="display: inline-block; background: linear-gradient(135deg, #4F46E5, #7C3AED); color: white; padding: 16px 32px; text-decoration: none; border-radius: 12px; font-weight: bold;">
+            צפה בהגדרות המנוי
+          </a>
+        </div>
+        
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #E5E7EB; text-align: center; color: #9CA3AF; font-size: 12px;">
+          <p>ניתן לבטל את השדרוג האוטומטי בהגדרות המנוי.</p>
+          <p>© ${new Date().getFullYear()} Botomat. כל הזכויות שמורות.</p>
+        </div>
+      </div>
+    `;
+    
+    await sendMail(user.email, subject, html);
+    
+    // Also create system notification
+    await db.query(`
+      INSERT INTO system_notifications (user_id, notification_type, title, message, alert_level, metadata)
+      VALUES ($1, 'auto_upgrade', $2, $3, 'success', $4)
+    `, [
+      user.id,
+      `✅ המנוי שודרג ל${upgradeResult.newPlan}`,
+      `המנוי שלך שודרג אוטומטית. ${upgradeResult.chargedAmount > 0 ? `חויבת ב-₪${upgradeResult.chargedAmount} באופן יחסי.` : ''}`,
+      JSON.stringify({
+        type: 'auto_upgrade',
+        new_plan: upgradeResult.newPlan,
+        new_limit: upgradeResult.newLimit,
+        charged_amount: upgradeResult.chargedAmount
+      })
+    ]);
+    
+    console.log(`[AutoUpgrade] Sent notification to ${user.email}`);
+    
+  } catch (error) {
+    console.error('[AutoUpgrade] Send email error:', error);
+  }
+}
+
 module.exports = {
   checkUserUsage,
+  checkBotRunsUsageAndAlert,
+  performAutoUpgrade,
   getUserNotifications,
   markNotificationRead,
   markAllNotificationsRead,

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { CreditCard, Calendar, AlertCircle, Crown, CheckCircle, XCircle, RotateCcw, Trash2, ShieldAlert, Clock, Info, HelpCircle, ArrowRight, RefreshCw, Package, Upload, ExternalLink } from 'lucide-react';
+import { CreditCard, Calendar, AlertCircle, Crown, CheckCircle, XCircle, RotateCcw, Trash2, ShieldAlert, Clock, Info, HelpCircle, ArrowRight, RefreshCw, Package, Upload, ExternalLink, Zap, TrendingUp } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
 
@@ -18,6 +18,8 @@ export default function SubscriptionManager() {
   const [reactivating, setReactivating] = useState(false);
   const [removingCard, setRemovingCard] = useState(false);
   const [cancellingService, setCancellingService] = useState(false);
+  const [allowAutoUpgrade, setAllowAutoUpgrade] = useState(false);
+  const [updatingAutoUpgrade, setUpdatingAutoUpgrade] = useState(false);
 
   useEffect(() => {
     loadSubscription();
@@ -29,10 +31,25 @@ export default function SubscriptionManager() {
     try {
       const { data } = await api.get('/subscriptions/my');
       setSubscription(data.subscription);
+      setAllowAutoUpgrade(data.subscription?.allow_auto_upgrade || false);
     } catch (err) {
       console.error('Failed to load subscription:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAutoUpgradeToggle = async () => {
+    const newValue = !allowAutoUpgrade;
+    setUpdatingAutoUpgrade(true);
+    try {
+      await api.patch('/subscriptions/auto-upgrade', { allow_auto_upgrade: newValue });
+      setAllowAutoUpgrade(newValue);
+    } catch (err) {
+      console.error('Failed to update auto-upgrade setting:', err);
+      alert(err.response?.data?.error || 'שגיאה בעדכון ההגדרה');
+    } finally {
+      setUpdatingAutoUpgrade(false);
     }
   };
 
@@ -489,6 +506,51 @@ export default function SubscriptionManager() {
                   <CreditCard className="w-4 h-4 ml-2" />
                   הוסף כרטיס אשראי
                 </Button>
+              </div>
+            )}
+
+            {/* Auto-Upgrade Setting */}
+            {(isActive || isTrial) && !isManual && paymentMethod && subscription?.upgrade_plan_name && (
+              <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 bg-blue-100 dark:bg-blue-800 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <TrendingUp className="w-5 h-5 text-blue-600 dark:text-blue-300" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900 dark:text-white">
+                        שדרוג אוטומטי בהגעה לגבול
+                      </h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                        כאשר תגיע לגבול ההרצות החודשי, המערכת תשדרג אוטומטית לתוכנית{' '}
+                        <span className="font-medium text-blue-600 dark:text-blue-400">
+                          {subscription.upgrade_plan_name}
+                        </span>
+                      </p>
+                      {allowAutoUpgrade && (
+                        <p className="text-xs text-blue-600 dark:text-blue-400 mt-2 flex items-center gap-1">
+                          <Zap className="w-3 h-3" />
+                          יחויב הפרש יחסי עד סוף תקופת החיוב
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleAutoUpgradeToggle}
+                    disabled={updatingAutoUpgrade}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
+                      allowAutoUpgrade 
+                        ? 'bg-blue-600' 
+                        : 'bg-gray-200 dark:bg-gray-600'
+                    } ${updatingAutoUpgrade ? 'opacity-50' : ''}`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        allowAutoUpgrade ? '-translate-x-6' : '-translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
             )}
 

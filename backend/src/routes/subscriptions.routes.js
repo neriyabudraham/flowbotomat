@@ -14,6 +14,7 @@ router.use(authMiddleware);
 // User subscription routes
 router.get('/my', subscriptionsController.getMySubscription);
 router.get('/my/usage', subscriptionsController.getMyUsage);
+router.patch('/auto-upgrade', subscriptionsController.updateAutoUpgrade);
 
 // Admin routes
 router.get('/all', subscriptionsController.getAllSubscriptions);

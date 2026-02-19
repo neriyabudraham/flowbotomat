@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { 
   Check, X, Star, Zap, Crown, Building, ArrowLeft, CreditCard, Lock, Loader2, 
   Shield, AlertCircle, Sparkles, Users, Bot, MessageSquare, BarChart3,
   Rocket, Gift, Timer, ChevronDown, ArrowRight, CheckCircle, Phone, Code,
-  RotateCcw, Clock, Info, Send
+  RotateCcw, Clock, Info, Send, Share2, ImagePlus, ExternalLink
 } from 'lucide-react';
 import api from '../services/api';
 import useAuthStore from '../store/authStore';
@@ -718,8 +718,8 @@ export default function PricingPage() {
                         {plan.description_he}
                       </p>
                       
-                      {/* Free plan notice */}
-                      {isFree && (
+                      {/* Free plan notice - only show if WAHA creation is NOT allowed */}
+                      {isFree && !plan.allow_waha_creation && (
                         <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
                           <p className="text-xs text-amber-800 flex items-start gap-2">
                             <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
@@ -803,56 +803,39 @@ export default function PricingPage() {
                         );
                       })()}
 
-                      {/* Features */}
+                      {/* Features - sorted by included status (enabled first) */}
                       <div className="mt-8 pt-6 border-t border-gray-100 space-y-4">
-                        <Feature 
-                          icon={Bot}
-                          label={`${getFeatureValue(plan, 'bots')} בוטים`}
-                          included={true}
-                          highlight={plan.max_bots === -1}
-                        />
-                        <Feature 
-                          icon={Zap}
-                          label={`${getFeatureValue(plan, 'runs')} הרצות פלואו/חודש`}
-                          included={true}
-                          highlight={plan.max_bot_runs_per_month === -1}
-                        />
-                        <Feature 
-                          icon={Users}
-                          label={`${getFeatureValue(plan, 'contacts')} אנשי קשר`}
-                          included={true}
-                          highlight={plan.max_contacts === -1}
-                        />
-                        <Feature 
-                          icon={BarChart3}
-                          label="סטטיסטיקות מתקדמות"
-                          included={plan.allow_statistics}
-                        />
-                        <Feature 
-                          icon={Phone}
-                          label="WhatsApp מנוהל"
-                          included={plan.allow_waha_creation}
-                        />
-                        <Feature 
-                          icon={Rocket}
-                          label="ייצוא ושכפול בוטים"
-                          included={plan.allow_export}
-                        />
-                        <Feature 
-                          icon={Code}
-                          label="גישת API"
-                          included={plan.allow_api_access}
-                        />
-                        <Feature 
-                          icon={Send}
-                          label="הודעות תפוצה"
-                          included={plan.allow_broadcasts}
-                        />
-                        <Feature 
-                          icon={Shield}
-                          label="תמיכה מועדפת"
-                          included={plan.priority_support}
-                        />
+                        {[
+                          { icon: Bot, label: `${getFeatureValue(plan, 'bots')} בוטים`, included: true, highlight: plan.max_bots === -1 },
+                          { icon: Zap, label: `${getFeatureValue(plan, 'runs')} הרצות פלואו/חודש`, included: true, highlight: plan.max_bot_runs_per_month === -1 },
+                          { icon: Users, label: `${getFeatureValue(plan, 'contacts')} אנשי קשר`, included: true, highlight: plan.max_contacts === -1 },
+                          { icon: BarChart3, label: 'סטטיסטיקות מתקדמות', included: plan.allow_statistics },
+                          { icon: Phone, label: 'WhatsApp מנוהל', included: plan.allow_waha_creation },
+                          { icon: Rocket, label: 'ייצוא ושכפול בוטים', included: plan.allow_export },
+                          { icon: Code, label: 'גישת API', included: plan.allow_api_access },
+                          { icon: Send, label: 'שליחת הודעות תפוצה', included: plan.allow_broadcasts },
+                          { icon: Share2, label: 'העברת הודעות בין קבוצות', included: plan.allow_group_forwards },
+                        ]
+                          .sort((a, b) => (b.included ? 1 : 0) - (a.included ? 1 : 0))
+                          .map((feature, idx) => (
+                            <Feature 
+                              key={idx}
+                              icon={feature.icon}
+                              label={feature.label}
+                              included={feature.included}
+                              highlight={feature.highlight}
+                            />
+                          ))
+                        }
+                        {/* Status service link */}
+                        <Link 
+                          to="/services/status-bot" 
+                          className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 mt-4 pt-4 border-t border-gray-100"
+                        >
+                          <ImagePlus className="w-4 h-4" />
+                          <span>שירות העלאת סטטוסים</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </Link>
                       </div>
                     </div>
                   </div>
