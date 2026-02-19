@@ -2946,7 +2946,7 @@ class BotEngine {
       const url = this.replaceVariables(action.apiUrl, contact, message, '');
       console.log('[BotEngine] HTTP Request:', action.method, url);
       if (body) {
-        console.log('[BotEngine] HTTP Body:', JSON.stringify(body).substring(0, 500));
+        console.log('[BotEngine] HTTP Body:', JSON.stringify(body, null, 2));
       }
       
       const response = await axios({
