@@ -292,15 +292,14 @@ export default function WhatsappSetupPage() {
                   </div>
                 </button>
 
-                {/* Advanced Options Toggle - Hidden for now */}
-                {false && (
+                {/* Advanced Options Toggle - External WAHA */}
                 <div className="pt-4">
                   <button
                     onClick={() => setShowAdvanced(!showAdvanced)}
                     className="flex items-center justify-center gap-2 w-full text-gray-400 hover:text-gray-600 text-sm py-2"
                   >
                     <Settings className="w-4 h-4" />
-                    אפשרויות מתקדמות
+                    יש לי שרת WAHA משלי
                     <ChevronDown className={`w-4 h-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
                   </button>
                   
@@ -333,7 +332,6 @@ export default function WhatsappSetupPage() {
                     </div>
                   )}
                 </div>
-                )}
               </div>
               
               {isCheckingExisting && (
