@@ -363,13 +363,23 @@ async function createExternal(req, res) {
     
     const hasManualSubscription = manualSubCheck.rows.length > 0;
     
-    // Check if user has a payment method (required even for external, unless manual subscription)
+    // Check if there's a free plan that allows WAHA creation (bypasses payment requirement)
+    const freePlanWithWaha = await pool.query(
+      `SELECT id, name FROM subscription_plans 
+       WHERE is_active = true AND price = 0 AND allow_waha_creation = true 
+       LIMIT 1`
+    );
+    const hasFreePlanWithWaha = freePlanWithWaha.rows.length > 0;
+    
+    // Check if user has a payment method
     const paymentCheck = await pool.query(
       'SELECT id FROM user_payment_methods WHERE user_id = $1 AND is_active = true LIMIT 1',
       [userId]
     );
+    const hasPaymentMethod = paymentCheck.rows.length > 0;
     
-    if (paymentCheck.rows.length === 0 && !hasManualSubscription) {
+    // Payment is required UNLESS: manual subscription OR free plan with WAHA enabled
+    if (!hasPaymentMethod && !hasManualSubscription && !hasFreePlanWithWaha) {
       return res.status(402).json({ 
         error: 'נדרש להזין פרטי כרטיס אשראי גם לחיבור WAHA חיצוני. ניתן להשתמש בתוכנית החינמית.',
         code: 'PAYMENT_REQUIRED'
@@ -385,14 +395,17 @@ async function createExternal(req, res) {
     if (subCheck.rows.length === 0) {
       console.log(`[WhatsApp External] Creating free subscription for user ${userId}`);
       
-      // Get free plan
+      // Get free plan (prefer one with WAHA creation, but any free plan works)
       const freePlanResult = await pool.query(
-        `SELECT id FROM subscription_plans WHERE is_active = true AND price = 0 LIMIT 1`
+        `SELECT id FROM subscription_plans 
+         WHERE is_active = true AND price = 0 
+         ORDER BY allow_waha_creation DESC 
+         LIMIT 1`
       );
       
       if (freePlanResult.rows.length > 0) {
         const freePlanId = freePlanResult.rows[0].id;
-        const paymentMethodId = paymentCheck.rows[0].id;
+        const paymentMethodId = hasPaymentMethod ? paymentCheck.rows[0].id : null;
         
         await pool.query(`
           INSERT INTO user_subscriptions (
@@ -403,7 +416,7 @@ async function createExternal(req, res) {
             plan_id = $2, 
             status = 'active',
             is_trial = false,
-            payment_method_id = $3,
+            payment_method_id = COALESCE($3, user_subscriptions.payment_method_id),
             started_at = NOW(),
             updated_at = NOW()
         `, [userId, freePlanId, paymentMethodId]);
