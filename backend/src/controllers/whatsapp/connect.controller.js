@@ -48,7 +48,7 @@ const TRIAL_DAYS = 14; // 2 weeks trial period
 /**
  * Create managed WhatsApp connection (system WAHA)
  * Sync is based on WAHA only (not DB)
- * Requires payment method and creates a trial subscription
+ * Can work with free plan if admin enabled allow_waha_creation for it
  */
 async function createManaged(req, res) {
   try {
@@ -62,13 +62,27 @@ async function createManaged(req, res) {
     
     const hasManualSubscription = manualSubCheck.rows.length > 0;
     
-    // Check if user has a payment method (required for WhatsApp connection, unless manual subscription)
+    // Check if user has a payment method
     const paymentCheck = await pool.query(
       'SELECT id FROM user_payment_methods WHERE user_id = $1 AND is_active = true LIMIT 1',
       [userId]
     );
     
-    if (paymentCheck.rows.length === 0 && !hasManualSubscription) {
+    const hasPaymentMethod = paymentCheck.rows.length > 0;
+    
+    // Check if there's a FREE plan that allows WAHA creation (admin can enable this)
+    const freePlanWithWaha = await pool.query(
+      `SELECT id, name FROM subscription_plans 
+       WHERE is_active = true AND price = 0 AND allow_waha_creation = true 
+       LIMIT 1`
+    );
+    
+    const hasFreePlanWithWaha = freePlanWithWaha.rows.length > 0;
+    
+    // Payment method is NOT required if:
+    // 1. User has manual subscription, OR
+    // 2. There's a free plan that allows WAHA creation
+    if (!hasPaymentMethod && !hasManualSubscription && !hasFreePlanWithWaha) {
       return res.status(402).json({ 
         error: 'נדרש להזין פרטי כרטיס אשראי לפני חיבור WhatsApp. לא יבוצע חיוב בתקופת הניסיון.',
         code: 'PAYMENT_REQUIRED',
@@ -82,13 +96,9 @@ async function createManaged(req, res) {
       [userId]
     );
     
-    // If no active subscription, create trial
-    let justCreatedTrial = false;
+    // If no active subscription, create one
+    let justCreatedSubscription = false;
     if (subCheck.rows.length === 0) {
-      console.log(`[WhatsApp] Creating trial subscription for user ${userId}`);
-      const trialEndsAt = new Date();
-      trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
-      
       // Check if user has a custom discount plan set by admin
       const customDiscountCheck = await pool.query(
         `SELECT custom_discount_plan_id, plan_id FROM user_subscriptions WHERE user_id = $1`,
@@ -96,6 +106,7 @@ async function createManaged(req, res) {
       );
       
       let planId = null;
+      let isFreeSubscription = false;
       
       // Priority 1: Custom discount plan from admin
       if (customDiscountCheck.rows.length > 0 && customDiscountCheck.rows[0].custom_discount_plan_id) {
@@ -103,8 +114,15 @@ async function createManaged(req, res) {
         console.log(`[WhatsApp] Using custom discount plan: ${planId}`);
       }
       
-      // Priority 2: Get the cheapest paid plan with allow_waha_creation
-      if (!planId) {
+      // Priority 2: If no payment method but free plan allows WAHA, use free plan
+      if (!planId && !hasPaymentMethod && hasFreePlanWithWaha) {
+        planId = freePlanWithWaha.rows[0].id;
+        isFreeSubscription = true;
+        console.log(`[WhatsApp] Using free plan with WAHA access: ${freePlanWithWaha.rows[0].name}`);
+      }
+      
+      // Priority 3: Get the cheapest paid plan with allow_waha_creation (for trial)
+      if (!planId && hasPaymentMethod) {
         const planResult = await pool.query(
           `SELECT id FROM subscription_plans 
            WHERE is_active = true AND price > 0 AND allow_waha_creation = true 
@@ -127,25 +145,48 @@ async function createManaged(req, res) {
       if (planId) {
         const paymentMethodId = paymentCheck.rows[0]?.id || null;
         
-        await pool.query(`
-          INSERT INTO user_subscriptions (
-            user_id, plan_id, status, is_trial, trial_ends_at, 
-            payment_method_id, next_charge_date, started_at
-          ) VALUES ($1, $2, 'trial', true, $3, $4, $3, NOW())
-          ON CONFLICT (user_id) 
-          DO UPDATE SET 
-            plan_id = COALESCE(user_subscriptions.custom_discount_plan_id, $2), 
-            status = 'trial',
-            is_trial = true,
-            trial_ends_at = $3,
-            payment_method_id = COALESCE($4, user_subscriptions.payment_method_id),
-            next_charge_date = $3,
-            started_at = NOW(),
-            updated_at = NOW()
-        `, [userId, planId, trialEndsAt, paymentMethodId]);
+        if (isFreeSubscription) {
+          // Free subscription - no trial, just active
+          console.log(`[WhatsApp] Creating free subscription for user ${userId}`);
+          await pool.query(`
+            INSERT INTO user_subscriptions (
+              user_id, plan_id, status, is_trial, started_at
+            ) VALUES ($1, $2, 'active', false, NOW())
+            ON CONFLICT (user_id) 
+            DO UPDATE SET 
+              plan_id = COALESCE(user_subscriptions.custom_discount_plan_id, $2), 
+              status = 'active',
+              is_trial = false,
+              started_at = NOW(),
+              updated_at = NOW()
+          `, [userId, planId]);
+          console.log(`[WhatsApp] ✅ Free subscription activated`);
+        } else {
+          // Paid plan - create trial
+          console.log(`[WhatsApp] Creating trial subscription for user ${userId}`);
+          const trialEndsAt = new Date();
+          trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
+          
+          await pool.query(`
+            INSERT INTO user_subscriptions (
+              user_id, plan_id, status, is_trial, trial_ends_at, 
+              payment_method_id, next_charge_date, started_at
+            ) VALUES ($1, $2, 'trial', true, $3, $4, $3, NOW())
+            ON CONFLICT (user_id) 
+            DO UPDATE SET 
+              plan_id = COALESCE(user_subscriptions.custom_discount_plan_id, $2), 
+              status = 'trial',
+              is_trial = true,
+              trial_ends_at = $3,
+              payment_method_id = COALESCE($4, user_subscriptions.payment_method_id),
+              next_charge_date = $3,
+              started_at = NOW(),
+              updated_at = NOW()
+          `, [userId, planId, trialEndsAt, paymentMethodId]);
+          console.log(`[WhatsApp] ✅ Trial subscription created, ends at: ${trialEndsAt.toISOString()}`);
+        }
         
-        justCreatedTrial = true;
-        console.log(`[WhatsApp] ✅ Trial subscription created, ends at: ${trialEndsAt.toISOString()}`);
+        justCreatedSubscription = true;
       }
     }
     
@@ -203,21 +244,22 @@ async function createManaged(req, res) {
     // Step 2: If no session found in WAHA, create new one
     if (!sessionName) {
       // Check subscription for WAHA creation permission
-      // Skip check if we just created a trial subscription
-      if (!justCreatedTrial && !hasManualSubscription) {
+      // Skip check if we just created a subscription (free or trial)
+      if (!justCreatedSubscription && !hasManualSubscription) {
         const wahaAccess = await checkLimit(userId, 'waha_creation');
         if (!wahaAccess.allowed) {
-          // One more check - if user has payment method, they should be allowed
-          // This handles edge cases where the subscription exists but plan doesn't have allow_waha_creation
-          const hasPaymentMethod = paymentCheck.rows.length > 0;
-          if (!hasPaymentMethod) {
+          // Check if free plan with WAHA exists - if so, user should be allowed
+          if (hasFreePlanWithWaha) {
+            console.log('[WhatsApp] Free plan allows WAHA creation, proceeding...');
+          } else if (hasPaymentMethod) {
+            // User has payment method - allow and the subscription will be charged later
+            console.log('[WhatsApp] User has payment method, allowing WAHA creation despite plan limit');
+          } else {
             return res.status(403).json({ 
-              error: 'יצירת חיבור WhatsApp מנוהל דורשת מנוי בתשלום.',
+              error: 'יצירת חיבור WhatsApp מנוהל דורשת מנוי מתאים.',
               upgrade_required: true
             });
           }
-          // User has payment method - allow and the subscription will be charged later
-          console.log('[WhatsApp] User has payment method, allowing WAHA creation despite plan limit');
         }
       }
       
@@ -448,20 +490,39 @@ async function createExternal(req, res) {
 
 /**
  * Check if user has existing session in WAHA (by email)
- * Only checks if user has a payment method (to avoid showing session info to non-paying users)
+ * Checks if user has a payment method OR if free plan allows WAHA
  */
 async function checkExisting(req, res) {
   try {
     const userId = req.user.id;
     
-    // First check if user has payment method - don't show session info without it
+    // Check if user has payment method
     const paymentCheck = await pool.query(
       'SELECT id FROM user_payment_methods WHERE user_id = $1 AND is_active = true LIMIT 1',
       [userId]
     );
     
-    if (paymentCheck.rows.length === 0) {
-      // No payment method - don't check for existing sessions
+    const hasPaymentMethod = paymentCheck.rows.length > 0;
+    
+    // Check if there's a FREE plan that allows WAHA creation
+    const freePlanWithWaha = await pool.query(
+      `SELECT id FROM subscription_plans 
+       WHERE is_active = true AND price = 0 AND allow_waha_creation = true 
+       LIMIT 1`
+    );
+    
+    const hasFreePlanWithWaha = freePlanWithWaha.rows.length > 0;
+    
+    // Check if user has manual subscription
+    const manualSubCheck = await pool.query(
+      `SELECT id FROM user_subscriptions WHERE user_id = $1 AND is_manual = true AND status = 'active'`,
+      [userId]
+    );
+    
+    const hasManualSubscription = manualSubCheck.rows.length > 0;
+    
+    // Allow if: has payment method, OR free plan allows WAHA, OR has manual subscription
+    if (!hasPaymentMethod && !hasFreePlanWithWaha && !hasManualSubscription) {
       return res.json({ exists: false, requiresPayment: true });
     }
     
