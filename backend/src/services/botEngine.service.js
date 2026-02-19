@@ -2934,11 +2934,24 @@ class BotEngine {
             }
           }
         } else if (action.body) {
+          // Replace variables in the body string
+          const bodyStr = this.replaceVariables(action.body, contact, message, '');
           try {
-            const bodyStr = this.replaceVariables(action.body, contact, message, '');
             body = JSON.parse(bodyStr);
-          } catch {
-            body = action.body;
+          } catch (parseErr) {
+            // JSON parse failed - might be because replaced content has special chars
+            // Try to fix by properly escaping the replaced values
+            console.log('[BotEngine] JSON parse failed, trying with escaped values');
+            
+            // Alternative approach: replace variables directly in parsed JSON
+            try {
+              const originalBody = JSON.parse(action.body);
+              body = this.replaceVariablesInObject(originalBody, contact, message, '');
+            } catch {
+              // Last resort: send as string
+              console.log('[BotEngine] ⚠️ Could not parse body as JSON, sending replaced string as-is');
+              body = bodyStr;
+            }
           }
         }
       }
@@ -3744,6 +3757,29 @@ class BotEngine {
     });
     
     return result;
+  }
+  
+  // Helper: Replace variables in an object (recursively)
+  replaceVariablesInObject(obj, contact, message, botName = '') {
+    if (obj === null || obj === undefined) return obj;
+    
+    if (typeof obj === 'string') {
+      return this.replaceVariables(obj, contact, message, botName);
+    }
+    
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.replaceVariablesInObject(item, contact, message, botName));
+    }
+    
+    if (typeof obj === 'object') {
+      const result = {};
+      for (const key of Object.keys(obj)) {
+        result[key] = this.replaceVariablesInObject(obj[key], contact, message, botName);
+      }
+      return result;
+    }
+    
+    return obj;
   }
   
   // Replace variables including user-defined and custom system variables
