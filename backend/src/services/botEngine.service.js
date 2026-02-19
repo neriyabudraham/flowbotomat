@@ -1542,7 +1542,7 @@ class BotEngine {
         break;
         
       case 'send_other':
-        await this.executeSendOtherNode(node, contact, userId);
+        await this.executeSendOtherNode(node, contact, userId, message);
         break;
     }
     
@@ -3001,7 +3001,7 @@ class BotEngine {
   }
   
   // Execute send_other node - send to a different phone number or group
-  async executeSendOtherNode(node, contact, userId) {
+  async executeSendOtherNode(node, contact, userId, originalMessage = '') {
     const recipient = node.data?.recipient || {};
     const actions = node.data?.actions || [];
     
@@ -3076,18 +3076,18 @@ class BotEngine {
         switch (action.type) {
           case 'text':
             if (action.content) {
-              const text = await this.replaceAllVariables(action.content, contact, '', '', userId);
-              console.log('[BotEngine] Sending text to', targetChatId.substring(0, 20) + '...');
+              const text = await this.replaceAllVariables(action.content, contact, originalMessage, '', userId);
+              console.log('[BotEngine] Sending text to', targetChatId.substring(0, 20) + '...', '- content length:', text.length);
               
               // Check if custom link preview is configured
               if (action.customLinkPreview && action.linkPreviewUrl) {
                 const previewImage = action.linkPreviewImage 
-                  ? await this.replaceAllVariables(action.linkPreviewImage, contact, '', '', userId)
+                  ? await this.replaceAllVariables(action.linkPreviewImage, contact, originalMessage, '', userId)
                   : null;
                 const preview = {
-                  url: await this.replaceAllVariables(action.linkPreviewUrl, contact, '', '', userId),
-                  title: action.linkPreviewTitle ? await this.replaceAllVariables(action.linkPreviewTitle, contact, '', '', userId) : undefined,
-                  description: action.linkPreviewDescription ? await this.replaceAllVariables(action.linkPreviewDescription, contact, '', '', userId) : undefined,
+                  url: await this.replaceAllVariables(action.linkPreviewUrl, contact, originalMessage, '', userId),
+                  title: action.linkPreviewTitle ? await this.replaceAllVariables(action.linkPreviewTitle, contact, originalMessage, '', userId) : undefined,
+                  description: action.linkPreviewDescription ? await this.replaceAllVariables(action.linkPreviewDescription, contact, originalMessage, '', userId) : undefined,
                 };
                 if (previewImage) {
                   preview.image = { url: previewImage };
@@ -3103,8 +3103,8 @@ class BotEngine {
             
           case 'image':
             if (action.url || action.fileData) {
-              const imageUrl = action.fileData || action.url;
-              const caption = await this.replaceAllVariables(action.caption || '', contact, '', '', userId);
+              const imageUrl = action.fileData || await this.replaceAllVariables(action.url, contact, originalMessage, '', userId);
+              const caption = await this.replaceAllVariables(action.caption || '', contact, originalMessage, '', userId);
               await wahaService.sendImage(connection, targetChatId, imageUrl, caption);
               console.log('[BotEngine] ✅ Image sent to other recipient');
             }
@@ -3112,8 +3112,8 @@ class BotEngine {
             
           case 'video':
             if (action.url || action.fileData) {
-              const videoUrl = action.fileData || action.url;
-              const caption = await this.replaceAllVariables(action.caption || '', contact, '', '', userId);
+              const videoUrl = action.fileData || await this.replaceAllVariables(action.url, contact, originalMessage, '', userId);
+              const caption = await this.replaceAllVariables(action.caption || '', contact, originalMessage, '', userId);
               await wahaService.sendVideo(connection, targetChatId, videoUrl, caption);
               console.log('[BotEngine] ✅ Video sent to other recipient');
             }
@@ -3121,7 +3121,7 @@ class BotEngine {
             
           case 'audio':
             if (action.url || action.fileData) {
-              const audioUrl = action.fileData || action.url;
+              const audioUrl = action.fileData || await this.replaceAllVariables(action.url, contact, originalMessage, '', userId);
               await wahaService.sendVoice(connection, targetChatId, audioUrl);
               console.log('[BotEngine] ✅ Audio sent to other recipient');
             }
@@ -3129,7 +3129,7 @@ class BotEngine {
             
           case 'file':
             if (action.url || action.fileData) {
-              const fileUrl = action.fileData || action.url;
+              const fileUrl = action.fileData || await this.replaceAllVariables(action.url, contact, originalMessage, '', userId);
               let filename = action.customFilename || action.fileName || action.filename || 'file';
               
               // Detect mimetype
@@ -3155,8 +3155,8 @@ class BotEngine {
             
           case 'contact':
             if (action.contactPhone) {
-              const contactName = this.replaceVariables(action.contactName || '', contact, '', '');
-              const contactPhoneNum = this.replaceVariables(action.contactPhone || '', contact, '', '');
+              const contactName = this.replaceVariables(action.contactName || '', contact, originalMessage, '');
+              const contactPhoneNum = this.replaceVariables(action.contactPhone || '', contact, originalMessage, '');
               const contactOrg = action.contactOrg || '';
               await wahaService.sendContactVcard(connection, targetChatId, contactName, contactPhoneNum, contactOrg);
               console.log('[BotEngine] ✅ Contact vCard sent to other recipient');
@@ -3165,9 +3165,9 @@ class BotEngine {
           
           case 'location':
             if (action.latitude && action.longitude) {
-              const lat = parseFloat(this.replaceVariables(String(action.latitude), contact, '', ''));
-              const lng = parseFloat(this.replaceVariables(String(action.longitude), contact, '', ''));
-              const title = this.replaceVariables(action.locationTitle || '', contact, '', '');
+              const lat = parseFloat(this.replaceVariables(String(action.latitude), contact, originalMessage, ''));
+              const lng = parseFloat(this.replaceVariables(String(action.longitude), contact, originalMessage, ''));
+              const title = this.replaceVariables(action.locationTitle || '', contact, originalMessage, '');
               await wahaService.sendLocation(connection, targetChatId, lat, lng, title);
               console.log('[BotEngine] ✅ Location sent to other recipient');
             }
