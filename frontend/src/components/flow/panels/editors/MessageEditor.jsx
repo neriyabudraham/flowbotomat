@@ -557,8 +557,8 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
             </div>
           )}
           
-          {/* Preview - Large size */}
-          {previewUrl && !previewError && !isLoading && (
+          {/* Preview - Large size (only for actual URLs, not variables) */}
+          {previewUrl && !previewError && !isLoading && !(action.url && action.url.includes('{{')) && (
             <div className="relative rounded-xl overflow-hidden bg-gray-100 shadow-lg">
               {action.type === 'image' ? (
                 <img 
@@ -592,15 +592,15 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
             </div>
           )}
 
-          {/* Input Mode Tabs */}
-          {!previewUrl && !isLoading && (
+          {/* Input Mode Tabs - Show when no preview or when using variable URL */}
+          {(!previewUrl || (action.url && action.url.includes('{{'))) && !isLoading && (
             <>
               <div className="flex bg-gray-100 rounded-lg p-1">
                 <button
                   type="button"
-                  onClick={() => onUpdate({ inputMode: 'upload' })}
+                  onClick={() => onUpdate({ inputMode: 'upload', url: '', previewUrl: '' })}
                   className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
-                    (action.inputMode || 'upload') === 'upload'
+                    (action.inputMode || 'upload') === 'upload' && !(action.url && action.url.includes('{{'))
                       ? 'bg-white shadow text-gray-800'
                       : 'text-gray-500 hover:text-gray-700'
                   }`}
@@ -612,7 +612,7 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
                   type="button"
                   onClick={() => onUpdate({ inputMode: 'url' })}
                   className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
-                    action.inputMode === 'url'
+                    action.inputMode === 'url' || (action.url && action.url.includes('{{'))
                       ? 'bg-white shadow text-gray-800'
                       : 'text-gray-500 hover:text-gray-700'
                   }`}
@@ -623,7 +623,7 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
               </div>
               
               {/* Upload Mode */}
-              {(action.inputMode || 'upload') === 'upload' && (
+              {(action.inputMode || 'upload') === 'upload' && !(action.url && action.url.includes('{{')) && (
                 <>
                   <button
                     onClick={() => fileInputRef.current?.click()}
@@ -645,14 +645,32 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
                 </>
               )}
               
-              {/* URL Mode */}
-              {action.inputMode === 'url' && (
-                <TextInputWithVariables
-                  value={action.url || ''}
-                  onChange={(v) => { onUpdate({ url: v, previewUrl: v, localFile: false }); setPreviewError(false); setUploadError(''); }}
-                  placeholder="https://example.com/image.jpg או {{משתנה}}"
-                  label="קישור לקובץ (ניתן להשתמש במשתנים)"
-                />
+              {/* URL Mode - show when inputMode is url OR when URL contains variables */}
+              {(action.inputMode === 'url' || (action.url && action.url.includes('{{'))) && (
+                <>
+                  <TextInputWithVariables
+                    value={action.url || ''}
+                    onChange={(v) => { 
+                      const hasVariable = v.includes('{{');
+                      onUpdate({ 
+                        url: v, 
+                        previewUrl: hasVariable ? '' : v, 
+                        localFile: false,
+                        inputMode: 'url'
+                      }); 
+                      setPreviewError(false); 
+                      setUploadError(''); 
+                    }}
+                    placeholder="https://example.com/image.jpg או {{משתנה}}"
+                    label="קישור לקובץ (ניתן להשתמש במשתנים)"
+                  />
+                  {action.url && action.url.includes('{{') && (
+                    <div className="flex items-center gap-2 p-3 bg-blue-50 text-blue-700 rounded-lg text-sm border border-blue-200">
+                      <span>📝</span>
+                      <span>משתנה - יוחלף בזמן ריצת הפלואו</span>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
@@ -690,15 +708,15 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
       {/* File upload with auto-detect mimetype */}
       {action.type === 'file' && (
         <div className="space-y-3">
-          {/* Input Mode Tabs */}
-          {!action.fileName && (
+          {/* Input Mode Tabs - show when no fileName or when using variable URL */}
+          {(!action.fileName || (action.url && action.url.includes('{{'))) && (
             <>
               <div className="flex bg-gray-100 rounded-lg p-1">
                 <button
                   type="button"
-                  onClick={() => onUpdate({ inputMode: 'upload' })}
+                  onClick={() => onUpdate({ inputMode: 'upload', url: '', fileName: '' })}
                   className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
-                    (action.inputMode || 'upload') === 'upload'
+                    (action.inputMode || 'upload') === 'upload' && !(action.url && action.url.includes('{{'))
                       ? 'bg-white shadow text-gray-800'
                       : 'text-gray-500 hover:text-gray-700'
                   }`}
@@ -710,7 +728,7 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
                   type="button"
                   onClick={() => onUpdate({ inputMode: 'url' })}
                   className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
-                    action.inputMode === 'url'
+                    action.inputMode === 'url' || (action.url && action.url.includes('{{'))
                       ? 'bg-white shadow text-gray-800'
                       : 'text-gray-500 hover:text-gray-700'
                   }`}
@@ -721,7 +739,7 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
               </div>
               
               {/* Upload Mode */}
-              {(action.inputMode || 'upload') === 'upload' && (
+              {(action.inputMode || 'upload') === 'upload' && !(action.url && action.url.includes('{{')) && (
                 <>
                   <button 
                     onClick={() => fileInputRef.current?.click()} 
@@ -735,19 +753,27 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
                 </>
               )}
               
-              {/* URL Mode */}
-              {action.inputMode === 'url' && (
-                <TextInputWithVariables
-                  value={action.url || ''}
-                  onChange={(v) => onUpdate({ url: v, localFile: false })}
-                  placeholder="https://example.com/file.pdf או {{משתנה}}"
-                  label="קישור לקובץ (ניתן להשתמש במשתנים)"
-                />
+              {/* URL Mode - show when inputMode is url OR when URL contains variables */}
+              {(action.inputMode === 'url' || (action.url && action.url.includes('{{'))) && (
+                <>
+                  <TextInputWithVariables
+                    value={action.url || ''}
+                    onChange={(v) => onUpdate({ url: v, localFile: false, inputMode: 'url' })}
+                    placeholder="https://example.com/file.pdf או {{משתנה}}"
+                    label="קישור לקובץ (ניתן להשתמש במשתנים)"
+                  />
+                  {action.url && action.url.includes('{{') && (
+                    <div className="flex items-center gap-2 p-3 bg-blue-50 text-blue-700 rounded-lg text-sm border border-blue-200">
+                      <span>📝</span>
+                      <span>משתנה - יוחלף בזמן ריצת הפלואו</span>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
           
-          {action.fileName && (
+          {action.fileName && !(action.url && action.url.includes('{{')) && (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2 p-3 bg-gray-100 rounded-lg text-sm text-gray-700">
                 <div className="flex items-center gap-2">
@@ -1390,15 +1416,17 @@ function AudioRecorder({ action, onUpdate, fileInputRef, handleFileUpload }) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const hasVariableUrl = action.url && action.url.includes('{{');
+
   return (
     <div className="space-y-3">
       {/* Input Mode Tabs */}
       <div className="flex bg-gray-100 rounded-lg p-1">
         <button
           type="button"
-          onClick={() => onUpdate({ inputMode: 'upload' })}
+          onClick={() => onUpdate({ inputMode: 'upload', url: '', fileName: '' })}
           className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
-            (action.inputMode || 'upload') === 'upload'
+            (action.inputMode || 'upload') === 'upload' && !hasVariableUrl
               ? 'bg-white shadow text-gray-800'
               : 'text-gray-500 hover:text-gray-700'
           }`}
@@ -1408,9 +1436,9 @@ function AudioRecorder({ action, onUpdate, fileInputRef, handleFileUpload }) {
         </button>
         <button
           type="button"
-          onClick={() => onUpdate({ inputMode: 'record' })}
+          onClick={() => onUpdate({ inputMode: 'record', url: '', fileName: '' })}
           className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
-            action.inputMode === 'record'
+            action.inputMode === 'record' && !hasVariableUrl
               ? 'bg-white shadow text-gray-800'
               : 'text-gray-500 hover:text-gray-700'
           }`}
@@ -1422,7 +1450,7 @@ function AudioRecorder({ action, onUpdate, fileInputRef, handleFileUpload }) {
           type="button"
           onClick={() => onUpdate({ inputMode: 'url' })}
           className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
-            action.inputMode === 'url'
+            action.inputMode === 'url' || hasVariableUrl
               ? 'bg-white shadow text-gray-800'
               : 'text-gray-500 hover:text-gray-700'
           }`}
@@ -1432,8 +1460,8 @@ function AudioRecorder({ action, onUpdate, fileInputRef, handleFileUpload }) {
         </button>
       </div>
 
-      {/* Already has file */}
-      {action.fileName && (
+      {/* Already has file (not variable URL) */}
+      {action.fileName && !hasVariableUrl && (
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-2 p-3 bg-pink-50 rounded-lg text-sm text-pink-700">
             <div className="flex items-center gap-2">
@@ -1454,7 +1482,7 @@ function AudioRecorder({ action, onUpdate, fileInputRef, handleFileUpload }) {
       )}
 
       {/* Upload Mode */}
-      {!action.fileName && (action.inputMode || 'upload') === 'upload' && (
+      {!action.fileName && !hasVariableUrl && (action.inputMode || 'upload') === 'upload' && (
         <>
           <button 
             onClick={() => fileInputRef.current?.click()} 
@@ -1475,7 +1503,7 @@ function AudioRecorder({ action, onUpdate, fileInputRef, handleFileUpload }) {
       )}
 
       {/* Record Mode */}
-      {!action.fileName && action.inputMode === 'record' && (
+      {!action.fileName && !hasVariableUrl && action.inputMode === 'record' && (
         <div className="space-y-3">
           {!audioUrl ? (
             <div className="flex flex-col items-center gap-3 py-6 bg-white border-2 border-dashed border-gray-200 rounded-xl">
@@ -1530,14 +1558,22 @@ function AudioRecorder({ action, onUpdate, fileInputRef, handleFileUpload }) {
         </div>
       )}
 
-      {/* URL Mode */}
-      {!action.fileName && action.inputMode === 'url' && (
-        <TextInputWithVariables
-          value={action.url || ''}
-          onChange={(v) => onUpdate({ url: v, localFile: false })}
-          placeholder="https://example.com/audio.mp3 או {{משתנה}}"
-          label="קישור לקובץ שמע (ניתן להשתמש במשתנים)"
-        />
+      {/* URL Mode - show when inputMode is url OR when URL contains variables */}
+      {((!action.fileName && action.inputMode === 'url') || hasVariableUrl) && (
+        <>
+          <TextInputWithVariables
+            value={action.url || ''}
+            onChange={(v) => onUpdate({ url: v, localFile: false, inputMode: 'url', fileName: '' })}
+            placeholder="https://example.com/audio.mp3 או {{משתנה}}"
+            label="קישור לקובץ שמע (ניתן להשתמש במשתנים)"
+          />
+          {hasVariableUrl && (
+            <div className="flex items-center gap-2 p-3 bg-blue-50 text-blue-700 rounded-lg text-sm border border-blue-200">
+              <span>📝</span>
+              <span>משתנה - יוחלף בזמן ריצת הפלואו</span>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
