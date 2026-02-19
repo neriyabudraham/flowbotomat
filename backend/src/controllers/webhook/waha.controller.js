@@ -11,7 +11,12 @@ const { getWahaCredentials } = require('../../services/settings/system.service')
 // (only call.received has the real phone number)
 const callCache = new Map();
 
-// Clean old entries every 5 minutes (keep calls for max 10 minutes)
+// In-memory cache for message deduplication: messageId -> timestamp
+// Prevents processing the same message twice (common with media messages)
+const processedMessagesCache = new Map();
+const DEDUP_CACHE_TTL = 60 * 1000; // 1 minute TTL
+
+// Clean old entries every minute
 setInterval(() => {
   const now = Date.now();
   for (const [callId, data] of callCache.entries()) {
@@ -19,7 +24,13 @@ setInterval(() => {
       callCache.delete(callId);
     }
   }
-}, 5 * 60 * 1000);
+  // Clean processed messages cache
+  for (const [msgId, timestamp] of processedMessagesCache.entries()) {
+    if (now - timestamp > DEDUP_CACHE_TTL) {
+      processedMessagesCache.delete(msgId);
+    }
+  }
+}, 60 * 1000);
 
 /**
  * Resolve LID to real phone number
@@ -423,6 +434,26 @@ async function saveUserStatus(userId, payload) {
  */
 async function handleIncomingMessage(userId, event) {
   const { payload } = event;
+  
+  // Extract message ID for deduplication
+  let messageId = '';
+  if (typeof payload.id === 'string') {
+    messageId = payload.id;
+  } else if (payload.id?._serialized) {
+    messageId = payload.id._serialized;
+  } else if (payload.id?.id) {
+    messageId = `${payload.id.fromMe ? 'true' : 'false'}_${payload.id.remote || ''}_${payload.id.id}`;
+  }
+  
+  // Deduplication check - prevent processing same message twice (common with media)
+  if (messageId) {
+    const dedupKey = `${userId}_${messageId}`;
+    if (processedMessagesCache.has(dedupKey)) {
+      console.log(`[Webhook] ⏭️ Skipping duplicate message: ${messageId.substring(0, 30)}...`);
+      return;
+    }
+    processedMessagesCache.set(dedupKey, Date.now());
+  }
   
   // Ensure migrations are applied
   await ensureMigrations();
