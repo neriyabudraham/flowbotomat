@@ -284,7 +284,15 @@ function parseCurl(curlCommand) {
   }
   
   if (bodyMatch) {
-    result.body = bodyMatch[1];
+    let body = bodyMatch[1];
+    // Try to pretty-print JSON
+    try {
+      const parsed = JSON.parse(body);
+      body = JSON.stringify(parsed, null, 2);
+    } catch {
+      // Not valid JSON, keep as-is
+    }
+    result.body = body;
     // If method wasn't explicitly set and we have a body, default to POST
     if (!methodMatch) {
       result.method = 'POST';
