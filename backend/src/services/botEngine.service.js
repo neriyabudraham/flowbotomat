@@ -1603,6 +1603,13 @@ class BotEngine {
           case 'text':
             if (action.content) {
               const text = await this.replaceAllVariables(action.content, contact, originalMessage, botName, userId);
+              
+              // Skip empty messages - don't send but continue flow
+              if (!text || !text.trim()) {
+                console.log('[BotEngine] ⏭️ Skipping empty text message (after variable replacement)');
+                break;
+              }
+              
               console.log('[BotEngine] Sending text:', text.substring(0, 50) + '...');
               
               let result;
@@ -3077,6 +3084,13 @@ class BotEngine {
           case 'text':
             if (action.content) {
               const text = await this.replaceAllVariables(action.content, contact, originalMessage, '', userId);
+              
+              // Skip empty messages - don't send but continue flow
+              if (!text || !text.trim()) {
+                console.log('[BotEngine] ⏭️ Skipping empty text message (after variable replacement)');
+                break;
+              }
+              
               console.log('[BotEngine] Sending text to', targetChatId.substring(0, 20) + '...', '- content length:', text.length);
               
               // Check if custom link preview is configured
