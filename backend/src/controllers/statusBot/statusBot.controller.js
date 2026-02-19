@@ -1828,41 +1828,25 @@ async function handleWebhook(req, res) {
     const { userId } = req.params;
     const { event, payload, session } = req.body;
 
-    console.log(`[StatusBot Webhook] Event: ${event} for user ${userId}`);
-
     // Find connection by session name
-    console.log(`[StatusBot Webhook] Looking for connection with session_name: ${session}`);
-    
     const connResult = await db.query(
       'SELECT * FROM status_bot_connections WHERE session_name = $1',
       [session]
     );
 
     if (connResult.rows.length === 0) {
-      console.log(`[StatusBot Webhook] ❌ No connection found for session: ${session}`);
       return res.json({ received: true });
     }
     
-    console.log(`[StatusBot Webhook] ✅ Found connection ID: ${connResult.rows[0].id}`)
-
     const connection = connResult.rows[0];
 
     switch (event) {
       case 'session.status':
-        console.log(`[StatusBot Webhook] 📡 SESSION.STATUS event received:`);
-        console.log(`[StatusBot Webhook]   - WAHA status: ${payload?.status}`);
-        console.log(`[StatusBot Webhook]   - Session: ${session}`);
-        console.log(`[StatusBot Webhook]   - Connection ID: ${connection.id}`);
-        console.log(`[StatusBot Webhook]   - Current DB status: ${connection.connection_status}`);
-        console.log(`[StatusBot Webhook]   - DB updated_at: ${connection.updated_at}`);
-        console.log(`[StatusBot Webhook]   - Full payload:`, JSON.stringify(payload, null, 2));
+        console.log(`[StatusBot Webhook] 📡 Session status: ${payload?.status} (was: ${connection.connection_status})`);
         await handleSessionStatus(connection, payload);
         break;
 
       case 'message.ack':
-        // Log ALL ACK payloads for debugging
-        console.log(`[StatusBot Webhook] ACK FULL PAYLOAD:`, JSON.stringify(payload, null, 2));
-        
         const ackLevel = payload?.ack || payload?.ackLevel;
         
         // Check if this is a status view - try multiple conditions
@@ -1872,15 +1856,12 @@ async function handleWebhook(req, res) {
           (payload?.id && typeof payload.id === 'string' && payload.id.includes('status@broadcast'));
         
         if (isStatusView && ackLevel >= 3) {
-          console.log(`[StatusBot Webhook] ✅ Status view detected - ack: ${ackLevel}`);
+          console.log(`[StatusBot Webhook] ✅ Status view detected - ack: ${ackLevel}, viewer: ${payload?.participant || payload?.to}`);
           await handleStatusView(connection, payload);
         }
         break;
 
       case 'message.reaction':
-        // Log ALL reaction payloads for debugging
-        console.log(`[StatusBot Webhook] REACTION FULL PAYLOAD:`, JSON.stringify(payload, null, 2));
-        
         // Handle status reaction - try multiple conditions
         const isStatusReaction = 
           payload?.from === 'status@broadcast' || 
@@ -1907,16 +1888,6 @@ async function handleSessionStatus(connection, payload) {
     const { status } = payload;
     const previousStatus = connection.connection_status;
     
-    console.log(`[StatusBot] ========== handleSessionStatus ==========`);
-    console.log(`[StatusBot] WAHA status: "${status}"`);
-    console.log(`[StatusBot] Previous DB status: "${previousStatus}"`);
-    console.log(`[StatusBot] Connection ID: ${connection.id}`);
-    console.log(`[StatusBot] first_connected_at: ${connection.first_connected_at}`);
-    console.log(`[StatusBot] last_connected_at: ${connection.last_connected_at}`);
-    console.log(`[StatusBot] updated_at: ${connection.updated_at}`);
-    console.log(`[StatusBot] restriction_lifted: ${connection.restriction_lifted}`);
-    console.log(`[StatusBot] short_restriction_until: ${connection.short_restriction_until}`);
-    
     let newStatus = 'disconnected';
     
     if (status === 'WORKING') {
@@ -1930,14 +1901,8 @@ async function handleSessionStatus(connection, payload) {
       const requiresReauthentication = previousStatus === 'qr_pending' || previousStatus === 'failed';
       const wasDisconnected = previousStatus === 'disconnected' || previousStatus === 'failed' || previousStatus === 'qr_pending';
       
-      console.log(`[StatusBot] Calculated disconnectionDuration: ${Math.round(disconnectionDuration)} seconds`);
-      console.log(`[StatusBot] requiresReauthentication: ${requiresReauthentication}`);
-      console.log(`[StatusBot] wasDisconnected: ${wasDisconnected}`);
-      console.log(`[StatusBot] has first_connected_at: ${!!connection.first_connected_at}`);
-      
       if (!connection.first_connected_at) {
         // First time connecting - 24h restriction
-        console.log(`[StatusBot] ➡️ DECISION: First connection - setting 24h restriction`);
         await db.query(`
           UPDATE status_bot_connections 
           SET first_connected_at = NOW(), last_connected_at = NOW(), short_restriction_until = NULL
@@ -1945,9 +1910,7 @@ async function handleSessionStatus(connection, payload) {
         `, [connection.id]);
       } else if (wasDisconnected && disconnectionDuration < 60) {
         // Short disconnection (< 1 minute) - use 30 min "system updates" restriction
-        console.log(`[StatusBot] ➡️ DECISION: Short disconnection (${Math.round(disconnectionDuration)}s < 60s) - setting 30 min restriction`);
-        const shortRestrictionUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
-        console.log(`[StatusBot] Setting short_restriction_until to: ${shortRestrictionUntil.toISOString()}`);
+        const shortRestrictionUntil = new Date(Date.now() + 30 * 60 * 1000);
         await db.query(`
           UPDATE status_bot_connections 
           SET restriction_lifted = true, short_restriction_until = $2
@@ -1955,25 +1918,18 @@ async function handleSessionStatus(connection, payload) {
         `, [connection.id, shortRestrictionUntil]);
       } else if (requiresReauthentication) {
         // Re-authentication required (QR scan) with longer disconnection - 24h restriction
-        console.log(`[StatusBot] ➡️ DECISION: Re-auth required + long disconnection (${Math.round(disconnectionDuration)}s >= 60s) - setting 24h restriction`);
         await db.query(`
           UPDATE status_bot_connections 
           SET last_connected_at = NOW(), restriction_lifted = false, short_restriction_until = NULL
           WHERE id = $1
         `, [connection.id]);
-      } else {
-        // Just a regular reconnection (network hiccup) - don't reset restriction
-        console.log(`[StatusBot] ➡️ DECISION: Auto-reconnection (was: ${previousStatus}) - NOT changing restriction`);
       }
     } else if (status === 'SCAN_QR_CODE') {
       newStatus = 'qr_pending';
-      console.log(`[StatusBot] ➡️ Status changed to: qr_pending`);
     } else if (status === 'FAILED') {
       newStatus = 'failed';
-      console.log(`[StatusBot] ➡️ Status changed to: failed`);
     } else if (status === 'STOPPED') {
       newStatus = 'disconnected';
-      console.log(`[StatusBot] ➡️ Status changed to: disconnected (STOPPED received)`);
       
       // Schedule a check after 60 seconds to determine restriction type
       if (connection.first_connected_at) {
