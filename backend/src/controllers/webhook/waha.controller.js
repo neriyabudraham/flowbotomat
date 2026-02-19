@@ -723,9 +723,54 @@ async function handleIncomingMessage(userId, event) {
       // Get channel name if this is a channel message
       let channelName = null;
       if (isChannelMessage) {
+        // Try to get from payload first
         channelName = payload._data?.Info?.Subject || 
                       payload._data?.Info?.VerifiedName?.Details?.verifiedName ||
+                      payload._data?.NewsletterMeta?.name ||
                       payload.notifyName || payload.pushName || null;
+        
+        // If not in payload, try to fetch from channels API
+        if (!channelName && channelId) {
+          try {
+            const connResult = await pool.query(
+              `SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' ORDER BY connected_at DESC LIMIT 1`,
+              [userId]
+            );
+            
+            if (connResult.rows.length > 0) {
+              const conn = connResult.rows[0];
+              let baseUrl, apiKey;
+              
+              if (conn.connection_type === 'external') {
+                baseUrl = decrypt(conn.external_base_url);
+                apiKey = decrypt(conn.external_api_key);
+              } else {
+                const systemCreds = getWahaCredentials();
+                baseUrl = systemCreds.baseUrl;
+                apiKey = systemCreds.apiKey;
+              }
+              
+              // Fetch channels and find matching one
+              const axios = require('axios');
+              const channelsResponse = await axios.get(
+                `${baseUrl}/api/${conn.session_name}/channels`,
+                {
+                  headers: { 'accept': 'application/json', 'X-Api-Key': apiKey },
+                  timeout: 5000
+                }
+              );
+              
+              const channels = channelsResponse.data || [];
+              const matchingChannel = channels.find(ch => ch.id === channelId);
+              if (matchingChannel) {
+                channelName = matchingChannel.name;
+                console.log(`[Webhook] 📢 Resolved channel name from API: ${channelName}`);
+              }
+            }
+          } catch (channelErr) {
+            console.log(`[Webhook] Could not fetch channel name: ${channelErr.message}`);
+          }
+        }
       }
       
       // Get bot's phone number from the connection
