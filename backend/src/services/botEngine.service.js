@@ -1010,11 +1010,16 @@ class BotEngine {
         console.log('[BotEngine] Group:', group.id, '- conditions:', conditions.length, '- allowGroupMessages:', group.allowGroupMessages);
         if (conditions.length === 0) continue;
         
+        // Auto-detect if this group has channel/group triggers
+        const hasChannelTrigger = conditions.some(c => c.type === 'channel_message');
+        const hasGroupTrigger = conditions.some(c => c.type === 'group_message');
+        
         // Check message source settings
         // By default: direct messages allowed, group/channel messages not allowed
+        // BUT: if there's a channel_message/group_message trigger, auto-enable that source
         const allowDirectMessages = group.allowDirectMessages !== false; // default true
-        const allowGroupMessages = group.allowGroupMessages || false; // default false
-        const allowChannelMessages = group.allowChannelMessages || false; // default false
+        const allowGroupMessages = group.allowGroupMessages || hasGroupTrigger || false; // default false, but true if has group trigger
+        const allowChannelMessages = group.allowChannelMessages || hasChannelTrigger || false; // default false, but true if has channel trigger
         
         // Get channel info from contact context
         const isChannelMessage = contact._isChannel || false;
@@ -1031,7 +1036,7 @@ class BotEngine {
           console.log('[BotEngine] Skipping trigger group - direct messages not allowed');
           continue; // Try next group
         }
-        console.log('[BotEngine] Message source check passed - isGroup:', isGroupMessage, 'isChannel:', isChannelMessage, 'allowDirect:', allowDirectMessages, 'allowGroup:', allowGroupMessages, 'allowChannel:', allowChannelMessages);
+        console.log('[BotEngine] Message source check passed - isGroup:', isGroupMessage, 'isChannel:', isChannelMessage, 'allowDirect:', allowDirectMessages, 'allowGroup:', allowGroupMessages, 'allowChannel:', allowChannelMessages, '(auto-detected: channel=', hasChannelTrigger, 'group=', hasGroupTrigger, ')');
         
         // All conditions in this group must match (AND)
         let groupMatches = true;
