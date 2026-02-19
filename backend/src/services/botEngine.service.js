@@ -1525,7 +1525,7 @@ class BotEngine {
         return;
         
       case 'integration':
-        await this.executeIntegrationNode(node, contact, userId);
+        await this.executeIntegrationNode(node, contact, userId, message);
         break;
         
       case 'google_sheets':
@@ -2877,7 +2877,7 @@ class BotEngine {
   }
   
   // Execute integration node (API requests)
-  async executeIntegrationNode(node, contact, userId) {
+  async executeIntegrationNode(node, contact, userId, message = '') {
     const actions = node.data?.actions || [];
     console.log(`[BotEngine] Integration node has ${actions.length} action(s)`);
     
@@ -2887,7 +2887,7 @@ class BotEngine {
       
       if (actionType === 'http_request') {
         console.log(`[BotEngine] Executing API request ${i + 1}/${actions.length}: ${action.method || 'GET'} ${action.apiUrl}`);
-        await this.executeHttpRequest(action, contact);
+        await this.executeHttpRequest(action, contact, message);
       } else if (actionType === 'google_sheets') {
         console.log(`[BotEngine] Executing Google Sheets action ${i + 1}/${actions.length}`);
         // Create a virtual node with the nested actions
@@ -2903,7 +2903,7 @@ class BotEngine {
   }
   
   // Execute HTTP request action
-  async executeHttpRequest(action, contact) {
+  async executeHttpRequest(action, contact, message = '') {
     if (!action.apiUrl) return;
     
     const axios = require('axios');
@@ -2914,7 +2914,7 @@ class BotEngine {
       if (action.headers && Array.isArray(action.headers)) {
         for (const h of action.headers) {
           if (h.key) {
-            headers[h.key] = this.replaceVariables(h.value || '', contact, '', '');
+            headers[h.key] = this.replaceVariables(h.value || '', contact, message, '');
           }
         }
       }
@@ -2930,12 +2930,12 @@ class BotEngine {
           body = {};
           for (const param of action.bodyParams) {
             if (param.key) {
-              body[param.key] = this.replaceVariables(param.value || '', contact, '', '');
+              body[param.key] = this.replaceVariables(param.value || '', contact, message, '');
             }
           }
         } else if (action.body) {
           try {
-            const bodyStr = this.replaceVariables(action.body, contact, '', '');
+            const bodyStr = this.replaceVariables(action.body, contact, message, '');
             body = JSON.parse(bodyStr);
           } catch {
             body = action.body;
@@ -2943,8 +2943,11 @@ class BotEngine {
         }
       }
       
-      const url = this.replaceVariables(action.apiUrl, contact, '', '');
+      const url = this.replaceVariables(action.apiUrl, contact, message, '');
       console.log('[BotEngine] HTTP Request:', action.method, url);
+      if (body) {
+        console.log('[BotEngine] HTTP Body:', JSON.stringify(body).substring(0, 500));
+      }
       
       const response = await axios({
         method: action.method || 'GET',
