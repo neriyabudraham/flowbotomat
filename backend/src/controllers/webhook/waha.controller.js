@@ -703,8 +703,11 @@ async function handleIncomingMessage(userId, event) {
   // FIRST: Process group forwards - if message is handled by forwards, skip bot engine
   let handledByForwards = false;
   
-  // For group forwards and bot engine, use the SENDER's phone (not the group ID)
-  const phoneForProcessing = senderPhone;
+  // For group forwards and bot engine:
+  // - Groups: use the SENDER's phone (not the group ID)
+  // - Channels: use the channel ID (channels don't have sender phone)
+  // - Direct: use the sender's phone
+  const phoneForProcessing = isChannelMessage ? channelId : senderPhone;
   
   try {
     // First check if this is a confirmation response for pending job
