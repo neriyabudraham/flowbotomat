@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, X, RefreshCw } from 'lucide-react';
+import { Plus, X, RefreshCw, List, Type } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 import api from '../../../../services/api';
 
@@ -9,13 +9,21 @@ const variables = [
   { id: 'message_type', label: 'סוג ההודעה', group: 'הודעה' },
   { id: 'contact_name', label: 'שם איש קשר', group: 'איש קשר' },
   { id: 'phone', label: 'מספר טלפון', group: 'איש קשר' },
-  { id: 'is_first_contact', label: 'איש קשר חדש', group: 'איש קשר' },
-  { id: 'has_tag', label: 'יש תגית', group: 'איש קשר' },
+  { id: 'is_first_contact', label: 'איש קשר חדש', group: 'איש קשר', isBoolean: true },
+  { id: 'has_tag', label: 'יש תגית', group: 'איש קשר', isBoolean: true },
+  { id: 'has_media', label: 'האם יש מדיה', group: 'הודעה', isBoolean: true },
+  { id: 'is_group', label: 'האם קבוצה', group: 'הודעה', isBoolean: true },
+  { id: 'is_channel', label: 'האם ערוץ', group: 'הודעה', isBoolean: true },
   { id: 'contact_var', label: 'משתנה מהמערכת', group: 'משתנים' },
   { id: 'time', label: 'שעה נוכחית', group: 'זמן' },
   { id: 'day', label: 'יום בשבוע', group: 'זמן' },
   { id: 'date', label: 'תאריך', group: 'זמן' },
   { id: 'random', label: 'מספר אקראי (1-100)', group: 'מתקדם' },
+];
+
+const booleanOptions = [
+  { value: 'true', label: 'כן (true)' },
+  { value: 'false', label: 'לא (false)' },
 ];
 
 const operators = [
@@ -82,6 +90,14 @@ function ConditionRow({ condition, onChange, onRemove, canRemove, availableVars,
   const needsValue = !['is_empty', 'is_not_empty', 'is_true', 'is_false', 'is_text', 'is_number', 'is_email', 'is_phone', 'is_image', 'is_video', 'is_audio', 'is_document', 'is_pdf'].includes(condition.operator);
   const needsVarName = condition.variable === 'has_tag';
   const needsVarSelect = condition.variable === 'contact_var';
+  
+  // Check if this variable expects a boolean value
+  const selectedVar = variables.find(v => v.id === condition.variable);
+  const isBooleanVar = selectedVar?.isBoolean || false;
+  const showBooleanInput = isBooleanVar && needsValue && ['equals', 'not_equals'].includes(condition.operator);
+  
+  // Input mode for boolean: 'select' or 'variable'
+  const boolInputMode = condition.boolInputMode || 'select';
 
   // Group available variables by category
   const groupedAvailableVars = availableVars.reduce((acc, v) => {
@@ -97,7 +113,7 @@ function ConditionRow({ condition, onChange, onRemove, canRemove, availableVars,
         <div className="flex-1 grid grid-cols-2 gap-2">
           <select
             value={condition.variable || 'message'}
-            onChange={(e) => onChange({ ...condition, variable: e.target.value, varName: '' })}
+            onChange={(e) => onChange({ ...condition, variable: e.target.value, varName: '', value: '', boolInputMode: 'select' })}
             className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
           >
             {Object.entries(groupedVariables).map(([group, vars]) => (
@@ -158,8 +174,71 @@ function ConditionRow({ condition, onChange, onRemove, canRemove, availableVars,
         />
       )}
       
-      {/* Value input - with variable selector support */}
-      {needsValue && (
+      {/* Boolean value input - with mode toggle */}
+      {showBooleanInput && (
+        <div className="space-y-2">
+          {/* Mode toggle */}
+          <div className="flex bg-gray-100 rounded-lg p-1">
+            <button
+              type="button"
+              onClick={() => onChange({ ...condition, boolInputMode: 'select', value: '' })}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs font-medium transition-all ${
+                boolInputMode === 'select'
+                  ? 'bg-white shadow text-gray-800'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <List className="w-3 h-3" />
+              בחירה מרשימה
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange({ ...condition, boolInputMode: 'variable', value: '' })}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs font-medium transition-all ${
+                boolInputMode === 'variable'
+                  ? 'bg-white shadow text-gray-800'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Type className="w-3 h-3" />
+              משתנה / טקסט
+            </button>
+          </div>
+          
+          {/* Select mode */}
+          {boolInputMode === 'select' && (
+            <select
+              value={condition.value || ''}
+              onChange={(e) => onChange({ ...condition, value: e.target.value })}
+              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+            >
+              <option value="">בחר ערך...</option>
+              {booleanOptions.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          )}
+          
+          {/* Variable/text mode */}
+          {boolInputMode === 'variable' && (
+            <>
+              <TextInputWithVariables
+                value={condition.value || ''}
+                onChange={(val) => onChange({ ...condition, value: val })}
+                placeholder="true / false / כן / לא / {{משתנה}}"
+                className="text-sm"
+              />
+              <p className="text-xs text-gray-500 flex items-center gap-1">
+                <span>💡</span>
+                <span>מקבל: true, false, כן, לא או משתנה</span>
+              </p>
+            </>
+          )}
+        </div>
+      )}
+      
+      {/* Regular value input - with variable selector support */}
+      {needsValue && !showBooleanInput && (
         condition.variable === 'message_type' ? (
           <select
             value={condition.value || ''}

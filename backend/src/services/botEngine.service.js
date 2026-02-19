@@ -1992,12 +1992,24 @@ class BotEngine {
     const lowerCheck = (checkValue || '').toLowerCase();
     const lowerValue = (resolvedValue || '').toLowerCase();
     
+    // Helper to normalize boolean-like values to canonical form
+    const normalizeBooleanValue = (val) => {
+      const lower = String(val).toLowerCase().trim();
+      if (['true', 'כן', 'yes', '1'].includes(lower) || val === true) return 'true';
+      if (['false', 'לא', 'no', '0'].includes(lower) || val === false) return 'false';
+      return lower;
+    };
+    
     console.log(`[BotEngine] Condition: "${checkValue}" ${operator} "${resolvedValue}"`);
     
     switch (operator) {
       case 'equals':
+        // First try normalized boolean comparison, then regular comparison
+        if (normalizeBooleanValue(checkValue) === normalizeBooleanValue(resolvedValue)) return true;
         return lowerCheck === lowerValue;
       case 'not_equals':
+        // First try normalized boolean comparison
+        if (normalizeBooleanValue(checkValue) === normalizeBooleanValue(resolvedValue)) return false;
         return lowerCheck !== lowerValue;
       case 'contains':
         return lowerCheck.includes(lowerValue);
@@ -2020,9 +2032,14 @@ class BotEngine {
       case 'is_not_empty':
         return (checkValue || '').trim() !== '';
       case 'is_true':
-        return checkValue === 'true' || checkValue === true;
+        // Accept: true, 'true', 'כן', 'yes', '1'
+        return checkValue === true || 
+               ['true', 'כן', 'yes', '1'].includes(String(checkValue).toLowerCase().trim());
       case 'is_false':
-        return checkValue === 'false' || checkValue === false || checkValue === '';
+        // Accept: false, 'false', 'לא', 'no', '0', ''
+        return checkValue === false || 
+               checkValue === '' || 
+               ['false', 'לא', 'no', '0'].includes(String(checkValue).toLowerCase().trim());
       case 'matches_regex':
         try {
           return new RegExp(resolvedValue, 'i').test(checkValue);
