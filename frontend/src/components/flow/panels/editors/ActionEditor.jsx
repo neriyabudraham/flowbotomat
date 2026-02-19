@@ -735,15 +735,109 @@ function VariableKeyValueEditor({ action, onUpdate }) {
   );
 }
 
+// Parse curl command and extract method, url, headers, body
+function parseCurl(curlCommand) {
+  const result = {
+    method: 'GET',
+    url: '',
+    headers: [],
+    body: null
+  };
+
+  // Clean up the curl command - remove backslashes and normalize whitespace
+  let cmd = curlCommand
+    .replace(/\\\s*\n/g, ' ')  // Handle line continuations
+    .replace(/\s+/g, ' ')      // Normalize whitespace
+    .trim();
+
+  // Remove 'curl' from the beginning
+  cmd = cmd.replace(/^curl\s+/i, '');
+
+  // Extract URL - it's usually the first argument without a flag or the argument after --url
+  const urlMatch = cmd.match(/(?:--url\s+)?['"]?(https?:\/\/[^\s'"]+)['"]?/i) ||
+                   cmd.match(/['"]?(https?:\/\/[^\s'"]+)['"]?/);
+  if (urlMatch) {
+    result.url = urlMatch[1];
+  }
+
+  // Extract method with -X or --request
+  const methodMatch = cmd.match(/(?:-X|--request)\s+['"]?(\w+)['"]?/i);
+  if (methodMatch) {
+    result.method = methodMatch[1].toUpperCase();
+  }
+
+  // Extract headers with -H or --header
+  const headerRegex = /(?:-H|--header)\s+['"]([^'"]+)['"]/gi;
+  let headerMatch;
+  while ((headerMatch = headerRegex.exec(cmd)) !== null) {
+    const headerStr = headerMatch[1];
+    const colonIndex = headerStr.indexOf(':');
+    if (colonIndex > 0) {
+      const key = headerStr.substring(0, colonIndex).trim();
+      const value = headerStr.substring(colonIndex + 1).trim();
+      result.headers.push({ key, value });
+    }
+  }
+
+  // Extract body with -d, --data, --data-raw, --data-binary, --data-urlencode
+  const bodyMatch = cmd.match(/(?:-d|--data(?:-raw|-binary|-urlencode)?)\s+['"]([^'"]+)['"]/i) ||
+                    cmd.match(/(?:-d|--data(?:-raw|-binary|-urlencode)?)\s+\$'([^']+)'/i);
+  if (bodyMatch) {
+    result.body = bodyMatch[1];
+    // If method wasn't explicitly set and we have a body, default to POST
+    if (!methodMatch) {
+      result.method = 'POST';
+    }
+  }
+
+  return result;
+}
+
 // API Request Modal - full screen editor
 function ApiRequestModal({ action, onUpdate, onClose }) {
   const [showHeaders, setShowHeaders] = useState(true);
   const [showMapping, setShowMapping] = useState(true);
   const [testResult, setTestResult] = useState(null);
   const [isTesting, setIsTesting] = useState(false);
+  const [showCurlImport, setShowCurlImport] = useState(false);
+  const [curlInput, setCurlInput] = useState('');
+  const [curlError, setCurlError] = useState('');
   
   const headers = action.headers || [];
   const mappings = action.mappings || [];
+  
+  // Handle curl import
+  const handleCurlImport = () => {
+    try {
+      setCurlError('');
+      const parsed = parseCurl(curlInput);
+      
+      if (!parsed.url) {
+        setCurlError('לא נמצא URL בפקודת ה-curl');
+        return;
+      }
+      
+      // Update all fields from parsed curl
+      const updates = {
+        method: parsed.method,
+        apiUrl: parsed.url,
+      };
+      
+      if (parsed.headers.length > 0) {
+        updates.headers = parsed.headers;
+      }
+      
+      if (parsed.body) {
+        updates.body = parsed.body;
+      }
+      
+      onUpdate(updates);
+      setShowCurlImport(false);
+      setCurlInput('');
+    } catch (err) {
+      setCurlError('שגיאה בפענוח ה-curl: ' + err.message);
+    }
+  };
   
   const addHeader = () => {
     onUpdate({ headers: [...headers, { key: '', value: '' }] });
@@ -850,6 +944,62 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                 הגדרת הבקשה
               </h3>
               
+              {/* Import from curl */}
+              <button
+                type="button"
+                onClick={() => setShowCurlImport(true)}
+                className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm text-gray-600 transition-colors"
+              >
+                <span>📋</span>
+                ייבוא מ-curl
+              </button>
+              
+              {/* Curl Import Modal */}
+              {showCurlImport && (
+                <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-[60]">
+                  <div className="bg-white rounded-xl shadow-xl w-full max-w-xl p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-medium text-gray-700">ייבוא מ-curl</h4>
+                      <button 
+                        onClick={() => { setShowCurlImport(false); setCurlInput(''); setCurlError(''); }}
+                        className="p-1 hover:bg-gray-100 rounded"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <p className="text-sm text-gray-500">הדבק פקודת curl והמערכת תמלא אוטומטית את השדות</p>
+                    <textarea
+                      value={curlInput}
+                      onChange={(e) => setCurlInput(e.target.value)}
+                      placeholder={`curl -X POST 'https://api.example.com/endpoint' \\
+  -H 'Content-Type: application/json' \\
+  -H 'Authorization: Bearer token' \\
+  -d '{"key": "value"}'`}
+                      className="w-full h-40 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-mono resize-none"
+                      dir="ltr"
+                    />
+                    {curlError && (
+                      <p className="text-sm text-red-500 bg-red-50 p-2 rounded-lg">{curlError}</p>
+                    )}
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => { setShowCurlImport(false); setCurlInput(''); setCurlError(''); }}
+                        className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
+                      >
+                        ביטול
+                      </button>
+                      <button
+                        onClick={handleCurlImport}
+                        disabled={!curlInput.trim()}
+                        className="px-4 py-2 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
+                      >
+                        ייבוא
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Method & URL */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-600">Method & URL</label>
