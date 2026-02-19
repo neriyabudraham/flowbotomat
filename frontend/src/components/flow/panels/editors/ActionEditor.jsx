@@ -766,11 +766,11 @@ function parseCurl(curlCommand) {
     result.method = methodMatch[1].toUpperCase();
   }
 
-  // Extract headers with -H or --header
-  const headerRegex = /(?:-H|--header)\s+['"]([^'"]+)['"]/gi;
+  // Extract headers with -H or --header (handle both single and double quotes)
+  const headerRegex = /(?:-H|--header)\s+(?:'([^']*)'|"([^"]*)")/gi;
   let headerMatch;
   while ((headerMatch = headerRegex.exec(cmd)) !== null) {
-    const headerStr = headerMatch[1];
+    const headerStr = headerMatch[1] || headerMatch[2];
     const colonIndex = headerStr.indexOf(':');
     if (colonIndex > 0) {
       const key = headerStr.substring(0, colonIndex).trim();
@@ -780,8 +780,17 @@ function parseCurl(curlCommand) {
   }
 
   // Extract body with -d, --data, --data-raw, --data-binary, --data-urlencode
-  const bodyMatch = cmd.match(/(?:-d|--data(?:-raw|-binary|-urlencode)?)\s+['"]([^'"]+)['"]/i) ||
-                    cmd.match(/(?:-d|--data(?:-raw|-binary|-urlencode)?)\s+\$'([^']+)'/i);
+  // Handle single-quoted body (can contain double quotes)
+  let bodyMatch = cmd.match(/(?:-d|--data(?:-raw|-binary|-urlencode)?)\s+'((?:[^'\\]|\\.)*)'/i);
+  if (!bodyMatch) {
+    // Handle double-quoted body (can contain single quotes)
+    bodyMatch = cmd.match(/(?:-d|--data(?:-raw|-binary|-urlencode)?)\s+"((?:[^"\\]|\\.)*)"/i);
+  }
+  if (!bodyMatch) {
+    // Handle $'...' syntax
+    bodyMatch = cmd.match(/(?:-d|--data(?:-raw|-binary|-urlencode)?)\s+\$'((?:[^'\\]|\\.)*)'/i);
+  }
+  
   if (bodyMatch) {
     result.body = bodyMatch[1];
     // If method wasn't explicitly set and we have a body, default to POST
