@@ -516,6 +516,272 @@ function SubscriptionBadge({ user, onClick }) {
   );
 }
 
+// Services Tab Component for managing additional services
+function ServicesTab({ userId, userName }) {
+  const [services, setServices] = useState([]);
+  const [userServices, setUserServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [trialForm, setTrialForm] = useState({ serviceId: null, days: 14, reason: '' });
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const [servicesRes, userServicesRes] = await Promise.all([
+        api.get('/services/admin/all'),
+        api.get(`/admin/users/${userId}/services`).catch(() => ({ data: { subscriptions: [] } }))
+      ]);
+      setServices(servicesRes.data.services || []);
+      setUserServices(userServicesRes.data.subscriptions || []);
+    } catch (err) {
+      console.error('Failed to load services:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const showToast = (type, message) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleGrantTrial = async (serviceId) => {
+    if (!trialForm.days || trialForm.days < 1) {
+      showToast('error', 'נדרש מספר ימים תקין');
+      return;
+    }
+    
+    setSaving(serviceId);
+    try {
+      await api.post(`/services/admin/${serviceId}/trial`, {
+        userId,
+        trialDays: trialForm.days,
+        reason: trialForm.reason || `הוקצה על ידי אדמין ל${userName}`
+      });
+      showToast('success', 'תקופת ניסיון הוקצתה בהצלחה');
+      setTrialForm({ serviceId: null, days: 14, reason: '' });
+      loadData();
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה בהקצאת ניסיון');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const handleAssignSubscription = async (serviceId, status = 'active', expiresAt = null) => {
+    setSaving(serviceId);
+    try {
+      await api.post(`/services/admin/${serviceId}/assign`, {
+        userId,
+        status,
+        expiresAt,
+        adminNotes: `הוקצה ידנית על ידי אדמין ל${userName}`
+      });
+      showToast('success', 'מנוי הוקצה בהצלחה');
+      loadData();
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה בהקצאת מנוי');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const handleCancelSubscription = async (serviceId) => {
+    if (!confirm('האם לבטל את המנוי לשירות זה?')) return;
+    
+    setSaving(serviceId);
+    try {
+      await api.post(`/services/admin/${serviceId}/cancel/${userId}`);
+      showToast('success', 'מנוי בוטל בהצלחה');
+      loadData();
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה בביטול מנוי');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const getUserServiceStatus = (serviceId) => {
+    return userServices.find(us => us.service_id === serviceId);
+  };
+
+  if (loading) {
+    return <div className="py-8 text-center text-gray-500">טוען שירותים...</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Toast */}
+      {toast && (
+        <div className={`p-3 rounded-xl text-sm ${
+          toast.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 
+          'bg-red-50 text-red-700 border border-red-200'
+        }`}>
+          {toast.message}
+        </div>
+      )}
+
+      <div className="p-3 bg-green-50 border border-green-200 rounded-xl">
+        <p className="text-sm text-green-800">
+          <strong>שירותים נוספים</strong>
+          <br />
+          <span className="text-xs">כאן ניתן להקצות מנויים לשירותים נוספים כמו בוט העלאת סטטוסים</span>
+        </p>
+      </div>
+
+      {services.length === 0 ? (
+        <div className="text-center py-6 text-gray-500">
+          אין שירותים נוספים מוגדרים במערכת
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {services.map(service => {
+            const userSub = getUserServiceStatus(service.id);
+            const isActive = userSub && (userSub.status === 'active' || userSub.status === 'trial');
+            const isTrial = userSub?.status === 'trial';
+            
+            return (
+              <div key={service.id} className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <h4 className="font-medium text-gray-800 flex items-center gap-2">
+                      {service.icon && <span>{service.icon}</span>}
+                      {service.name_he || service.name}
+                      {isActive && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          isTrial ? 'bg-cyan-100 text-cyan-700' : 'bg-green-100 text-green-700'
+                        }`}>
+                          {isTrial ? 'ניסיון' : 'פעיל'}
+                        </span>
+                      )}
+                    </h4>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {service.description_he || `₪${service.price}/חודש`}
+                    </p>
+                  </div>
+                  
+                  <div className="text-right text-sm text-gray-500">
+                    ₪{service.price}/חודש
+                  </div>
+                </div>
+
+                {/* Current subscription info */}
+                {userSub && (
+                  <div className="mb-3 p-2 bg-white rounded-lg text-xs text-gray-600">
+                    <div className="flex justify-between">
+                      <span>סטטוס:</span>
+                      <span className={
+                        userSub.status === 'active' ? 'text-green-600 font-medium' :
+                        userSub.status === 'trial' ? 'text-cyan-600 font-medium' :
+                        userSub.status === 'cancelled' ? 'text-orange-600' : 'text-gray-600'
+                      }>
+                        {userSub.status === 'active' ? 'פעיל' :
+                         userSub.status === 'trial' ? 'ניסיון' :
+                         userSub.status === 'cancelled' ? 'מבוטל' : userSub.status}
+                      </span>
+                    </div>
+                    {userSub.trial_ends_at && (
+                      <div className="flex justify-between mt-1">
+                        <span>סיום ניסיון:</span>
+                        <span>{new Date(userSub.trial_ends_at).toLocaleDateString('he-IL')}</span>
+                      </div>
+                    )}
+                    {userSub.expires_at && (
+                      <div className="flex justify-between mt-1">
+                        <span>תפוגה:</span>
+                        <span>{new Date(userSub.expires_at).toLocaleDateString('he-IL')}</span>
+                      </div>
+                    )}
+                    {userSub.is_manual && (
+                      <div className="mt-1 text-purple-600">✓ מנוי ידני</div>
+                    )}
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex flex-wrap gap-2">
+                  {!isActive ? (
+                    <>
+                      {/* Grant Trial */}
+                      {trialForm.serviceId === service.id ? (
+                        <div className="flex-1 flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            value={trialForm.days}
+                            onChange={(e) => setTrialForm(f => ({ ...f, days: parseInt(e.target.value) || 0 }))}
+                            className="w-16 px-2 py-1 text-sm border rounded"
+                            placeholder="ימים"
+                          />
+                          <button
+                            onClick={() => handleGrantTrial(service.id)}
+                            disabled={saving === service.id}
+                            className="px-3 py-1 text-sm bg-cyan-600 text-white rounded hover:bg-cyan-700 disabled:opacity-50"
+                          >
+                            {saving === service.id ? '...' : 'אשר'}
+                          </button>
+                          <button
+                            onClick={() => setTrialForm({ serviceId: null, days: 14, reason: '' })}
+                            className="px-2 py-1 text-sm text-gray-600 hover:text-gray-800"
+                          >
+                            ביטול
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setTrialForm({ serviceId: service.id, days: 14, reason: '' })}
+                          className="px-3 py-1.5 text-sm bg-cyan-50 text-cyan-700 rounded-lg hover:bg-cyan-100 border border-cyan-200"
+                        >
+                          הקצה ניסיון
+                        </button>
+                      )}
+                      
+                      {/* Assign Active */}
+                      <button
+                        onClick={() => handleAssignSubscription(service.id, 'active')}
+                        disabled={saving === service.id}
+                        className="px-3 py-1.5 text-sm bg-green-50 text-green-700 rounded-lg hover:bg-green-100 border border-green-200 disabled:opacity-50"
+                      >
+                        {saving === service.id ? '...' : 'הפעל מנוי'}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {/* Cancel */}
+                      <button
+                        onClick={() => handleCancelSubscription(service.id)}
+                        disabled={saving === service.id}
+                        className="px-3 py-1.5 text-sm bg-red-50 text-red-700 rounded-lg hover:bg-red-100 border border-red-200 disabled:opacity-50"
+                      >
+                        {saving === service.id ? '...' : 'בטל מנוי'}
+                      </button>
+                      
+                      {/* Extend if trial */}
+                      {isTrial && (
+                        <button
+                          onClick={() => handleAssignSubscription(service.id, 'active')}
+                          disabled={saving === service.id}
+                          className="px-3 py-1.5 text-sm bg-green-50 text-green-700 rounded-lg hover:bg-green-100 border border-green-200 disabled:opacity-50"
+                        >
+                          {saving === service.id ? '...' : 'הפוך לפעיל'}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUserId }) {
   const [plans, setPlans] = useState([]);
   const [affiliates, setAffiliates] = useState([]);
@@ -932,8 +1198,16 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
               }`}
             >
               פיצ׳רים
-          </button>
-        </div>
+            </button>
+            <button
+              onClick={() => setActiveTab('services')}
+              className={`flex-1 px-3 py-2.5 text-sm rounded-lg transition-colors ${
+                activeTab === 'services' ? 'bg-white shadow text-green-600 font-medium' : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              שירותים
+            </button>
+          </div>
 
         {loading ? (
           <div className="py-8 text-center text-gray-500">טוען...</div>
@@ -1795,6 +2069,11 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
                   </button>
                 </div>
               </>
+            )}
+
+            {/* Services Tab - Status Bot and other additional services */}
+            {activeTab === 'services' && (
+              <ServicesTab userId={user.id} userName={user.name || user.email} />
             )}
 
             {/* Save Button - Always visible */}

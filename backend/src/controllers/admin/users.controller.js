@@ -595,6 +595,31 @@ async function clearUserFeatureOverrides(userId) {
   }
 }
 
+/**
+ * Get user's service subscriptions (additional services like Status Bot)
+ */
+async function getUserServices(req, res) {
+  try {
+    const { id } = req.params;
+    
+    const result = await db.query(`
+      SELECT 
+        uss.*,
+        s.slug, s.name, s.name_he, s.description_he,
+        s.price, s.yearly_price, s.icon, s.color
+      FROM user_service_subscriptions uss
+      JOIN additional_services s ON s.id = uss.service_id
+      WHERE uss.user_id = $1
+      ORDER BY uss.started_at DESC
+    `, [id]);
+    
+    res.json({ subscriptions: result.rows });
+  } catch (error) {
+    console.error('[Admin] Get user services error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת שירותי המשתמש' });
+  }
+}
+
 module.exports = { 
   getUsers, 
   getUser, 
@@ -605,5 +630,6 @@ module.exports = {
   getPlans,
   getUserFeatureOverrides,
   updateUserFeatureOverrides,
-  clearUserFeatureOverrides
+  clearUserFeatureOverrides,
+  getUserServices
 };

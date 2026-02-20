@@ -57,6 +57,26 @@ export default function WhatsappSetupPage() {
     checkStatus();
   }, []);
 
+  // Poll status when on QR step to auto-detect connection
+  useEffect(() => {
+    if (step !== 'qr') return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const data = await fetchStatus();
+        if (data.connection?.status === 'connected') {
+          clearInterval(pollInterval);
+          // Navigate to dashboard when connected
+          navigate('/dashboard');
+        }
+      } catch (e) {
+        // Ignore polling errors
+      }
+    }, 3000); // Poll every 3 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [step, navigate, fetchStatus]);
+
   const checkStatus = async () => {
     try {
       const data = await fetchStatus();

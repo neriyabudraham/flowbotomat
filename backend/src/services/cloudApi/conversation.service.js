@@ -765,25 +765,60 @@ async function handleSelectScheduleTimeState(phone, message, state) {
   const stateDataObj = state.state_data || {};
   const rescheduleId = stateDataObj.rescheduleId;
   
+  // Calculate hours until scheduled time
+  const hoursUntilScheduled = (scheduledDate - new Date()) / (1000 * 60 * 60);
+  const isMoreThan24Hours = hoursUntilScheduled > 24;
+  
+  let queuedStatusId = null;
+  
   if (rescheduleId) {
     // Update existing scheduled status
     await db.query(
       `UPDATE status_bot_queue SET scheduled_for = $1, queue_status = 'pending' WHERE id = $2`,
       [scheduledDate, rescheduleId]
     );
+    queuedStatusId = rescheduleId;
   } else {
     // Add new to queue with schedule
     const pendingStatus = state.pending_status;
     const content = buildStatusContent(pendingStatus);
-    await addToQueue(state.connection_id, pendingStatus.type, content, scheduledDate, phone);
+    const queueResult = await addToQueue(state.connection_id, pendingStatus.type, content, scheduledDate, phone);
+    queuedStatusId = queueResult?.id;
   }
   
   const formattedTime = `${String(parsedTime.hours).padStart(2, '0')}:${String(parsedTime.minutes).padStart(2, '0')}`;
   const formattedDate = formatDateHebrew(scheduledDate);
   
-  // Show combined confirmation + scheduled list
-  await showScheduledListWithConfirmation(phone, state.connection_id, formattedDate, formattedTime);
-  await setState(phone, 'view_scheduled', null, null, state.connection_id);
+  // If scheduled >24h ahead, show action list immediately (won't get notification later)
+  if (isMoreThan24Hours) {
+    const sections = [{
+      title: 'סטטיסטיקות',
+      rows: [
+        { id: `queued_views_${queuedStatusId}`, title: '👁️ צפיות', description: 'רשימת הצופים בסטטוס' },
+        { id: `queued_hearts_${queuedStatusId}`, title: '❤️ סימוני לב', description: 'רשימת מי שסימן לב' },
+        { id: `queued_reactions_${queuedStatusId}`, title: '💬 תגובות', description: 'רשימת המגיבים' }
+      ]
+    }, {
+      title: 'פעולות',
+      rows: [
+        { id: `queued_delete_${queuedStatusId}`, title: '🗑️ מחק סטטוס', description: 'בטל את התזמון' },
+        { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים מתוזמנים ופעילים' },
+        { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
+      ]
+    }];
+    
+    await cloudApi.sendListMessage(
+      phone,
+      `✅ הסטטוס תוזמן ל${formattedDate} בשעה ${formattedTime}\n\n⚠️ לא תקבל הודעה כשהסטטוס יעלה (מעבר ל-24 שעות)\n\nבחר פעולה`,
+      'בחר פעולה',
+      sections
+    );
+    await setState(phone, 'after_send_menu', { queuedStatusId }, null, state.connection_id);
+  } else {
+    // Scheduled <24h - show confirmation, notification will come when uploaded
+    await showScheduledListWithConfirmation(phone, state.connection_id, formattedDate, formattedTime);
+    await setState(phone, 'view_scheduled', null, null, state.connection_id);
+  }
 }
 
 /**

@@ -6,6 +6,7 @@
 const db = require('../../config/database');
 const wahaSession = require('../../services/waha/session.service');
 const { getWahaCredentials } = require('../../services/settings/system.service');
+const cloudApi = require('../cloudApi/cloudApi.service');
 
 const QUEUE_INTERVAL = 5000; // Check queue every 5 seconds
 const STATUS_DELAY = 30000; // 30 seconds between statuses
@@ -149,6 +150,9 @@ async function processQueue() {
 
       console.log(`[StatusBot Queue] Status ${item.id} sent successfully`);
 
+      // Send WhatsApp notification if this was from WhatsApp and was scheduled
+      await sendStatusNotification(item, true);
+
     } catch (sendError) {
       console.error(`[StatusBot Queue] Failed to send status ${item.id}:`, sendError.message);
 
@@ -165,6 +169,9 @@ async function processQueue() {
         SET is_processing = false, processing_started_at = NULL
         WHERE id = 1
       `);
+
+      // Send failure notification if from WhatsApp
+      await sendStatusNotification(item, false, sendError.message);
     }
 
   } catch (error) {
@@ -335,6 +342,86 @@ async function getQueueStats() {
     ...result.rows[0],
     lastSentAt: lockResult.rows[0]?.last_sent_at
   };
+}
+
+/**
+ * Send WhatsApp notification about status upload result
+ * @param {Object} item - Queue item
+ * @param {boolean} success - Whether the upload succeeded
+ * @param {string} errorMessage - Error message if failed
+ */
+async function sendStatusNotification(item, success, errorMessage = null) {
+  try {
+    // Only send notification if source is WhatsApp
+    if (item.source !== 'whatsapp' || !item.source_phone) {
+      return;
+    }
+
+    // Check if this was a scheduled status - we only notify for scheduled ones
+    // "Send now" statuses already got immediate feedback
+    if (!item.scheduled_for) {
+      return;
+    }
+
+    // Check if scheduled was within 24 hours (we can notify within WhatsApp window)
+    const scheduledTime = new Date(item.scheduled_for);
+    const createdTime = new Date(item.created_at);
+    const hoursUntilScheduled = (scheduledTime - createdTime) / (1000 * 60 * 60);
+
+    // If scheduled >24h ahead, don't notify (outside WhatsApp window)
+    if (hoursUntilScheduled > 24) {
+      console.log(`[StatusBot Queue] Skipping notification for status ${item.id} - scheduled >24h ahead`);
+      return;
+    }
+
+    const phone = item.source_phone;
+    const statusId = item.status_message_id || item.id;
+
+    if (success) {
+      // Send success notification with action list
+      const sections = [{
+        title: 'סטטיסטיקות',
+        rows: [
+          { id: `queued_views_${statusId}`, title: '👁️ צפיות', description: 'רשימת הצופים בסטטוס' },
+          { id: `queued_hearts_${statusId}`, title: '❤️ סימוני לב', description: 'רשימת מי שסימן לב' },
+          { id: `queued_reactions_${statusId}`, title: '💬 תגובות', description: 'רשימת המגיבים' }
+        ]
+      }, {
+        title: 'פעולות',
+        rows: [
+          { id: `queued_delete_${statusId}`, title: '🗑️ מחק סטטוס', description: 'מחק את הסטטוס' },
+          { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים מתוזמנים ופעילים' },
+          { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
+        ]
+      }];
+
+      await cloudApi.sendListMessage(
+        phone,
+        `✅ הסטטוס המתוזמן עלה בהצלחה!\n\nבחר פעולה`,
+        'בחר פעולה',
+        sections
+      );
+
+      // Update conversation state to after_send_menu
+      await db.query(`
+        UPDATE cloud_api_conversation_states 
+        SET state = 'after_send_menu', state_data = $1, last_message_at = NOW(), connection_id = $2
+        WHERE phone_number = $3
+      `, [JSON.stringify({ queuedStatusId: statusId }), item.connection_id, phone]);
+
+    } else {
+      // Send failure notification
+      await cloudApi.sendTextMessage(
+        phone,
+        `❌ שגיאה בהעלאת הסטטוס המתוזמן\n\n${errorMessage || 'שגיאה לא ידועה'}`
+      );
+    }
+
+    console.log(`[StatusBot Queue] Sent notification to ${phone} for status ${item.id} (success: ${success})`);
+  } catch (notifyError) {
+    // Don't fail the whole process if notification fails
+    console.error(`[StatusBot Queue] Failed to send notification:`, notifyError.message);
+  }
 }
 
 module.exports = {
