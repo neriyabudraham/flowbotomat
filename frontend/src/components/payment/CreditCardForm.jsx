@@ -35,15 +35,25 @@ export default function CreditCardForm({
     loadDefaults();
   }, []);
 
-  // Load user defaults for payment form
+  // Load user defaults for payment form including WhatsApp phone
   const loadDefaults = async () => {
     try {
-      const { data } = await api.get('/payment/defaults');
+      // Load user defaults and WhatsApp connection in parallel
+      const [defaultsRes, waRes] = await Promise.all([
+        api.get('/payment/defaults').catch(() => ({ data: {} })),
+        api.get('/whatsapp/status').catch(() => ({ data: { connection: null } })),
+      ]);
+      
+      const defaults = defaultsRes.data || {};
+      const waConnection = waRes.data?.connection;
+      // Extract phone from WhatsApp connection (could be phone_number or wid format like 972501234567@c.us)
+      const waPhone = waConnection?.phone_number || waConnection?.wid?.split('@')[0] || '';
+      
       setForm(prev => ({
         ...prev,
-        cardHolderName: data.name || prev.cardHolderName,
-        citizenId: data.citizenId || prev.citizenId,
-        phone: data.phone || prev.phone,
+        cardHolderName: defaults.name || prev.cardHolderName,
+        citizenId: defaults.citizenId || prev.citizenId,
+        phone: waPhone || defaults.phone || prev.phone,
       }));
     } catch (err) {
       // Silently fail - user can enter manually
@@ -200,10 +210,7 @@ export default function CreditCardForm({
       return;
     }
     
-    if (!form.phone || form.phone.length < 9) {
-      setError('נדרש מספר טלפון תקין');
-      return;
-    }
+    // Phone is optional - no validation needed
     
     setLoading(true);
     
@@ -406,10 +413,10 @@ export default function CreditCardForm({
         </div>
       )}
 
-      {/* Phone */}
+      {/* Phone (optional) */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          טלפון <span className="text-red-500">*</span>
+          טלפון <span className="text-gray-400 font-normal">(אופציונלי)</span>
         </label>
         <input
           type="tel"

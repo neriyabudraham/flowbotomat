@@ -30,6 +30,151 @@ function validateCredentials(credentials) {
 }
 
 /**
+ * Create a single-use token from card details
+ * Uses CreditGuy Vault API for secure tokenization
+ * 
+ * @param {object} params - Card details
+ * @returns {Promise<{success: boolean, token?: string, error?: string}>}
+ */
+async function tokenizeSingleUse({ cardNumber, expiryMonth, expiryYear, cvv, citizenId }) {
+  const credentials = getCredentials();
+  
+  try {
+    if (!credentials.CompanyID || !credentials.APIPublicKey) {
+      return {
+        success: false,
+        error: 'Missing Sumit public key for tokenization',
+      };
+    }
+    
+    const requestBody = {
+      Credentials: {
+        CompanyID: credentials.CompanyID,
+        APIPublicKey: credentials.APIPublicKey,
+      },
+      CardNumber: cardNumber.replace(/\s/g, ''),
+      ExpirationMonth: parseInt(expiryMonth),
+      ExpirationYear: parseInt(expiryYear),
+      CVV: cvv,
+      CitizenID: citizenId || '',
+    };
+    
+    console.log('[Sumit] Creating single-use token...');
+    
+    const response = await axios.post(
+      `${SUMIT_BASE_URL}/creditguy/vault/tokenizesingleusejson/`,
+      requestBody,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'accept': 'application/json',
+        },
+        timeout: 30000,
+      }
+    );
+    
+    console.log('[Sumit] Single-use token response:', JSON.stringify(response.data, null, 2));
+    
+    if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
+      return {
+        success: true,
+        token: response.data.Data?.SingleUseToken || response.data.SingleUseToken,
+        data: response.data.Data || response.data,
+      };
+    } else {
+      return {
+        success: false,
+        error: response.data.UserErrorMessage || 'יצירת טוקן נכשלה',
+        technicalError: response.data.TechnicalErrorDetails,
+      };
+    }
+  } catch (error) {
+    console.error('[Sumit] Single-use token error:', error.message);
+    if (error.response) {
+      console.error('[Sumit] Response:', error.response.data);
+    }
+    return {
+      success: false,
+      error: 'שגיאה ביצירת טוקן. אנא נסה שנית.',
+    };
+  }
+}
+
+/**
+ * Create a permanent token from single-use token or card number
+ * Uses CreditGuy Vault API
+ * 
+ * @param {object} params - Token or card details
+ * @returns {Promise<{success: boolean, permanentToken?: string, error?: string}>}
+ */
+async function tokenizePermanent({ singleUseToken, cardNumber }) {
+  const credentials = getCredentials();
+  
+  try {
+    validateCredentials(credentials);
+    
+    const requestBody = {
+      Credentials: {
+        CompanyID: credentials.CompanyID,
+        APIKey: credentials.APIKey,
+      },
+      GetFormatPreserving: true,
+    };
+    
+    if (singleUseToken) {
+      requestBody.ForceFormatPreservingToken = singleUseToken;
+    } else if (cardNumber) {
+      requestBody.CardNumber = cardNumber.replace(/\s/g, '');
+    } else {
+      return {
+        success: false,
+        error: 'נדרש טוקן או מספר כרטיס',
+      };
+    }
+    
+    console.log('[Sumit] Creating permanent token...');
+    
+    const response = await axios.post(
+      `${SUMIT_BASE_URL}/creditguy/vault/tokenize/`,
+      requestBody,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'accept': 'application/json',
+        },
+        timeout: 30000,
+      }
+    );
+    
+    console.log('[Sumit] Permanent token response:', JSON.stringify(response.data, null, 2));
+    
+    if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
+      return {
+        success: true,
+        permanentToken: response.data.Data?.Token || response.data.Token,
+        formatPreservingToken: response.data.Data?.FormatPreservingToken || response.data.FormatPreservingToken,
+        data: response.data.Data || response.data,
+      };
+    } else {
+      return {
+        success: false,
+        error: response.data.UserErrorMessage || 'יצירת טוקן קבוע נכשלה',
+        technicalError: response.data.TechnicalErrorDetails,
+      };
+    }
+  } catch (error) {
+    console.error('[Sumit] Permanent token error:', error.message);
+    if (error.response) {
+      console.error('[Sumit] Response:', error.response.data);
+    }
+    return {
+      success: false,
+      error: 'שגיאה ביצירת טוקן קבוע. אנא נסה שנית.',
+    };
+  }
+}
+
+/**
  * Create a customer in Sumit
  * @param {object} params - Customer details
  * @returns {Promise<{success: boolean, customerId?: number, error?: string}>}
@@ -752,6 +897,8 @@ module.exports = {
   createCustomer,
   setPaymentMethodForCustomer,
   setPaymentMethodWithCard,
+  tokenizeSingleUse,
+  tokenizePermanent,
   chargeOneTime,
   chargeRecurring,
   cancelRecurring,

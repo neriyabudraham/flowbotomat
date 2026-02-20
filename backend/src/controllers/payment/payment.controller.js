@@ -46,12 +46,7 @@ async function savePaymentMethod(req, res) {
       });
     }
     
-    if (!phone?.trim()) {
-      return res.status(400).json({ 
-        error: 'נדרש מספר טלפון',
-        code: 'MISSING_PHONE'
-      });
-    }
+    // Phone is optional
     
     if (!citizenId?.trim()) {
       return res.status(400).json({ 

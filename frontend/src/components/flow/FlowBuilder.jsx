@@ -241,7 +241,7 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
         maxZoom={2}
         deleteKeyCode={['Backspace', 'Delete']}
       >
-        <Background color="#cbd5e1" gap={15} size={1.5} />
+        <Background color="#94a3b8" gap={20} size={2.5} />
         <Controls 
           position="bottom-left" 
           showInteractive={false}

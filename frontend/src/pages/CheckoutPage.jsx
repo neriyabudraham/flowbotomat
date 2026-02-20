@@ -104,15 +104,29 @@ export default function CheckoutPage() {
       setLoading(true);
       setError(null);
       
-      // Load plan details, payment method, and current subscription in parallel
-      const [planRes, paymentRes, subRes] = await Promise.all([
+      // Load plan details, payment method, current subscription, user defaults, and WhatsApp connection in parallel
+      const [planRes, paymentRes, subRes, defaultsRes, waRes] = await Promise.all([
         api.get(`/subscriptions/plans/${planId}`),
         api.get('/payment/methods'),
         api.get('/subscriptions/my').catch(() => ({ data: { subscription: null } })),
+        api.get('/payment/defaults').catch(() => ({ data: {} })),
+        api.get('/whatsapp/status').catch(() => ({ data: { connection: null } })),
       ]);
       
       setPlan(planRes.data.plan);
       setCurrentSubscription(subRes.data.subscription);
+      
+      // Auto-fill form with user defaults and WhatsApp phone
+      const defaults = defaultsRes.data || {};
+      const waConnection = waRes.data?.connection;
+      const waPhone = waConnection?.phone_number || waConnection?.wid?.split('@')[0] || '';
+      
+      setCardForm(prev => ({
+        ...prev,
+        cardHolder: defaults.name || user?.name || '',
+        citizenId: defaults.citizenId || '',
+        phone: waPhone || defaults.phone || '',
+      }));
       
       if (paymentRes.data.paymentMethods?.length > 0) {
         setPaymentMethod(paymentRes.data.paymentMethods[0]);
@@ -229,9 +243,9 @@ export default function CheckoutPage() {
       setProcessing(true);
       setError(null);
       
-      // Validate form
+      // Validate form - only card details and citizenId are required
       if (!cardForm.cardNumber || !cardForm.cardHolder || !cardForm.expiryMonth || 
-          !cardForm.expiryYear || !cardForm.cvv || !cardForm.citizenId || !cardForm.phone) {
+          !cardForm.expiryYear || !cardForm.cvv || !cardForm.citizenId) {
         setError('נא למלא את כל השדות');
         setProcessing(false);
         return;
@@ -245,7 +259,7 @@ export default function CheckoutPage() {
         expiryYear: parseInt(cardForm.expiryYear),
         cvv: cardForm.cvv,
         citizenId: cardForm.citizenId,
-        phone: cardForm.phone.replace(/-/g, ''),
+        phone: cardForm.phone ? cardForm.phone.replace(/-/g, '') : null,
         lastDigits: cardForm.cardNumber.replace(/\s/g, '').slice(-4),
       });
       
@@ -533,7 +547,7 @@ export default function CheckoutPage() {
                   
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      טלפון
+                      טלפון <span className="text-gray-400 font-normal">(אופציונלי)</span>
                     </label>
                     <input
                       type="tel"

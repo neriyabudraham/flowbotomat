@@ -744,7 +744,27 @@ function parseCurl(curlCommand) {
     body: null
   };
 
-  // Clean up the curl command - remove backslashes and normalize whitespace
+  // First, extract the body BEFORE normalizing whitespace to preserve JSON formatting
+  let bodyContent = null;
+  const originalCmd = curlCommand;
+  
+  // Find body with -d or --data variants - use greedy matching for quoted content
+  // Match single-quoted body
+  let bodyMatch = originalCmd.match(/(?:-d|--data(?:-raw|-binary|-urlencode)?)\s+'([\s\S]*?)'/);
+  if (!bodyMatch) {
+    // Match double-quoted body
+    bodyMatch = originalCmd.match(/(?:-d|--data(?:-raw|-binary|-urlencode)?)\s+"([\s\S]*?)"/);
+  }
+  if (!bodyMatch) {
+    // Match $'...' syntax
+    bodyMatch = originalCmd.match(/(?:-d|--data(?:-raw|-binary|-urlencode)?)\s+\$'([\s\S]*?)'/);
+  }
+  
+  if (bodyMatch) {
+    bodyContent = bodyMatch[1];
+  }
+
+  // Now clean up the command for URL and header extraction
   let cmd = curlCommand
     .replace(/\\\s*\n/g, ' ')  // Handle line continuations
     .replace(/\s+/g, ' ')      // Normalize whitespace
@@ -779,26 +799,24 @@ function parseCurl(curlCommand) {
     }
   }
 
-  // Extract body with -d, --data, --data-raw, --data-binary, --data-urlencode
-  // Handle single-quoted body (can contain double quotes)
-  let bodyMatch = cmd.match(/(?:-d|--data(?:-raw|-binary|-urlencode)?)\s+'((?:[^'\\]|\\.)*)'/i);
-  if (!bodyMatch) {
-    // Handle double-quoted body (can contain single quotes)
-    bodyMatch = cmd.match(/(?:-d|--data(?:-raw|-binary|-urlencode)?)\s+"((?:[^"\\]|\\.)*)"/i);
-  }
-  if (!bodyMatch) {
-    // Handle $'...' syntax
-    bodyMatch = cmd.match(/(?:-d|--data(?:-raw|-binary|-urlencode)?)\s+\$'((?:[^'\\]|\\.)*)'/i);
-  }
-  
-  if (bodyMatch) {
-    let body = bodyMatch[1];
-    // Try to pretty-print JSON
+  // Process the body content
+  if (bodyContent) {
+    let body = bodyContent;
+    // Try to parse and pretty-print JSON
     try {
-      const parsed = JSON.parse(body);
+      // Clean up the body - remove extra whitespace but preserve structure
+      const cleanBody = body.replace(/\n\s*/g, '').trim();
+      const parsed = JSON.parse(cleanBody);
       body = JSON.stringify(parsed, null, 2);
     } catch {
-      // Not valid JSON, keep as-is
+      // Try parsing as-is
+      try {
+        const parsed = JSON.parse(body);
+        body = JSON.stringify(parsed, null, 2);
+      } catch {
+        // Not valid JSON, keep original but clean up
+        body = body.trim();
+      }
     }
     result.body = body;
     // If method wasn't explicitly set and we have a body, default to POST
