@@ -449,6 +449,7 @@ export default function CheckoutPage() {
                     </label>
                     <input
                       type="text"
+                      name="cardnumber"
                       value={cardForm.cardNumber}
                       onChange={(e) => setCardForm({ ...cardForm, cardNumber: formatCardNumber(e.target.value) })}
                       placeholder="1234 5678 9012 3456"
@@ -466,6 +467,7 @@ export default function CheckoutPage() {
                     </label>
                     <input
                       type="text"
+                      name="ccname"
                       value={cardForm.cardHolder}
                       onChange={(e) => setCardForm({ ...cardForm, cardHolder: e.target.value })}
                       placeholder="ישראל ישראלי"
@@ -480,6 +482,7 @@ export default function CheckoutPage() {
                         חודש
                       </label>
                       <select
+                        name="cc-exp-month"
                         value={cardForm.expiryMonth}
                         onChange={(e) => setCardForm({ ...cardForm, expiryMonth: e.target.value })}
                         className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
@@ -498,6 +501,7 @@ export default function CheckoutPage() {
                         שנה
                       </label>
                       <select
+                        name="cc-exp-year"
                         value={cardForm.expiryYear}
                         onChange={(e) => setCardForm({ ...cardForm, expiryYear: e.target.value })}
                         className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
@@ -517,6 +521,7 @@ export default function CheckoutPage() {
                       </label>
                       <input
                         type="password"
+                        name="cvc"
                         value={cardForm.cvv}
                         onChange={(e) => setCardForm({ ...cardForm, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) })}
                         placeholder="***"

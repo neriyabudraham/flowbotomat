@@ -1666,12 +1666,15 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">מספר כרטיס</label>
                 <input
                   type="text"
+                  name="cardnumber"
                   value={cardForm.cardNumber}
                   onChange={(e) => setCardForm({ ...cardForm, cardNumber: formatCardNumber(e.target.value) })}
                   placeholder="1234 5678 9012 3456"
                   maxLength={19}
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all"
                   dir="ltr"
+                  inputMode="numeric"
+                  autoComplete="cc-number"
                 />
               </div>
               
@@ -1679,10 +1682,12 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">שם בעל הכרטיס</label>
                 <input
                   type="text"
+                  name="ccname"
                   value={cardForm.cardHolder}
                   onChange={(e) => setCardForm({ ...cardForm, cardHolder: e.target.value })}
                   placeholder="ישראל ישראלי"
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all"
+                  autoComplete="cc-name"
                 />
               </div>
               
@@ -1690,9 +1695,11 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">חודש</label>
                   <select
+                    name="cc-exp-month"
                     value={cardForm.expiryMonth}
                     onChange={(e) => setCardForm({ ...cardForm, expiryMonth: e.target.value })}
                     className="w-full px-3 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all"
+                    autoComplete="cc-exp-month"
                   >
                     <option value="">MM</option>
                     {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
@@ -1705,9 +1712,11 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">שנה</label>
                   <select
+                    name="cc-exp-year"
                     value={cardForm.expiryYear}
                     onChange={(e) => setCardForm({ ...cardForm, expiryYear: e.target.value })}
                     className="w-full px-3 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all"
+                    autoComplete="cc-exp-year"
                   >
                     <option value="">YY</option>
                     {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() + i).map(y => (
@@ -1718,13 +1727,16 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">CVV</label>
                   <input
-                    type="text"
+                    type="password"
+                    name="cvc"
                     value={cardForm.cvv}
                     onChange={(e) => setCardForm({ ...cardForm, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) })}
                     placeholder="123"
                     maxLength={4}
                     className="w-full px-3 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all"
                     dir="ltr"
+                    inputMode="numeric"
+                    autoComplete="cc-csc"
                   />
                 </div>
               </div>

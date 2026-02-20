@@ -305,6 +305,7 @@ export default function CreditCardForm({
           <CreditCard className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input
             type="text"
+            name="cardnumber"
             value={form.cardNumber}
             onChange={handleCardNumberChange}
             placeholder="0000 0000 0000 0000"
@@ -324,6 +325,7 @@ export default function CreditCardForm({
             חודש
           </label>
           <select
+            name="cc-exp-month"
             value={form.expiryMonth}
             onChange={(e) => setForm({ ...form, expiryMonth: e.target.value })}
             className="w-full px-3 py-3 border border-gray-200 rounded-xl bg-white"
@@ -341,6 +343,7 @@ export default function CreditCardForm({
             שנה
           </label>
           <select
+            name="cc-exp-year"
             value={form.expiryYear}
             onChange={(e) => setForm({ ...form, expiryYear: e.target.value })}
             className="w-full px-3 py-3 border border-gray-200 rounded-xl bg-white"
@@ -359,8 +362,9 @@ export default function CreditCardForm({
           </label>
           <div className="relative">
             <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
+          <input
               type="password"
+              name="cvc"
               value={form.cvv}
               onChange={(e) => setForm({ ...form, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) })}
               placeholder="***"
@@ -383,6 +387,7 @@ export default function CreditCardForm({
           <User className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input
             type="text"
+            name="ccname"
             value={form.cardHolderName}
             onChange={(e) => setForm({ ...form, cardHolderName: e.target.value })}
             placeholder="ישראל ישראלי"
