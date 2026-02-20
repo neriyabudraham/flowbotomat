@@ -40,6 +40,7 @@ export default function CheckoutPage() {
     expiryYear: '',
     cvv: '',
     citizenId: '',
+    phone: '',
   });
   
   // Referral timer
@@ -230,7 +231,7 @@ export default function CheckoutPage() {
       
       // Validate form
       if (!cardForm.cardNumber || !cardForm.cardHolder || !cardForm.expiryMonth || 
-          !cardForm.expiryYear || !cardForm.cvv || !cardForm.citizenId) {
+          !cardForm.expiryYear || !cardForm.cvv || !cardForm.citizenId || !cardForm.phone) {
         setError('נא למלא את כל השדות');
         setProcessing(false);
         return;
@@ -240,10 +241,12 @@ export default function CheckoutPage() {
       const { data } = await api.post('/payment/methods', {
         cardNumber: cardForm.cardNumber.replace(/\s/g, ''),
         cardHolderName: cardForm.cardHolder,
-        expiryMonth: cardForm.expiryMonth,
-        expiryYear: cardForm.expiryYear,
+        expiryMonth: parseInt(cardForm.expiryMonth),
+        expiryYear: parseInt(cardForm.expiryYear),
         cvv: cardForm.cvv,
         citizenId: cardForm.citizenId,
+        phone: cardForm.phone.replace(/-/g, ''),
+        lastDigits: cardForm.cardNumber.replace(/\s/g, '').slice(-4),
       });
       
       setPaymentMethod(data.paymentMethod);
@@ -438,12 +441,14 @@ export default function CheckoutPage() {
                       maxLength={19}
                       className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
                       dir="ltr"
+                      inputMode="numeric"
+                      autoComplete="cc-number"
                     />
                   </div>
                   
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      שם בעל הכרטיס
+                      שם בעל הכרטיס (כפי שמופיע על הכרטיס)
                     </label>
                     <input
                       type="text"
@@ -451,6 +456,7 @@ export default function CheckoutPage() {
                       onChange={(e) => setCardForm({ ...cardForm, cardHolder: e.target.value })}
                       placeholder="ישראל ישראלי"
                       className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                      autoComplete="cc-name"
                     />
                   </div>
                   
@@ -463,11 +469,12 @@ export default function CheckoutPage() {
                         value={cardForm.expiryMonth}
                         onChange={(e) => setCardForm({ ...cardForm, expiryMonth: e.target.value })}
                         className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                        autoComplete="cc-exp-month"
                       >
                         <option value="">MM</option>
                         {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                          <option key={m} value={m.toString().padStart(2, '0')}>
-                            {m.toString().padStart(2, '0')}
+                          <option key={m} value={m}>
+                            {String(m).padStart(2, '0')}
                           </option>
                         ))}
                       </select>
@@ -480,10 +487,11 @@ export default function CheckoutPage() {
                         value={cardForm.expiryYear}
                         onChange={(e) => setCardForm({ ...cardForm, expiryYear: e.target.value })}
                         className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                        autoComplete="cc-exp-year"
                       >
-                        <option value="">YY</option>
-                        {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() + i).map(y => (
-                          <option key={y} value={y.toString().slice(-2)}>
+                        <option value="">YYYY</option>
+                        {Array.from({ length: 16 }, (_, i) => new Date().getFullYear() + i).map(y => (
+                          <option key={y} value={y}>
                             {y}
                           </option>
                         ))}
@@ -494,13 +502,15 @@ export default function CheckoutPage() {
                         CVV
                       </label>
                       <input
-                        type="text"
+                        type="password"
                         value={cardForm.cvv}
                         onChange={(e) => setCardForm({ ...cardForm, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) })}
-                        placeholder="123"
+                        placeholder="***"
                         maxLength={4}
-                        className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                        className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white text-center"
                         dir="ltr"
+                        inputMode="numeric"
+                        autoComplete="cc-csc"
                       />
                     </div>
                   </div>
@@ -517,6 +527,23 @@ export default function CheckoutPage() {
                       maxLength={9}
                       className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
                       dir="ltr"
+                      inputMode="numeric"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      טלפון
+                    </label>
+                    <input
+                      type="tel"
+                      value={cardForm.phone}
+                      onChange={(e) => setCardForm({ ...cardForm, phone: e.target.value.replace(/[^\d-]/g, '').slice(0, 15) })}
+                      placeholder="050-1234567"
+                      maxLength={15}
+                      className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                      dir="ltr"
+                      inputMode="tel"
                     />
                   </div>
                   
