@@ -417,18 +417,27 @@ async function checkExisting(req, res) {
     
     // Search in WAHA by email, preferring sessions with status-bot webhook configured
     console.log(`[StatusBot] Checking existing session for: ${userEmail}`);
-    const webhookPattern = `/api/status-bot/webhook/${userId}`;
+    // Use the main webhook pattern - Status Bot shares the main webhook
+    const webhookPattern = `/api/webhook/waha/${userId}`;
     
     const existingSession = await wahaSession.findSessionByEmailWithWebhookPriority(baseUrl, apiKey, userEmail, webhookPattern);
     
     if (existingSession) {
       console.log(`[StatusBot] ✅ Found existing session: ${existingSession.name} (status: ${existingSession.status})`);
       
-      // Ensure webhook is configured for this session
-      const webhookUrl = `${process.env.APP_URL}/api/status-bot/webhook/${userId}`;
-      wahaSession.addWebhook(baseUrl, apiKey, existingSession.name, webhookUrl, [
-        'session.status', 'message.ack', 'message.reaction'
-      ]).catch(err => console.error(`[StatusBot Webhook] Update failed:`, err.message));
+      // Use the main webhook URL - Status Bot uses the same webhook as the main system
+      // The addWebhook function will properly configure both main + intelligence webhooks
+      const webhookUrl = `${process.env.APP_URL}/api/webhook/waha/${userId}`;
+      const WEBHOOK_EVENTS = [
+        'message', 'message.ack', 'session.status', 'call.received', 'call.accepted', 'call.rejected',
+        'label.upsert', 'label.deleted', 'label.chat.added', 'label.chat.deleted',
+        'poll.vote.failed', 'poll.vote', 'group.leave', 'group.join', 'group.v2.participants',
+        'group.v2.update', 'group.v2.leave', 'group.v2.join', 'presence.update', 'message.reaction',
+        'message.any', 'message.ack.group', 'message.waiting', 'message.revoked', 'message.edited',
+        'chat.archive', 'event.response', 'event.response.failed',
+      ];
+      wahaSession.addWebhook(baseUrl, apiKey, existingSession.name, webhookUrl, WEBHOOK_EVENTS)
+        .catch(err => console.error(`[StatusBot Webhook] Update failed:`, err.message));
       
       // If WORKING - return connected
       if (existingSession.status === 'WORKING') {
@@ -544,8 +553,9 @@ async function startConnection(req, res) {
     let existingSession = null;
     
     // Step 1: Search in WAHA by email, preferring sessions with webhook configured
+    // Use main webhook pattern - Status Bot shares the main webhook
     console.log(`[StatusBot] Searching WAHA for session with email: ${userEmail}`);
-    const webhookPattern = `/api/status-bot/webhook/${userId}`;
+    const webhookPattern = `/api/webhook/waha/${userId}`;
     
     try {
       existingSession = await wahaSession.findSessionByEmailWithWebhookPriority(baseUrl, apiKey, userEmail, webhookPattern);
@@ -614,15 +624,19 @@ async function startConnection(req, res) {
       firstConnectedAt = new Date(); // Will be set properly if not exists
     }
     
-    // Setup webhook for this user
-    const webhookUrl = `${process.env.APP_URL}/api/status-bot/webhook/${userId}`;
+    // Setup webhook for this user - use main webhook URL (shared with bots system)
+    const webhookUrl = `${process.env.APP_URL}/api/webhook/waha/${userId}`;
+    const WEBHOOK_EVENTS = [
+      'message', 'message.ack', 'session.status', 'call.received', 'call.accepted', 'call.rejected',
+      'label.upsert', 'label.deleted', 'label.chat.added', 'label.chat.deleted',
+      'poll.vote.failed', 'poll.vote', 'group.leave', 'group.join', 'group.v2.participants',
+      'group.v2.update', 'group.v2.leave', 'group.v2.join', 'presence.update', 'message.reaction',
+      'message.any', 'message.ack.group', 'message.waiting', 'message.revoked', 'message.edited',
+      'chat.archive', 'event.response', 'event.response.failed',
+    ];
     try {
-      await wahaSession.addWebhook(baseUrl, apiKey, sessionName, webhookUrl, [
-        'session.status',
-        'message.ack',
-        'message.reaction'
-      ]);
-      console.log(`[StatusBot Webhook] ✅ Configured for user ${userId}`);
+      await wahaSession.addWebhook(baseUrl, apiKey, sessionName, webhookUrl, WEBHOOK_EVENTS);
+      console.log(`[StatusBot Webhook] ✅ Configured main webhook for user ${userId}`);
     } catch (err) {
       console.error('[StatusBot Webhook] Setup failed:', err.message);
     }

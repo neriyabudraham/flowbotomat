@@ -14,6 +14,11 @@ async function createSession(baseUrl, apiKey, sessionName, metadata = {}) {
     config: {
       webhooks: [],
       metadata: metadata,
+      // Enable status, groups, channels, and broadcast
+      status: true,
+      groups: true,
+      channels: true,
+      broadcast: true,
     },
   });
   return response.data;
@@ -218,8 +223,19 @@ async function findSessionByEmailWithWebhookPriority(baseUrl, apiKey, email, web
   return null;
 }
 
+// Intelligence webhook events (internal service)
+const INTELLIGENCE_WEBHOOK_EVENTS = ['message.ack', 'message.reaction', 'presence.update'];
+
+/**
+ * Get the intelligence webhook URL for a session
+ */
+function getIntelligenceWebhookUrl(sessionName) {
+  return `http://botomat-intelligence:3000/webhook/${sessionName}`;
+}
+
 /**
  * Add webhook to session (keeps ALL existing config)
+ * Also manages intelligence webhook and ensures only 2 webhooks exist per session
  */
 async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
   const client = createClient(baseUrl, apiKey);
@@ -233,56 +249,85 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
   
   console.log(`[WAHA] Current webhooks count: ${currentWebhooks.length}`);
   
-  // Check if webhook already exists
-  const existingIndex = currentWebhooks.findIndex(wh => wh.url === webhookUrl);
+  // Define the two allowed webhooks
+  const mainWebhookUrl = webhookUrl; // e.g., https://botomat.co.il/api/webhook/waha/{userId}
+  const intelligenceWebhookUrl = getIntelligenceWebhookUrl(sessionName);
   
-  let updatedWebhooks;
-  if (existingIndex >= 0) {
-    // Webhook exists - check if events need updating
-    const existingEvents = currentWebhooks[existingIndex].events || [];
-    console.log(`[WAHA] Found existing webhook at index ${existingIndex} with ${existingEvents.length} events`);
-    
-    const missingEvents = events.filter(e => !existingEvents.includes(e));
-    
-    if (missingEvents.length === 0) {
-      console.log(`[WAHA] ✓ Webhook already has all ${events.length} events - no update needed`);
-      return sessionInfo.data;
-    }
-    
-    // Update existing webhook with new events
-    console.log(`[WAHA] ⚠️ Missing ${missingEvents.length} events: ${missingEvents.join(', ')}`);
-    console.log(`[WAHA] Updating webhook to have all ${events.length} events...`);
-    updatedWebhooks = [...currentWebhooks];
-    updatedWebhooks[existingIndex] = {
-      ...updatedWebhooks[existingIndex],
-      events: events, // Replace with full events list
-    };
+  // Filter out any webhooks that are not the main or intelligence webhook
+  // This removes duplicates and any old/incorrect webhooks
+  const filteredWebhooks = currentWebhooks.filter(wh => {
+    const url = wh.url || '';
+    // Keep only webhooks that match our expected patterns
+    const isMainWebhook = url === mainWebhookUrl;
+    const isIntelligenceWebhook = url === intelligenceWebhookUrl;
+    return isMainWebhook || isIntelligenceWebhook;
+  });
+  
+  // Build the final webhooks array with exactly 2 webhooks
+  const finalWebhooks = [];
+  
+  // 1. Main system webhook
+  const existingMain = filteredWebhooks.find(wh => wh.url === mainWebhookUrl);
+  if (existingMain) {
+    // Update events if needed
+    finalWebhooks.push({
+      ...existingMain,
+      events: events,
+    });
   } else {
-    // Add new webhook
-    console.log(`[WAHA] Webhook not found, creating new one with ${events.length} events...`);
-    updatedWebhooks = [
-      ...currentWebhooks,
-      {
-        url: webhookUrl,
-        events: events,
-        retries: {
-          delaySeconds: 2,
-          attempts: 2,
-          policy: 'constant',
-        },
+    // Create new main webhook
+    finalWebhooks.push({
+      url: mainWebhookUrl,
+      events: events,
+      retries: {
+        delaySeconds: 2,
+        attempts: 2,
+        policy: 'constant',
       },
-    ];
+    });
   }
   
-  // Update session - keep ALL existing config, only update webhooks
+  // 2. Intelligence webhook
+  const existingIntelligence = filteredWebhooks.find(wh => wh.url === intelligenceWebhookUrl);
+  if (existingIntelligence) {
+    // Update events if needed
+    finalWebhooks.push({
+      ...existingIntelligence,
+      events: INTELLIGENCE_WEBHOOK_EVENTS,
+    });
+  } else {
+    // Create new intelligence webhook
+    finalWebhooks.push({
+      url: intelligenceWebhookUrl,
+      events: INTELLIGENCE_WEBHOOK_EVENTS,
+      retries: {
+        delaySeconds: 2,
+        attempts: 2,
+        policy: 'constant',
+      },
+    });
+  }
+  
+  // Log cleanup if we removed webhooks
+  const removedCount = currentWebhooks.length - filteredWebhooks.length;
+  if (removedCount > 0) {
+    console.log(`[WAHA] 🧹 Cleaned up ${removedCount} duplicate/invalid webhooks`);
+  }
+  
+  // Update session - keep ALL existing config, update webhooks, ensure status/groups/channels/broadcast enabled
   const response = await client.put(`/api/sessions/${sessionName}`, {
     config: {
       ...currentConfig,
-      webhooks: updatedWebhooks,
+      webhooks: finalWebhooks,
+      // Ensure these are enabled
+      status: true,
+      groups: true,
+      channels: true,
+      broadcast: true,
     },
   });
   
-  console.log(`[WAHA] ✅ Webhook updated successfully. Total webhooks: ${updatedWebhooks.length}`);
+  console.log(`[WAHA] ✅ Webhooks configured: ${finalWebhooks.length} webhooks total (main + intelligence)`);
   return response.data;
 }
 
