@@ -702,13 +702,13 @@ async function handleInteractiveWithStatusId(phone, selectedId, message) {
   
   // Handle queued_menu action
   if (selectedId === 'queued_menu') {
-    await sendStatusMenu(phone, await getAuthorizedConnections(phone));
+    await sendStatusMenu(phone, await checkAuthorization(phone));
     return;
   }
   
   // Handle queued_view_all action
   if (selectedId === 'queued_view_all') {
-    const connections = await getAuthorizedConnections(phone);
+    const connections = await checkAuthorization(phone);
     if (connections.length > 0) {
       await showScheduledListWithConfirmation(phone, connections[0].connection_id, null, null, '');
     } else {
@@ -996,7 +996,7 @@ async function handleQueuedAction(phone, selectedId, contextMessageId = null) {
  * Handle "כל הסטטוסים" - show all pending/scheduled statuses
  */
 async function handleViewAllStatuses(phone) {
-  const connections = await getAuthorizedConnections(phone);
+  const connections = await checkAuthorization(phone);
   
   if (connections.length === 0) {
     await cloudApi.sendTextMessage(phone, 'אין חשבון מחובר למספר שלך');
@@ -1195,7 +1195,7 @@ async function handleRescheduleAction(phone, selectedId) {
     scheduledDate.setDate(scheduledDate.getDate() + dayOffset);
     
     // Store in state and ask for time
-    const connections = await getAuthorizedConnections(phone);
+    const connections = await checkAuthorization(phone);
     const connectionId = connections.length > 0 ? connections[0].connection_id : null;
     
     await setState(phone, 'waiting_reschedule_time', { 
@@ -1700,7 +1700,7 @@ async function handleDaySelection(phone, statusId, pendingStatus, dayOffset) {
   });
   
   // Set state to wait for time input
-  const connections = await getAuthorizedConnections(phone);
+  const connections = await checkAuthorization(phone);
   const connectionId = pendingStatus.connectionId || (connections.length > 0 ? connections[0].connection_id : null);
   await setState(phone, 'waiting_schedule_time', { statusId }, pendingStatus, connectionId);
   
