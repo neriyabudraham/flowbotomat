@@ -379,7 +379,13 @@ async function checkAuthorization(phone) {
     [phoneVariants]
   );
   
-  return result.rows;
+  // Dedupe by connection_id (in case same phone matches multiple variants)
+  const seen = new Set();
+  return result.rows.filter(row => {
+    if (seen.has(row.connection_id)) return false;
+    seen.add(row.connection_id);
+    return true;
+  });
 }
 
 /**
@@ -1749,8 +1755,22 @@ async function handleWaitingScheduleTimeState(phone, message, state) {
   
   // Build scheduled time
   const dateStr = pendingStatus.scheduledDateStr;
+  if (!dateStr) {
+    await cloudApi.sendTextMessage(phone, 'לא נבחר תאריך, אנא התחל מחדש');
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+  
   const timeStr = `${String(parsedTime.hours).padStart(2, '0')}:${String(parsedTime.minutes).padStart(2, '0')}`;
   const scheduledTime = convertIsraelTimeToUTC(`${dateStr}T${timeStr}:00`);
+  
+  // Validate scheduled time
+  if (isNaN(scheduledTime.getTime())) {
+    console.error(`[CloudAPI Conv] Invalid scheduled time: dateStr=${dateStr}, timeStr=${timeStr}`);
+    await cloudApi.sendTextMessage(phone, 'אירעה שגיאה בפורמט התאריך, אנא התחל מחדש');
+    await setState(phone, 'idle', null, null);
+    return;
+  }
   
   // Check if time is in the past
   if (scheduledTime <= new Date()) {
