@@ -1,0 +1,41 @@
+---
+description: עדכון nginx בעת הוספת routes חדשים לאתר
+globs: "**/App.jsx"
+alwaysApply: false
+---
+
+# סנכרון Routes עם nginx
+
+כאשר מוסיפים route חדש ל-`App.jsx`, **חובה לעדכן גם את קונפיג nginx** של `botomat.co.il`.
+
+## למה?
+
+כל path קצר (3-4 תווים) ב-`botomat.co.il` מופנה אוטומטית למערכת הלינקים המקוצרים (`link.botomat.co.il`).
+אם לא נוסיף route חדש לרשימה ב-nginx, הוא עלול להיתפס בטעות כלינק מקוצר.
+
+## איפה לעדכן?
+
+בקונפיג nginx של `botomat.co.il`, בשורת ה-location של known routes:
+
+```nginx
+location ~ ^/(pricing|checkout|privacy|...|NEW_ROUTE)(/.*)?$
+```
+
+## דוגמה
+
+אם הוספת route חדש:
+```jsx
+<Route path="/chat" element={<ChatPage />} />
+```
+
+צריך להוסיף `chat` לרשימה ב-nginx:
+```nginx
+location ~ ^/(pricing|checkout|...|chat)(/.*)?$
+```
+
+## תזכורת
+
+בכל פעם שמוסיפים `<Route>` חדש ב-App.jsx:
+1. ✅ הוסף את ה-route לקוד
+2. ✅ עדכן את nginx בשרת
+3. ✅ הרץ `nginx -t && nginx -s reload`
