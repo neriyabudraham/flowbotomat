@@ -1194,14 +1194,15 @@ async function uploadImageStatus(req, res) {
 
 /**
  * Upload video status
+ * Supports auto-splitting videos over 60 seconds
  */
 async function uploadVideoStatus(req, res) {
   try {
     const userId = req.user.id;
-    const { url, caption, scheduled_for } = req.body;
+    const { url, caption, scheduled_for, parts: partsJson } = req.body;
     const file = req.file;
 
-    if (!url && !file) {
+    if (!url && !file && !partsJson) {
       return res.status(400).json({ error: 'נדרש URL או קובץ וידאו' });
     }
 
@@ -1230,15 +1231,108 @@ async function uploadVideoStatus(req, res) {
       }
     }
 
-    let content;
+    // Handle multi-part video (already split by frontend)
+    if (partsJson) {
+      const parts = JSON.parse(partsJson);
+      const partGroupId = require('uuid').v4();
+      const queueIds = [];
+      
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        const content = {
+          file: {
+            mimetype: 'video/mp4',
+            filename: `status_part${i + 1}.mp4`,
+            url: part.url
+          },
+          convert: true,
+          caption: part.caption || ''
+        };
+        
+        const queueResult = await db.query(`
+          INSERT INTO status_bot_queue (connection_id, status_type, content, source, scheduled_for, part_group_id, part_number, total_parts)
+          VALUES ($1, 'video', $2, 'web', $3, $4, $5, $6)
+          RETURNING *
+        `, [connection.id, JSON.stringify(content), scheduled_for || null, partGroupId, i + 1, parts.length]);
+        
+        queueIds.push(queueResult.rows[0].id);
+      }
+      
+      return res.json({ 
+        success: true, 
+        message: scheduled_for ? `${parts.length} חלקי סרטון תוזמנו בהצלחה` : `${parts.length} חלקי סרטון נוספו לתור`,
+        queueIds,
+        partsCount: parts.length,
+        scheduled_for: scheduled_for || null
+      });
+    }
+
+    // Determine video URL
+    let videoUrl;
     if (file) {
       const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 3000}/api`;
-      const fileUrl = `${baseUrl}/uploads/status-bot/${file.filename}`;
+      videoUrl = `${baseUrl}/uploads/status-bot/${file.filename}`;
+    } else {
+      videoUrl = url;
+    }
+
+    // Try to check video duration and split if needed
+    let splitResult = null;
+    try {
+      const videoSplit = require('../../services/statusBot/videoSplit.service');
+      splitResult = await videoSplit.processVideo(videoUrl);
+    } catch (splitErr) {
+      console.log('[StatusBot] Video split check skipped:', splitErr.message);
+      // Continue without splitting if ffprobe fails
+    }
+
+    // If video needs splitting
+    if (splitResult && splitResult.needsSplit) {
+      const parts = splitResult.parts;
+      const partGroupId = require('uuid').v4();
+      const queueIds = [];
+      
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        const partCaption = i === 0 ? (caption || '') : '';
+        const content = {
+          file: {
+            mimetype: 'video/mp4',
+            filename: `status_part${i + 1}.mp4`,
+            url: part.url
+          },
+          convert: true,
+          caption: partCaption
+        };
+        
+        const queueResult = await db.query(`
+          INSERT INTO status_bot_queue (connection_id, status_type, content, source, scheduled_for, part_group_id, part_number, total_parts)
+          VALUES ($1, 'video', $2, 'web', $3, $4, $5, $6)
+          RETURNING *
+        `, [connection.id, JSON.stringify(content), scheduled_for || null, partGroupId, i + 1, parts.length]);
+        
+        queueIds.push(queueResult.rows[0].id);
+      }
+      
+      return res.json({ 
+        success: true, 
+        message: scheduled_for ? `הסרטון חולק ל-${parts.length} חלקים ותוזמן בהצלחה` : `הסרטון חולק ל-${parts.length} חלקים ונוסף לתור`,
+        queueIds,
+        partsCount: parts.length,
+        partDuration: splitResult.partDuration,
+        wasSplit: true,
+        scheduled_for: scheduled_for || null
+      });
+    }
+
+    // Normal single video (no split needed or split failed)
+    let content;
+    if (file) {
       content = {
         file: {
           mimetype: file.mimetype,
           filename: file.originalname,
-          url: fileUrl
+          url: videoUrl
         },
         convert: true,
         caption: caption || ''
@@ -1248,7 +1342,7 @@ async function uploadVideoStatus(req, res) {
         file: {
           mimetype: 'video/mp4',
           filename: 'status.mp4',
-          url
+          url: videoUrl
         },
         convert: true,
         caption: caption || ''
@@ -2213,6 +2307,100 @@ async function handleStatusReaction(connection, payload) {
   }
 }
 
+/**
+ * Analyze video to check if it needs splitting
+ * Returns split info without actually splitting
+ */
+async function analyzeVideo(req, res) {
+  try {
+    const { url } = req.body;
+    const file = req.file;
+    
+    if (!url && !file) {
+      return res.status(400).json({ error: 'נדרש URL או קובץ וידאו' });
+    }
+    
+    let videoUrl;
+    if (file) {
+      const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 3000}/api`;
+      videoUrl = `${baseUrl}/uploads/status-bot/${file.filename}`;
+    } else {
+      videoUrl = url;
+    }
+    
+    const videoSplit = require('../../services/statusBot/videoSplit.service');
+    
+    // Get video duration
+    const duration = await videoSplit.getVideoDuration(videoUrl);
+    const needsSplit = duration > videoSplit.MAX_DURATION;
+    
+    if (!needsSplit) {
+      return res.json({
+        needsSplit: false,
+        duration,
+        formattedDuration: videoSplit.formatDuration(duration)
+      });
+    }
+    
+    // Calculate split info without actually splitting
+    const { partCount, partDuration } = videoSplit.calculateSplit(duration);
+    
+    res.json({
+      needsSplit: true,
+      duration,
+      formattedDuration: videoSplit.formatDuration(duration),
+      partCount,
+      partDuration,
+      formattedPartDuration: videoSplit.formatDuration(partDuration)
+    });
+    
+  } catch (error) {
+    console.error('[StatusBot] Analyze video error:', error);
+    res.status(500).json({ error: 'שגיאה בניתוח הסרטון' });
+  }
+}
+
+/**
+ * Process and split a video into parts
+ * Returns URLs of split video parts
+ */
+async function processVideoSplit(req, res) {
+  try {
+    const { url } = req.body;
+    const file = req.file;
+    
+    if (!url && !file) {
+      return res.status(400).json({ error: 'נדרש URL או קובץ וידאו' });
+    }
+    
+    let videoUrl;
+    if (file) {
+      const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 3000}/api`;
+      videoUrl = `${baseUrl}/uploads/status-bot/${file.filename}`;
+    } else {
+      videoUrl = url;
+    }
+    
+    const videoSplit = require('../../services/statusBot/videoSplit.service');
+    const result = await videoSplit.processVideo(videoUrl);
+    
+    res.json({
+      needsSplit: result.needsSplit,
+      duration: result.duration,
+      partDuration: result.partDuration,
+      parts: result.parts.map(p => ({
+        url: p.url,
+        partNumber: p.partNumber,
+        totalParts: p.totalParts
+      }))
+    });
+    
+  } catch (error) {
+    console.error('[StatusBot] Process video split error:', error);
+    res.status(500).json({ error: 'שגיאה בעיבוד הסרטון' });
+  }
+}
+
 module.exports = {
   // Connection
   getConnection,
@@ -2232,6 +2420,10 @@ module.exports = {
   uploadVideoStatus,
   uploadVoiceStatus,
   deleteStatus,
+  
+  // Video processing
+  analyzeVideo,
+  processVideoSplit,
   
   // History
   getStatusHistory,

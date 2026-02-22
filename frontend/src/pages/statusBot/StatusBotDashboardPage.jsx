@@ -145,6 +145,11 @@ function StatusBotDashboardContent() {
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
   
+  // Video split state
+  const [videoSplitInfo, setVideoSplitInfo] = useState(null); // { needsSplit, partCount, partDuration, parts }
+  const [videoPartCaptions, setVideoPartCaptions] = useState([]); // Array of captions for each part
+  const [analyzingVideo, setAnalyzingVideo] = useState(false);
+  
   // Available colors (loaded from settings)
   const [availableColors, setAvailableColors] = useState([
     { id: '782138', title: 'בורדו' },
@@ -630,7 +635,27 @@ function StatusBotDashboardContent() {
         }
       }
 
-      if (useFormData) {
+      // Handle video split with multiple parts
+      if (statusType === 'video' && videoSplitInfo?.needsSplit && mediaFile) {
+        // First split the video to get actual URLs
+        const splitFormData = new FormData();
+        splitFormData.append('file', mediaFile);
+        const splitResponse = await api.post('/status-bot/video/split', splitFormData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        
+        // Build parts array with captions
+        const parts = splitResponse.data.parts.map((part, index) => ({
+          url: part.url,
+          caption: videoPartCaptions[index] || ''
+        }));
+        
+        // Send with parts
+        await api.post('/status-bot/status/video', {
+          parts: JSON.stringify(parts),
+          scheduled_for: scheduledFor
+        });
+      } else if (useFormData) {
         await api.post(endpoint, body, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
@@ -647,13 +672,16 @@ function StatusBotDashboardContent() {
       setScheduleMode('now');
       setScheduleDate('');
       setScheduleTime('');
+      setVideoSplitInfo(null);
+      setVideoPartCaptions([]);
       if (recordedAudio) {
         URL.revokeObjectURL(recordedAudio);
         setRecordedAudio(null);
       }
       
       loadDashboardData();
-      toast.success(scheduleMode === 'schedule' ? 'הסטטוס תוזמן בהצלחה!' : 'הסטטוס נוסף לתור!');
+      const partMsg = videoSplitInfo?.needsSplit ? ` (${videoSplitInfo.partCount} חלקים)` : '';
+      toast.success(scheduleMode === 'schedule' ? `הסטטוס תוזמן בהצלחה!${partMsg}` : `הסטטוס נוסף לתור!${partMsg}`);
     } catch (err) {
       toast.error(err.response?.data?.error || 'שגיאה בהעלאת סטטוס');
     } finally {
@@ -661,7 +689,7 @@ function StatusBotDashboardContent() {
     }
   };
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
       // Check file size (max 100MB)
@@ -671,6 +699,32 @@ function StatusBotDashboardContent() {
       }
       setMediaFile(file);
       setMediaUrl('');
+      setVideoSplitInfo(null);
+      setVideoPartCaptions([]);
+      
+      // Analyze video for potential splitting
+      if (statusType === 'video' && file.type.startsWith('video/')) {
+        setAnalyzingVideo(true);
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          const response = await api.post('/status-bot/video/analyze', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+          });
+          
+          if (response.data.needsSplit) {
+            setVideoSplitInfo(response.data);
+            // Initialize captions array (first part gets the main caption, rest empty)
+            const captions = Array(response.data.partCount).fill('');
+            setVideoPartCaptions(captions);
+            toast.info(`הסרטון יחולק ל-${response.data.partCount} חלקים (~${response.data.formattedPartDuration} כל חלק)`);
+          }
+        } catch (err) {
+          console.log('Video analysis skipped:', err.message);
+        } finally {
+          setAnalyzingVideo(false);
+        }
+      }
     }
   };
 
@@ -1689,14 +1743,62 @@ function StatusBotDashboardContent() {
                       
                       {(statusType === 'image' || statusType === 'video') && (
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">כיתוב (אופציונלי)</label>
-                          <textarea
-                            value={caption}
-                            onChange={(e) => setCaption(e.target.value)}
-                            rows={3}
-                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
-                            placeholder="כיתוב לסטטוס..."
-                          />
+                          {/* Video Split Info */}
+                          {statusType === 'video' && analyzingVideo && (
+                            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-3">
+                              <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+                              <span className="text-blue-700 text-sm">מנתח את הסרטון...</span>
+                            </div>
+                          )}
+                          
+                          {statusType === 'video' && videoSplitInfo?.needsSplit && (
+                            <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                              <div className="flex items-center gap-2 mb-3">
+                                <Video className="w-5 h-5 text-amber-600" />
+                                <span className="text-amber-800 font-medium">
+                                  הסרטון יחולק ל-{videoSplitInfo.partCount} חלקים
+                                </span>
+                                <span className="text-amber-600 text-sm">
+                                  (~{videoSplitInfo.formattedPartDuration} כל חלק)
+                                </span>
+                              </div>
+                              
+                              <div className="space-y-3">
+                                {videoPartCaptions.map((partCaption, index) => (
+                                  <div key={index} className="bg-white p-3 rounded-lg border border-amber-100">
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                      כיתוב לחלק {index + 1}
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={partCaption}
+                                      onChange={(e) => {
+                                        const newCaptions = [...videoPartCaptions];
+                                        newCaptions[index] = e.target.value;
+                                        setVideoPartCaptions(newCaptions);
+                                      }}
+                                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                      placeholder={index === 0 ? 'כיתוב ראשי (אופציונלי)' : 'כיתוב נוסף (אופציונלי)'}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Normal caption input (only when not splitting) */}
+                          {!(statusType === 'video' && videoSplitInfo?.needsSplit) && (
+                            <>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">כיתוב (אופציונלי)</label>
+                              <textarea
+                                value={caption}
+                                onChange={(e) => setCaption(e.target.value)}
+                                rows={3}
+                                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
+                                placeholder="כיתוב לסטטוס..."
+                              />
+                            </>
+                          )}
                         </div>
                       )}
 

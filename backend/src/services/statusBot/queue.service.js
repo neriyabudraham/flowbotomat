@@ -14,6 +14,48 @@ const STATUS_TIMEOUT = 180000; // 3 minutes timeout per status
 
 let isRunning = false;
 let intervalId = null;
+let isCurrentlyProcessing = false;
+let currentProcessingPromise = null;
+let processingPromiseCallback = null;
+let gracefulShutdownRequested = false;
+
+/**
+ * Set a callback to be notified when processing starts/ends
+ * Used by the worker for graceful shutdown
+ */
+function setProcessingPromiseCallback(callback) {
+  processingPromiseCallback = callback;
+}
+
+/**
+ * Set graceful shutdown flag
+ * When set, the queue will finish current processing but not start new items
+ */
+function setGracefulShutdown(value) {
+  gracefulShutdownRequested = value;
+  console.log(`[StatusBot Queue] Graceful shutdown ${value ? 'requested' : 'cancelled'}`);
+}
+
+/**
+ * Check if graceful shutdown is requested
+ */
+function isGracefulShutdownRequested() {
+  return gracefulShutdownRequested;
+}
+
+/**
+ * Check if currently processing a status
+ */
+function isProcessing() {
+  return isCurrentlyProcessing;
+}
+
+/**
+ * Get the current processing promise (for graceful shutdown)
+ */
+function getCurrentProcessingPromise() {
+  return currentProcessingPromise;
+}
 
 /**
  * Start the queue processor
@@ -46,6 +88,12 @@ function stopQueueProcessor() {
  * Process the queue
  */
 async function processQueue() {
+  // Don't start new items if graceful shutdown is requested
+  if (gracefulShutdownRequested) {
+    console.log('[StatusBot Queue] Graceful shutdown in progress, skipping queue check');
+    return;
+  }
+
   try {
     // Check if we can process (30 seconds passed since last send)
     const lockResult = await db.query(`
@@ -129,9 +177,20 @@ async function processQueue() {
 
     console.log(`[StatusBot Queue] Processing status ${item.id} (${item.status_type})`);
 
+    // Track processing state for graceful shutdown
+    isCurrentlyProcessing = true;
+    
     try {
-      // Process the status
-      await sendStatus(item);
+      // Process the status and track the promise
+      const sendPromise = sendStatus(item);
+      currentProcessingPromise = sendPromise;
+      
+      // Notify callback if set (for worker graceful shutdown)
+      if (processingPromiseCallback) {
+        processingPromiseCallback(sendPromise);
+      }
+      
+      await sendPromise;
 
       // Mark as sent
       await db.query(`
@@ -152,6 +211,10 @@ async function processQueue() {
 
       // Send WhatsApp notification if this was from WhatsApp and was scheduled
       await sendStatusNotification(item, true);
+      
+      // Clear processing state
+      isCurrentlyProcessing = false;
+      currentProcessingPromise = null;
 
     } catch (sendError) {
       console.error(`[StatusBot Queue] Failed to send status ${item.id}:`, sendError.message);
@@ -172,6 +235,10 @@ async function processQueue() {
 
       // Send failure notification if from WhatsApp
       await sendStatusNotification(item, false, sendError.message);
+      
+      // Clear processing state
+      isCurrentlyProcessing = false;
+      currentProcessingPromise = null;
     }
 
   } catch (error) {
@@ -429,4 +496,9 @@ module.exports = {
   stopQueueProcessor,
   addToQueue,
   getQueueStats,
+  isProcessing,
+  getCurrentProcessingPromise,
+  setProcessingPromiseCallback,
+  setGracefulShutdown,
+  isGracefulShutdownRequested,
 };

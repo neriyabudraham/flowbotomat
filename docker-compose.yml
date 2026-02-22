@@ -55,6 +55,7 @@ services:
       CLOUD_API_ACCESS_TOKEN: ${CLOUD_API_ACCESS_TOKEN}
       CLOUD_API_VERIFY_TOKEN: ${CLOUD_API_VERIFY_TOKEN}
       CLOUD_API_APP_SECRET: ${CLOUD_API_APP_SECRET}
+      ENABLE_QUEUE_PROCESSOR: "false"
     ports:
       - "3749:4000"
     volumes:
@@ -73,6 +74,36 @@ services:
       retries: 3
       start_period: 40s
     stop_grace_period: 30s
+
+  queue-processor:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: flowbotomat_queue_processor
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      APP_URL: ${APP_URL}
+      WAHA_BASE_URL: ${WAHA_BASE_URL}
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      CLOUD_API_PHONE_ID: ${CLOUD_API_PHONE_ID}
+      CLOUD_API_ACCESS_TOKEN: ${CLOUD_API_ACCESS_TOKEN}
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - uploads_data:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - flowbotomat_network
+    command: node src/workers/queueProcessor.js
+    stop_grace_period: 60s
 
   frontend:
     build:

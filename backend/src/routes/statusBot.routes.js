@@ -73,6 +73,10 @@ router.post('/status/video', authMiddleware, statusUpload, statusBotController.u
 router.post('/status/voice', authMiddleware, statusUpload, statusBotController.uploadVoiceStatus);
 router.delete('/status/:statusId', authMiddleware, statusBotController.deleteStatus);
 
+// Video processing (for split)
+router.post('/video/analyze', authMiddleware, statusUpload, statusBotController.analyzeVideo);
+router.post('/video/split', authMiddleware, statusUpload, statusBotController.processVideoSplit);
+
 // History
 router.get('/history', authMiddleware, statusBotController.getStatusHistory);
 router.get('/history/:statusId', authMiddleware, statusBotController.getStatusDetails);
