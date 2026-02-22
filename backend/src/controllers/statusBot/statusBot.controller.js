@@ -2305,10 +2305,11 @@ async function handleStatusReaction(connection, payload) {
     // Get reaction text (emoji)
     const reactionText = reactionData?.text || reactionData?.emoji || reactionData || '❤️';
 
-    // Insert reaction (allow multiple reactions from same user)
+    // Insert or update reaction (user can only have one reaction per status)
     await db.query(`
       INSERT INTO status_bot_reactions (status_id, reactor_phone, reaction)
       VALUES ($1, $2, $3)
+      ON CONFLICT (status_id, reactor_phone) DO UPDATE SET reaction = $3, reacted_at = NOW()
     `, [statusId, reactorPhone, reactionText]);
 
     // Update reaction count

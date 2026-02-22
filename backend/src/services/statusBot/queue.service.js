@@ -351,7 +351,7 @@ async function sendStatus(queueItem) {
       body = {
         id: messageId,
         contacts: null,
-        file: content.file,
+        file: content.file || content.url, // Support both field names
         caption: content.caption || ''
       };
       break;
@@ -361,7 +361,7 @@ async function sendStatus(queueItem) {
       body = {
         id: messageId,
         contacts: null,
-        file: content.file,
+        file: content.file || content.url, // Support both field names
         convert: true,
         caption: content.caption || ''
       };
@@ -372,7 +372,7 @@ async function sendStatus(queueItem) {
       body = {
         id: messageId,
         contacts: null,
-        file: content.file,
+        file: content.file || content.url, // Support both field names
         convert: true,
         backgroundColor: content.backgroundColor || '#38b42f'
       };
