@@ -14,9 +14,6 @@ const crypto = require('crypto');
 function normalizeContent(content, statusType) {
   if (!content) return content;
   
-  console.log(`[StatusBot Normalize] Input type: ${typeof content}, statusType: ${statusType}`);
-  console.log(`[StatusBot Normalize] Raw:`, JSON.stringify(content).substring(0, 200));
-  
   // Parse content if it's a string
   if (typeof content === 'string') {
     try {
@@ -29,31 +26,38 @@ function normalizeContent(content, statusType) {
   
   // Normalize media content structure
   if (['image', 'video', 'voice'].includes(statusType)) {
+    const getMimeType = () => statusType === 'image' ? 'image/jpeg' : 
+                              statusType === 'video' ? 'video/mp4' : 'audio/ogg';
+    const getFilename = () => `status.${statusType === 'image' ? 'jpg' : 
+                                        statusType === 'video' ? 'mp4' : 'ogg'}`;
+    
     // If content.file is a string URL, convert to object
     if (typeof content.file === 'string') {
-      console.log(`[StatusBot Normalize] Converting file string to object`);
       content.file = {
         url: content.file,
-        mimetype: statusType === 'image' ? 'image/jpeg' : 
-                  statusType === 'video' ? 'video/mp4' : 'audio/ogg',
-        filename: `status.${statusType === 'image' ? 'jpg' : 
-                            statusType === 'video' ? 'mp4' : 'ogg'}`
+        mimetype: getMimeType(),
+        filename: getFilename()
       };
     }
-    // If content has url directly but not file, normalize it
+    // If content.file is already an object with url, ensure structure is correct
+    else if (content.file && typeof content.file === 'object' && content.file.url) {
+      // Already correct format, do nothing
+    }
+    // If content has url directly but not file
     else if (content.url && !content.file) {
-      console.log(`[StatusBot Normalize] Creating file from url`);
+      // content.url might be a string or an object with url property
+      let actualUrl = content.url;
+      if (typeof content.url === 'object' && content.url.url) {
+        actualUrl = content.url.url;
+      }
       content.file = {
-        url: content.url,
-        mimetype: statusType === 'image' ? 'image/jpeg' : 
-                  statusType === 'video' ? 'video/mp4' : 'audio/ogg',
-        filename: `status.${statusType === 'image' ? 'jpg' : 
-                            statusType === 'video' ? 'mp4' : 'ogg'}`
+        url: actualUrl,
+        mimetype: getMimeType(),
+        filename: getFilename()
       };
     }
   }
   
-  console.log(`[StatusBot Normalize] Output:`, JSON.stringify(content).substring(0, 200));
   return content;
 }
 
