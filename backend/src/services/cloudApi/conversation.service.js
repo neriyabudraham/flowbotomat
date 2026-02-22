@@ -11,6 +11,7 @@ const { getWahaCredentials } = require('../settings/system.service');
 const videoSplit = require('../statusBot/videoSplit.service');
 const { v4: uuidv4 } = require('uuid');
 const { getIO } = require('../socket/manager.service');
+const path = require('path');
 
 // Helper to generate short unique IDs for button IDs (WhatsApp has 256 char limit)
 function generateShortId() {
@@ -1249,9 +1250,14 @@ async function handleIdleState(phone, message, state) {
     originalCaption = message.video.caption || '';
     
     // Check video duration first (quick check without full processing)
+    // Convert URL to local path for ffprobe (Docker can't resolve external URLs)
     let videoDuration = 0;
     try {
-      videoDuration = await videoSplit.getVideoDuration(videoUrl);
+      const localVideoPath = videoUrl.replace(
+        /^https?:\/\/[^\/]+\/api\/uploads\//,
+        path.join(__dirname, '../../..', 'uploads') + '/'
+      );
+      videoDuration = await videoSplit.getVideoDuration(localVideoPath);
       console.log(`[CloudAPI Conv] Video duration: ${videoDuration} seconds`);
     } catch (e) {
       console.log(`[CloudAPI Conv] Could not get video duration: ${e.message}`);
