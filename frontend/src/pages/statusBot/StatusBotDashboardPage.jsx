@@ -3103,6 +3103,7 @@ function StatusRow({ status, onDelete, isActive, onShowDetails }) {
 function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDashboardData }) {
   const [actionLoading, setActionLoading] = useState({});
   const [scheduleModal, setScheduleModal] = useState({ show: false, statusId: null, scheduleDate: '', scheduleTime: '' });
+  const [detailsModal, setDetailsModal] = useState({ show: false, status: null });
   
   const typeIcons = {
     text: Type,
@@ -3232,8 +3233,11 @@ function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDa
           return (
             <div key={statusId} className="p-4">
               <div className="flex items-start gap-4">
-                {/* Preview thumbnail */}
-                <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                {/* Preview thumbnail - clickable */}
+                <button
+                  onClick={() => setDetailsModal({ show: true, status })}
+                  className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0 overflow-hidden hover:ring-2 hover:ring-green-500 transition-all cursor-pointer"
+                >
                   {status.type === 'image' && mediaUrl ? (
                     <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
                   ) : (status.type === 'video' || status.type === 'video_split') && mediaUrl ? (
@@ -3248,7 +3252,7 @@ function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDa
                   ) : (
                     <Icon className="w-8 h-8 text-gray-400" />
                   )}
-                </div>
+                </button>
                 
                 {/* Content */}
                 <div className="flex-1 min-w-0">
@@ -3294,6 +3298,14 @@ function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDa
                 
                 {/* Actions */}
                 <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => setDetailsModal({ show: true, status })}
+                    className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
+                    title="צפה בפרטים"
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
+                  
                   <button
                     onClick={() => handleSendNow(statusId)}
                     disabled={isLoading}
@@ -3387,6 +3399,178 @@ function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDa
           </div>
         </div>
       )}
+      
+      {/* Details Modal */}
+      {detailsModal.show && detailsModal.status && (() => {
+        const status = detailsModal.status;
+        const statusId = getStatusId(status);
+        const mediaUrl = status.url || status.content?.url;
+        const bgColor = status.backgroundColor || status.content?.backgroundColor;
+        const statusText = status.text || status.content?.text;
+        const caption = status.caption || status.originalCaption || status.content?.caption;
+        const partsCount = status.parts?.length || status.totalParts || 0;
+        const isLoading = actionLoading[statusId];
+        
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setDetailsModal({ show: false, status: null })}>
+            <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              {/* Header */}
+              <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="font-bold text-lg">פרטי סטטוס</h3>
+                <button 
+                  onClick={() => setDetailsModal({ show: false, status: null })}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-4">
+                {/* Status Type Badge */}
+                <div className="flex items-center gap-2 mb-4">
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    status.type === 'text' ? 'bg-purple-100 text-purple-700' :
+                    status.type === 'image' ? 'bg-blue-100 text-blue-700' :
+                    (status.type === 'video' || status.type === 'video_split') ? 'bg-pink-100 text-pink-700' :
+                    'bg-green-100 text-green-700'
+                  }`}>
+                    {status.type === 'text' ? 'טקסט' : 
+                     status.type === 'image' ? 'תמונה' : 
+                     (status.type === 'video' || status.type === 'video_split') ? 'סרטון' : 'הקלטה'}
+                  </span>
+                  {partsCount > 1 && (
+                    <span className="px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-700">
+                      {partsCount} חלקים
+                    </span>
+                  )}
+                  <span className="text-sm text-gray-500">
+                    {new Date(status.createdAt || status.receivedAt).toLocaleString('he-IL')}
+                  </span>
+                </div>
+                
+                {/* Text Status */}
+                {status.type === 'text' && (
+                  <div 
+                    className="p-6 rounded-xl text-white text-center min-h-[200px] flex items-center justify-center"
+                    style={{ backgroundColor: bgColor || '#782138' }}
+                  >
+                    <p className="text-xl whitespace-pre-wrap">{statusText}</p>
+                  </div>
+                )}
+                
+                {/* Image Status */}
+                {status.type === 'image' && mediaUrl && (
+                  <div className="space-y-3">
+                    <img 
+                      src={mediaUrl} 
+                      alt="סטטוס" 
+                      className="w-full rounded-xl max-h-[400px] object-contain bg-gray-100"
+                    />
+                    {caption && (
+                      <p className="text-gray-700 p-3 bg-gray-50 rounded-lg">{caption}</p>
+                    )}
+                  </div>
+                )}
+                
+                {/* Video Status */}
+                {(status.type === 'video' || status.type === 'video_split') && mediaUrl && (
+                  <div className="space-y-3">
+                    <video 
+                      src={mediaUrl} 
+                      controls
+                      className="w-full rounded-xl max-h-[400px] bg-gray-100"
+                    />
+                    {caption && (
+                      <p className="text-gray-700 p-3 bg-gray-50 rounded-lg">{caption}</p>
+                    )}
+                  </div>
+                )}
+                
+                {/* Voice Status */}
+                {status.type === 'voice' && mediaUrl && (
+                  <div 
+                    className="p-6 rounded-xl flex items-center justify-center min-h-[150px]"
+                    style={{ backgroundColor: bgColor || '#782138' }}
+                  >
+                    <audio 
+                      src={mediaUrl} 
+                      controls
+                      className="w-full"
+                    />
+                  </div>
+                )}
+                
+                {/* Video Parts Preview */}
+                {status.parts && status.parts.length > 1 && (
+                  <div className="mt-4">
+                    <h4 className="font-medium text-gray-700 mb-2">חלקי הסרטון ({status.parts.length})</h4>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {status.parts.map((part, idx) => {
+                        const partUrl = typeof part === 'object' ? part.url : part;
+                        return (
+                          <div key={idx} className="bg-gray-100 rounded-lg overflow-hidden">
+                            <video 
+                              src={partUrl} 
+                              className="w-full h-24 object-cover"
+                            />
+                            <div className="p-2 text-center">
+                              <p className="text-xs text-gray-600">חלק {idx + 1}</p>
+                              {part.caption && (
+                                <p className="text-xs text-gray-400 truncate">{part.caption}</p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Actions */}
+              <div className="p-4 border-t border-gray-100 flex gap-3">
+                <button
+                  onClick={() => {
+                    setDetailsModal({ show: false, status: null });
+                    handleCancel(statusId);
+                  }}
+                  disabled={isLoading}
+                  className="px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                >
+                  בטל
+                </button>
+                <button
+                  onClick={() => {
+                    setDetailsModal({ show: false, status: null });
+                    setScheduleModal({ show: true, statusId, scheduleDate: '', scheduleTime: '' });
+                  }}
+                  disabled={isLoading}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <Clock className="w-4 h-4" />
+                  תזמן
+                </button>
+                <button
+                  onClick={() => {
+                    setDetailsModal({ show: false, status: null });
+                    handleSendNow(statusId);
+                  }}
+                  disabled={isLoading}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isLoading === 'sending' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                  שלח עכשיו
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
