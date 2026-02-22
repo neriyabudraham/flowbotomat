@@ -22,7 +22,7 @@ function getCredentials() {
 /**
  * Send a text message
  */
-async function sendTextMessage(to, text) {
+async function sendTextMessage(to, text, contextMessageId = null) {
   const { phoneId, accessToken } = getCredentials();
   
   console.log(`[CloudAPI] Sending text message to ${to}, phoneId: ${phoneId}, hasToken: ${!!accessToken}`);
@@ -33,14 +33,21 @@ async function sendTextMessage(to, text) {
   }
   
   try {
+    const payload = {
+      messaging_product: 'whatsapp',
+      to: to,
+      type: 'text',
+      text: { body: text }
+    };
+    
+    // Add context for reply if provided
+    if (contextMessageId) {
+      payload.context = { message_id: contextMessageId };
+    }
+    
     const response = await axios.post(
       `${GRAPH_API_BASE}/${phoneId}/messages`,
-      {
-        messaging_product: 'whatsapp',
-        to: to,
-        type: 'text',
-        text: { body: text }
-      },
+      payload,
       {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -60,7 +67,7 @@ async function sendTextMessage(to, text) {
 /**
  * Send interactive buttons message
  */
-async function sendButtonMessage(to, bodyText, buttons) {
+async function sendButtonMessage(to, bodyText, buttons, contextMessageId = null) {
   const { phoneId, accessToken } = getCredentials();
   
   console.log(`[CloudAPI] Sending button message to ${to}`);
@@ -75,20 +82,27 @@ async function sendButtonMessage(to, bodyText, buttons) {
   }));
   
   try {
+    const payload = {
+      messaging_product: 'whatsapp',
+      to: to,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: { text: bodyText },
+        action: {
+          buttons: formattedButtons
+        }
+      }
+    };
+    
+    // Add context for reply if provided
+    if (contextMessageId) {
+      payload.context = { message_id: contextMessageId };
+    }
+    
     const response = await axios.post(
       `${GRAPH_API_BASE}/${phoneId}/messages`,
-      {
-        messaging_product: 'whatsapp',
-        to: to,
-        type: 'interactive',
-        interactive: {
-          type: 'button',
-          body: { text: bodyText },
-          action: {
-            buttons: formattedButtons
-          }
-        }
-      },
+      payload,
       {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -108,28 +122,35 @@ async function sendButtonMessage(to, bodyText, buttons) {
 /**
  * Send interactive list message
  */
-async function sendListMessage(to, bodyText, buttonText, sections) {
+async function sendListMessage(to, bodyText, buttonText, sections, contextMessageId = null) {
   const { phoneId, accessToken } = getCredentials();
   
   console.log(`[CloudAPI] Sending list message to ${to}`);
   
   // Sections format: [{ title: 'Section', rows: [{ id: 'row_id', title: 'Row', description: 'desc' }] }]
   try {
+    const payload = {
+      messaging_product: 'whatsapp',
+      to: to,
+      type: 'interactive',
+      interactive: {
+        type: 'list',
+        body: { text: bodyText },
+        action: {
+          button: buttonText.substring(0, 20), // Max 20 chars
+          sections: sections
+        }
+      }
+    };
+    
+    // Add context for reply if provided
+    if (contextMessageId) {
+      payload.context = { message_id: contextMessageId };
+    }
+    
     const response = await axios.post(
       `${GRAPH_API_BASE}/${phoneId}/messages`,
-      {
-        messaging_product: 'whatsapp',
-        to: to,
-        type: 'interactive',
-        interactive: {
-          type: 'list',
-          body: { text: bodyText },
-          action: {
-            button: buttonText.substring(0, 20), // Max 20 chars
-            sections: sections
-          }
-        }
-      },
+      payload,
       {
         headers: {
           'Authorization': `Bearer ${accessToken}`,

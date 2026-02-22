@@ -159,11 +159,18 @@ async function initializeTables() {
         state VARCHAR(50) NOT NULL DEFAULT 'idle',
         state_data JSONB,
         pending_status JSONB,
+        pending_statuses JSONB DEFAULT '{}',
         last_message_at TIMESTAMP DEFAULT NOW(),
         blocked_until TIMESTAMP,
         notified_not_authorized BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT NOW()
       )
+    `);
+    
+    // Add pending_statuses column if not exists (for existing tables)
+    await db.query(`
+      ALTER TABLE cloud_api_conversation_states 
+      ADD COLUMN IF NOT EXISTS pending_statuses JSONB DEFAULT '{}'
     `);
 
     // Create indexes

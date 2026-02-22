@@ -1,6 +1,7 @@
 /**
  * Cloud API Conversation Service
  * State machine for handling WhatsApp Cloud API bot conversations
+ * Supports multiple concurrent pending statuses per phone number
  */
 
 const db = require('../../config/database');
@@ -10,6 +11,11 @@ const { getWahaCredentials } = require('../settings/system.service');
 const videoSplit = require('../statusBot/videoSplit.service');
 const { v4: uuidv4 } = require('uuid');
 const { getIO } = require('../socket/manager.service');
+
+// Helper to generate short unique IDs for button IDs (WhatsApp has 256 char limit)
+function generateShortId() {
+  return uuidv4().split('-')[0]; // 8 chars
+}
 
 // Default colors (same as in dashboard)
 const DEFAULT_COLORS = [
@@ -69,19 +75,24 @@ async function getState(phone) {
   if (result.rows.length === 0) {
     // Create new state
     const newState = await db.query(
-      `INSERT INTO cloud_api_conversation_states (phone_number, state)
-       VALUES ($1, 'idle')
+      `INSERT INTO cloud_api_conversation_states (phone_number, state, pending_statuses)
+       VALUES ($1, 'idle', '{}')
        RETURNING *`,
       [phone]
     );
     return newState.rows[0];
   }
   
+  // Ensure pending_statuses exists (for legacy rows)
+  if (!result.rows[0].pending_statuses) {
+    result.rows[0].pending_statuses = {};
+  }
+  
   return result.rows[0];
 }
 
 /**
- * Update conversation state
+ * Update conversation state (legacy - for backward compatibility)
  */
 async function setState(phone, state, stateData = null, pendingStatus = null, connectionId = null) {
   const updates = ['state = $2', 'last_message_at = NOW()'];
@@ -114,6 +125,132 @@ async function setState(phone, state, stateData = null, pendingStatus = null, co
   );
   
   // Emit socket event for admin monitoring
+  emitAdminUpdate(phone, state, stateData, connectionId);
+}
+
+/**
+ * Add a new pending status and return its unique ID
+ */
+async function addPendingStatus(phone, statusData, connectionId = null) {
+  const statusId = generateShortId();
+  
+  // Get current pending statuses
+  const result = await db.query(
+    `SELECT pending_statuses FROM cloud_api_conversation_states WHERE phone_number = $1`,
+    [phone]
+  );
+  
+  let pendingStatuses = {};
+  if (result.rows.length > 0 && result.rows[0].pending_statuses) {
+    pendingStatuses = typeof result.rows[0].pending_statuses === 'string' 
+      ? JSON.parse(result.rows[0].pending_statuses) 
+      : result.rows[0].pending_statuses;
+  }
+  
+  // Add new status with its own state
+  pendingStatuses[statusId] = {
+    ...statusData,
+    subState: statusData.subState || 'pending_action',
+    connectionId: connectionId,
+    createdAt: new Date().toISOString()
+  };
+  
+  // Clean up old statuses (older than 1 hour)
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  for (const [id, status] of Object.entries(pendingStatuses)) {
+    if (status.createdAt && status.createdAt < oneHourAgo) {
+      delete pendingStatuses[id];
+    }
+  }
+  
+  await db.query(
+    `UPDATE cloud_api_conversation_states 
+     SET pending_statuses = $1, last_message_at = NOW()
+     WHERE phone_number = $2`,
+    [JSON.stringify(pendingStatuses), phone]
+  );
+  
+  emitAdminUpdate(phone, 'active', { pendingCount: Object.keys(pendingStatuses).length }, connectionId);
+  
+  return statusId;
+}
+
+/**
+ * Get a specific pending status by ID
+ */
+async function getPendingStatus(phone, statusId) {
+  const result = await db.query(
+    `SELECT pending_statuses FROM cloud_api_conversation_states WHERE phone_number = $1`,
+    [phone]
+  );
+  
+  if (result.rows.length === 0) return null;
+  
+  const pendingStatuses = typeof result.rows[0].pending_statuses === 'string'
+    ? JSON.parse(result.rows[0].pending_statuses || '{}')
+    : (result.rows[0].pending_statuses || {});
+  
+  return pendingStatuses[statusId] || null;
+}
+
+/**
+ * Update a specific pending status
+ */
+async function updatePendingStatus(phone, statusId, updates) {
+  const result = await db.query(
+    `SELECT pending_statuses FROM cloud_api_conversation_states WHERE phone_number = $1`,
+    [phone]
+  );
+  
+  if (result.rows.length === 0) return false;
+  
+  let pendingStatuses = typeof result.rows[0].pending_statuses === 'string'
+    ? JSON.parse(result.rows[0].pending_statuses || '{}')
+    : (result.rows[0].pending_statuses || {});
+  
+  if (!pendingStatuses[statusId]) return false;
+  
+  pendingStatuses[statusId] = { ...pendingStatuses[statusId], ...updates };
+  
+  await db.query(
+    `UPDATE cloud_api_conversation_states 
+     SET pending_statuses = $1, last_message_at = NOW()
+     WHERE phone_number = $2`,
+    [JSON.stringify(pendingStatuses), phone]
+  );
+  
+  return true;
+}
+
+/**
+ * Remove a pending status
+ */
+async function removePendingStatus(phone, statusId) {
+  const result = await db.query(
+    `SELECT pending_statuses FROM cloud_api_conversation_states WHERE phone_number = $1`,
+    [phone]
+  );
+  
+  if (result.rows.length === 0) return;
+  
+  let pendingStatuses = typeof result.rows[0].pending_statuses === 'string'
+    ? JSON.parse(result.rows[0].pending_statuses || '{}')
+    : (result.rows[0].pending_statuses || {});
+  
+  delete pendingStatuses[statusId];
+  
+  await db.query(
+    `UPDATE cloud_api_conversation_states 
+     SET pending_statuses = $1, last_message_at = NOW()
+     WHERE phone_number = $2`,
+    [JSON.stringify(pendingStatuses), phone]
+  );
+}
+
+/**
+ * Emit socket event for admin monitoring
+ */
+function emitAdminUpdate(phone, state, stateData, connectionId) {
   try {
     const io = getIO();
     if (io) {
@@ -348,11 +485,40 @@ async function handleMessage(phone, message) {
         console.log(`[CloudAPI Conv] Cancel command detected`);
         return await handleCancelCommand(phone, state);
       }
+      
+      // Check for pending status that is collecting custom captions
+      const captionResult = await handleCustomCaptionInput(phone, text);
+      if (captionResult === 'handled') {
+        return;
+      }
+    }
+    
+    // NEW: Handle interactive messages with statusId in button/list IDs
+    if (message.type === 'interactive') {
+      const interactiveType = message.interactive.type;
+      let selectedId = null;
+      
+      if (interactiveType === 'button_reply') {
+        selectedId = message.interactive.button_reply.id;
+      } else if (interactiveType === 'list_reply') {
+        selectedId = message.interactive.list_reply.id;
+      }
+      
+      console.log(`[CloudAPI Conv] Interactive message, selectedId: ${selectedId}`);
+      
+      // Check if it's our new format with statusId (e.g., send_abc12345, color_782138_abc12345)
+      if (selectedId && selectedId.includes('_')) {
+        const result = await handleInteractiveWithStatusId(phone, selectedId, message);
+        if (result !== 'fallback') {
+          return result;
+        }
+        // If fallback, continue to legacy handlers
+      }
     }
     
     console.log(`[CloudAPI Conv] Routing to state handler: ${state.state}`);
     
-    // Route based on current state
+    // Route based on current state (legacy flow)
     switch (state.state) {
       case 'idle':
         return await handleIdleState(phone, message, state);
@@ -400,10 +566,538 @@ async function handleMessage(phone, message) {
 }
 
 /**
+ * Handle interactive messages with statusId embedded in button/list IDs
+ * Format: action_statusId or action_data_statusId
+ * Returns 'fallback' if this message should be handled by legacy handlers
+ */
+async function handleInteractiveWithStatusId(phone, selectedId, message) {
+  console.log(`[CloudAPI Conv] handleInteractiveWithStatusId: ${selectedId}`);
+  
+  // Parse the selectedId to extract action and statusId
+  // Formats: send_statusId, sched_statusId, cancel_statusId, color_colorId_statusId, acc_connId_statusId
+  // capall_statusId, cap1st_statusId, capcus_statusId, day_X_statusId, time_HH:MM_statusId
+  
+  const parts = selectedId.split('_');
+  if (parts.length < 2) return 'fallback';
+  
+  const action = parts[0];
+  let statusId, data;
+  
+  // Determine statusId based on action format
+  if (['send', 'sched', 'cancel', 'capall', 'cap1st', 'capcus'].includes(action)) {
+    // Format: action_statusId
+    statusId = parts[1];
+  } else if (['color', 'acc', 'day', 'time'].includes(action)) {
+    // Format: action_data_statusId
+    data = parts[1];
+    statusId = parts[2];
+  } else {
+    // Unknown format - fallback to legacy
+    return 'fallback';
+  }
+  
+  // Get pending status
+  const pendingStatus = await getPendingStatus(phone, statusId);
+  if (!pendingStatus) {
+    console.log(`[CloudAPI Conv] Pending status ${statusId} not found`);
+    await cloudApi.sendTextMessage(phone, 'ההודעה לא מזוהה או שפג תוקפה, אנא שלח את הסטטוס מחדש');
+    return;
+  }
+  
+  console.log(`[CloudAPI Conv] Found pending status ${statusId}, action: ${action}, type: ${pendingStatus.type}`);
+  
+  // Handle each action type
+  switch (action) {
+    case 'acc': // Account selection
+      return await handleAccountSelection(phone, statusId, pendingStatus, data);
+    
+    case 'color': // Color selection
+      return await handleColorSelection(phone, statusId, pendingStatus, data);
+    
+    case 'send': // Send now
+      return await handleSendNow(phone, statusId, pendingStatus);
+    
+    case 'sched': // Schedule
+      return await handleScheduleStart(phone, statusId, pendingStatus);
+    
+    case 'cancel': // Cancel
+      await removePendingStatus(phone, statusId);
+      await cloudApi.sendTextMessage(phone, '❌ הסטטוס בוטל');
+      return;
+    
+    case 'capall': // Caption on all parts
+      return await handleCaptionChoice(phone, statusId, pendingStatus, 'all');
+    
+    case 'cap1st': // Caption on first only
+      return await handleCaptionChoice(phone, statusId, pendingStatus, 'first');
+    
+    case 'capcus': // Custom captions
+      return await handleCaptionChoice(phone, statusId, pendingStatus, 'custom');
+    
+    case 'day': // Day selection for scheduling
+      return await handleDaySelection(phone, statusId, pendingStatus, data);
+    
+    case 'time': // Time selection for scheduling
+      return await handleTimeSelection(phone, statusId, pendingStatus, data);
+    
+    default:
+      return 'fallback';
+  }
+}
+
+/**
+ * Handle account selection from list
+ */
+async function handleAccountSelection(phone, statusId, pendingStatus, connectionId) {
+  // Validate connection
+  const result = await db.query(
+    `SELECT sbc.*, u.name as user_name, u.email as user_email
+     FROM status_bot_connections sbc
+     JOIN users u ON u.id = sbc.user_id
+     WHERE sbc.id = $1`,
+    [connectionId]
+  );
+  
+  if (result.rows.length === 0) {
+    await cloudApi.sendTextMessage(phone, 'חשבון לא נמצא');
+    return;
+  }
+  
+  const connection = result.rows[0];
+  const validation = validateConnectionStatus(connection);
+  if (!validation.valid) {
+    await cloudApi.sendTextMessage(phone, validation.error);
+    return;
+  }
+  
+  // Update pending status with selected connection
+  await updatePendingStatus(phone, statusId, { connectionId });
+  
+  // Get updated status
+  const updatedStatus = await getPendingStatus(phone, statusId);
+  
+  // If video split with caption, ask about caption distribution
+  if (updatedStatus.type === 'video_split' && updatedStatus.originalCaption) {
+    const partCount = updatedStatus.totalParts;
+    const caption = updatedStatus.originalCaption;
+    
+    await cloudApi.sendButtonMessage(
+      phone,
+      `🎬 הסרטון יחולק ל-${partCount} חלקים\n\nאיך תרצה לשים את הכיתוב?\n\n"${caption.substring(0, 50)}${caption.length > 50 ? '...' : ''}"`,
+      [
+        { id: `capall_${statusId}`, title: 'על כל החלקים' },
+        { id: `cap1st_${statusId}`, title: 'רק על הראשון' },
+        { id: `capcus_${statusId}`, title: 'מותאם אישית' }
+      ],
+      updatedStatus.messageId
+    );
+    return;
+  }
+  
+  // If video split without caption, go to action menu
+  if (updatedStatus.type === 'video_split') {
+    await cloudApi.sendButtonMessage(
+      phone,
+      `🎬 הסרטון יחולק ל-${updatedStatus.totalParts} חלקים\n\nמה תרצה לעשות?`,
+      [
+        { id: `send_${statusId}`, title: 'שלח כעת' },
+        { id: `sched_${statusId}`, title: 'תזמן' },
+        { id: `cancel_${statusId}`, title: 'בטל' }
+      ],
+      updatedStatus.messageId
+    );
+    return;
+  }
+  
+  // For text/voice - show color selection
+  if (updatedStatus.type === 'text' || updatedStatus.type === 'voice') {
+    const colors = await getAvailableColors(connectionId);
+    
+    if (colors.length === 1) {
+      await updatePendingStatus(phone, statusId, { backgroundColor: `#${colors[0].id}` });
+      await cloudApi.sendButtonMessage(
+        phone,
+        'מה תרצה לעשות עם הסטטוס?',
+        [
+          { id: `send_${statusId}`, title: 'שלח כעת' },
+          { id: `sched_${statusId}`, title: 'תזמן' },
+          { id: `cancel_${statusId}`, title: 'בטל' }
+        ],
+        updatedStatus.messageId
+      );
+    } else {
+      const sections = [{
+        title: 'צבעים',
+        rows: colors.map(c => ({
+          id: `color_${c.id}_${statusId}`,
+          title: c.title
+        }))
+      }];
+      
+      await cloudApi.sendListMessage(
+        phone,
+        'בחר צבע רקע לסטטוס',
+        'בחר צבע',
+        sections,
+        updatedStatus.messageId
+      );
+    }
+    return;
+  }
+  
+  // For image/video - go to action menu
+  await cloudApi.sendButtonMessage(
+    phone,
+    'מה תרצה לעשות עם הסטטוס?',
+    [
+      { id: `send_${statusId}`, title: 'שלח כעת' },
+      { id: `sched_${statusId}`, title: 'תזמן' },
+      { id: `cancel_${statusId}`, title: 'בטל' }
+    ],
+    updatedStatus.messageId
+  );
+}
+
+/**
+ * Handle color selection
+ */
+async function handleColorSelection(phone, statusId, pendingStatus, colorId) {
+  await updatePendingStatus(phone, statusId, { backgroundColor: `#${colorId}` });
+  
+  await cloudApi.sendButtonMessage(
+    phone,
+    'מה תרצה לעשות עם הסטטוס?',
+    [
+      { id: `send_${statusId}`, title: 'שלח כעת' },
+      { id: `sched_${statusId}`, title: 'תזמן' },
+      { id: `cancel_${statusId}`, title: 'בטל' }
+    ],
+    pendingStatus.messageId
+  );
+}
+
+/**
+ * Handle caption choice for video splits
+ */
+async function handleCaptionChoice(phone, statusId, pendingStatus, choice) {
+  const originalCaption = pendingStatus.originalCaption || '';
+  const partCount = pendingStatus.totalParts;
+  
+  let partCaptions = [];
+  
+  if (choice === 'all') {
+    // Same caption on all parts
+    partCaptions = Array(partCount).fill(originalCaption);
+  } else if (choice === 'first') {
+    // Caption only on first part
+    partCaptions = [originalCaption, ...Array(partCount - 1).fill('')];
+  } else if (choice === 'custom') {
+    // Custom captions - need to collect them one by one
+    await updatePendingStatus(phone, statusId, { 
+      subState: 'collecting_captions',
+      partCaptions: [originalCaption], // Start with original as first
+      currentCaptionPart: 1 // Next part to collect (0-indexed, but we start from 1 since 0 already has original)
+    });
+    
+    await cloudApi.sendTextMessage(
+      phone,
+      `כיתוב לחלק 1: "${originalCaption}"\n\nשלח את הכיתוב לחלק 2 מתוך ${partCount}:`,
+      pendingStatus.messageId
+    );
+    return;
+  }
+  
+  // Update with captions and go to action menu
+  await updatePendingStatus(phone, statusId, { partCaptions });
+  
+  await cloudApi.sendButtonMessage(
+    phone,
+    `🎬 הסרטון יחולק ל-${partCount} חלקים\n\nמה תרצה לעשות?`,
+    [
+      { id: `send_${statusId}`, title: 'שלח כעת' },
+      { id: `sched_${statusId}`, title: 'תזמן' },
+      { id: `cancel_${statusId}`, title: 'בטל' }
+    ],
+    pendingStatus.messageId
+  );
+}
+
+/**
+ * Handle send now action
+ */
+async function handleSendNow(phone, statusId, pendingStatus) {
+  const connectionId = pendingStatus.connectionId;
+  if (!connectionId) {
+    await cloudApi.sendTextMessage(phone, 'לא נבחר חשבון');
+    return;
+  }
+  
+  try {
+    // Add to queue based on type
+    if (pendingStatus.type === 'video_split') {
+      // Add each part to queue
+      const parts = pendingStatus.parts || [];
+      const captions = pendingStatus.partCaptions || Array(parts.length).fill('');
+      const partGroupId = uuidv4();
+      
+      for (let i = 0; i < parts.length; i++) {
+        await db.query(`
+          INSERT INTO status_bot_queue 
+          (connection_id, status_type, content, background_color, queue_status, source, part_group_id, part_number, total_parts)
+          VALUES ($1, 'video', $2, NULL, 'pending', 'whatsapp', $3, $4, $5)
+        `, [connectionId, JSON.stringify({ url: parts[i], caption: captions[i] || '' }), partGroupId, i + 1, parts.length]);
+      }
+      
+      await cloudApi.sendTextMessage(phone, `✅ ${parts.length} חלקי הסרטון נוספו לתור ויישלחו בקרוב`);
+    } else {
+      // Single status
+      const content = buildQueueContent(pendingStatus);
+      await db.query(`
+        INSERT INTO status_bot_queue 
+        (connection_id, status_type, content, background_color, queue_status, source)
+        VALUES ($1, $2, $3, $4, 'pending', 'whatsapp')
+      `, [connectionId, pendingStatus.type, JSON.stringify(content), pendingStatus.backgroundColor || null]);
+      
+      await cloudApi.sendTextMessage(phone, '✅ הסטטוס נוסף לתור ויישלח בקרוב');
+    }
+    
+    // Remove from pending
+    await removePendingStatus(phone, statusId);
+    
+  } catch (err) {
+    console.error(`[CloudAPI Conv] Error adding to queue:`, err);
+    await cloudApi.sendTextMessage(phone, 'אירעה שגיאה בהוספה לתור');
+  }
+}
+
+/**
+ * Handle custom caption input when collecting captions for video splits
+ * Returns 'handled' if this message was used for caption collection, otherwise null
+ */
+async function handleCustomCaptionInput(phone, text) {
+  // Get all pending statuses
+  const result = await db.query(
+    `SELECT pending_statuses FROM cloud_api_conversation_states WHERE phone_number = $1`,
+    [phone]
+  );
+  
+  if (result.rows.length === 0) return null;
+  
+  const pendingStatuses = typeof result.rows[0].pending_statuses === 'string'
+    ? JSON.parse(result.rows[0].pending_statuses || '{}')
+    : (result.rows[0].pending_statuses || {});
+  
+  // Find a status that is collecting captions
+  for (const [statusId, status] of Object.entries(pendingStatuses)) {
+    if (status.subState === 'collecting_captions') {
+      const currentPart = status.currentCaptionPart || 1;
+      const totalParts = status.totalParts;
+      const partCaptions = status.partCaptions || [];
+      
+      // Add this caption
+      partCaptions[currentPart] = text;
+      
+      if (currentPart + 1 >= totalParts) {
+        // All captions collected - go to action menu
+        await updatePendingStatus(phone, statusId, {
+          subState: 'ready',
+          partCaptions,
+          currentCaptionPart: null
+        });
+        
+        await cloudApi.sendButtonMessage(
+          phone,
+          `✅ כל ${totalParts} הכיתובים נשמרו\n\nמה תרצה לעשות?`,
+          [
+            { id: `send_${statusId}`, title: 'שלח כעת' },
+            { id: `sched_${statusId}`, title: 'תזמן' },
+            { id: `cancel_${statusId}`, title: 'בטל' }
+          ],
+          status.messageId
+        );
+      } else {
+        // Need more captions
+        const nextPart = currentPart + 1;
+        await updatePendingStatus(phone, statusId, {
+          partCaptions,
+          currentCaptionPart: nextPart
+        });
+        
+        await cloudApi.sendTextMessage(
+          phone,
+          `✅ כיתוב לחלק ${currentPart + 1} נשמר\n\nשלח את הכיתוב לחלק ${nextPart + 1} מתוך ${totalParts}:`,
+          status.messageId
+        );
+      }
+      
+      return 'handled';
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Handle schedule start - show day selection
+ */
+async function handleScheduleStart(phone, statusId, pendingStatus) {
+  // Generate next 8 days including today
+  const days = [];
+  const now = new Date();
+  
+  for (let i = 0; i < 8; i++) {
+    const date = new Date(now);
+    date.setDate(date.getDate() + i);
+    
+    const dayOfWeek = DAY_NAMES[date.getDay()];
+    const dateStr = date.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' });
+    
+    let title = `יום ${dayOfWeek} - ${dateStr}`;
+    if (i === 0) title = `היום - ${dayOfWeek}`;
+    if (i === 1) title = `מחר - ${dayOfWeek}`;
+    
+    days.push({
+      id: `day_${i}_${statusId}`,
+      title
+    });
+  }
+  
+  const sections = [{ title: 'בחר יום', rows: days }];
+  
+  await cloudApi.sendListMessage(
+    phone,
+    'באיזה יום לתזמן את הסטטוס?',
+    'בחר יום',
+    sections,
+    pendingStatus.messageId
+  );
+}
+
+/**
+ * Handle day selection for scheduling
+ */
+async function handleDaySelection(phone, statusId, pendingStatus, dayOffset) {
+  const offset = parseInt(dayOffset);
+  const scheduledDate = new Date();
+  scheduledDate.setDate(scheduledDate.getDate() + offset);
+  
+  // Store selected day
+  await updatePendingStatus(phone, statusId, { 
+    scheduledDay: offset,
+    scheduledDateStr: scheduledDate.toISOString().split('T')[0]
+  });
+  
+  // Generate time options (every 30 min from 06:00 to 23:30)
+  const times = [];
+  for (let hour = 6; hour <= 23; hour++) {
+    for (let min of [0, 30]) {
+      if (hour === 23 && min === 30) continue;
+      const timeStr = `${hour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
+      times.push({
+        id: `time_${timeStr}_${statusId}`,
+        title: timeStr
+      });
+    }
+  }
+  
+  const sections = [{ title: 'בחר שעה', rows: times }];
+  
+  await cloudApi.sendListMessage(
+    phone,
+    'באיזו שעה לתזמן את הסטטוס?',
+    'בחר שעה',
+    sections,
+    pendingStatus.messageId
+  );
+}
+
+/**
+ * Handle time selection for scheduling
+ */
+async function handleTimeSelection(phone, statusId, pendingStatus, timeStr) {
+  const connectionId = pendingStatus.connectionId;
+  if (!connectionId) {
+    await cloudApi.sendTextMessage(phone, 'לא נבחר חשבון');
+    return;
+  }
+  
+  // Build scheduled time
+  const dateStr = pendingStatus.scheduledDateStr;
+  const scheduledTime = convertIsraelTimeToUTC(`${dateStr}T${timeStr}:00`);
+  
+  try {
+    if (pendingStatus.type === 'video_split') {
+      // Schedule each part
+      const parts = pendingStatus.parts || [];
+      const captions = pendingStatus.partCaptions || Array(parts.length).fill('');
+      const partGroupId = uuidv4();
+      
+      for (let i = 0; i < parts.length; i++) {
+        await db.query(`
+          INSERT INTO status_bot_queue 
+          (connection_id, status_type, content, background_color, queue_status, scheduled_for, source, part_group_id, part_number, total_parts)
+          VALUES ($1, 'video', $2, NULL, 'scheduled', $3, 'whatsapp', $4, $5, $6)
+        `, [connectionId, JSON.stringify({ url: parts[i], caption: captions[i] || '' }), scheduledTime, partGroupId, i + 1, parts.length]);
+      }
+      
+      const hebrewDate = new Date(scheduledTime).toLocaleString('he-IL', { 
+        timeZone: 'Asia/Jerusalem',
+        day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+      
+      await cloudApi.sendTextMessage(phone, `✅ ${parts.length} חלקי הסרטון תוזמנו ל-${hebrewDate}`);
+    } else {
+      // Single status
+      const content = buildQueueContent(pendingStatus);
+      await db.query(`
+        INSERT INTO status_bot_queue 
+        (connection_id, status_type, content, background_color, queue_status, scheduled_for, source)
+        VALUES ($1, $2, $3, $4, 'scheduled', $5, 'whatsapp')
+      `, [connectionId, pendingStatus.type, JSON.stringify(content), pendingStatus.backgroundColor || null, scheduledTime]);
+      
+      const hebrewDate = new Date(scheduledTime).toLocaleString('he-IL', { 
+        timeZone: 'Asia/Jerusalem',
+        day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+      
+      await cloudApi.sendTextMessage(phone, `✅ הסטטוס תוזמן ל-${hebrewDate}`);
+    }
+    
+    // Remove from pending
+    await removePendingStatus(phone, statusId);
+    
+  } catch (err) {
+    console.error(`[CloudAPI Conv] Error scheduling:`, err);
+    await cloudApi.sendTextMessage(phone, 'אירעה שגיאה בתזמון');
+  }
+}
+
+/**
+ * Build content object for queue from pending status
+ */
+function buildQueueContent(pendingStatus) {
+  switch (pendingStatus.type) {
+    case 'text':
+      return { text: pendingStatus.text };
+    case 'image':
+      return { url: pendingStatus.url, caption: pendingStatus.caption || '' };
+    case 'video':
+      return { url: pendingStatus.url, caption: pendingStatus.caption || '' };
+    case 'voice':
+      return { url: pendingStatus.url };
+    default:
+      return {};
+  }
+}
+
+/**
  * Handle message in idle state - new status creation
+ * Now supports multiple concurrent statuses with unique IDs
  */
 async function handleIdleState(phone, message, state) {
   console.log(`[CloudAPI Conv] handleIdleState for ${phone}`);
+  
+  const messageId = message.id; // Original message ID for reply context
   
   // Check authorization
   const authorizedConnections = await checkAuthorization(phone);
@@ -411,7 +1105,6 @@ async function handleIdleState(phone, message, state) {
   
   if (authorizedConnections.length === 0) {
     console.log(`[CloudAPI Conv] Phone ${phone} is not authorized, notified_not_authorized: ${state.notified_not_authorized}`);
-    // Not authorized - send one-time message if not already notified
     if (!state.notified_not_authorized) {
       console.log(`[CloudAPI Conv] Sending not authorized message to ${phone}`);
       await cloudApi.sendTextMessage(phone, 
@@ -426,27 +1119,318 @@ async function handleIdleState(phone, message, state) {
   }
   
   // Build pending status from message
-  let pendingStatus = null;
+  let statusData = null;
+  let needsVideoProcessing = false;
+  let videoUrl = null;
+  let originalCaption = '';
   
   if (message.type === 'text') {
-    pendingStatus = {
+    statusData = {
       type: 'text',
-      text: message.text.body
+      text: message.text.body,
+      messageId
     };
   } else if (message.type === 'image') {
     const media = await cloudApi.downloadMedia(message.image.id);
     const url = await cloudApi.uploadMediaToStorage(media.buffer, media.mimeType);
-    pendingStatus = {
+    statusData = {
       type: 'image',
       url: url,
-      caption: message.image.caption || ''
+      caption: message.image.caption || '',
+      messageId
     };
+  } else if (message.type === 'video') {
+    const media = await cloudApi.downloadMedia(message.video.id);
+    videoUrl = await cloudApi.uploadMediaToStorage(media.buffer, media.mimeType);
+    originalCaption = message.video.caption || '';
+    
+    // For video, we'll check duration and process in background if needed
+    statusData = {
+      type: 'video',
+      url: videoUrl,
+      caption: originalCaption,
+      messageId,
+      processingVideo: true // Flag to indicate video needs duration check
+    };
+    needsVideoProcessing = true;
+  } else if (message.type === 'audio') {
+    const media = await cloudApi.downloadMedia(message.audio.id);
+    const url = await cloudApi.uploadMediaToStorage(media.buffer, media.mimeType);
+    statusData = {
+      type: 'voice',
+      url: url,
+      messageId
+    };
+  } else {
+    await cloudApi.sendTextMessage(phone, 'סוג הודעה לא נתמך, אנא שלח טקסט, תמונה, סרטון או הקלטה קולית');
+    return;
+  }
+  
+  // Determine connection (single account or need to select)
+  const connection = authorizedConnections.length === 1 ? authorizedConnections[0] : null;
+  
+  if (connection) {
+    // Validate connection status
+    const validation = validateConnectionStatus(connection);
+    if (!validation.valid) {
+      await cloudApi.sendTextMessage(phone, validation.error);
+      return;
+    }
+    statusData.connectionId = connection.connection_id;
+  } else {
+    // Multiple accounts - store accounts for selection
+    statusData.availableAccounts = authorizedConnections.map(c => ({
+      id: c.connection_id,
+      name: c.display_name || c.user_name || c.connection_phone,
+      email: c.user_email
+    }));
+  }
+  
+  // Generate unique ID and store pending status
+  const statusId = await addPendingStatus(phone, statusData, connection?.connection_id);
+  console.log(`[CloudAPI Conv] Created pending status ${statusId} for ${phone}`);
+  
+  // Handle video processing in background (non-blocking)
+  if (needsVideoProcessing) {
+    // Send immediate response
+    await cloudApi.sendTextMessage(phone, '⏳ מעבד את הסרטון...', messageId);
+    
+    // Process video in background
+    processVideoInBackground(phone, statusId, videoUrl, originalCaption, authorizedConnections, messageId);
+    return;
+  }
+  
+  // Proceed with normal flow
+  await sendStatusMenu(phone, statusId, statusData, authorizedConnections, messageId);
+}
+
+/**
+ * Process video in background and update status when done
+ */
+async function processVideoInBackground(phone, statusId, videoUrl, originalCaption, authorizedConnections, messageId) {
+  try {
+    const videoResult = await videoSplit.processVideo(videoUrl);
+    
+    if (videoResult.needsSplit) {
+      const partCount = videoResult.parts.length;
+      const partDuration = videoSplit.formatDuration(videoResult.partDuration);
+      
+      // Update pending status with split info
+      await updatePendingStatus(phone, statusId, {
+        type: 'video_split',
+        parts: videoResult.parts,
+        originalCaption: originalCaption,
+        totalParts: partCount,
+        partDuration: partDuration,
+        processingVideo: false
+      });
+      
+      // Determine connection
+      const connection = authorizedConnections.length === 1 ? authorizedConnections[0] : null;
+      
+      if (!connection) {
+        // Multiple accounts - need to select first
+        const sections = [{
+          title: 'חשבונות',
+          rows: authorizedConnections.map(conn => ({
+            id: `acc_${conn.connection_id}_${statusId}`,
+            title: conn.display_name || conn.user_name || conn.connection_phone,
+            description: conn.user_email
+          }))
+        }];
+        
+        await cloudApi.sendListMessage(
+          phone,
+          `🎬 הסרטון ארוך מדקה וחצי ויחולק ל-${partCount} חלקים (~${partDuration} כל חלק)\n\nבחר את החשבון שאליו תרצה להעלות`,
+          'בחר חשבון',
+          sections,
+          messageId
+        );
+        return;
+      }
+      
+      // Single account - validate
+      const validation = validateConnectionStatus(connection);
+      if (!validation.valid) {
+        await cloudApi.sendTextMessage(phone, validation.error, messageId);
+        await removePendingStatus(phone, statusId);
+        return;
+      }
+      
+      await updatePendingStatus(phone, statusId, { connectionId: connection.connection_id });
+      
+      // If no caption, go directly to action menu
+      if (!originalCaption) {
+        await cloudApi.sendButtonMessage(
+          phone,
+          `🎬 הסרטון יחולק ל-${partCount} חלקים (~${partDuration} כל חלק)\n\nמה תרצה לעשות?`,
+          [
+            { id: `send_${statusId}`, title: 'שלח כעת' },
+            { id: `sched_${statusId}`, title: 'תזמן' },
+            { id: `cancel_${statusId}`, title: 'בטל' }
+          ],
+          messageId
+        );
+        return;
+      }
+      
+      // Has caption - ask about distribution
+      await cloudApi.sendButtonMessage(
+        phone,
+        `🎬 הסרטון יחולק ל-${partCount} חלקים (~${partDuration} כל חלק)\n\nאיך תרצה לשים את הכיתוב?\n\n"${originalCaption.substring(0, 50)}${originalCaption.length > 50 ? '...' : ''}"`,
+        [
+          { id: `capall_${statusId}`, title: 'על כל החלקים' },
+          { id: `cap1st_${statusId}`, title: 'רק על הראשון' },
+          { id: `capcus_${statusId}`, title: 'מותאם אישית' }
+        ],
+        messageId
+      );
+    } else {
+      // Video doesn't need splitting - update and send normal menu
+      await updatePendingStatus(phone, statusId, {
+        type: 'video',
+        url: videoUrl,
+        caption: originalCaption,
+        processingVideo: false
+      });
+      
+      const statusData = await getPendingStatus(phone, statusId);
+      await sendStatusMenu(phone, statusId, statusData, authorizedConnections, messageId);
+    }
+  } catch (err) {
+    console.error(`[CloudAPI Conv] Video processing error for ${statusId}:`, err);
+    // On error, treat as normal video
+    await updatePendingStatus(phone, statusId, {
+      type: 'video',
+      url: videoUrl,
+      caption: originalCaption,
+      processingVideo: false
+    });
+    
+    const statusData = await getPendingStatus(phone, statusId);
+    await sendStatusMenu(phone, statusId, statusData, authorizedConnections, messageId);
+  }
+}
+
+/**
+ * Send the appropriate menu for a status
+ */
+async function sendStatusMenu(phone, statusId, statusData, authorizedConnections, messageId) {
+  // If multiple accounts and not yet selected
+  if (statusData.availableAccounts && !statusData.connectionId) {
+    const sections = [{
+      title: 'חשבונות',
+      rows: statusData.availableAccounts.map(acc => ({
+        id: `acc_${acc.id}_${statusId}`,
+        title: acc.name,
+        description: acc.email
+      }))
+    }];
+    
+    await cloudApi.sendListMessage(
+      phone,
+      'נמצאו מספר חשבונות מקושרים למספר שלך\nבחר את החשבון שאליו תרצה להעלות',
+      'בחר חשבון',
+      sections,
+      messageId
+    );
+    return;
+  }
+  
+  // For text/voice - show color selection
+  if (statusData.type === 'text' || statusData.type === 'voice') {
+    const colors = await getAvailableColors(statusData.connectionId);
+    
+    if (colors.length === 1) {
+      // Single color - skip selection and go to action
+      await updatePendingStatus(phone, statusId, { backgroundColor: `#${colors[0].id}` });
+      await cloudApi.sendButtonMessage(
+        phone,
+        'מה תרצה לעשות עם הסטטוס?',
+        [
+          { id: `send_${statusId}`, title: 'שלח כעת' },
+          { id: `sched_${statusId}`, title: 'תזמן' },
+          { id: `cancel_${statusId}`, title: 'בטל' }
+        ],
+        messageId
+      );
+    } else {
+      // Multiple colors - show color selection
+      const sections = [{
+        title: 'צבעים',
+        rows: colors.map(c => ({
+          id: `color_${c.id}_${statusId}`,
+          title: c.title
+        }))
+      }];
+      
+      await cloudApi.sendListMessage(
+        phone,
+        'בחר צבע רקע לסטטוס',
+        'בחר צבע',
+        sections,
+        messageId
+      );
+    }
+    return;
+  }
+  
+  // For image/video - go directly to action menu
+  await cloudApi.sendButtonMessage(
+    phone,
+    'מה תרצה לעשות עם הסטטוס?',
+    [
+      { id: `send_${statusId}`, title: 'שלח כעת' },
+      { id: `sched_${statusId}`, title: 'תזמן' },
+      { id: `cancel_${statusId}`, title: 'בטל' }
+    ],
+    messageId
+  );
+}
+
+/**
+ * Get available colors for a connection
+ */
+async function getAvailableColors(connectionId) {
+  if (!connectionId) return DEFAULT_COLORS;
+  
+  try {
+    const result = await db.query(
+      `SELECT colors FROM status_bot_connections WHERE id = $1`,
+      [connectionId]
+    );
+    
+    if (result.rows.length > 0 && result.rows[0].colors) {
+      const colors = result.rows[0].colors;
+      return Array.isArray(colors) ? colors : DEFAULT_COLORS;
+    }
+  } catch (e) {
+    console.error('[CloudAPI Conv] Error getting colors:', e);
+  }
+  
+  return DEFAULT_COLORS;
+}
+
+// Keep old handleIdleState logic below for reference during migration
+async function handleIdleState_LEGACY(phone, message, state) {
+  // This is the old implementation - kept for reference
+  const authorizedConnections = await checkAuthorization(phone);
+  if (authorizedConnections.length === 0) return;
+  
+  let pendingStatus = null;
+  
+  if (message.type === 'text') {
+    pendingStatus = { type: 'text', text: message.text.body };
+  } else if (message.type === 'image') {
+    const media = await cloudApi.downloadMedia(message.image.id);
+    const url = await cloudApi.uploadMediaToStorage(media.buffer, media.mimeType);
+    pendingStatus = { type: 'image', url, caption: message.image.caption || '' };
   } else if (message.type === 'video') {
     const media = await cloudApi.downloadMedia(message.video.id);
     const url = await cloudApi.uploadMediaToStorage(media.buffer, media.mimeType);
     const originalCaption = message.video.caption || '';
     
-    // Check if video needs splitting (> 60 seconds)
+    // Check if video needs splitting (> 90 seconds)
     try {
       const videoResult = await videoSplit.processVideo(url);
       
@@ -476,7 +1460,7 @@ async function handleIdleState(phone, message, state) {
           
           await cloudApi.sendListMessage(
             phone,
-            `🎬 הסרטון ארוך מ-60 שניות ויחולק ל-${partCount} חלקים (~${partDuration} כל חלק)\n\nנמצאו מספר חשבונות מקושרים למספר שלך\nבחר את החשבון שאליו תרצה להעלות`,
+            `🎬 הסרטון ארוך מדקה וחצי ויחולק ל-${partCount} חלקים (~${partDuration} כל חלק)\n\nנמצאו מספר חשבונות מקושרים למספר שלך\nבחר את החשבון שאליו תרצה להעלות`,
             'בחר חשבון',
             sections
           );

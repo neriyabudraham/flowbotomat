@@ -1,6 +1,6 @@
 /**
  * Video Split Service
- * Handles splitting videos longer than 60 seconds into equal parts
+ * Handles splitting videos longer than 90 seconds into equal parts
  */
 
 const ffmpeg = require('fluent-ffmpeg');
@@ -13,7 +13,7 @@ const axios = require('axios');
 // Set ffprobe path
 ffmpeg.setFfprobePath(ffprobeInstaller.path);
 
-const MAX_DURATION = 60; // Max 60 seconds per part
+const MAX_DURATION = 90; // Max 90 seconds (1.5 minutes) per part
 const UPLOAD_DIR = path.join(__dirname, '../../../uploads/status-videos');
 
 // Ensure upload directory exists
