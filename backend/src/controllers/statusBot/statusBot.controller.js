@@ -2337,6 +2337,105 @@ async function adminForceCancelItem(req, res) {
   }
 }
 
+/**
+ * Admin: Sync phone numbers from WAHA for all connected sessions
+ */
+async function adminSyncPhoneNumbers(req, res) {
+  try {
+    const { baseUrl, apiKey } = await getWahaCredentials();
+    
+    // Get all connections that are supposed to be connected but may have missing phone numbers
+    const connectionsResult = await db.query(`
+      SELECT * FROM status_bot_connections 
+      WHERE connection_status = 'connected' OR session_name IS NOT NULL
+    `);
+    
+    const results = [];
+    
+    for (const connection of connectionsResult.rows) {
+      try {
+        // Get session info from WAHA
+        const sessionStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
+        
+        if (sessionStatus && sessionStatus.status === 'WORKING') {
+          const phoneNumber = sessionStatus.me?.id?.split('@')[0] || null;
+          const displayName = sessionStatus.me?.pushName || null;
+          
+          // Update if we got new info
+          if (phoneNumber && (!connection.phone_number || connection.phone_number !== phoneNumber)) {
+            await db.query(`
+              UPDATE status_bot_connections 
+              SET phone_number = $1, display_name = COALESCE($2, display_name), 
+                  connection_status = 'connected', updated_at = NOW()
+              WHERE id = $3
+            `, [phoneNumber, displayName, connection.id]);
+            
+            results.push({
+              id: connection.id,
+              sessionName: connection.session_name,
+              oldPhone: connection.phone_number,
+              newPhone: phoneNumber,
+              status: 'updated'
+            });
+          } else if (phoneNumber) {
+            results.push({
+              id: connection.id,
+              sessionName: connection.session_name,
+              phone: phoneNumber,
+              status: 'unchanged'
+            });
+          } else {
+            results.push({
+              id: connection.id,
+              sessionName: connection.session_name,
+              status: 'no_phone_in_waha',
+              wahaResponse: sessionStatus.me
+            });
+          }
+        } else if (sessionStatus) {
+          // Session exists but not working
+          await db.query(`
+            UPDATE status_bot_connections 
+            SET connection_status = 'disconnected', updated_at = NOW()
+            WHERE id = $1
+          `, [connection.id]);
+          
+          results.push({
+            id: connection.id,
+            sessionName: connection.session_name,
+            status: 'disconnected',
+            wahaStatus: sessionStatus.status
+          });
+        } else {
+          // Session doesn't exist
+          results.push({
+            id: connection.id,
+            sessionName: connection.session_name,
+            status: 'session_not_found'
+          });
+        }
+      } catch (sessionError) {
+        results.push({
+          id: connection.id,
+          sessionName: connection.session_name,
+          status: 'error',
+          error: sessionError.message
+        });
+      }
+    }
+    
+    res.json({ 
+      success: true, 
+      totalConnections: connectionsResult.rows.length,
+      results 
+    });
+    
+  } catch (error) {
+    console.error('[StatusBot Admin] Sync phone numbers error:', error);
+    res.status(500).json({ error: 'שגיאה בסנכרון מספרי טלפון' });
+  }
+}
+
 // ============================================
 // WEBHOOK HANDLER
 // ============================================
@@ -3226,6 +3325,7 @@ module.exports = {
   adminGetActiveProcesses,
   adminResetQueueLock,
   adminForceCancelItem,
+  adminSyncPhoneNumbers,
   
   // Queue management
   forceCancelProcessing,

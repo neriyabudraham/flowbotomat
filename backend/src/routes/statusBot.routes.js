@@ -119,5 +119,6 @@ router.get('/admin/active-processes', authMiddleware, adminMiddleware, statusBot
 router.post('/admin/lift-restriction/:connectionId', authMiddleware, superadminMiddleware, statusBotController.adminLiftRestriction);
 router.post('/admin/reset-queue', authMiddleware, adminMiddleware, statusBotController.adminResetQueueLock);
 router.post('/admin/cancel-item/:queueId', authMiddleware, adminMiddleware, statusBotController.adminForceCancelItem);
+router.post('/admin/sync-phones', authMiddleware, adminMiddleware, statusBotController.adminSyncPhoneNumbers);
 
 module.exports = router;
