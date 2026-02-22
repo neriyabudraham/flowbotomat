@@ -2543,9 +2543,9 @@ function StatusBotDashboardContent() {
                       {/* Image Status */}
                       {statusDetailsModal.status.status_type === 'image' && (
                         <div className="space-y-3">
-                          {statusDetailsModal.status.content?.file?.url && (
+                          {(statusDetailsModal.status.content?.file?.url || statusDetailsModal.status.content?.url) && (
                             <img 
-                              src={statusDetailsModal.status.content.file.url} 
+                              src={statusDetailsModal.status.content?.file?.url || statusDetailsModal.status.content?.url} 
                               alt="סטטוס" 
                               className="w-full rounded-xl max-h-[300px] object-contain bg-gray-100"
                             />
@@ -2559,9 +2559,9 @@ function StatusBotDashboardContent() {
                       {/* Video Status */}
                       {statusDetailsModal.status.status_type === 'video' && (
                         <div className="space-y-3">
-                          {statusDetailsModal.status.content?.file?.url && (
+                          {(statusDetailsModal.status.content?.file?.url || statusDetailsModal.status.content?.url) && (
                             <video 
-                              src={statusDetailsModal.status.content.file.url} 
+                              src={statusDetailsModal.status.content?.file?.url || statusDetailsModal.status.content?.url} 
                               controls
                               className="w-full rounded-xl max-h-[300px] bg-gray-100"
                             />
@@ -2580,9 +2580,9 @@ function StatusBotDashboardContent() {
                             backgroundColor: statusDetailsModal.status.content?.backgroundColor || '#782138'
                           }}
                         >
-                          {statusDetailsModal.status.content?.file?.url && (
+                          {(statusDetailsModal.status.content?.file?.url || statusDetailsModal.status.content?.url) && (
                             <audio 
-                              src={statusDetailsModal.status.content.file.url} 
+                              src={statusDetailsModal.status.content?.file?.url || statusDetailsModal.status.content?.url} 
                               controls
                               className="w-full"
                             />
