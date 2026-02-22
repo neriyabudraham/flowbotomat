@@ -395,11 +395,11 @@ async function pullWhatsAppContacts(req, res) {
           continue;
         }
         
-        // Insert new group
+        // Insert new group - use groupName if available, otherwise leave null
         try {
           await pool.query(
             `INSERT INTO contacts (user_id, phone, wa_id, display_name) VALUES ($1, $2, $3, $4)`,
-            [userId, groupJid, groupJid, groupName || 'קבוצה ללא שם']
+            [userId, groupJid, groupJid, groupName || null]
           );
           groupsImported++;
         } catch (err) {

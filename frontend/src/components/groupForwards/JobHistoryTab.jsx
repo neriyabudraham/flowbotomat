@@ -586,7 +586,7 @@ export default function JobHistoryTab() {
                                   msg.status === 'failed' ? 'text-red-500' : 'text-gray-500'
                                 }`} />
                               </div>
-                              <span className="text-sm text-gray-800">{msg.group_name || 'קבוצה'}</span>
+                              <span className="text-sm text-gray-800">{msg.group_name || msg.group_id?.replace('@g.us', '') || msg.group_id}</span>
                             </div>
                             <div className="flex items-center gap-2">
                               {msg.status === 'sent' && (

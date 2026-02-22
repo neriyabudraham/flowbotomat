@@ -23,7 +23,7 @@ export default function ContactItem({ contact, isSelected, onClick }) {
   
   // Get display name: display_name > full_name variable > phone (but not newsletter ID)
   const getDisplayName = () => {
-    if (contact.display_name && contact.display_name !== contact.phone && contact.display_name !== 'ערוץ') {
+    if (contact.display_name && contact.display_name !== contact.phone) {
       return contact.display_name;
     }
     // Check for full_name in variables
@@ -34,16 +34,16 @@ export default function ContactItem({ contact, isSelected, onClick }) {
     if (contact.full_name) {
       return contact.full_name;
     }
-    // For channels without a name, return null (will show "ערוץ" instead of the ID)
-    if (isChannel) {
-      return contact.display_name || null;
-    }
     return null;
   };
   
   const name = getDisplayName();
-  // For channels, don't show the newsletter ID as fallback
-  const displayText = name || (isChannel ? 'ערוץ' : contact.phone);
+  // For channels/groups without a name, show just the ID without the @newsletter/@g.us suffix
+  const getCleanId = (phone) => {
+    if (!phone) return '';
+    return phone.split('@')[0];
+  };
+  const displayText = name || getCleanId(contact.phone);
   const initials = isChannel ? '📢' : (name?.charAt(0)?.toUpperCase() || '👤');
   
   // Calculate time ago

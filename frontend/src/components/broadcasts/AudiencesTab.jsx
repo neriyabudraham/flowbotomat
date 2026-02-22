@@ -1160,7 +1160,7 @@ function ContactPicker({ selectedIds, onChange, loading }) {
                           <Users className="w-6 h-6 text-green-600" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-900 truncate">{group.Name || group.name || 'קבוצה ללא שם'}</p>
+                          <p className="font-medium text-gray-900 truncate">{group.Name || group.name || group.id?.replace('@g.us', '') || group.id}</p>
                           <p className="text-sm text-gray-500">
                             {group.Participants?.length || group.participants || 0} משתתפים
                           </p>

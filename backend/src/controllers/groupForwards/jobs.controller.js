@@ -473,7 +473,7 @@ async function getAllJobHistory(req, res) {
           'id', fjm.id,
           'target_id', fjm.target_id,
           'group_id', gft.group_id,
-          'group_name', COALESCE(gft.group_name, 'קבוצה'),
+          'group_name', COALESCE(gft.group_name, REPLACE(gft.group_id, '@g.us', '')),
           'status', fjm.status,
           'sent_at', fjm.sent_at,
           'deleted_at', fjm.deleted_at,
@@ -715,11 +715,11 @@ async function startForwardJob(jobId) {
               `INSERT INTO contacts (user_id, phone, wa_id, display_name)
                VALUES ($1, $2, $3, $4)
                RETURNING *`,
-              [job.user_id, message.group_id, message.group_id, groupDisplayName || 'קבוצה']
+              [job.user_id, message.group_id, message.group_id, groupDisplayName || null]
             );
-          } else if (groupDisplayName && (contact.rows[0].display_name === 'קבוצה' || !contact.rows[0].display_name)) {
-            // Update contact with real group name if we have it
-            console.log(`[GroupForwards] Updating group name from 'קבוצה' to: ${groupDisplayName}`);
+          } else if (groupDisplayName && !contact.rows[0].display_name) {
+            // Update contact with real group name if we have it and current is empty
+            console.log(`[GroupForwards] Updating group name to: ${groupDisplayName}`);
             await db.query(
               `UPDATE contacts SET display_name = $1, updated_at = NOW() WHERE id = $2`,
               [groupDisplayName, contact.rows[0].id]

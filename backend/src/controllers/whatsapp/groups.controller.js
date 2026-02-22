@@ -64,14 +64,14 @@ async function getGroups(req, res) {
       return {
         // Original fields for backwards compatibility
         id: jid,
-        name: name || 'קבוצה ללא שם',
+        name: name || jid.replace('@g.us', '') || jid,
         participants: participants.length,
         // Keep WAHA fields for the modal
         JID: jid,
-        Name: name || 'קבוצה ללא שם',
+        Name: name || jid.replace('@g.us', '') || jid,
         Participants: participants,
       };
-    }).sort((a, b) => a.name.localeCompare(b.name, 'he')); // Sort alphabetically in Hebrew
+    }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'he')); // Sort alphabetically in Hebrew
     
     console.log('[Groups] Formatted', groups.length, 'groups');
     if (groups.length > 0) {

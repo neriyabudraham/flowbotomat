@@ -56,14 +56,14 @@ async function getChannels(req, res) {
     
     const channels = rawChannels.map(channel => ({
       id: channel.id || '',
-      name: channel.name || 'ערוץ ללא שם',
+      name: channel.name || channel.id?.replace('@newsletter', '') || channel.id || '',
       description: channel.description || '',
       invite: channel.invite || '',
       picture: channel.picture || channel.preview || '',
       verified: channel.verified || false,
       role: channel.role || 'SUBSCRIBER',
       subscribersCount: channel.subscribersCount || 0,
-    })).sort((a, b) => a.name.localeCompare(b.name, 'he')); // Sort alphabetically in Hebrew
+    })).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'he')); // Sort alphabetically in Hebrew
     
     console.log('[Channels] Formatted', channels.length, 'channels');
     

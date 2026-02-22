@@ -137,12 +137,15 @@ async function getAvailableGroups(req, res) {
     // Format groups - handle WAHA response format
     const rawGroups = Array.isArray(response.data) ? response.data : (response.data?.groups || response.data?.data || []);
     
-    let groups = rawGroups.map(group => ({
-      id: group.JID || group.id || group.chatId || group.jid,
-      name: group.Name || group.name || group.subject || group.groupName || 'קבוצה ללא שם',
-      participants_count: group.Participants?.length || group.participants?.length || group.ParticipantCount || 0,
-      image_url: group.profilePicture || group.picture || null
-    }));
+    let groups = rawGroups.map(group => {
+      const groupId = group.JID || group.id || group.chatId || group.jid;
+      return {
+        id: groupId,
+        name: group.Name || group.name || group.subject || group.groupName || groupId?.replace('@g.us', '') || groupId,
+        participants_count: group.Participants?.length || group.participants?.length || group.ParticipantCount || 0,
+        image_url: group.profilePicture || group.picture || null
+      };
+    });
     
     // Filter by search if provided
     if (search) {

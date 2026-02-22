@@ -112,8 +112,8 @@ async function saveOutgoingMessage(userId, chatId, messageType, content, mediaUr
     );
     
     if (contact.rows.length === 0) {
-      // Create contact
-      const contactName = displayName || (isGroup ? 'קבוצה' : phone);
+      // Create contact - use displayName if available, otherwise leave null to show phone
+      const contactName = displayName || null;
       console.log(`[GroupForwards] Creating new contact for ${phone} with name: ${contactName}`);
       contact = await db.query(
         `INSERT INTO contacts (user_id, phone, wa_id, display_name)

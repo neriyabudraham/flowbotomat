@@ -542,12 +542,12 @@ async function handleIncomingMessage(userId, event) {
         [userId, groupId]
       );
       
-      if (existingGroup.rows.length > 0 && existingGroup.rows[0].display_name && existingGroup.rows[0].display_name !== 'קבוצה') {
+      if (existingGroup.rows.length > 0 && existingGroup.rows[0].display_name) {
         contactName = existingGroup.rows[0].display_name;
       }
     }
     
-    // If still no name, fetch from WAHA API
+    // If still no name, fetch from WAHA groups API
     if (!contactName || contactName === groupId.split('@')[0]) {
       try {
         const connResult = await pool.query(
@@ -568,19 +568,22 @@ async function handleIncomingMessage(userId, event) {
             apiKey = systemCreds.apiKey;
           }
           
-          const groupInfo = await wahaSession.getGroupInfo({
-            base_url: baseUrl,
-            api_key: apiKey,
-            session_name: conn.session_name
-          }, groupId);
+          // Fetch all groups and find matching one
+          const axios = require('axios');
+          const groupsResponse = await axios.get(
+            `${baseUrl}/api/${conn.session_name}/groups`,
+            {
+              headers: { 'accept': 'application/json', 'X-Api-Key': apiKey },
+              timeout: 10000
+            }
+          );
           
-          if (groupInfo) {
-            const resolvedName = groupInfo.subject || groupInfo.name || groupInfo.Name || groupInfo.title || null;
+          const groups = groupsResponse.data || [];
+          const matchingGroup = groups.find(g => g.id === groupId);
+          if (matchingGroup) {
+            const resolvedName = matchingGroup.subject || matchingGroup.name || matchingGroup.Name || null;
             if (resolvedName) {
               contactName = resolvedName;
-              // Got name from API
-            } else {
-              // No name found in API response
             }
           }
         }
@@ -589,55 +592,7 @@ async function handleIncomingMessage(userId, event) {
       }
     }
     
-    // Final fallback - set "קבוצה" and trigger background sync
-    if (!contactName) {
-      contactName = 'קבוצה';
-      
-      // Trigger background sync to get the real group names
-      const recentSync = await pool.query(`
-        SELECT 1 FROM contacts 
-        WHERE user_id = $1 AND updated_at > NOW() - INTERVAL '5 minutes'
-        LIMIT 1
-      `, [userId]);
-      
-      if (recentSync.rows.length === 0) {
-        try {
-          const connResult = await pool.query(
-            `SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' ORDER BY connected_at DESC LIMIT 1`,
-            [userId]
-          );
-          
-          if (connResult.rows.length > 0) {
-            const conn = connResult.rows[0];
-            let baseUrl, apiKey;
-            
-            if (conn.connection_type === 'external') {
-              baseUrl = decrypt(conn.external_base_url);
-              apiKey = decrypt(conn.external_api_key);
-            } else {
-              const systemCreds = getWahaCredentials();
-              baseUrl = systemCreds.baseUrl;
-              apiKey = systemCreds.apiKey;
-            }
-            
-            console.log(`[Webhook] Triggering background contacts/groups sync for user ${userId}`);
-            wahaSession.syncContactsAndGroups({
-              base_url: baseUrl,
-              api_key: apiKey,
-              session_name: conn.session_name
-            }, userId, pool).then(results => {
-              console.log(`[Webhook] Background sync complete: ${results.groupsUpdated} groups, ${results.contactsUpdated} contacts`);
-            }).catch(err => {
-              console.error(`[Webhook] Background sync error:`, err.message);
-            });
-          }
-        } catch (syncError) {
-          console.error(`[Webhook] Could not trigger background sync:`, syncError.message);
-        }
-      } else {
-        // Recently synced, skip
-      }
-    }
+    // No fallback - contactName will be null if not found (will use phone as display)
     
   } else if (isChannelMessage) {
     // Channel message: contact is the CHANNEL itself
@@ -657,12 +612,12 @@ async function handleIncomingMessage(userId, event) {
         [userId, channelId]
       );
       
-      if (existingChannel.rows.length > 0 && existingChannel.rows[0].display_name && existingChannel.rows[0].display_name !== 'ערוץ') {
+      if (existingChannel.rows.length > 0 && existingChannel.rows[0].display_name) {
         contactName = existingChannel.rows[0].display_name;
       }
     }
     
-    // If still no name, fetch from WAHA channels API
+    // If still no name, fetch from WAHA channels API (specific channel endpoint)
     if (!contactName || contactName === channelId.split('@')[0]) {
       try {
         const connResult = await pool.query(
@@ -683,20 +638,19 @@ async function handleIncomingMessage(userId, event) {
             apiKey = systemCreds.apiKey;
           }
           
-          // Fetch channels and find matching one
+          // Fetch specific channel by ID
           const axios = require('axios');
-          const channelsResponse = await axios.get(
-            `${baseUrl}/api/${conn.session_name}/channels`,
+          const channelResponse = await axios.get(
+            `${baseUrl}/api/${conn.session_name}/channels/${encodeURIComponent(channelId)}`,
             {
               headers: { 'accept': 'application/json', 'X-Api-Key': apiKey },
               timeout: 5000
             }
           );
           
-          const channels = channelsResponse.data || [];
-          const matchingChannel = channels.find(ch => ch.id === channelId);
-          if (matchingChannel && matchingChannel.name) {
-            contactName = matchingChannel.name;
+          const channelData = channelResponse.data;
+          if (channelData && channelData.name) {
+            contactName = channelData.name;
           }
         }
       } catch (channelError) {
@@ -704,10 +658,8 @@ async function handleIncomingMessage(userId, event) {
       }
     }
     
-    // Final fallback
-    if (!contactName) {
-      contactName = 'ערוץ';
-    }
+    // No fallback - contactName will be null if not found (will use phone as display)
+    
   } else {
     // Direct message: contact is the sender
     contactPhone = senderPhone;
@@ -805,7 +757,7 @@ async function handleIncomingMessage(userId, event) {
   if (!handledByForwards) {
     try {
       // Channel name was already fetched earlier during contact creation
-      // Use contactName which has the resolved channel name (or 'ערוץ' as fallback)
+      // Use contactName which has the resolved channel name from API
       const channelName = isChannelMessage ? contactName : null;
       
       // Get bot's phone number from the connection

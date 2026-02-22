@@ -18,14 +18,14 @@ function isChannelContact(contact) {
   return contact?.phone?.includes('@newsletter');
 }
 
-// Format phone for display (hide @g.us, hide newsletter ID)
+// Format phone for display (hide @g.us, @newsletter suffix)
 function formatContactPhone(phone) {
   if (!phone) return '';
   if (phone.includes('@g.us')) {
     return phone.replace('@g.us', '');
   }
   if (phone.includes('@newsletter')) {
-    return 'ערוץ';
+    return phone.replace('@newsletter', '');
   }
   return phone;
 }
@@ -614,15 +614,13 @@ export default function ContactsTab({ onRefresh }) {
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-gray-900">
-                            {isChannelContact(contact) && (!contact.display_name || contact.display_name === 'ערוץ') 
-                              ? 'ערוץ' 
-                              : (contact.display_name || 'ללא שם')}
+                            {contact.display_name || formatContactPhone(contact.phone)}
                           </span>
                           {isChannelContact(contact) && (
-                            <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs">ערוץ</span>
+                            <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs">📢</span>
                           )}
                           {isGroupContact(contact) && (
-                            <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">קבוצה</span>
+                            <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">👥</span>
                           )}
                         </div>
                       </div>
@@ -748,12 +746,10 @@ export default function ContactsTab({ onRefresh }) {
                   </div>
                   <div>
                     <h3 className="text-2xl font-bold text-white">
-                      {isChannelContact(viewingContact) && (!viewingContact.display_name || viewingContact.display_name === 'ערוץ')
-                        ? 'ערוץ'
-                        : (viewingContact.display_name || 'ללא שם')}
+                      {viewingContact.display_name || formatContactPhone(viewingContact.phone)}
                     </h3>
                     <p className="text-white/80 font-mono text-lg" dir="ltr">
-                      {isChannelContact(viewingContact) ? '📢 ערוץ' : viewingContact.phone}
+                      {formatContactPhone(viewingContact.phone)}
                     </p>
                   </div>
                 </div>
