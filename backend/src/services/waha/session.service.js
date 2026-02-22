@@ -1060,24 +1060,32 @@ async function makeRequest(baseUrl, apiKey, method, endpoint, data = null) {
   let response;
   const fullUrl = endpoint.startsWith('/api') ? endpoint : `/api${endpoint}`;
   
-  switch (method.toUpperCase()) {
-    case 'GET':
-      response = await client.get(fullUrl);
-      break;
-    case 'POST':
-      response = await client.post(fullUrl, data);
-      break;
-    case 'PUT':
-      response = await client.put(fullUrl, data);
-      break;
-    case 'DELETE':
-      response = await client.delete(fullUrl);
-      break;
-    default:
-      throw new Error(`Unsupported method: ${method}`);
+  try {
+    switch (method.toUpperCase()) {
+      case 'GET':
+        response = await client.get(fullUrl);
+        break;
+      case 'POST':
+        response = await client.post(fullUrl, data);
+        break;
+      case 'PUT':
+        response = await client.put(fullUrl, data);
+        break;
+      case 'DELETE':
+        response = await client.delete(fullUrl);
+        break;
+      default:
+        throw new Error(`Unsupported method: ${method}`);
+    }
+    
+    return response.data;
+  } catch (error) {
+    // Log the actual error from WAHA
+    if (error.response) {
+      console.error(`[WAHA] Request failed: ${error.response.status}`, JSON.stringify(error.response.data, null, 2));
+    }
+    throw error;
   }
-  
-  return response.data;
 }
 
 module.exports = {
