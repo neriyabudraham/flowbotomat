@@ -1537,6 +1537,9 @@ async function getStatusDetails(req, res) {
     const status = statusResult.rows[0];
     let content = status.content;
     
+    console.log('[StatusBot] Raw content type:', typeof content);
+    console.log('[StatusBot] Raw content:', JSON.stringify(content));
+    
     // Parse content if it's a string
     if (typeof content === 'string') {
       try {
@@ -1546,10 +1549,14 @@ async function getStatusDetails(req, res) {
       }
     }
     
+    console.log('[StatusBot] Parsed content:', JSON.stringify(content));
+    console.log('[StatusBot] Status type:', status.status_type);
+    
     // Normalize content structure - ensure file.url exists for media types
     if (content && ['image', 'video', 'voice'].includes(status.status_type)) {
       // If content has url directly but not file.url, normalize it
       if (content.url && !content.file) {
+        console.log('[StatusBot] Normalizing content - adding file.url from content.url');
         content.file = {
           url: content.url,
           mimetype: status.status_type === 'image' ? 'image/jpeg' : 
@@ -1560,6 +1567,7 @@ async function getStatusDetails(req, res) {
       }
     }
     
+    console.log('[StatusBot] Final content:', JSON.stringify(content));
     status.content = content;
 
     res.json({
