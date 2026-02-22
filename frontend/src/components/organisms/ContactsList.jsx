@@ -10,7 +10,7 @@ import api from '../../services/api';
 function isGroupContact(contact) {
   return contact?.phone?.includes('@g.us') || 
          contact?.wa_id?.includes('@g.us') ||
-         contact?.phone?.length > 15;
+         (contact?.phone?.length > 15 && !contact?.phone?.includes('@newsletter'));
 }
 
 export default function ContactsList({ 

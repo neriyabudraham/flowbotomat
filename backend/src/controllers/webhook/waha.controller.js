@@ -794,6 +794,15 @@ async function handleIncomingMessage(userId, event) {
               const matchingChannel = channels.find(ch => ch.id === channelId);
               if (matchingChannel) {
                 channelName = matchingChannel.name;
+                
+                // Update the contact's display_name if we got a better name
+                if (channelName && channelName !== 'ערוץ') {
+                  await pool.query(
+                    `UPDATE contacts SET display_name = $1, updated_at = NOW() 
+                     WHERE user_id = $2 AND phone = $3 AND (display_name IS NULL OR display_name = 'ערוץ')`,
+                    [channelName, userId, channelId]
+                  );
+                }
               }
             }
           } catch (channelErr) {

@@ -3,21 +3,29 @@ import {
   Search, Plus, Edit2, Trash2, Users, Phone, User, Tag,
   ChevronLeft, ChevronRight, Loader2, X, Check, Filter,
   MoreHorizontal, Download, RefreshCw, Mail, AlertCircle, Variable, Upload,
-  Calendar, MessageSquare, Eye, Clock, Hash, ExternalLink
+  Calendar, MessageSquare, Eye, Clock, Hash, ExternalLink, Radio
 } from 'lucide-react';
 import api from '../../services/api';
 import ImportTab from './ImportTab';
 
 // Helper to check if contact is a group
 function isGroupContact(contact) {
-  return contact?.phone?.includes('@g.us');
+  return contact?.phone?.includes('@g.us') && !contact?.phone?.includes('@newsletter');
 }
 
-// Format phone for display (hide @g.us)
+// Helper to check if contact is a newsletter/channel
+function isChannelContact(contact) {
+  return contact?.phone?.includes('@newsletter');
+}
+
+// Format phone for display (hide @g.us, hide newsletter ID)
 function formatContactPhone(phone) {
   if (!phone) return '';
   if (phone.includes('@g.us')) {
     return phone.replace('@g.us', '');
+  }
+  if (phone.includes('@newsletter')) {
+    return 'ערוץ';
   }
   return phone;
 }
@@ -588,11 +596,15 @@ export default function ContactsTab({ onRefresh }) {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                          isGroupContact(contact) 
-                            ? 'bg-gradient-to-br from-purple-400 to-purple-600' 
-                            : 'bg-gradient-to-br from-orange-400 to-red-500'
+                          isChannelContact(contact)
+                            ? 'bg-gradient-to-br from-indigo-400 to-indigo-600'
+                            : isGroupContact(contact) 
+                              ? 'bg-gradient-to-br from-purple-400 to-purple-600' 
+                              : 'bg-gradient-to-br from-orange-400 to-red-500'
                         }`}>
-                          {isGroupContact(contact) ? (
+                          {isChannelContact(contact) ? (
+                            <Radio className="w-4 h-4 text-white" />
+                          ) : isGroupContact(contact) ? (
                             <Users className="w-4 h-4 text-white" />
                           ) : (
                             <span className="text-white font-medium text-sm">
@@ -602,8 +614,13 @@ export default function ContactsTab({ onRefresh }) {
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-gray-900">
-                            {contact.display_name || 'ללא שם'}
+                            {isChannelContact(contact) && (!contact.display_name || contact.display_name === 'ערוץ') 
+                              ? 'ערוץ' 
+                              : (contact.display_name || 'ללא שם')}
                           </span>
+                          {isChannelContact(contact) && (
+                            <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs">ערוץ</span>
+                          )}
                           {isGroupContact(contact) && (
                             <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">קבוצה</span>
                           )}
@@ -719,17 +736,25 @@ export default function ContactsTab({ onRefresh }) {
             {/* Header */}
             <div className="bg-gradient-to-r from-orange-500 to-red-600 p-6">
               <div className="flex items-start justify-between">
-                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-4">
                   <div className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center">
-                    <span className="text-3xl font-bold text-white">
-                      {(viewingContact.display_name || viewingContact.phone || '?')[0].toUpperCase()}
-                    </span>
+                    {isChannelContact(viewingContact) ? (
+                      <Radio className="w-8 h-8 text-white" />
+                    ) : (
+                      <span className="text-3xl font-bold text-white">
+                        {(viewingContact.display_name || viewingContact.phone || '?')[0].toUpperCase()}
+                      </span>
+                    )}
                   </div>
                   <div>
                     <h3 className="text-2xl font-bold text-white">
-                      {viewingContact.display_name || 'ללא שם'}
+                      {isChannelContact(viewingContact) && (!viewingContact.display_name || viewingContact.display_name === 'ערוץ')
+                        ? 'ערוץ'
+                        : (viewingContact.display_name || 'ללא שם')}
                     </h3>
-                    <p className="text-white/80 font-mono text-lg" dir="ltr">{viewingContact.phone}</p>
+                    <p className="text-white/80 font-mono text-lg" dir="ltr">
+                      {isChannelContact(viewingContact) ? '📢 ערוץ' : viewingContact.phone}
+                    </p>
                   </div>
                 </div>
                 <button onClick={() => setViewingContact(null)} className="p-2 hover:bg-white/20 rounded-xl transition-colors">

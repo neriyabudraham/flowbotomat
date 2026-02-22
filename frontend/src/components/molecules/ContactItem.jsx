@@ -1,4 +1,4 @@
-import { User, Bot, XCircle, Clock, Check, CheckCheck, Users } from 'lucide-react';
+import { User, Bot, XCircle, Clock, Check, CheckCheck, Users, Radio } from 'lucide-react';
 
 /**
  * Check if contact is a group
@@ -6,14 +6,24 @@ import { User, Bot, XCircle, Clock, Check, CheckCheck, Users } from 'lucide-reac
 function isGroupContact(contact) {
   return contact?.phone?.includes('@g.us') || 
          contact?.wa_id?.includes('@g.us') ||
-         contact?.phone?.length > 15;
+         (contact?.phone?.length > 15 && !contact?.phone?.includes('@newsletter'));
+}
+
+/**
+ * Check if contact is a newsletter/channel
+ */
+function isChannelContact(contact) {
+  return contact?.phone?.includes('@newsletter') || 
+         contact?.wa_id?.includes('@newsletter');
 }
 
 export default function ContactItem({ contact, isSelected, onClick }) {
   const isGroup = isGroupContact(contact);
-  // Get display name: display_name > full_name variable > phone
+  const isChannel = isChannelContact(contact);
+  
+  // Get display name: display_name > full_name variable > phone (but not newsletter ID)
   const getDisplayName = () => {
-    if (contact.display_name && contact.display_name !== contact.phone) {
+    if (contact.display_name && contact.display_name !== contact.phone && contact.display_name !== 'ערוץ') {
       return contact.display_name;
     }
     // Check for full_name in variables
@@ -24,12 +34,17 @@ export default function ContactItem({ contact, isSelected, onClick }) {
     if (contact.full_name) {
       return contact.full_name;
     }
+    // For channels without a name, return null (will show "ערוץ" instead of the ID)
+    if (isChannel) {
+      return contact.display_name || null;
+    }
     return null;
   };
   
   const name = getDisplayName();
-  const displayText = name || contact.phone;
-  const initials = name?.charAt(0)?.toUpperCase() || '👤';
+  // For channels, don't show the newsletter ID as fallback
+  const displayText = name || (isChannel ? 'ערוץ' : contact.phone);
+  const initials = isChannel ? '📢' : (name?.charAt(0)?.toUpperCase() || '👤');
   
   // Calculate time ago
   const getTimeAgo = (date) => {
@@ -78,6 +93,8 @@ export default function ContactItem({ contact, isSelected, onClick }) {
               alt="" 
               className="w-full h-full object-cover" 
             />
+          ) : isChannel ? (
+            <Radio className="w-5 h-5 text-purple-500" />
           ) : isGroup ? (
             <Users className="w-5 h-5 text-gray-500" />
           ) : (
