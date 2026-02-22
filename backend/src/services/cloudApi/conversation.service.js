@@ -923,20 +923,31 @@ async function handleSendNow(phone, statusId, pendingStatus) {
       const parts = pendingStatus.parts || [];
       const captions = pendingStatus.partCaptions || Array(parts.length).fill('');
       const partGroupId = uuidv4();
+      let firstQueuedId = null;
       
       for (let i = 0; i < parts.length; i++) {
-        await db.query(`
+        const insertResult = await db.query(`
           INSERT INTO status_bot_queue 
           (connection_id, status_type, content, queue_status, source, part_group_id, part_number, total_parts)
           VALUES ($1, 'video', $2, 'pending', 'whatsapp', $3, $4, $5)
+          RETURNING id
         `, [connectionId, JSON.stringify({ url: parts[i], caption: captions[i] || '' }), partGroupId, i + 1, parts.length]);
+        if (i === 0) firstQueuedId = insertResult.rows[0]?.id;
       }
       
-      // Send menu with options
+      // Send menu with full options (use partGroupId for group actions)
       const sections = [{
+        title: 'סטטיסטיקות',
+        rows: [
+          { id: `queued_views_${firstQueuedId}`, title: '👁️ צפיות', description: 'רשימת הצופים בסטטוס' },
+          { id: `queued_hearts_${firstQueuedId}`, title: '❤️ סימוני לב', description: 'רשימת מי שסימן לב' },
+          { id: `queued_reactions_${firstQueuedId}`, title: '💬 תגובות', description: 'רשימת המגיבים' }
+        ]
+      }, {
         title: 'פעולות',
         rows: [
           { id: 'new_status', title: '➕ סטטוס חדש', description: 'שלח סטטוס נוסף' },
+          { id: `queued_delete_group_${partGroupId}`, title: '🗑️ מחק סרטון', description: 'הסר את כל החלקים מהתור' },
           { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים בתור ומתוזמנים' },
           { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
         ]
@@ -960,11 +971,19 @@ async function handleSendNow(phone, statusId, pendingStatus) {
       
       const queuedStatusId = insertResult.rows[0]?.id;
       
-      // Send menu with options
+      // Send menu with full options
       const sections = [{
+        title: 'סטטיסטיקות',
+        rows: [
+          { id: `queued_views_${queuedStatusId}`, title: '👁️ צפיות', description: 'רשימת הצופים בסטטוס' },
+          { id: `queued_hearts_${queuedStatusId}`, title: '❤️ סימוני לב', description: 'רשימת מי שסימן לב' },
+          { id: `queued_reactions_${queuedStatusId}`, title: '💬 תגובות', description: 'רשימת המגיבים' }
+        ]
+      }, {
         title: 'פעולות',
         rows: [
           { id: 'new_status', title: '➕ סטטוס חדש', description: 'שלח סטטוס נוסף' },
+          { id: `queued_delete_${queuedStatusId}`, title: '🗑️ מחק סטטוס', description: 'הסר מתור השליחה' },
           { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים בתור ומתוזמנים' },
           { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
         ]
@@ -1983,6 +2002,7 @@ async function handleSelectActionState(phone, message, state) {
     }, {
       title: 'פעולות',
       rows: [
+        { id: 'new_status', title: '➕ סטטוס חדש', description: 'שלח סטטוס נוסף' },
         { id: `queued_delete_${queuedStatusId}`, title: '🗑️ מחק סטטוס', description: 'הסר מתור השליחה' },
         { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים מתוזמנים ופעילים' },
         { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
@@ -2226,6 +2246,35 @@ async function handleAfterSendMenuState(phone, message, state) {
     if (lastPart.includes('-')) {
       statusId = lastPart;
     }
+  }
+  
+  // Delete group action (video split parts)
+  if (selectedId.startsWith('queued_delete_group_')) {
+    const groupId = selectedId.replace('queued_delete_group_', '');
+    const groupResult = await db.query(
+      `SELECT id, queue_status FROM status_bot_queue WHERE part_group_id = $1`,
+      [groupId]
+    );
+    
+    if (groupResult.rows.length > 0) {
+      // Cancel all parts in the group that are pending/scheduled
+      const cancelledCount = await db.query(
+        `UPDATE status_bot_queue SET queue_status = 'cancelled' 
+         WHERE part_group_id = $1 AND queue_status IN ('pending', 'scheduled')
+         RETURNING id`,
+        [groupId]
+      );
+      
+      if (cancelledCount.rows.length > 0) {
+        await cloudApi.sendTextMessage(phone, `✅ ${cancelledCount.rows.length} חלקים הוסרו מתור השליחה`);
+      } else {
+        await cloudApi.sendTextMessage(phone, 'אין חלקים שניתן למחוק (כבר נשלחו או בוטלו)');
+      }
+    } else {
+      await cloudApi.sendTextMessage(phone, 'קבוצת סרטון לא נמצאה');
+    }
+    await setState(phone, 'idle', null, null);
+    return;
   }
   
   // Delete action
