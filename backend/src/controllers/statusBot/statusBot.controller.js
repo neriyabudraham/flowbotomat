@@ -4,6 +4,71 @@ const { getWahaCredentials } = require('../../services/settings/system.service')
 const crypto = require('crypto');
 
 // ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+/**
+ * Normalize content structure for frontend display
+ * Handles various content formats and ensures file.url exists for media types
+ */
+function normalizeContent(content, statusType) {
+  if (!content) return content;
+  
+  // Parse content if it's a string
+  if (typeof content === 'string') {
+    try {
+      content = JSON.parse(content);
+    } catch (e) {
+      console.error('[StatusBot] Failed to parse content:', e);
+      return content;
+    }
+  }
+  
+  // Normalize media content structure
+  if (['image', 'video', 'voice'].includes(statusType)) {
+    // If content.file is a string URL, convert to object
+    if (typeof content.file === 'string') {
+      content.file = {
+        url: content.file,
+        mimetype: statusType === 'image' ? 'image/jpeg' : 
+                  statusType === 'video' ? 'video/mp4' : 'audio/ogg',
+        filename: `status.${statusType === 'image' ? 'jpg' : 
+                            statusType === 'video' ? 'mp4' : 'ogg'}`
+      };
+    }
+    // If content has url directly but not file, normalize it
+    else if (content.url && !content.file) {
+      content.file = {
+        url: content.url,
+        mimetype: statusType === 'image' ? 'image/jpeg' : 
+                  statusType === 'video' ? 'video/mp4' : 'audio/ogg',
+        filename: `status.${statusType === 'image' ? 'jpg' : 
+                            statusType === 'video' ? 'mp4' : 'ogg'}`
+      };
+    }
+  }
+  
+  return content;
+}
+
+/**
+ * Normalize a row (status or queue item) content
+ */
+function normalizeRow(row) {
+  if (row && row.content) {
+    row.content = normalizeContent(row.content, row.status_type);
+  }
+  return row;
+}
+
+/**
+ * Normalize an array of rows
+ */
+function normalizeRows(rows) {
+  return rows.map(normalizeRow);
+}
+
+// ============================================
 // INITIALIZATION - Create tables on load
 // ============================================
 
@@ -1485,7 +1550,7 @@ async function getStatusHistory(req, res) {
     `, [connResult.rows[0].id, limit, offset]);
 
     res.json({ 
-      statuses: result.rows,
+      statuses: normalizeRows(result.rows),
       total: parseInt(countResult.rows[0].count)
     });
 
@@ -1534,52 +1599,7 @@ async function getStatusDetails(req, res) {
     `, [statusId]);
 
     // Normalize status content for frontend
-    const status = statusResult.rows[0];
-    let content = status.content;
-    
-    console.log('[StatusBot] Raw content type:', typeof content);
-    console.log('[StatusBot] Raw content:', JSON.stringify(content));
-    
-    // Parse content if it's a string
-    if (typeof content === 'string') {
-      try {
-        content = JSON.parse(content);
-      } catch (e) {
-        console.error('[StatusBot] Failed to parse content:', e);
-      }
-    }
-    
-    console.log('[StatusBot] Parsed content:', JSON.stringify(content));
-    console.log('[StatusBot] Status type:', status.status_type);
-    
-    // Normalize content structure - ensure file.url exists for media types
-    if (content && ['image', 'video', 'voice'].includes(status.status_type)) {
-      // If content.file is a string URL, convert to object
-      if (typeof content.file === 'string') {
-        console.log('[StatusBot] Normalizing content - file is string, converting to object');
-        content.file = {
-          url: content.file,
-          mimetype: status.status_type === 'image' ? 'image/jpeg' : 
-                    status.status_type === 'video' ? 'video/mp4' : 'audio/ogg',
-          filename: `status.${status.status_type === 'image' ? 'jpg' : 
-                              status.status_type === 'video' ? 'mp4' : 'ogg'}`
-        };
-      }
-      // If content has url directly but not file.url, normalize it
-      else if (content.url && !content.file) {
-        console.log('[StatusBot] Normalizing content - adding file.url from content.url');
-        content.file = {
-          url: content.url,
-          mimetype: status.status_type === 'image' ? 'image/jpeg' : 
-                    status.status_type === 'video' ? 'video/mp4' : 'audio/ogg',
-          filename: `status.${status.status_type === 'image' ? 'jpg' : 
-                              status.status_type === 'video' ? 'mp4' : 'ogg'}`
-        };
-      }
-    }
-    
-    console.log('[StatusBot] Final content:', JSON.stringify(content));
-    status.content = content;
+    const status = normalizeRow(statusResult.rows[0]);
 
     res.json({
       status: status,
@@ -1640,8 +1660,8 @@ async function getQueueStatus(req, res) {
     `);
 
     res.json({
-      queue: userQueue.rows,
-      scheduled: scheduledQueue.rows,
+      queue: normalizeRows(userQueue.rows),
+      scheduled: normalizeRows(scheduledQueue.rows),
       globalPending: parseInt(globalQueue.rows[0].count),
       lastSentAt: lockResult.rows[0]?.last_sent_at
     });
@@ -1813,7 +1833,7 @@ async function getFailedStatuses(req, res) {
       LIMIT 50
     `, [connResult.rows[0].id]);
 
-    res.json({ failedStatuses: result.rows });
+    res.json({ failedStatuses: normalizeRows(result.rows) });
 
   } catch (error) {
     console.error('[StatusBot] Get failed statuses error:', error);
@@ -1965,7 +1985,7 @@ async function getInProgressStatuses(req, res) {
       ORDER BY created_at ASC
     `, [connResult.rows[0].id]);
 
-    res.json({ inProgress: result.rows });
+    res.json({ inProgress: normalizeRows(result.rows) });
 
   } catch (error) {
     console.error('[StatusBot] Get in-progress statuses error:', error);
