@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   Smartphone, RefreshCw, Users, Upload, Eye, Heart,
   Clock, Check, X, AlertCircle, Shield, Wifi, WifiOff,
-  Phone, Search, ChevronDown, Activity, MessageCircle, Loader2
+  Phone, Search, ChevronDown, Activity, MessageCircle, Loader2,
+  RotateCcw, PhoneCall, XCircle
 } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
@@ -32,6 +33,11 @@ export default function AdminStatusBot() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [liftingRestriction, setLiftingRestriction] = useState(null);
+  
+  // Admin actions state
+  const [syncingPhones, setSyncingPhones] = useState(false);
+  const [resettingQueue, setResettingQueue] = useState(false);
+  const [cancellingItem, setCancellingItem] = useState(null);
   
   // Real-time monitoring state
   const [activeProcesses, setActiveProcesses] = useState({
@@ -121,6 +127,53 @@ export default function AdminStatusBot() {
     }
   };
 
+  const handleSyncPhones = async () => {
+    if (!confirm('לסנכרן מספרי טלפון מכל החיבורים?')) return;
+    
+    setSyncingPhones(true);
+    try {
+      const res = await api.post('/status-bot/admin/sync-phones');
+      const updated = res.data.results?.filter(r => r.status === 'updated').length || 0;
+      alert(`סנכרון הושלם! ${updated} מספרים עודכנו מתוך ${res.data.totalConnections} חיבורים`);
+      loadData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בסנכרון');
+    } finally {
+      setSyncingPhones(false);
+    }
+  };
+
+  const handleResetQueue = async () => {
+    if (!confirm('לאפס את התור? כל התהליכים הפעילים יבוטלו!')) return;
+    
+    setResettingQueue(true);
+    try {
+      const res = await api.post('/status-bot/admin/reset-queue');
+      alert(res.data.message || 'התור אופס בהצלחה');
+      loadData();
+      loadActiveProcesses();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה באיפוס התור');
+    } finally {
+      setResettingQueue(false);
+    }
+  };
+
+  const handleCancelItem = async (queueId) => {
+    if (!confirm('לבטל את התהליך הזה?')) return;
+    
+    setCancellingItem(queueId);
+    try {
+      await api.post(`/status-bot/admin/cancel-item/${queueId}`);
+      alert('התהליך בוטל');
+      loadActiveProcesses();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בביטול');
+    } finally {
+      setCancellingItem(null);
+    }
+  };
+
   const filteredUsers = users.filter(u => 
     !search || 
     u.email?.toLowerCase().includes(search.toLowerCase()) ||
@@ -160,9 +213,31 @@ export default function AdminStatusBot() {
           <h2 className="text-xl font-bold text-gray-800 dark:text-white">בוט העלאת סטטוסים</h2>
         </div>
         
-        <Button variant="ghost" onClick={loadData} className="!p-2">
-          <RefreshCw className="w-4 h-4" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSyncPhones}
+            disabled={syncingPhones}
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50"
+            title="סנכרון מספרי טלפון מ-WAHA"
+          >
+            {syncingPhones ? <Loader2 className="w-4 h-4 animate-spin" /> : <PhoneCall className="w-4 h-4" />}
+            סנכרן טלפונים
+          </button>
+          
+          <button
+            onClick={handleResetQueue}
+            disabled={resettingQueue}
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 disabled:opacity-50"
+            title="איפוס התור וביטול תהליכים תקועים"
+          >
+            {resettingQueue ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+            אפס תור
+          </button>
+          
+          <Button variant="ghost" onClick={loadData} className="!p-2">
+            <RefreshCw className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -294,39 +369,59 @@ export default function AdminStatusBot() {
                 <p className="text-sm text-gray-400 py-2">אין העלאות בעיבוד כרגע</p>
               ) : (
                 <div className="space-y-2">
-                  {activeProcesses.processingUploads.map((upload, idx) => (
-                    <div key={idx} className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border border-amber-200 dark:border-amber-800">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center">
-                            <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
+                  {activeProcesses.processingUploads.map((upload, idx) => {
+                    const startTime = new Date(upload.startedAt);
+                    const processingTime = Math.round((Date.now() - startTime.getTime()) / 1000);
+                    const isStuck = processingTime > 180; // More than 3 minutes
+                    
+                    return (
+                      <div key={idx} className={`bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border ${isStuck ? 'border-red-300 dark:border-red-700' : 'border-amber-200 dark:border-amber-800'}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 ${isStuck ? 'bg-red-100' : 'bg-amber-100'} rounded-full flex items-center justify-center`}>
+                              <Loader2 className={`w-4 h-4 ${isStuck ? 'text-red-600' : 'text-amber-600'} animate-spin`} />
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-800 dark:text-white">
+                                {upload.statusType === 'text' ? 'טקסט' : 
+                                 upload.statusType === 'image' ? 'תמונה' : 
+                                 upload.statusType === 'video' ? 'סרטון' : 'קול'}
+                                {upload.totalParts > 1 && ` (חלק ${upload.partNumber}/${upload.totalParts})`}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {upload.userName || upload.userEmail || 'משתמש לא ידוע'}
+                                {upload.source === 'whatsapp' && upload.sourcePhone && (
+                                  <span className="mr-1" dir="ltr">• מ-{upload.sourcePhone}</span>
+                                )}
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-medium text-gray-800 dark:text-white">
-                              {upload.statusType === 'text' ? 'טקסט' : 
-                               upload.statusType === 'image' ? 'תמונה' : 
-                               upload.statusType === 'video' ? 'סרטון' : 'קול'}
-                              {upload.totalParts > 1 && ` (חלק ${upload.partNumber}/${upload.totalParts})`}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {upload.userName || upload.userEmail || 'משתמש לא ידוע'}
-                              {upload.source === 'whatsapp' && upload.sourcePhone && (
-                                <span className="mr-1" dir="ltr">• מ-{upload.sourcePhone}</span>
+                          <div className="flex items-center gap-2">
+                            <div className="text-left">
+                              <span className={`inline-block px-2 py-1 ${isStuck ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'} rounded-full text-xs font-medium ${!isStuck && 'animate-pulse'}`}>
+                                {isStuck ? `תקוע! ${Math.floor(processingTime / 60)}:${(processingTime % 60).toString().padStart(2, '0')}` : 'מעלה...'}
+                              </span>
+                              <p className="text-xs text-gray-400 mt-1">
+                                התחיל: {startTime.toLocaleTimeString('he-IL')}
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => handleCancelItem(upload.id)}
+                              disabled={cancellingItem === upload.id}
+                              className="p-2 text-red-600 hover:bg-red-100 rounded-lg disabled:opacity-50"
+                              title="בטל תהליך"
+                            >
+                              {cancellingItem === upload.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <XCircle className="w-4 h-4" />
                               )}
-                            </p>
+                            </button>
                           </div>
-                        </div>
-                        <div className="text-left">
-                          <span className="inline-block px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium animate-pulse">
-                            מעלה...
-                          </span>
-                          <p className="text-xs text-gray-400 mt-1">
-                            התחיל: {new Date(upload.startedAt).toLocaleTimeString('he-IL')}
-                          </p>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
