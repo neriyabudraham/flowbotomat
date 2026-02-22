@@ -650,7 +650,61 @@ async function handleIncomingMessage(userId, event) {
                   payload._data?.NewsletterMeta?.name ||
                   payload.notifyName || payload.pushName || null;
     
-    // If we couldn't get the name, we'll try to fetch it later
+    // If we couldn't get the name from payload, try DB first (faster than API)
+    if (!contactName || contactName === channelId.split('@')[0]) {
+      const existingChannel = await pool.query(
+        `SELECT display_name FROM contacts WHERE user_id = $1 AND phone = $2`,
+        [userId, channelId]
+      );
+      
+      if (existingChannel.rows.length > 0 && existingChannel.rows[0].display_name && existingChannel.rows[0].display_name !== 'ערוץ') {
+        contactName = existingChannel.rows[0].display_name;
+      }
+    }
+    
+    // If still no name, fetch from WAHA channels API
+    if (!contactName || contactName === channelId.split('@')[0]) {
+      try {
+        const connResult = await pool.query(
+          `SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' ORDER BY connected_at DESC LIMIT 1`,
+          [userId]
+        );
+        
+        if (connResult.rows.length > 0) {
+          const conn = connResult.rows[0];
+          let baseUrl, apiKey;
+          
+          if (conn.connection_type === 'external') {
+            baseUrl = decrypt(conn.external_base_url);
+            apiKey = decrypt(conn.external_api_key);
+          } else {
+            const systemCreds = getWahaCredentials();
+            baseUrl = systemCreds.baseUrl;
+            apiKey = systemCreds.apiKey;
+          }
+          
+          // Fetch channels and find matching one
+          const axios = require('axios');
+          const channelsResponse = await axios.get(
+            `${baseUrl}/api/${conn.session_name}/channels`,
+            {
+              headers: { 'accept': 'application/json', 'X-Api-Key': apiKey },
+              timeout: 5000
+            }
+          );
+          
+          const channels = channelsResponse.data || [];
+          const matchingChannel = channels.find(ch => ch.id === channelId);
+          if (matchingChannel && matchingChannel.name) {
+            contactName = matchingChannel.name;
+          }
+        }
+      } catch (channelError) {
+        console.log(`[Webhook] Could not fetch channel info: ${channelError.message}`);
+      }
+    }
+    
+    // Final fallback
     if (!contactName) {
       contactName = 'ערוץ';
     }
@@ -750,66 +804,9 @@ async function handleIncomingMessage(userId, event) {
   // SECOND: Process with bot engine ONLY if not handled by forwards
   if (!handledByForwards) {
     try {
-      // Get channel name if this is a channel message
-      let channelName = null;
-      if (isChannelMessage) {
-        // Try to get from payload first
-        channelName = payload._data?.Info?.Subject || 
-                      payload._data?.Info?.VerifiedName?.Details?.verifiedName ||
-                      payload._data?.NewsletterMeta?.name ||
-                      payload.notifyName || payload.pushName || null;
-        
-        // If not in payload, try to fetch from channels API
-        if (!channelName && channelId) {
-          try {
-            const connResult = await pool.query(
-              `SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' ORDER BY connected_at DESC LIMIT 1`,
-              [userId]
-            );
-            
-            if (connResult.rows.length > 0) {
-              const conn = connResult.rows[0];
-              let baseUrl, apiKey;
-              
-              if (conn.connection_type === 'external') {
-                baseUrl = decrypt(conn.external_base_url);
-                apiKey = decrypt(conn.external_api_key);
-              } else {
-                const systemCreds = getWahaCredentials();
-                baseUrl = systemCreds.baseUrl;
-                apiKey = systemCreds.apiKey;
-              }
-              
-              // Fetch channels and find matching one
-              const axios = require('axios');
-              const channelsResponse = await axios.get(
-                `${baseUrl}/api/${conn.session_name}/channels`,
-                {
-                  headers: { 'accept': 'application/json', 'X-Api-Key': apiKey },
-                  timeout: 5000
-                }
-              );
-              
-              const channels = channelsResponse.data || [];
-              const matchingChannel = channels.find(ch => ch.id === channelId);
-              if (matchingChannel) {
-                channelName = matchingChannel.name;
-                
-                // Update the contact's display_name if we got a better name
-                if (channelName && channelName !== 'ערוץ') {
-                  await pool.query(
-                    `UPDATE contacts SET display_name = $1, updated_at = NOW() 
-                     WHERE user_id = $2 AND phone = $3 AND (display_name IS NULL OR display_name = 'ערוץ')`,
-                    [channelName, userId, channelId]
-                  );
-                }
-              }
-            }
-          } catch (channelErr) {
-            // Channel name fetch failed - continue with default
-          }
-        }
-      }
+      // Channel name was already fetched earlier during contact creation
+      // Use contactName which has the resolved channel name (or 'ערוץ' as fallback)
+      const channelName = isChannelMessage ? contactName : null;
       
       // Get bot's phone number from the connection
       let botPhoneNumber = null;
