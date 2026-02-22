@@ -657,6 +657,34 @@ async function handleInteractiveWithStatusId(phone, selectedId, message) {
   const action = parts[0];
   let statusId, data;
   
+  // Handle queued_* actions globally (these work regardless of state)
+  if (action === 'queued') {
+    return await handleQueuedAction(phone, selectedId);
+  }
+  
+  // Handle new_status action
+  if (selectedId === 'new_status') {
+    await cloudApi.sendTextMessage(phone, '📤 שלח תמונה, סרטון, הקלטה קולית או טקסט להעלאה לסטטוס');
+    return;
+  }
+  
+  // Handle queued_menu action
+  if (selectedId === 'queued_menu') {
+    await sendStatusMenu(phone, await getAuthorizedConnections(phone));
+    return;
+  }
+  
+  // Handle queued_view_all action
+  if (selectedId === 'queued_view_all') {
+    const connections = await getAuthorizedConnections(phone);
+    if (connections.length > 0) {
+      await showScheduledListWithConfirmation(phone, connections[0].connection_id, null, null, '');
+    } else {
+      await cloudApi.sendTextMessage(phone, 'אין חשבון מחובר');
+    }
+    return;
+  }
+  
   // Determine statusId based on action format
   if (['send', 'sched', 'cancel', 'capall', 'cap1st', 'capcus'].includes(action)) {
     // Format: action_statusId
@@ -723,6 +751,204 @@ async function handleInteractiveWithStatusId(phone, selectedId, message) {
     default:
       return 'fallback';
   }
+}
+
+/**
+ * Handle queued_* actions (views, hearts, reactions, delete)
+ * These work regardless of conversation state
+ */
+async function handleQueuedAction(phone, selectedId) {
+  // Extract status ID from action (format: queued_action_statusId or queued_action_group_groupId)
+  const parts = selectedId.split('_');
+  let statusId = parts[parts.length - 1];
+  
+  // Helper to get the actual status_bot_statuses ID from queue ID
+  const getStatusIdFromQueueId = async (queueId) => {
+    const result = await db.query(
+      `SELECT id FROM status_bot_statuses WHERE queue_id = $1`,
+      [queueId]
+    );
+    return result.rows[0]?.id;
+  };
+  
+  // Delete group action (video split parts)
+  if (selectedId.startsWith('queued_delete_group_')) {
+    const groupId = selectedId.replace('queued_delete_group_', '');
+    
+    // First check if any parts were already sent - need to delete from WhatsApp too
+    const sentParts = await db.query(
+      `SELECT q.id, s.waha_message_id, c.session_name
+       FROM status_bot_queue q
+       LEFT JOIN status_bot_statuses s ON s.queue_id = q.id
+       LEFT JOIN status_bot_connections c ON c.id = q.connection_id
+       WHERE q.part_group_id = $1 AND q.queue_status = 'sent' AND s.waha_message_id IS NOT NULL`,
+      [groupId]
+    );
+    
+    // Delete sent statuses from WhatsApp
+    let deletedFromWA = 0;
+    if (sentParts.rows.length > 0) {
+      const { baseUrl, apiKey } = await getWahaCredentials();
+      for (const part of sentParts.rows) {
+        try {
+          await wahaSession.makeRequest(baseUrl, apiKey, 'POST', `/api/${part.session_name}/status/delete`, {
+            id: part.waha_message_id,
+            contacts: null
+          });
+          deletedFromWA++;
+        } catch (err) {
+          console.error(`[CloudAPI] Error deleting part from WhatsApp:`, err.message);
+        }
+      }
+    }
+    
+    // Cancel pending/scheduled parts
+    const cancelledCount = await db.query(
+      `UPDATE status_bot_queue SET queue_status = 'cancelled' 
+       WHERE part_group_id = $1 AND queue_status IN ('pending', 'scheduled')
+       RETURNING id`,
+      [groupId]
+    );
+    
+    let message = '';
+    if (deletedFromWA > 0) {
+      message += `✅ ${deletedFromWA} חלקים נמחקו מווצאפ\n`;
+    }
+    if (cancelledCount.rows.length > 0) {
+      message += `✅ ${cancelledCount.rows.length} חלקים הוסרו מהתור`;
+    }
+    if (!message) {
+      message = 'אין חלקים למחיקה';
+    }
+    
+    await cloudApi.sendTextMessage(phone, message.trim());
+    return;
+  }
+  
+  // Delete single status action
+  if (selectedId.startsWith('queued_delete_')) {
+    const result = await db.query(
+      `SELECT q.*, s.waha_message_id, s.id as status_id, c.session_name
+       FROM status_bot_queue q
+       LEFT JOIN status_bot_statuses s ON s.queue_id = q.id
+       LEFT JOIN status_bot_connections c ON c.id = q.connection_id
+       WHERE q.id = $1`,
+      [statusId]
+    );
+    
+    if (result.rows.length > 0) {
+      const queueItem = result.rows[0];
+      
+      if (queueItem.queue_status === 'pending' || queueItem.queue_status === 'scheduled') {
+        // Cancel queued status
+        await db.query(
+          `UPDATE status_bot_queue SET queue_status = 'cancelled' WHERE id = $1`,
+          [statusId]
+        );
+        await cloudApi.sendTextMessage(phone, '✅ הסטטוס הוסר מתור השליחה');
+      } else if (queueItem.queue_status === 'sent') {
+        // Delete sent status from WhatsApp
+        if (queueItem.waha_message_id) {
+          try {
+            const { baseUrl, apiKey } = await getWahaCredentials();
+            await wahaSession.makeRequest(baseUrl, apiKey, 'POST', `/api/${queueItem.session_name}/status/delete`, {
+              id: queueItem.waha_message_id,
+              contacts: null
+            });
+            
+            // Mark as deleted in DB
+            if (queueItem.status_id) {
+              await db.query(`UPDATE status_bot_statuses SET deleted_at = NOW() WHERE id = $1`, [queueItem.status_id]);
+            }
+            
+            await cloudApi.sendTextMessage(phone, '✅ הסטטוס נמחק מווצאפ');
+          } catch (deleteErr) {
+            console.error('[CloudAPI] Error deleting status from WhatsApp:', deleteErr.message);
+            await cloudApi.sendTextMessage(phone, 'לא הצלחנו למחוק את הסטטוס מווצאפ');
+          }
+        } else {
+          await cloudApi.sendTextMessage(phone, 'לא ניתן למחוק - מזהה הסטטוס לא נמצא');
+        }
+      } else {
+        await cloudApi.sendTextMessage(phone, 'לא ניתן למחוק את הסטטוס');
+      }
+    } else {
+      await cloudApi.sendTextMessage(phone, 'סטטוס לא נמצא');
+    }
+    return;
+  }
+
+  // Views - combined count + list
+  if (selectedId.startsWith('queued_views_') && !selectedId.includes('view_all')) {
+    const realStatusId = await getStatusIdFromQueueId(statusId);
+    if (!realStatusId) {
+      await cloudApi.sendTextMessage(phone, '👁️ הסטטוס עדיין לא נשלח או שלא נמצא');
+      return;
+    }
+    const views = await db.query(
+      `SELECT viewer_phone, viewed_at FROM status_bot_views WHERE status_id = $1 ORDER BY viewed_at DESC`,
+      [realStatusId]
+    );
+    
+    if (views.rows.length === 0) {
+      await cloudApi.sendTextMessage(phone, '👁️ 0 צפיות - אין צפיות עדיין');
+    } else {
+      // Send as TXT file with count in caption
+      const viewersList = views.rows.map(v => v.viewer_phone).join('\n');
+      const fileContent = `רשימת צופים (${views.rows.length})\n${'='.repeat(30)}\n\n${viewersList}`;
+      await cloudApi.sendDocumentMessage(phone, fileContent, `צפיות_${views.rows.length}.txt`, `👁️ ${views.rows.length} צפיות`);
+    }
+    return;
+  }
+  
+  // Hearts - combined count + list (all heart emojis)
+  if (selectedId.startsWith('queued_hearts_')) {
+    const realStatusId = await getStatusIdFromQueueId(statusId);
+    if (!realStatusId) {
+      await cloudApi.sendTextMessage(phone, '❤️ הסטטוס עדיין לא נשלח או שלא נמצא');
+      return;
+    }
+    const hearts = await db.query(
+      `SELECT reactor_phone, reaction, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction IN ('❤️', '💚', '💙', '💜', '🖤', '🤍', '💛', '🧡', '🤎', '💗', '💖', '💕', '💓', '💞', '💘', '❣️') ORDER BY reacted_at DESC`,
+      [realStatusId]
+    );
+    
+    if (hearts.rows.length === 0) {
+      await cloudApi.sendTextMessage(phone, '❤️ 0 סימוני לב - אין סימוני לב עדיין');
+    } else {
+      // Send as TXT file with count in caption
+      const heartsList = hearts.rows.map(h => `${h.reaction} ${h.reactor_phone}`).join('\n');
+      const fileContent = `רשימת סימוני לב (${hearts.rows.length})\n${'='.repeat(30)}\n\n${heartsList}`;
+      await cloudApi.sendDocumentMessage(phone, fileContent, `לבבות_${hearts.rows.length}.txt`, `❤️ ${hearts.rows.length} סימוני לב`);
+    }
+    return;
+  }
+  
+  // Reactions - combined count + list (non-heart emojis)
+  if (selectedId.startsWith('queued_reactions_')) {
+    const realStatusId = await getStatusIdFromQueueId(statusId);
+    if (!realStatusId) {
+      await cloudApi.sendTextMessage(phone, '💬 הסטטוס עדיין לא נשלח או שלא נמצא');
+      return;
+    }
+    const reactions = await db.query(
+      `SELECT reactor_phone, reaction, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction NOT IN ('❤️', '💚', '💙', '💜', '🖤', '🤍', '💛', '🧡', '🤎', '💗', '💖', '💕', '💓', '💞', '💘', '❣️') ORDER BY reacted_at DESC`,
+      [realStatusId]
+    );
+    
+    if (reactions.rows.length === 0) {
+      await cloudApi.sendTextMessage(phone, '💬 0 תגובות - אין תגובות עדיין');
+    } else {
+      // Send as TXT file with count in caption
+      const reactionsList = reactions.rows.map(r => `${r.reaction} ${r.reactor_phone}`).join('\n');
+      const fileContent = `רשימת תגובות (${reactions.rows.length})\n${'='.repeat(30)}\n\n${reactionsList}`;
+      await cloudApi.sendDocumentMessage(phone, fileContent, `תגובות_${reactions.rows.length}.txt`, `💬 ${reactions.rows.length} תגובות`);
+    }
+    return;
+  }
+  
+  // Unknown queued action
+  await cloudApi.sendTextMessage(phone, 'פעולה לא מזוהה');
 }
 
 /**
@@ -948,7 +1174,6 @@ async function handleSendNow(phone, statusId, pendingStatus) {
       }, {
         title: 'פעולות',
         rows: [
-          { id: 'new_status', title: '➕ סטטוס חדש', description: 'שלח סטטוס נוסף' },
           { id: `queued_delete_group_${partGroupId}`, title: '🗑️ מחק סרטון', description: 'הסר את כל החלקים מהתור' },
           { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים בתור ומתוזמנים' },
           { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
@@ -984,7 +1209,6 @@ async function handleSendNow(phone, statusId, pendingStatus) {
       }, {
         title: 'פעולות',
         rows: [
-          { id: 'new_status', title: '➕ סטטוס חדש', description: 'שלח סטטוס נוסף' },
           { id: `queued_delete_${queuedStatusId}`, title: '🗑️ מחק סטטוס', description: 'הסר מתור השליחה' },
           { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים בתור ומתוזמנים' },
           { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
@@ -2006,7 +2230,6 @@ async function handleSelectActionState(phone, message, state) {
     }, {
       title: 'פעולות',
       rows: [
-        { id: 'new_status', title: '➕ סטטוס חדש', description: 'שלח סטטוס נוסף' },
         { id: `queued_delete_${queuedStatusId}`, title: '🗑️ מחק סטטוס', description: 'הסר מתור השליחה' },
         { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים מתוזמנים ופעילים' },
         { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
