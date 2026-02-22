@@ -1278,9 +1278,18 @@ async function syncStatusBotView(userId, waMessageId, viewerPhone) {
     `, [userId, waMessageId]);
     
     // If not found, try partial match (extract hex ID from webhook message)
+    // Format: true_status@broadcast_3EB0HEXID_972PHONE@c.us
     if (statusResult.rows.length === 0 && waMessageId.includes('_')) {
       const parts = waMessageId.split('_');
-      const hexId = parts[parts.length - 1]?.split('@')[0] || parts[parts.length - 1];
+      // The hex ID is typically at index 2 (after "true" and "status@broadcast")
+      // It starts with "3EB0" and is 24 chars long
+      let hexId = null;
+      for (const part of parts) {
+        if (part.startsWith('3EB') && part.length >= 20 && !part.includes('@')) {
+          hexId = part;
+          break;
+        }
+      }
       if (hexId) {
         console.log(`[Webhook] 🔍 Trying partial match with hexId: ${hexId}`);
         statusResult = await pool.query(`
