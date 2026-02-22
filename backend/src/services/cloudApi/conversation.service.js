@@ -926,12 +926,14 @@ async function handleSendNow(phone, statusId, pendingStatus) {
       let firstQueuedId = null;
       
       for (let i = 0; i < parts.length; i++) {
+        // parts[i] is an object { filePath, url, partNumber, totalParts } - extract url
+        const partUrl = typeof parts[i] === 'object' ? parts[i].url : parts[i];
         const insertResult = await db.query(`
           INSERT INTO status_bot_queue 
           (connection_id, status_type, content, queue_status, source, part_group_id, part_number, total_parts)
           VALUES ($1, 'video', $2, 'pending', 'whatsapp', $3, $4, $5)
           RETURNING id
-        `, [connectionId, JSON.stringify({ url: parts[i], caption: captions[i] || '' }), partGroupId, i + 1, parts.length]);
+        `, [connectionId, JSON.stringify({ url: partUrl, caption: captions[i] || '' }), partGroupId, i + 1, parts.length]);
         if (i === 0) firstQueuedId = insertResult.rows[0]?.id;
       }
       
@@ -1169,11 +1171,13 @@ async function handleTimeSelection(phone, statusId, pendingStatus, timeStr) {
       const partGroupId = uuidv4();
       
       for (let i = 0; i < parts.length; i++) {
+        // parts[i] is an object { filePath, url, partNumber, totalParts } - extract url
+        const partUrl = typeof parts[i] === 'object' ? parts[i].url : parts[i];
         await db.query(`
           INSERT INTO status_bot_queue 
           (connection_id, status_type, content, queue_status, scheduled_for, source, part_group_id, part_number, total_parts)
           VALUES ($1, 'video', $2, 'scheduled', $3, 'whatsapp', $4, $5, $6)
-        `, [connectionId, JSON.stringify({ url: parts[i], caption: captions[i] || '' }), scheduledTime, partGroupId, i + 1, parts.length]);
+        `, [connectionId, JSON.stringify({ url: partUrl, caption: captions[i] || '' }), scheduledTime, partGroupId, i + 1, parts.length]);
       }
       
       const hebrewDate = new Date(scheduledTime).toLocaleString('he-IL', { 
