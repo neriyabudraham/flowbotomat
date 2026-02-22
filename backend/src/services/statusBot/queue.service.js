@@ -375,6 +375,7 @@ async function sendStatus(queueItem) {
         `/api/${sessionName}/status/new-message-id`
       );
       messageId = idResponse.id;
+      console.log(`[StatusBot Queue] 🆔 Got new message ID: ${messageId} for queue item ${queueItem.id}`);
 
       // Save message ID to queue
       await db.query(`
@@ -385,6 +386,8 @@ async function sendStatus(queueItem) {
       console.error('[StatusBot Queue] Failed to get message ID:', e.message);
       // Continue without message ID
     }
+  } else {
+    console.log(`[StatusBot Queue] 🆔 Using existing message ID: ${messageId} for queue item ${queueItem.id}`);
   }
 
   // Build request body based on status type
@@ -455,6 +458,10 @@ async function sendStatus(queueItem) {
   
   console.log(`[StatusBot Queue] WAHA Response:`, JSON.stringify(response, null, 2));
 
+  // Determine the best message ID to save
+  const savedMessageId = messageId || response?.id || null;
+  console.log(`[StatusBot Queue] 💾 Saving to history with waha_message_id: ${savedMessageId} (from messageId=${messageId}, response.id=${response?.id})`);
+
   // Save to history
   await db.query(`
     INSERT INTO status_bot_statuses 
@@ -465,7 +472,7 @@ async function sendStatus(queueItem) {
     queueItem.id,
     queueItem.status_type,
     JSON.stringify(content),
-    messageId || response?.id || null,
+    savedMessageId,
     queueItem.source,
     queueItem.source_phone
   ]);
