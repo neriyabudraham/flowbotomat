@@ -1413,7 +1413,8 @@ async function handleSendNow(phone, statusId, pendingStatus) {
         phone,
         `✅ ${parts.length} חלקי הסרטון נוספו לתור ויישלחו בקרוב!\n\nמה תרצה לעשות עכשיו?`,
         'בחר פעולה',
-        sections
+        sections,
+        pendingStatus.messageId // Reply to original message
       );
     } else {
       // Single status - include backgroundColor in content if present
@@ -1448,7 +1449,8 @@ async function handleSendNow(phone, statusId, pendingStatus) {
         phone,
         '✅ הסטטוס נוסף לתור ויישלח בקרוב!\n\nמה תרצה לעשות עכשיו?',
         'בחר פעולה',
-        sections
+        sections,
+        pendingStatus.messageId // Reply to original message
       );
     }
     
@@ -1705,7 +1707,8 @@ async function handleWaitingScheduleTimeState(phone, message, state) {
       phone,
       `✅ הסטטוס תוזמן ל-${hebrewDate}${partsNote}\n\nמה תרצה לעשות?`,
       'בחר פעולה',
-      sections
+      sections,
+      pendingStatus?.messageId // Reply to original message
     );
     
     await setState(phone, 'idle', null, null);
@@ -1839,13 +1842,13 @@ async function handleIdleState(phone, message, state) {
   let videoUrl = null;
   let originalCaption = '';
   
-  if (message.type === 'text') {
+  if (message.type === 'text' && message.text?.body) {
     statusData = {
       type: 'text',
       text: message.text.body,
       messageId
     };
-  } else if (message.type === 'image') {
+  } else if (message.type === 'image' && message.image?.id) {
     const media = await cloudApi.downloadMedia(message.image.id);
     const url = await cloudApi.uploadMediaToStorage(media.buffer, media.mimeType);
     statusData = {
@@ -1854,7 +1857,7 @@ async function handleIdleState(phone, message, state) {
       caption: message.image.caption || '',
       messageId
     };
-  } else if (message.type === 'video') {
+  } else if (message.type === 'video' && message.video?.id) {
     const media = await cloudApi.downloadMedia(message.video.id);
     videoUrl = await cloudApi.uploadMediaToStorage(media.buffer, media.mimeType);
     originalCaption = message.video.caption || '';
@@ -1907,7 +1910,7 @@ async function handleIdleState(phone, message, state) {
         messageId
       };
     }
-  } else if (message.type === 'audio') {
+  } else if (message.type === 'audio' && message.audio?.id) {
     const media = await cloudApi.downloadMedia(message.audio.id);
     const url = await cloudApi.uploadMediaToStorage(media.buffer, media.mimeType);
     statusData = {
@@ -1916,6 +1919,8 @@ async function handleIdleState(phone, message, state) {
       messageId
     };
   } else {
+    // Log the unexpected message type for debugging
+    console.log(`[CloudAPI Conv] Unsupported or malformed message type: ${message.type}`, JSON.stringify(message).substring(0, 200));
     await cloudApi.sendTextMessage(phone, 'סוג הודעה לא נתמך, אנא שלח טקסט, תמונה, סרטון או הקלטה קולית');
     return;
   }
@@ -2551,7 +2556,8 @@ async function handleSelectActionState(phone, message, state) {
         phone,
         `✅ ${parts.length} חלקי סרטון נוספו לתור השליחה!\n\nהחלקים יישלחו בזה אחר זה עם הפרש של 30 שניות ביניהם.\n\nבחר פעולה`,
         'בחר פעולה',
-        sections
+        sections,
+        pendingStatus?.messageId // Reply to original message
       );
       await setState(phone, 'after_send_menu', { queuedStatusIds: queuedIds }, null, state.connection_id);
       return;
@@ -2584,7 +2590,8 @@ async function handleSelectActionState(phone, message, state) {
       phone,
       '✅ הסטטוס נוסף לתור השליחה!\n\nבחר פעולה',
       'בחר פעולה',
-      sections
+      sections,
+      pendingStatus?.messageId // Reply to original message
     );
     await setState(phone, 'after_send_menu', { queuedStatusId }, null, state.connection_id);
     return;
