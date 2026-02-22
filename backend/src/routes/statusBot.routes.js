@@ -88,6 +88,11 @@ router.delete('/queue/:queueId', authMiddleware, statusBotController.deleteQueue
 router.post('/queue/:queueId/send-now', authMiddleware, statusBotController.sendQueueItemNow);
 router.patch('/queue/:queueId', authMiddleware, statusBotController.updateQueueItem);
 
+// Failed/cancelled statuses
+router.get('/failed', authMiddleware, statusBotController.getFailedStatuses);
+router.post('/failed/:queueId/retry', authMiddleware, statusBotController.retryFailedStatus);
+router.delete('/failed/:queueId', authMiddleware, statusBotController.deleteFailedStatus);
+
 // Pending statuses (from WhatsApp bot conversations)
 router.get('/pending-statuses', authMiddleware, statusBotController.getPendingStatuses);
 router.post('/pending-statuses/:statusId/send', authMiddleware, statusBotController.sendPendingStatus);

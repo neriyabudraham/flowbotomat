@@ -1739,6 +1739,118 @@ async function updateQueueItem(req, res) {
   }
 }
 
+/**
+ * Get failed/cancelled statuses for user
+ */
+async function getFailedStatuses(req, res) {
+  try {
+    const userId = req.user.id;
+
+    const connResult = await db.query(
+      'SELECT id FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+
+    if (connResult.rows.length === 0) {
+      return res.json({ failedStatuses: [] });
+    }
+
+    // Get failed/cancelled items from last 7 days
+    const result = await db.query(`
+      SELECT id, status_type, content, queue_status, error_message, retry_count, created_at, updated_at
+      FROM status_bot_queue 
+      WHERE connection_id = $1 AND queue_status IN ('failed', 'cancelled')
+      AND created_at > NOW() - INTERVAL '7 days'
+      ORDER BY created_at DESC
+      LIMIT 50
+    `, [connResult.rows[0].id]);
+
+    res.json({ failedStatuses: result.rows });
+
+  } catch (error) {
+    console.error('[StatusBot] Get failed statuses error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת סטטוסים שנכשלו' });
+  }
+}
+
+/**
+ * Retry a failed/cancelled status
+ */
+async function retryFailedStatus(req, res) {
+  try {
+    const userId = req.user.id;
+    const { queueId } = req.params;
+
+    // Verify the queue item belongs to the user
+    const result = await db.query(`
+      SELECT q.* FROM status_bot_queue q
+      JOIN status_bot_connections c ON c.id = q.connection_id
+      WHERE q.id = $1 AND c.user_id = $2
+    `, [queueId, userId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא פריט' });
+    }
+
+    const queueItem = result.rows[0];
+
+    // Only allow retrying failed or cancelled items
+    if (!['failed', 'cancelled'].includes(queueItem.queue_status)) {
+      return res.status(400).json({ error: 'ניתן לנסות מחדש רק פריטים שנכשלו או בוטלו' });
+    }
+
+    // Reset to pending
+    await db.query(`
+      UPDATE status_bot_queue 
+      SET queue_status = 'pending', error_message = NULL, retry_count = 0, updated_at = NOW()
+      WHERE id = $1
+    `, [queueId]);
+
+    res.json({ success: true, message: 'הסטטוס הוכנס מחדש לתור' });
+
+  } catch (error) {
+    console.error('[StatusBot] Retry failed status error:', error);
+    res.status(500).json({ error: 'שגיאה בניסיון מחדש' });
+  }
+}
+
+/**
+ * Delete a failed/cancelled status permanently
+ */
+async function deleteFailedStatus(req, res) {
+  try {
+    const userId = req.user.id;
+    const { queueId } = req.params;
+
+    // Verify the queue item belongs to the user
+    const result = await db.query(`
+      SELECT q.* FROM status_bot_queue q
+      JOIN status_bot_connections c ON c.id = q.connection_id
+      WHERE q.id = $1 AND c.user_id = $2
+    `, [queueId, userId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא פריט' });
+    }
+
+    const queueItem = result.rows[0];
+
+    // Only allow deleting failed or cancelled items
+    if (!['failed', 'cancelled'].includes(queueItem.queue_status)) {
+      return res.status(400).json({ error: 'ניתן למחוק רק פריטים שנכשלו או בוטלו' });
+    }
+
+    // Delete the item
+    await db.query('DELETE FROM status_bot_queue WHERE id = $1', [queueId]);
+
+    res.json({ success: true, message: 'הסטטוס נמחק' });
+
+  } catch (error) {
+    console.error('[StatusBot] Delete failed status error:', error);
+    res.status(500).json({ error: 'שגיאה במחיקה' });
+  }
+}
+
 // ============================================
 // ADMIN ENDPOINTS
 // ============================================
@@ -2792,6 +2904,11 @@ module.exports = {
   deleteQueueItem,
   sendQueueItemNow,
   updateQueueItem,
+  
+  // Failed statuses
+  getFailedStatuses,
+  retryFailedStatus,
+  deleteFailedStatus,
   
   // Pending statuses
   getPendingStatuses,

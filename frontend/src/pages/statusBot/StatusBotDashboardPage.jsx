@@ -125,6 +125,7 @@ function StatusBotDashboardContent() {
   const [scheduled, setScheduled] = useState([]);
   const [activeTab, setActiveTab] = useState('upload'); // upload, pending, history, scheduled, numbers
   const [pendingStatuses, setPendingStatuses] = useState([]); // Pending statuses from WhatsApp bot
+  const [failedStatuses, setFailedStatuses] = useState([]); // Failed/cancelled statuses
   const [qrCode, setQrCode] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -444,11 +445,12 @@ function StatusBotDashboardContent() {
 
   const loadDashboardData = async () => {
     try {
-      const [numbersRes, historyRes, queueRes, pendingRes] = await Promise.all([
+      const [numbersRes, historyRes, queueRes, pendingRes, failedRes] = await Promise.all([
         api.get('/status-bot/authorized-numbers'),
         api.get('/status-bot/history?limit=20'),
         api.get('/status-bot/queue'),
         api.get('/status-bot/pending-statuses').catch(() => ({ data: { pendingStatuses: [] } })),
+        api.get('/status-bot/failed').catch(() => ({ data: { failedStatuses: [] } })),
       ]);
       
       setAuthorizedNumbers(numbersRes.data.numbers || []);
@@ -456,6 +458,7 @@ function StatusBotDashboardContent() {
       setQueue(queueRes.data.queue || []);
       setScheduled(queueRes.data.scheduled || []);
       setPendingStatuses(pendingRes.data.pendingStatuses || []);
+      setFailedStatuses(failedRes.data.failedStatuses || []);
     } catch (err) {
       console.error('Load dashboard data error:', err);
     }
@@ -1528,6 +1531,15 @@ function StatusBotDashboardContent() {
               icon={Users}
               label={`מספרים מורשים ${authorizedNumbers.length > 0 ? `(${authorizedNumbers.length})` : ''}`}
             />
+            {failedStatuses.length > 0 && (
+              <TabButton 
+                active={activeTab === 'failed'} 
+                onClick={() => setActiveTab('failed')}
+                icon={AlertCircle}
+                label={`נכשלו (${failedStatuses.length})`}
+                highlight={true}
+              />
+            )}
           </div>
 
           {/* Tab Content */}
@@ -2276,6 +2288,15 @@ function StatusBotDashboardContent() {
                 </div>
               </div>
             </div>
+          )}
+
+          {activeTab === 'failed' && (
+            <FailedStatusesTab 
+              failedStatuses={failedStatuses}
+              setFailedStatuses={setFailedStatuses}
+              toast={toast}
+              loadDashboardData={loadDashboardData}
+            />
           )}
         </main>
       )}
@@ -3360,6 +3381,189 @@ function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDa
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function FailedStatusesTab({ failedStatuses, setFailedStatuses, toast, loadDashboardData }) {
+  const [actionLoading, setActionLoading] = useState({});
+  
+  const typeIcons = {
+    text: Type,
+    image: Image,
+    video: Video,
+    voice: Mic,
+  };
+  
+  const handleRetry = async (queueId) => {
+    setActionLoading(prev => ({ ...prev, [queueId]: 'retrying' }));
+    try {
+      await api.post(`/status-bot/failed/${queueId}/retry`);
+      setFailedStatuses(prev => prev.filter(s => s.id !== queueId));
+      toast.success('הסטטוס הוכנס מחדש לתור');
+      loadDashboardData();
+    } catch (err) {
+      console.error('Retry failed status error:', err);
+      toast.error('שגיאה בניסיון מחדש');
+    } finally {
+      setActionLoading(prev => ({ ...prev, [queueId]: null }));
+    }
+  };
+  
+  const handleDelete = async (queueId) => {
+    setActionLoading(prev => ({ ...prev, [queueId]: 'deleting' }));
+    try {
+      await api.delete(`/status-bot/failed/${queueId}`);
+      setFailedStatuses(prev => prev.filter(s => s.id !== queueId));
+      toast.success('הסטטוס נמחק');
+    } catch (err) {
+      console.error('Delete failed status error:', err);
+      toast.error('שגיאה במחיקה');
+    } finally {
+      setActionLoading(prev => ({ ...prev, [queueId]: null }));
+    }
+  };
+  
+  const getStatusPreview = (status) => {
+    const content = status.content;
+    if (!content) return 'סטטוס';
+    
+    switch (status.status_type) {
+      case 'text':
+        return content.text ? content.text.substring(0, 50) + (content.text.length > 50 ? '...' : '') : 'סטטוס טקסט';
+      case 'image':
+        return content.caption || 'תמונה';
+      case 'video':
+        return content.caption || 'סרטון';
+      case 'voice':
+        return 'הודעה קולית';
+      default:
+        return 'סטטוס';
+    }
+  };
+  
+  const formatDate = (timestamp) => {
+    if (!timestamp) return '';
+    return new Date(timestamp).toLocaleString('he-IL', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  if (failedStatuses.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center text-gray-500">
+        <CheckCircle className="w-12 h-12 mx-auto mb-3 opacity-50 text-green-500" />
+        <p>אין סטטוסים שנכשלו</p>
+        <p className="text-sm mt-2">כל הסטטוסים נשלחו בהצלחה</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-red-50 rounded-xl p-4 border border-red-200">
+        <div className="flex items-center gap-2 text-red-700">
+          <AlertCircle className="w-5 h-5" />
+          <span className="font-medium">יש לך {failedStatuses.length} סטטוסים שנכשלו או בוטלו</span>
+        </div>
+        <p className="text-sm text-red-600 mt-1">
+          ניתן לנסות שוב או למחוק את הסטטוסים האלו
+        </p>
+      </div>
+      
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
+        {failedStatuses.map(status => {
+          const Icon = typeIcons[status.status_type] || Type;
+          const isLoading = actionLoading[status.id];
+          const content = status.content || {};
+          const mediaUrl = content.file?.url || content.url || content.file;
+          
+          return (
+            <div key={status.id} className="p-4">
+              <div className="flex items-start gap-4">
+                {/* Preview thumbnail */}
+                <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                  {status.status_type === 'image' && mediaUrl ? (
+                    <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                  ) : status.status_type === 'video' && mediaUrl ? (
+                    <video src={mediaUrl} className="w-full h-full object-cover" />
+                  ) : status.status_type === 'text' && content.backgroundColor ? (
+                    <div 
+                      className="w-full h-full flex items-center justify-center p-2"
+                      style={{ backgroundColor: content.backgroundColor }}
+                    >
+                      <span className="text-white text-xs text-center truncate">{content.text?.substring(0, 20)}</span>
+                    </div>
+                  ) : (
+                    <Icon className="w-8 h-8 text-gray-400" />
+                  )}
+                </div>
+                
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                      status.status_type === 'text' ? 'bg-purple-100 text-purple-700' :
+                      status.status_type === 'image' ? 'bg-blue-100 text-blue-700' :
+                      status.status_type === 'video' ? 'bg-red-100 text-red-700' :
+                      'bg-green-100 text-green-700'
+                    }`}>
+                      {status.status_type === 'text' ? 'טקסט' :
+                       status.status_type === 'image' ? 'תמונה' :
+                       status.status_type === 'video' ? 'סרטון' : 'קול'}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-xs ${
+                      status.queue_status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
+                    }`}>
+                      {status.queue_status === 'failed' ? 'נכשל' : 'בוטל'}
+                    </span>
+                    <span className="text-xs text-gray-400">{formatDate(status.created_at)}</span>
+                  </div>
+                  
+                  <p className="text-gray-800 truncate">{getStatusPreview(status)}</p>
+                  
+                  {status.error_message && (
+                    <p className="text-sm text-red-500 mt-1 truncate" title={status.error_message}>
+                      שגיאה: {status.error_message}
+                    </p>
+                  )}
+                </div>
+                
+                {/* Actions */}
+                <div className="flex gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => handleRetry(status.id)}
+                    disabled={isLoading}
+                    className="px-3 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 disabled:opacity-50 flex items-center gap-1.5 text-sm"
+                  >
+                    {isLoading === 'retrying' ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-4 h-4" />
+                    )}
+                    נסה שוב
+                  </button>
+                  <button
+                    onClick={() => handleDelete(status.id)}
+                    disabled={isLoading}
+                    className="px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 disabled:opacity-50 flex items-center gap-1.5 text-sm"
+                  >
+                    {isLoading === 'deleting' ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                    מחק
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
