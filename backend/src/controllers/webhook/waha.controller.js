@@ -1343,7 +1343,7 @@ async function syncStatusBotView(userId, waMessageId, viewerPhone) {
  * Handle session status changes
  */
 async function handleSessionStatus(userId, event) {
-  const { payload } = event;
+  const { payload, session } = event;
   
   const statusMap = {
     'WORKING': 'connected',
@@ -1355,14 +1355,33 @@ async function handleSessionStatus(userId, event) {
   
   const ourStatus = statusMap[payload.status] || 'disconnected';
   
+  // Update main whatsapp_connections
   await pool.query(
     `UPDATE whatsapp_connections SET status = $1, updated_at = NOW() WHERE user_id = $2`,
     [ourStatus, userId]
   );
   
+  // Also update status_bot_connections if this session is used for Status Bot
+  if (session) {
+    const phoneNumber = payload.me?.id?.split('@')[0] || null;
+    const displayName = payload.me?.pushName || null;
+    
+    await pool.query(`
+      UPDATE status_bot_connections 
+      SET connection_status = $1, 
+          phone_number = COALESCE($2, phone_number),
+          display_name = COALESCE($3, display_name),
+          updated_at = NOW()
+      WHERE session_name = $4
+    `, [ourStatus, phoneNumber, displayName, session]);
+    
+    console.log(`[Webhook] Updated status_bot_connections for session ${session} to ${ourStatus}`);
+  }
+  
   // Emit status change to frontend
   const socketManager = getSocketManager();
   socketManager.emitToUser(userId, 'whatsapp_status', { status: ourStatus });
+  socketManager.emitToUser(userId, 'statusbot_status', { status: ourStatus });
 }
 
 /**

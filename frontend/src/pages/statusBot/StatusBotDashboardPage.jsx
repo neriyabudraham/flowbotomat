@@ -15,6 +15,7 @@ import NotificationsDropdown from '../../components/notifications/NotificationsD
 import AccountSwitcher from '../../components/AccountSwitcher';
 import api from '../../services/api';
 import { ToastProvider, useToast } from '../../components/ui/Toast';
+import io from 'socket.io-client';
 
 const BOT_NUMBER = '+972 53-923-2960';
 
@@ -229,6 +230,44 @@ function StatusBotDashboardContent() {
     checkSubscriptionFirst();
     loadAvailableColors();
   }, []);
+
+  // Real-time status updates via Socket.io
+  useEffect(() => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) return;
+
+    const socket = io(import.meta.env.VITE_API_URL?.replace('/api', '') || window.location.origin, {
+      auth: { token }
+    });
+
+    socket.on('statusbot_status', (data) => {
+      console.log('[StatusBot] Real-time status update:', data.status);
+      
+      if (data.status === 'connected') {
+        setConnection(prev => prev ? { ...prev, connection_status: 'connected' } : null);
+        if (step === 'qr' || step === 'loading') {
+          setStep('dashboard');
+          loadDashboardData();
+          toast.success('חיבור הווצאפ הושלם בהצלחה!');
+        }
+      } else if (data.status === 'disconnected' || data.status === 'failed') {
+        setConnection(prev => prev ? { ...prev, connection_status: data.status } : null);
+        if (step === 'dashboard') {
+          toast.error('חיבור הווצאפ התנתק');
+        }
+      } else if (data.status === 'qr_pending') {
+        setConnection(prev => prev ? { ...prev, connection_status: 'qr_pending' } : null);
+        if (step !== 'qr') {
+          setStep('qr');
+          fetchQR();
+        }
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [step]);
   
   // Load available colors from settings
   const loadAvailableColors = async () => {
@@ -345,65 +384,30 @@ function StatusBotDashboardContent() {
     try {
       setStep('loading');
       
-      // First check if main WhatsApp is already connected
-      const existingRes = await api.get('/status-bot/check-existing');
+      // Simply check our DB connection status - trust the webhooks to keep it updated
+      const { data } = await api.get('/status-bot/connection');
       
-      if (existingRes.data.exists && existingRes.data.isConnected) {
-        // Main WhatsApp is connected - check if Status Bot connection exists
-        const { data } = await api.get('/status-bot/connection');
-        
-        if (data.connection?.connection_status === 'connected') {
-          setConnection(data.connection);
-          if (data.subscription) setSubscription(data.subscription);
-          setStep('dashboard');
-          loadDashboardData();
-        } else {
-          // Main WhatsApp connected but Status Bot not yet - auto connect
-          console.log('[StatusBot] Main WhatsApp connected, auto-connecting...');
-          await handleConnect();
-        }
-      } else if (existingRes.data.exists && existingRes.data.isStarting) {
-        // Session is starting/restarting - wait and retry
-        console.log('[StatusBot] Session is starting, waiting...');
-        setStep('loading');
-        // Poll every 2 seconds until connected
-        const pollInterval = setInterval(async () => {
-          try {
-            const { data: pollData } = await api.get('/status-bot/check-existing');
-            if (pollData.isConnected) {
-              clearInterval(pollInterval);
-              const { data } = await api.get('/status-bot/connection');
-              if (data.connection?.connection_status === 'connected') {
-                setConnection(data.connection);
-                if (data.subscription) setSubscription(data.subscription);
-                setStep('dashboard');
-                loadDashboardData();
-              } else {
-                await handleConnect();
-              }
-            } else if (!pollData.isStarting) {
-              // No longer starting but not connected - might need QR
-              clearInterval(pollInterval);
-              setStep('select');
-              setExistingSession(pollData);
-            }
-          } catch (e) {
-            console.error('Poll error:', e);
-          }
-        }, 2000);
-        // Stop polling after 30 seconds
-        setTimeout(() => clearInterval(pollInterval), 30000);
+      if (data.connection?.connection_status === 'connected') {
+        // Connected in DB - show dashboard immediately
+        setConnection(data.connection);
+        if (data.subscription) setSubscription(data.subscription);
+        setStep('dashboard');
+        loadDashboardData();
+      } else if (data.connection?.connection_status === 'qr_pending') {
+        // QR pending - show QR page
+        setConnection(data.connection);
+        setStep('qr');
+        fetchQR();
       } else {
-        // No main WhatsApp connection - show select page
+        // Not connected or no connection record - show select page
         setStep('select');
-        setExistingSession(existingRes.data);
+        // Check for existing session only when showing select page
+        checkExisting();
       }
     } catch (err) {
       console.error('Check status error:', err);
       setStep('select');
-      setIsCheckingExisting(true);
-      await checkExisting();
-      setIsCheckingExisting(false);
+      checkExisting();
     } finally {
       setLoading(false);
     }
