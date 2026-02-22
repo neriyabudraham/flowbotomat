@@ -70,11 +70,6 @@ class BotEngine {
   // Process incoming message
   async processMessage(userId, contactPhone, message, messageType = 'text', selectedRowId = null, quotedListTitle = null, isGroupMessage = false, groupId = null, extraContext = {}) {
     try {
-      // Log channel/group context
-      if (extraContext.isChannel) {
-        console.log(`[BotEngine] 📢 CHANNEL MESSAGE from ${extraContext.channelName || extraContext.channelId}`);
-        console.log(`[BotEngine] 📢 Channel context:`, JSON.stringify(extraContext, null, 2));
-      }
       
       // Get all active bots for this user
       const botsResult = await db.query(
@@ -83,11 +78,8 @@ class BotEngine {
       );
       
       if (botsResult.rows.length === 0) {
-        console.log('[BotEngine] No active bots for user:', userId);
         return;
       }
-      
-      console.log(`[BotEngine] Found ${botsResult.rows.length} active bot(s) for user ${userId}`);
       
       // Get or create contact state
       const contactResult = await db.query(
@@ -592,13 +584,11 @@ class BotEngine {
       // Check if trigger matches (pass isGroupMessage for per-group filtering)
       const triggerMatches = await this.checkTrigger(triggerNode.data, message, messageType, contact, bot.id, isGroupMessage);
       if (!triggerMatches) {
-        console.log('[BotEngine] Trigger does not match for bot:', bot.id);
         return;
       }
       
-      console.log('[BotEngine] ✅ Trigger matched! Starting flow for bot:', bot.name);
-      console.log('[BotEngine] Flow data has', flowData.nodes.length, 'nodes and', flowData.edges.length, 'edges');
-      console.log('[BotEngine] Trigger settings:', JSON.stringify({
+      console.log('[BotEngine] ✅ Trigger matched for bot:', bot.name);
+      const triggerSettings = {
         autoMarkSeen: triggerNode.data.autoMarkSeen,
         oncePerUser: triggerNode.data.oncePerUser,
         hasCooldown: triggerNode.data.hasCooldown
@@ -980,21 +970,12 @@ class BotEngine {
   
   // Check if trigger matches (with advanced settings)
   async checkTrigger(triggerData, message, messageType, contact, botId, isGroupMessage = false) {
-    console.log('[BotEngine] checkTrigger called with:');
-    console.log('[BotEngine] - Message:', message);
-    console.log('[BotEngine] - MessageType:', messageType);
-    console.log('[BotEngine] - Is group message:', isGroupMessage);
-    
     // Support both new triggerGroups format and old triggers format
     const triggerGroups = triggerData.triggerGroups || [];
     const oldTriggers = triggerData.triggers || [];
     
-    console.log('[BotEngine] - triggerGroups count:', triggerGroups.length);
-    console.log('[BotEngine] - oldTriggers count:', oldTriggers.length);
-    
     // If no triggers defined at all, don't match
     if (triggerGroups.length === 0 && oldTriggers.length === 0) {
-      console.log('[BotEngine] No triggers defined - not matching');
       return false;
     }
     
@@ -1003,11 +984,8 @@ class BotEngine {
     
     // NEW FORMAT: Check triggerGroups (groups are OR, conditions within group are AND)
     if (triggerGroups.length > 0) {
-      console.log('[BotEngine] Checking', triggerGroups.length, 'trigger groups');
-      
       for (const group of triggerGroups) {
         const conditions = group.conditions || [];
-        console.log('[BotEngine] Group:', group.id, '- conditions:', conditions.length, '- allowGroupMessages:', group.allowGroupMessages);
         if (conditions.length === 0) continue;
         
         // Auto-detect if this group has channel/group triggers
@@ -1025,26 +1003,20 @@ class BotEngine {
         const isChannelMessage = contact._isChannel || false;
         
         if (isChannelMessage && !allowChannelMessages) {
-          console.log('[BotEngine] Skipping trigger group - channel messages not allowed');
           continue; // Try next group
         }
         if (isGroupMessage && !isChannelMessage && !allowGroupMessages) {
-          console.log('[BotEngine] Skipping trigger group - group messages not allowed');
           continue; // Try next group
         }
         if (!isGroupMessage && !isChannelMessage && !allowDirectMessages) {
-          console.log('[BotEngine] Skipping trigger group - direct messages not allowed');
           continue; // Try next group
         }
-        console.log('[BotEngine] Message source check passed - isGroup:', isGroupMessage, 'isChannel:', isChannelMessage, 'allowDirect:', allowDirectMessages, 'allowGroup:', allowGroupMessages, 'allowChannel:', allowChannelMessages, '(auto-detected: channel=', hasChannelTrigger, 'group=', hasGroupTrigger, ')');
         
         // All conditions in this group must match (AND)
         let groupMatches = true;
         
         for (const condition of conditions) {
           const conditionMatches = await this.checkSingleCondition(condition, message, contact);
-          console.log('[BotEngine] Condition', condition.type, condition.operator || '', ':', conditionMatches);
-          
           if (!conditionMatches) {
             groupMatches = false;
             break;
@@ -1227,11 +1199,8 @@ class BotEngine {
     
     // If content doesn't match, return false immediately
     if (!contentMatches) {
-      console.log('[BotEngine] Content does not match trigger conditions');
       return false;
     }
-    
-    console.log('[BotEngine] Content matches! Now checking advanced settings...');
     
     // SECOND: Check advanced settings (only if content matched)
     

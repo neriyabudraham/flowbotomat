@@ -2196,6 +2196,29 @@ async function handleStatusView(connection, payload) {
     }
     
     if (!viewerPhone || viewerPhone === 'status') return;
+    
+    // Check if viewerPhone is a LID (15+ digits, not starting with country code pattern)
+    // LIDs are typically 15-18 digit numbers that start with 2-3
+    const isLid = /^\d{15,18}$/.test(viewerPhone) && /^[23]/.test(viewerPhone);
+    
+    if (isLid) {
+      // Try to resolve LID to phone number
+      try {
+        const systemCreds = getWahaCredentials();
+        const wahaConnection = {
+          base_url: systemCreds.baseUrl,
+          api_key: systemCreds.apiKey,
+          session_name: connection.session_name
+        };
+        
+        const resolvedPhone = await wahaSession.resolveLid(wahaConnection, viewerPhone);
+        if (resolvedPhone) {
+          viewerPhone = resolvedPhone;
+        }
+      } catch (lidErr) {
+        // Continue with original viewerPhone if resolution fails
+      }
+    }
 
     // Insert view (ignore duplicate)
     await db.query(`
@@ -2257,6 +2280,27 @@ async function handleStatusReaction(connection, payload) {
     // Get reactor phone
     let reactorPhone = participant?.split('@')[0];
     if (!reactorPhone || reactorPhone === 'status') return;
+    
+    // Check if reactorPhone is a LID and resolve it
+    const isLid = /^\d{15,18}$/.test(reactorPhone) && /^[23]/.test(reactorPhone);
+    
+    if (isLid) {
+      try {
+        const systemCreds = getWahaCredentials();
+        const wahaConnection = {
+          base_url: systemCreds.baseUrl,
+          api_key: systemCreds.apiKey,
+          session_name: connection.session_name
+        };
+        
+        const resolvedPhone = await wahaSession.resolveLid(wahaConnection, reactorPhone);
+        if (resolvedPhone) {
+          reactorPhone = resolvedPhone;
+        }
+      } catch (lidErr) {
+        // Continue with original reactorPhone if resolution fails
+      }
+    }
 
     // Get reaction text (emoji)
     const reactionText = reactionData?.text || reactionData?.emoji || reactionData || '❤️';

@@ -123,7 +123,8 @@ function StatusBotDashboardContent() {
   const [statuses, setStatuses] = useState([]);
   const [queue, setQueue] = useState([]);
   const [scheduled, setScheduled] = useState([]);
-  const [activeTab, setActiveTab] = useState('upload'); // upload, history, scheduled, numbers
+  const [activeTab, setActiveTab] = useState('upload'); // upload, pending, history, scheduled, numbers
+  const [pendingStatuses, setPendingStatuses] = useState([]); // Pending statuses from WhatsApp bot
   const [qrCode, setQrCode] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -261,6 +262,22 @@ function StatusBotDashboardContent() {
           setStep('qr');
           fetchQR();
         }
+      }
+    });
+    
+    // Real-time pending status updates
+    socket.on('statusbot:pending_update', (data) => {
+      console.log('[StatusBot] Pending status update:', data);
+      if (data.action === 'new' && data.status) {
+        setPendingStatuses(prev => {
+          const exists = prev.some(p => p.statusId === data.status.statusId);
+          if (exists) {
+            return prev.map(p => p.statusId === data.status.statusId ? data.status : p);
+          }
+          return [data.status, ...prev];
+        });
+      } else if (data.action === 'removed' && data.statusId) {
+        setPendingStatuses(prev => prev.filter(p => p.statusId !== data.statusId));
       }
     });
 
@@ -426,16 +443,18 @@ function StatusBotDashboardContent() {
 
   const loadDashboardData = async () => {
     try {
-      const [numbersRes, historyRes, queueRes] = await Promise.all([
+      const [numbersRes, historyRes, queueRes, pendingRes] = await Promise.all([
         api.get('/status-bot/authorized-numbers'),
         api.get('/status-bot/history?limit=20'),
         api.get('/status-bot/queue'),
+        api.get('/status-bot/pending-statuses').catch(() => ({ data: { statuses: [] } })),
       ]);
       
       setAuthorizedNumbers(numbersRes.data.numbers || []);
       setStatuses(historyRes.data.statuses || []);
       setQueue(queueRes.data.queue || []);
       setScheduled(queueRes.data.scheduled || []);
+      setPendingStatuses(pendingRes.data.statuses || []);
     } catch (err) {
       console.error('Load dashboard data error:', err);
     }
@@ -1481,6 +1500,15 @@ function StatusBotDashboardContent() {
               icon={Upload}
               label="העלאת סטטוס"
             />
+            {pendingStatuses.length > 0 && (
+              <TabButton 
+                active={activeTab === 'pending'} 
+                onClick={() => setActiveTab('pending')}
+                icon={AlertCircle}
+                label={`ממתינים (${pendingStatuses.length})`}
+                highlight={true}
+              />
+            )}
             <TabButton 
               active={activeTab === 'history'} 
               onClick={() => setActiveTab('history')}
@@ -1952,6 +1980,15 @@ function StatusBotDashboardContent() {
                 </>
               )}
             </div>
+          )}
+
+          {activeTab === 'pending' && (
+            <PendingStatusesTab 
+              pendingStatuses={pendingStatuses}
+              setPendingStatuses={setPendingStatuses}
+              toast={toast}
+              loadDashboardData={loadDashboardData}
+            />
           )}
 
           {activeTab === 'history' && (
@@ -2888,14 +2925,16 @@ function StatCard({ icon: Icon, label, value, color }) {
   );
 }
 
-function TabButton({ active, onClick, icon: Icon, label }) {
+function TabButton({ active, onClick, icon: Icon, label, highlight }) {
   return (
     <button
       onClick={onClick}
       className={`px-4 py-2 rounded-xl font-medium flex items-center gap-2 whitespace-nowrap transition-colors ${
         active 
           ? 'bg-green-600 text-white' 
-          : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+          : highlight 
+            ? 'bg-orange-100 text-orange-700 hover:bg-orange-200 border border-orange-300 animate-pulse'
+            : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
       }`}
     >
       <Icon className="w-4 h-4" />
@@ -3029,6 +3068,288 @@ function StatusRow({ status, onDelete, isActive, onShowDetails }) {
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDashboardData }) {
+  const [actionLoading, setActionLoading] = useState({});
+  const [scheduleModal, setScheduleModal] = useState({ show: false, statusId: null, scheduleDate: '', scheduleTime: '' });
+  
+  const typeIcons = {
+    text: Type,
+    image: Image,
+    video: Video,
+    voice: Mic,
+  };
+  
+  const handleSendNow = async (statusId) => {
+    setActionLoading(prev => ({ ...prev, [statusId]: 'sending' }));
+    try {
+      await api.post(`/status-bot/pending-statuses/${statusId}/send`);
+      setPendingStatuses(prev => prev.filter(p => p.statusId !== statusId));
+      toast.success('הסטטוס נשלח לתור!');
+      loadDashboardData();
+    } catch (err) {
+      console.error('Send pending status error:', err);
+      toast.error('שגיאה בשליחת הסטטוס');
+    } finally {
+      setActionLoading(prev => ({ ...prev, [statusId]: null }));
+    }
+  };
+  
+  const handleSchedule = async () => {
+    const { statusId, scheduleDate, scheduleTime } = scheduleModal;
+    if (!scheduleDate || !scheduleTime) {
+      toast.error('נא לבחור תאריך ושעה');
+      return;
+    }
+    
+    setActionLoading(prev => ({ ...prev, [statusId]: 'scheduling' }));
+    try {
+      await api.post(`/status-bot/pending-statuses/${statusId}/schedule`, {
+        scheduleDate,
+        scheduleTime
+      });
+      setPendingStatuses(prev => prev.filter(p => p.statusId !== statusId));
+      setScheduleModal({ show: false, statusId: null, scheduleDate: '', scheduleTime: '' });
+      toast.success('הסטטוס תוזמן בהצלחה!');
+      loadDashboardData();
+    } catch (err) {
+      console.error('Schedule pending status error:', err);
+      toast.error('שגיאה בתזמון הסטטוס');
+    } finally {
+      setActionLoading(prev => ({ ...prev, [statusId]: null }));
+    }
+  };
+  
+  const handleCancel = async (statusId) => {
+    setActionLoading(prev => ({ ...prev, [statusId]: 'canceling' }));
+    try {
+      await api.delete(`/status-bot/pending-statuses/${statusId}`);
+      setPendingStatuses(prev => prev.filter(p => p.statusId !== statusId));
+      toast.success('הסטטוס בוטל');
+    } catch (err) {
+      console.error('Cancel pending status error:', err);
+      toast.error('שגיאה בביטול הסטטוס');
+    } finally {
+      setActionLoading(prev => ({ ...prev, [statusId]: null }));
+    }
+  };
+  
+  const getStatusPreview = (status) => {
+    if (!status.content) return 'סטטוס';
+    
+    switch (status.type) {
+      case 'text':
+        return status.content.text?.substring(0, 50) + (status.content.text?.length > 50 ? '...' : '');
+      case 'image':
+        return status.content.caption || 'תמונה';
+      case 'video':
+        return status.content.caption || 'סרטון';
+      case 'voice':
+        return 'הודעה קולית';
+      default:
+        return 'סטטוס';
+    }
+  };
+  
+  const formatTimeAgo = (timestamp) => {
+    if (!timestamp) return '';
+    const diff = Date.now() - new Date(timestamp).getTime();
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 1) return 'עכשיו';
+    if (minutes < 60) return `לפני ${minutes} דקות`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `לפני ${hours} שעות`;
+    return new Date(timestamp).toLocaleString('he-IL');
+  };
+
+  if (pendingStatuses.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center text-gray-500">
+        <AlertCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
+        <p>אין סטטוסים ממתינים</p>
+        <p className="text-sm mt-2">סטטוסים שתשלח דרך בוט הווצאפ יופיעו כאן</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-orange-50 rounded-xl p-4 border border-orange-200">
+        <div className="flex items-center gap-2 text-orange-700">
+          <AlertCircle className="w-5 h-5" />
+          <span className="font-medium">יש לך {pendingStatuses.length} סטטוסים שממתינים לאישור</span>
+        </div>
+        <p className="text-sm text-orange-600 mt-1">
+          סטטוסים אלו נשלחו דרך בוט הווצאפ וממתינים לאישור שליחה, תזמון או ביטול
+        </p>
+      </div>
+      
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
+        {pendingStatuses.map(status => {
+          const Icon = typeIcons[status.type] || Type;
+          const isLoading = actionLoading[status.statusId];
+          
+          return (
+            <div key={status.statusId} className="p-4">
+              <div className="flex items-start gap-4">
+                {/* Preview thumbnail */}
+                <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                  {status.type === 'image' && status.content?.url ? (
+                    <img src={status.content.url} alt="" className="w-full h-full object-cover" />
+                  ) : status.type === 'video' && status.content?.url ? (
+                    <video src={status.content.url} className="w-full h-full object-cover" />
+                  ) : status.type === 'text' && status.content?.backgroundColor ? (
+                    <div 
+                      className="w-full h-full flex items-center justify-center p-2"
+                      style={{ backgroundColor: status.content.backgroundColor }}
+                    >
+                      <span className="text-white text-xs text-center truncate">{status.content.text?.substring(0, 20)}</span>
+                    </div>
+                  ) : (
+                    <Icon className="w-8 h-8 text-gray-400" />
+                  )}
+                </div>
+                
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                      status.type === 'text' ? 'bg-purple-100 text-purple-700' :
+                      status.type === 'image' ? 'bg-blue-100 text-blue-700' :
+                      status.type === 'video' ? 'bg-red-100 text-red-700' :
+                      'bg-green-100 text-green-700'
+                    }`}>
+                      {status.type === 'text' ? 'טקסט' :
+                       status.type === 'image' ? 'תמונה' :
+                       status.type === 'video' ? 'סרטון' : 'קול'}
+                    </span>
+                    {status.parts && status.parts.length > 1 && (
+                      <span className="px-2 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700">
+                        {status.parts.length} חלקים
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-400">{formatTimeAgo(status.receivedAt)}</span>
+                  </div>
+                  
+                  <p className="text-gray-800 truncate">{getStatusPreview(status)}</p>
+                  
+                  {status.content?.caption && (
+                    <p className="text-sm text-gray-500 truncate mt-1">{status.content.caption}</p>
+                  )}
+                  
+                  {/* Video parts preview */}
+                  {status.parts && status.parts.length > 1 && (
+                    <div className="mt-2 flex gap-2 overflow-x-auto pb-2">
+                      {status.parts.map((part, idx) => (
+                        <div key={idx} className="flex-shrink-0 text-center">
+                          <div className="w-12 h-12 rounded bg-gray-100 flex items-center justify-center">
+                            <Video className="w-5 h-5 text-gray-400" />
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">חלק {idx + 1}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                
+                {/* Actions */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => handleSendNow(status.statusId)}
+                    disabled={isLoading}
+                    className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-1 text-sm font-medium"
+                  >
+                    {isLoading === 'sending' ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                    שלח עכשיו
+                  </button>
+                  
+                  <button
+                    onClick={() => setScheduleModal({ show: true, statusId: status.statusId, scheduleDate: '', scheduleTime: '' })}
+                    disabled={isLoading}
+                    className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1 text-sm font-medium"
+                  >
+                    <Clock className="w-4 h-4" />
+                    תזמן
+                  </button>
+                  
+                  <button
+                    onClick={() => handleCancel(status.statusId)}
+                    disabled={isLoading}
+                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg disabled:opacity-50"
+                    title="בטל"
+                  >
+                    {isLoading === 'canceling' ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <X className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      
+      {/* Schedule Modal */}
+      {scheduleModal.show && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setScheduleModal({ show: false, statusId: null, scheduleDate: '', scheduleTime: '' })}>
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-800 mb-4">תזמון סטטוס</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">תאריך</label>
+                <input
+                  type="date"
+                  value={scheduleModal.scheduleDate}
+                  onChange={(e) => setScheduleModal(prev => ({ ...prev, scheduleDate: e.target.value }))}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">שעה</label>
+                <input
+                  type="time"
+                  value={scheduleModal.scheduleTime}
+                  onChange={(e) => setScheduleModal(prev => ({ ...prev, scheduleTime: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                />
+              </div>
+            </div>
+            
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setScheduleModal({ show: false, statusId: null, scheduleDate: '', scheduleTime: '' })}
+                className="flex-1 px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={handleSchedule}
+                disabled={actionLoading[scheduleModal.statusId]}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {actionLoading[scheduleModal.statusId] === 'scheduling' ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Clock className="w-4 h-4" />
+                )}
+                תזמן
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

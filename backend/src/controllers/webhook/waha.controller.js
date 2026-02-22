@@ -51,7 +51,6 @@ async function resolveLidToPhone(userId, lid) {
       [userId, cleanLid]
     );
     if (dbResult.rows.length > 0 && dbResult.rows[0].phone) {
-      console.log(`[Webhook] LID ${cleanLid} resolved from DB -> ${dbResult.rows[0].phone}`);
       return dbResult.rows[0].phone;
     }
   } catch (dbErr) {
@@ -239,15 +238,7 @@ async function handleWebhook(req, res) {
     const { userId } = req.params;
     const event = req.body;
     
-    // Quick check if user exists (skip for frequent events to reduce DB load)
-    const silentEvents = [
-      'message', 'message.ack', 'message.any', 'message.reaction', 'message.ack.group',
-      'message.waiting', 'message.revoked', 'message.edited', 'poll.vote', 'poll.vote.failed', 
-      'call.received', 'call.rejected', 'call.accepted', 'presence.update'
-    ];
-    if (!silentEvents.includes(event.event)) {
-      console.log(`[Webhook] User: ${userId}, Event: ${event.event}`);
-    }
+    // Webhook event logging disabled to reduce noise - all events are processed silently
     
     // Auto-update webhook events for existing connections (runs once per user)
     if (event.event === 'session.status' && event.payload?.status === 'WORKING') {
@@ -489,12 +480,7 @@ async function handleIncomingMessage(userId, event) {
   const isChannelMessage = chatId?.includes('@newsletter') || false;
   const channelId = isChannelMessage ? chatId : null;
   
-  // Log channel webhook for debugging
-  if (isChannelMessage) {
-    console.log(`[Webhook] 📢 CHANNEL MESSAGE DETECTED`);
-    console.log(`[Webhook] Channel ID: ${channelId}`);
-    console.log(`[Webhook] Full payload:`, JSON.stringify(payload, null, 2));
-  }
+  // Channel message logging disabled to reduce noise
   
   // Extract entry point info for Facebook campaigns and other sources
   const msg = payload._data?.Message || {};
@@ -511,13 +497,7 @@ async function handleIncomingMessage(userId, event) {
   const entryPointSource = contextInfo?.entryPointConversionSource || '';
   const externalAdReply = contextInfo?.externalAdReply || null;
   
-  // Log Facebook campaign / ad entry point for debugging
-  if (entryPointSource || externalAdReply) {
-    console.log(`[Webhook] 📣 ENTRY POINT DETECTED`);
-    console.log(`[Webhook] Entry Point Source: ${entryPointSource}`);
-    console.log(`[Webhook] External Ad Reply:`, externalAdReply ? JSON.stringify(externalAdReply) : 'null');
-    console.log(`[Webhook] Full contextInfo:`, JSON.stringify(contextInfo, null, 2));
-  }
+  // Entry point logging disabled to reduce noise
   
   // Extract sender's phone number and name
   const senderPhone = extractRealPhone(payload);
@@ -670,8 +650,6 @@ async function handleIncomingMessage(userId, event) {
                   payload._data?.NewsletterMeta?.name ||
                   payload.notifyName || payload.pushName || null;
     
-    console.log(`[Webhook] 📢 Channel contact: phone=${contactPhone}, name=${contactName}`);
-    
     // If we couldn't get the name, we'll try to fetch it later
     if (!contactName) {
       contactName = 'ערוץ';
@@ -698,8 +676,6 @@ async function handleIncomingMessage(userId, event) {
       isChannel: isChannelMessage
     }
   });
-  
-  console.log(`[Webhook] Contact ${isGroupMessage ? '(group)' : isChannelMessage ? '(channel)' : '(direct)'}: id=${contact.id}, phone=${contactPhone}`);
   
   // Parse message content
   const messageData = parseMessage(payload);
@@ -818,11 +794,10 @@ async function handleIncomingMessage(userId, event) {
               const matchingChannel = channels.find(ch => ch.id === channelId);
               if (matchingChannel) {
                 channelName = matchingChannel.name;
-                console.log(`[Webhook] 📢 Resolved channel name from API: ${channelName}`);
               }
             }
           } catch (channelErr) {
-            console.log(`[Webhook] Could not fetch channel name: ${channelErr.message}`);
+            // Channel name fetch failed - continue with default
           }
         }
       }
@@ -1018,7 +993,6 @@ async function getOrCreateContact(userId, phone, payload) {
     [userId, phone, waId, displayName]
   );
   
-  console.log(`[Webhook] New contact created: ${phone} (isGroup: ${isGroup})`);
   return result.rows[0];
 }
 
@@ -1494,8 +1468,6 @@ async function handleGroupParticipants(userId, event) {
     const groupId = payload.group?.id;
     const eventType = payload.type; // 'join' or 'leave'
     const participants = payload.participants || [];
-    
-    console.log(`[Webhook] Group ${eventType} in ${groupId}: ${participants.length} participants`);
     
     for (const participant of participants) {
       // Resolve phone - try multiple sources
