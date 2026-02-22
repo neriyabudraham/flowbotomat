@@ -971,25 +971,25 @@ async function handleQueuedAction(phone, selectedId, contextMessageId = null) {
     return;
   }
   
-  // Reactions - combined count + list (non-heart emojis)
+  // Replies - text replies to status (תגובות)
   if (selectedId.startsWith('queued_reactions_')) {
     const realStatusId = await getStatusIdFromQueueId(statusId);
     if (!realStatusId) {
       await cloudApi.sendTextMessage(phone, '💬 הסטטוס עדיין לא נשלח או שלא נמצא', contextMessageId);
       return;
     }
-    const reactions = await db.query(
-      `SELECT reactor_phone, reaction, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction NOT IN ('❤️', '💚', '💙', '💜', '🖤', '🤍', '💛', '🧡', '🤎', '💗', '💖', '💕', '💓', '💞', '💘', '❣️') ORDER BY reacted_at DESC`,
+    const replies = await db.query(
+      `SELECT replier_phone, reply_text, replied_at FROM status_bot_replies WHERE status_id = $1 ORDER BY replied_at DESC`,
       [realStatusId]
     );
     
-    if (reactions.rows.length === 0) {
+    if (replies.rows.length === 0) {
       await cloudApi.sendTextMessage(phone, '💬 0 תגובות - אין תגובות עדיין', contextMessageId);
     } else {
       // Send as TXT file with count in caption
-      const reactionsList = reactions.rows.map(r => `${r.reaction} ${r.reactor_phone}`).join('\n');
-      const fileContent = `רשימת תגובות (${reactions.rows.length})\n${'='.repeat(30)}\n\n${reactionsList}`;
-      await cloudApi.sendDocumentMessage(phone, fileContent, `תגובות_${reactions.rows.length}.txt`, `💬 ${reactions.rows.length} תגובות`, contextMessageId);
+      const repliesList = replies.rows.map(r => `${r.replier_phone}: ${r.reply_text}`).join('\n');
+      const fileContent = `רשימת תגובות (${replies.rows.length})\n${'='.repeat(30)}\n\n${repliesList}`;
+      await cloudApi.sendDocumentMessage(phone, fileContent, `תגובות_${replies.rows.length}.txt`, `💬 ${replies.rows.length} תגובות`, contextMessageId);
     }
     return;
   }
@@ -3265,7 +3265,7 @@ async function handleAfterSendMenuState(phone, message, state) {
     return;
   }
   
-  // Reactions - combined count + list (non-heart emojis)
+  // Replies - text replies to status (תגובות)
   if (selectedId.startsWith('queued_reactions_')) {
     const realStatusId = await getStatusIdFromQueueId(statusId);
     if (!realStatusId) {
@@ -3273,18 +3273,18 @@ async function handleAfterSendMenuState(phone, message, state) {
       await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
       return;
     }
-    const reactions = await db.query(
-      `SELECT reactor_phone, reaction, reacted_at FROM status_bot_reactions WHERE status_id = $1 AND reaction NOT IN ('❤️', '💚', '💙', '💜', '🖤', '🤍', '💛', '🧡', '🤎', '💗', '💖', '💕', '💓', '💞', '💘', '❣️') ORDER BY reacted_at DESC`,
+    const replies = await db.query(
+      `SELECT replier_phone, reply_text, replied_at FROM status_bot_replies WHERE status_id = $1 ORDER BY replied_at DESC`,
       [realStatusId]
     );
     
-    if (reactions.rows.length === 0) {
+    if (replies.rows.length === 0) {
       await cloudApi.sendTextMessage(phone, '💬 0 תגובות - אין תגובות עדיין');
     } else {
       // Send as TXT file with count in caption
-      const reactionsList = reactions.rows.map(r => `${r.reaction} ${r.reactor_phone}`).join('\n');
-      const fileContent = `רשימת תגובות (${reactions.rows.length})\n${'='.repeat(30)}\n\n${reactionsList}`;
-      await cloudApi.sendDocumentMessage(phone, fileContent, `תגובות_${reactions.rows.length}.txt`, `💬 ${reactions.rows.length} תגובות`);
+      const repliesList = replies.rows.map(r => `${r.replier_phone}: ${r.reply_text}`).join('\n');
+      const fileContent = `רשימת תגובות (${replies.rows.length})\n${'='.repeat(30)}\n\n${repliesList}`;
+      await cloudApi.sendDocumentMessage(phone, fileContent, `תגובות_${replies.rows.length}.txt`, `💬 ${replies.rows.length} תגובות`);
     }
     await setState(phone, 'after_send_menu', { queuedStatusId: statusId }, null, state.connection_id);
     return;
@@ -3731,16 +3731,16 @@ async function handleViewStatusActionsState(phone, message, state) {
   }
   
   if (actionId === 'status_reactions') {
-    const reactions = await db.query(
-      `SELECT * FROM status_bot_reactions WHERE status_id = $1 ORDER BY reacted_at DESC`,
+    const replies = await db.query(
+      `SELECT * FROM status_bot_replies WHERE status_id = $1 ORDER BY replied_at DESC`,
       [statusId]
     );
     
-    if (reactions.rows.length === 0) {
+    if (replies.rows.length === 0) {
       await cloudApi.sendTextMessage(phone, 'אין תגובות לסטטוס זה');
     } else {
-      const reactionsList = reactions.rows.map(r => `${r.reaction} - ${r.reactor_phone}`).join('\n');
-      await cloudApi.sendTextMessage(phone, `💬 ${reactions.rows.length} תגובות:\n\n${reactionsList}`);
+      const repliesList = replies.rows.map(r => `${r.replier_phone}: ${r.reply_text}`).join('\n');
+      await cloudApi.sendTextMessage(phone, `💬 ${replies.rows.length} תגובות:\n\n${repliesList}`);
     }
     await setState(phone, 'idle', null, null);
     return;
