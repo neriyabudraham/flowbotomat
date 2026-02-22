@@ -757,28 +757,13 @@ async function handleAccountSelection(phone, statusId, pendingStatus, connection
   const updatedStatus = await getPendingStatus(phone, statusId);
   
   // If video split with caption, ask about caption distribution
-  if (updatedStatus.type === 'video_split' && updatedStatus.originalCaption) {
-    const partCount = updatedStatus.totalParts;
-    const caption = updatedStatus.originalCaption;
-    
-    await cloudApi.sendButtonMessage(
-      phone,
-      `🎬 הסרטון יחולק ל-${partCount} חלקים\n\nאיך תרצה לשים את הכיתוב?\n\n"${caption.substring(0, 50)}${caption.length > 50 ? '...' : ''}"`,
-      [
-        { id: `capall_${statusId}`, title: 'על כל החלקים' },
-        { id: `cap1st_${statusId}`, title: 'רק על הראשון' },
-        { id: `capcus_${statusId}`, title: 'מותאם אישית' }
-      ],
-      updatedStatus.messageId
-    );
-    return;
-  }
-  
-  // If video split without caption, go to action menu
+  // For video split - use default caption mode (first part only)
   if (updatedStatus.type === 'video_split') {
+    await updatePendingStatus(phone, statusId, { captionMode: 'first' });
+    const captionNote = updatedStatus.originalCaption ? '\n\n📝 הכיתוב יופיע על החלק הראשון בלבד' : '';
     await cloudApi.sendButtonMessage(
       phone,
-      `🎬 הסרטון יחולק ל-${updatedStatus.totalParts} חלקים\n\nמה תרצה לעשות?`,
+      `🎬 הסרטון יחולק ל-${updatedStatus.totalParts} חלקים${captionNote}\n\nמה תרצה לעשות?`,
       [
         { id: `send_${statusId}`, title: 'שלח כעת' },
         { id: `sched_${statusId}`, title: 'תזמן' },
@@ -1420,29 +1405,19 @@ async function processVideoInBackground(phone, statusId, videoUrl, originalCapti
       
       await updatePendingStatus(phone, statusId, { connectionId: connection.connection_id });
       
-      // If no caption, go directly to action menu
-      if (!originalCaption) {
-        await cloudApi.sendButtonMessage(
-          phone,
-          `🎬 הסרטון יחולק ל-${partCount} חלקים (~${partDuration} כל חלק)\n\nמה תרצה לעשות?`,
-          [
-            { id: `send_${statusId}`, title: 'שלח כעת' },
-            { id: `sched_${statusId}`, title: 'תזמן' },
-            { id: `cancel_${statusId}`, title: 'בטל' }
-          ],
-          messageId
-        );
-        return;
-      }
+      // Default behavior: caption only on first part (no questions in WhatsApp)
+      // Users can customize captions through the website if needed
+      await updatePendingStatus(phone, statusId, { captionMode: 'first' });
       
-      // Has caption - ask about distribution
+      // Simple message with send options
+      const captionNote = originalCaption ? `\n\n📝 הכיתוב יופיע על החלק הראשון בלבד` : '';
       await cloudApi.sendButtonMessage(
         phone,
-        `🎬 הסרטון יחולק ל-${partCount} חלקים (~${partDuration} כל חלק)\n\nאיך תרצה לשים את הכיתוב?\n\n"${originalCaption.substring(0, 50)}${originalCaption.length > 50 ? '...' : ''}"`,
+        `🎬 הסרטון יחולק ל-${partCount} חלקים (~${partDuration} כל חלק)${captionNote}\n\nמה תרצה לעשות?`,
         [
-          { id: `capall_${statusId}`, title: 'על כל החלקים' },
-          { id: `cap1st_${statusId}`, title: 'רק על הראשון' },
-          { id: `capcus_${statusId}`, title: 'מותאם אישית' }
+          { id: `send_${statusId}`, title: 'שלח כעת' },
+          { id: `sched_${statusId}`, title: 'תזמן' },
+          { id: `cancel_${statusId}`, title: 'בטל' }
         ],
         messageId
       );

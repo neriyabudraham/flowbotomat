@@ -268,16 +268,17 @@ function StatusBotDashboardContent() {
     // Real-time pending status updates
     socket.on('statusbot:pending_update', (data) => {
       console.log('[StatusBot] Pending status update:', data);
-      if (data.action === 'new' && data.status) {
+      if ((data.action === 'new' || data.action === 'add') && data.status) {
+        const newStatusId = data.status.id || data.status.statusId || data.statusId;
         setPendingStatuses(prev => {
-          const exists = prev.some(p => p.statusId === data.status.statusId);
+          const exists = prev.some(p => (p.id || p.statusId) === newStatusId);
           if (exists) {
-            return prev.map(p => p.statusId === data.status.statusId ? data.status : p);
+            return prev.map(p => (p.id || p.statusId) === newStatusId ? { ...data.status, id: newStatusId } : p);
           }
-          return [data.status, ...prev];
+          return [{ ...data.status, id: newStatusId }, ...prev];
         });
       } else if (data.action === 'removed' && data.statusId) {
-        setPendingStatuses(prev => prev.filter(p => p.statusId !== data.statusId));
+        setPendingStatuses(prev => prev.filter(p => (p.id || p.statusId) !== data.statusId));
       }
     });
 
@@ -447,14 +448,14 @@ function StatusBotDashboardContent() {
         api.get('/status-bot/authorized-numbers'),
         api.get('/status-bot/history?limit=20'),
         api.get('/status-bot/queue'),
-        api.get('/status-bot/pending-statuses').catch(() => ({ data: { statuses: [] } })),
+        api.get('/status-bot/pending-statuses').catch(() => ({ data: { pendingStatuses: [] } })),
       ]);
       
       setAuthorizedNumbers(numbersRes.data.numbers || []);
       setStatuses(historyRes.data.statuses || []);
       setQueue(queueRes.data.queue || []);
       setScheduled(queueRes.data.scheduled || []);
-      setPendingStatuses(pendingRes.data.statuses || []);
+      setPendingStatuses(pendingRes.data.pendingStatuses || []);
     } catch (err) {
       console.error('Load dashboard data error:', err);
     }
@@ -3083,11 +3084,14 @@ function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDa
     voice: Mic,
   };
   
+  // Get status ID - handle both API format (id) and socket format (statusId)
+  const getStatusId = (status) => status.id || status.statusId;
+  
   const handleSendNow = async (statusId) => {
     setActionLoading(prev => ({ ...prev, [statusId]: 'sending' }));
     try {
       await api.post(`/status-bot/pending-statuses/${statusId}/send`);
-      setPendingStatuses(prev => prev.filter(p => p.statusId !== statusId));
+      setPendingStatuses(prev => prev.filter(p => getStatusId(p) !== statusId));
       toast.success('הסטטוס נשלח לתור!');
       loadDashboardData();
     } catch (err) {
@@ -3111,7 +3115,7 @@ function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDa
         scheduleDate,
         scheduleTime
       });
-      setPendingStatuses(prev => prev.filter(p => p.statusId !== statusId));
+      setPendingStatuses(prev => prev.filter(p => getStatusId(p) !== statusId));
       setScheduleModal({ show: false, statusId: null, scheduleDate: '', scheduleTime: '' });
       toast.success('הסטטוס תוזמן בהצלחה!');
       loadDashboardData();
@@ -3127,7 +3131,7 @@ function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDa
     setActionLoading(prev => ({ ...prev, [statusId]: 'canceling' }));
     try {
       await api.delete(`/status-bot/pending-statuses/${statusId}`);
-      setPendingStatuses(prev => prev.filter(p => p.statusId !== statusId));
+      setPendingStatuses(prev => prev.filter(p => getStatusId(p) !== statusId));
       toast.success('הסטטוס בוטל');
     } catch (err) {
       console.error('Cancel pending status error:', err);
@@ -3138,15 +3142,16 @@ function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDa
   };
   
   const getStatusPreview = (status) => {
-    if (!status.content) return 'סטטוס';
-    
+    // Handle both API format (flat) and socket format (nested content)
     switch (status.type) {
       case 'text':
-        return status.content.text?.substring(0, 50) + (status.content.text?.length > 50 ? '...' : '');
+        const text = status.text || status.content?.text;
+        return text ? text.substring(0, 50) + (text.length > 50 ? '...' : '') : 'סטטוס טקסט';
       case 'image':
-        return status.content.caption || 'תמונה';
+        return status.caption || status.content?.caption || 'תמונה';
       case 'video':
-        return status.content.caption || 'סרטון';
+      case 'video_split':
+        return status.caption || status.originalCaption || status.content?.caption || 'סרטון';
       case 'voice':
         return 'הודעה קולית';
       default:
@@ -3189,24 +3194,29 @@ function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDa
       
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
         {pendingStatuses.map(status => {
-          const Icon = typeIcons[status.type] || Type;
-          const isLoading = actionLoading[status.statusId];
+          const statusId = getStatusId(status);
+          const Icon = typeIcons[status.type] || (status.type === 'video_split' ? Video : Type);
+          const isLoading = actionLoading[statusId];
+          const mediaUrl = status.url || status.content?.url;
+          const bgColor = status.backgroundColor || status.content?.backgroundColor;
+          const statusText = status.text || status.content?.text;
+          const partsCount = status.parts?.length || status.totalParts || 0;
           
           return (
-            <div key={status.statusId} className="p-4">
+            <div key={statusId} className="p-4">
               <div className="flex items-start gap-4">
                 {/* Preview thumbnail */}
                 <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                  {status.type === 'image' && status.content?.url ? (
-                    <img src={status.content.url} alt="" className="w-full h-full object-cover" />
-                  ) : status.type === 'video' && status.content?.url ? (
-                    <video src={status.content.url} className="w-full h-full object-cover" />
-                  ) : status.type === 'text' && status.content?.backgroundColor ? (
+                  {status.type === 'image' && mediaUrl ? (
+                    <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (status.type === 'video' || status.type === 'video_split') && mediaUrl ? (
+                    <video src={mediaUrl} className="w-full h-full object-cover" />
+                  ) : status.type === 'text' && bgColor ? (
                     <div 
                       className="w-full h-full flex items-center justify-center p-2"
-                      style={{ backgroundColor: status.content.backgroundColor }}
+                      style={{ backgroundColor: bgColor }}
                     >
-                      <span className="text-white text-xs text-center truncate">{status.content.text?.substring(0, 20)}</span>
+                      <span className="text-white text-xs text-center truncate">{statusText?.substring(0, 20)}</span>
                     </div>
                   ) : (
                     <Icon className="w-8 h-8 text-gray-400" />
@@ -3219,25 +3229,25 @@ function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDa
                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                       status.type === 'text' ? 'bg-purple-100 text-purple-700' :
                       status.type === 'image' ? 'bg-blue-100 text-blue-700' :
-                      status.type === 'video' ? 'bg-red-100 text-red-700' :
+                      (status.type === 'video' || status.type === 'video_split') ? 'bg-red-100 text-red-700' :
                       'bg-green-100 text-green-700'
                     }`}>
                       {status.type === 'text' ? 'טקסט' :
                        status.type === 'image' ? 'תמונה' :
-                       status.type === 'video' ? 'סרטון' : 'קול'}
+                       (status.type === 'video' || status.type === 'video_split') ? 'סרטון' : 'קול'}
                     </span>
-                    {status.parts && status.parts.length > 1 && (
+                    {partsCount > 1 && (
                       <span className="px-2 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700">
-                        {status.parts.length} חלקים
+                        {partsCount} חלקים
                       </span>
                     )}
-                    <span className="text-xs text-gray-400">{formatTimeAgo(status.receivedAt)}</span>
+                    <span className="text-xs text-gray-400">{formatTimeAgo(status.createdAt || status.receivedAt)}</span>
                   </div>
                   
                   <p className="text-gray-800 truncate">{getStatusPreview(status)}</p>
                   
-                  {status.content?.caption && (
-                    <p className="text-sm text-gray-500 truncate mt-1">{status.content.caption}</p>
+                  {(status.caption || status.originalCaption) && (
+                    <p className="text-sm text-gray-500 truncate mt-1">{status.caption || status.originalCaption}</p>
                   )}
                   
                   {/* Video parts preview */}
@@ -3258,7 +3268,7 @@ function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDa
                 {/* Actions */}
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button
-                    onClick={() => handleSendNow(status.statusId)}
+                    onClick={() => handleSendNow(statusId)}
                     disabled={isLoading}
                     className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-1 text-sm font-medium"
                   >
@@ -3271,7 +3281,7 @@ function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDa
                   </button>
                   
                   <button
-                    onClick={() => setScheduleModal({ show: true, statusId: status.statusId, scheduleDate: '', scheduleTime: '' })}
+                    onClick={() => setScheduleModal({ show: true, statusId, scheduleDate: '', scheduleTime: '' })}
                     disabled={isLoading}
                     className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1 text-sm font-medium"
                   >
@@ -3280,7 +3290,7 @@ function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDa
                   </button>
                   
                   <button
-                    onClick={() => handleCancel(status.statusId)}
+                    onClick={() => handleCancel(statusId)}
                     disabled={isLoading}
                     className="p-2 text-red-500 hover:bg-red-50 rounded-lg disabled:opacity-50"
                     title="בטל"

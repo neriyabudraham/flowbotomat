@@ -296,11 +296,8 @@ async function verifyAndUpdateWebhook(userId, baseUrl, apiKey, sessionName) {
     const missingEvents = REQUIRED_WEBHOOK_EVENTS.filter(e => !existingEvents.includes(e));
     
     if (missingEvents.length > 0) {
-      console.log(`[Webhook] User ${userId} missing ${missingEvents.length} events: ${missingEvents.join(', ')}`);
+      console.log(`[Webhook] User ${userId} missing ${missingEvents.length} events, updating...`);
       await wahaSession.addWebhook(baseUrl, apiKey, sessionName, webhookUrl, REQUIRED_WEBHOOK_EVENTS);
-      console.log(`[Webhook] ✅ Updated for user ${userId}`);
-    } else {
-      console.log(`[Webhook] ✓ User ${userId} webhook OK (${existingEvents.length} events)`);
     }
   } catch (err) {
     console.error(`[Webhook] Verify failed for user ${userId}:`, err.message);
