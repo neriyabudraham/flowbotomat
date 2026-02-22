@@ -1267,8 +1267,6 @@ async function syncStatusBotView(userId, waMessageId, viewerPhone) {
   try {
     if (!waMessageId || !viewerPhone || viewerPhone === 'status') return;
     
-    console.log(`[Webhook] 🔍 Looking for status view match: userId=${userId}, waMessageId=${waMessageId}, viewer=${viewerPhone}`);
-    
     // Try to find matching status in status_bot_statuses
     // Match by waha_message_id (try exact and partial match)
     let statusResult = await pool.query(`
@@ -1293,7 +1291,6 @@ async function syncStatusBotView(userId, waMessageId, viewerPhone) {
         }
       }
       if (hexId) {
-        console.log(`[Webhook] 🔍 Trying partial match with hexId: ${hexId}`);
         statusResult = await pool.query(`
           SELECT sbs.id, sbs.waha_message_id FROM status_bot_statuses sbs
           JOIN status_bot_connections sbc ON sbs.connection_id = sbc.id
@@ -1304,7 +1301,6 @@ async function syncStatusBotView(userId, waMessageId, viewerPhone) {
     
     // If still not found, try reverse match - maybe our stored ID is contained in the webhook ID
     if (statusResult.rows.length === 0) {
-      console.log(`[Webhook] 🔍 Trying reverse match - checking recent statuses`);
       // Get recent statuses for this user (last 24h)
       const recentStatuses = await pool.query(`
         SELECT sbs.id, sbs.waha_message_id FROM status_bot_statuses sbs
@@ -1318,7 +1314,6 @@ async function syncStatusBotView(userId, waMessageId, viewerPhone) {
       // Check if any stored ID is contained in the webhook message ID
       for (const row of recentStatuses.rows) {
         if (row.waha_message_id && waMessageId.includes(row.waha_message_id)) {
-          console.log(`[Webhook] ✅ Found reverse match: stored=${row.waha_message_id} in webhook=${waMessageId}`);
           statusResult = { rows: [row] };
           break;
         }
@@ -1326,12 +1321,10 @@ async function syncStatusBotView(userId, waMessageId, viewerPhone) {
     }
     
     if (statusResult.rows.length === 0) {
-      console.log(`[Webhook] ❌ No matching status found for waMessageId: ${waMessageId}`);
       return;
     }
     
     const statusId = statusResult.rows[0].id;
-    console.log(`[Webhook] ✅ Found status match: id=${statusId}, stored_waha_id=${statusResult.rows[0].waha_message_id}`);
     
     // Insert view (ignore duplicates)
     await pool.query(`
@@ -1346,11 +1339,8 @@ async function syncStatusBotView(userId, waMessageId, viewerPhone) {
       SET view_count = (SELECT COUNT(*) FROM status_bot_views WHERE status_id = $1)
       WHERE id = $1
     `, [statusId]);
-    
-    console.log(`[Webhook] ✅ Synced view to status_bot: status ${statusId}, viewer ${viewerPhone}`);
   } catch (err) {
     // Silently fail - this is optional sync
-    console.log(`[Webhook] Status bot view sync failed:`, err.message);
   }
 }
 

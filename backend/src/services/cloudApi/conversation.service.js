@@ -1700,15 +1700,19 @@ async function handleDaySelection(phone, statusId, pendingStatus, dayOffset) {
   scheduledDate.setDate(scheduledDate.getDate() + offset);
   
   // Store selected day and set state to wait for time input
-  await updatePendingStatus(phone, statusId, { 
+  const updates = { 
     scheduledDay: offset,
     scheduledDateStr: scheduledDate.toISOString().split('T')[0]
-  });
+  };
+  await updatePendingStatus(phone, statusId, updates);
+  
+  // Update local pendingStatus with the same data
+  const updatedPendingStatus = { ...pendingStatus, ...updates };
   
   // Set state to wait for time input
   const connections = await checkAuthorization(phone);
   const connectionId = pendingStatus.connectionId || (connections.length > 0 ? connections[0].connection_id : null);
-  await setState(phone, 'waiting_schedule_time', { statusId }, pendingStatus, connectionId);
+  await setState(phone, 'waiting_schedule_time', { statusId }, updatedPendingStatus, connectionId);
   
   // Ask for time as text input
   const dayName = DAY_NAMES[scheduledDate.getDay()];
