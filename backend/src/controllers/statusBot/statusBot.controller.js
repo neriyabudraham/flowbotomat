@@ -1802,7 +1802,7 @@ async function retryFailedStatus(req, res) {
     // Reset to pending
     await db.query(`
       UPDATE status_bot_queue 
-      SET queue_status = 'pending', error_message = NULL, retry_count = 0, updated_at = NOW()
+      SET queue_status = 'pending', error_message = NULL, retry_count = 0
       WHERE id = $1
     `, [queueId]);
 
