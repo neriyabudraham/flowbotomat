@@ -88,6 +88,12 @@ router.delete('/queue/:queueId', authMiddleware, statusBotController.deleteQueue
 router.post('/queue/:queueId/send-now', authMiddleware, statusBotController.sendQueueItemNow);
 router.patch('/queue/:queueId', authMiddleware, statusBotController.updateQueueItem);
 
+// Pending statuses (from WhatsApp bot conversations)
+router.get('/pending-statuses', authMiddleware, statusBotController.getPendingStatuses);
+router.post('/pending-statuses/:statusId/send', authMiddleware, statusBotController.sendPendingStatus);
+router.post('/pending-statuses/:statusId/schedule', authMiddleware, statusBotController.schedulePendingStatus);
+router.delete('/pending-statuses/:statusId', authMiddleware, statusBotController.cancelPendingStatus);
+
 // User colors management
 router.get('/colors', authMiddleware, settingsController.getStatusBotColors);
 router.put('/colors', authMiddleware, settingsController.updateStatusBotColors);

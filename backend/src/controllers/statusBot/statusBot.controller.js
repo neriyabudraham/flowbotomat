@@ -1970,7 +1970,7 @@ async function handleWebhook(req, res) {
           (payload?.id && typeof payload.id === 'string' && payload.id.includes('status@broadcast'));
         
         if (isStatusView && ackLevel >= 3) {
-          console.log(`[StatusBot Webhook] ✅ Status view detected - ack: ${ackLevel}, viewer: ${payload?.participant || payload?.to}`);
+          // Status view logging disabled to reduce log noise
           await handleStatusView(connection, payload);
         }
         break;
@@ -1983,7 +1983,7 @@ async function handleWebhook(req, res) {
           payload?.chatId === 'status@broadcast';
         
         if (isStatusReaction) {
-          console.log(`[StatusBot Webhook] ✅ Status reaction detected`);
+          // Status reaction logging disabled to reduce log noise
           await handleStatusReaction(connection, payload);
         }
         break;
@@ -2157,12 +2157,7 @@ async function handleStatusView(connection, payload) {
     const messageId = payload?.id?._serialized || payload?.id;
     const participant = payload?.participant;
 
-    if (!messageId) {
-      console.log('[StatusBot] handleStatusView - no messageId');
-      return;
-    }
-
-    console.log(`[StatusBot] Looking for status with waha_message_id: ${messageId}`);
+    if (!messageId) return;
 
     // Find the status by waha_message_id (try multiple formats)
     let statusResult = await db.query(`
@@ -2172,10 +2167,8 @@ async function handleStatusView(connection, payload) {
 
     // If not found, try extracting the hex ID from the full message ID
     // Format: true_status@broadcast_3EB045A56403626C1E6CE9_972553180071@c.us
-    // The hex ID is the 3rd segment (index 2) after splitting by _
     if (statusResult.rows.length === 0 && messageId.includes('status@broadcast')) {
       const parts = messageId.split('_');
-      // Find the hex ID - it's usually 24 chars and comes after status@broadcast
       let hexId = null;
       for (const part of parts) {
         if (/^[A-F0-9]{20,}$/i.test(part)) {
@@ -2185,7 +2178,6 @@ async function handleStatusView(connection, payload) {
       }
       
       if (hexId) {
-        console.log(`[StatusBot] Trying to match hex ID: ${hexId}`);
         statusResult = await db.query(`
           SELECT id FROM status_bot_statuses 
           WHERE connection_id = $1 AND waha_message_id LIKE $2
@@ -2193,10 +2185,7 @@ async function handleStatusView(connection, payload) {
       }
     }
 
-    if (statusResult.rows.length === 0) {
-      console.log(`[StatusBot] Status not found for messageId: ${messageId}`);
-      return;
-    }
+    if (statusResult.rows.length === 0) return;
 
     const statusId = statusResult.rows[0].id;
     
@@ -2206,12 +2195,7 @@ async function handleStatusView(connection, payload) {
       viewerPhone = payload.to.split('@')[0];
     }
     
-    if (!viewerPhone || viewerPhone === 'status') {
-      console.log('[StatusBot] No valid viewer phone');
-      return;
-    }
-
-    console.log(`[StatusBot] Recording view from ${viewerPhone} for status ${statusId}`);
+    if (!viewerPhone || viewerPhone === 'status') return;
 
     // Insert view (ignore duplicate)
     await db.query(`
@@ -2226,8 +2210,6 @@ async function handleStatusView(connection, payload) {
       SET view_count = (SELECT COUNT(*) FROM status_bot_views WHERE status_id = $1)
       WHERE id = $1
     `, [statusId]);
-    
-    console.log(`[StatusBot] ✅ View recorded for status ${statusId}`);
 
   } catch (error) {
     console.error('[StatusBot] Handle status view error:', error);
@@ -2241,12 +2223,7 @@ async function handleStatusReaction(connection, payload) {
     const messageId = reactionData?.messageId || payload?.id?._serialized || payload?.id;
     const participant = payload?.participant || payload?.from;
 
-    console.log(`[StatusBot] handleStatusReaction - msgId: ${messageId}, reaction:`, reactionData);
-
-    if (!messageId) {
-      console.log('[StatusBot] handleStatusReaction - no messageId');
-      return;
-    }
+    if (!messageId) return;
 
     // Find the status (try multiple formats)
     let statusResult = await db.query(`
@@ -2266,7 +2243,6 @@ async function handleStatusReaction(connection, payload) {
       }
       
       if (hexId) {
-        console.log(`[StatusBot] Trying to match hex ID for reaction: ${hexId}`);
         statusResult = await db.query(`
           SELECT id FROM status_bot_statuses 
           WHERE connection_id = $1 AND waha_message_id LIKE $2
@@ -2274,24 +2250,16 @@ async function handleStatusReaction(connection, payload) {
       }
     }
 
-    if (statusResult.rows.length === 0) {
-      console.log(`[StatusBot] Status not found for reaction, msgId: ${messageId}`);
-      return;
-    }
+    if (statusResult.rows.length === 0) return;
 
     const statusId = statusResult.rows[0].id;
     
     // Get reactor phone
     let reactorPhone = participant?.split('@')[0];
-    if (!reactorPhone || reactorPhone === 'status') {
-      console.log('[StatusBot] No valid reactor phone');
-      return;
-    }
+    if (!reactorPhone || reactorPhone === 'status') return;
 
     // Get reaction text (emoji)
     const reactionText = reactionData?.text || reactionData?.emoji || reactionData || '❤️';
-    
-    console.log(`[StatusBot] Recording reaction ${reactionText} from ${reactorPhone} for status ${statusId}`);
 
     // Insert reaction (allow multiple reactions from same user)
     await db.query(`
@@ -2305,8 +2273,6 @@ async function handleStatusReaction(connection, payload) {
       SET reaction_count = (SELECT COUNT(*) FROM status_bot_reactions WHERE status_id = $1)
       WHERE id = $1
     `, [statusId]);
-    
-    console.log(`[StatusBot] ✅ Reaction recorded for status ${statusId}`);
 
   } catch (error) {
     console.error('[StatusBot] Handle status reaction error:', error);
@@ -2407,6 +2373,347 @@ async function processVideoSplit(req, res) {
   }
 }
 
+// ============================================
+// PENDING STATUSES (from WhatsApp bot conversations)
+// ============================================
+
+/**
+ * Get pending statuses for a user (from WhatsApp bot conversations)
+ */
+async function getPendingStatuses(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    // Get user's connection
+    const connResult = await db.query(
+      `SELECT id, phone_number FROM status_bot_connections WHERE user_id = $1`,
+      [userId]
+    );
+    
+    if (connResult.rows.length === 0) {
+      return res.json({ pendingStatuses: [] });
+    }
+    
+    const connection = connResult.rows[0];
+    
+    // Get authorized numbers for this connection
+    const authResult = await db.query(
+      `SELECT phone_number FROM status_bot_authorized_numbers WHERE connection_id = $1 AND is_active = true`,
+      [connection.id]
+    );
+    
+    const authorizedPhones = authResult.rows.map(r => r.phone_number);
+    
+    // Add connected phone to authorized list
+    if (connection.phone_number) {
+      authorizedPhones.push(connection.phone_number);
+    }
+    
+    if (authorizedPhones.length === 0) {
+      return res.json({ pendingStatuses: [] });
+    }
+    
+    // Get pending statuses from conversation states for these phones
+    const pendingResult = await db.query(
+      `SELECT phone_number, pending_statuses, last_message_at
+       FROM cloud_api_conversation_states
+       WHERE phone_number = ANY($1)
+         AND pending_statuses IS NOT NULL
+         AND pending_statuses != '{}'::jsonb`,
+      [authorizedPhones]
+    );
+    
+    // Format response
+    const allPendingStatuses = [];
+    
+    for (const row of pendingResult.rows) {
+      const pendingStatuses = typeof row.pending_statuses === 'string'
+        ? JSON.parse(row.pending_statuses)
+        : (row.pending_statuses || {});
+      
+      for (const [statusId, status] of Object.entries(pendingStatuses)) {
+        // Filter out statuses in intermediate states or being processed
+        if (status.processingVideo) continue;
+        
+        allPendingStatuses.push({
+          id: statusId,
+          phone: row.phone_number,
+          type: status.type,
+          text: status.text,
+          url: status.url,
+          caption: status.caption || status.originalCaption,
+          backgroundColor: status.backgroundColor,
+          videoDuration: status.videoDuration,
+          parts: status.parts,
+          totalParts: status.totalParts,
+          partCaptions: status.partCaptions,
+          connectionId: status.connectionId,
+          subState: status.subState,
+          askSplit: status.askSplit,
+          createdAt: status.createdAt,
+          lastMessageAt: row.last_message_at
+        });
+      }
+    }
+    
+    // Sort by creation time, newest first
+    allPendingStatuses.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    
+    res.json({ pendingStatuses: allPendingStatuses, connectionId: connection.id });
+    
+  } catch (error) {
+    console.error('[StatusBot] Get pending statuses error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת סטטוסים ממתינים' });
+  }
+}
+
+/**
+ * Send a pending status immediately
+ */
+async function sendPendingStatus(req, res) {
+  try {
+    const userId = req.user.id;
+    const { statusId } = req.params;
+    
+    // Get user's connection
+    const connResult = await db.query(
+      `SELECT id FROM status_bot_connections WHERE user_id = $1`,
+      [userId]
+    );
+    
+    if (connResult.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא חיבור' });
+    }
+    
+    const connectionId = connResult.rows[0].id;
+    
+    // Find the pending status
+    const stateResult = await db.query(
+      `SELECT phone_number, pending_statuses FROM cloud_api_conversation_states
+       WHERE pending_statuses ? $1`,
+      [statusId]
+    );
+    
+    if (stateResult.rows.length === 0) {
+      return res.status(404).json({ error: 'סטטוס לא נמצא' });
+    }
+    
+    const phone = stateResult.rows[0].phone_number;
+    const pendingStatuses = typeof stateResult.rows[0].pending_statuses === 'string'
+      ? JSON.parse(stateResult.rows[0].pending_statuses)
+      : stateResult.rows[0].pending_statuses;
+    
+    const pendingStatus = pendingStatuses[statusId];
+    if (!pendingStatus) {
+      return res.status(404).json({ error: 'סטטוס לא נמצא' });
+    }
+    
+    // Add to queue
+    if (pendingStatus.type === 'video_split' || (pendingStatus.parts && pendingStatus.parts.length > 0)) {
+      // Multiple parts
+      const parts = pendingStatus.parts || [];
+      const captions = pendingStatus.partCaptions || Array(parts.length).fill('');
+      const partGroupId = require('uuid').v4();
+      
+      for (let i = 0; i < parts.length; i++) {
+        await db.query(`
+          INSERT INTO status_bot_queue 
+          (connection_id, status_type, content, queue_status, source, part_group_id, part_number, total_parts)
+          VALUES ($1, 'video', $2, 'pending', 'website', $3, $4, $5)
+        `, [connectionId, JSON.stringify({ url: parts[i], caption: captions[i] || '' }), partGroupId, i + 1, parts.length]);
+      }
+    } else {
+      // Single status
+      let content = {};
+      if (pendingStatus.type === 'text') {
+        content = { text: pendingStatus.text, backgroundColor: pendingStatus.backgroundColor };
+      } else if (pendingStatus.type === 'image') {
+        content = { url: pendingStatus.url, caption: pendingStatus.caption || '' };
+      } else if (pendingStatus.type === 'video') {
+        content = { url: pendingStatus.url, caption: pendingStatus.caption || '' };
+      } else if (pendingStatus.type === 'voice') {
+        content = { url: pendingStatus.url, backgroundColor: pendingStatus.backgroundColor };
+      }
+      
+      await db.query(`
+        INSERT INTO status_bot_queue 
+        (connection_id, status_type, content, queue_status, source)
+        VALUES ($1, $2, $3, 'pending', 'website')
+      `, [connectionId, pendingStatus.type, JSON.stringify(content)]);
+    }
+    
+    // Remove from pending
+    delete pendingStatuses[statusId];
+    await db.query(
+      `UPDATE cloud_api_conversation_states SET pending_statuses = $1 WHERE phone_number = $2`,
+      [JSON.stringify(pendingStatuses), phone]
+    );
+    
+    // Emit socket event
+    emitPendingStatusUpdate(userId);
+    
+    res.json({ success: true, message: 'הסטטוס נוסף לתור' });
+    
+  } catch (error) {
+    console.error('[StatusBot] Send pending status error:', error);
+    res.status(500).json({ error: 'שגיאה בשליחת הסטטוס' });
+  }
+}
+
+/**
+ * Schedule a pending status
+ */
+async function schedulePendingStatus(req, res) {
+  try {
+    const userId = req.user.id;
+    const { statusId } = req.params;
+    const { scheduledFor } = req.body; // ISO date string
+    
+    if (!scheduledFor) {
+      return res.status(400).json({ error: 'נדרש תאריך ושעה לתזמון' });
+    }
+    
+    // Get user's connection
+    const connResult = await db.query(
+      `SELECT id FROM status_bot_connections WHERE user_id = $1`,
+      [userId]
+    );
+    
+    if (connResult.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא חיבור' });
+    }
+    
+    const connectionId = connResult.rows[0].id;
+    
+    // Find the pending status
+    const stateResult = await db.query(
+      `SELECT phone_number, pending_statuses FROM cloud_api_conversation_states
+       WHERE pending_statuses ? $1`,
+      [statusId]
+    );
+    
+    if (stateResult.rows.length === 0) {
+      return res.status(404).json({ error: 'סטטוס לא נמצא' });
+    }
+    
+    const phone = stateResult.rows[0].phone_number;
+    const pendingStatuses = typeof stateResult.rows[0].pending_statuses === 'string'
+      ? JSON.parse(stateResult.rows[0].pending_statuses)
+      : stateResult.rows[0].pending_statuses;
+    
+    const pendingStatus = pendingStatuses[statusId];
+    if (!pendingStatus) {
+      return res.status(404).json({ error: 'סטטוס לא נמצא' });
+    }
+    
+    const scheduledTime = new Date(scheduledFor);
+    
+    // Add to queue as scheduled
+    if (pendingStatus.type === 'video_split' || (pendingStatus.parts && pendingStatus.parts.length > 0)) {
+      const parts = pendingStatus.parts || [];
+      const captions = pendingStatus.partCaptions || Array(parts.length).fill('');
+      const partGroupId = require('uuid').v4();
+      
+      for (let i = 0; i < parts.length; i++) {
+        await db.query(`
+          INSERT INTO status_bot_queue 
+          (connection_id, status_type, content, queue_status, scheduled_for, source, part_group_id, part_number, total_parts)
+          VALUES ($1, 'video', $2, 'scheduled', $3, 'website', $4, $5, $6)
+        `, [connectionId, JSON.stringify({ url: parts[i], caption: captions[i] || '' }), scheduledTime, partGroupId, i + 1, parts.length]);
+      }
+    } else {
+      let content = {};
+      if (pendingStatus.type === 'text') {
+        content = { text: pendingStatus.text, backgroundColor: pendingStatus.backgroundColor };
+      } else if (pendingStatus.type === 'image') {
+        content = { url: pendingStatus.url, caption: pendingStatus.caption || '' };
+      } else if (pendingStatus.type === 'video') {
+        content = { url: pendingStatus.url, caption: pendingStatus.caption || '' };
+      } else if (pendingStatus.type === 'voice') {
+        content = { url: pendingStatus.url, backgroundColor: pendingStatus.backgroundColor };
+      }
+      
+      await db.query(`
+        INSERT INTO status_bot_queue 
+        (connection_id, status_type, content, queue_status, scheduled_for, source)
+        VALUES ($1, $2, $3, 'scheduled', $4, 'website')
+      `, [connectionId, pendingStatus.type, JSON.stringify(content), scheduledTime]);
+    }
+    
+    // Remove from pending
+    delete pendingStatuses[statusId];
+    await db.query(
+      `UPDATE cloud_api_conversation_states SET pending_statuses = $1 WHERE phone_number = $2`,
+      [JSON.stringify(pendingStatuses), phone]
+    );
+    
+    // Emit socket event
+    emitPendingStatusUpdate(userId);
+    
+    res.json({ success: true, message: 'הסטטוס תוזמן בהצלחה' });
+    
+  } catch (error) {
+    console.error('[StatusBot] Schedule pending status error:', error);
+    res.status(500).json({ error: 'שגיאה בתזמון הסטטוס' });
+  }
+}
+
+/**
+ * Cancel a pending status
+ */
+async function cancelPendingStatus(req, res) {
+  try {
+    const userId = req.user.id;
+    const { statusId } = req.params;
+    
+    // Find the pending status
+    const stateResult = await db.query(
+      `SELECT phone_number, pending_statuses FROM cloud_api_conversation_states
+       WHERE pending_statuses ? $1`,
+      [statusId]
+    );
+    
+    if (stateResult.rows.length === 0) {
+      return res.status(404).json({ error: 'סטטוס לא נמצא' });
+    }
+    
+    const phone = stateResult.rows[0].phone_number;
+    const pendingStatuses = typeof stateResult.rows[0].pending_statuses === 'string'
+      ? JSON.parse(stateResult.rows[0].pending_statuses)
+      : stateResult.rows[0].pending_statuses;
+    
+    // Remove from pending
+    delete pendingStatuses[statusId];
+    await db.query(
+      `UPDATE cloud_api_conversation_states SET pending_statuses = $1 WHERE phone_number = $2`,
+      [JSON.stringify(pendingStatuses), phone]
+    );
+    
+    // Emit socket event
+    emitPendingStatusUpdate(userId);
+    
+    res.json({ success: true, message: 'הסטטוס בוטל' });
+    
+  } catch (error) {
+    console.error('[StatusBot] Cancel pending status error:', error);
+    res.status(500).json({ error: 'שגיאה בביטול הסטטוס' });
+  }
+}
+
+/**
+ * Emit socket event for pending status updates
+ */
+function emitPendingStatusUpdate(userId) {
+  try {
+    const socketManager = require('../../services/socket/manager.service').getSocketManager();
+    if (socketManager) {
+      socketManager.emitToUser(userId, 'statusbot:pending_update', { timestamp: Date.now() });
+    }
+  } catch (e) {
+    // Socket not initialized
+  }
+}
+
 module.exports = {
   // Connection
   getConnection,
@@ -2440,6 +2747,12 @@ module.exports = {
   deleteQueueItem,
   sendQueueItemNow,
   updateQueueItem,
+  
+  // Pending statuses
+  getPendingStatuses,
+  sendPendingStatus,
+  schedulePendingStatus,
+  cancelPendingStatus,
   
   // Admin
   adminGetUsers,

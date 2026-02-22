@@ -155,10 +155,10 @@ async function addPendingStatus(phone, statusData, connectionId = null) {
     createdAt: new Date().toISOString()
   };
   
-  // Clean up old statuses (older than 1 hour)
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  // Clean up old statuses (older than 24 hours)
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   for (const [id, status] of Object.entries(pendingStatuses)) {
-    if (status.createdAt && status.createdAt < oneHourAgo) {
+    if (status.createdAt && status.createdAt < twentyFourHoursAgo) {
       delete pendingStatuses[id];
     }
   }
@@ -172,7 +172,40 @@ async function addPendingStatus(phone, statusData, connectionId = null) {
   
   emitAdminUpdate(phone, 'active', { pendingCount: Object.keys(pendingStatuses).length }, connectionId);
   
+  // Emit to user if we have a connectionId
+  if (connectionId) {
+    emitPendingStatusToUser(connectionId, statusId, pendingStatuses[statusId]);
+  }
+  
   return statusId;
+}
+
+/**
+ * Emit pending status update to user via socket
+ */
+async function emitPendingStatusToUser(connectionId, statusId, statusData) {
+  try {
+    // Get user ID from connection
+    const result = await db.query(
+      `SELECT user_id FROM status_bot_connections WHERE id = $1`,
+      [connectionId]
+    );
+    
+    if (result.rows.length === 0) return;
+    
+    const userId = result.rows[0].user_id;
+    const io = getIO();
+    if (io) {
+      io.to(`user:${userId}`).emit('statusbot:pending_update', {
+        action: 'add',
+        statusId,
+        status: statusData,
+        timestamp: Date.now()
+      });
+    }
+  } catch (e) {
+    // Socket error - ignore
+  }
 }
 
 /**
@@ -219,6 +252,12 @@ async function updatePendingStatus(phone, statusId, updates) {
     [JSON.stringify(pendingStatuses), phone]
   );
   
+  // Emit update if we have connectionId
+  const connectionId = pendingStatuses[statusId].connectionId;
+  if (connectionId) {
+    emitPendingStatusToUser(connectionId, statusId, pendingStatuses[statusId]);
+  }
+  
   return true;
 }
 
@@ -237,6 +276,9 @@ async function removePendingStatus(phone, statusId) {
     ? JSON.parse(result.rows[0].pending_statuses || '{}')
     : (result.rows[0].pending_statuses || {});
   
+  // Get connectionId before deleting
+  const connectionId = pendingStatuses[statusId]?.connectionId;
+  
   delete pendingStatuses[statusId];
   
   await db.query(
@@ -245,6 +287,37 @@ async function removePendingStatus(phone, statusId) {
      WHERE phone_number = $2`,
     [JSON.stringify(pendingStatuses), phone]
   );
+  
+  // Emit removal event
+  if (connectionId) {
+    emitPendingStatusRemoval(connectionId, statusId);
+  }
+}
+
+/**
+ * Emit pending status removal to user via socket
+ */
+async function emitPendingStatusRemoval(connectionId, statusId) {
+  try {
+    const result = await db.query(
+      `SELECT user_id FROM status_bot_connections WHERE id = $1`,
+      [connectionId]
+    );
+    
+    if (result.rows.length === 0) return;
+    
+    const userId = result.rows[0].user_id;
+    const io = getIO();
+    if (io) {
+      io.to(`user:${userId}`).emit('statusbot:pending_update', {
+        action: 'remove',
+        statusId,
+        timestamp: Date.now()
+      });
+    }
+  } catch (e) {
+    // Socket error - ignore
+  }
 }
 
 /**
@@ -625,6 +698,12 @@ async function handleInteractiveWithStatusId(phone, selectedId, message) {
       await cloudApi.sendTextMessage(phone, '❌ הסטטוס בוטל');
       return;
     
+    case 'split': // User wants to split borderline video
+      return await handleSplitBorderlineVideo(phone, statusId, pendingStatus, true);
+    
+    case 'nosplit': // User doesn't want to split borderline video
+      return await handleSplitBorderlineVideo(phone, statusId, pendingStatus, false);
+    
     case 'capall': // Caption on all parts
       return await handleCaptionChoice(phone, statusId, pendingStatus, 'all');
     
@@ -777,6 +856,25 @@ async function handleColorSelection(phone, statusId, pendingStatus, colorId) {
 }
 
 /**
+ * Handle user choice for borderline video (91-93 seconds)
+ */
+async function handleSplitBorderlineVideo(phone, statusId, pendingStatus, shouldSplit) {
+  if (shouldSplit) {
+    // User wants to split - process the video
+    await cloudApi.sendTextMessage(phone, '⏳ מחלק את הסרטון...', pendingStatus.messageId);
+    
+    const authorizedConnections = await checkAuthorization(phone);
+    processVideoInBackground(phone, statusId, pendingStatus.url, pendingStatus.caption || '', authorizedConnections, pendingStatus.messageId);
+  } else {
+    // User doesn't want to split - remove askSplit flag and proceed normally
+    await updatePendingStatus(phone, statusId, { askSplit: false });
+    const updatedStatus = await getPendingStatus(phone, statusId);
+    const authorizedConnections = await checkAuthorization(phone);
+    await sendStatusMenu(phone, statusId, updatedStatus, authorizedConnections, pendingStatus.messageId);
+  }
+}
+
+/**
  * Handle caption choice for video splits
  */
 async function handleCaptionChoice(phone, statusId, pendingStatus, choice) {
@@ -843,20 +941,20 @@ async function handleSendNow(phone, statusId, pendingStatus) {
       for (let i = 0; i < parts.length; i++) {
         await db.query(`
           INSERT INTO status_bot_queue 
-          (connection_id, status_type, content, background_color, queue_status, source, part_group_id, part_number, total_parts)
-          VALUES ($1, 'video', $2, NULL, 'pending', 'whatsapp', $3, $4, $5)
+          (connection_id, status_type, content, queue_status, source, part_group_id, part_number, total_parts)
+          VALUES ($1, 'video', $2, 'pending', 'whatsapp', $3, $4, $5)
         `, [connectionId, JSON.stringify({ url: parts[i], caption: captions[i] || '' }), partGroupId, i + 1, parts.length]);
       }
       
       await cloudApi.sendTextMessage(phone, `✅ ${parts.length} חלקי הסרטון נוספו לתור ויישלחו בקרוב`);
     } else {
-      // Single status
+      // Single status - include backgroundColor in content if present
       const content = buildQueueContent(pendingStatus);
       await db.query(`
         INSERT INTO status_bot_queue 
-        (connection_id, status_type, content, background_color, queue_status, source)
-        VALUES ($1, $2, $3, $4, 'pending', 'whatsapp')
-      `, [connectionId, pendingStatus.type, JSON.stringify(content), pendingStatus.backgroundColor || null]);
+        (connection_id, status_type, content, queue_status, source)
+        VALUES ($1, $2, $3, 'pending', 'whatsapp')
+      `, [connectionId, pendingStatus.type, JSON.stringify(content)]);
       
       await cloudApi.sendTextMessage(phone, '✅ הסטטוס נוסף לתור ויישלח בקרוב');
     }
@@ -1035,8 +1133,8 @@ async function handleTimeSelection(phone, statusId, pendingStatus, timeStr) {
       for (let i = 0; i < parts.length; i++) {
         await db.query(`
           INSERT INTO status_bot_queue 
-          (connection_id, status_type, content, background_color, queue_status, scheduled_for, source, part_group_id, part_number, total_parts)
-          VALUES ($1, 'video', $2, NULL, 'scheduled', $3, 'whatsapp', $4, $5, $6)
+          (connection_id, status_type, content, queue_status, scheduled_for, source, part_group_id, part_number, total_parts)
+          VALUES ($1, 'video', $2, 'scheduled', $3, 'whatsapp', $4, $5, $6)
         `, [connectionId, JSON.stringify({ url: parts[i], caption: captions[i] || '' }), scheduledTime, partGroupId, i + 1, parts.length]);
       }
       
@@ -1051,9 +1149,9 @@ async function handleTimeSelection(phone, statusId, pendingStatus, timeStr) {
       const content = buildQueueContent(pendingStatus);
       await db.query(`
         INSERT INTO status_bot_queue 
-        (connection_id, status_type, content, background_color, queue_status, scheduled_for, source)
-        VALUES ($1, $2, $3, $4, 'scheduled', $5, 'whatsapp')
-      `, [connectionId, pendingStatus.type, JSON.stringify(content), pendingStatus.backgroundColor || null, scheduledTime]);
+        (connection_id, status_type, content, queue_status, scheduled_for, source)
+        VALUES ($1, $2, $3, 'scheduled', $4, 'whatsapp')
+      `, [connectionId, pendingStatus.type, JSON.stringify(content), scheduledTime]);
       
       const hebrewDate = new Date(scheduledTime).toLocaleString('he-IL', { 
         timeZone: 'Asia/Jerusalem',
@@ -1078,13 +1176,19 @@ async function handleTimeSelection(phone, statusId, pendingStatus, timeStr) {
 function buildQueueContent(pendingStatus) {
   switch (pendingStatus.type) {
     case 'text':
-      return { text: pendingStatus.text };
+      return { 
+        text: pendingStatus.text,
+        backgroundColor: pendingStatus.backgroundColor || null
+      };
     case 'image':
       return { url: pendingStatus.url, caption: pendingStatus.caption || '' };
     case 'video':
       return { url: pendingStatus.url, caption: pendingStatus.caption || '' };
     case 'voice':
-      return { url: pendingStatus.url };
+      return { 
+        url: pendingStatus.url,
+        backgroundColor: pendingStatus.backgroundColor || null
+      };
     default:
       return {};
   }
@@ -1144,15 +1248,49 @@ async function handleIdleState(phone, message, state) {
     videoUrl = await cloudApi.uploadMediaToStorage(media.buffer, media.mimeType);
     originalCaption = message.video.caption || '';
     
-    // For video, we'll check duration and process in background if needed
-    statusData = {
-      type: 'video',
-      url: videoUrl,
-      caption: originalCaption,
-      messageId,
-      processingVideo: true // Flag to indicate video needs duration check
-    };
-    needsVideoProcessing = true;
+    // Check video duration first (quick check without full processing)
+    let videoDuration = 0;
+    try {
+      videoDuration = await videoSplit.getVideoDuration(videoUrl);
+      console.log(`[CloudAPI Conv] Video duration: ${videoDuration} seconds`);
+    } catch (e) {
+      console.log(`[CloudAPI Conv] Could not get video duration: ${e.message}`);
+    }
+    
+    // Decide based on duration:
+    // <= 91 seconds: normal video, no split
+    // 91-93 seconds: ask user if they want to split
+    // > 93 seconds: will need splitting (show processing message)
+    if (videoDuration > 93) {
+      // Long video - needs processing message
+      statusData = {
+        type: 'video',
+        url: videoUrl,
+        caption: originalCaption,
+        messageId,
+        videoDuration,
+        processingVideo: true
+      };
+      needsVideoProcessing = true;
+    } else if (videoDuration > 91 && videoDuration <= 93) {
+      // Borderline video - ask user
+      statusData = {
+        type: 'video',
+        url: videoUrl,
+        caption: originalCaption,
+        messageId,
+        videoDuration,
+        askSplit: true // Flag to ask user if they want to split
+      };
+    } else {
+      // Short video - no split needed
+      statusData = {
+        type: 'video',
+        url: videoUrl,
+        caption: originalCaption,
+        messageId
+      };
+    }
   } else if (message.type === 'audio') {
     const media = await cloudApi.downloadMedia(message.audio.id);
     const url = await cloudApi.uploadMediaToStorage(media.buffer, media.mimeType);
@@ -1192,11 +1330,27 @@ async function handleIdleState(phone, message, state) {
   
   // Handle video processing in background (non-blocking)
   if (needsVideoProcessing) {
-    // Send immediate response
-    await cloudApi.sendTextMessage(phone, '⏳ מעבד את הסרטון...', messageId);
+    // Long video - send processing message and handle in background
+    await cloudApi.sendTextMessage(phone, '⏳ מחלק את הסרטון לחלקים...', messageId);
     
     // Process video in background
     processVideoInBackground(phone, statusId, videoUrl, originalCaption, authorizedConnections, messageId);
+    return;
+  }
+  
+  // Ask user if they want to split borderline video (91-93 seconds)
+  if (statusData.askSplit) {
+    const durationStr = videoSplit.formatDuration(statusData.videoDuration);
+    await cloudApi.sendButtonMessage(
+      phone,
+      `🎬 הסרטון באורך ${durationStr} - קרוב למגבלת הסטטוס\n\nהאם לחלק אותו לשני חלקים או להעלות כמו שהוא?`,
+      [
+        { id: `split_${statusId}`, title: 'חלק לשניים' },
+        { id: `nosplit_${statusId}`, title: 'העלה ככה' },
+        { id: `cancel_${statusId}`, title: 'בטל' }
+      ],
+      messageId
+    );
     return;
   }
   
