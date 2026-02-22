@@ -1757,7 +1757,7 @@ async function getFailedStatuses(req, res) {
 
     // Get failed/cancelled items from last 7 days
     const result = await db.query(`
-      SELECT id, status_type, content, queue_status, error_message, retry_count, created_at, updated_at
+      SELECT id, status_type, content, queue_status, error_message, retry_count, created_at
       FROM status_bot_queue 
       WHERE connection_id = $1 AND queue_status IN ('failed', 'cancelled')
       AND created_at > NOW() - INTERVAL '7 days'

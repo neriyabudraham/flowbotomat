@@ -1532,12 +1532,12 @@ async function getAvailableColors(connectionId) {
   
   try {
     const result = await db.query(
-      `SELECT colors FROM status_bot_connections WHERE id = $1`,
+      `SELECT custom_colors FROM status_bot_connections WHERE id = $1`,
       [connectionId]
     );
     
-    if (result.rows.length > 0 && result.rows[0].colors) {
-      const colors = result.rows[0].colors;
+    if (result.rows.length > 0 && result.rows[0].custom_colors) {
+      const colors = result.rows[0].custom_colors;
       return Array.isArray(colors) ? colors : DEFAULT_COLORS;
     }
   } catch (e) {
