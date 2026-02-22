@@ -1,11 +1,30 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   Smartphone, RefreshCw, Users, Upload, Eye, Heart,
   Clock, Check, X, AlertCircle, Shield, Wifi, WifiOff,
-  Phone, Search, ChevronDown
+  Phone, Search, ChevronDown, Activity, MessageCircle, Loader2
 } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
+import { io } from 'socket.io-client';
+
+// Helper to translate state names
+function getStateName(state) {
+  const stateNames = {
+    'idle': 'לא פעיל',
+    'select_account': 'בוחר חשבון',
+    'select_color': 'בוחר צבע',
+    'select_action': 'בוחר פעולה',
+    'select_schedule_day': 'בוחר יום',
+    'select_schedule_time': 'מזין שעה',
+    'view_scheduled': 'צופה במתוזמנים',
+    'view_status_actions': 'בוחר פעולה לסטטוס',
+    'after_send_menu': 'תפריט אחרי שליחה',
+    'video_split_caption_choice': 'בוחר כיתוב לסרטון',
+    'video_split_custom_caption': 'מזין כיתוב מותאם'
+  };
+  return stateNames[state] || state;
+}
 
 export default function AdminStatusBot() {
   const [users, setUsers] = useState([]);
@@ -13,10 +32,64 @@ export default function AdminStatusBot() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [liftingRestriction, setLiftingRestriction] = useState(null);
+  
+  // Real-time monitoring state
+  const [activeProcesses, setActiveProcesses] = useState({
+    activeConversations: [],
+    processingUploads: [],
+    queueLock: null,
+    pendingCount: 0
+  });
+  const [loadingProcesses, setLoadingProcesses] = useState(true);
+  const socketRef = useRef(null);
 
   useEffect(() => {
     loadData();
+    loadActiveProcesses();
+    
+    // Setup socket connection
+    const socket = io(import.meta.env.VITE_API_URL?.replace('/api', '') || '', {
+      transports: ['websocket', 'polling']
+    });
+    socketRef.current = socket;
+    
+    socket.on('connect', () => {
+      console.log('Admin socket connected');
+      socket.emit('join_admin');
+    });
+    
+    // Real-time updates
+    socket.on('statusbot:conversation_update', (data) => {
+      console.log('Conversation update:', data);
+      loadActiveProcesses();
+    });
+    
+    socket.on('statusbot:processing_start', (data) => {
+      console.log('Processing started:', data);
+      loadActiveProcesses();
+    });
+    
+    socket.on('statusbot:processing_end', (data) => {
+      console.log('Processing ended:', data);
+      loadActiveProcesses();
+    });
+    
+    return () => {
+      socket.emit('leave_admin');
+      socket.disconnect();
+    };
   }, []);
+  
+  const loadActiveProcesses = async () => {
+    try {
+      const res = await api.get('/status-bot/admin/active-processes');
+      setActiveProcesses(res.data);
+    } catch (err) {
+      console.error('Failed to load active processes:', err);
+    } finally {
+      setLoadingProcesses(false);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -145,6 +218,152 @@ export default function AdminStatusBot() {
           </div>
         </div>
       )}
+      
+      {/* Real-time Active Processes Monitoring */}
+      <div className="bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 rounded-xl p-4 border border-green-200 dark:border-green-800">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-medium text-gray-800 dark:text-white flex items-center gap-2">
+            <Activity className="w-4 h-4 text-green-600" />
+            ניטור בזמן אמת
+            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+          </h3>
+          <button
+            onClick={loadActiveProcesses}
+            className="text-sm text-green-600 hover:text-green-700 flex items-center gap-1"
+          >
+            <RefreshCw className="w-3 h-3" />
+            רענן
+          </button>
+        </div>
+        
+        {loadingProcesses ? (
+          <div className="text-center py-4 text-gray-500">
+            <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+            טוען...
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Active Conversations */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-2">
+                <MessageCircle className="w-4 h-4" />
+                שיחות פעילות ({activeProcesses.activeConversations.length})
+              </h4>
+              {activeProcesses.activeConversations.length === 0 ? (
+                <p className="text-sm text-gray-400 py-2">אין שיחות פעילות כרגע</p>
+              ) : (
+                <div className="space-y-2">
+                  {activeProcesses.activeConversations.map((conv, idx) => (
+                    <div key={idx} className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border border-gray-100 dark:border-gray-700">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                            <Phone className="w-4 h-4 text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-800 dark:text-white" dir="ltr">
+                              +{conv.phone}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {conv.userName || conv.userEmail || 'משתמש לא ידוע'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-left">
+                          <span className="inline-block px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                            {getStateName(conv.state)}
+                          </span>
+                          <p className="text-xs text-gray-400 mt-1">
+                            {new Date(conv.lastMessageAt).toLocaleTimeString('he-IL')}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            {/* Processing Uploads */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-2">
+                <Upload className="w-4 h-4" />
+                העלאות בעיבוד ({activeProcesses.processingUploads.length})
+              </h4>
+              {activeProcesses.processingUploads.length === 0 ? (
+                <p className="text-sm text-gray-400 py-2">אין העלאות בעיבוד כרגע</p>
+              ) : (
+                <div className="space-y-2">
+                  {activeProcesses.processingUploads.map((upload, idx) => (
+                    <div key={idx} className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border border-amber-200 dark:border-amber-800">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center">
+                            <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-800 dark:text-white">
+                              {upload.statusType === 'text' ? 'טקסט' : 
+                               upload.statusType === 'image' ? 'תמונה' : 
+                               upload.statusType === 'video' ? 'סרטון' : 'קול'}
+                              {upload.totalParts > 1 && ` (חלק ${upload.partNumber}/${upload.totalParts})`}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {upload.userName || upload.userEmail || 'משתמש לא ידוע'}
+                              {upload.source === 'whatsapp' && upload.sourcePhone && (
+                                <span className="mr-1" dir="ltr">• מ-{upload.sourcePhone}</span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-left">
+                          <span className="inline-block px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium animate-pulse">
+                            מעלה...
+                          </span>
+                          <p className="text-xs text-gray-400 mt-1">
+                            התחיל: {new Date(upload.startedAt).toLocaleTimeString('he-IL')}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            {/* Summary for restart safety */}
+            <div className={`p-3 rounded-lg ${
+              activeProcesses.activeConversations.length === 0 && activeProcesses.processingUploads.length === 0
+                ? 'bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700'
+                : 'bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700'
+            }`}>
+              <p className={`text-sm font-medium ${
+                activeProcesses.activeConversations.length === 0 && activeProcesses.processingUploads.length === 0
+                  ? 'text-green-700 dark:text-green-400'
+                  : 'text-red-700 dark:text-red-400'
+              }`}>
+                {activeProcesses.activeConversations.length === 0 && activeProcesses.processingUploads.length === 0 ? (
+                  <>
+                    <Check className="w-4 h-4 inline mr-1" />
+                    בטוח לעשות ריסטארט לשרת
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="w-4 h-4 inline mr-1" />
+                    יש תהליכים פעילים! המתן לפני ריסטארט
+                    ({activeProcesses.activeConversations.length} שיחות, {activeProcesses.processingUploads.length} העלאות)
+                  </>
+                )}
+              </p>
+              {activeProcesses.pendingCount > 0 && (
+                <p className="text-xs text-gray-500 mt-1">
+                  {activeProcesses.pendingCount} סטטוסים בתור ממתינים לשליחה
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Search */}
       <div className="relative">

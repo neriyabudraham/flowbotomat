@@ -1924,6 +1924,100 @@ async function adminGetStats(req, res) {
   }
 }
 
+/**
+ * Get active processes for admin monitoring (real-time dashboard)
+ * Shows active conversations with the bot and currently processing uploads
+ */
+async function adminGetActiveProcesses(req, res) {
+  try {
+    // Get active conversations (not idle, updated in last 10 minutes)
+    const conversationsResult = await db.query(`
+      SELECT 
+        c.phone_number,
+        c.state,
+        c.state_data,
+        c.last_message_at,
+        c.connection_id,
+        conn.display_name,
+        conn.phone_number as bot_phone,
+        u.name as user_name,
+        u.email as user_email
+      FROM cloud_api_conversation_states c
+      LEFT JOIN status_bot_connections conn ON conn.id = c.connection_id
+      LEFT JOIN users u ON conn.user_id = u.id
+      WHERE c.state != 'idle' 
+        AND c.last_message_at > NOW() - INTERVAL '10 minutes'
+      ORDER BY c.last_message_at DESC
+    `);
+
+    // Get currently processing queue items
+    const processingResult = await db.query(`
+      SELECT 
+        q.id,
+        q.status_type,
+        q.content,
+        q.processing_started_at,
+        q.source,
+        q.source_phone,
+        q.part_number,
+        q.total_parts,
+        conn.display_name,
+        conn.phone_number as bot_phone,
+        u.name as user_name,
+        u.email as user_email
+      FROM status_bot_queue q
+      JOIN status_bot_connections conn ON conn.id = q.connection_id
+      JOIN users u ON conn.user_id = u.id
+      WHERE q.queue_status = 'processing'
+      ORDER BY q.processing_started_at ASC
+    `);
+
+    // Get queue lock status
+    const lockResult = await db.query(`
+      SELECT is_processing, processing_started_at, last_sent_at
+      FROM status_bot_queue_lock WHERE id = 1
+    `);
+
+    // Get pending count
+    const pendingResult = await db.query(`
+      SELECT COUNT(*) as count FROM status_bot_queue WHERE queue_status = 'pending'
+    `);
+
+    res.json({
+      activeConversations: conversationsResult.rows.map(c => ({
+        phone: c.phone_number,
+        state: c.state,
+        stateData: c.state_data,
+        lastMessageAt: c.last_message_at,
+        botPhone: c.bot_phone,
+        displayName: c.display_name,
+        userName: c.user_name,
+        userEmail: c.user_email
+      })),
+      processingUploads: processingResult.rows.map(p => ({
+        id: p.id,
+        statusType: p.status_type,
+        content: p.content,
+        startedAt: p.processing_started_at,
+        source: p.source,
+        sourcePhone: p.source_phone,
+        partNumber: p.part_number,
+        totalParts: p.total_parts,
+        displayName: p.display_name,
+        botPhone: p.bot_phone,
+        userName: p.user_name,
+        userEmail: p.user_email
+      })),
+      queueLock: lockResult.rows[0] || null,
+      pendingCount: parseInt(pendingResult.rows[0].count)
+    });
+
+  } catch (error) {
+    console.error('[StatusBot Admin] Get active processes error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת תהליכים פעילים' });
+  }
+}
+
 // ============================================
 // WEBHOOK HANDLER
 // ============================================
@@ -2439,6 +2533,7 @@ module.exports = {
   adminGetUsers,
   adminLiftRestriction,
   adminGetStats,
+  adminGetActiveProcesses,
   
   // Webhook
   handleWebhook,

@@ -23,6 +23,17 @@ const initSocket = (server) => {
         connectedAt: new Date()
       });
     });
+    
+    // Allow admins to join the admin room for real-time monitoring
+    socket.on('join_admin', (data) => {
+      // In production, verify admin token here
+      socket.join('admin');
+      console.log(`🔐 Admin joined monitoring room`);
+    });
+    
+    socket.on('leave_admin', () => {
+      socket.leave('admin');
+    });
 
     socket.on('disconnect', () => {
       const userData = connectedUsers.get(socket.id);

@@ -8,6 +8,19 @@ const wahaSession = require('../../services/waha/session.service');
 const { getWahaCredentials } = require('../../services/settings/system.service');
 const cloudApi = require('../cloudApi/cloudApi.service');
 
+// Socket helper - safely emit to admin room
+function emitToAdmin(event, data) {
+  try {
+    const { getIO } = require('../socket/manager.service');
+    const io = getIO();
+    if (io) {
+      io.to('admin').emit(event, data);
+    }
+  } catch (e) {
+    // Socket not initialized (e.g., in worker process), ignore
+  }
+}
+
 const QUEUE_INTERVAL = 5000; // Check queue every 5 seconds
 const STATUS_DELAY = 30000; // 30 seconds between statuses
 const STATUS_TIMEOUT = 180000; // 3 minutes timeout per status
@@ -180,6 +193,16 @@ async function processQueue() {
     // Track processing state for graceful shutdown
     isCurrentlyProcessing = true;
     
+    // Emit socket event for admin monitoring
+    emitToAdmin('statusbot:processing_start', {
+      id: item.id,
+      statusType: item.status_type,
+      connectionId: item.connection_id,
+      source: item.source,
+      sourcePhone: item.source_phone,
+      timestamp: new Date().toISOString()
+    });
+    
     try {
       // Process the status and track the promise
       const sendPromise = sendStatus(item);
@@ -212,12 +235,27 @@ async function processQueue() {
       // Send WhatsApp notification if this was from WhatsApp and was scheduled
       await sendStatusNotification(item, true);
       
+      // Emit socket event for admin monitoring
+      emitToAdmin('statusbot:processing_end', {
+        id: item.id,
+        success: true,
+        timestamp: new Date().toISOString()
+      });
+      
       // Clear processing state
       isCurrentlyProcessing = false;
       currentProcessingPromise = null;
 
     } catch (sendError) {
       console.error(`[StatusBot Queue] Failed to send status ${item.id}:`, sendError.message);
+      
+      // Emit socket event for admin monitoring
+      emitToAdmin('statusbot:processing_end', {
+        id: item.id,
+        success: false,
+        error: sendError.message,
+        timestamp: new Date().toISOString()
+      });
 
       // Update as failed
       await db.query(`

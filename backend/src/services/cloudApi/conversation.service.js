@@ -9,6 +9,7 @@ const wahaSession = require('../waha/session.service');
 const { getWahaCredentials } = require('../settings/system.service');
 const videoSplit = require('../statusBot/videoSplit.service');
 const { v4: uuidv4 } = require('uuid');
+const { getIO } = require('../socket/manager.service');
 
 // Default colors (same as in dashboard)
 const DEFAULT_COLORS = [
@@ -111,6 +112,22 @@ async function setState(phone, state, stateData = null, pendingStatus = null, co
      WHERE phone_number = $1`,
     params
   );
+  
+  // Emit socket event for admin monitoring
+  try {
+    const io = getIO();
+    if (io) {
+      io.to('admin').emit('statusbot:conversation_update', {
+        phone,
+        state,
+        stateData,
+        connectionId,
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (e) {
+    // Socket not initialized yet, ignore
+  }
 }
 
 /**
