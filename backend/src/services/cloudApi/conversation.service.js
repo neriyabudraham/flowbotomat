@@ -1173,6 +1173,7 @@ async function handleTimeSelection(phone, statusId, pendingStatus, timeStr) {
 
 /**
  * Build content object for queue from pending status
+ * Note: queue.service.js expects 'file' field for media (not 'url')
  */
 function buildQueueContent(pendingStatus) {
   switch (pendingStatus.type) {
@@ -1182,12 +1183,12 @@ function buildQueueContent(pendingStatus) {
         backgroundColor: pendingStatus.backgroundColor || null
       };
     case 'image':
-      return { url: pendingStatus.url, caption: pendingStatus.caption || '' };
+      return { file: pendingStatus.url, caption: pendingStatus.caption || '' };
     case 'video':
-      return { url: pendingStatus.url, caption: pendingStatus.caption || '' };
+      return { file: pendingStatus.url, caption: pendingStatus.caption || '' };
     case 'voice':
       return { 
-        url: pendingStatus.url,
+        file: pendingStatus.url,
         backgroundColor: pendingStatus.backgroundColor || null
       };
     default:
