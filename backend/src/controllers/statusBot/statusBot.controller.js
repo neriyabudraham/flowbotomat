@@ -1554,8 +1554,19 @@ async function getStatusDetails(req, res) {
     
     // Normalize content structure - ensure file.url exists for media types
     if (content && ['image', 'video', 'voice'].includes(status.status_type)) {
+      // If content.file is a string URL, convert to object
+      if (typeof content.file === 'string') {
+        console.log('[StatusBot] Normalizing content - file is string, converting to object');
+        content.file = {
+          url: content.file,
+          mimetype: status.status_type === 'image' ? 'image/jpeg' : 
+                    status.status_type === 'video' ? 'video/mp4' : 'audio/ogg',
+          filename: `status.${status.status_type === 'image' ? 'jpg' : 
+                              status.status_type === 'video' ? 'mp4' : 'ogg'}`
+        };
+      }
       // If content has url directly but not file.url, normalize it
-      if (content.url && !content.file) {
+      else if (content.url && !content.file) {
         console.log('[StatusBot] Normalizing content - adding file.url from content.url');
         content.file = {
           url: content.url,
