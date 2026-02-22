@@ -94,8 +94,9 @@ export default function AdminUsers() {
   const handleSwitchToAccount = async (userId, userName) => {
     setSwitching(userId);
     try {
+      // Only store original token if not already viewing as another user
       const currentToken = localStorage.getItem('accessToken');
-      if (currentToken) {
+      if (currentToken && !localStorage.getItem('originalAccessToken')) {
         localStorage.setItem('originalAccessToken', currentToken);
       }
       

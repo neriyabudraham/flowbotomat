@@ -65,9 +65,9 @@ export default function AccountSwitcher() {
     try {
       const { data } = await api.post(`/experts/switch/${targetUserId}`);
       
-      // Store the original token for returning
+      // Store the original token for returning (only if not already viewing as another user)
       const originalToken = localStorage.getItem('accessToken');
-      if (!viewingAs) {
+      if (!localStorage.getItem('originalAccessToken')) {
         localStorage.setItem('originalAccessToken', originalToken);
       }
       
