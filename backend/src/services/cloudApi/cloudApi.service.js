@@ -306,7 +306,7 @@ function verifyWebhookSignature(payload, signature) {
  * Send a document (file) to a phone number
  * For TXT files, we create a temporary file and upload it
  */
-async function sendDocumentMessage(to, content, filename, caption = '') {
+async function sendDocumentMessage(to, content, filename, caption = '', contextMessageId = null) {
   const { phoneId, accessToken } = getCredentials();
   
   console.log(`[CloudAPI] Sending document to ${to}: ${filename}`);
@@ -345,19 +345,27 @@ async function sendDocumentMessage(to, content, filename, caption = '') {
     // Clean up temp file
     fs.unlinkSync(tempFilePath);
     
+    // Build message payload
+    const messagePayload = {
+      messaging_product: 'whatsapp',
+      to: to,
+      type: 'document',
+      document: {
+        id: mediaId,
+        caption: caption || undefined,
+        filename: filename
+      }
+    };
+    
+    // Add context for reply if provided
+    if (contextMessageId) {
+      messagePayload.context = { message_id: contextMessageId };
+    }
+    
     // Send the document message
     const response = await axios.post(
       `${GRAPH_API_BASE}/${phoneId}/messages`,
-      {
-        messaging_product: 'whatsapp',
-        to: to,
-        type: 'document',
-        document: {
-          id: mediaId,
-          caption: caption || undefined,
-          filename: filename
-        }
-      },
+      messagePayload,
       {
         headers: {
           'Authorization': `Bearer ${accessToken}`,

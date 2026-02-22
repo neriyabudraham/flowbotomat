@@ -665,7 +665,7 @@ async function handleInteractiveWithStatusId(phone, selectedId, message) {
   
   // Handle queued_* actions globally (these work regardless of state)
   if (action === 'queued') {
-    return await handleQueuedAction(phone, selectedId);
+    return await handleQueuedAction(phone, selectedId, message.id);
   }
   
   // Handle scheduled_* actions (selecting a status from list)
@@ -789,7 +789,7 @@ async function handleInteractiveWithStatusId(phone, selectedId, message) {
  * Handle queued_* actions (views, hearts, reactions, delete, menu, view_all)
  * These work regardless of conversation state
  */
-async function handleQueuedAction(phone, selectedId) {
+async function handleQueuedAction(phone, selectedId, contextMessageId = null) {
   // Handle special actions first
   if (selectedId === 'queued_view_all') {
     return await handleViewAllStatuses(phone);
@@ -851,18 +851,18 @@ async function handleQueuedAction(phone, selectedId) {
       [groupId]
     );
     
-    let message = '';
+    let messageText = '';
     if (deletedFromWA > 0) {
-      message += `✅ ${deletedFromWA} חלקים נמחקו מווצאפ\n`;
+      messageText += `✅ ${deletedFromWA} חלקים נמחקו מווצאפ\n`;
     }
     if (cancelledCount.rows.length > 0) {
-      message += `✅ ${cancelledCount.rows.length} חלקים הוסרו מהתור`;
+      messageText += `✅ ${cancelledCount.rows.length} חלקים הוסרו מהתור`;
     }
-    if (!message) {
-      message = 'אין חלקים למחיקה';
+    if (!messageText) {
+      messageText = 'אין חלקים למחיקה';
     }
     
-    await cloudApi.sendTextMessage(phone, message.trim());
+    await cloudApi.sendTextMessage(phone, messageText.trim(), contextMessageId);
     return;
   }
   
@@ -886,7 +886,7 @@ async function handleQueuedAction(phone, selectedId) {
           `UPDATE status_bot_queue SET queue_status = 'cancelled' WHERE id = $1`,
           [statusId]
         );
-        await cloudApi.sendTextMessage(phone, '✅ הסטטוס הוסר מתור השליחה');
+        await cloudApi.sendTextMessage(phone, '✅ הסטטוס הוסר מתור השליחה', contextMessageId);
       } else if (queueItem.queue_status === 'sent') {
         // Delete sent status from WhatsApp
         if (queueItem.waha_message_id) {
@@ -902,19 +902,19 @@ async function handleQueuedAction(phone, selectedId) {
               await db.query(`UPDATE status_bot_statuses SET deleted_at = NOW() WHERE id = $1`, [queueItem.status_id]);
             }
             
-            await cloudApi.sendTextMessage(phone, '✅ הסטטוס נמחק מווצאפ');
+            await cloudApi.sendTextMessage(phone, '✅ הסטטוס נמחק מווצאפ', contextMessageId);
           } catch (deleteErr) {
             console.error('[CloudAPI] Error deleting status from WhatsApp:', deleteErr.message);
-            await cloudApi.sendTextMessage(phone, 'לא הצלחנו למחוק את הסטטוס מווצאפ');
+            await cloudApi.sendTextMessage(phone, 'לא הצלחנו למחוק את הסטטוס מווצאפ', contextMessageId);
           }
         } else {
-          await cloudApi.sendTextMessage(phone, 'לא ניתן למחוק - מזהה הסטטוס לא נמצא');
+          await cloudApi.sendTextMessage(phone, 'לא ניתן למחוק - מזהה הסטטוס לא נמצא', contextMessageId);
         }
       } else {
-        await cloudApi.sendTextMessage(phone, 'לא ניתן למחוק את הסטטוס');
+        await cloudApi.sendTextMessage(phone, 'לא ניתן למחוק את הסטטוס', contextMessageId);
       }
     } else {
-      await cloudApi.sendTextMessage(phone, 'סטטוס לא נמצא');
+      await cloudApi.sendTextMessage(phone, 'סטטוס לא נמצא', contextMessageId);
     }
     return;
   }
@@ -923,7 +923,7 @@ async function handleQueuedAction(phone, selectedId) {
   if (selectedId.startsWith('queued_views_') && !selectedId.includes('view_all')) {
     const realStatusId = await getStatusIdFromQueueId(statusId);
     if (!realStatusId) {
-      await cloudApi.sendTextMessage(phone, '👁️ הסטטוס עדיין לא נשלח או שלא נמצא');
+      await cloudApi.sendTextMessage(phone, '👁️ הסטטוס עדיין לא נשלח או שלא נמצא', contextMessageId);
       return;
     }
     const views = await db.query(
@@ -932,12 +932,12 @@ async function handleQueuedAction(phone, selectedId) {
     );
     
     if (views.rows.length === 0) {
-      await cloudApi.sendTextMessage(phone, '👁️ 0 צפיות - אין צפיות עדיין');
+      await cloudApi.sendTextMessage(phone, '👁️ 0 צפיות - אין צפיות עדיין', contextMessageId);
     } else {
       // Send as TXT file with count in caption
       const viewersList = views.rows.map(v => v.viewer_phone).join('\n');
       const fileContent = `רשימת צופים (${views.rows.length})\n${'='.repeat(30)}\n\n${viewersList}`;
-      await cloudApi.sendDocumentMessage(phone, fileContent, `צפיות_${views.rows.length}.txt`, `👁️ ${views.rows.length} צפיות`);
+      await cloudApi.sendDocumentMessage(phone, fileContent, `צפיות_${views.rows.length}.txt`, `👁️ ${views.rows.length} צפיות`, contextMessageId);
     }
     return;
   }
@@ -946,7 +946,7 @@ async function handleQueuedAction(phone, selectedId) {
   if (selectedId.startsWith('queued_hearts_')) {
     const realStatusId = await getStatusIdFromQueueId(statusId);
     if (!realStatusId) {
-      await cloudApi.sendTextMessage(phone, '❤️ הסטטוס עדיין לא נשלח או שלא נמצא');
+      await cloudApi.sendTextMessage(phone, '❤️ הסטטוס עדיין לא נשלח או שלא נמצא', contextMessageId);
       return;
     }
     const hearts = await db.query(
@@ -955,12 +955,12 @@ async function handleQueuedAction(phone, selectedId) {
     );
     
     if (hearts.rows.length === 0) {
-      await cloudApi.sendTextMessage(phone, '❤️ 0 סימוני לב - אין סימוני לב עדיין');
+      await cloudApi.sendTextMessage(phone, '❤️ 0 סימוני לב - אין סימוני לב עדיין', contextMessageId);
     } else {
       // Send as TXT file with count in caption
       const heartsList = hearts.rows.map(h => `${h.reaction} ${h.reactor_phone}`).join('\n');
       const fileContent = `רשימת סימוני לב (${hearts.rows.length})\n${'='.repeat(30)}\n\n${heartsList}`;
-      await cloudApi.sendDocumentMessage(phone, fileContent, `לבבות_${hearts.rows.length}.txt`, `❤️ ${hearts.rows.length} סימוני לב`);
+      await cloudApi.sendDocumentMessage(phone, fileContent, `לבבות_${hearts.rows.length}.txt`, `❤️ ${hearts.rows.length} סימוני לב`, contextMessageId);
     }
     return;
   }
@@ -969,7 +969,7 @@ async function handleQueuedAction(phone, selectedId) {
   if (selectedId.startsWith('queued_reactions_')) {
     const realStatusId = await getStatusIdFromQueueId(statusId);
     if (!realStatusId) {
-      await cloudApi.sendTextMessage(phone, '💬 הסטטוס עדיין לא נשלח או שלא נמצא');
+      await cloudApi.sendTextMessage(phone, '💬 הסטטוס עדיין לא נשלח או שלא נמצא', contextMessageId);
       return;
     }
     const reactions = await db.query(
@@ -978,18 +978,18 @@ async function handleQueuedAction(phone, selectedId) {
     );
     
     if (reactions.rows.length === 0) {
-      await cloudApi.sendTextMessage(phone, '💬 0 תגובות - אין תגובות עדיין');
+      await cloudApi.sendTextMessage(phone, '💬 0 תגובות - אין תגובות עדיין', contextMessageId);
     } else {
       // Send as TXT file with count in caption
       const reactionsList = reactions.rows.map(r => `${r.reaction} ${r.reactor_phone}`).join('\n');
       const fileContent = `רשימת תגובות (${reactions.rows.length})\n${'='.repeat(30)}\n\n${reactionsList}`;
-      await cloudApi.sendDocumentMessage(phone, fileContent, `תגובות_${reactions.rows.length}.txt`, `💬 ${reactions.rows.length} תגובות`);
+      await cloudApi.sendDocumentMessage(phone, fileContent, `תגובות_${reactions.rows.length}.txt`, `💬 ${reactions.rows.length} תגובות`, contextMessageId);
     }
     return;
   }
   
   // Unknown queued action
-  await cloudApi.sendTextMessage(phone, 'פעולה לא מזוהה');
+  await cloudApi.sendTextMessage(phone, 'פעולה לא מזוהה', contextMessageId);
 }
 
 /**
