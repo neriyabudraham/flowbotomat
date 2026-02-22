@@ -2779,6 +2779,7 @@ async function handleSelectActionState(phone, message, state) {
     if (isVideoSplit && pendingStatus.parts) {
       // Add all parts to queue
       const parts = pendingStatus.parts;
+      const partCaptions = pendingStatus.partCaptions || [];
       const partGroupId = uuidv4();
       const queuedIds = [];
       
@@ -2790,7 +2791,7 @@ async function handleSelectActionState(phone, message, state) {
             filename: `status_part${i + 1}.mp4`,
             url: part.url
           },
-          caption: part.caption || ''
+          caption: partCaptions[i] || part.caption || ''
         };
         
         const queueResult = await addToQueueWithParts(
@@ -2987,6 +2988,7 @@ async function handleSelectScheduleTimeState(phone, message, state) {
     // Handle video split
     if (isVideoSplit && pendingStatus.parts) {
       const parts = pendingStatus.parts;
+      const partCaptions = pendingStatus.partCaptions || [];
       const partGroupId = uuidv4();
       
       for (let i = 0; i < parts.length; i++) {
@@ -2997,7 +2999,7 @@ async function handleSelectScheduleTimeState(phone, message, state) {
             filename: `status_part${i + 1}.mp4`,
             url: part.url
           },
-          caption: part.caption || ''
+          caption: partCaptions[i] || part.caption || ''
         };
         
         const queueResult = await addToQueueWithParts(
