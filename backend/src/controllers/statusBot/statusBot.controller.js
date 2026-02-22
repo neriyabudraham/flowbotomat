@@ -1533,8 +1533,37 @@ async function getStatusDetails(req, res) {
       SELECT * FROM status_bot_replies WHERE status_id = $1 ORDER BY replied_at DESC
     `, [statusId]);
 
+    // Normalize status content for frontend
+    const status = statusResult.rows[0];
+    let content = status.content;
+    
+    // Parse content if it's a string
+    if (typeof content === 'string') {
+      try {
+        content = JSON.parse(content);
+      } catch (e) {
+        console.error('[StatusBot] Failed to parse content:', e);
+      }
+    }
+    
+    // Normalize content structure - ensure file.url exists for media types
+    if (content && ['image', 'video', 'voice'].includes(status.status_type)) {
+      // If content has url directly but not file.url, normalize it
+      if (content.url && !content.file) {
+        content.file = {
+          url: content.url,
+          mimetype: status.status_type === 'image' ? 'image/jpeg' : 
+                    status.status_type === 'video' ? 'video/mp4' : 'audio/ogg',
+          filename: `status.${status.status_type === 'image' ? 'jpg' : 
+                              status.status_type === 'video' ? 'mp4' : 'ogg'}`
+        };
+      }
+    }
+    
+    status.content = content;
+
     res.json({
-      status: statusResult.rows[0],
+      status: status,
       views: viewsResult.rows,
       reactions: reactionsResult.rows,
       replies: repliesResult.rows
