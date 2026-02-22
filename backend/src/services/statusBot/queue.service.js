@@ -25,6 +25,31 @@ const QUEUE_INTERVAL = 5000; // Check queue every 5 seconds
 const STATUS_DELAY = 30000; // 30 seconds between statuses
 const STATUS_TIMEOUT = 180000; // 3 minutes timeout per status
 
+/**
+ * Extract file URL from various content formats
+ * Handles: { file: "url" }, { file: { url: "url" } }, { url: "url" }
+ */
+function getFileUrl(content) {
+  if (!content) return null;
+  
+  // If file is already an object with url
+  if (content.file && typeof content.file === 'object' && content.file.url) {
+    return content.file.url;
+  }
+  
+  // If file is a string URL
+  if (content.file && typeof content.file === 'string') {
+    return content.file;
+  }
+  
+  // If url is directly on content
+  if (content.url && typeof content.url === 'string') {
+    return content.url;
+  }
+  
+  return null;
+}
+
 let isRunning = false;
 let intervalId = null;
 let isCurrentlyProcessing = false;
@@ -351,7 +376,7 @@ async function sendStatus(queueItem) {
       body = {
         id: messageId,
         contacts: null,
-        file: content.file || content.url, // Support both field names
+        file: { url: getFileUrl(content) },
         caption: content.caption || ''
       };
       break;
@@ -361,7 +386,7 @@ async function sendStatus(queueItem) {
       body = {
         id: messageId,
         contacts: null,
-        file: content.file || content.url, // Support both field names
+        file: { url: getFileUrl(content) },
         convert: true,
         caption: content.caption || ''
       };
@@ -372,7 +397,7 @@ async function sendStatus(queueItem) {
       body = {
         id: messageId,
         contacts: null,
-        file: content.file || content.url, // Support both field names
+        file: { url: getFileUrl(content) },
         convert: true,
         backgroundColor: content.backgroundColor || '#38b42f'
       };
