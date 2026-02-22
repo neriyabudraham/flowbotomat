@@ -612,6 +612,12 @@ async function handleMessage(phone, message) {
       case 'select_schedule_time':
         return await handleSelectScheduleTimeState(phone, message, state);
       
+      case 'waiting_schedule_time':
+        return await handleWaitingScheduleTimeState(phone, message, state);
+      
+      case 'waiting_reschedule_time':
+        return await handleWaitingRescheduleTimeState(phone, message, state);
+      
       case 'view_scheduled':
         return await handleViewScheduledState(phone, message, state);
       
@@ -660,6 +666,32 @@ async function handleInteractiveWithStatusId(phone, selectedId, message) {
   // Handle queued_* actions globally (these work regardless of state)
   if (action === 'queued') {
     return await handleQueuedAction(phone, selectedId);
+  }
+  
+  // Handle scheduled_* actions (selecting a status from list)
+  if (action === 'scheduled') {
+    const statusId = selectedId.replace('scheduled_', '');
+    // Show action buttons for this status
+    await cloudApi.sendButtonMessage(
+      phone,
+      'מה תרצה לעשות עם הסטטוס?',
+      [
+        { id: `status_send_now_${statusId}`, title: 'שלח כעת' },
+        { id: `status_reschedule_${statusId}`, title: 'שנה תזמון' },
+        { id: `status_cancel_${statusId}`, title: 'בטל' }
+      ]
+    );
+    return;
+  }
+  
+  // Handle status_* actions (from scheduled status buttons)
+  if (action === 'status') {
+    return await handleStatusAction(phone, selectedId);
+  }
+  
+  // Handle resched_* actions (reschedule day/time selection)
+  if (action === 'resched') {
+    return await handleRescheduleAction(phone, selectedId);
   }
   
   // Handle new_status action
@@ -949,6 +981,203 @@ async function handleQueuedAction(phone, selectedId) {
   
   // Unknown queued action
   await cloudApi.sendTextMessage(phone, 'פעולה לא מזוהה');
+}
+
+/**
+ * Handle status_* actions (from scheduled/queued status action buttons)
+ * Format: status_action_statusId (e.g., status_send_now_abc123, status_cancel_abc123)
+ */
+async function handleStatusAction(phone, selectedId) {
+  // Parse: status_action_statusId
+  const parts = selectedId.split('_');
+  if (parts.length < 3) {
+    await cloudApi.sendTextMessage(phone, 'פעולה לא תקינה');
+    return;
+  }
+  
+  const action = parts[1]; // send, cancel, reschedule
+  const statusId = parts.slice(2).join('_'); // Handle UUIDs with dashes
+  
+  if (action === 'cancel') {
+    // Cancel the status
+    await db.query(
+      `UPDATE status_bot_queue SET queue_status = 'cancelled' WHERE id = $1`,
+      [statusId]
+    );
+    await cloudApi.sendTextMessage(phone, '✅ הסטטוס בוטל');
+    return;
+  }
+  
+  if (action === 'send') {
+    // Send now - set to pending and clear scheduled_for
+    await db.query(
+      `UPDATE status_bot_queue SET scheduled_for = NULL, queue_status = 'pending' WHERE id = $1`,
+      [statusId]
+    );
+    await cloudApi.sendTextMessage(phone, '✅ הסטטוס נוסף לתור השליחה!');
+    return;
+  }
+  
+  if (action === 'reschedule') {
+    // Get status info and start reschedule flow
+    const statusResult = await db.query(
+      `SELECT * FROM status_bot_queue WHERE id = $1`,
+      [statusId]
+    );
+    
+    if (statusResult.rows.length === 0) {
+      await cloudApi.sendTextMessage(phone, 'סטטוס לא נמצא');
+      return;
+    }
+    
+    // Show day selection for rescheduling
+    const days = [];
+    for (let i = 0; i < 8; i++) {
+      const date = new Date();
+      date.setDate(date.getDate() + i);
+      const dayName = DAY_NAMES[date.getDay()];
+      const dateStr = `${date.getDate()}/${date.getMonth() + 1}`;
+      
+      let title = i === 0 ? 'היום' : i === 1 ? 'מחר' : `${dayName} ${dateStr}`;
+      
+      days.push({
+        id: `resched_day_${i}_${statusId}`,
+        title
+      });
+    }
+    
+    const sections = [{ title: 'בחר יום', rows: days }];
+    
+    await cloudApi.sendListMessage(
+      phone,
+      'באיזה יום לתזמן מחדש?',
+      'בחר יום',
+      sections
+    );
+    return;
+  }
+  
+  await cloudApi.sendTextMessage(phone, 'פעולה לא מזוהה');
+}
+
+/**
+ * Handle resched_* actions for rescheduling statuses
+ * Format: resched_day_offset_statusId or text input for time
+ */
+async function handleRescheduleAction(phone, selectedId) {
+  // Parse: resched_day_offset_statusId
+  const parts = selectedId.split('_');
+  
+  if (parts.length >= 4 && parts[1] === 'day') {
+    const dayOffset = parseInt(parts[2]);
+    const statusId = parts.slice(3).join('_');
+    
+    const scheduledDate = new Date();
+    scheduledDate.setDate(scheduledDate.getDate() + dayOffset);
+    
+    // Store in state and ask for time
+    const connections = await getAuthorizedConnections(phone);
+    const connectionId = connections.length > 0 ? connections[0].connection_id : null;
+    
+    await setState(phone, 'waiting_reschedule_time', { 
+      statusId, 
+      scheduledDateStr: scheduledDate.toISOString().split('T')[0],
+      dayOffset
+    }, null, connectionId);
+    
+    const dayName = DAY_NAMES[scheduledDate.getDay()];
+    const dateDisplay = `${scheduledDate.getDate()}/${scheduledDate.getMonth() + 1}`;
+    
+    await cloudApi.sendTextMessage(
+      phone,
+      `📅 נבחר: יום ${dayName}, ${dateDisplay}\n\n⏰ באיזו שעה לתזמן?\n\nשלח את השעה בפורמט: 13:00\n(מקבל גם 1300 או 13)`
+    );
+    return;
+  }
+  
+  await cloudApi.sendTextMessage(phone, 'פעולה לא מזוהה');
+}
+
+/**
+ * Handle waiting for reschedule time input
+ */
+async function handleWaitingRescheduleTimeState(phone, message, state) {
+  if (message.type !== 'text') {
+    await cloudApi.sendTextMessage(phone, 'אנא הזן שעה, לדוגמא 13:00');
+    return;
+  }
+  
+  const timeInput = message.text.body.trim();
+  const parsedTime = parseTimeInput(timeInput);
+  
+  if (!parsedTime) {
+    await cloudApi.sendTextMessage(phone, 'פורמט שעה לא תקין, אנא נסה שוב (לדוגמא 13:00)');
+    return;
+  }
+  
+  const stateData = state.state_data || {};
+  const statusId = stateData.statusId;
+  const dateStr = stateData.scheduledDateStr;
+  
+  if (!statusId || !dateStr) {
+    await cloudApi.sendTextMessage(phone, 'פג תוקף הפעולה, אנא נסה שוב');
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+  
+  // Build scheduled time
+  const timeStr = `${String(parsedTime.hours).padStart(2, '0')}:${String(parsedTime.minutes).padStart(2, '0')}`;
+  const scheduledTime = convertIsraelTimeToUTC(`${dateStr}T${timeStr}:00`);
+  
+  // Check if time is in the past
+  if (scheduledTime <= new Date()) {
+    await cloudApi.sendTextMessage(phone, 'לא ניתן לתזמן לזמן שעבר, אנא בחר שעה עתידית');
+    return;
+  }
+  
+  try {
+    // Update the status with new scheduled time
+    await db.query(
+      `UPDATE status_bot_queue SET scheduled_for = $1, queue_status = 'scheduled' WHERE id = $2`,
+      [scheduledTime, statusId]
+    );
+    
+    const hebrewDate = new Date(scheduledTime).toLocaleString('he-IL', { 
+      timeZone: 'Asia/Jerusalem',
+      day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+    
+    // Send action menu for rescheduled status
+    const sections = [{
+      title: 'סטטיסטיקות',
+      rows: [
+        { id: `queued_views_${statusId}`, title: '👁️ צפיות', description: 'רשימת הצופים בסטטוס' },
+        { id: `queued_hearts_${statusId}`, title: '❤️ סימוני לב', description: 'רשימת מי שסימן לב' },
+        { id: `queued_reactions_${statusId}`, title: '💬 תגובות', description: 'רשימת המגיבים' }
+      ]
+    }, {
+      title: 'פעולות',
+      rows: [
+        { id: `queued_delete_${statusId}`, title: '🗑️ בטל תזמון', description: 'הסר מתור השליחה' },
+        { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים בתור ומתוזמנים' },
+        { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
+      ]
+    }];
+    
+    await cloudApi.sendListMessage(
+      phone,
+      `✅ הסטטוס תוזמן מחדש ל-${hebrewDate}\n\nמה תרצה לעשות?`,
+      'בחר פעולה',
+      sections
+    );
+    
+    await setState(phone, 'idle', null, null);
+    
+  } catch (err) {
+    console.error(`[CloudAPI Conv] Error rescheduling:`, err);
+    await cloudApi.sendTextMessage(phone, 'אירעה שגיאה בתזמון מחדש');
+    await setState(phone, 'idle', null, null);
+  }
 }
 
 /**
@@ -1343,38 +1572,153 @@ async function handleDaySelection(phone, statusId, pendingStatus, dayOffset) {
   const scheduledDate = new Date();
   scheduledDate.setDate(scheduledDate.getDate() + offset);
   
-  // Store selected day
+  // Store selected day and set state to wait for time input
   await updatePendingStatus(phone, statusId, { 
     scheduledDay: offset,
     scheduledDateStr: scheduledDate.toISOString().split('T')[0]
   });
   
-  // Generate time options (every 30 min from 06:00 to 23:30)
-  const times = [];
-  for (let hour = 6; hour <= 23; hour++) {
-    for (let min of [0, 30]) {
-      if (hour === 23 && min === 30) continue;
-      const timeStr = `${hour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
-      times.push({
-        id: `time_${timeStr}_${statusId}`,
-        title: timeStr
-      });
-    }
-  }
+  // Set state to wait for time input
+  const connections = await getAuthorizedConnections(phone);
+  const connectionId = pendingStatus.connectionId || (connections.length > 0 ? connections[0].connection_id : null);
+  await setState(phone, 'waiting_schedule_time', { statusId }, pendingStatus, connectionId);
   
-  const sections = [{ title: 'בחר שעה', rows: times }];
+  // Ask for time as text input
+  const dayName = DAY_NAMES[scheduledDate.getDay()];
+  const dateDisplay = `${scheduledDate.getDate()}/${scheduledDate.getMonth() + 1}`;
   
-  await cloudApi.sendListMessage(
+  await cloudApi.sendTextMessage(
     phone,
-    'באיזו שעה לתזמן את הסטטוס?',
-    'בחר שעה',
-    sections,
+    `📅 נבחר: יום ${dayName}, ${dateDisplay}\n\n⏰ באיזו שעה לתזמן?\n\nשלח את השעה בפורמט: 13:00\n(מקבל גם 1300 או 13)`,
     pendingStatus.messageId
   );
 }
 
 /**
- * Handle time selection for scheduling
+ * Handle waiting for schedule time input (text message)
+ */
+async function handleWaitingScheduleTimeState(phone, message, state) {
+  if (message.type !== 'text') {
+    await cloudApi.sendTextMessage(phone, 'אנא הזן שעה, לדוגמא 13:00');
+    return;
+  }
+  
+  const timeInput = message.text.body.trim();
+  const parsedTime = parseTimeInput(timeInput);
+  
+  if (!parsedTime) {
+    await cloudApi.sendTextMessage(phone, 'פורמט שעה לא תקין, אנא נסה שוב (לדוגמא 13:00)');
+    return;
+  }
+  
+  const statusId = state.state_data?.statusId;
+  const pendingStatus = state.pending_status;
+  
+  if (!pendingStatus) {
+    await cloudApi.sendTextMessage(phone, 'פג תוקף הסטטוס, אנא שלח שוב');
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+  
+  const connectionId = pendingStatus.connectionId || state.connection_id;
+  if (!connectionId) {
+    await cloudApi.sendTextMessage(phone, 'לא נבחר חשבון');
+    return;
+  }
+  
+  // Build scheduled time
+  const dateStr = pendingStatus.scheduledDateStr;
+  const timeStr = `${String(parsedTime.hours).padStart(2, '0')}:${String(parsedTime.minutes).padStart(2, '0')}`;
+  const scheduledTime = convertIsraelTimeToUTC(`${dateStr}T${timeStr}:00`);
+  
+  // Check if time is in the past
+  if (scheduledTime <= new Date()) {
+    await cloudApi.sendTextMessage(phone, 'לא ניתן לתזמן לזמן שעבר, אנא בחר שעה עתידית');
+    return;
+  }
+  
+  try {
+    let queuedStatusId = null;
+    let isVideoSplit = pendingStatus.type === 'video_split';
+    let partsCount = 0;
+    
+    if (isVideoSplit) {
+      // Schedule each part
+      const parts = pendingStatus.parts || [];
+      const captions = pendingStatus.partCaptions || Array(parts.length).fill('');
+      const partGroupId = uuidv4();
+      partsCount = parts.length;
+      
+      for (let i = 0; i < parts.length; i++) {
+        const partUrl = typeof parts[i] === 'object' ? parts[i].url : parts[i];
+        const result = await db.query(`
+          INSERT INTO status_bot_queue 
+          (connection_id, status_type, content, queue_status, scheduled_for, source, part_group_id, part_number, total_parts)
+          VALUES ($1, 'video', $2, 'scheduled', $3, 'whatsapp', $4, $5, $6)
+          RETURNING id
+        `, [connectionId, JSON.stringify({ url: partUrl, caption: captions[i] || '' }), scheduledTime, partGroupId, i + 1, parts.length]);
+        if (i === 0) queuedStatusId = result.rows[0]?.id;
+      }
+    } else {
+      // Single status
+      const content = buildQueueContent(pendingStatus);
+      const result = await db.query(`
+        INSERT INTO status_bot_queue 
+        (connection_id, status_type, content, queue_status, scheduled_for, source)
+        VALUES ($1, $2, $3, 'scheduled', $4, 'whatsapp')
+        RETURNING id
+      `, [connectionId, pendingStatus.type, JSON.stringify(content), scheduledTime]);
+      queuedStatusId = result.rows[0]?.id;
+    }
+    
+    // Remove from pending
+    if (statusId) {
+      await removePendingStatus(phone, statusId);
+    }
+    
+    // Format date for display
+    const hebrewDate = new Date(scheduledTime).toLocaleString('he-IL', { 
+      timeZone: 'Asia/Jerusalem',
+      day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+    
+    const partsNote = isVideoSplit && partsCount > 1 ? `\n📹 ${partsCount} חלקי סרטון תוזמנו` : '';
+    
+    // Send action menu for scheduled status
+    const sections = [{
+      title: 'סטטיסטיקות',
+      rows: [
+        { id: `queued_views_${queuedStatusId}`, title: '👁️ צפיות', description: 'רשימת הצופים בסטטוס' },
+        { id: `queued_hearts_${queuedStatusId}`, title: '❤️ סימוני לב', description: 'רשימת מי שסימן לב' },
+        { id: `queued_reactions_${queuedStatusId}`, title: '💬 תגובות', description: 'רשימת המגיבים' }
+      ]
+    }, {
+      title: 'פעולות',
+      rows: [
+        { id: `queued_delete_${queuedStatusId}`, title: '🗑️ בטל תזמון', description: 'הסר מתור השליחה' },
+        { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים בתור ומתוזמנים' },
+        { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
+      ]
+    }];
+    
+    await cloudApi.sendListMessage(
+      phone,
+      `✅ הסטטוס תוזמן ל-${hebrewDate}${partsNote}\n\nמה תרצה לעשות?`,
+      'בחר פעולה',
+      sections
+    );
+    
+    await setState(phone, 'idle', null, null);
+    
+  } catch (err) {
+    console.error(`[CloudAPI Conv] Error scheduling:`, err);
+    await cloudApi.sendTextMessage(phone, 'אירעה שגיאה בתזמון');
+    await setState(phone, 'idle', null, null);
+  }
+}
+
+/**
+ * Handle time selection for scheduling (legacy - from list selection)
  */
 async function handleTimeSelection(phone, statusId, pendingStatus, timeStr) {
   const connectionId = pendingStatus.connectionId;
