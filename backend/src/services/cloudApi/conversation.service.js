@@ -786,10 +786,19 @@ async function handleInteractiveWithStatusId(phone, selectedId, message) {
 }
 
 /**
- * Handle queued_* actions (views, hearts, reactions, delete)
+ * Handle queued_* actions (views, hearts, reactions, delete, menu, view_all)
  * These work regardless of conversation state
  */
 async function handleQueuedAction(phone, selectedId) {
+  // Handle special actions first
+  if (selectedId === 'queued_view_all') {
+    return await handleViewAllStatuses(phone);
+  }
+  
+  if (selectedId === 'queued_menu') {
+    return await handleMainMenu(phone);
+  }
+  
   // Extract status ID from action (format: queued_action_statusId or queued_action_group_groupId)
   const parts = selectedId.split('_');
   let statusId = parts[parts.length - 1];
@@ -981,6 +990,116 @@ async function handleQueuedAction(phone, selectedId) {
   
   // Unknown queued action
   await cloudApi.sendTextMessage(phone, 'פעולה לא מזוהה');
+}
+
+/**
+ * Handle "כל הסטטוסים" - show all pending/scheduled statuses
+ */
+async function handleViewAllStatuses(phone) {
+  const connections = await getAuthorizedConnections(phone);
+  
+  if (connections.length === 0) {
+    await cloudApi.sendTextMessage(phone, 'אין חשבון מחובר למספר שלך');
+    return;
+  }
+  
+  // Get statuses from first connection (or all if multiple)
+  const connectionId = connections[0].connection_id;
+  
+  const result = await db.query(
+    `SELECT id, status_type, content, queue_status, scheduled_for, created_at
+     FROM status_bot_queue 
+     WHERE connection_id = $1 
+       AND queue_status IN ('pending', 'scheduled', 'processing')
+     ORDER BY COALESCE(scheduled_for, created_at) ASC
+     LIMIT 10`,
+    [connectionId]
+  );
+  
+  if (result.rows.length === 0) {
+    await cloudApi.sendTextMessage(phone, '📋 אין סטטוסים בתור או מתוזמנים\n\nשלח תמונה, סרטון, הקלטה קולית או טקסט להעלאת סטטוס חדש');
+    return;
+  }
+  
+  // Build list of statuses
+  const rows = result.rows.map((status, index) => {
+    const content = typeof status.content === 'string' ? JSON.parse(status.content) : status.content;
+    
+    // Determine preview text
+    let preview;
+    if (status.status_type === 'text') {
+      preview = (content.text || '').substring(0, 25);
+      if (preview.length >= 25) preview += '...';
+    } else {
+      const typeLabels = { image: '🖼️ תמונה', video: '🎬 סרטון', voice: '🎤 הקלטה' };
+      preview = typeLabels[status.status_type] || status.status_type;
+      if (content.caption) {
+        preview += `: ${content.caption.substring(0, 15)}`;
+        if (content.caption.length > 15) preview += '...';
+      }
+    }
+    
+    // Determine time description
+    let timeDesc;
+    if (status.scheduled_for) {
+      const scheduled = new Date(status.scheduled_for);
+      const dayName = DAY_NAMES[scheduled.getDay()];
+      timeDesc = `מתוזמן ל${dayName} ${scheduled.getDate()}/${scheduled.getMonth() + 1} ${String(scheduled.getHours()).padStart(2, '0')}:${String(scheduled.getMinutes()).padStart(2, '0')}`;
+    } else if (status.queue_status === 'processing') {
+      timeDesc = '⏳ נשלח כעת...';
+    } else {
+      timeDesc = '🔄 בתור לשליחה';
+    }
+    
+    return {
+      id: `scheduled_${status.id}`,
+      title: preview || `סטטוס ${index + 1}`,
+      description: timeDesc
+    };
+  });
+  
+  const sections = [{
+    title: `📋 ${result.rows.length} סטטוסים`,
+    rows
+  }];
+  
+  await cloudApi.sendListMessage(
+    phone,
+    `📋 סטטוסים בתור ומתוזמנים\n\nבחר סטטוס לצפייה בפרטים ופעולות`,
+    'בחר סטטוס',
+    sections
+  );
+}
+
+/**
+ * Handle "תפריט" - show main menu with instructions
+ */
+async function handleMainMenu(phone) {
+  const menuText = `🤖 *בוט העלאת סטטוסים - Botomat*
+
+📤 *איך מעלים סטטוס?*
+שלח לי אחד מהבאים:
+• 📝 טקסט - להעלאת סטטוס טקסט
+• 🖼️ תמונה - להעלאת סטטוס תמונה
+• 🎬 סרטון - להעלאת סטטוס וידאו
+• 🎤 הקלטה קולית - להעלאת סטטוס קולי
+
+⏰ *תזמון*
+בחר "תזמן" במקום "שלח כעת" כדי לתזמן סטטוס לזמן עתידי
+
+📊 *צפייה בסטטיסטיקות*
+אחרי שסטטוס עולה, תוכל לראות:
+• 👁️ מי צפה
+• ❤️ מי סימן לב
+• 💬 מי הגיב
+
+🌐 *לפעולות נוספות*
+היכנס לאתר: botomat.co.il
+• צפייה בכל הסטטוסים
+• ניהול חשבון
+• הגדרות מתקדמות`;
+
+  await cloudApi.sendTextMessage(phone, menuText);
 }
 
 /**
