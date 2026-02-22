@@ -1851,6 +1851,80 @@ async function deleteFailedStatus(req, res) {
   }
 }
 
+/**
+ * Update and retry a failed/cancelled status
+ */
+async function updateAndRetryStatus(req, res) {
+  try {
+    const userId = req.user.id;
+    const { queueId } = req.params;
+    const { content } = req.body;
+
+    // Verify the queue item belongs to the user
+    const result = await db.query(`
+      SELECT q.* FROM status_bot_queue q
+      JOIN status_bot_connections c ON c.id = q.connection_id
+      WHERE q.id = $1 AND c.user_id = $2
+    `, [queueId, userId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא פריט' });
+    }
+
+    const queueItem = result.rows[0];
+
+    // Only allow editing failed or cancelled items
+    if (!['failed', 'cancelled'].includes(queueItem.queue_status)) {
+      return res.status(400).json({ error: 'ניתן לערוך רק פריטים שנכשלו או בוטלו' });
+    }
+
+    // Update content and reset to pending
+    await db.query(`
+      UPDATE status_bot_queue 
+      SET content = $1, queue_status = 'pending', error_message = NULL, retry_count = 0
+      WHERE id = $2
+    `, [JSON.stringify(content), queueId]);
+
+    res.json({ success: true, message: 'הסטטוס עודכן והוכנס לתור' });
+
+  } catch (error) {
+    console.error('[StatusBot] Update and retry status error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון' });
+  }
+}
+
+/**
+ * Get in-progress statuses (pending/processing) for user
+ */
+async function getInProgressStatuses(req, res) {
+  try {
+    const userId = req.user.id;
+
+    const connResult = await db.query(
+      'SELECT id FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+
+    if (connResult.rows.length === 0) {
+      return res.json({ inProgress: [] });
+    }
+
+    // Get pending and processing items (not scheduled)
+    const result = await db.query(`
+      SELECT id, status_type, content, queue_status, created_at
+      FROM status_bot_queue 
+      WHERE connection_id = $1 AND queue_status IN ('pending', 'processing') AND scheduled_for IS NULL
+      ORDER BY created_at ASC
+    `, [connResult.rows[0].id]);
+
+    res.json({ inProgress: result.rows });
+
+  } catch (error) {
+    console.error('[StatusBot] Get in-progress statuses error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת סטטוסים בתהליך' });
+  }
+}
+
 // ============================================
 // ADMIN ENDPOINTS
 // ============================================
@@ -2909,6 +2983,8 @@ module.exports = {
   getFailedStatuses,
   retryFailedStatus,
   deleteFailedStatus,
+  updateAndRetryStatus,
+  getInProgressStatuses,
   
   // Pending statuses
   getPendingStatuses,

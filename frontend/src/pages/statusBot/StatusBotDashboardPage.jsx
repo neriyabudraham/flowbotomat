@@ -126,6 +126,7 @@ function StatusBotDashboardContent() {
   const [activeTab, setActiveTab] = useState('upload'); // upload, pending, history, scheduled, numbers
   const [pendingStatuses, setPendingStatuses] = useState([]); // Pending statuses from WhatsApp bot
   const [failedStatuses, setFailedStatuses] = useState([]); // Failed/cancelled statuses
+  const [inProgressStatuses, setInProgressStatuses] = useState([]); // Statuses in queue (pending/processing)
   const [qrCode, setQrCode] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -445,12 +446,13 @@ function StatusBotDashboardContent() {
 
   const loadDashboardData = async () => {
     try {
-      const [numbersRes, historyRes, queueRes, pendingRes, failedRes] = await Promise.all([
+      const [numbersRes, historyRes, queueRes, pendingRes, failedRes, inProgressRes] = await Promise.all([
         api.get('/status-bot/authorized-numbers'),
         api.get('/status-bot/history?limit=20'),
         api.get('/status-bot/queue'),
         api.get('/status-bot/pending-statuses').catch(() => ({ data: { pendingStatuses: [] } })),
         api.get('/status-bot/failed').catch(() => ({ data: { failedStatuses: [] } })),
+        api.get('/status-bot/in-progress').catch(() => ({ data: { inProgress: [] } })),
       ]);
       
       setAuthorizedNumbers(numbersRes.data.numbers || []);
@@ -459,6 +461,7 @@ function StatusBotDashboardContent() {
       setScheduled(queueRes.data.scheduled || []);
       setPendingStatuses(pendingRes.data.pendingStatuses || []);
       setFailedStatuses(failedRes.data.failedStatuses || []);
+      setInProgressStatuses(inProgressRes.data.inProgress || []);
     } catch (err) {
       console.error('Load dashboard data error:', err);
     }
@@ -985,10 +988,11 @@ function StatusBotDashboardContent() {
     
     const pollInterval = setInterval(async () => {
       try {
-        // Fetch queue and history updates
-        const [historyRes, queueRes] = await Promise.all([
+        // Fetch queue, history and in-progress updates
+        const [historyRes, queueRes, inProgressRes] = await Promise.all([
           api.get('/status-bot/history?limit=20'),
           api.get('/status-bot/queue'),
+          api.get('/status-bot/in-progress').catch(() => ({ data: { inProgress: [] } })),
         ]);
         
         // Update statuses while preserving deleted state
@@ -1004,6 +1008,7 @@ function StatusBotDashboardContent() {
         });
         
         setQueue(queueRes.data.queue || []);
+        setInProgressStatuses(inProgressRes.data.inProgress || []);
       } catch (err) {
         console.error('Polling error:', err);
       }
@@ -1531,13 +1536,13 @@ function StatusBotDashboardContent() {
               icon={Users}
               label={`מספרים מורשים ${authorizedNumbers.length > 0 ? `(${authorizedNumbers.length})` : ''}`}
             />
-            {failedStatuses.length > 0 && (
+            {(failedStatuses.length > 0 || inProgressStatuses.length > 0) && (
               <TabButton 
                 active={activeTab === 'failed'} 
                 onClick={() => setActiveTab('failed')}
-                icon={AlertCircle}
-                label={`נכשלו (${failedStatuses.length})`}
-                highlight={true}
+                icon={inProgressStatuses.length > 0 ? Loader2 : AlertCircle}
+                label={`תור ${inProgressStatuses.length > 0 ? `(${inProgressStatuses.length})` : ''} ${failedStatuses.length > 0 ? `/ נכשלו (${failedStatuses.length})` : ''}`}
+                highlight={failedStatuses.length > 0}
               />
             )}
           </div>
@@ -2294,6 +2299,7 @@ function StatusBotDashboardContent() {
             <FailedStatusesTab 
               failedStatuses={failedStatuses}
               setFailedStatuses={setFailedStatuses}
+              inProgressStatuses={inProgressStatuses}
               toast={toast}
               loadDashboardData={loadDashboardData}
             />
@@ -3385,8 +3391,10 @@ function PendingStatusesTab({ pendingStatuses, setPendingStatuses, toast, loadDa
   );
 }
 
-function FailedStatusesTab({ failedStatuses, setFailedStatuses, toast, loadDashboardData }) {
+function FailedStatusesTab({ failedStatuses, setFailedStatuses, toast, loadDashboardData, inProgressStatuses = [] }) {
   const [actionLoading, setActionLoading] = useState({});
+  const [editModal, setEditModal] = useState({ show: false, status: null });
+  const [editContent, setEditContent] = useState({});
   
   const typeIcons = {
     text: Type,
@@ -3394,6 +3402,14 @@ function FailedStatusesTab({ failedStatuses, setFailedStatuses, toast, loadDashb
     video: Video,
     voice: Mic,
   };
+  
+  const defaultColors = [
+    { id: '782138', title: 'בורדו' },
+    { id: '6e267d', title: 'סגול כהה' },
+    { id: '8d698f', title: 'סגול לילך' },
+    { id: '38b42f', title: 'ירוק' },
+    { id: '243740', title: 'תורכיז כהה' },
+  ];
   
   const handleRetry = async (queueId) => {
     setActionLoading(prev => ({ ...prev, [queueId]: 'retrying' }));
@@ -3421,6 +3437,45 @@ function FailedStatusesTab({ failedStatuses, setFailedStatuses, toast, loadDashb
       toast.error('שגיאה במחיקה');
     } finally {
       setActionLoading(prev => ({ ...prev, [queueId]: null }));
+    }
+  };
+  
+  const openEditModal = (status) => {
+    const content = status.content || {};
+    setEditContent({
+      text: content.text || '',
+      caption: content.caption || '',
+      backgroundColor: content.backgroundColor || '#38b42f',
+      file: content.file?.url || content.url || content.file || '',
+    });
+    setEditModal({ show: true, status });
+  };
+  
+  const handleSaveAndRetry = async () => {
+    const status = editModal.status;
+    if (!status) return;
+    
+    setActionLoading(prev => ({ ...prev, [status.id]: 'saving' }));
+    try {
+      const content = { ...status.content };
+      
+      if (status.status_type === 'text') {
+        content.text = editContent.text;
+        content.backgroundColor = editContent.backgroundColor;
+      } else if (['image', 'video'].includes(status.status_type)) {
+        content.caption = editContent.caption;
+      }
+      
+      await api.put(`/status-bot/failed/${status.id}`, { content });
+      setFailedStatuses(prev => prev.filter(s => s.id !== status.id));
+      setEditModal({ show: false, status: null });
+      toast.success('הסטטוס עודכן והוכנס לתור');
+      loadDashboardData();
+    } catch (err) {
+      console.error('Save and retry error:', err);
+      toast.error('שגיאה בעדכון');
+    } finally {
+      setActionLoading(prev => ({ ...prev, [status.id]: null }));
     }
   };
   
@@ -3452,118 +3507,318 @@ function FailedStatusesTab({ failedStatuses, setFailedStatuses, toast, loadDashb
     });
   };
 
-  if (failedStatuses.length === 0) {
-    return (
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center text-gray-500">
-        <CheckCircle className="w-12 h-12 mx-auto mb-3 opacity-50 text-green-500" />
-        <p>אין סטטוסים שנכשלו</p>
-        <p className="text-sm mt-2">כל הסטטוסים נשלחו בהצלחה</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-4">
-      <div className="bg-red-50 rounded-xl p-4 border border-red-200">
-        <div className="flex items-center gap-2 text-red-700">
-          <AlertCircle className="w-5 h-5" />
-          <span className="font-medium">יש לך {failedStatuses.length} סטטוסים שנכשלו או בוטלו</span>
-        </div>
-        <p className="text-sm text-red-600 mt-1">
-          ניתן לנסות שוב או למחוק את הסטטוסים האלו
-        </p>
-      </div>
-      
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
-        {failedStatuses.map(status => {
-          const Icon = typeIcons[status.status_type] || Type;
-          const isLoading = actionLoading[status.id];
-          const content = status.content || {};
-          const mediaUrl = content.file?.url || content.url || content.file;
+    <div className="space-y-6">
+      {/* In Progress Section */}
+      {inProgressStatuses.length > 0 && (
+        <div className="space-y-4">
+          <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
+            <div className="flex items-center gap-2 text-blue-700">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span className="font-medium">בתהליך שליחה ({inProgressStatuses.length})</span>
+            </div>
+            <p className="text-sm text-blue-600 mt-1">
+              הסטטוסים האלו כרגע בתור או בתהליך שליחה
+            </p>
+          </div>
           
-          return (
-            <div key={status.id} className="p-4">
-              <div className="flex items-start gap-4">
-                {/* Preview thumbnail */}
-                <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                  {status.status_type === 'image' && mediaUrl ? (
-                    <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
-                  ) : status.status_type === 'video' && mediaUrl ? (
-                    <video src={mediaUrl} className="w-full h-full object-cover" />
-                  ) : status.status_type === 'text' && content.backgroundColor ? (
-                    <div 
-                      className="w-full h-full flex items-center justify-center p-2"
-                      style={{ backgroundColor: content.backgroundColor }}
-                    >
-                      <span className="text-white text-xs text-center truncate">{content.text?.substring(0, 20)}</span>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
+            {inProgressStatuses.map(status => {
+              const Icon = typeIcons[status.status_type] || Type;
+              const content = status.content || {};
+              const mediaUrl = content.file?.url || content.url || content.file;
+              
+              return (
+                <div key={status.id} className="p-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                      {status.status_type === 'image' && mediaUrl ? (
+                        <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                      ) : status.status_type === 'video' && mediaUrl ? (
+                        <video src={mediaUrl} className="w-full h-full object-cover" />
+                      ) : status.status_type === 'text' && content.backgroundColor ? (
+                        <div className="w-full h-full" style={{ backgroundColor: content.backgroundColor }} />
+                      ) : (
+                        <Icon className="w-6 h-6 text-gray-400" />
+                      )}
                     </div>
-                  ) : (
-                    <Icon className="w-8 h-8 text-gray-400" />
-                  )}
-                </div>
-                
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                      status.status_type === 'text' ? 'bg-purple-100 text-purple-700' :
-                      status.status_type === 'image' ? 'bg-blue-100 text-blue-700' :
-                      status.status_type === 'video' ? 'bg-red-100 text-red-700' :
-                      'bg-green-100 text-green-700'
-                    }`}>
-                      {status.status_type === 'text' ? 'טקסט' :
-                       status.status_type === 'image' ? 'תמונה' :
-                       status.status_type === 'video' ? 'סרטון' : 'קול'}
-                    </span>
-                    <span className={`px-2 py-0.5 rounded text-xs ${
-                      status.queue_status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {status.queue_status === 'failed' ? 'נכשל' : 'בוטל'}
-                    </span>
-                    <span className="text-xs text-gray-400">{formatDate(status.created_at)}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded text-xs ${
+                          status.queue_status === 'processing' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'
+                        }`}>
+                          {status.queue_status === 'processing' ? 'בשליחה...' : 'בתור'}
+                        </span>
+                        <span className="text-xs text-gray-400">{formatDate(status.created_at)}</span>
+                      </div>
+                      <p className="text-gray-800 truncate text-sm mt-1">{getStatusPreview(status)}</p>
+                    </div>
+                    {status.queue_status === 'processing' && (
+                      <Loader2 className="w-5 h-5 text-yellow-600 animate-spin" />
+                    )}
                   </div>
-                  
-                  <p className="text-gray-800 truncate">{getStatusPreview(status)}</p>
-                  
-                  {status.error_message && (
-                    <p className="text-sm text-red-500 mt-1 truncate" title={status.error_message}>
-                      שגיאה: {status.error_message}
-                    </p>
-                  )}
                 </div>
-                
-                {/* Actions */}
-                <div className="flex gap-2 flex-shrink-0">
-                  <button
-                    onClick={() => handleRetry(status.id)}
-                    disabled={isLoading}
-                    className="px-3 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 disabled:opacity-50 flex items-center gap-1.5 text-sm"
-                  >
-                    {isLoading === 'retrying' ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="w-4 h-4" />
-                    )}
-                    נסה שוב
-                  </button>
-                  <button
-                    onClick={() => handleDelete(status.id)}
-                    disabled={isLoading}
-                    className="px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 disabled:opacity-50 flex items-center gap-1.5 text-sm"
-                  >
-                    {isLoading === 'deleting' ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="w-4 h-4" />
-                    )}
-                    מחק
-                  </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      
+      {/* Failed Section */}
+      {failedStatuses.length === 0 && inProgressStatuses.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center text-gray-500">
+          <CheckCircle className="w-12 h-12 mx-auto mb-3 opacity-50 text-green-500" />
+          <p>אין סטטוסים שנכשלו</p>
+          <p className="text-sm mt-2">כל הסטטוסים נשלחו בהצלחה</p>
+        </div>
+      ) : failedStatuses.length > 0 && (
+        <>
+          <div className="bg-red-50 rounded-xl p-4 border border-red-200">
+            <div className="flex items-center gap-2 text-red-700">
+              <AlertCircle className="w-5 h-5" />
+              <span className="font-medium">סטטוסים שנכשלו או בוטלו ({failedStatuses.length})</span>
+            </div>
+            <p className="text-sm text-red-600 mt-1">
+              ניתן לערוך, לנסות שוב או למחוק
+            </p>
+          </div>
+          
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
+            {failedStatuses.map(status => {
+              const Icon = typeIcons[status.status_type] || Type;
+              const isLoading = actionLoading[status.id];
+              const content = status.content || {};
+              const mediaUrl = content.file?.url || content.url || content.file;
+              
+              return (
+                <div key={status.id} className="p-4">
+                  <div className="flex items-start gap-4">
+                    {/* Preview thumbnail - clickable */}
+                    <button
+                      onClick={() => openEditModal(status)}
+                      className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0 overflow-hidden hover:ring-2 hover:ring-green-500 transition-all"
+                    >
+                      {status.status_type === 'image' && mediaUrl ? (
+                        <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                      ) : status.status_type === 'video' && mediaUrl ? (
+                        <video src={mediaUrl} className="w-full h-full object-cover" />
+                      ) : status.status_type === 'text' && content.backgroundColor ? (
+                        <div 
+                          className="w-full h-full flex items-center justify-center p-2"
+                          style={{ backgroundColor: content.backgroundColor }}
+                        >
+                          <span className="text-white text-xs text-center truncate">{content.text?.substring(0, 20)}</span>
+                        </div>
+                      ) : (
+                        <Icon className="w-8 h-8 text-gray-400" />
+                      )}
+                    </button>
+                    
+                    {/* Content - clickable */}
+                    <button 
+                      onClick={() => openEditModal(status)}
+                      className="flex-1 min-w-0 text-right hover:bg-gray-50 rounded-lg p-2 -m-2 transition-colors"
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                          status.status_type === 'text' ? 'bg-purple-100 text-purple-700' :
+                          status.status_type === 'image' ? 'bg-blue-100 text-blue-700' :
+                          status.status_type === 'video' ? 'bg-red-100 text-red-700' :
+                          'bg-green-100 text-green-700'
+                        }`}>
+                          {status.status_type === 'text' ? 'טקסט' :
+                           status.status_type === 'image' ? 'תמונה' :
+                           status.status_type === 'video' ? 'סרטון' : 'קול'}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-xs ${
+                          status.queue_status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {status.queue_status === 'failed' ? 'נכשל' : 'בוטל'}
+                        </span>
+                        <span className="text-xs text-gray-400">{formatDate(status.created_at)}</span>
+                      </div>
+                      
+                      <p className="text-gray-800 truncate">{getStatusPreview(status)}</p>
+                      
+                      {status.error_message && (
+                        <p className="text-sm text-red-500 mt-1 truncate">
+                          שגיאה: {status.error_message}
+                        </p>
+                      )}
+                    </button>
+                    
+                    {/* Actions */}
+                    <div className="flex gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => openEditModal(status)}
+                        disabled={isLoading}
+                        className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50 flex items-center gap-1.5 text-sm"
+                        title="צפה וערוך"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleRetry(status.id)}
+                        disabled={isLoading}
+                        className="px-3 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 disabled:opacity-50 flex items-center gap-1.5 text-sm"
+                      >
+                        {isLoading === 'retrying' ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-4 h-4" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => handleDelete(status.id)}
+                        disabled={isLoading}
+                        className="px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 disabled:opacity-50 flex items-center gap-1.5 text-sm"
+                      >
+                        {isLoading === 'deleting' ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+      
+      {/* Edit Modal */}
+      {editModal.show && editModal.status && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEditModal({ show: false, status: null })}>
+          <div 
+            className="bg-white rounded-2xl w-full max-w-lg p-6 animate-in fade-in zoom-in duration-200 max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-800">פרטי סטטוס</h3>
+              <button onClick={() => setEditModal({ show: false, status: null })} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* Status Preview */}
+            <div className="mb-6">
+              {editModal.status.status_type === 'text' ? (
+                <div 
+                  className="w-full aspect-[9/16] max-h-64 rounded-xl flex items-center justify-center p-4"
+                  style={{ backgroundColor: editContent.backgroundColor }}
+                >
+                  <p className="text-white text-center whitespace-pre-wrap">{editContent.text || 'טקסט ריק'}</p>
+                </div>
+              ) : editModal.status.status_type === 'image' ? (
+                <img 
+                  src={editContent.file} 
+                  alt="" 
+                  className="w-full max-h-64 object-contain rounded-xl bg-gray-100"
+                />
+              ) : editModal.status.status_type === 'video' ? (
+                <video 
+                  src={editContent.file} 
+                  controls 
+                  className="w-full max-h-64 rounded-xl bg-gray-100"
+                />
+              ) : (
+                <div className="w-full h-32 bg-gray-100 rounded-xl flex items-center justify-center">
+                  <Mic className="w-12 h-12 text-gray-400" />
+                </div>
+              )}
+            </div>
+            
+            {/* Edit Form */}
+            {editModal.status.status_type === 'text' && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">טקסט</label>
+                  <textarea
+                    value={editContent.text}
+                    onChange={(e) => setEditContent(prev => ({ ...prev, text: e.target.value }))}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    rows={4}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">צבע רקע</label>
+                  <div className="flex flex-wrap gap-2">
+                    {defaultColors.map(color => (
+                      <button
+                        key={color.id}
+                        onClick={() => setEditContent(prev => ({ ...prev, backgroundColor: `#${color.id}` }))}
+                        className={`w-10 h-10 rounded-lg border-2 transition-all ${
+                          editContent.backgroundColor === `#${color.id}` ? 'border-green-500 scale-110' : 'border-transparent'
+                        }`}
+                        style={{ backgroundColor: `#${color.id}` }}
+                        title={color.title}
+                      />
+                    ))}
+                  </div>
                 </div>
               </div>
+            )}
+            
+            {['image', 'video'].includes(editModal.status.status_type) && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">כיתוב</label>
+                <textarea
+                  value={editContent.caption}
+                  onChange={(e) => setEditContent(prev => ({ ...prev, caption: e.target.value }))}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  rows={3}
+                  placeholder="כיתוב (אופציונלי)"
+                />
+              </div>
+            )}
+            
+            {/* Error message if exists */}
+            {editModal.status.error_message && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-600">
+                  <span className="font-medium">שגיאה קודמת:</span> {editModal.status.error_message}
+                </p>
+              </div>
+            )}
+            
+            {/* Actions */}
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setEditModal({ show: false, status: null })}
+                className="flex-1 py-3 border border-gray-200 rounded-xl font-medium hover:bg-gray-50"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={() => handleRetry(editModal.status.id)}
+                disabled={actionLoading[editModal.status.id]}
+                className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {actionLoading[editModal.status.id] === 'retrying' ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+                שלח ללא שינויים
+              </button>
+              <button
+                onClick={handleSaveAndRetry}
+                disabled={actionLoading[editModal.status.id]}
+                className="flex-1 py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {actionLoading[editModal.status.id] === 'saving' ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+                שמור ושלח
+              </button>
             </div>
-          );
-        })}
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

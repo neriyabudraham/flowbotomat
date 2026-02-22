@@ -91,7 +91,11 @@ router.patch('/queue/:queueId', authMiddleware, statusBotController.updateQueueI
 // Failed/cancelled statuses
 router.get('/failed', authMiddleware, statusBotController.getFailedStatuses);
 router.post('/failed/:queueId/retry', authMiddleware, statusBotController.retryFailedStatus);
+router.put('/failed/:queueId', authMiddleware, statusBotController.updateAndRetryStatus);
 router.delete('/failed/:queueId', authMiddleware, statusBotController.deleteFailedStatus);
+
+// In-progress statuses
+router.get('/in-progress', authMiddleware, statusBotController.getInProgressStatuses);
 
 // Pending statuses (from WhatsApp bot conversations)
 router.get('/pending-statuses', authMiddleware, statusBotController.getPendingStatuses);
