@@ -50,6 +50,41 @@ function getFileUrl(content) {
   return null;
 }
 
+/**
+ * Build file object for WAHA API
+ * WAHA expects: { mimetype, filename, url }
+ */
+function buildFileObject(content, type) {
+  const url = getFileUrl(content);
+  if (!url) return null;
+  
+  // Extract filename from URL or use default
+  const urlPath = url.split('/').pop()?.split('?')[0] || '';
+  
+  // Determine mimetype and filename based on type
+  let mimetype, filename;
+  
+  switch (type) {
+    case 'image':
+      mimetype = content.file?.mimetype || 'image/jpeg';
+      filename = content.file?.filename || urlPath || 'status.jpg';
+      break;
+    case 'video':
+      mimetype = content.file?.mimetype || 'video/mp4';
+      filename = content.file?.filename || urlPath || 'status.mp4';
+      break;
+    case 'voice':
+      mimetype = content.file?.mimetype || 'audio/ogg';
+      filename = content.file?.filename || urlPath || 'status.ogg';
+      break;
+    default:
+      mimetype = 'application/octet-stream';
+      filename = urlPath || 'file';
+  }
+  
+  return { mimetype, filename, url };
+}
+
 let isRunning = false;
 let intervalId = null;
 let isCurrentlyProcessing = false;
@@ -376,7 +411,7 @@ async function sendStatus(queueItem) {
       body = {
         id: messageId,
         contacts: null,
-        file: { url: getFileUrl(content) },
+        file: buildFileObject(content, 'image'),
         caption: content.caption || ''
       };
       break;
@@ -386,7 +421,7 @@ async function sendStatus(queueItem) {
       body = {
         id: messageId,
         contacts: null,
-        file: { url: getFileUrl(content) },
+        file: buildFileObject(content, 'video'),
         convert: true,
         caption: content.caption || ''
       };
@@ -397,7 +432,7 @@ async function sendStatus(queueItem) {
       body = {
         id: messageId,
         contacts: null,
-        file: { url: getFileUrl(content) },
+        file: buildFileObject(content, 'voice'),
         convert: true,
         backgroundColor: content.backgroundColor || '#38b42f'
       };
