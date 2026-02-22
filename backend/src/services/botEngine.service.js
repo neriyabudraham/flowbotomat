@@ -588,11 +588,6 @@ class BotEngine {
       }
       
       console.log('[BotEngine] ✅ Trigger matched for bot:', bot.name);
-      const triggerSettings = {
-        autoMarkSeen: triggerNode.data.autoMarkSeen,
-        oncePerUser: triggerNode.data.oncePerUser,
-        hasCooldown: triggerNode.data.hasCooldown
-      }));
       
       // Record trigger history for cooldown/once-per-user tracking
       const matchedGroupId = triggerNode.data._matchedGroupId;
