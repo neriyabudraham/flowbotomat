@@ -932,17 +932,50 @@ async function handleSendNow(phone, statusId, pendingStatus) {
         `, [connectionId, JSON.stringify({ url: parts[i], caption: captions[i] || '' }), partGroupId, i + 1, parts.length]);
       }
       
-      await cloudApi.sendTextMessage(phone, `✅ ${parts.length} חלקי הסרטון נוספו לתור ויישלחו בקרוב`);
+      // Send menu with options
+      const sections = [{
+        title: 'פעולות',
+        rows: [
+          { id: 'new_status', title: '➕ סטטוס חדש', description: 'שלח סטטוס נוסף' },
+          { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים בתור ומתוזמנים' },
+          { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
+        ]
+      }];
+      
+      await cloudApi.sendListMessage(
+        phone,
+        `✅ ${parts.length} חלקי הסרטון נוספו לתור ויישלחו בקרוב!\n\nמה תרצה לעשות עכשיו?`,
+        'בחר פעולה',
+        sections
+      );
     } else {
       // Single status - include backgroundColor in content if present
       const content = buildQueueContent(pendingStatus);
-      await db.query(`
+      const insertResult = await db.query(`
         INSERT INTO status_bot_queue 
         (connection_id, status_type, content, queue_status, source)
         VALUES ($1, $2, $3, 'pending', 'whatsapp')
+        RETURNING id
       `, [connectionId, pendingStatus.type, JSON.stringify(content)]);
       
-      await cloudApi.sendTextMessage(phone, '✅ הסטטוס נוסף לתור ויישלח בקרוב');
+      const queuedStatusId = insertResult.rows[0]?.id;
+      
+      // Send menu with options
+      const sections = [{
+        title: 'פעולות',
+        rows: [
+          { id: 'new_status', title: '➕ סטטוס חדש', description: 'שלח סטטוס נוסף' },
+          { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים בתור ומתוזמנים' },
+          { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
+        ]
+      }];
+      
+      await cloudApi.sendListMessage(
+        phone,
+        '✅ הסטטוס נוסף לתור ויישלח בקרוב!\n\nמה תרצה לעשות עכשיו?',
+        'בחר פעולה',
+        sections
+      );
     }
     
     // Remove from pending
@@ -2337,6 +2370,12 @@ async function handleAfterSendMenuState(phone, message, state) {
   
   if (selectedId === 'queued_menu') {
     await handleMenuCommand(phone, state);
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+  
+  if (selectedId === 'new_status') {
+    await cloudApi.sendTextMessage(phone, '📤 שלח את הסטטוס החדש שלך:\n\n• טקסט - להעלאת סטטוס טקסט\n• תמונה - להעלאת סטטוס תמונה\n• סרטון - להעלאת סטטוס וידאו\n• הקלטה קולית - להעלאת סטטוס קולי');
     await setState(phone, 'idle', null, null);
     return;
   }
