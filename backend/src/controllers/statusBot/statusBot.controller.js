@@ -1683,12 +1683,13 @@ async function getQueueStatus(req, res) {
 }
 
 /**
- * Delete/cancel a queue item
+ * Delete/cancel a queue item (including stuck processing items)
  */
 async function deleteQueueItem(req, res) {
   try {
     const userId = req.user.id;
     const { queueId } = req.params;
+    const { force } = req.query; // Allow force cancel for stuck items
 
     // Verify the queue item belongs to the user
     const result = await db.query(`
@@ -1703,23 +1704,86 @@ async function deleteQueueItem(req, res) {
 
     const queueItem = result.rows[0];
 
-    // Allow cancelling pending or scheduled items (not processing or sent)
-    if (!['pending', 'scheduled'].includes(queueItem.queue_status)) {
-      return res.status(400).json({ error: 'לא ניתן לבטל פריט שכבר בעיבוד או נשלח' });
+    // For processing items, check if stuck (more than 3 minutes) or force flag
+    if (queueItem.queue_status === 'processing') {
+      const processingTime = queueItem.processing_started_at 
+        ? Date.now() - new Date(queueItem.processing_started_at).getTime()
+        : 0;
+      const isStuck = processingTime > 180000; // 3 minutes
+      
+      if (!isStuck && force !== 'true') {
+        return res.status(400).json({ 
+          error: 'הפריט בתהליך שליחה. אם הוא תקוע, נסה שוב עם force=true',
+          processingTime: Math.round(processingTime / 1000)
+        });
+      }
+      
+      // Reset queue lock if this item was processing
+      await db.query(`
+        UPDATE status_bot_queue_lock 
+        SET is_processing = false, processing_started_at = NULL
+        WHERE id = 1
+      `);
+    }
+    
+    // Allow cancelling pending, scheduled, or stuck processing items
+    if (!['pending', 'scheduled', 'processing'].includes(queueItem.queue_status)) {
+      return res.status(400).json({ error: 'לא ניתן לבטל פריט שכבר נשלח' });
     }
 
     // Update status to cancelled
     await db.query(`
       UPDATE status_bot_queue 
-      SET queue_status = 'cancelled'
-      WHERE id = $1
-    `, [queueId]);
+      SET queue_status = 'cancelled', error_message = $1
+      WHERE id = $2
+    `, [queueItem.queue_status === 'processing' ? 'בוטל ידנית - תקוע' : null, queueId]);
 
-    res.json({ success: true, message: 'התזמון בוטל' });
+    res.json({ success: true, message: 'הפריט בוטל בהצלחה' });
 
   } catch (error) {
     console.error('[StatusBot] Delete queue item error:', error);
-    res.status(500).json({ error: 'שגיאה בביטול התזמון' });
+    res.status(500).json({ error: 'שגיאה בביטול הפריט' });
+  }
+}
+
+/**
+ * Force cancel a stuck processing item
+ */
+async function forceCancelProcessing(req, res) {
+  try {
+    const userId = req.user.id;
+    const { queueId } = req.params;
+
+    // Verify the queue item belongs to the user
+    const result = await db.query(`
+      SELECT q.* FROM status_bot_queue q
+      JOIN status_bot_connections c ON c.id = q.connection_id
+      WHERE q.id = $1 AND c.user_id = $2 AND q.queue_status = 'processing'
+    `, [queueId, userId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא פריט בעיבוד' });
+    }
+
+    // Reset queue lock
+    await db.query(`
+      UPDATE status_bot_queue_lock 
+      SET is_processing = false, processing_started_at = NULL
+      WHERE id = 1
+    `);
+
+    // Mark as failed
+    await db.query(`
+      UPDATE status_bot_queue 
+      SET queue_status = 'failed', error_message = 'בוטל ידנית - תקוע'
+      WHERE id = $1
+    `, [queueId]);
+
+    res.json({ success: true, message: 'התהליך התקוע בוטל' });
+
+  } catch (error) {
+    console.error('[StatusBot] Force cancel processing error:', error);
+    res.status(500).json({ error: 'שגיאה בביטול התהליך' });
   }
 }
 
@@ -2191,6 +2255,85 @@ async function adminGetActiveProcesses(req, res) {
   } catch (error) {
     console.error('[StatusBot Admin] Get active processes error:', error);
     res.status(500).json({ error: 'שגיאה בטעינת תהליכים פעילים' });
+  }
+}
+
+/**
+ * Admin: Force reset queue lock and cancel stuck processing items
+ */
+async function adminResetQueueLock(req, res) {
+  try {
+    // Get any currently processing items
+    const processingResult = await db.query(`
+      SELECT id FROM status_bot_queue WHERE queue_status = 'processing'
+    `);
+
+    // Mark all processing items as failed
+    if (processingResult.rows.length > 0) {
+      await db.query(`
+        UPDATE status_bot_queue 
+        SET queue_status = 'failed', error_message = 'בוטל ע"י מנהל - איפוס תור'
+        WHERE queue_status = 'processing'
+      `);
+    }
+
+    // Reset the queue lock
+    await db.query(`
+      UPDATE status_bot_queue_lock 
+      SET is_processing = false, processing_started_at = NULL
+      WHERE id = 1
+    `);
+
+    res.json({ 
+      success: true, 
+      message: `התור אופס. ${processingResult.rows.length} פריטים בעיבוד בוטלו.`,
+      cancelledCount: processingResult.rows.length
+    });
+
+  } catch (error) {
+    console.error('[StatusBot Admin] Reset queue lock error:', error);
+    res.status(500).json({ error: 'שגיאה באיפוס התור' });
+  }
+}
+
+/**
+ * Admin: Force cancel a specific stuck processing item
+ */
+async function adminForceCancelItem(req, res) {
+  try {
+    const { queueId } = req.params;
+
+    const result = await db.query(`
+      SELECT * FROM status_bot_queue WHERE id = $1
+    `, [queueId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'פריט לא נמצא' });
+    }
+
+    const item = result.rows[0];
+
+    if (item.queue_status === 'processing') {
+      // Reset queue lock
+      await db.query(`
+        UPDATE status_bot_queue_lock 
+        SET is_processing = false, processing_started_at = NULL
+        WHERE id = 1
+      `);
+    }
+
+    // Mark as failed
+    await db.query(`
+      UPDATE status_bot_queue 
+      SET queue_status = 'failed', error_message = 'בוטל ע"י מנהל'
+      WHERE id = $1
+    `, [queueId]);
+
+    res.json({ success: true, message: 'הפריט בוטל בהצלחה' });
+
+  } catch (error) {
+    console.error('[StatusBot Admin] Force cancel item error:', error);
+    res.status(500).json({ error: 'שגיאה בביטול הפריט' });
   }
 }
 
@@ -3081,6 +3224,11 @@ module.exports = {
   adminLiftRestriction,
   adminGetStats,
   adminGetActiveProcesses,
+  adminResetQueueLock,
+  adminForceCancelItem,
+  
+  // Queue management
+  forceCancelProcessing,
   
   // Webhook
   handleWebhook,

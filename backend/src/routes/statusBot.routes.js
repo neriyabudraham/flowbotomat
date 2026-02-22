@@ -96,6 +96,7 @@ router.delete('/failed/:queueId', authMiddleware, statusBotController.deleteFail
 
 // In-progress statuses
 router.get('/in-progress', authMiddleware, statusBotController.getInProgressStatuses);
+router.post('/in-progress/:queueId/cancel', authMiddleware, statusBotController.forceCancelProcessing);
 
 // Pending statuses (from WhatsApp bot conversations)
 router.get('/pending-statuses', authMiddleware, statusBotController.getPendingStatuses);
@@ -116,5 +117,7 @@ router.get('/admin/users', authMiddleware, adminMiddleware, statusBotController.
 router.get('/admin/stats', authMiddleware, adminMiddleware, statusBotController.adminGetStats);
 router.get('/admin/active-processes', authMiddleware, adminMiddleware, statusBotController.adminGetActiveProcesses);
 router.post('/admin/lift-restriction/:connectionId', authMiddleware, superadminMiddleware, statusBotController.adminLiftRestriction);
+router.post('/admin/reset-queue', authMiddleware, adminMiddleware, statusBotController.adminResetQueueLock);
+router.post('/admin/cancel-item/:queueId', authMiddleware, adminMiddleware, statusBotController.adminForceCancelItem);
 
 module.exports = router;
