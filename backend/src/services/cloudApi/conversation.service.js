@@ -1503,7 +1503,7 @@ async function handleSendNow(phone, statusId, pendingStatus) {
       const parts = pendingStatus.parts || [];
       const captions = pendingStatus.partCaptions || Array(parts.length).fill('');
       const partGroupId = uuidv4();
-      let firstQueuedId = null;
+      const queuedIds = [];
       
       for (let i = 0; i < parts.length; i++) {
         // parts[i] is an object { filePath, url, partNumber, totalParts } - extract url
@@ -1514,33 +1514,42 @@ async function handleSendNow(phone, statusId, pendingStatus) {
           VALUES ($1, 'video', $2, 'pending', 'whatsapp', $3, $4, $5)
           RETURNING id
         `, [connectionId, JSON.stringify({ url: partUrl, caption: captions[i] || '' }), partGroupId, i + 1, parts.length]);
-        if (i === 0) firstQueuedId = insertResult.rows[0]?.id;
+        queuedIds.push(insertResult.rows[0]?.id);
       }
       
-      // Send menu with full options (use partGroupId for group actions)
-      const sections = [{
-        title: 'סטטיסטיקות',
-        rows: [
-          { id: `queued_views_${firstQueuedId}`, title: '👁️ צפיות', description: 'רשימת הצופים בסטטוס' },
-          { id: `queued_hearts_${firstQueuedId}`, title: '❤️ סימוני לב', description: 'רשימת מי שסימן לב' },
-          { id: `queued_reactions_${firstQueuedId}`, title: '💬 תגובות', description: 'רשימת המגיבים' }
-        ]
-      }, {
-        title: 'פעולות',
-        rows: [
-          { id: `queued_delete_group_${partGroupId}`, title: '🗑️ מחק סרטון', description: 'הסר את כל החלקים מהתור' },
-          { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים בתור ומתוזמנים' },
-          { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
-        ]
-      }];
-      
-      await cloudApi.sendListMessage(
+      // Send confirmation
+      await cloudApi.sendTextMessage(
         phone,
-        `✅ ${parts.length} חלקי הסרטון נוספו לתור ויישלחו בקרוב!\n\nמה תרצה לעשות עכשיו?`,
-        'בחר פעולה',
-        sections,
-        pendingStatus.messageId // Reply to original message
+        `✅ ${parts.length} חלקי הסרטון נוספו לתור ויישלחו בקרוב!`,
+        pendingStatus.messageId
       );
+      
+      // Send action list for each part
+      for (let i = 0; i < queuedIds.length; i++) {
+        const queuedId = queuedIds[i];
+        const sections = [{
+          title: 'סטטיסטיקות',
+          rows: [
+            { id: `queued_views_${queuedId}`, title: '👁️ צפיות', description: 'רשימת הצופים בסטטוס' },
+            { id: `queued_hearts_${queuedId}`, title: '❤️ סימוני לב', description: 'רשימת מי שסימן לב' },
+            { id: `queued_reactions_${queuedId}`, title: '💬 תגובות', description: 'רשימת המגיבים' }
+          ]
+        }, {
+          title: 'פעולות',
+          rows: [
+            { id: `queued_delete_${queuedId}`, title: '🗑️ מחק חלק', description: 'הסר חלק זה מהתור' },
+            { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים בתור ומתוזמנים' },
+            { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
+          ]
+        }];
+        
+        await cloudApi.sendListMessage(
+          phone,
+          `📹 חלק ${i + 1} מתוך ${parts.length}`,
+          'בחר פעולה',
+          sections
+        );
+      }
     } else {
       // Single status - include backgroundColor in content if present
       const content = buildQueueContent(pendingStatus);
@@ -1786,6 +1795,7 @@ async function handleWaitingScheduleTimeState(phone, message, state) {
     let queuedStatusId = null;
     let isVideoSplit = pendingStatus.type === 'video_split';
     let partsCount = 0;
+    const queuedIds = [];
     
     if (isVideoSplit) {
       // Schedule each part
@@ -1802,6 +1812,7 @@ async function handleWaitingScheduleTimeState(phone, message, state) {
           VALUES ($1, 'video', $2, 'scheduled', $3, 'whatsapp', $4, $5, $6)
           RETURNING id
         `, [connectionId, JSON.stringify({ url: partUrl, caption: captions[i] || '' }), scheduledTime, partGroupId, i + 1, parts.length]);
+        queuedIds.push(result.rows[0]?.id);
         if (i === 0) queuedStatusId = result.rows[0]?.id;
       }
     } else {
@@ -1827,32 +1838,66 @@ async function handleWaitingScheduleTimeState(phone, message, state) {
       day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit'
     });
     
-    const partsNote = isVideoSplit && partsCount > 1 ? `\n📹 ${partsCount} חלקי סרטון תוזמנו` : '';
-    
-    // Send action menu for scheduled status
-    const sections = [{
-      title: 'סטטיסטיקות',
-      rows: [
-        { id: `queued_views_${queuedStatusId}`, title: '👁️ צפיות', description: 'רשימת הצופים בסטטוס' },
-        { id: `queued_hearts_${queuedStatusId}`, title: '❤️ סימוני לב', description: 'רשימת מי שסימן לב' },
-        { id: `queued_reactions_${queuedStatusId}`, title: '💬 תגובות', description: 'רשימת המגיבים' }
-      ]
-    }, {
-      title: 'פעולות',
-      rows: [
-        { id: `queued_delete_${queuedStatusId}`, title: '🗑️ בטל תזמון', description: 'הסר מתור השליחה' },
-        { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים בתור ומתוזמנים' },
-        { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
-      ]
-    }];
-    
-    await cloudApi.sendListMessage(
-      phone,
-      `✅ הסטטוס תוזמן ל-${hebrewDate}${partsNote}\n\nמה תרצה לעשות?`,
-      'בחר פעולה',
-      sections,
-      pendingStatus?.messageId // Reply to original message
-    );
+    if (isVideoSplit && queuedIds.length > 1) {
+      // Send confirmation
+      await cloudApi.sendTextMessage(
+        phone,
+        `✅ ${partsCount} חלקי הסרטון תוזמנו ל-${hebrewDate}`,
+        pendingStatus?.messageId
+      );
+      
+      // Send action list for each part
+      for (let i = 0; i < queuedIds.length; i++) {
+        const queuedId = queuedIds[i];
+        const sections = [{
+          title: 'סטטיסטיקות',
+          rows: [
+            { id: `queued_views_${queuedId}`, title: '👁️ צפיות', description: 'רשימת הצופים בסטטוס' },
+            { id: `queued_hearts_${queuedId}`, title: '❤️ סימוני לב', description: 'רשימת מי שסימן לב' },
+            { id: `queued_reactions_${queuedId}`, title: '💬 תגובות', description: 'רשימת המגיבים' }
+          ]
+        }, {
+          title: 'פעולות',
+          rows: [
+            { id: `queued_delete_${queuedId}`, title: '🗑️ בטל תזמון', description: 'הסר חלק זה מהתור' },
+            { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים בתור ומתוזמנים' },
+            { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
+          ]
+        }];
+        
+        await cloudApi.sendListMessage(
+          phone,
+          `📹 חלק ${i + 1} מתוך ${partsCount}`,
+          'בחר פעולה',
+          sections
+        );
+      }
+    } else {
+      // Single status - send action menu
+      const sections = [{
+        title: 'סטטיסטיקות',
+        rows: [
+          { id: `queued_views_${queuedStatusId}`, title: '👁️ צפיות', description: 'רשימת הצופים בסטטוס' },
+          { id: `queued_hearts_${queuedStatusId}`, title: '❤️ סימוני לב', description: 'רשימת מי שסימן לב' },
+          { id: `queued_reactions_${queuedStatusId}`, title: '💬 תגובות', description: 'רשימת המגיבים' }
+        ]
+      }, {
+        title: 'פעולות',
+        rows: [
+          { id: `queued_delete_${queuedStatusId}`, title: '🗑️ בטל תזמון', description: 'הסר מתור השליחה' },
+          { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים בתור ומתוזמנים' },
+          { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
+        ]
+      }];
+      
+      await cloudApi.sendListMessage(
+        phone,
+        `✅ הסטטוס תוזמן ל-${hebrewDate}\n\nמה תרצה לעשות?`,
+        'בחר פעולה',
+        sections,
+        pendingStatus?.messageId
+      );
+    }
     
     await setState(phone, 'idle', null, null);
     
@@ -1883,15 +1928,18 @@ async function handleTimeSelection(phone, statusId, pendingStatus, timeStr) {
       const parts = pendingStatus.parts || [];
       const captions = pendingStatus.partCaptions || Array(parts.length).fill('');
       const partGroupId = uuidv4();
+      const queuedIds = [];
       
       for (let i = 0; i < parts.length; i++) {
         // parts[i] is an object { filePath, url, partNumber, totalParts } - extract url
         const partUrl = typeof parts[i] === 'object' ? parts[i].url : parts[i];
-        await db.query(`
+        const insertResult = await db.query(`
           INSERT INTO status_bot_queue 
           (connection_id, status_type, content, queue_status, scheduled_for, source, part_group_id, part_number, total_parts)
           VALUES ($1, 'video', $2, 'scheduled', $3, 'whatsapp', $4, $5, $6)
+          RETURNING id
         `, [connectionId, JSON.stringify({ url: partUrl, caption: captions[i] || '' }), scheduledTime, partGroupId, i + 1, parts.length]);
+        queuedIds.push(insertResult.rows[0]?.id);
       }
       
       const hebrewDate = new Date(scheduledTime).toLocaleString('he-IL', { 
@@ -1899,7 +1947,35 @@ async function handleTimeSelection(phone, statusId, pendingStatus, timeStr) {
         day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit'
       });
       
+      // Send confirmation
       await cloudApi.sendTextMessage(phone, `✅ ${parts.length} חלקי הסרטון תוזמנו ל-${hebrewDate}`);
+      
+      // Send action list for each part
+      for (let i = 0; i < queuedIds.length; i++) {
+        const queuedId = queuedIds[i];
+        const sections = [{
+          title: 'סטטיסטיקות',
+          rows: [
+            { id: `queued_views_${queuedId}`, title: '👁️ צפיות', description: 'רשימת הצופים בסטטוס' },
+            { id: `queued_hearts_${queuedId}`, title: '❤️ סימוני לב', description: 'רשימת מי שסימן לב' },
+            { id: `queued_reactions_${queuedId}`, title: '💬 תגובות', description: 'רשימת המגיבים' }
+          ]
+        }, {
+          title: 'פעולות',
+          rows: [
+            { id: `queued_delete_${queuedId}`, title: '🗑️ מחק חלק', description: 'הסר חלק זה מהתור' },
+            { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים בתור ומתוזמנים' },
+            { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
+          ]
+        }];
+        
+        await cloudApi.sendListMessage(
+          phone,
+          `📹 חלק ${i + 1} מתוך ${parts.length}`,
+          'בחר פעולה',
+          sections
+        );
+      }
     } else {
       // Single status
       const content = buildQueueContent(pendingStatus);
@@ -2385,30 +2461,36 @@ async function handleIdleState_LEGACY(phone, message, state) {
           return;
         }
         
-        // If no original caption, skip to action
+        // Get caption mode setting from connection
+        const captionModeResult = await db.query(
+          `SELECT split_video_caption_mode FROM status_bot_connections WHERE id = $1`,
+          [connection.connection_id]
+        );
+        const captionMode = captionModeResult.rows[0]?.split_video_caption_mode || 'first';
+        
+        // Apply caption based on setting
+        let partCaptions;
         if (!originalCaption) {
-          await setState(phone, 'select_action', { isVideoSplit: true, videoParts: videoResult.parts }, pendingStatus, connection.connection_id);
-          await cloudApi.sendButtonMessage(
-            phone,
-            `🎬 הסרטון יחולק ל-${partCount} חלקים (~${partDuration} כל חלק)\n\nמה תרצה לעשות?`,
-            [
-              { id: 'action_send', title: 'שלח כעת' },
-              { id: 'action_schedule', title: 'תזמן' },
-              { id: 'action_cancel', title: 'בטל' }
-            ]
-          );
-          return;
+          partCaptions = Array(partCount).fill('');
+        } else if (captionMode === 'all') {
+          partCaptions = Array(partCount).fill(originalCaption);
+        } else {
+          // Default: 'first' - caption only on first part
+          partCaptions = [originalCaption, ...Array(partCount - 1).fill('')];
         }
         
-        // Has caption - ask about caption distribution
-        await setState(phone, 'video_split_caption_choice', null, pendingStatus, connection.connection_id);
+        pendingStatus.partCaptions = partCaptions;
+        
+        await setState(phone, 'select_action', { isVideoSplit: true, videoParts: videoResult.parts }, pendingStatus, connection.connection_id);
+        
+        const captionNote = originalCaption ? (captionMode === 'all' ? '\n📝 הכיתוב יופיע בכל החלקים' : '\n📝 הכיתוב יופיע רק בחלק הראשון') : '';
         await cloudApi.sendButtonMessage(
           phone,
-          `🎬 הסרטון יחולק ל-${partCount} חלקים (~${partDuration} כל חלק)\n\nאיך תרצה לשים את הכיתוב?\n\n"${originalCaption.substring(0, 50)}${originalCaption.length > 50 ? '...' : ''}"`,
+          `🎬 הסרטון יחולק ל-${partCount} חלקים (~${partDuration} כל חלק)${captionNote}\n\nמה תרצה לעשות?`,
           [
-            { id: 'caption_all', title: 'על כל החלקים' },
-            { id: 'caption_first', title: 'רק על הראשון' },
-            { id: 'caption_custom', title: 'מותאם אישית' }
+            { id: 'action_send', title: 'שלח כעת' },
+            { id: 'action_schedule', title: 'תזמן' },
+            { id: 'action_cancel', title: 'בטל' }
           ]
         );
         return;
@@ -2535,6 +2617,44 @@ async function handleSelectAccountState(phone, message, state) {
   }
   
   const pendingStatus = state.pending_status;
+  
+  // For video_split - apply caption mode setting and go to action
+  if (pendingStatus.type === 'video_split') {
+    // Get caption mode setting from connection
+    const captionModeResult = await db.query(
+      `SELECT split_video_caption_mode FROM status_bot_connections WHERE id = $1`,
+      [connectionId]
+    );
+    const captionMode = captionModeResult.rows[0]?.split_video_caption_mode || 'first';
+    const originalCaption = pendingStatus.originalCaption || '';
+    const partCount = pendingStatus.totalParts || pendingStatus.parts?.length || 1;
+    
+    // Apply caption based on setting
+    let partCaptions;
+    if (!originalCaption) {
+      partCaptions = Array(partCount).fill('');
+    } else if (captionMode === 'all') {
+      partCaptions = Array(partCount).fill(originalCaption);
+    } else {
+      partCaptions = [originalCaption, ...Array(partCount - 1).fill('')];
+    }
+    
+    pendingStatus.partCaptions = partCaptions;
+    
+    await setState(phone, 'select_action', { isVideoSplit: true }, pendingStatus, connectionId);
+    
+    const captionNote = originalCaption ? (captionMode === 'all' ? '\n📝 הכיתוב יופיע בכל החלקים' : '\n📝 הכיתוב יופיע רק בחלק הראשון') : '';
+    await cloudApi.sendButtonMessage(
+      phone,
+      `🎬 הסרטון יחולק ל-${partCount} חלקים${captionNote}\n\nמה תרצה לעשות?`,
+      [
+        { id: 'action_send', title: 'שלח כעת' },
+        { id: 'action_schedule', title: 'תזמן' },
+        { id: 'action_cancel', title: 'בטל' }
+      ]
+    );
+    return;
+  }
   
   // For media (image/video), skip color selection and go to action
   if (pendingStatus.type === 'image' || pendingStatus.type === 'video') {

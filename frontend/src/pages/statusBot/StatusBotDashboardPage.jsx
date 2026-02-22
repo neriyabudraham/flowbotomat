@@ -172,6 +172,10 @@ function StatusBotDashboardContent() {
   const [newColorTitle, setNewColorTitle] = useState('');
   const [savingColors, setSavingColors] = useState(false);
   
+  // Split video caption mode setting
+  const [splitVideoCaptionMode, setSplitVideoCaptionMode] = useState('first'); // 'first' or 'all'
+  const [savingCaptionMode, setSavingCaptionMode] = useState(false);
+  
   // Add number modal
   const [showAddNumber, setShowAddNumber] = useState(false);
   const [newNumber, setNewNumber] = useState('');
@@ -353,6 +357,19 @@ function StatusBotDashboardContent() {
     }
   };
 
+  const updateCaptionMode = async (mode) => {
+    try {
+      setSavingCaptionMode(true);
+      await api.patch('/status-bot/settings', { split_video_caption_mode: mode });
+      setSplitVideoCaptionMode(mode);
+      toast.success('ההגדרה נשמרה');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'שגיאה בשמירת הגדרה');
+    } finally {
+      setSavingCaptionMode(false);
+    }
+  };
+
   const DEFAULT_COLORS = [
     { id: '782138', title: 'בורדו' },
     { id: '6e267d', title: 'סגול כהה' },
@@ -410,6 +427,9 @@ function StatusBotDashboardContent() {
       if (data.connection?.connection_status === 'connected') {
         // Connected in DB - show dashboard immediately
         setConnection(data.connection);
+        if (data.connection?.split_video_caption_mode) {
+          setSplitVideoCaptionMode(data.connection.split_video_caption_mode);
+        }
         if (data.subscription) setSubscription(data.subscription);
         setStep('dashboard');
         loadDashboardData();
@@ -1995,6 +2015,51 @@ function StatusBotDashboardContent() {
                       ))}
                     </div>
                   )}
+                  
+                  {/* WhatsApp Bot Settings */}
+                  <div className="mt-6 pt-6 border-t border-gray-100">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Settings className="w-4 h-4 text-gray-500" />
+                      <h4 className="text-sm font-medium text-gray-700">הגדרות העלאה דרך וואטסאפ</h4>
+                    </div>
+                    
+                    <div className="bg-gray-50 rounded-xl p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">כיתוב בסרטונים מחולקים</p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {splitVideoCaptionMode === 'all' 
+                              ? 'הכיתוב יופיע בכל חלקי הסרטון' 
+                              : 'הכיתוב יופיע רק בחלק הראשון'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => updateCaptionMode('first')}
+                            disabled={savingCaptionMode}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                              splitVideoCaptionMode === 'first'
+                                ? 'bg-green-100 text-green-700 ring-2 ring-green-500'
+                                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+                            }`}
+                          >
+                            רק ראשון
+                          </button>
+                          <button
+                            onClick={() => updateCaptionMode('all')}
+                            disabled={savingCaptionMode}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                              splitVideoCaptionMode === 'all'
+                                ? 'bg-green-100 text-green-700 ring-2 ring-green-500'
+                                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+                            }`}
+                          >
+                            כל החלקים
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </>
               )}
             </div>

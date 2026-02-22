@@ -60,6 +60,7 @@ router.get('/check-existing', authMiddleware, statusBotController.checkExisting)
 router.post('/connect', authMiddleware, statusBotController.startConnection);
 router.get('/qr', authMiddleware, statusBotController.getQR);
 router.post('/disconnect', authMiddleware, statusBotController.disconnect);
+router.patch('/settings', authMiddleware, statusBotController.updateSettings);
 
 // Authorized numbers
 router.get('/authorized-numbers', authMiddleware, statusBotController.getAuthorizedNumbers);

@@ -120,6 +120,12 @@ async function initializeTables() {
       ADD COLUMN IF NOT EXISTS last_connected_at TIMESTAMP
     `).catch(() => {});
 
+    // Add split_video_caption_mode column if not exists (default: 'first' = caption only on first part)
+    await db.query(`
+      ALTER TABLE status_bot_connections 
+      ADD COLUMN IF NOT EXISTS split_video_caption_mode VARCHAR(10) DEFAULT 'first'
+    `).catch(() => {});
+
     await db.query(`
       CREATE TABLE IF NOT EXISTS status_bot_authorized_numbers (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -3271,6 +3277,56 @@ function emitPendingStatusUpdate(userId) {
   }
 }
 
+/**
+ * Update connection settings
+ */
+async function updateSettings(req, res) {
+  try {
+    const userId = req.user.id;
+    const { split_video_caption_mode } = req.body;
+
+    // Validate values
+    const allowedCaptionModes = ['first', 'all'];
+    if (split_video_caption_mode && !allowedCaptionModes.includes(split_video_caption_mode)) {
+      return res.status(400).json({ error: 'ערך לא תקין עבור split_video_caption_mode' });
+    }
+
+    // Build dynamic update query
+    const updates = [];
+    const params = [userId];
+    let paramIndex = 2;
+
+    if (split_video_caption_mode) {
+      updates.push(`split_video_caption_mode = $${paramIndex}`);
+      params.push(split_video_caption_mode);
+      paramIndex++;
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'לא נשלחו הגדרות לעדכון' });
+    }
+
+    const result = await db.query(`
+      UPDATE status_bot_connections
+      SET ${updates.join(', ')}, updated_at = NOW()
+      WHERE user_id = $1
+      RETURNING *
+    `, params);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'חיבור לא נמצא' });
+    }
+
+    res.json({ 
+      success: true,
+      connection: result.rows[0]
+    });
+  } catch (error) {
+    console.error('[StatusBot] Update settings error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון הגדרות' });
+  }
+}
+
 module.exports = {
   // Connection
   getConnection,
@@ -3278,6 +3334,7 @@ module.exports = {
   startConnection,
   getQR,
   disconnect,
+  updateSettings,
   
   // Authorized numbers
   getAuthorizedNumbers,
