@@ -2747,11 +2747,14 @@ async function sendPendingStatus(req, res) {
       const partGroupId = require('uuid').v4();
       
       for (let i = 0; i < parts.length; i++) {
+        // Extract URL - parts[i] might be an object with url property or just a string
+        const partUrl = typeof parts[i] === 'object' ? parts[i].url : parts[i];
+        const partCaption = parts[i]?.caption || captions[i] || '';
         await db.query(`
           INSERT INTO status_bot_queue 
           (connection_id, status_type, content, queue_status, source, part_group_id, part_number, total_parts)
           VALUES ($1, 'video', $2, 'pending', 'website', $3, $4, $5)
-        `, [connectionId, JSON.stringify({ url: parts[i], caption: captions[i] || '' }), partGroupId, i + 1, parts.length]);
+        `, [connectionId, JSON.stringify({ url: partUrl, caption: partCaption }), partGroupId, i + 1, parts.length]);
       }
     } else {
       // Single status
@@ -2846,11 +2849,14 @@ async function schedulePendingStatus(req, res) {
       const partGroupId = require('uuid').v4();
       
       for (let i = 0; i < parts.length; i++) {
+        // Extract URL - parts[i] might be an object with url property or just a string
+        const partUrl = typeof parts[i] === 'object' ? parts[i].url : parts[i];
+        const partCaption = parts[i]?.caption || captions[i] || '';
         await db.query(`
           INSERT INTO status_bot_queue 
           (connection_id, status_type, content, queue_status, scheduled_for, source, part_group_id, part_number, total_parts)
           VALUES ($1, 'video', $2, 'scheduled', $3, 'website', $4, $5, $6)
-        `, [connectionId, JSON.stringify({ url: parts[i], caption: captions[i] || '' }), scheduledTime, partGroupId, i + 1, parts.length]);
+        `, [connectionId, JSON.stringify({ url: partUrl, caption: partCaption }), scheduledTime, partGroupId, i + 1, parts.length]);
       }
     } else {
       let content = {};
