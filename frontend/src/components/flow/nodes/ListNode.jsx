@@ -75,6 +75,8 @@ function ListNode({ data, selected }) {
                 type="source"
                 position={Position.Right}
                 id={String(i)}
+                isConnectableStart={true}
+                isConnectableEnd={false}
                 style={{ top: '50%', right: '-8px' }}
                 className="!w-3 !h-3 bg-cyan-500 !border-2 !border-white !relative !transform-none"
               />

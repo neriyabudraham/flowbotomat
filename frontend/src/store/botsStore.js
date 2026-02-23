@@ -55,6 +55,12 @@ const useBotsStore = create((set, get) => ({
 
   saveFlow: async (botId, flowData) => {
     try {
+      console.log('[Store] Saving flow - edges count:', flowData.edges?.length);
+      console.log('[Store] Edges by sourceHandle:', flowData.edges?.reduce((acc, e) => {
+        const key = `${e.source}-${e.sourceHandle}`;
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {}));
       const { data } = await api.put(`/bots/${botId}/flow`, { flow_data: flowData });
       set({ currentBot: data.bot });
       return data.bot;
