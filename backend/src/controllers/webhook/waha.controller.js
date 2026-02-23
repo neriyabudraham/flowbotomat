@@ -548,8 +548,12 @@ async function handleIncomingMessage(userId, event) {
       }
     }
     
-    // If still no name, fetch from WAHA groups API
-    if (!contactName || contactName === groupId.split('@')[0]) {
+    // Check if existing name looks like just an ID (numeric only) - treat as no name
+    const numericGroupId = groupId.split('@')[0];
+    const existingNameIsJustId = contactName && /^\d+$/.test(contactName);
+    
+    // If still no name (or name is just numeric ID), fetch from WAHA groups API
+    if (!contactName || contactName === numericGroupId || existingNameIsJustId) {
       try {
         const connResult = await pool.query(
           `SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' ORDER BY connected_at DESC LIMIT 1`,
@@ -569,22 +573,62 @@ async function handleIncomingMessage(userId, event) {
             apiKey = systemCreds.apiKey;
           }
           
-          // Fetch all groups and find matching one
           const axios = require('axios');
-          const groupsResponse = await axios.get(
-            `${baseUrl}/api/${conn.session_name}/groups`,
-            {
-              headers: { 'accept': 'application/json', 'X-Api-Key': apiKey },
-              timeout: 10000
-            }
-          );
           
-          const groups = groupsResponse.data || [];
-          const matchingGroup = groups.find(g => g.id === groupId);
-          if (matchingGroup) {
-            const resolvedName = matchingGroup.subject || matchingGroup.name || matchingGroup.Name || null;
-            if (resolvedName) {
-              contactName = resolvedName;
+          // Try specific group endpoint first (faster)
+          try {
+            const groupResponse = await axios.get(
+              `${baseUrl}/api/${conn.session_name}/groups/${encodeURIComponent(groupId)}`,
+              {
+                headers: { 'accept': 'application/json', 'X-Api-Key': apiKey },
+                timeout: 5000
+              }
+            );
+            
+            const groupData = groupResponse.data;
+            if (groupData) {
+              const resolvedName = groupData.subject || groupData.name || groupData.Name || null;
+              if (resolvedName && resolvedName !== numericGroupId && !/^\d+$/.test(resolvedName)) {
+                contactName = resolvedName;
+                console.log(`[Webhook] Fetched group name: ${resolvedName} for ${groupId}`);
+                
+                // Also update existing contact if it has a bad name
+                await pool.query(
+                  `UPDATE contacts SET display_name = $1, updated_at = NOW() 
+                   WHERE user_id = $2 AND phone = $3 
+                   AND (display_name IS NULL OR display_name ~ '^[0-9]+$' OR display_name = $4)`,
+                  [resolvedName, userId, groupId, numericGroupId]
+                );
+              }
+            }
+          } catch (specificError) {
+            // Specific endpoint failed, try fetching all groups
+            console.log(`[Webhook] Specific group fetch failed, trying all groups: ${specificError.message}`);
+            
+            const groupsResponse = await axios.get(
+              `${baseUrl}/api/${conn.session_name}/groups`,
+              {
+                headers: { 'accept': 'application/json', 'X-Api-Key': apiKey },
+                timeout: 10000
+              }
+            );
+            
+            const groups = groupsResponse.data || [];
+            const matchingGroup = groups.find(g => g.id === groupId);
+            if (matchingGroup) {
+              const resolvedName = matchingGroup.subject || matchingGroup.name || matchingGroup.Name || null;
+              if (resolvedName && resolvedName !== numericGroupId && !/^\d+$/.test(resolvedName)) {
+                contactName = resolvedName;
+                console.log(`[Webhook] Fetched group name from list: ${resolvedName} for ${groupId}`);
+                
+                // Also update existing contact if it has a bad name
+                await pool.query(
+                  `UPDATE contacts SET display_name = $1, updated_at = NOW() 
+                   WHERE user_id = $2 AND phone = $3 
+                   AND (display_name IS NULL OR display_name ~ '^[0-9]+$' OR display_name = $4)`,
+                  [resolvedName, userId, groupId, numericGroupId]
+                );
+              }
             }
           }
         }
@@ -593,7 +637,7 @@ async function handleIncomingMessage(userId, event) {
       }
     }
     
-    // No fallback - contactName will be null if not found (will use phone as display)
+    // No fallback - contactName will be null if not found (frontend will show clean ID)
     
   } else if (isChannelMessage) {
     // Channel message: contact is the CHANNEL itself
