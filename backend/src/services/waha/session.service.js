@@ -855,6 +855,28 @@ async function sendLinkPreview(connection, phone, text, preview) {
   return response.data;
 }
 
+/**
+ * Forward message to another chat
+ * @param {Object} connection - WAHA connection object
+ * @param {String} chatId - Target chat ID (can be group or contact)
+ * @param {String} messageId - The message ID to forward
+ */
+async function forwardMessage(connection, chatId, messageId) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const targetChatId = chatId.includes('@') ? chatId : `${chatId}@c.us`;
+  
+  console.log(`[WAHA] Forwarding message ${messageId} to ${targetChatId}`);
+  
+  const response = await client.post(`/api/forwardMessage`, {
+    session: connection.session_name,
+    chatId: targetChatId,
+    messageId: messageId,
+  });
+  
+  console.log(`[WAHA] Forwarded message to ${targetChatId}`);
+  return response.data;
+}
+
 // ====================== GROUP FUNCTIONS ======================
 
 /**
@@ -1182,6 +1204,7 @@ module.exports = {
   sendLocation,
   sendContactVcard,
   sendLinkPreview,
+  forwardMessage,
   // Group functions
   addGroupParticipants,
   removeGroupParticipants,

@@ -155,9 +155,12 @@ async function processGroupMessage(params) {
 
   console.log(`[GroupTransfers] Processing message for transfer "${transfer.name}" from group ${sourceGroupId}`);
 
-  // Check for supported message types
+  // Supported types: send with attribution in caption/text
+  // Forward types: forward message and send attribution separately
   const supportedTypes = ['text', 'image', 'video', 'audio', 'ptt', 'document'];
-  if (!supportedTypes.includes(messageType)) {
+  const forwardTypes = ['sticker'];
+  
+  if (!supportedTypes.includes(messageType) && !forwardTypes.includes(messageType)) {
     console.log(`[GroupTransfers] Skipping unsupported message type: ${messageType}`);
     return { success: true, skipped: true, reason: `unsupported type: ${messageType}` };
   }
@@ -308,6 +311,27 @@ async function processGroupMessage(params) {
             filename,
             mediaMimeType,
             caption,
+            attribution.mentions
+          );
+        } else if (messageType === 'sticker') {
+          // Sticker: forward the original message, then send attribution as reply
+          if (!messageId) {
+            console.log(`[GroupTransfers] Cannot forward sticker - no messageId available`);
+            continue;
+          }
+          
+          // Forward the sticker
+          result = await wahaService.forwardMessage(
+            wahaConnection,
+            target.group_id,
+            messageId
+          );
+          
+          // Send attribution as a separate message with mention
+          await wahaService.sendMessage(
+            wahaConnection,
+            target.group_id,
+            attribution.text.replace(/:\s*$/, ''),
             attribution.mentions
           );
         } else {
