@@ -810,12 +810,19 @@ async function handleIncomingMessage(userId, event) {
         // Process each transfer in parallel
         for (const transfer of transfers) {
           // Don't await - let it run in background
+          // Get the actual sender name (not the group name)
+          const actualSenderName = payload.notifyName || 
+                                   payload.pushName || 
+                                   payload._data?.Info?.PushName ||
+                                   payload._data?.Info?.VerifiedName?.Details?.verifiedName ||
+                                   null;
+          
           groupTransfersTrigger.processGroupMessage({
             userId,
             transfer,
             sourceGroupId: groupId,
             senderPhone,
-            senderName: payload.notifyName || payload.pushName || contactName,
+            senderName: actualSenderName,
             messageType: messageData.type,
             messageContent: messageData.content,
             mediaUrl: messageData.mediaUrl,

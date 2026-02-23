@@ -102,17 +102,15 @@ function normalizePhone(phone) {
 
 /**
  * Format sender attribution
+ * Keep phone in international format (972...)
  */
 function formatSenderAttribution(senderPhone, senderName) {
   const cleanPhone = normalizePhone(senderPhone);
-  const displayPhone = cleanPhone.startsWith('972') 
-    ? '0' + cleanPhone.substring(3) 
-    : cleanPhone;
   
-  if (senderName && senderName !== cleanPhone) {
-    return `@${displayPhone} (${senderName}):`;
+  if (senderName && senderName !== cleanPhone && !/^\d+$/.test(senderName)) {
+    return `@${cleanPhone} (${senderName}):`;
   }
-  return `@${displayPhone}:`;
+  return `@${cleanPhone}:`;
 }
 
 /**
