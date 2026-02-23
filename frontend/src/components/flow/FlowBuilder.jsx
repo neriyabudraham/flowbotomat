@@ -46,9 +46,16 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
   const [quickAddMenu, setQuickAddMenu] = useState(null);
   const [pendingConnection, setPendingConnection] = useState(null);
   const [miniMapCollapsed, setMiniMapCollapsed] = useState(true);
+  const [toast, setToast] = useState(null);
   
   const [nodes, setNodes, onNodesChange] = useNodesState(initialData?.nodes || []);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialData?.edges || []);
+
+  // Show toast notification
+  const showToast = useCallback((message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 2000);
+  }, []);
 
   // Copy/Paste functionality
   useEffect(() => {
@@ -71,7 +78,7 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
           timestamp: Date.now()
         }));
         
-        console.log(`[Flow] Copied ${selectedNodes.length} nodes, ${selectedEdges.length} edges`);
+        showToast(`הועתקו ${selectedNodes.length} רכיבים 📋`);
       }
       
       // Paste: Ctrl+V or Cmd+V
@@ -123,7 +130,7 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
           
           setEdges(eds => [...eds, ...newEdges]);
           
-          console.log(`[Flow] Pasted ${newNodes.length} nodes, ${newEdges.length} edges`);
+          showToast(`הודבקו ${newNodes.length} רכיבים ✨`);
         } catch (err) {
           console.error('[Flow] Paste error:', err);
         }
@@ -132,7 +139,7 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
     
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [nodes, edges, setNodes, setEdges]);
+  }, [nodes, edges, setNodes, setEdges, showToast]);
 
   // Sync with parent
   useEffect(() => {
@@ -412,6 +419,15 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
             setPendingConnection(null);
           }}
         />
+      )}
+      
+      {/* Toast notification */}
+      {toast && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-xl shadow-lg">
+            {toast.message}
+          </div>
+        </div>
       )}
     </div>
   );
