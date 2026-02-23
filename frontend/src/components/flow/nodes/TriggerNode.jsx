@@ -39,9 +39,8 @@ function TriggerNode({ data, selected }) {
   // Use triggerGroups (new format) - supports OR groups with AND conditions
   const groups = data.triggerGroups || [];
   
-  // Can delete trigger only if there are multiple triggers in the flow
-  const triggerCount = data.triggerCount || 1;
-  const canDelete = triggerCount > 1;
+  // Trigger nodes cannot be deleted
+  const canDelete = false;
   
   // Build summary of conditions
   const getConditionSummary = (condition) => {

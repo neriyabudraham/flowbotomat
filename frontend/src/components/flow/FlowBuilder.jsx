@@ -52,9 +52,14 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
     onChange?.({ nodes, edges });
   }, [nodes, edges]);
 
-  // Delete node
+  // Delete node (but never allow deleting trigger nodes)
   const handleDeleteNode = useCallback((nodeId) => {
-    setNodes(nds => nds.filter(n => n.id !== nodeId));
+    setNodes(nds => {
+      const nodeToDelete = nds.find(n => n.id === nodeId);
+      // Prevent deletion of trigger nodes
+      if (nodeToDelete?.type === 'trigger') return nds;
+      return nds.filter(n => n.id !== nodeId);
+    });
     setEdges(eds => eds.filter(e => e.source !== nodeId && e.target !== nodeId));
   }, [setNodes, setEdges]);
 

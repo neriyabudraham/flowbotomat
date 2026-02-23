@@ -28,11 +28,27 @@ async function createBot(req, res) {
       });
     }
     
+    // Default flow with a trigger node set to "any_message"
+    const defaultFlow = {
+      nodes: [{
+        id: 'trigger_1',
+        type: 'trigger',
+        position: { x: 250, y: 100 },
+        data: {
+          triggerGroups: [{
+            id: 'group_1',
+            conditions: [{ type: 'any_message' }]
+          }]
+        }
+      }],
+      edges: []
+    };
+    
     const result = await pool.query(
-      `INSERT INTO bots (user_id, name, description)
-       VALUES ($1, $2, $3)
+      `INSERT INTO bots (user_id, name, description, flow_data)
+       VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [userId, name, description || '']
+      [userId, name, description || '', JSON.stringify(defaultFlow)]
     );
     
     res.status(201).json({ bot: result.rows[0] });
