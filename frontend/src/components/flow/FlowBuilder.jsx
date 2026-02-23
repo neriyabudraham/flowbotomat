@@ -341,8 +341,9 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
         deleteKeyCode={['Backspace', 'Delete']}
         selectionOnDrag
         selectionMode={SelectionMode.Partial}
-        panOnDrag={[1, 2]}
-        selectNodesOnDrag={false}
+        panOnDrag
+        panOnScroll
+        selectionKeyCode="Shift"
       >
         <Background color="#94a3b8" gap={20} size={2.5} />
         <Controls 
