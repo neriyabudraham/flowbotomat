@@ -90,17 +90,18 @@ export default function TransferJobHistoryTab() {
   const handleDeleteConfirm = async () => {
     if (!deleteConfirm) return;
     const jobId = deleteConfirm.id;
+    const isStuckJob = ['sending', 'pending', 'confirmed'].includes(deleteConfirm.status);
     
     try {
       setDeleting(jobId);
-      await api.delete(`/group-transfers/jobs/${jobId}`);
+      await api.delete(`/group-transfers/jobs/${jobId}${isStuckJob ? '?force=true' : ''}`);
       setJobs(jobs.filter(j => j.id !== jobId));
       setTotal(t => t - 1);
       if (expandedJob === jobId) setExpandedJob(null);
       setDeleteConfirm(null);
     } catch (e) {
       console.error('Failed to delete job:', e);
-      setErrorMessage('שגיאה במחיקת האירוע');
+      setErrorMessage({ type: 'error', text: e.response?.data?.error || 'שגיאה במחיקת האירוע' });
       setDeleteConfirm(null);
     } finally {
       setDeleting(null);
@@ -459,20 +460,18 @@ export default function TransferJobHistoryTab() {
                     {job.completed_at && <span>הסתיים: {formatDate(job.completed_at)}</span>}
                   </div>
                   
-                  {!['sending', 'pending', 'confirmed'].includes(job.status) && (
-                    <button
-                      onClick={(e) => handleDeleteClick(job, e)}
-                      disabled={deleting === job.id}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 hover:text-white hover:bg-red-500 bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      {deleting === job.id ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Trash2 className="w-3.5 h-3.5" />
-                      )}
-                      מחק
-                    </button>
-                  )}
+                  <button
+                    onClick={(e) => handleDeleteClick(job, e)}
+                    disabled={deleting === job.id}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 hover:text-white hover:bg-red-500 bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {deleting === job.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                    מחק
+                  </button>
                 </div>
               </div>
             )}

@@ -483,11 +483,13 @@ async function getPendingJobs(req, res) {
 
 /**
  * Delete a job
+ * Allows force delete for stuck jobs
  */
 async function deleteJob(req, res) {
   try {
     const userId = req.user.id;
     const { jobId } = req.params;
+    const force = req.query.force === 'true';
     
     const jobResult = await db.query(`
       SELECT tj.* FROM transfer_jobs tj
@@ -500,8 +502,17 @@ async function deleteJob(req, res) {
     
     const job = jobResult.rows[0];
     
-    if (job.status === 'sending' || job.status === 'pending' || job.status === 'confirmed') {
-      return res.status(400).json({ error: 'לא ניתן למחוק אירוע פעיל' });
+    // Check if job can be deleted
+    const isActiveStatus = ['sending', 'pending', 'confirmed'].includes(job.status);
+    
+    if (isActiveStatus && !force) {
+      // Allow deletion of stuck "sending" jobs (no progress or stuck for 2+ minutes)
+      const isStuckSending = job.status === 'sending' && 
+        (job.sent_count === 0 || (Date.now() - new Date(job.updated_at).getTime() > 2 * 60 * 1000));
+      
+      if (!isStuckSending) {
+        return res.status(400).json({ error: 'לא ניתן למחוק אירוע פעיל' });
+      }
     }
     
     await db.query('DELETE FROM transfer_job_messages WHERE job_id = $1', [jobId]);
