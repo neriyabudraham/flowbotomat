@@ -101,17 +101,26 @@ function normalizePhone(phone) {
 }
 
 /**
- * Format sender attribution
- * Keep phone in international format (972...)
- * Bold the @phone for emphasis in WhatsApp
+ * Format sender attribution with WhatsApp mention
+ * Uses LID (@lid) for proper WhatsApp mention if available, fallback to phone
+ * Returns { text, mentions } for proper WhatsApp mention
  */
-function formatSenderAttribution(senderPhone, senderName) {
+function formatSenderAttribution(senderPhone, senderName, senderLid = null) {
   const cleanPhone = normalizePhone(senderPhone);
   
+  // Use LID for mention if available (WhatsApp internal ID for proper @mention)
+  // Format: LID@lid for the mentions array, @LID in the text
+  const mentionId = senderLid ? `${senderLid}@lid` : `${cleanPhone}@c.us`;
+  const displayId = senderLid || cleanPhone;
+  
+  let text;
   if (senderName && senderName !== cleanPhone && !/^\d+$/.test(senderName)) {
-    return `*@${cleanPhone}* (${senderName}):`;
+    text = `@${displayId} (${senderName}):`;
+  } else {
+    text = `@${displayId}:`;
   }
-  return `*@${cleanPhone}*:`;
+  
+  return { text, mentions: [mentionId], cleanPhone, displayId };
 }
 
 /**
@@ -124,6 +133,7 @@ async function processGroupMessage(params) {
     sourceGroupId,
     senderPhone,
     senderName,
+    senderLid,
     messageType,
     messageContent,
     mediaUrl,
@@ -163,7 +173,8 @@ async function processGroupMessage(params) {
     }
 
     const conn = connResult.rows[0];
-    const attribution = formatSenderAttribution(senderPhone, senderName);
+    const attribution = formatSenderAttribution(senderPhone, senderName, senderLid);
+    console.log(`[GroupTransfers] Attribution: text="${attribution.text}", mentions=${JSON.stringify(attribution.mentions)}, senderLid=${senderLid || 'none'}`);
 
     // Build connection object for waha service
     let wahaConnection;
@@ -215,18 +226,19 @@ async function processGroupMessage(params) {
         let result;
         
         if (messageType === 'text') {
-          // Text message: prepend attribution
-          const fullMessage = `${attribution}\n${messageContent}`;
+          // Text message: prepend attribution with mention
+          const fullMessage = `${attribution.text}\n${messageContent}`;
           result = await wahaService.sendMessage(
             wahaConnection,
             target.group_id,
-            fullMessage
+            fullMessage,
+            attribution.mentions
           );
         } else if (messageType === 'image') {
-          // Image: add attribution as caption
+          // Image: add attribution as caption (no mentions in image caption)
           const caption = messageContent 
-            ? `${attribution}\n${messageContent}`
-            : attribution;
+            ? `${attribution.text}\n${messageContent}`
+            : attribution.text;
           result = await wahaService.sendImage(
             wahaConnection,
             target.group_id,
@@ -234,10 +246,10 @@ async function processGroupMessage(params) {
             caption
           );
         } else if (messageType === 'video') {
-          // Video: add attribution as caption
+          // Video: add attribution as caption (no mentions in video caption)
           const caption = messageContent 
-            ? `${attribution}\n${messageContent}`
-            : attribution;
+            ? `${attribution.text}\n${messageContent}`
+            : attribution.text;
           result = await wahaService.sendVideo(
             wahaConnection,
             target.group_id,
@@ -245,27 +257,28 @@ async function processGroupMessage(params) {
             caption
           );
         } else if (messageType === 'audio' || messageType === 'ptt') {
-          // Audio/PTT: send audio first, then attribution as reply
+          // Audio/PTT: send audio first, then attribution as reply with mention
           result = await wahaService.sendVoice(
             wahaConnection,
             target.group_id,
             mediaUrl
           );
           
-          // Send attribution as follow-up message
+          // Send attribution as follow-up message with mention
           if (result && result.id) {
             await new Promise(resolve => setTimeout(resolve, 500));
             await wahaService.sendMessage(
               wahaConnection,
               target.group_id,
-              attribution
+              attribution.text,
+              attribution.mentions
             );
           }
         } else if (messageType === 'document') {
-          // Document: send file with caption
+          // Document: send file with caption (no mentions in file caption)
           const caption = messageContent 
-            ? `${attribution}\n${messageContent}`
-            : attribution;
+            ? `${attribution.text}\n${messageContent}`
+            : attribution.text;
           const filename = mediaUrl?.split('/').pop() || 'file';
           result = await wahaService.sendFile(
             wahaConnection,
@@ -276,14 +289,15 @@ async function processGroupMessage(params) {
             caption
           );
         } else {
-          // Unsupported type: send text with attribution
+          // Unsupported type: send text with attribution and mention
           console.log(`[GroupTransfers] Unsupported message type: ${messageType}, sending text notification`);
           
           // Send attribution with message type note
           result = await wahaService.sendMessage(
             wahaConnection,
             target.group_id,
-            `${attribution}\n[הודעה מסוג ${messageType} הועברה]`
+            `${attribution.text}\n[הודעה מסוג ${messageType} הועברה]`,
+            attribution.mentions
           );
         }
 

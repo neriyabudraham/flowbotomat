@@ -333,18 +333,29 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
 
 /**
  * Send text message
+ * @param {Object} connection - Connection object
+ * @param {string} phone - Phone number or group ID
+ * @param {string} text - Message text
+ * @param {Array} mentions - Optional array of phone numbers to mention (format: ["972...@c.us"])
  */
-async function sendMessage(connection, phone, text) {
+async function sendMessage(connection, phone, text, mentions = null) {
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
-  const response = await client.post(`/api/sendText`, {
+  const payload = {
     session: connection.session_name,
     chatId: chatId,
     text: text,
-  });
+  };
   
-  console.log(`[WAHA] Sent message to ${phone}`);
+  // Add mentions if provided
+  if (mentions && mentions.length > 0) {
+    payload.mentions = mentions;
+  }
+  
+  const response = await client.post(`/api/sendText`, payload);
+  
+  console.log(`[WAHA] Sent message to ${phone}${mentions ? ` with ${mentions.length} mentions` : ''}`);
   return response.data;
 }
 

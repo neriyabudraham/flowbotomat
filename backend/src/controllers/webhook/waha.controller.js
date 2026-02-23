@@ -812,7 +812,8 @@ async function handleIncomingMessage(userId, event) {
           // Don't await - let it run in background
           // senderName is already extracted at line ~505 from the message payload
           // It contains the actual sender's PushName, not the group name
-          console.log(`[Webhook] Transfer - senderPhone: ${senderPhone}, senderName: ${senderName}`);
+          // senderLid is used for WhatsApp mention (@mention) if available
+          console.log(`[Webhook] Transfer - senderPhone: ${senderPhone}, senderName: ${senderName}, senderLid: ${senderLid}`);
           
           groupTransfersTrigger.processGroupMessage({
             userId,
@@ -820,6 +821,7 @@ async function handleIncomingMessage(userId, event) {
             sourceGroupId: groupId,
             senderPhone,
             senderName,
+            senderLid: senderLid?.replace('@lid', '') || null,
             messageType: messageData.type,
             messageContent: messageData.content,
             mediaUrl: messageData.mediaUrl,
