@@ -1,4 +1,4 @@
-const pool = require('../../config/database');
+const db = require('../../config/database');
 const { checkBotAccess } = require('./list.controller');
 const { checkLimit } = require('../subscriptions/subscriptions.controller');
 
@@ -9,7 +9,7 @@ const { checkLimit } = require('../subscriptions/subscriptions.controller');
  * (disabled bot logic is only for receiving shared bots when at quota)
  */
 async function createBot(req, res) {
-  const client = await pool.connect();
+  const client = await db.pool.connect();
   
   try {
     const userId = req.user.id;
@@ -91,7 +91,7 @@ async function updateBot(req, res) {
       return res.status(403).json({ error: 'אין לך הרשאה לערוך בוט זה' });
     }
     
-    const result = await pool.query(
+    const result = await db.query(
       `UPDATE bots SET
          name = COALESCE($1, name),
          description = COALESCE($2, description),
@@ -134,7 +134,7 @@ async function saveFlow(req, res) {
       return res.status(403).json({ error: 'אין לך הרשאה לערוך בוט זה' });
     }
     
-    const result = await pool.query(
+    const result = await db.query(
       `UPDATE bots SET flow_data = $1, updated_at = NOW()
        WHERE id = $2
        RETURNING *`,
@@ -179,7 +179,7 @@ async function deleteBot(req, res) {
       return res.status(403).json({ error: 'אין לך הרשאה למחוק בוט זה' });
     }
     
-    const result = await pool.query(
+    const result = await db.query(
       'DELETE FROM bots WHERE id = $1 RETURNING id',
       [botId]
     );
@@ -205,7 +205,7 @@ async function selectBotToKeep(req, res) {
     const { botId } = req.params;
     
     // Verify this bot belongs to the user
-    const botResult = await pool.query(
+    const botResult = await db.query(
       'SELECT id, name, user_id, pending_deletion FROM bots WHERE id = $1 AND user_id = $2',
       [botId, userId]
     );
@@ -215,7 +215,7 @@ async function selectBotToKeep(req, res) {
     }
     
     // Check if user is in downgrade state (has bots pending deletion)
-    const pendingResult = await pool.query(
+    const pendingResult = await db.query(
       'SELECT COUNT(*) as count FROM bots WHERE user_id = $1 AND pending_deletion = true',
       [userId]
     );
@@ -230,13 +230,13 @@ async function selectBotToKeep(req, res) {
     }
     
     // Delete all OTHER bots for this user
-    await pool.query(
+    await db.query(
       'DELETE FROM bots WHERE user_id = $1 AND id != $2',
       [userId, botId]
     );
     
     // Activate the selected bot and clear pending_deletion flag
-    await pool.query(
+    await db.query(
       `UPDATE bots 
        SET is_active = true, pending_deletion = false, updated_at = NOW()
        WHERE id = $1 AND user_id = $2`,
@@ -244,7 +244,7 @@ async function selectBotToKeep(req, res) {
     );
     
     // Mark notification as read
-    await pool.query(
+    await db.query(
       `UPDATE notifications 
        SET is_read = true, updated_at = NOW()
        WHERE user_id = $1 AND notification_type = 'subscription_expired' AND is_read = false`,
@@ -271,7 +271,7 @@ async function getPendingDeletionStatus(req, res) {
   try {
     const userId = req.user.id;
     
-    const result = await pool.query(
+    const result = await db.query(
       'SELECT id, name, description, is_active FROM bots WHERE user_id = $1 AND pending_deletion = true',
       [userId]
     );
