@@ -10,6 +10,7 @@ import {
   useReactFlow,
   ReactFlowProvider,
   MarkerType,
+  SelectionMode,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -37,15 +38,101 @@ const edgeTypes = {
   default: EdgeWithDelete,
 };
 
+const CLIPBOARD_KEY = 'botomat_flow_clipboard';
+
 function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete }) {
   const reactFlowWrapper = useRef(null);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, getViewport } = useReactFlow();
   const [quickAddMenu, setQuickAddMenu] = useState(null);
   const [pendingConnection, setPendingConnection] = useState(null);
   const [miniMapCollapsed, setMiniMapCollapsed] = useState(true);
   
   const [nodes, setNodes, onNodesChange] = useNodesState(initialData?.nodes || []);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialData?.edges || []);
+
+  // Copy/Paste functionality
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Copy: Ctrl+C or Cmd+C
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        const selectedNodes = nodes.filter(n => n.selected && n.type !== 'trigger');
+        if (selectedNodes.length === 0) return;
+        
+        // Get edges between selected nodes
+        const selectedNodeIds = new Set(selectedNodes.map(n => n.id));
+        const selectedEdges = edges.filter(e => 
+          selectedNodeIds.has(e.source) && selectedNodeIds.has(e.target)
+        );
+        
+        // Store in localStorage for cross-flow paste
+        localStorage.setItem(CLIPBOARD_KEY, JSON.stringify({
+          nodes: selectedNodes,
+          edges: selectedEdges,
+          timestamp: Date.now()
+        }));
+        
+        console.log(`[Flow] Copied ${selectedNodes.length} nodes, ${selectedEdges.length} edges`);
+      }
+      
+      // Paste: Ctrl+V or Cmd+V
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        const clipboard = localStorage.getItem(CLIPBOARD_KEY);
+        if (!clipboard) return;
+        
+        try {
+          const { nodes: copiedNodes, edges: copiedEdges } = JSON.parse(clipboard);
+          if (!copiedNodes || copiedNodes.length === 0) return;
+          
+          // Prevent default paste behavior in inputs
+          if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+          
+          e.preventDefault();
+          
+          // Generate new IDs and offset positions
+          const idMap = {};
+          const offset = 50;
+          const timestamp = Date.now();
+          
+          const newNodes = copiedNodes.map((node, index) => {
+            const newId = `${node.type}_${timestamp}_${index}`;
+            idMap[node.id] = newId;
+            return {
+              ...node,
+              id: newId,
+              position: {
+                x: node.position.x + offset,
+                y: node.position.y + offset
+              },
+              selected: true,
+              data: { ...node.data }
+            };
+          });
+          
+          const newEdges = copiedEdges.map((edge, index) => ({
+            ...edge,
+            id: `edge_${timestamp}_${index}`,
+            source: idMap[edge.source],
+            target: idMap[edge.target],
+          }));
+          
+          // Deselect existing nodes and add new ones
+          setNodes(nds => [
+            ...nds.map(n => ({ ...n, selected: false })),
+            ...newNodes
+          ]);
+          
+          setEdges(eds => [...eds, ...newEdges]);
+          
+          console.log(`[Flow] Pasted ${newNodes.length} nodes, ${newEdges.length} edges`);
+        } catch (err) {
+          console.error('[Flow] Paste error:', err);
+        }
+      }
+    };
+    
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [nodes, edges, setNodes, setEdges]);
 
   // Sync with parent
   useEffect(() => {
@@ -245,6 +332,10 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
         minZoom={0.3}
         maxZoom={2}
         deleteKeyCode={['Backspace', 'Delete']}
+        selectionOnDrag
+        selectionMode={SelectionMode.Partial}
+        panOnDrag={[1, 2]}
+        selectNodesOnDrag={false}
       >
         <Background color="#94a3b8" gap={20} size={2.5} />
         <Controls 
