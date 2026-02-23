@@ -851,22 +851,31 @@ class BotEngine {
       const originalSessionData = { ...session.waiting_data };
       const originalNodeId = currentNode.id;
       
-      // Find next edge
-      let nextEdge;
+      // Find ALL next edges (support multiple paths)
+      let nextEdges = [];
       if (nextHandleId) {
-        nextEdge = flowData.edges.find(e => e.source === currentNode.id && e.sourceHandle === nextHandleId);
+        nextEdges = flowData.edges.filter(e => e.source === currentNode.id && e.sourceHandle === nextHandleId);
       }
-      if (!nextEdge) {
-        // Fallback - try default edge (no handle)
-        nextEdge = flowData.edges.find(e => e.source === currentNode.id && !e.sourceHandle);
-        if (nextEdge) {
-          console.log('[BotEngine] Using default edge (no specific handle)');
+      if (nextEdges.length === 0) {
+        // Fallback - try default edges (no handle)
+        nextEdges = flowData.edges.filter(e => e.source === currentNode.id && !e.sourceHandle);
+        if (nextEdges.length > 0) {
+          console.log('[BotEngine] Using default edges (no specific handle)');
         }
       }
       
-      if (nextEdge) {
-        console.log('[BotEngine] ➡️ Following edge to:', nextEdge.target);
-        await this.executeNode(nextEdge.target, flowData, contact, message, userId, bot.id, bot.name);
+      if (nextEdges.length > 0) {
+        // Sort by target node Y position (top to bottom)
+        const sortedEdges = nextEdges.sort((a, b) => {
+          const nodeA = flowData.nodes.find(n => n.id === a.target);
+          const nodeB = flowData.nodes.find(n => n.id === b.target);
+          return (nodeA?.position?.y || 0) - (nodeB?.position?.y || 0);
+        });
+        
+        console.log('[BotEngine] ➡️ Following', sortedEdges.length, 'edges from session node');
+        for (const edge of sortedEdges) {
+          await this.executeNode(edge.target, flowData, contact, message, userId, bot.id, bot.name);
+        }
       } else {
         console.log('[BotEngine] No next edge found from session node');
       }
@@ -922,22 +931,31 @@ class BotEngine {
       return await this.continueRegistration(session, flowData, contact, message, userId, bot);
     }
     
-    // Find next edge
-    let nextEdge;
+    // Find ALL next edges (support multiple paths)
+    let nextEdges = [];
     if (nextHandleId) {
-      nextEdge = flowData.edges.find(e => e.source === currentNode.id && e.sourceHandle === nextHandleId);
+      nextEdges = flowData.edges.filter(e => e.source === currentNode.id && e.sourceHandle === nextHandleId);
     }
-    if (!nextEdge) {
-      // Fallback - try default edge (no handle or null handle)
-      nextEdge = flowData.edges.find(e => e.source === currentNode.id && (!e.sourceHandle || e.sourceHandle === null));
-      if (nextEdge) {
-        console.log('[BotEngine] Using default edge (no specific handle)');
+    if (nextEdges.length === 0) {
+      // Fallback - try default edges (no handle or null handle)
+      nextEdges = flowData.edges.filter(e => e.source === currentNode.id && (!e.sourceHandle || e.sourceHandle === null));
+      if (nextEdges.length > 0) {
+        console.log('[BotEngine] Using default edges (no specific handle)');
       }
     }
     
-    if (nextEdge) {
-      console.log('[BotEngine] ➡️ Following edge to:', nextEdge.target);
-      await this.executeNode(nextEdge.target, flowData, contact, message, userId, bot.id, bot.name);
+    if (nextEdges.length > 0) {
+      // Sort by target node Y position (top to bottom)
+      const sortedEdges = nextEdges.sort((a, b) => {
+        const nodeA = flowData.nodes.find(n => n.id === a.target);
+        const nodeB = flowData.nodes.find(n => n.id === b.target);
+        return (nodeA?.position?.y || 0) - (nodeB?.position?.y || 0);
+      });
+      
+      console.log('[BotEngine] ➡️ Following', sortedEdges.length, 'edges from session node');
+      for (const edge of sortedEdges) {
+        await this.executeNode(edge.target, flowData, contact, message, userId, bot.id, bot.name);
+      }
     } else {
       console.log('[BotEngine] No next edge found from session node');
     }
@@ -952,14 +970,16 @@ class BotEngine {
     
     if (!currentNode) return;
     
-    // Find timeout edge
-    const timeoutEdge = flowData.edges.find(e => 
+    // Find timeout edges (support multiple paths)
+    const timeoutEdges = flowData.edges.filter(e => 
       e.source === currentNode.id && e.sourceHandle === 'timeout'
     );
     
-    if (timeoutEdge) {
-      console.log('[BotEngine] ⏰ Executing timeout path');
-      await this.executeNode(timeoutEdge.target, flowData, contact, message, userId, bot.id, bot.name);
+    if (timeoutEdges.length > 0) {
+      console.log('[BotEngine] ⏰ Executing', timeoutEdges.length, 'timeout paths');
+      for (const edge of timeoutEdges) {
+        await this.executeNode(edge.target, flowData, contact, message, userId, bot.id, bot.name);
+      }
     }
   }
   
@@ -3401,10 +3421,10 @@ class BotEngine {
       const cancelResult = await wahaService.sendMessage(connection, contact.phone, cancelText);
       await this.saveOutgoingMessage(userId, contact.id, cancelText, 'text', null, cancelResult?.id?.id);
       
-      // Execute cancel path
-      const cancelEdge = flowData.edges.find(e => e.source === nodeId && e.sourceHandle === 'cancel');
-      if (cancelEdge) {
-        await this.executeNode(cancelEdge.target, flowData, contact, message, userId, bot.id, bot.name);
+      // Execute cancel path (support multiple paths)
+      const cancelEdges = flowData.edges.filter(e => e.source === nodeId && e.sourceHandle === 'cancel');
+      for (const edge of cancelEdges) {
+        await this.executeNode(edge.target, flowData, contact, message, userId, bot.id, bot.name);
       }
       return true;
     }
@@ -3481,10 +3501,10 @@ class BotEngine {
       await this.sendRegistrationWebhook(node.data, contact, answers, bot.name, triggerMessage);
     }
     
-    // Execute complete path
-    const completeEdge = flowData.edges.find(e => e.source === nodeId && e.sourceHandle === 'complete');
-    if (completeEdge) {
-      await this.executeNode(completeEdge.target, flowData, contact, message, userId, bot.id, bot.name);
+    // Execute complete path (support multiple paths)
+    const completeEdges = flowData.edges.filter(e => e.source === nodeId && e.sourceHandle === 'complete');
+    for (const edge of completeEdges) {
+      await this.executeNode(edge.target, flowData, contact, message, userId, bot.id, bot.name);
     }
     
     return true;
