@@ -102,25 +102,23 @@ function normalizePhone(phone) {
 
 /**
  * Format sender attribution with WhatsApp mention
- * Uses LID (@lid) for proper WhatsApp mention if available, fallback to phone
+ * Uses phone number for @mention (WhatsApp standard format)
  * Returns { text, mentions } for proper WhatsApp mention
  */
 function formatSenderAttribution(senderPhone, senderName, senderLid = null) {
   const cleanPhone = normalizePhone(senderPhone);
   
-  // Use LID for mention if available (WhatsApp internal ID for proper @mention)
-  // Format: LID@lid for the mentions array, @LID in the text
-  const mentionId = senderLid ? `${senderLid}@lid` : `${cleanPhone}@c.us`;
-  const displayId = senderLid || cleanPhone;
+  // WhatsApp mention format: @phone in text, phone@c.us in mentions array
+  const mentionId = `${cleanPhone}@c.us`;
   
   let text;
   if (senderName && senderName !== cleanPhone && !/^\d+$/.test(senderName)) {
-    text = `@${displayId} (${senderName}):`;
+    text = `@${cleanPhone} (${senderName}):`;
   } else {
-    text = `@${displayId}:`;
+    text = `@${cleanPhone}:`;
   }
   
-  return { text, mentions: [mentionId], cleanPhone, displayId };
+  return { text, mentions: [mentionId], cleanPhone };
 }
 
 /**
@@ -173,8 +171,8 @@ async function processGroupMessage(params) {
     }
 
     const conn = connResult.rows[0];
-    const attribution = formatSenderAttribution(senderPhone, senderName, senderLid);
-    console.log(`[GroupTransfers] Attribution: text="${attribution.text}", mentions=${JSON.stringify(attribution.mentions)}, senderLid=${senderLid || 'none'}`);
+    const attribution = formatSenderAttribution(senderPhone, senderName);
+    console.log(`[GroupTransfers] Attribution: text="${attribution.text}", mentions=${JSON.stringify(attribution.mentions)}`);
 
     // Build connection object for waha service
     let wahaConnection;
