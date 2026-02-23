@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS group_transfers (
     delay_min INTEGER DEFAULT 1,
     delay_max INTEGER DEFAULT 3,
     require_confirmation BOOLEAN DEFAULT false,
+    attribution_format VARCHAR(255) DEFAULT '@(phone) ((name)): ',
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );

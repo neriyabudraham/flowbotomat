@@ -102,20 +102,31 @@ function normalizePhone(phone) {
 
 /**
  * Format sender attribution with WhatsApp mention
- * Uses phone number for @mention (WhatsApp standard format)
+ * Uses custom format with placeholders: (phone) and (name)
  * Returns { text, mentions } for proper WhatsApp mention
  */
-function formatSenderAttribution(senderPhone, senderName, senderLid = null) {
+function formatSenderAttribution(senderPhone, senderName, attributionFormat = '@(phone) ((name)): ') {
   const cleanPhone = normalizePhone(senderPhone);
+  const displayName = (senderName && senderName !== cleanPhone && !/^\d+$/.test(senderName)) 
+    ? senderName 
+    : '';
   
   // WhatsApp mention format: @phone in text, phone@c.us in mentions array
   const mentionId = `${cleanPhone}@c.us`;
   
-  let text;
-  if (senderName && senderName !== cleanPhone && !/^\d+$/.test(senderName)) {
-    text = `@${cleanPhone} (${senderName}):`;
-  } else {
-    text = `@${cleanPhone}:`;
+  // Apply custom format - replace placeholders
+  let text = attributionFormat
+    .replace('(phone)', cleanPhone)
+    .replace('(name)', displayName)
+    .replace('\\n', '\n'); // Support escaped newline
+  
+  // Clean up empty parentheses if name is empty
+  if (!displayName) {
+    text = text.replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').trim();
+    // If format ends with just colon and space, keep it
+    if (!text.endsWith(':') && !text.endsWith(': ')) {
+      text = text.replace(/\s+$/, '') + ': ';
+    }
   }
   
   return { text, mentions: [mentionId], cleanPhone };
@@ -171,8 +182,9 @@ async function processGroupMessage(params) {
     }
 
     const conn = connResult.rows[0];
-    const attribution = formatSenderAttribution(senderPhone, senderName);
-    console.log(`[GroupTransfers] Attribution: text="${attribution.text}", mentions=${JSON.stringify(attribution.mentions)}`);
+    const attributionFormat = transfer.attribution_format || '@(phone) ((name)): ';
+    const attribution = formatSenderAttribution(senderPhone, senderName, attributionFormat);
+    console.log(`[GroupTransfers] Attribution: text="${attribution.text}", mentions=${JSON.stringify(attribution.mentions)}, format="${attributionFormat}"`);
 
     // Build connection object for waha service
     let wahaConnection;

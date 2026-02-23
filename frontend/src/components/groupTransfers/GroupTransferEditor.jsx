@@ -19,6 +19,7 @@ export default function GroupTransferEditor({ transfer, onClose, onSave }) {
   const [description, setDescription] = useState(transfer.description || '');
   const [delayMin, setDelayMin] = useState(transfer.delay_min || 1);
   const [delayMax, setDelayMax] = useState(transfer.delay_max || 3);
+  const [attributionFormat, setAttributionFormat] = useState(transfer.attribution_format || '@(phone) ((name)): ');
   
   // Targets (groups that participate in the transfer)
   const [targets, setTargets] = useState([]);
@@ -58,6 +59,7 @@ export default function GroupTransferEditor({ transfer, onClose, onSave }) {
       setDescription(t.description || '');
       setDelayMin(t.delay_min || 1);
       setDelayMax(t.delay_max || 3);
+      setAttributionFormat(t.attribution_format || '@(phone) ((name)): ');
       setTargets(t.targets || []);
       setSenders(t.authorized_senders || []);
       
@@ -96,6 +98,7 @@ export default function GroupTransferEditor({ transfer, onClose, onSave }) {
         description,
         delay_min: delayMin,
         delay_max: delayMax,
+        attribution_format: attributionFormat,
         require_confirmation: false // Always false for group transfers
       });
       
@@ -669,6 +672,57 @@ export default function GroupTransferEditor({ transfer, onClose, onSave }) {
                 <p className="mt-3 text-sm text-amber-700 bg-amber-100 px-3 py-2 rounded-lg">
                   ⏱️ ההשהייה תהיה בין {formatDelay(delayMin)} ל-{formatDelay(delayMax)}
                 </p>
+              </div>
+
+              {/* Attribution Format */}
+              <div className="p-5 bg-gradient-to-r from-teal-50 to-cyan-50 rounded-2xl border border-teal-100">
+                <h3 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                  <div className="w-6 h-6 bg-teal-100 rounded-lg flex items-center justify-center">
+                    <UserCheck className="w-3 h-3 text-teal-600" />
+                  </div>
+                  פורמט זיהוי השולח
+                </h3>
+                <p className="text-sm text-gray-500 mb-3">השתמש ב-(phone) למספר טלפון ו-(name) לשם</p>
+                
+                <input
+                  type="text"
+                  value={attributionFormat}
+                  onChange={(e) => setAttributionFormat(e.target.value)}
+                  placeholder="@(phone) ((name)): "
+                  className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400 font-mono text-sm"
+                  dir="ltr"
+                />
+                
+                <div className="mt-3 p-3 bg-white/80 rounded-lg border border-teal-100">
+                  <p className="text-xs text-gray-500 mb-1">תצוגה מקדימה:</p>
+                  <p className="text-sm text-gray-800 font-medium" dir="ltr">
+                    {attributionFormat
+                      .replace('(phone)', '972501234567')
+                      .replace('(name)', 'ישראל ישראלי')}
+                    הודעה לדוגמא
+                  </p>
+                </div>
+                
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setAttributionFormat('@(phone) ((name)): ')}
+                    className="px-3 py-1.5 text-xs bg-white border border-teal-200 hover:border-teal-400 rounded-lg transition-colors"
+                  >
+                    ברירת מחדל
+                  </button>
+                  <button
+                    onClick={() => setAttributionFormat('@(phone):\\n')}
+                    className="px-3 py-1.5 text-xs bg-white border border-teal-200 hover:border-teal-400 rounded-lg transition-colors"
+                  >
+                    מספר בלבד + שורה חדשה
+                  </button>
+                  <button
+                    onClick={() => setAttributionFormat('מאת (name) ((phone)):\\n')}
+                    className="px-3 py-1.5 text-xs bg-white border border-teal-200 hover:border-teal-400 rounded-lg transition-colors"
+                  >
+                    עברית + שורה חדשה
+                  </button>
+                </div>
               </div>
 
               {/* Quick Delay Presets */}

@@ -78,7 +78,8 @@ async function updateGroupTransfer(req, res) {
       trigger_group_name,
       delay_min,
       delay_max,
-      require_confirmation
+      require_confirmation,
+      attribution_format
     } = req.body;
     
     // Verify ownership
@@ -107,8 +108,9 @@ async function updateGroupTransfer(req, res) {
         delay_min = $7,
         delay_max = $8,
         require_confirmation = COALESCE($9, require_confirmation),
+        attribution_format = COALESCE($10, attribution_format),
         updated_at = NOW()
-      WHERE id = $10
+      WHERE id = $11
       RETURNING *
     `, [
       name?.trim(),
@@ -120,6 +122,7 @@ async function updateGroupTransfer(req, res) {
       validDelayMin,
       validDelayMax,
       require_confirmation,
+      attribution_format || '@(phone) ((name)): ',
       transferId
     ]);
     
