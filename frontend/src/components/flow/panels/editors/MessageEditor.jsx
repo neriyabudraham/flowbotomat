@@ -80,7 +80,7 @@ export default function MessageEditor({ data, onUpdate }) {
         newAction = { type, reaction: '👍🏻' };
         break;
       case 'wait_reply':
-        newAction = { type, saveToVariable: false, variableName: '' };
+        newAction = { type, saveToVariable: false, variableName: '', textOnly: true, invalidReplyMessage: '' };
         break;
       // Group actions
       case 'add_to_group':
@@ -1043,15 +1043,42 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
             <p className="text-xs text-teal-500 mt-1">הפעולות הבאות ימשיכו רק לאחר קבלת תגובה</p>
           </div>
           
+          {/* Text only option */}
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
-              checked={action.saveToVariable || false}
-              onChange={(e) => onUpdate({ saveToVariable: e.target.checked })}
+              checked={action.textOnly !== false}
+              onChange={(e) => onUpdate({ textOnly: e.target.checked })}
               className="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
             />
-            <span className="text-sm text-gray-700">שמור את התגובה למשתנה</span>
+            <span className="text-sm text-gray-700">קבל רק הודעות טקסט</span>
           </label>
+          <p className="text-xs text-gray-400 mr-6">אם מופעל, תמונות, סרטונים, תגובות לכפתורים וכו׳ ייחשבו כתגובה לא תקינה</p>
+          
+          {action.textOnly !== false && (
+            <div className="space-y-2 mr-6">
+              <label className="text-xs text-gray-500">הודעת שגיאה (כשהתגובה לא תקינה):</label>
+              <input
+                type="text"
+                value={action.invalidReplyMessage || ''}
+                onChange={(e) => onUpdate({ invalidReplyMessage: e.target.value })}
+                placeholder="התגובה לא תקינה. אנא שלח הודעת טקסט בלבד."
+                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+              />
+            </div>
+          )}
+          
+          <div className="border-t border-gray-100 pt-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={action.saveToVariable || false}
+                onChange={(e) => onUpdate({ saveToVariable: e.target.checked })}
+                className="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+              />
+              <span className="text-sm text-gray-700">שמור את התגובה למשתנה</span>
+            </label>
+          </div>
           
           {action.saveToVariable && (
             <div className="space-y-2">

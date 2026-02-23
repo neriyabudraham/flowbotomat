@@ -522,7 +522,28 @@ class BotEngine {
             // Don't return - fall through to trigger check below
           }
         } else if (session.waiting_for === 'reply') {
-          // Waiting for any reply (text/media) - this BLOCKS new triggers
+          // Waiting for reply - check if text-only is required
+          const waitingData = session.waiting_data ? (typeof session.waiting_data === 'string' ? JSON.parse(session.waiting_data) : session.waiting_data) : {};
+          
+          // Check if text-only reply is required
+          if (waitingData.textOnly && messageType !== 'text') {
+            console.log('[BotEngine] ⚠️ Text-only reply required but got:', messageType);
+            
+            // Send error message
+            const connection = await this.getConnection(userId);
+            if (connection) {
+              const errorMsg = waitingData.invalidReplyMessage || 'התגובה לא תקינה. אנא שלח הודעת טקסט בלבד.';
+              try {
+                await wahaService.sendMessage(connection.session_name, contact.phone, errorMsg);
+                console.log('[BotEngine] 📤 Sent invalid reply message');
+              } catch (e) {
+                console.error('[BotEngine] Failed to send invalid reply message:', e.message);
+              }
+            }
+            // Don't continue the flow - wait for valid text reply
+            return;
+          }
+          
           console.log('[BotEngine] ⏳ Waiting for reply - continuing session');
           await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId, null);
           return;
@@ -1823,9 +1844,11 @@ class BotEngine {
               const waitData = {
                 saveToVariable: action.saveToVariable || false,
                 variableName: action.variableName || '',
+                textOnly: action.textOnly !== false, // Default true - only accept text replies
+                invalidReplyMessage: action.invalidReplyMessage || 'התגובה לא תקינה. אנא שלח הודעת טקסט בלבד.',
               };
               await this.saveSession(botId, contact.id, node.id, 'reply', waitData, waitTimeout);
-              console.log('[BotEngine] ⏳ Wait reply action - waiting for reply (timeout:', waitTimeout, 'seconds)');
+              console.log('[BotEngine] ⏳ Wait reply action - waiting for reply (timeout:', waitTimeout, 'seconds, textOnly:', waitData.textOnly, ')');
               return true;
             }
             break;
@@ -1846,8 +1869,12 @@ class BotEngine {
     
     // If waitForReply is enabled (old mechanism), save session and return true
     if (waitForReply && botId) {
-      await this.saveSession(botId, contact.id, node.id, 'reply', {}, timeout);
-      console.log('[BotEngine] ⏳ Waiting for reply (legacy)...');
+      const waitData = {
+        textOnly: node.data.textOnly !== false, // Default true
+        invalidReplyMessage: node.data.invalidReplyMessage || 'התגובה לא תקינה. אנא שלח הודעת טקסט בלבד.',
+      };
+      await this.saveSession(botId, contact.id, node.id, 'reply', waitData, timeout);
+      console.log('[BotEngine] ⏳ Waiting for reply (legacy, textOnly:', waitData.textOnly, ')...');
       return true;
     }
     
