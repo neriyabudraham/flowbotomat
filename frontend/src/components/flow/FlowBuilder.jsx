@@ -39,6 +39,7 @@ const edgeTypes = {
 };
 
 const CLIPBOARD_KEY = 'botomat_flow_clipboard';
+const MAX_HISTORY = 50;
 
 function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete }) {
   const reactFlowWrapper = useRef(null);
@@ -50,16 +51,125 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
   
   const [nodes, setNodes, onNodesChange] = useNodesState(initialData?.nodes || []);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialData?.edges || []);
-
-  // Show toast notification
+  
+  // Undo/Redo history
+  const historyRef = useRef([]);
+  const historyIndexRef = useRef(-1);
+  const isUndoRedoRef = useRef(false);
+  
+  // Show toast notification (defined early for use in undo/redo)
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 2000);
   }, []);
+  
+  // Save state to history
+  const saveToHistory = useCallback((newNodes, newEdges) => {
+    if (isUndoRedoRef.current) {
+      isUndoRedoRef.current = false;
+      return;
+    }
+    
+    const state = {
+      nodes: JSON.parse(JSON.stringify(newNodes)),
+      edges: JSON.parse(JSON.stringify(newEdges)),
+    };
+    
+    // Remove any future states if we're not at the end
+    if (historyIndexRef.current < historyRef.current.length - 1) {
+      historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1);
+    }
+    
+    historyRef.current.push(state);
+    
+    // Limit history size
+    if (historyRef.current.length > MAX_HISTORY) {
+      historyRef.current.shift();
+    } else {
+      historyIndexRef.current++;
+    }
+  }, []);
+  
+  // Undo
+  const undo = useCallback(() => {
+    if (historyIndexRef.current <= 0) {
+      showToast('אין פעולות לביטול', 'info');
+      return;
+    }
+    
+    historyIndexRef.current--;
+    const state = historyRef.current[historyIndexRef.current];
+    
+    isUndoRedoRef.current = true;
+    setNodes(state.nodes);
+    setEdges(state.edges);
+    showToast('בוטלה פעולה ↩️');
+  }, [setNodes, setEdges, showToast]);
+  
+  // Redo
+  const redo = useCallback(() => {
+    if (historyIndexRef.current >= historyRef.current.length - 1) {
+      showToast('אין פעולות לחזרה', 'info');
+      return;
+    }
+    
+    historyIndexRef.current++;
+    const state = historyRef.current[historyIndexRef.current];
+    
+    isUndoRedoRef.current = true;
+    setNodes(state.nodes);
+    setEdges(state.edges);
+    showToast('חזרה על פעולה ↪️');
+  }, [setNodes, setEdges, showToast]);
+  
+  // Save initial state to history
+  useEffect(() => {
+    if (historyRef.current.length === 0 && nodes.length > 0) {
+      saveToHistory(nodes, edges);
+    }
+  }, []);
+  
+  // Track changes and save to history (debounced)
+  const saveTimeoutRef = useRef(null);
+  useEffect(() => {
+    if (isUndoRedoRef.current) return;
+    
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    
+    saveTimeoutRef.current = setTimeout(() => {
+      if (nodes.length > 0 || edges.length > 0) {
+        saveToHistory(nodes, edges);
+      }
+    }, 300);
+    
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [nodes, edges, saveToHistory]);
 
-  // Copy/Paste functionality
+  // Copy/Paste/Undo/Redo functionality
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Undo: Ctrl+Z or Cmd+Z
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        e.preventDefault();
+        undo();
+        return;
+      }
+      
+      // Redo: Ctrl+Shift+Z or Ctrl+Y or Cmd+Shift+Z or Cmd+Y
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        e.preventDefault();
+        redo();
+        return;
+      }
+      
       // Copy: Ctrl+C or Cmd+C
       if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
         const selectedNodes = nodes.filter(n => n.selected && n.type !== 'trigger');
@@ -139,7 +249,7 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
     
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [nodes, edges, setNodes, setEdges, showToast]);
+  }, [nodes, edges, setNodes, setEdges, showToast, undo, redo]);
 
   // Sync with parent
   useEffect(() => {
