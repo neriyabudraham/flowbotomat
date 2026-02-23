@@ -156,7 +156,7 @@ async function processGroupMessage(params) {
   console.log(`[GroupTransfers] Processing message for transfer "${transfer.name}" from group ${sourceGroupId}`);
 
   // Only classic message types are supported
-  const supportedTypes = ['text', 'image', 'video', 'audio', 'ptt', 'document'];
+  const supportedTypes = ['text', 'image', 'video', 'audio', 'ptt', 'document', 'contact'];
   
   if (!supportedTypes.includes(messageType)) {
     console.log(`[GroupTransfers] Skipping unsupported message type: ${messageType}`);
@@ -311,6 +311,25 @@ async function processGroupMessage(params) {
             caption,
             attribution.mentions
           );
+        } else if (messageType === 'contact') {
+          // Contact: send vCard then attribution
+          if (messageContent) {
+            result = await wahaService.sendRawVcard(
+              wahaConnection,
+              target.group_id,
+              messageContent
+            );
+            // Send attribution separately
+            await wahaService.sendMessage(
+              wahaConnection,
+              target.group_id,
+              attribution.text.replace(/:\s*$/, ''),
+              attribution.mentions
+            );
+          } else {
+            console.log(`[GroupTransfers] No vCard content for contact message`);
+            continue;
+          }
         } else {
           // Unsupported type - skip
           console.log(`[GroupTransfers] Skipping unsupported type: ${messageType}`);

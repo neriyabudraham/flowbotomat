@@ -837,6 +837,25 @@ async function sendContactVcard(connection, phone, contactName, contactPhone, co
 }
 
 /**
+ * Send raw vCard string directly
+ */
+async function sendRawVcard(connection, phone, vcardString) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
+  
+  console.log(`[WAHA] Sending raw vCard to ${chatId}`);
+  
+  const response = await client.post(`/api/sendContactVcard`, {
+    session: connection.session_name,
+    chatId: chatId,
+    contacts: [{ vcard: vcardString }],
+  });
+  
+  console.log(`[WAHA] Sent raw vCard to ${phone}`);
+  return response.data;
+}
+
+/**
  * Send link with custom preview
  */
 async function sendLinkPreview(connection, phone, text, preview) {
@@ -1203,6 +1222,7 @@ module.exports = {
   sendReaction,
   sendLocation,
   sendContactVcard,
+  sendRawVcard,
   sendLinkPreview,
   forwardMessage,
   // Group functions
