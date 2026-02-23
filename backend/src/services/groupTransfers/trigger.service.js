@@ -156,13 +156,13 @@ async function processGroupMessage(params) {
   console.log(`[GroupTransfers] Processing message for transfer "${transfer.name}" from group ${sourceGroupId}`);
 
   // Supported types: send with attribution in caption/text
-  // Forward types: forward message and send attribution separately
+  // Other types: try to forward with forwardMessage API (if messageId exists)
   const supportedTypes = ['text', 'image', 'video', 'audio', 'ptt', 'document'];
-  const forwardTypes = ['sticker'];
+  const skipTypes = ['sticker']; // Types to skip entirely
   
-  if (!supportedTypes.includes(messageType) && !forwardTypes.includes(messageType)) {
-    console.log(`[GroupTransfers] Skipping unsupported message type: ${messageType}`);
-    return { success: true, skipped: true, reason: `unsupported type: ${messageType}` };
+  if (skipTypes.includes(messageType)) {
+    console.log(`[GroupTransfers] Skipping message type: ${messageType}`);
+    return { success: true, skipped: true, reason: `skipped type: ${messageType}` };
   }
 
   try {
@@ -313,14 +313,16 @@ async function processGroupMessage(params) {
             caption,
             attribution.mentions
           );
-        } else if (messageType === 'sticker') {
-          // Sticker: forward the original message, then send attribution as reply
+        } else {
+          // Other types (product, catalog, etc.): try to forward if messageId exists
           if (!messageId) {
-            console.log(`[GroupTransfers] Cannot forward sticker - no messageId available`);
+            console.log(`[GroupTransfers] Cannot forward ${messageType} - no messageId available`);
             continue;
           }
           
-          // Forward the sticker
+          console.log(`[GroupTransfers] Forwarding ${messageType} via forwardMessage`);
+          
+          // Forward the message
           result = await wahaService.forwardMessage(
             wahaConnection,
             target.group_id,
@@ -334,10 +336,6 @@ async function processGroupMessage(params) {
             attribution.text.replace(/:\s*$/, ''),
             attribution.mentions
           );
-        } else {
-          // This shouldn't happen due to early check, but just in case
-          console.log(`[GroupTransfers] Unexpected message type: ${messageType}, skipping`);
-          continue;
         }
 
         // Record success

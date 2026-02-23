@@ -828,7 +828,7 @@ async function handleIncomingMessage(userId, event) {
             mediaBase64: messageData.mediaBase64,
             mediaFilename: messageData.filename,
             mediaMimeType: messageData.mediaMimeType,
-            messageId: payload.id?.id || payload._data?.id?.id
+            messageId: payload.id?._serialized || (payload.id?.id ? `false_${groupId}_${payload.id.id}` : null)
           }).catch(err => {
             console.error(`[Webhook] Transfer "${transfer.name}" failed:`, err.message);
           });
