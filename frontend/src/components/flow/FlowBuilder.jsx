@@ -143,6 +143,7 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
 
   // Sync with parent
   useEffect(() => {
+    console.log('[Flow] Syncing to parent - nodes:', nodes.length, 'edges:', edges.length);
     onChange?.({ nodes, edges });
   }, [nodes, edges]);
 
@@ -210,11 +211,17 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
 
   const onConnect = useCallback(
     (params) => {
-      setEdges((eds) => addEdge({
-        ...params,
-        type: 'default',
-        markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15 },
-      }, eds));
+      console.log('[Flow] New connection:', params);
+      setEdges((eds) => {
+        const newEdges = addEdge({
+          ...params,
+          type: 'default',
+          markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15 },
+        }, eds);
+        console.log('[Flow] Total edges after connect:', newEdges.length);
+        console.log('[Flow] Edges from same handle:', newEdges.filter(e => e.source === params.source && e.sourceHandle === params.sourceHandle).length);
+        return newEdges;
+      });
     },
     [setEdges]
   );
