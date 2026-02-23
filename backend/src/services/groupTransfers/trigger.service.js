@@ -155,14 +155,12 @@ async function processGroupMessage(params) {
 
   console.log(`[GroupTransfers] Processing message for transfer "${transfer.name}" from group ${sourceGroupId}`);
 
-  // Supported types: send with attribution in caption/text
-  // Other types: try to forward with forwardMessage API (if messageId exists)
+  // Only classic message types are supported
   const supportedTypes = ['text', 'image', 'video', 'audio', 'ptt', 'document'];
-  const skipTypes = ['sticker']; // Types to skip entirely
   
-  if (skipTypes.includes(messageType)) {
-    console.log(`[GroupTransfers] Skipping message type: ${messageType}`);
-    return { success: true, skipped: true, reason: `skipped type: ${messageType}` };
+  if (!supportedTypes.includes(messageType)) {
+    console.log(`[GroupTransfers] Skipping unsupported message type: ${messageType}`);
+    return { success: true, skipped: true, reason: `unsupported type: ${messageType}` };
   }
 
   try {
@@ -314,28 +312,9 @@ async function processGroupMessage(params) {
             attribution.mentions
           );
         } else {
-          // Other types (product, catalog, etc.): try to forward if messageId exists
-          if (!messageId) {
-            console.log(`[GroupTransfers] Cannot forward ${messageType} - no messageId available`);
-            continue;
-          }
-          
-          console.log(`[GroupTransfers] Forwarding ${messageType} via forwardMessage`);
-          
-          // Forward the message
-          result = await wahaService.forwardMessage(
-            wahaConnection,
-            target.group_id,
-            messageId
-          );
-          
-          // Send attribution as a separate message with mention
-          await wahaService.sendMessage(
-            wahaConnection,
-            target.group_id,
-            attribution.text.replace(/:\s*$/, ''),
-            attribution.mentions
-          );
+          // Unsupported type - skip
+          console.log(`[GroupTransfers] Skipping unsupported type: ${messageType}`);
+          continue;
         }
 
         // Record success
