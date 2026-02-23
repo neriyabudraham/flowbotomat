@@ -154,6 +154,13 @@ async function processGroupMessage(params) {
 
   console.log(`[GroupTransfers] Processing message for transfer "${transfer.name}" from group ${sourceGroupId}`);
 
+  // Check for supported message types
+  const supportedTypes = ['text', 'image', 'video', 'audio', 'ptt', 'document'];
+  if (!supportedTypes.includes(messageType)) {
+    console.log(`[GroupTransfers] Skipping unsupported message type: ${messageType}`);
+    return { success: true, skipped: true, reason: `unsupported type: ${messageType}` };
+  }
+
   try {
     // Get all target groups except the source
     const targetsResult = await db.query(`
@@ -302,16 +309,9 @@ async function processGroupMessage(params) {
             attribution.mentions
           );
         } else {
-          // Unsupported type: send text with attribution and mention
-          console.log(`[GroupTransfers] Unsupported message type: ${messageType}, sending text notification`);
-          
-          // Send attribution with message type note
-          result = await wahaService.sendMessage(
-            wahaConnection,
-            target.group_id,
-            `${attribution.text}[הודעה מסוג ${messageType} הועברה]`,
-            attribution.mentions
-          );
+          // This shouldn't happen due to early check, but just in case
+          console.log(`[GroupTransfers] Unexpected message type: ${messageType}, skipping`);
+          continue;
         }
 
         // Record success
