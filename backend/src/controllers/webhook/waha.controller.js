@@ -826,6 +826,7 @@ async function handleIncomingMessage(userId, event) {
             messageContent: messageData.content,
             mediaUrl: messageData.mediaUrl,
             mediaBase64: messageData.mediaBase64,
+            mediaFilename: messageData.filename,
             mediaMimeType: messageData.mediaMimeType,
             messageId: payload.id?.id || payload._data?.id?.id
           }).catch(err => {

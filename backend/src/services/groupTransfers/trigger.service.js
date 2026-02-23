@@ -148,6 +148,7 @@ async function processGroupMessage(params) {
     mediaUrl,
     mediaBase64,
     mediaMimeType,
+    mediaFilename,
     messageId,
     quotedMessageId
   } = params;
@@ -295,16 +296,17 @@ async function processGroupMessage(params) {
           }
         } else if (messageType === 'document') {
           // Document: send file with attribution caption and mentions
+          // Use original filename if available
           const caption = messageContent 
             ? `${attribution.text}${messageContent}`
             : attribution.text.replace(/:\s*$/, '');
-          const filename = mediaUrl?.split('/').pop() || 'file';
+          const filename = mediaFilename || mediaUrl?.split('/').pop() || 'file';
           result = await wahaService.sendFile(
             wahaConnection,
             target.group_id,
             mediaUrl,
             filename,
-            null,
+            mediaMimeType,
             caption,
             attribution.mentions
           );
