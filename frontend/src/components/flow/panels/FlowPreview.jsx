@@ -216,27 +216,73 @@ export default function FlowPreview({ flowData, onClose }) {
 
   // Execute condition node
   const executeConditionNode = (node, userMessage) => {
-    const { variable, operator, value } = node.data;
-    let checkValue = userMessage;
+    const { conditions, logic } = node.data;
     
-    const lowerCheck = (checkValue || '').toLowerCase();
-    const lowerValue = (value || '').toLowerCase();
+    // Mock variable values for preview
+    const mockVariables = {
+      'message': userMessage,
+      'name': 'ישראל ישראלי',
+      'display_name': 'ישראל ישראלי',
+      'contact_name': 'ישראל ישראלי',
+      'first_name': 'ישראל',
+      'last_name': 'ישראלי',
+      'phone': '0501234567',
+      'contact_phone': '0501234567',
+      'email': 'israel@example.com',
+      'contact_email': 'israel@example.com',
+      'contact_exists': 'true',
+      'contact_id': 'people/123456789',
+      'contact_action': 'found',
+      'contact_success': 'true',
+      'sheets_found': 'true',
+      'sheets_success': 'true',
+      'sheets_row_index': '5',
+      'sheets_total_rows': '100',
+      'sheets_action': 'found',
+    };
     
-    let result = false;
-    switch (operator) {
-      case 'equals': result = lowerCheck === lowerValue; break;
-      case 'not_equals': result = lowerCheck !== lowerValue; break;
-      case 'contains': result = lowerCheck.includes(lowerValue); break;
-      case 'not_contains': result = !lowerCheck.includes(lowerValue); break;
-      case 'starts_with': result = lowerCheck.startsWith(lowerValue); break;
-      case 'ends_with': result = lowerCheck.endsWith(lowerValue); break;
-      case 'is_empty': result = checkValue.trim() === ''; break;
-      case 'is_not_empty': result = checkValue.trim() !== ''; break;
-      default: result = false;
+    // If no conditions, evaluate legacy single condition
+    if (!conditions || conditions.length === 0) {
+      const { variable, operator, value } = node.data;
+      const checkValue = variable ? (mockVariables[variable] || userMessage) : userMessage;
+      const result = evaluateSingleCondition(checkValue, operator, value);
+      const variableLabel = variable || 'הודעה';
+      setMessages(prev => [...prev, { type: 'system', content: `🔀 תנאי (${variableLabel}): ${result ? '✅ כן' : '❌ לא'}` }]);
+      return result ? 'yes' : 'no';
     }
     
-    setMessages(prev => [...prev, { type: 'system', content: `🔀 תנאי: ${result ? '✅ כן' : '❌ לא'}` }]);
-    return result ? 'yes' : 'no';
+    // Evaluate multiple conditions
+    const results = conditions.map(cond => {
+      const checkValue = cond.variable ? (mockVariables[cond.variable] || mockVariables[cond.variable.toLowerCase()] || '') : userMessage;
+      return evaluateSingleCondition(checkValue, cond.operator, cond.value);
+    });
+    
+    const finalResult = logic === 'or' ? results.some(r => r) : results.every(r => r);
+    const logicLabel = logic === 'or' ? 'או' : 'וגם';
+    setMessages(prev => [...prev, { type: 'system', content: `🔀 תנאי (${conditions.length} תנאים, ${logicLabel}): ${finalResult ? '✅ כן' : '❌ לא'}` }]);
+    return finalResult ? 'yes' : 'no';
+  };
+  
+  // Helper to evaluate a single condition
+  const evaluateSingleCondition = (checkValue, operator, value) => {
+    const lowerCheck = (checkValue || '').toString().toLowerCase();
+    const lowerValue = (value || '').toString().toLowerCase();
+    
+    switch (operator) {
+      case 'equals': return lowerCheck === lowerValue;
+      case 'not_equals': return lowerCheck !== lowerValue;
+      case 'contains': return lowerCheck.includes(lowerValue);
+      case 'not_contains': return !lowerCheck.includes(lowerValue);
+      case 'starts_with': return lowerCheck.startsWith(lowerValue);
+      case 'ends_with': return lowerCheck.endsWith(lowerValue);
+      case 'is_empty': return checkValue.toString().trim() === '';
+      case 'is_not_empty': return checkValue.toString().trim() !== '';
+      case 'greater_than': return parseFloat(checkValue) > parseFloat(value);
+      case 'less_than': return parseFloat(checkValue) < parseFloat(value);
+      case 'is_true': return lowerCheck === 'true' || lowerCheck === '1' || lowerCheck === 'yes';
+      case 'is_false': return lowerCheck === 'false' || lowerCheck === '0' || lowerCheck === 'no' || lowerCheck === '';
+      default: return false;
+    }
   };
 
   // Execute delay node
@@ -315,14 +361,51 @@ export default function FlowPreview({ flowData, onClose }) {
     return false;
   };
 
-  // Replace variables
+  // Replace variables with mock preview values
   const replaceVariables = (text, userMessage) => {
-    return text
-      .replace(/\{\{name\}\}/gi, 'משתמש לדוגמה')
+    // System variables
+    let result = text
+      .replace(/\{\{name\}\}/gi, 'ישראל ישראלי')
+      .replace(/\{\{display_name\}\}/gi, 'ישראל ישראלי')
+      .replace(/\{\{contact_name\}\}/gi, 'ישראל ישראלי')
+      .replace(/\{\{first_name\}\}/gi, 'ישראל')
+      .replace(/\{\{last_name\}\}/gi, 'ישראלי')
       .replace(/\{\{phone\}\}/gi, '0501234567')
+      .replace(/\{\{contact_phone\}\}/gi, '0501234567')
+      .replace(/\{\{email\}\}/gi, 'israel@example.com')
+      .replace(/\{\{contact_email\}\}/gi, 'israel@example.com')
       .replace(/\{\{message\}\}/gi, userMessage)
       .replace(/\{\{date\}\}/gi, new Date().toLocaleDateString('he-IL'))
-      .replace(/\{\{time\}\}/gi, new Date().toLocaleTimeString('he-IL'));
+      .replace(/\{\{time\}\}/gi, new Date().toLocaleTimeString('he-IL'))
+      // Google Contacts variables
+      .replace(/\{\{contact_exists\}\}/gi, 'true')
+      .replace(/\{\{contact_id\}\}/gi, 'people/123456789')
+      .replace(/\{\{contact_action\}\}/gi, 'found')
+      .replace(/\{\{contact_success\}\}/gi, 'true')
+      .replace(/\{\{contact_error\}\}/gi, '')
+      // Google Sheets variables
+      .replace(/\{\{sheets_found\}\}/gi, 'true')
+      .replace(/\{\{sheets_row_index\}\}/gi, '5')
+      .replace(/\{\{sheets_total_rows\}\}/gi, '100')
+      .replace(/\{\{sheets_total_matches\}\}/gi, '3')
+      .replace(/\{\{sheets_action\}\}/gi, 'found')
+      .replace(/\{\{sheets_success\}\}/gi, 'true')
+      .replace(/\{\{sheets_error\}\}/gi, '')
+      // Registration variables
+      .replace(/\{\{full_name\}\}/gi, 'ישראל ישראלי')
+      .replace(/\{\{city\}\}/gi, 'תל אביב')
+      .replace(/\{\{notes\}\}/gi, 'הערות לדוגמה')
+      // Commonly used
+      .replace(/\{\{today\}\}/gi, new Date().toLocaleDateString('he-IL'))
+      .replace(/\{\{now\}\}/gi, new Date().toLocaleTimeString('he-IL'));
+    
+    // Replace any remaining {{variable}} patterns with a generic preview value
+    result = result.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
+      // Return the variable name as a readable preview
+      return `[${varName}]`;
+    });
+    
+    return result;
   };
 
   return (
