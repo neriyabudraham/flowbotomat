@@ -21,6 +21,7 @@ export default function BotsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [newBotName, setNewBotName] = useState('');
   const [newBotDesc, setNewBotDesc] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
   const [botStats, setBotStats] = useState({});
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState('tags');
@@ -196,7 +197,8 @@ export default function BotsPage() {
   };
 
   const handleCreate = async () => {
-    if (!newBotName.trim()) return;
+    if (!newBotName.trim() || isCreating) return;
+    setIsCreating(true);
     try {
       const bot = await createBot(newBotName, newBotDesc);
       setNewBotName('');
@@ -221,6 +223,8 @@ export default function BotsPage() {
       } else {
         alert(err.response?.data?.error || 'שגיאה ביצירת בוט');
       }
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -849,10 +853,10 @@ export default function BotsPage() {
               </button>
               <button 
                 onClick={handleCreate} 
-                disabled={!newBotName.trim()}
+                disabled={!newBotName.trim() || isCreating}
                 className="flex-1 px-6 py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-bold shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
-                צור בוט
+                {isCreating ? 'יוצר...' : 'צור בוט'}
               </button>
             </div>
           </div>

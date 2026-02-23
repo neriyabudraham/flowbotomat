@@ -9,6 +9,8 @@ const { checkLimit } = require('../subscriptions/subscriptions.controller');
  * (disabled bot logic is only for receiving shared bots when at quota)
  */
 async function createBot(req, res) {
+  const client = await pool.connect();
+  
   try {
     const userId = req.user.id;
     const { name, description } = req.body;
@@ -17,9 +19,16 @@ async function createBot(req, res) {
       return res.status(400).json({ error: 'נדרש שם לבוט' });
     }
     
+    // Use transaction with row-level lock to prevent race conditions
+    await client.query('BEGIN');
+    
+    // Lock user row to prevent concurrent bot creation
+    await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [userId]);
+    
     // Check bot limit (includes own bots + edit shares)
     const botsLimit = await checkLimit(userId, 'bots');
     if (!botsLimit.allowed) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ 
         error: `הגעת למגבלת הבוטים (${botsLimit.limit}). שדרג את החבילה שלך או מחק בוט קיים.`,
         code: 'BOTS_LIMIT_REACHED',
@@ -44,7 +53,7 @@ async function createBot(req, res) {
       edges: []
     };
     
-    const result = await pool.query(
+    const result = await client.query(
       `INSERT INTO bots (user_id, name, description, flow_data)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
@@ -53,8 +62,11 @@ async function createBot(req, res) {
     
     res.status(201).json({ bot: result.rows[0] });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Create bot error:', error);
     res.status(500).json({ error: 'שגיאה ביצירת בוט' });
+  } finally {
+    client.release();
   }
 }
 
