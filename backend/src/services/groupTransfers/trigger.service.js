@@ -1,5 +1,7 @@
 const db = require('../../config/database');
 const wahaService = require('../waha/session.service');
+const { decrypt } = require('../crypto/encrypt.service');
+const { getWahaCredentials } = require('../settings/system.service');
 
 /**
  * Group Transfers Trigger Service
@@ -161,8 +163,25 @@ async function processGroupMessage(params) {
       return { success: false, error: 'No WhatsApp connection' };
     }
 
-    const connection = connResult.rows[0];
+    const conn = connResult.rows[0];
     const attribution = formatSenderAttribution(senderPhone, senderName);
+
+    // Build connection object for waha service
+    let wahaConnection;
+    if (conn.connection_type === 'external') {
+      wahaConnection = {
+        base_url: decrypt(conn.external_base_url),
+        api_key: decrypt(conn.external_api_key),
+        session_name: conn.session_name
+      };
+    } else {
+      const systemCreds = getWahaCredentials();
+      wahaConnection = {
+        base_url: systemCreds.baseUrl,
+        api_key: systemCreds.apiKey,
+        session_name: conn.session_name
+      };
+    }
 
     // Create a job record for tracking
     const jobResult = await db.query(`
@@ -199,8 +218,8 @@ async function processGroupMessage(params) {
         if (messageType === 'text') {
           // Text message: prepend attribution
           const fullMessage = `${attribution}\n${messageContent}`;
-          result = await wahaService.sendTextMessage(
-            connection.session_name,
+          result = await wahaService.sendMessage(
+            wahaConnection,
             target.group_id,
             fullMessage
           );
@@ -209,40 +228,36 @@ async function processGroupMessage(params) {
           const caption = messageContent 
             ? `${attribution}\n${messageContent}`
             : attribution;
-          result = await wahaService.sendImageMessage(
-            connection.session_name,
+          result = await wahaService.sendImage(
+            wahaConnection,
             target.group_id,
-            mediaUrl || mediaBase64,
-            caption,
-            !!mediaBase64
+            mediaUrl,
+            caption
           );
         } else if (messageType === 'video') {
           // Video: add attribution as caption
           const caption = messageContent 
             ? `${attribution}\n${messageContent}`
             : attribution;
-          result = await wahaService.sendVideoMessage(
-            connection.session_name,
+          result = await wahaService.sendVideo(
+            wahaConnection,
             target.group_id,
-            mediaUrl || mediaBase64,
-            caption,
-            !!mediaBase64
+            mediaUrl,
+            caption
           );
         } else if (messageType === 'audio' || messageType === 'ptt') {
           // Audio/PTT: send audio first, then attribution as reply
-          result = await wahaService.sendAudioMessage(
-            connection.session_name,
+          result = await wahaService.sendVoice(
+            wahaConnection,
             target.group_id,
-            mediaUrl || mediaBase64,
-            !!mediaBase64,
-            messageType === 'ptt'
+            mediaUrl
           );
           
           // Send attribution as follow-up message
           if (result && result.id) {
             await new Promise(resolve => setTimeout(resolve, 500));
-            await wahaService.sendTextMessage(
-              connection.session_name,
+            await wahaService.sendMessage(
+              wahaConnection,
               target.group_id,
               attribution
             );
@@ -252,34 +267,24 @@ async function processGroupMessage(params) {
           const caption = messageContent 
             ? `${attribution}\n${messageContent}`
             : attribution;
-          result = await wahaService.sendDocumentMessage(
-            connection.session_name,
+          const filename = mediaUrl?.split('/').pop() || 'file';
+          result = await wahaService.sendFile(
+            wahaConnection,
             target.group_id,
-            mediaUrl || mediaBase64,
-            caption,
-            !!mediaBase64
+            mediaUrl,
+            filename,
+            null,
+            caption
           );
         } else {
-          // Unsupported type: try to forward, then send attribution
-          console.log(`[GroupTransfers] Unsupported message type: ${messageType}, forwarding as-is`);
+          // Unsupported type: send text with attribution
+          console.log(`[GroupTransfers] Unsupported message type: ${messageType}, sending text notification`);
           
-          // Try to forward the original message
-          try {
-            result = await wahaService.forwardMessage(
-              connection.session_name,
-              sourceGroupId,
-              target.group_id,
-              messageId
-            );
-          } catch (fwdError) {
-            console.log('[GroupTransfers] Forward failed, sending attribution only');
-          }
-          
-          // Send attribution
-          await wahaService.sendTextMessage(
-            connection.session_name,
+          // Send attribution with message type note
+          result = await wahaService.sendMessage(
+            wahaConnection,
             target.group_id,
-            `${attribution}\n[הודעה הועברה]`
+            `${attribution}\n[הודעה מסוג ${messageType} הועברה]`
           );
         }
 
