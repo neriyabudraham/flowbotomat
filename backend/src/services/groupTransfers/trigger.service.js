@@ -149,6 +149,8 @@ async function processGroupMessage(params) {
     mediaBase64,
     mediaMimeType,
     mediaFilename,
+    latitude,
+    longitude,
     messageId,
     quotedMessageId
   } = params;
@@ -156,7 +158,7 @@ async function processGroupMessage(params) {
   console.log(`[GroupTransfers] Processing message for transfer "${transfer.name}" from group ${sourceGroupId}`);
 
   // Only classic message types are supported
-  const supportedTypes = ['text', 'image', 'video', 'audio', 'ptt', 'document', 'contact'];
+  const supportedTypes = ['text', 'image', 'video', 'audio', 'ptt', 'document', 'contact', 'location'];
   
   if (!supportedTypes.includes(messageType)) {
     console.log(`[GroupTransfers] Skipping unsupported message type: ${messageType}`);
@@ -328,6 +330,27 @@ async function processGroupMessage(params) {
             );
           } else {
             console.log(`[GroupTransfers] No vCard content for contact message`);
+            continue;
+          }
+        } else if (messageType === 'location') {
+          // Location: send location then attribution
+          if (latitude && longitude) {
+            result = await wahaService.sendLocation(
+              wahaConnection,
+              target.group_id,
+              latitude,
+              longitude,
+              messageContent || ''
+            );
+            // Send attribution separately
+            await wahaService.sendMessage(
+              wahaConnection,
+              target.group_id,
+              attribution.text.replace(/:\s*$/, ''),
+              attribution.mentions
+            );
+          } else {
+            console.log(`[GroupTransfers] No coordinates for location message`);
             continue;
           }
         } else {
