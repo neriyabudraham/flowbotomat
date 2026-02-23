@@ -588,9 +588,16 @@ export default function DashboardPage() {
             <QuickActionCard
               to="/group-forwards"
               icon={Forward}
-              title="העברת הודעות"
+              title="תפוצה לקבוצות"
               description="שליחה לקבוצות"
-              gradient="from-cyan-500 to-blue-600"
+              gradient="from-purple-500 to-pink-600"
+            />
+            <QuickActionCard
+              to="/group-transfers"
+              icon={Forward}
+              title="העברה בין קבוצות"
+              description="העברת הודעות"
+              gradient="from-teal-500 to-cyan-600"
             />
             <QuickActionCard
               to="/broadcasts"

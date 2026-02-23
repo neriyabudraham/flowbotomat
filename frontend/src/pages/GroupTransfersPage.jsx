@@ -13,19 +13,19 @@ import NotificationsDropdown from '../components/notifications/NotificationsDrop
 import AccountSwitcher from '../components/AccountSwitcher';
 import Logo from '../components/atoms/Logo';
 import api from '../services/api';
-import GroupForwardEditor from '../components/groupForwards/GroupForwardEditor';
-import JobHistoryTab from '../components/groupForwards/JobHistoryTab';
+import GroupTransferEditor from '../components/groupTransfers/GroupTransferEditor';
+import TransferJobHistoryTab from '../components/groupTransfers/TransferJobHistoryTab';
 
-export default function GroupForwardsPage() {
+export default function GroupTransfersPage() {
   const navigate = useNavigate();
   const { user, fetchMe } = useAuthStore();
-  const [forwards, setForwards] = useState([]);
+  const [transfers, setTransfers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [creating, setCreating] = useState(false);
-  const [editForward, setEditForward] = useState(null);
+  const [editTransfer, setEditTransfer] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -33,8 +33,8 @@ export default function GroupForwardsPage() {
   const [upgradeError, setUpgradeError] = useState(null);
   const [limit, setLimit] = useState(null);
   const [activeJobs, setActiveJobs] = useState([]);
-  const [quickSendForward, setQuickSendForward] = useState(null);
-  const [activeTab, setActiveTab] = useState('forwards'); // 'forwards' | 'history'
+  const [quickSendTransfer, setQuickSendTransfer] = useState(null);
+  const [activeTab, setActiveTab] = useState('transfers'); // 'transfers' | 'history'
   const [errorMessage, setErrorMessage] = useState(null);
 
   // Check if user is admin (either directly or viewing as another account)
@@ -62,7 +62,7 @@ export default function GroupForwardsPage() {
   // Refetch data when user changes (for admin access)
   useEffect(() => {
     if (user?.id) {
-      fetchForwards();
+      fetchTransfers();
       fetchLimit();
       fetchActiveJobs();
     }
@@ -76,13 +76,13 @@ export default function GroupForwardsPage() {
     }
   }, [activeJobs.length]);
 
-  const fetchForwards = async () => {
+  const fetchTransfers = async () => {
     try {
       setLoading(true);
-      const { data } = await api.get('/group-forwards');
-      setForwards(data.forwards || []);
+      const { data } = await api.get('/group-transfers');
+      setTransfers(data.transfers || []);
     } catch (e) {
-      console.error('Failed to fetch forwards:', e);
+      console.error('Failed to fetch transfers:', e);
     } finally {
       setLoading(false);
     }
@@ -90,7 +90,7 @@ export default function GroupForwardsPage() {
 
   const fetchLimit = async () => {
     try {
-      const { data } = await api.get('/group-forwards/limit');
+      const { data } = await api.get('/group-transfers/limit');
       setLimit(data);
     } catch (e) {
       console.error('Failed to fetch limit:', e);
@@ -99,7 +99,7 @@ export default function GroupForwardsPage() {
 
   const fetchActiveJobs = async () => {
     try {
-      const { data } = await api.get('/group-forwards/jobs/active');
+      const { data } = await api.get('/group-transfers/jobs/active');
       setActiveJobs(data.jobs || []);
     } catch (e) {
       console.error('Failed to fetch active jobs:', e);
@@ -112,7 +112,7 @@ export default function GroupForwardsPage() {
     // Check limit first
     if (limit && !limit.allowed) {
       const message = limit.featureDisabled 
-        ? 'התוכנית שלך לא כוללת שליחת תפוצה לקבוצות. שדרג את החבילה.'
+        ? 'התוכנית שלך לא כוללת העברת הודעות בין קבוצות. שדרג את החבילה.'
         : `הגעת למגבלת ${limit.limit} העברות. שדרג את החבילה כדי ליצור עוד.`;
       setUpgradeError(message);
       setShowUpgradeModal(true);
@@ -121,17 +121,17 @@ export default function GroupForwardsPage() {
     
     try {
       setCreating(true);
-      const { data } = await api.post('/group-forwards', {
+      const { data } = await api.post('/group-transfers', {
         name: newName.trim(),
         description: newDesc.trim()
       });
       
-      // Open the editor for the new forward
-      setEditForward(data.forward);
+      // Open the editor for the new transfer
+      setEditTransfer(data.transfer);
       setShowCreate(false);
       setNewName('');
       setNewDesc('');
-      fetchForwards();
+      fetchTransfers();
       fetchLimit();
     } catch (e) {
       if (e.response?.data?.code === 'LIMIT_REACHED' || e.response?.data?.code === 'FEATURE_NOT_ALLOWED' || e.response?.data?.upgrade) {
@@ -145,19 +145,19 @@ export default function GroupForwardsPage() {
     }
   };
 
-  const handleToggle = async (forward) => {
+  const handleToggle = async (transfer) => {
     try {
-      const { data } = await api.post(`/group-forwards/${forward.id}/toggle`);
-      setForwards(forwards.map(f => f.id === forward.id ? data.forward : f));
+      const { data } = await api.post(`/group-transfers/${transfer.id}/toggle`);
+      setTransfers(transfers.map(f => f.id === transfer.id ? data.transfer : f));
     } catch (e) {
       setErrorMessage(e.response?.data?.error || 'שגיאה בשינוי סטטוס');
     }
   };
 
-  const handleDuplicate = async (forward) => {
+  const handleDuplicate = async (transfer) => {
     try {
-      const { data } = await api.post(`/group-forwards/${forward.id}/duplicate`);
-      setForwards([data.forward, ...forwards]);
+      const { data } = await api.post(`/group-transfers/${transfer.id}/duplicate`);
+      setTransfers([data.transfer, ...transfers]);
       fetchLimit();
     } catch (e) {
       if (e.response?.data?.code === 'LIMIT_REACHED' || e.response?.data?.code === 'FEATURE_NOT_ALLOWED' || e.response?.data?.upgrade) {
@@ -173,8 +173,8 @@ export default function GroupForwardsPage() {
     if (!deleteTarget) return;
     
     try {
-      await api.delete(`/group-forwards/${deleteTarget.id}`);
-      setForwards(forwards.filter(f => f.id !== deleteTarget.id));
+      await api.delete(`/group-transfers/${deleteTarget.id}`);
+      setTransfers(transfers.filter(f => f.id !== deleteTarget.id));
       setShowDeleteConfirm(false);
       setDeleteTarget(null);
       fetchLimit();
@@ -183,7 +183,7 @@ export default function GroupForwardsPage() {
     }
   };
 
-  const filteredForwards = forwards.filter(f =>
+  const filteredTransfers = transfers.filter(f =>
     f.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     f.description?.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -198,28 +198,28 @@ export default function GroupForwardsPage() {
     });
   };
 
-  // If editing a forward, show the editor
-  if (editForward) {
+  // If editing a transfer, show the editor
+  if (editTransfer) {
     return (
-      <GroupForwardEditor 
-        forward={editForward}
+      <GroupTransferEditor 
+        transfer={editTransfer}
         onClose={() => {
-          setEditForward(null);
-          fetchForwards();
+          setEditTransfer(null);
+          fetchTransfers();
         }}
         onSave={(updated) => {
-          setForwards(forwards.map(f => f.id === updated.id ? updated : f));
+          setTransfers(transfers.map(f => f.id === updated.id ? updated : f));
         }}
       />
     );
   }
 
-  const activeForwards = forwards.filter(f => f.is_active).length;
-  const totalTargets = forwards.reduce((sum, f) => sum + (f.target_count || 0), 0);
-  const totalSent = forwards.reduce((sum, f) => sum + (f.total_forwards || 0), 0);
+  const activeTransfers = transfers.filter(f => f.is_active).length;
+  const totalTargets = transfers.reduce((sum, f) => sum + (f.target_count || 0), 0);
+  const totalSent = transfers.reduce((sum, f) => sum + (f.total_transfers || 0), 0);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-purple-50/30" dir="rtl">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50/30" dir="rtl">
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 py-4">
@@ -261,7 +261,7 @@ export default function GroupForwardsPage() {
 
       <main className="max-w-7xl mx-auto px-6 py-8">
         {/* Hero Section */}
-        <div className="relative overflow-hidden bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 rounded-3xl p-8 mb-8">
+        <div className="relative overflow-hidden bg-gradient-to-r from-teal-600 via-cyan-600 to-orange-500 rounded-3xl p-8 mb-8">
           <div className="absolute inset-0 bg-black/10" />
           <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
           <div className="absolute bottom-0 left-0 w-64 h-64 bg-white/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
@@ -274,8 +274,8 @@ export default function GroupForwardsPage() {
                     <Forward className="w-8 h-8 text-white" />
                   </div>
                   <div>
-                    <h1 className="text-3xl font-bold text-white">שליחת תפוצה לקבוצות</h1>
-                    <p className="text-white/70">שלח הודעות למספר קבוצות בו-זמנית</p>
+                    <h1 className="text-3xl font-bold text-white">העברת הודעות בין קבוצות</h1>
+                    <p className="text-white/70">העבר הודעות בין קבוצות</p>
                   </div>
                 </div>
                 
@@ -286,7 +286,7 @@ export default function GroupForwardsPage() {
                       <Forward className="w-4 h-4" />
                     </div>
                     <div>
-                      <div className="text-2xl font-bold">{forwards.length}</div>
+                      <div className="text-2xl font-bold">{transfers.length}</div>
                       <div className="text-xs text-white/60">העברות</div>
                     </div>
                   </div>
@@ -296,7 +296,7 @@ export default function GroupForwardsPage() {
                       <Play className="w-4 h-4" />
                     </div>
                     <div>
-                      <div className="text-2xl font-bold">{activeForwards}</div>
+                      <div className="text-2xl font-bold">{activeTransfers}</div>
                       <div className="text-xs text-white/60">פעילות</div>
                     </div>
                   </div>
@@ -337,8 +337,8 @@ export default function GroupForwardsPage() {
                   </div>
                 )}
                 <button
-                  onClick={() => limit && !limit.allowed ? (setUpgradeError(limit.featureDisabled ? 'התוכנית שלך לא כוללת שליחת תפוצה לקבוצות. שדרג את החבילה.' : `הגעת למגבלת ${limit.limit} העברות.`), setShowUpgradeModal(true)) : setShowCreate(true)}
-                  className="flex items-center gap-2 px-6 py-3 bg-white text-purple-600 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all hover:scale-105"
+                  onClick={() => limit && !limit.allowed ? (setUpgradeError(limit.featureDisabled ? 'התוכנית שלך לא כוללת העברת הודעות בין קבוצות. שדרג את החבילה.' : `הגעת למגבלת ${limit.limit} העברות.`), setShowUpgradeModal(true)) : setShowCreate(true)}
+                  className="flex items-center gap-2 px-6 py-3 bg-white text-teal-600 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all hover:scale-105"
                 >
                   <Plus className="w-5 h-5" />
                   העברה חדשה
@@ -352,9 +352,9 @@ export default function GroupForwardsPage() {
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2 p-1.5 bg-gray-100 rounded-2xl">
             <button
-              onClick={() => setActiveTab('forwards')}
+              onClick={() => setActiveTab('transfers')}
               className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all ${
-                activeTab === 'forwards'
+                activeTab === 'transfers'
                   ? 'bg-white text-gray-900 shadow-sm'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
@@ -362,9 +362,9 @@ export default function GroupForwardsPage() {
               <LayoutGrid className="w-4 h-4" />
               העברות
               <span className={`px-2 py-0.5 rounded-full text-xs ${
-                activeTab === 'forwards' ? 'bg-purple-100 text-purple-600' : 'bg-gray-200 text-gray-500'
+                activeTab === 'transfers' ? 'bg-teal-100 text-teal-600' : 'bg-gray-200 text-gray-500'
               }`}>
-                {forwards.length}
+                {transfers.length}
               </span>
             </button>
             <button
@@ -380,8 +380,8 @@ export default function GroupForwardsPage() {
             </button>
           </div>
 
-          {/* Search - only on forwards tab */}
-          {activeTab === 'forwards' && (
+          {/* Search - only on transfers tab */}
+          {activeTab === 'transfers' && (
             <div className="relative w-72">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
@@ -389,14 +389,14 @@ export default function GroupForwardsPage() {
                 placeholder="חיפוש העברות..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-4 pr-10 py-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 transition-all"
+                className="w-full pl-4 pr-10 py-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400 transition-all"
               />
             </div>
           )}
         </div>
 
         {/* Pending Jobs Alert (awaiting confirmation) */}
-        {activeJobs.filter(j => j.status === 'pending').length > 0 && activeTab === 'forwards' && (
+        {activeJobs.filter(j => j.status === 'pending').length > 0 && activeTab === 'transfers' && (
           <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -419,7 +419,7 @@ export default function GroupForwardsPage() {
                       <Forward className="w-4 h-4 text-yellow-600" />
                     </div>
                     <div>
-                      <p className="font-medium text-gray-900">{job.forward_name}</p>
+                      <p className="font-medium text-gray-900">{job.transfer_name}</p>
                       <p className="text-xs text-gray-500">
                         {job.total_targets} קבוצות • ממתין מ-{new Date(job.created_at).toLocaleString('he-IL')}
                       </p>
@@ -430,7 +430,7 @@ export default function GroupForwardsPage() {
                       onClick={async (e) => {
                         e.stopPropagation();
                         try {
-                          await api.post(`/group-forwards/jobs/${job.id}/confirm`);
+                          await api.post(`/group-transfers/jobs/${job.id}/confirm`);
                           fetchActiveJobs();
                         } catch (err) {
                           console.error('Confirm error:', err);
@@ -446,7 +446,7 @@ export default function GroupForwardsPage() {
                       onClick={async (e) => {
                         e.stopPropagation();
                         try {
-                          await api.post(`/group-forwards/jobs/${job.id}/cancel`);
+                          await api.post(`/group-transfers/jobs/${job.id}/cancel`);
                           fetchActiveJobs();
                         } catch (err) {
                           console.error('Cancel error:', err);
@@ -466,7 +466,7 @@ export default function GroupForwardsPage() {
         )}
 
         {/* Active Jobs Alert (sending) - with real-time progress */}
-        {activeJobs.filter(j => j.status === 'sending' || j.status === 'confirmed').length > 0 && activeTab === 'forwards' && (
+        {activeJobs.filter(j => j.status === 'sending' || j.status === 'confirmed').length > 0 && activeTab === 'transfers' && (
           <div className="mb-6 space-y-3">
             {activeJobs.filter(j => j.status === 'sending' || j.status === 'confirmed').map(job => (
               <div key={job.id} className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl">
@@ -476,7 +476,7 @@ export default function GroupForwardsPage() {
                       <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
                     </div>
                     <div>
-                      <h4 className="font-bold text-blue-900">{job.forward_name}</h4>
+                      <h4 className="font-bold text-blue-900">{job.transfer_name}</h4>
                       <p className="text-sm text-blue-600">
                         {job.status === 'confirmed' ? 'מתחיל לשלוח...' : 'שליחה בתהליך'}
                       </p>
@@ -520,21 +520,21 @@ export default function GroupForwardsPage() {
         )}
 
         {/* History Tab */}
-        {activeTab === 'history' && <JobHistoryTab key={user?.id} />}
+        {activeTab === 'history' && <TransferJobHistoryTab key={user?.id} />}
 
-        {/* Forwards Tab Content */}
-        {activeTab === 'forwards' && (
+        {/* Transfers Tab Content */}
+        {activeTab === 'transfers' && (
           <>
 
-        {/* Forwards Grid */}
+        {/* Transfers Grid */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
+            <Loader2 className="w-8 h-8 text-teal-600 animate-spin" />
           </div>
-        ) : filteredForwards.length === 0 ? (
+        ) : filteredTransfers.length === 0 ? (
           <div className="text-center py-20">
-            <div className="w-24 h-24 bg-gradient-to-br from-purple-100 to-pink-100 rounded-3xl flex items-center justify-center mx-auto mb-6">
-              <Forward className="w-12 h-12 text-purple-400" />
+            <div className="w-24 h-24 bg-gradient-to-br from-teal-100 to-cyan-100 rounded-3xl flex items-center justify-center mx-auto mb-6">
+              <Forward className="w-12 h-12 text-teal-400" />
             </div>
             <h3 className="text-xl font-bold text-gray-800 mb-2">
               {searchQuery ? 'לא נמצאו תוצאות' : 'אין העברות עדיין'}
@@ -544,8 +544,8 @@ export default function GroupForwardsPage() {
             </p>
             {!searchQuery && (
               <button
-                onClick={() => limit && !limit.allowed ? (setUpgradeError(limit.featureDisabled ? 'התוכנית שלך לא כוללת שליחת תפוצה לקבוצות. שדרג את החבילה.' : `הגעת למגבלת ${limit.limit} העברות.`), setShowUpgradeModal(true)) : setShowCreate(true)}
-                className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all hover:scale-105"
+                onClick={() => limit && !limit.allowed ? (setUpgradeError(limit.featureDisabled ? 'התוכנית שלך לא כוללת העברת הודעות בין קבוצות. שדרג את החבילה.' : `הגעת למגבלת ${limit.limit} העברות.`), setShowUpgradeModal(true)) : setShowCreate(true)}
+                className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all hover:scale-105"
               >
                 <Sparkles className="w-5 h-5" />
                 צור את ההעברה הראשונה
@@ -554,35 +554,35 @@ export default function GroupForwardsPage() {
           </div>
         ) : (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {filteredForwards.map(forward => (
+            {filteredTransfers.map(transfer => (
               <div
-                key={forward.id}
-                onClick={() => setEditForward(forward)}
-                className="group relative bg-white rounded-2xl border border-gray-100 hover:border-purple-200 shadow-sm hover:shadow-xl transition-all cursor-pointer overflow-hidden"
+                key={transfer.id}
+                onClick={() => setEditTransfer(transfer)}
+                className="group relative bg-white rounded-2xl border border-gray-100 hover:border-teal-200 shadow-sm hover:shadow-xl transition-all cursor-pointer overflow-hidden"
               >
                 {/* Status indicator */}
                 <div className={`absolute top-4 left-4 px-3 py-1 rounded-full text-xs font-medium ${
-                  forward.is_active 
+                  transfer.is_active 
                     ? 'bg-green-100 text-green-700' 
                     : 'bg-gray-100 text-gray-500'
                 }`}>
-                  {forward.is_active ? '● פעיל' : '○ מושהה'}
+                  {transfer.is_active ? '● פעיל' : '○ מושהה'}
                 </div>
                 
                 {/* Header */}
                 <div className="p-6 pb-4">
                   <div className="flex items-start gap-4">
                     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
-                      forward.is_active 
-                        ? 'bg-gradient-to-br from-purple-500 to-pink-600' 
+                      transfer.is_active 
+                        ? 'bg-gradient-to-br from-teal-500 to-cyan-600' 
                         : 'bg-gray-100'
                     }`}>
-                      <Forward className={`w-7 h-7 ${forward.is_active ? 'text-white' : 'text-gray-400'}`} />
+                      <Forward className={`w-7 h-7 ${transfer.is_active ? 'text-white' : 'text-gray-400'}`} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-gray-900 text-lg truncate">{forward.name}</h3>
+                      <h3 className="font-bold text-gray-900 text-lg truncate">{transfer.name}</h3>
                       <p className="text-sm text-gray-500 truncate mt-1">
-                        {forward.description || (forward.trigger_type === 'direct' ? 'הודעה ישירה לבוט' : 'האזנה לקבוצה')}
+                        {transfer.description || (transfer.trigger_type === 'direct' ? 'הודעה ישירה לבוט' : 'האזנה לקבוצה')}
                       </p>
                     </div>
                   </div>
@@ -595,14 +595,14 @@ export default function GroupForwardsPage() {
                       <div className="flex items-center justify-center gap-1 text-gray-400 mb-1">
                         <Users className="w-3.5 h-3.5" />
                       </div>
-                      <div className="font-bold text-gray-900">{forward.target_count || 0}</div>
+                      <div className="font-bold text-gray-900">{transfer.target_count || 0}</div>
                       <div className="text-xs text-gray-400">קבוצות</div>
                     </div>
                     <div className="text-center border-x border-gray-200">
                       <div className="flex items-center justify-center gap-1 text-gray-400 mb-1">
                         <Send className="w-3.5 h-3.5" />
                       </div>
-                      <div className="font-bold text-gray-900">{forward.total_forwards || 0}</div>
+                      <div className="font-bold text-gray-900">{transfer.total_transfers || 0}</div>
                       <div className="text-xs text-gray-400">נשלחו</div>
                     </div>
                     <div className="text-center">
@@ -610,7 +610,7 @@ export default function GroupForwardsPage() {
                         <Clock className="w-3.5 h-3.5" />
                       </div>
                       <div className="font-bold text-gray-900">
-                        {forward.delay_min === forward.delay_max ? forward.delay_min : `${forward.delay_min}-${forward.delay_max}`}
+                        {transfer.delay_min === transfer.delay_max ? transfer.delay_min : `${transfer.delay_min}-${transfer.delay_max}`}
                       </div>
                       <div className="text-xs text-gray-400">שניות</div>
                     </div>
@@ -620,40 +620,40 @@ export default function GroupForwardsPage() {
                 {/* Actions - appear on hover */}
                 <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleToggle(forward); }}
+                    onClick={(e) => { e.stopPropagation(); handleToggle(transfer); }}
                     className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      forward.is_active 
+                      transfer.is_active 
                         ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' 
                         : 'bg-green-100 text-green-700 hover:bg-green-200'
                     }`}
                   >
-                    {forward.is_active ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                    {forward.is_active ? 'השהה' : 'הפעל'}
+                    {transfer.is_active ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                    {transfer.is_active ? 'השהה' : 'הפעל'}
                   </button>
                   <button
-                    onClick={(e) => { e.stopPropagation(); setEditForward(forward); }}
-                    className="p-2 bg-purple-100 text-purple-600 hover:bg-purple-200 rounded-lg transition-colors"
+                    onClick={(e) => { e.stopPropagation(); setEditTransfer(transfer); }}
+                    className="p-2 bg-teal-100 text-teal-600 hover:bg-teal-200 rounded-lg transition-colors"
                     title="עריכה"
                   >
                     <Edit2 className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleDuplicate(forward); }}
+                    onClick={(e) => { e.stopPropagation(); handleDuplicate(transfer); }}
                     className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
                     title="שכפול"
                   >
                     <Copy className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={(e) => { e.stopPropagation(); setQuickSendForward(forward); }}
-                    disabled={!forward.is_active || forward.target_count === 0}
+                    onClick={(e) => { e.stopPropagation(); setQuickSendTransfer(transfer); }}
+                    disabled={!transfer.is_active || transfer.target_count === 0}
                     className="p-2 bg-green-100 text-green-600 hover:bg-green-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     title="שלח עכשיו"
                   >
                     <Send className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(forward); setShowDeleteConfirm(true); }}
+                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(transfer); setShowDeleteConfirm(true); }}
                     className="p-2 bg-red-100 text-red-600 hover:bg-red-200 rounded-lg transition-colors"
                     title="מחיקה"
                   >
@@ -666,13 +666,13 @@ export default function GroupForwardsPage() {
             {/* Create New Card */}
             <div
               onClick={() => setShowCreate(true)}
-              className="group relative bg-gradient-to-br from-gray-50 to-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-purple-300 hover:bg-purple-50/30 transition-all cursor-pointer flex items-center justify-center min-h-[280px]"
+              className="group relative bg-gradient-to-br from-gray-50 to-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-teal-300 hover:bg-teal-50/30 transition-all cursor-pointer flex items-center justify-center min-h-[280px]"
             >
               <div className="text-center">
-                <div className="w-16 h-16 bg-gray-100 group-hover:bg-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-4 transition-colors">
-                  <Plus className="w-8 h-8 text-gray-400 group-hover:text-purple-500 transition-colors" />
+                <div className="w-16 h-16 bg-gray-100 group-hover:bg-teal-100 rounded-2xl flex items-center justify-center mx-auto mb-4 transition-colors">
+                  <Plus className="w-8 h-8 text-gray-400 group-hover:text-teal-500 transition-colors" />
                 </div>
-                <div className="font-semibold text-gray-600 group-hover:text-purple-600 transition-colors">צור העברה חדשה</div>
+                <div className="font-semibold text-gray-600 group-hover:text-teal-600 transition-colors">צור העברה חדשה</div>
                 <div className="text-sm text-gray-400 mt-1">לחץ להתחלה</div>
               </div>
             </div>
@@ -689,7 +689,7 @@ export default function GroupForwardsPage() {
             {/* Header */}
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-3">
-                <div className="p-3 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl shadow-lg">
+                <div className="p-3 bg-gradient-to-br from-teal-500 to-cyan-500 rounded-2xl shadow-lg">
                   <Forward className="w-6 h-6 text-white" />
                 </div>
                 <div>
@@ -711,7 +711,7 @@ export default function GroupForwardsPage() {
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="לדוגמה: עדכון יומי לקבוצות, הודעות שיווק..."
-                  className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none transition-all text-lg"
+                  className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-200 focus:border-teal-400 outline-none transition-all text-lg"
                   autoFocus
                 />
               </div>
@@ -721,7 +721,7 @@ export default function GroupForwardsPage() {
                   value={newDesc}
                   onChange={(e) => setNewDesc(e.target.value)}
                   placeholder="מה ההעברה עושה? לאיזה קבוצות?"
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl resize-none focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none transition-all"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl resize-none focus:ring-2 focus:ring-teal-200 focus:border-teal-400 outline-none transition-all"
                   rows={3}
                 />
               </div>
@@ -738,7 +738,7 @@ export default function GroupForwardsPage() {
               <button 
                 onClick={handleCreate} 
                 disabled={!newName.trim() || creating}
-                className="flex-1 px-6 py-3.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                className="flex-1 px-6 py-3.5 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl font-bold shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
               >
                 {creating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
                 צור העברה
@@ -794,7 +794,7 @@ export default function GroupForwardsPage() {
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
-                <div className="p-3 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl shadow-lg">
+                <div className="p-3 bg-gradient-to-br from-teal-500 to-cyan-500 rounded-2xl shadow-lg">
                   <Crown className="w-6 h-6 text-white" />
                 </div>
                 <div>
@@ -814,19 +814,19 @@ export default function GroupForwardsPage() {
             </div>
             
             {/* Illustration */}
-            <div className="p-6 bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl mb-6">
+            <div className="p-6 bg-gradient-to-br from-teal-50 to-cyan-50 rounded-2xl mb-6">
               <div className="text-center">
-                <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center shadow-lg">
+                <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-teal-500 to-cyan-500 rounded-2xl flex items-center justify-center shadow-lg">
                   <Forward className="w-8 h-8 text-white" />
                 </div>
-                <p className="text-purple-800 font-medium mb-2">
+                <p className="text-teal-800 font-medium mb-2">
                   {limit?.featureDisabled 
-                    ? 'שליחת תפוצה לקבוצות לא כלולה בתוכנית שלך'
+                    ? 'העברת הודעות בין קבוצות לא כלולה בתוכנית שלך'
                     : `החבילה שלך מאפשרת עד ${limit?.limit || 0} העברות`}
                 </p>
-                <p className="text-purple-600 text-sm">
+                <p className="text-teal-600 text-sm">
                   {limit?.featureDisabled 
-                    ? 'שדרג לתוכנית שכוללת שליחת תפוצה לקבוצות'
+                    ? 'שדרג לתוכנית שכוללת העברת הודעות בין קבוצות'
                     : 'שדרג את החבילה שלך כדי ליצור העברות נוספות ולפתוח יכולות מתקדמות'}
                 </p>
               </div>
@@ -846,11 +846,11 @@ export default function GroupForwardsPage() {
                 </div>
                 <span className="text-blue-800 text-sm font-medium">יותר קבוצות יעד להעברה</span>
               </div>
-              <div className="flex items-center gap-3 p-3 bg-purple-50 rounded-xl border border-purple-100">
-                <div className="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center">
+              <div className="flex items-center gap-3 p-3 bg-teal-50 rounded-xl border border-teal-100">
+                <div className="w-8 h-8 bg-teal-500 rounded-lg flex items-center justify-center">
                   <Zap className="w-4 h-4 text-white" />
                 </div>
-                <span className="text-purple-800 text-sm font-medium">שליחה מהירה ללא הגבלות</span>
+                <span className="text-teal-800 text-sm font-medium">שליחה מהירה ללא הגבלות</span>
               </div>
             </div>
             
@@ -867,7 +867,7 @@ export default function GroupForwardsPage() {
                   setShowUpgradeModal(false);
                   navigate('/pricing');
                 }}
-                className="flex-1 px-6 py-3.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
+                className="flex-1 px-6 py-3.5 bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
               >
                 <Crown className="w-5 h-5" />
                 שדרג עכשיו
@@ -878,10 +878,10 @@ export default function GroupForwardsPage() {
       )}
 
       {/* Quick Send Modal */}
-      {quickSendForward && (
+      {quickSendTransfer && (
         <QuickSendModal
-          forward={quickSendForward}
-          onClose={() => setQuickSendForward(null)}
+          transfer={quickSendTransfer}
+          onClose={() => setQuickSendTransfer(null)}
           onJobCreated={fetchActiveJobs}
         />
       )}
@@ -912,7 +912,7 @@ export default function GroupForwardsPage() {
 }
 
 // Quick Send Modal Component - Redesigned
-function QuickSendModal({ forward, onClose, onJobCreated }) {
+function QuickSendModal({ transfer, onClose, onJobCreated }) {
   const [messageText, setMessageText] = useState('');
   const [mediaFile, setMediaFile] = useState(null);
   const [mediaPreview, setMediaPreview] = useState(null);
@@ -993,7 +993,7 @@ function QuickSendModal({ forward, onClose, onJobCreated }) {
       }
       
       // Create job
-      const { data } = await api.post(`/group-forwards/${forward.id}/jobs`, {
+      const { data } = await api.post(`/group-transfers/${transfer.id}/jobs`, {
         message_type: getMessageType(),
         message_text: messageText,
         media_url: mediaUrl,
@@ -1015,7 +1015,7 @@ function QuickSendModal({ forward, onClose, onJobCreated }) {
     try {
       setConfirming(true);
       setError(null);
-      await api.post(`/group-forwards/jobs/${job.id}/confirm`);
+      await api.post(`/group-transfers/jobs/${job.id}/confirm`);
       onClose();
     } catch (e) {
       setError(e.response?.data?.error || 'שגיאה באישור');
@@ -1026,7 +1026,7 @@ function QuickSendModal({ forward, onClose, onJobCreated }) {
   const handleCancel = async () => {
     try {
       setConfirming(true);
-      await api.post(`/group-forwards/jobs/${job.id}/cancel`);
+      await api.post(`/group-transfers/jobs/${job.id}/cancel`);
       onClose();
     } catch (e) {
       setError(e.response?.data?.error || 'שגיאה בביטול');
@@ -1079,7 +1079,7 @@ function QuickSendModal({ forward, onClose, onJobCreated }) {
               
               {mediaFile && !mediaPreview && (
                 <div className="flex items-center gap-2 p-3 bg-white rounded-xl mb-3">
-                  {mediaType === 'video' && <Video className="w-5 h-5 text-purple-500" />}
+                  {mediaType === 'video' && <Video className="w-5 h-5 text-teal-500" />}
                   {mediaType === 'audio' && <Mic className="w-5 h-5 text-green-500" />}
                   <span className="text-sm text-gray-700 truncate">{mediaFile.name}</span>
                 </div>
@@ -1123,14 +1123,14 @@ function QuickSendModal({ forward, onClose, onJobCreated }) {
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="bg-gradient-to-r from-purple-600 to-pink-500 p-6">
+        <div className="bg-gradient-to-r from-teal-600 to-cyan-500 p-6">
           <div className="flex justify-between items-start">
             <div>
               <h3 className="text-xl font-bold text-white flex items-center gap-2">
                 <Send className="w-5 h-5" />
                 שליחה מהירה
               </h3>
-              <p className="text-purple-200 mt-1">{forward.name}</p>
+              <p className="text-teal-200 mt-1">{transfer.name}</p>
             </div>
             <button 
               onClick={onClose} 
@@ -1160,7 +1160,7 @@ function QuickSendModal({ forward, onClose, onJobCreated }) {
               onChange={(e) => { setMessageText(e.target.value); setError(null); }}
               placeholder="הקלד את ההודעה כאן..."
               rows={4}
-              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 focus:bg-white resize-none transition-all"
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400 focus:bg-white resize-none transition-all"
             />
           </div>
           
@@ -1178,9 +1178,9 @@ function QuickSendModal({ forward, onClose, onJobCreated }) {
                   onChange={handleFileChange}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                 />
-                <div className="border-2 border-dashed border-gray-200 hover:border-purple-400 rounded-2xl p-6 text-center transition-colors">
-                  <div className="w-12 h-12 mx-auto mb-3 bg-purple-100 rounded-xl flex items-center justify-center">
-                    <Plus className="w-6 h-6 text-purple-600" />
+                <div className="border-2 border-dashed border-gray-200 hover:border-teal-400 rounded-2xl p-6 text-center transition-colors">
+                  <div className="w-12 h-12 mx-auto mb-3 bg-teal-100 rounded-xl flex items-center justify-center">
+                    <Plus className="w-6 h-6 text-teal-600" />
                   </div>
                   <p className="text-sm text-gray-600">לחץ לבחירת קובץ</p>
                   <p className="text-xs text-gray-400 mt-1">תמונה, סרטון או הקלטה</p>
@@ -1193,9 +1193,9 @@ function QuickSendModal({ forward, onClose, onJobCreated }) {
                     <img src={mediaPreview} alt="Preview" className="w-16 h-16 object-cover rounded-xl" />
                   ) : (
                     <div className={`w-16 h-16 rounded-xl flex items-center justify-center ${
-                      mediaType === 'video' ? 'bg-purple-100' : 'bg-green-100'
+                      mediaType === 'video' ? 'bg-teal-100' : 'bg-green-100'
                     }`}>
-                      {mediaType === 'video' && <Video className="w-7 h-7 text-purple-600" />}
+                      {mediaType === 'video' && <Video className="w-7 h-7 text-teal-600" />}
                       {mediaType === 'audio' && <Mic className="w-7 h-7 text-green-600" />}
                     </div>
                   )}
@@ -1221,14 +1221,14 @@ function QuickSendModal({ forward, onClose, onJobCreated }) {
           </div>
           
           {/* Info */}
-          <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-2xl">
-            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center">
+          <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-teal-50 to-cyan-50 rounded-2xl">
+            <div className="w-10 h-10 bg-gradient-to-br from-teal-500 to-cyan-500 rounded-xl flex items-center justify-center">
               <Users className="w-5 h-5 text-white" />
             </div>
             <div>
-              <p className="font-medium text-gray-900">{forward.target_count} קבוצות</p>
+              <p className="font-medium text-gray-900">{transfer.target_count} קבוצות</p>
               <p className="text-sm text-gray-500">
-                {forward.require_confirmation ? 'יידרש אישור לפני השליחה' : 'יישלח אוטומטית'}
+                {transfer.require_confirmation ? 'יידרש אישור לפני השליחה' : 'יישלח אוטומטית'}
               </p>
             </div>
           </div>
@@ -1245,14 +1245,14 @@ function QuickSendModal({ forward, onClose, onJobCreated }) {
           <button
             onClick={handleSend}
             disabled={sending || (!messageText.trim() && !mediaFile)}
-            className="flex-1 px-4 py-3 text-white bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 rounded-xl font-medium transition-all shadow-lg shadow-purple-500/25 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 px-4 py-3 text-white bg-gradient-to-r from-teal-600 to-cyan-500 hover:from-teal-700 hover:to-cyan-600 rounded-xl font-medium transition-all shadow-lg shadow-teal-500/25 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {sending ? (
               <Loader2 className="w-5 h-5 animate-spin" />
             ) : (
               <>
                 <Send className="w-5 h-5" />
-                {forward.require_confirmation ? 'המשך' : 'שלח'}
+                {transfer.require_confirmation ? 'המשך' : 'שלח'}
               </>
             )}
           </button>

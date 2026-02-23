@@ -23,6 +23,7 @@ import PrivacyPage from './pages/PrivacyPage';
 import ApiPage from './pages/ApiPage';
 import AffiliateTermsPage from './pages/AffiliateTermsPage';
 import GroupForwardsPage from './pages/GroupForwardsPage';
+import GroupTransfersPage from './pages/GroupTransfersPage';
 import BroadcastsPage from './pages/BroadcastsPage';
 import ServicesPage from './pages/ServicesPage';
 import StatusBotLandingPage from './pages/statusBot/StatusBotLandingPage';
@@ -152,6 +153,7 @@ function App() {
           <Route path="/bots" element={<BotsPage />} />
           <Route path="/bots/:botId" element={<BotEditorPage />} />
           <Route path="/group-forwards" element={<GroupForwardsPage />} />
+          <Route path="/group-transfers" element={<GroupTransfersPage />} />
           <Route path="/broadcasts" element={<BroadcastsPage />} />
           <Route path="/services" element={<ServicesPage />} />
           <Route path="/status-bot" element={<StatusBotLandingPage />} />
