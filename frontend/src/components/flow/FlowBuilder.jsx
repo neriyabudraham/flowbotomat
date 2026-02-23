@@ -213,6 +213,17 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
     (params) => {
       console.log('[Flow] New connection:', params);
       setEdges((eds) => {
+        // Prevent duplicate: same source + sourceHandle + target
+        const isDuplicate = eds.some(e => 
+          e.source === params.source && 
+          e.sourceHandle === params.sourceHandle && 
+          e.target === params.target
+        );
+        if (isDuplicate) {
+          console.log('[Flow] Duplicate connection prevented');
+          return eds;
+        }
+        
         const newEdges = addEdge({
           ...params,
           type: 'default',
@@ -351,7 +362,6 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
         panOnDrag
         panOnScroll
         selectionKeyCode="Shift"
-        connectionMode="loose"
       >
         <Background color="#94a3b8" gap={20} size={2.5} />
         <Controls 
