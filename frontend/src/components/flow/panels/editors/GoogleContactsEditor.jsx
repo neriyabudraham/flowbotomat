@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { 
-  X, ChevronDown, ChevronUp, Loader2, 
+  X, ChevronDown, ChevronUp, Loader2, Plus,
   RefreshCw, AlertCircle, Users, Phone, Mail, Tag,
   Zap, Search, UserPlus, Check, Copy, Edit3
 } from 'lucide-react';
@@ -118,6 +118,8 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
   const [connected, setConnected] = useState(null);
   const [showVarEditor, setShowVarEditor] = useState(false);
   const [copiedVar, setCopiedVar] = useState(null);
+  const [creatingVars, setCreatingVars] = useState(false);
+  const [varsCreated, setVarsCreated] = useState(false);
 
   useEffect(() => {
     checkConnection();
@@ -187,6 +189,30 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
       [key]: { name: newName, label: currentConfig.label }
     };
     onUpdate({ varNames: newVarNames });
+  };
+
+  const createAllVariables = async () => {
+    setCreatingVars(true);
+    try {
+      const varsToCreate = relevantVars.map(v => {
+        const config = getVarConfig(v.key);
+        return { name: config.name, label: config.label };
+      });
+      
+      for (const v of varsToCreate) {
+        try {
+          await api.post('/variables', { name: v.name, label: v.label, is_system: false });
+        } catch (e) {
+          // Variable might already exist, ignore
+        }
+      }
+      setVarsCreated(true);
+      setTimeout(() => setVarsCreated(false), 3000);
+    } catch (err) {
+      console.error('Failed to create variables:', err);
+    } finally {
+      setCreatingVars(false);
+    }
   };
 
   const operationInfo = OPERATIONS.find(op => op.id === action.operation);
@@ -429,17 +455,37 @@ function GoogleContactsActionItem({ action, onUpdate, onRemove, index }) {
                   <p className="text-[10px] text-amber-600">לחץ להעתקה, לחץ על עריכה לשינוי שם</p>
                 </div>
               </div>
-              <button
-                onClick={() => setShowVarEditor(!showVarEditor)}
-                className={`flex items-center gap-1 px-2 py-1 text-xs rounded-lg transition-colors ${
-                  showVarEditor 
-                    ? 'bg-amber-600 text-white' 
-                    : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                }`}
-              >
-                <Edit3 className="w-3 h-3" />
-                {showVarEditor ? 'סגור' : 'ערוך שמות'}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={createAllVariables}
+                  disabled={creatingVars || varsCreated}
+                  className={`flex items-center gap-1 px-2 py-1 text-xs rounded-lg transition-colors ${
+                    varsCreated 
+                      ? 'bg-green-500 text-white' 
+                      : 'bg-green-100 text-green-700 hover:bg-green-200'
+                  }`}
+                >
+                  {creatingVars ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : varsCreated ? (
+                    <Check className="w-3 h-3" />
+                  ) : (
+                    <Plus className="w-3 h-3" />
+                  )}
+                  {varsCreated ? 'נוצרו!' : 'צור משתנים'}
+                </button>
+                <button
+                  onClick={() => setShowVarEditor(!showVarEditor)}
+                  className={`flex items-center gap-1 px-2 py-1 text-xs rounded-lg transition-colors ${
+                    showVarEditor 
+                      ? 'bg-amber-600 text-white' 
+                      : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                  }`}
+                >
+                  <Edit3 className="w-3 h-3" />
+                  {showVarEditor ? 'סגור' : 'ערוך שמות'}
+                </button>
+              </div>
             </div>
             
             <div className="space-y-2">
