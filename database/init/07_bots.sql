@@ -44,4 +44,16 @@ CREATE TABLE IF NOT EXISTS bot_sessions (
 CREATE INDEX IF NOT EXISTS idx_bot_sessions_contact ON bot_sessions(contact_id);
 CREATE INDEX IF NOT EXISTS idx_bot_sessions_waiting ON bot_sessions(waiting_for);
 
+-- Bot trigger history (for cooldowns and once-per-user logic)
+CREATE TABLE IF NOT EXISTS bot_trigger_history (
+  id BIGSERIAL PRIMARY KEY,
+  bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+  contact_id UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+  trigger_group_id TEXT, -- Frontend-generated ID like "group_1", "group_2"
+  triggered_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_bot_trigger_history_bot_contact ON bot_trigger_history(bot_id, contact_id);
+CREATE INDEX IF NOT EXISTS idx_bot_trigger_history_group ON bot_trigger_history(trigger_group_id);
+
 SELECT 'Bots tables created!' as status;
