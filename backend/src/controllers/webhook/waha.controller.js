@@ -1408,6 +1408,15 @@ async function handleSessionStatus(userId, event) {
   
   const ourStatus = statusMap[payload.status] || 'disconnected';
   
+  // Log session status changes with full details
+  console.log(`[Webhook] 📡 Session status change for user ${userId}:`, {
+    wahaStatus: payload.status,
+    ourStatus,
+    session,
+    reason: payload.reason || payload.error || 'unknown',
+    fullPayload: JSON.stringify(payload)
+  });
+  
   // Update main whatsapp_connections
   await pool.query(
     `UPDATE whatsapp_connections SET status = $1, updated_at = NOW() WHERE user_id = $2`,
