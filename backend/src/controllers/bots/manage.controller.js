@@ -9,16 +9,16 @@ const { checkLimit } = require('../subscriptions/subscriptions.controller');
  * (disabled bot logic is only for receiving shared bots when at quota)
  */
 async function createBot(req, res) {
+  const userId = req.user.id;
+  const { name, description } = req.body;
+  
+  if (!name) {
+    return res.status(400).json({ error: 'נדרש שם לבוט' });
+  }
+  
   const client = await db.pool.connect();
   
   try {
-    const userId = req.user.id;
-    const { name, description } = req.body;
-    
-    if (!name) {
-      return res.status(400).json({ error: 'נדרש שם לבוט' });
-    }
-    
     // Use transaction with row-level lock to prevent race conditions
     await client.query('BEGIN');
     
@@ -60,6 +60,7 @@ async function createBot(req, res) {
       [userId, name, description || '', JSON.stringify(defaultFlow)]
     );
     
+    await client.query('COMMIT');
     res.status(201).json({ bot: result.rows[0] });
   } catch (error) {
     await client.query('ROLLBACK');
