@@ -949,7 +949,7 @@ class BotEngine {
     } else if (session.waiting_for === 'registration') {
       // Continue registration flow
       console.log('[BotEngine] Continuing registration flow');
-      return await this.continueRegistration(session, flowData, contact, message, userId, bot);
+      return await this.continueRegistration(session, flowData, contact, message, userId, bot, messageType);
     }
     
     // Find ALL next edges (support multiple paths)
@@ -3420,7 +3420,7 @@ class BotEngine {
   }
   
   // Continue registration flow (called from continueSession)
-  async continueRegistration(session, flowData, contact, message, userId, bot) {
+  async continueRegistration(session, flowData, contact, message, userId, bot, messageType = 'text') {
     const connection = await this.getConnection(userId);
     if (!connection) return false;
     
@@ -3436,6 +3436,29 @@ class BotEngine {
     const triggerMessage = waitingData.triggerMessage || ''; // Original trigger message
     
     console.log('[BotEngine] Registration continue - question', currentQuestionIndex + 1, 'of', questions.length);
+    
+    // Check if text-only is expected but received non-text message type
+    const currentQuestion = questions[currentQuestionIndex];
+    const textOnlyTypes = ['text', 'number', 'phone', 'email', 'date', 'choice'];
+    const requiresTextInput = textOnlyTypes.includes(currentQuestion?.type);
+    
+    if (requiresTextInput && messageType !== 'text') {
+      console.log('[BotEngine] ⚠️ Registration expects text input but got:', messageType);
+      const errorMessage = 'התגובה לא תקינה. אנא שלח הודעת טקסט בלבד.';
+      const errorResult = await wahaService.sendMessage(connection, contact.phone, errorMessage);
+      await this.saveOutgoingMessage(userId, contact.id, errorMessage, 'text', null, errorResult?.id?.id);
+      
+      // Re-save session (same state) - keep waiting for valid text
+      await this.saveSession(
+        bot.id,
+        contact.id,
+        nodeId,
+        'registration',
+        waitingData,
+        (node.data.timeout || 2) * ((node.data.timeoutUnit || 'hours') === 'hours' ? 3600 : 60)
+      );
+      return true;
+    }
     
     // Check for cancel keyword
     if (message.toLowerCase().trim() === cancelKeyword) {
