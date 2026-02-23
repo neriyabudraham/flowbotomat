@@ -3480,7 +3480,6 @@ class BotEngine {
     }
     
     // Validate current answer
-    const currentQuestion = questions[currentQuestionIndex];
     const isValid = this.validateRegistrationAnswer(message, currentQuestion.type);
     
     if (!isValid) {
