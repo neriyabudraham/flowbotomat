@@ -120,11 +120,27 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
   const [showVarEditor, setShowVarEditor] = useState(false);
   const [copiedVar, setCopiedVar] = useState(null);
   const [creatingVars, setCreatingVars] = useState(false);
-  const [varsCreated, setVarsCreated] = useState(false);
+  const [existingVars, setExistingVars] = useState(new Set());
+  const [selectedVarsToCreate, setSelectedVarsToCreate] = useState(new Set());
 
   useEffect(() => {
     checkConnection();
+    loadExistingVariables();
   }, []);
+  
+  // Load existing variables to check which ones already exist
+  const loadExistingVariables = async () => {
+    try {
+      const { data } = await api.get('/variables');
+      const allVarNames = new Set([
+        ...(data.userVariables || []).map(v => v.name),
+        ...(data.customSystemVariables || []).map(v => v.name)
+      ]);
+      setExistingVars(allVarNames);
+    } catch (err) {
+      console.error('Failed to load existing variables:', err);
+    }
+  };
 
   useEffect(() => {
     if (action.spreadsheetId) {
@@ -283,32 +299,59 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
     onUpdate({ varNames: newVarNames });
   };
 
-  const createAllVariables = async () => {
+  // Toggle variable selection for creation
+  const toggleVarSelection = (varName) => {
+    setSelectedVarsToCreate(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(varName)) {
+        newSet.delete(varName);
+      } else {
+        newSet.add(varName);
+      }
+      return newSet;
+    });
+  };
+  
+  // Create only selected variables
+  const createSelectedVariables = async () => {
+    if (selectedVarsToCreate.size === 0) return;
+    
     setCreatingVars(true);
+    let createdCount = 0;
+    
     try {
-      const varsToCreate = relevantVars.map(v => {
+      // Get all vars info
+      const allVarsInfo = {};
+      relevantVars.forEach(v => {
         const config = getVarConfig(v.key);
-        return { name: config.name, label: config.label };
+        allVarsInfo[config.name] = { name: config.name, label: config.label };
       });
       
-      // Also add result mappings (column -> variable)
+      // Also add result mappings
       if (action.resultMappings) {
         action.resultMappings.forEach(m => {
           if (m.variable) {
-            varsToCreate.push({ name: m.variable, label: m.column || m.variable });
+            allVarsInfo[m.variable] = { name: m.variable, label: m.column || m.variable };
           }
         });
       }
       
-      for (const v of varsToCreate) {
+      for (const varName of selectedVarsToCreate) {
+        const varInfo = allVarsInfo[varName];
+        if (!varInfo) continue;
+        
         try {
-          await api.post('/variables', { name: v.name, label: v.label, is_system: false });
+          await api.post('/variables', { name: varInfo.name, label: varInfo.label, is_system: false });
+          createdCount++;
         } catch (e) {
-          // Variable might already exist, ignore
+          // Variable might already exist
         }
       }
-      setVarsCreated(true);
-      setTimeout(() => setVarsCreated(false), 3000);
+      
+      // Refresh existing variables list
+      await loadExistingVariables();
+      setSelectedVarsToCreate(new Set());
+      
     } catch (err) {
       console.error('Failed to create variables:', err);
     } finally {
@@ -704,27 +747,25 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
                   </div>
                   <div>
                     <span className="text-sm font-bold text-amber-800">משתני מערכת שיישמרו</span>
-                    <p className="text-[10px] text-amber-600">לחץ להעתקה, לחץ על עריכה לשינוי שם</p>
+                    <p className="text-[10px] text-amber-600">סמן משתנים ליצירה, או לחץ להעתקה</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={createAllVariables}
-                    disabled={creatingVars || varsCreated}
+                    onClick={createSelectedVariables}
+                    disabled={creatingVars || selectedVarsToCreate.size === 0}
                     className={`flex items-center gap-1 px-2 py-1 text-xs rounded-lg transition-colors ${
-                      varsCreated 
-                        ? 'bg-green-500 text-white' 
-                        : 'bg-green-100 text-green-700 hover:bg-green-200'
+                      selectedVarsToCreate.size > 0
+                        ? 'bg-green-500 text-white hover:bg-green-600' 
+                        : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                     }`}
                   >
                     {creatingVars ? (
                       <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : varsCreated ? (
-                      <Check className="w-3 h-3" />
                     ) : (
                       <Plus className="w-3 h-3" />
                     )}
-                    {varsCreated ? 'נוצרו!' : 'צור משתנים'}
+                    צור ({selectedVarsToCreate.size})
                   </button>
                   <button
                     onClick={() => setShowVarEditor(!showVarEditor)}
@@ -744,13 +785,31 @@ function GoogleSheetsActionItem({ action, onUpdate, onRemove, index }) {
                 {relevantVars.map((v) => {
                   const config = getVarConfig(v.key);
                   const isCopied = copiedVar === config.name;
+                  const varExists = existingVars.has(config.name);
+                  const isSelected = selectedVarsToCreate.has(config.name);
                   
                   return (
                     <div 
                       key={v.key} 
-                      className="bg-white rounded-lg border border-amber-200 overflow-hidden"
+                      className={`bg-white rounded-lg border overflow-hidden transition-colors ${
+                        varExists ? 'border-green-300' : isSelected ? 'border-blue-400' : 'border-amber-200'
+                      }`}
                     >
                       <div className="flex items-center gap-2 p-2">
+                        {/* Checkbox for creation (only if doesn't exist) */}
+                        {!varExists ? (
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleVarSelection(config.name)}
+                            className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-400"
+                          />
+                        ) : (
+                          <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-[9px] font-medium rounded">
+                            קיים ✓
+                          </span>
+                        )}
+                        
                         {/* Variable badge with copy */}
                         <button
                           onClick={() => copyVarName(config.name)}
