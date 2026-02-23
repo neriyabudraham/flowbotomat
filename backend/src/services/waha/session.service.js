@@ -361,8 +361,13 @@ async function sendMessage(connection, phone, text, mentions = null) {
 
 /**
  * Send image
+ * @param {Object} connection - Connection object
+ * @param {string} phone - Phone number or group ID
+ * @param {string} imageUrl - URL of the image
+ * @param {string} caption - Optional caption
+ * @param {Array} mentions - Optional array of phone numbers to mention
  */
-async function sendImage(connection, phone, imageUrl, caption = '') {
+async function sendImage(connection, phone, imageUrl, caption = '', mentions = null) {
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
@@ -393,6 +398,11 @@ async function sendImage(connection, phone, imageUrl, caption = '') {
     caption: caption || '',
   };
   
+  // Add mentions if provided
+  if (mentions && mentions.length > 0) {
+    payload.mentions = mentions;
+  }
+  
   console.log(`[WAHA] sendImage payload:`, JSON.stringify(payload).substring(0, 300));
   
   const response = await client.post(`/api/sendImage`, payload);
@@ -405,14 +415,21 @@ async function sendImage(connection, phone, imageUrl, caption = '') {
     throw new Error(response.data.error);
   }
   
-  console.log(`[WAHA] Sent image to ${phone}`);
+  console.log(`[WAHA] Sent image to ${phone}${mentions ? ` with ${mentions.length} mentions` : ''}`);
   return response.data;
 }
 
 /**
  * Send file
+ * @param {Object} connection - Connection object
+ * @param {string} phone - Phone number or group ID
+ * @param {string} fileUrl - URL of the file
+ * @param {string} filename - Filename
+ * @param {string} mimetype - Optional mimetype
+ * @param {string} caption - Optional caption
+ * @param {Array} mentions - Optional array of phone numbers to mention
  */
-async function sendFile(connection, phone, fileUrl, filename = 'file', mimetype = null, caption = '') {
+async function sendFile(connection, phone, fileUrl, filename = 'file', mimetype = null, caption = '', mentions = null) {
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
@@ -438,16 +455,26 @@ async function sendFile(connection, phone, fileUrl, filename = 'file', mimetype 
     payload.caption = caption;
   }
   
+  // Add mentions if provided
+  if (mentions && mentions.length > 0) {
+    payload.mentions = mentions;
+  }
+  
   const response = await client.post(`/api/sendFile`, payload);
   
-  console.log(`[WAHA] Sent file to ${phone}: ${filename}${caption ? ' with caption' : ''}`);
+  console.log(`[WAHA] Sent file to ${phone}: ${filename}${caption ? ' with caption' : ''}${mentions ? ` with ${mentions.length} mentions` : ''}`);
   return response.data;
 }
 
 /**
  * Send video
+ * @param {Object} connection - Connection object
+ * @param {string} phone - Phone number or group ID
+ * @param {string} videoUrl - URL of the video
+ * @param {string} caption - Optional caption
+ * @param {Array} mentions - Optional array of phone numbers to mention
  */
-async function sendVideo(connection, phone, videoUrl, caption = '') {
+async function sendVideo(connection, phone, videoUrl, caption = '', mentions = null) {
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
@@ -479,6 +506,11 @@ async function sendVideo(connection, phone, videoUrl, caption = '') {
     convert: true,
   };
   
+  // Add mentions if provided
+  if (mentions && mentions.length > 0) {
+    payload.mentions = mentions;
+  }
+  
   const response = await client.post(`/api/sendVideo`, payload);
   
   console.log(`[WAHA] sendVideo response:`, JSON.stringify(response.data)?.substring(0, 200));
@@ -488,7 +520,7 @@ async function sendVideo(connection, phone, videoUrl, caption = '') {
     throw new Error(response.data.error);
   }
   
-  console.log(`[WAHA] Sent video to ${phone}`);
+  console.log(`[WAHA] Sent video to ${phone}${mentions ? ` with ${mentions.length} mentions` : ''}`);
   return response.data;
 }
 

@@ -245,43 +245,29 @@ async function processGroupMessage(params) {
             attribution.mentions
           );
         } else if (messageType === 'image') {
-          // Image: send image with original caption, then attribution with mention
+          // Image: add attribution as caption with mentions
+          const caption = messageContent 
+            ? `${attribution.text}${messageContent}`
+            : attribution.text.replace(/:\s*$/, ''); // Remove trailing colon if no content
           result = await wahaService.sendImage(
             wahaConnection,
             target.group_id,
             mediaUrl,
-            messageContent || ''
+            caption,
+            attribution.mentions
           );
-          
-          // Send attribution as follow-up with mention (so phone is clickable)
-          if (result) {
-            await new Promise(resolve => setTimeout(resolve, 300));
-            await wahaService.sendMessage(
-              wahaConnection,
-              target.group_id,
-              attribution.text.replace(/:\s*$/, ''), // Remove trailing colon for cleaner look
-              attribution.mentions
-            );
-          }
         } else if (messageType === 'video') {
-          // Video: send video with original caption, then attribution with mention
+          // Video: add attribution as caption with mentions
+          const caption = messageContent 
+            ? `${attribution.text}${messageContent}`
+            : attribution.text.replace(/:\s*$/, '');
           result = await wahaService.sendVideo(
             wahaConnection,
             target.group_id,
             mediaUrl,
-            messageContent || ''
+            caption,
+            attribution.mentions
           );
-          
-          // Send attribution as follow-up with mention
-          if (result) {
-            await new Promise(resolve => setTimeout(resolve, 300));
-            await wahaService.sendMessage(
-              wahaConnection,
-              target.group_id,
-              attribution.text.replace(/:\s*$/, ''),
-              attribution.mentions
-            );
-          }
         } else if (messageType === 'audio' || messageType === 'ptt') {
           // Audio/PTT: send audio first, then attribution with mention
           result = await wahaService.sendVoice(
@@ -301,7 +287,10 @@ async function processGroupMessage(params) {
             );
           }
         } else if (messageType === 'document') {
-          // Document: send file with original caption, then attribution with mention
+          // Document: send file with attribution caption and mentions
+          const caption = messageContent 
+            ? `${attribution.text}${messageContent}`
+            : attribution.text.replace(/:\s*$/, '');
           const filename = mediaUrl?.split('/').pop() || 'file';
           result = await wahaService.sendFile(
             wahaConnection,
@@ -309,19 +298,9 @@ async function processGroupMessage(params) {
             mediaUrl,
             filename,
             null,
-            messageContent || ''
+            caption,
+            attribution.mentions
           );
-          
-          // Send attribution as follow-up with mention
-          if (result) {
-            await new Promise(resolve => setTimeout(resolve, 300));
-            await wahaService.sendMessage(
-              wahaConnection,
-              target.group_id,
-              attribution.text.replace(/:\s*$/, ''),
-              attribution.mentions
-            );
-          }
         } else {
           // Unsupported type: send text with attribution and mention
           console.log(`[GroupTransfers] Unsupported message type: ${messageType}, sending text notification`);
