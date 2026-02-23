@@ -810,19 +810,16 @@ async function handleIncomingMessage(userId, event) {
         // Process each transfer in parallel
         for (const transfer of transfers) {
           // Don't await - let it run in background
-          // Get the actual sender name (not the group name)
-          const actualSenderName = payload.notifyName || 
-                                   payload.pushName || 
-                                   payload._data?.Info?.PushName ||
-                                   payload._data?.Info?.VerifiedName?.Details?.verifiedName ||
-                                   null;
+          // senderName is already extracted at line ~505 from the message payload
+          // It contains the actual sender's PushName, not the group name
+          console.log(`[Webhook] Transfer - senderPhone: ${senderPhone}, senderName: ${senderName}`);
           
           groupTransfersTrigger.processGroupMessage({
             userId,
             transfer,
             sourceGroupId: groupId,
             senderPhone,
-            senderName: actualSenderName,
+            senderName,
             messageType: messageData.type,
             messageContent: messageData.content,
             mediaUrl: messageData.mediaUrl,
