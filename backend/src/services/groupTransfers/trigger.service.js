@@ -155,7 +155,7 @@ async function processGroupMessage(params) {
     quotedMessageId
   } = params;
 
-  console.log(`[GroupTransfers] Processing message for transfer "${transfer.name}" from group ${sourceGroupId}`);
+  console.log(`[GroupTransfers] Processing message for transfer "${transfer.name}" from group ${sourceGroupId}, type: ${messageType}`);
 
   // Only classic message types are supported
   const supportedTypes = ['text', 'image', 'video', 'audio', 'ptt', 'document'];
@@ -248,6 +248,11 @@ async function processGroupMessage(params) {
         
         if (messageType === 'text') {
           // Text message: prepend attribution with mention
+          // Skip if no actual content (don't send just attribution)
+          if (!messageContent || messageContent.trim() === '') {
+            console.log(`[GroupTransfers] Skipping empty text message`);
+            continue;
+          }
           const fullMessage = `${attribution.text}${messageContent}`;
           result = await wahaService.sendMessage(
             wahaConnection,
@@ -257,6 +262,10 @@ async function processGroupMessage(params) {
           );
         } else if (messageType === 'image') {
           // Image: add attribution as caption with mentions
+          if (!mediaUrl) {
+            console.log(`[GroupTransfers] Skipping image without media URL`);
+            continue;
+          }
           const caption = messageContent 
             ? `${attribution.text}${messageContent}`
             : attribution.text.replace(/:\s*$/, ''); // Remove trailing colon if no content
@@ -269,6 +278,10 @@ async function processGroupMessage(params) {
           );
         } else if (messageType === 'video') {
           // Video: add attribution as caption with mentions
+          if (!mediaUrl) {
+            console.log(`[GroupTransfers] Skipping video without media URL`);
+            continue;
+          }
           const caption = messageContent 
             ? `${attribution.text}${messageContent}`
             : attribution.text.replace(/:\s*$/, '');
@@ -281,6 +294,10 @@ async function processGroupMessage(params) {
           );
         } else if (messageType === 'audio' || messageType === 'ptt') {
           // Audio/PTT: send audio first, then attribution with mention
+          if (!mediaUrl) {
+            console.log(`[GroupTransfers] Skipping audio without media URL`);
+            continue;
+          }
           result = await wahaService.sendVoice(
             wahaConnection,
             target.group_id,
@@ -299,6 +316,10 @@ async function processGroupMessage(params) {
           }
         } else if (messageType === 'document') {
           // Document: send file with attribution caption and mentions
+          if (!mediaUrl) {
+            console.log(`[GroupTransfers] Skipping document without media URL`);
+            continue;
+          }
           // Use original filename if available
           const caption = messageContent 
             ? `${attribution.text}${messageContent}`
