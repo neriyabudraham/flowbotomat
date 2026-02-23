@@ -420,7 +420,7 @@ async function sendImage(connection, phone, imageUrl, caption = '', mentions = n
 }
 
 /**
- * Send file
+ * Send file/document
  * @param {Object} connection - Connection object
  * @param {string} phone - Phone number or group ID
  * @param {string} fileUrl - URL of the file
@@ -433,36 +433,57 @@ async function sendFile(connection, phone, fileUrl, filename = 'file', mimetype 
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
-  // Build file object with proper structure
-  const fileObj = {
-    url: fileUrl,
-    filename: filename,
-  };
+  console.log(`[WAHA] Sending file to ${chatId}, url: ${fileUrl?.substring(0, 80)}, filename: ${filename}`);
   
-  // Add mimetype if provided
-  if (mimetype) {
-    fileObj.mimetype = mimetype;
-  }
+  // Extract filename from URL if not provided
+  const actualFilename = filename || fileUrl.split('/').pop() || 'file';
+  
+  // Determine mimetype from extension if not provided
+  const ext = actualFilename.split('.').pop()?.toLowerCase();
+  const mimetypes = {
+    'pdf': 'application/pdf',
+    'doc': 'application/msword',
+    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'xls': 'application/vnd.ms-excel',
+    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'ppt': 'application/vnd.ms-powerpoint',
+    'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'txt': 'text/plain',
+    'zip': 'application/zip',
+    'rar': 'application/x-rar-compressed',
+    'mp3': 'audio/mpeg',
+    'wav': 'audio/wav'
+  };
+  const actualMimetype = mimetype || mimetypes[ext] || 'application/octet-stream';
   
   const payload = {
     session: connection.session_name,
     chatId: chatId,
-    file: fileObj,
+    file: {
+      mimetype: actualMimetype,
+      filename: actualFilename,
+      url: fileUrl
+    },
+    caption: caption || '',
   };
-  
-  // Add caption if provided
-  if (caption) {
-    payload.caption = caption;
-  }
   
   // Add mentions if provided
   if (mentions && mentions.length > 0) {
     payload.mentions = mentions;
   }
   
+  console.log(`[WAHA] sendFile payload:`, JSON.stringify(payload).substring(0, 400));
+  
   const response = await client.post(`/api/sendFile`, payload);
   
-  console.log(`[WAHA] Sent file to ${phone}: ${filename}${caption ? ' with caption' : ''}${mentions ? ` with ${mentions.length} mentions` : ''}`);
+  console.log(`[WAHA] sendFile response:`, JSON.stringify(response.data)?.substring(0, 300));
+  
+  if (response.data?.error) {
+    console.error(`[WAHA] sendFile error:`, response.data.error);
+    throw new Error(response.data.error);
+  }
+  
+  console.log(`[WAHA] Sent file to ${phone}: ${actualFilename}${caption ? ' with caption' : ''}${mentions ? ` with ${mentions.length} mentions` : ''}`);
   return response.data;
 }
 
