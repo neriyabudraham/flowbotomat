@@ -103,14 +103,15 @@ function normalizePhone(phone) {
 /**
  * Format sender attribution
  * Keep phone in international format (972...)
+ * Bold the @phone for emphasis in WhatsApp
  */
 function formatSenderAttribution(senderPhone, senderName) {
   const cleanPhone = normalizePhone(senderPhone);
   
   if (senderName && senderName !== cleanPhone && !/^\d+$/.test(senderName)) {
-    return `@${cleanPhone} (${senderName}):`;
+    return `*@${cleanPhone}* (${senderName}):`;
   }
-  return `@${cleanPhone}:`;
+  return `*@${cleanPhone}*:`;
 }
 
 /**
