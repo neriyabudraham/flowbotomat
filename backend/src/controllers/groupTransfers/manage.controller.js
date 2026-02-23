@@ -42,10 +42,10 @@ async function createGroupTransfer(req, res) {
       });
     }
     
-    // Create the transfer
+    // Create the transfer with proper defaults for group-to-group transfers
     const result = await db.query(`
-      INSERT INTO group_transfers (user_id, name, description)
-      VALUES ($1, $2, $3)
+      INSERT INTO group_transfers (user_id, name, description, delay_min, delay_max, require_confirmation)
+      VALUES ($1, $2, $3, 1, 3, false)
       RETURNING *
     `, [userId, name.trim(), description?.trim() || null]);
     

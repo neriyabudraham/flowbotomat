@@ -2,6 +2,7 @@ const pool = require('../../config/database');
 const { getSocketManager } = require('../../services/socket/manager.service');
 const botEngine = require('../../services/botEngine.service');
 const groupForwardsTrigger = require('../../services/groupForwards/trigger.service');
+const groupTransfersTrigger = require('../../services/groupTransfers/trigger.service');
 const wahaSession = require('../../services/waha/session.service');
 const { decrypt } = require('../../services/crypto/encrypt.service');
 const { getWahaCredentials } = require('../../services/settings/system.service');
@@ -751,6 +752,42 @@ async function handleIncomingMessage(userId, event) {
     }
   } catch (forwardError) {
     console.error('[Webhook] Group forwards trigger error:', forwardError);
+  }
+  
+  // Check for Group Transfers (bidirectional group-to-group forwarding)
+  // Only for group messages that weren't handled by forwards
+  if (isGroupMessage && !handledByForwards) {
+    try {
+      const transfers = await groupTransfersTrigger.checkForTransferTrigger(userId, groupId, senderPhone);
+      
+      if (transfers.length > 0) {
+        console.log(`[Webhook] Group message triggers ${transfers.length} transfer(s)`);
+        
+        // Process each transfer in parallel
+        for (const transfer of transfers) {
+          // Don't await - let it run in background
+          groupTransfersTrigger.processGroupMessage({
+            userId,
+            transfer,
+            sourceGroupId: groupId,
+            senderPhone,
+            senderName: payload.notifyName || payload.pushName || contactName,
+            messageType: messageData.type,
+            messageContent: messageData.content,
+            mediaUrl: messageData.mediaUrl,
+            mediaBase64: messageData.mediaBase64,
+            mediaMimeType: messageData.mediaMimeType,
+            messageId: payload.id?.id || payload._data?.id?.id
+          }).catch(err => {
+            console.error(`[Webhook] Transfer "${transfer.name}" failed:`, err.message);
+          });
+        }
+        
+        // Don't mark as handled - allow bot engine to still process if needed
+      }
+    } catch (transferError) {
+      console.error('[Webhook] Group transfers trigger error:', transferError);
+    }
   }
   
   // SECOND: Process with bot engine ONLY if not handled by forwards

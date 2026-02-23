@@ -11,9 +11,9 @@ CREATE TABLE IF NOT EXISTS group_transfers (
     trigger_type VARCHAR(50) DEFAULT 'direct', -- 'direct' or 'listen'
     trigger_group_id VARCHAR(255),
     trigger_group_name VARCHAR(255),
-    delay_min INTEGER DEFAULT 3,
-    delay_max INTEGER DEFAULT 10,
-    require_confirmation BOOLEAN DEFAULT true,
+    delay_min INTEGER DEFAULT 1,
+    delay_max INTEGER DEFAULT 3,
+    require_confirmation BOOLEAN DEFAULT false,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
