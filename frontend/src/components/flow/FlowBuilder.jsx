@@ -351,6 +351,7 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
         panOnDrag
         panOnScroll
         selectionKeyCode="Shift"
+        connectionMode="loose"
       >
         <Background color="#94a3b8" gap={20} size={2.5} />
         <Controls 
