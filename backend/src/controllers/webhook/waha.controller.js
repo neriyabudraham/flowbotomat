@@ -1392,6 +1392,119 @@ async function syncStatusBotView(userId, waMessageId, viewerPhone) {
   }
 }
 
+// Track active disconnect monitors to avoid duplicates
+const activeDisconnectMonitors = new Map();
+
+/**
+ * Monitor disconnected session and apply restrictions based on reconnection time
+ */
+async function monitorDisconnectedSession(userId, sessionName, disconnectTime) {
+  const monitorKey = `${userId}_${sessionName}`;
+  
+  // Already monitoring this session
+  if (activeDisconnectMonitors.has(monitorKey)) {
+    console.log(`[SessionMonitor] Already monitoring ${monitorKey}`);
+    return;
+  }
+  
+  activeDisconnectMonitors.set(monitorKey, { startTime: disconnectTime });
+  console.log(`[SessionMonitor] 🔍 Started monitoring session ${sessionName} for user ${userId}`);
+  
+  const CHECK_INTERVAL_MS = 5000; // Check every 5 seconds
+  const SHORT_RESTRICTION_THRESHOLD_MS = 60000; // 1 minute
+  const SHORT_RESTRICTION_DURATION_MS = 30 * 60 * 1000; // 30 minutes
+  const LONG_RESTRICTION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
+  
+  let checkCount = 0;
+  const maxChecks = 15; // Stop after ~75 seconds
+  
+  const checkInterval = setInterval(async () => {
+    checkCount++;
+    const elapsedMs = Date.now() - disconnectTime.getTime();
+    
+    try {
+      // Check current status from DB
+      const result = await pool.query(
+        `SELECT status FROM whatsapp_connections WHERE user_id = $1`,
+        [userId]
+      );
+      
+      const currentStatus = result.rows[0]?.status;
+      console.log(`[SessionMonitor] Check #${checkCount} for ${userId}: status=${currentStatus}, elapsed=${Math.round(elapsedMs/1000)}s`);
+      
+      if (currentStatus === 'connected') {
+        // Reconnected!
+        clearInterval(checkInterval);
+        activeDisconnectMonitors.delete(monitorKey);
+        
+        if (elapsedMs < SHORT_RESTRICTION_THRESHOLD_MS) {
+          // Reconnected within 1 minute - apply 30 minute restriction
+          console.log(`[SessionMonitor] ✅ User ${userId} reconnected within ${Math.round(elapsedMs/1000)}s - applying 30min restriction`);
+          
+          const restrictionEnd = new Date(Date.now() + SHORT_RESTRICTION_DURATION_MS);
+          await pool.query(`
+            UPDATE status_bot_connections 
+            SET short_restriction_until = $1,
+                updated_at = NOW()
+            WHERE user_id = $2
+          `, [restrictionEnd, userId]);
+          
+          // Emit to frontend
+          const socketManager = getSocketManager();
+          socketManager.emitToUser(userId, 'session_restriction', { 
+            type: 'short',
+            reason: 'הסשן נותק וחזר תוך דקה',
+            restrictionEndsAt: restrictionEnd.toISOString(),
+            durationMinutes: 30
+          });
+        } else {
+          // Reconnected after 1 minute - no additional restriction needed
+          console.log(`[SessionMonitor] ✅ User ${userId} reconnected after ${Math.round(elapsedMs/1000)}s - no restriction`);
+        }
+        return;
+      }
+      
+      // Still disconnected after 1 minute - apply 24h restriction
+      if (elapsedMs >= SHORT_RESTRICTION_THRESHOLD_MS) {
+        clearInterval(checkInterval);
+        activeDisconnectMonitors.delete(monitorKey);
+        
+        console.log(`[SessionMonitor] ⚠️ User ${userId} still disconnected after 1 minute - applying 24h restriction`);
+        
+        const restrictionEnd = new Date(Date.now() + LONG_RESTRICTION_DURATION_MS);
+        await pool.query(`
+          UPDATE status_bot_connections 
+          SET restriction_lifted = false,
+              last_connected_at = NOW(),
+              short_restriction_until = NULL,
+              updated_at = NOW()
+          WHERE user_id = $1
+        `, [userId]);
+        
+        // Emit to frontend
+        const socketManager = getSocketManager();
+        socketManager.emitToUser(userId, 'session_restriction', { 
+          type: 'full',
+          reason: 'הסשן נותק ולא חזר תוך דקה',
+          restrictionEndsAt: restrictionEnd.toISOString(),
+          durationHours: 24
+        });
+        return;
+      }
+      
+      // Stop after max checks
+      if (checkCount >= maxChecks) {
+        clearInterval(checkInterval);
+        activeDisconnectMonitors.delete(monitorKey);
+        console.log(`[SessionMonitor] Stopped monitoring ${userId} after ${maxChecks} checks`);
+      }
+      
+    } catch (error) {
+      console.error(`[SessionMonitor] Error checking status for ${userId}:`, error.message);
+    }
+  }, CHECK_INTERVAL_MS);
+}
+
 /**
  * Handle session status changes
  */
@@ -1444,6 +1557,18 @@ async function handleSessionStatus(userId, event) {
   const socketManager = getSocketManager();
   socketManager.emitToUser(userId, 'whatsapp_status', { status: ourStatus });
   socketManager.emitToUser(userId, 'statusbot_status', { status: ourStatus });
+  
+  // Start disconnect monitoring if session disconnected
+  if (ourStatus === 'disconnected' || ourStatus === 'failed') {
+    monitorDisconnectedSession(userId, session || 'main', new Date());
+  } else if (ourStatus === 'connected') {
+    // Clear any active monitor for this session (reconnected via webhook before monitor caught it)
+    const monitorKey = `${userId}_${session || 'main'}`;
+    if (activeDisconnectMonitors.has(monitorKey)) {
+      console.log(`[SessionMonitor] Cleared monitor for ${monitorKey} - reconnected via webhook`);
+      activeDisconnectMonitors.delete(monitorKey);
+    }
+  }
 }
 
 /**
