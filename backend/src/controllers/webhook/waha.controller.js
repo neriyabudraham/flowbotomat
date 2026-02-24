@@ -127,7 +127,13 @@ function extractRealPhone(payload) {
     
     // Only accept @c.us or @s.whatsapp.net (real phone identifiers)
     if (fullId.includes('@c.us') || fullId.includes('@s.whatsapp.net')) {
-      const phone = fullId.split('@')[0];
+      let phone = fullId.split('@')[0];
+      
+      // Handle device suffix like "972584254229:14" - extract just the phone number
+      if (phone.includes(':')) {
+        phone = phone.split(':')[0];
+      }
+      
       if (/^\d+$/.test(phone)) {
         candidates.push(phone);
       }
