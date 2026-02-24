@@ -520,6 +520,8 @@ async function startForwardJob(jobId) {
   const { getWahaCredentials } = require('../../services/settings/system.service');
   const triggerService = require('../../services/groupForwards/trigger.service');
   
+  console.log(`[GroupForwards] startForwardJob called for job ${jobId}`);
+  
   try {
     // Get job with forward details and WhatsApp connection info
     const jobResult = await db.query(`
@@ -532,10 +534,27 @@ async function startForwardJob(jobId) {
       WHERE fj.id = $1
     `, [jobId]);
     
-    console.log(`[GroupForwards] Starting job ${jobId} - type: ${jobResult.rows[0]?.message_type}, media_url: ${jobResult.rows[0]?.media_url?.substring(0, 50)}`);
+    console.log(`[GroupForwards] Starting job ${jobId} - found: ${jobResult.rows.length > 0}, type: ${jobResult.rows[0]?.message_type}, media_url: ${jobResult.rows[0]?.media_url?.substring(0, 50)}`);
     
     if (jobResult.rows.length === 0) {
-      throw new Error('Job not found');
+      // Debug: check why job wasn't found
+      const debugResult = await db.query(`
+        SELECT fj.id, fj.status, gf.id as forward_id, gf.is_active as forward_active,
+          (SELECT COUNT(*) FROM whatsapp_connections WHERE user_id = gf.user_id AND status = 'connected') as connected_count
+        FROM forward_jobs fj
+        LEFT JOIN group_forwards gf ON fj.forward_id = gf.id
+        WHERE fj.id = $1
+      `, [jobId]);
+      
+      if (debugResult.rows.length > 0) {
+        const debug = debugResult.rows[0];
+        console.log(`[GroupForwards] Job ${jobId} debug: forward_id=${debug.forward_id}, forward_active=${debug.forward_active}, connected_count=${debug.connected_count}`);
+        if (debug.connected_count === 0 || debug.connected_count === '0') {
+          throw new Error('No active WhatsApp connection found');
+        }
+        throw new Error(`Job exists but failed join: forward_active=${debug.forward_active}`);
+      }
+      throw new Error('Job not found in database');
     }
     
     const job = jobResult.rows[0];
@@ -584,6 +603,8 @@ async function startForwardJob(jobId) {
     const messages = messagesResult.rows;
     const totalTargets = job.total_targets || messages.length;
     
+    console.log(`[GroupForwards] Job ${jobId}: Found ${messages.length} pending messages, total_targets: ${job.total_targets}`);
+    
     // Initialize counters from DB (important for resume after restart)
     // Count actual sent/failed from message statuses for accuracy
     const actualCounts = await db.query(`
@@ -597,6 +618,17 @@ async function startForwardJob(jobId) {
     
     if (sentCount > 0 || failedCount > 0) {
       console.log(`[GroupForwards] Resuming job ${jobId}: ${sentCount} already sent, ${failedCount} failed, ${messages.length} pending`);
+    }
+    
+    // If no pending messages but we also have no sent messages, something is wrong
+    if (messages.length === 0 && sentCount === 0) {
+      console.log(`[GroupForwards] Job ${jobId}: No messages to send at all - checking forward_job_messages`);
+      const allMsgsResult = await db.query(`SELECT id, status FROM forward_job_messages WHERE job_id = $1`, [jobId]);
+      console.log(`[GroupForwards] Job ${jobId}: Total job messages: ${allMsgsResult.rows.length}, statuses:`, allMsgsResult.rows.map(r => r.status));
+      
+      if (allMsgsResult.rows.length === 0) {
+        throw new Error('No target groups were created for this job');
+      }
     }
     
     const io = getIO();

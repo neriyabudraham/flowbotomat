@@ -305,6 +305,17 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
  * Create a forward job from webhook trigger
  */
 async function createTriggerJob(userId, forward, senderPhone, messageData, payload) {
+  console.log(`[GroupForwards] createTriggerJob called:`, {
+    userId,
+    forwardId: forward.id,
+    forwardName: forward.name,
+    senderPhone,
+    requireConfirmation: forward.require_confirmation,
+    targetCount: forward.target_count,
+    messageType: messageData?.type,
+    payloadId: typeof payload.id === 'string' ? payload.id : payload.id?._serialized
+  });
+  
   try {
     // Determine message type and extract media
     let messageType = messageData.type;
@@ -649,7 +660,7 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
   try {
     // Check for list response (button click)
     if (selectedRowId) {
-      console.log(`[GroupForwards] Processing list response: ${selectedRowId}`);
+      console.log(`[GroupForwards] Processing list response: ${selectedRowId} from ${senderPhone} for user ${userId}`);
       
       // Parse the row ID
       if (selectedRowId.startsWith('fwd_confirm_')) {
@@ -704,6 +715,48 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
  * Handle confirm action
  */
 async function handleConfirm(userId, senderPhone, jobId) {
+  console.log(`[GroupForwards] handleConfirm called - jobId: ${jobId}, userId: ${userId}, senderPhone: ${senderPhone}`);
+  
+  // First check if job exists at all
+  const jobExistsResult = await db.query(`
+    SELECT fj.id, fj.status, fj.user_id, gf.name as forward_name
+    FROM forward_jobs fj
+    LEFT JOIN group_forwards gf ON fj.forward_id = gf.id
+    WHERE fj.id = $1
+  `, [jobId]);
+  
+  if (jobExistsResult.rows.length === 0) {
+    console.log(`[GroupForwards] Job ${jobId} not found in database at all`);
+    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
+    return true;
+  }
+  
+  const existingJob = jobExistsResult.rows[0];
+  console.log(`[GroupForwards] Job ${jobId} found - status: ${existingJob.status}, owner: ${existingJob.user_id}, name: ${existingJob.forward_name}`);
+  
+  // Check if job belongs to user
+  if (existingJob.user_id !== userId) {
+    console.log(`[GroupForwards] Job ${jobId} belongs to user ${existingJob.user_id}, not ${userId}`);
+    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
+    return true;
+  }
+  
+  // Check if job is in pending status
+  if (existingJob.status !== 'pending') {
+    console.log(`[GroupForwards] Job ${jobId} is in status '${existingJob.status}', not 'pending'`);
+    
+    if (existingJob.status === 'sending') {
+      await sendNotificationMessage(userId, senderPhone, '⏳ המשימה כבר בתהליך שליחה.');
+    } else if (existingJob.status === 'completed') {
+      await sendNotificationMessage(userId, senderPhone, '✅ המשימה כבר הושלמה.');
+    } else if (existingJob.status === 'stopped' || existingJob.status === 'cancelled') {
+      await sendNotificationMessage(userId, senderPhone, '❌ המשימה בוטלה.');
+    } else {
+      await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
+    }
+    return true;
+  }
+  
   const jobResult = await db.query(`
     SELECT fj.*, gf.name as forward_name
     FROM forward_jobs fj
@@ -712,6 +765,7 @@ async function handleConfirm(userId, senderPhone, jobId) {
   `, [jobId, userId]);
   
   if (jobResult.rows.length === 0) {
+    console.log(`[GroupForwards] Job ${jobId} passed all checks but final query returned empty (forward might be deleted)`);
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
     return true;
   }
