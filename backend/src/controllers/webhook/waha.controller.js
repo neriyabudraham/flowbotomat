@@ -517,6 +517,10 @@ async function handleIncomingMessage(userId, event) {
   
   // Store LID to phone mapping if we have both
   const senderLid = payload._data?.Info?.SenderAlt || payload._data?.Info?.Sender || payload.from;
+  
+  // Debug: log what we got for senderLid
+  console.log(`[Webhook] 🔎 senderPhone: ${senderPhone}, senderLid: ${senderLid}, from: ${payload.from}`);
+  
   if (senderLid && senderLid.includes('@lid') && senderPhone) {
     const lidOnly = senderLid.split('@')[0];
     await storeLidMapping(userId, lidOnly, senderPhone, senderName);
@@ -526,12 +530,16 @@ async function handleIncomingMessage(userId, event) {
   if (!senderPhone && senderLid && senderLid.includes('@lid')) {
     const lidOnly = senderLid.split('@')[0];
     console.log(`[Webhook] 🔍 No phone found, attempting LID resolution for: ${lidOnly}`);
-    const resolvedPhone = await resolveLidToPhone(userId, lidOnly);
-    if (resolvedPhone) {
-      senderPhone = resolvedPhone;
-      console.log(`[Webhook] ✅ LID resolved to phone: ${senderPhone}`);
-    } else {
-      console.log(`[Webhook] ⚠️ Could not resolve LID to phone - message may not be processed`);
+    try {
+      const resolvedPhone = await resolveLidToPhone(userId, lidOnly);
+      if (resolvedPhone) {
+        senderPhone = resolvedPhone;
+        console.log(`[Webhook] ✅ LID resolved to phone: ${senderPhone}`);
+      } else {
+        console.log(`[Webhook] ⚠️ Could not resolve LID to phone - message may not be processed`);
+      }
+    } catch (lidErr) {
+      console.log(`[Webhook] ❌ LID resolution error: ${lidErr.message}`);
     }
   }
   
