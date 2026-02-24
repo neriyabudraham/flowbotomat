@@ -458,8 +458,17 @@ async function handleIncomingMessage(userId, event) {
     return;
   }
   
-  // Debug log disabled to reduce noise
-  // console.log('[Webhook] Incoming message payload:', JSON.stringify(payload, null, 2));
+  // Debug log - enable temporarily to diagnose linked device issues
+  console.log('[Webhook] 📨 Incoming message:', {
+    from: payload.from,
+    fromMe: payload.fromMe,
+    type: payload.type,
+    chatId: payload.chatId,
+    deviceType: payload._data?.Info?.DeviceType || payload.deviceType || 'unknown',
+    source: payload.source || payload._data?.Info?.Source || 'unknown',
+    participant: payload.participant,
+    id: typeof payload.id === 'string' ? payload.id : payload.id?._serialized || payload.id?.id
+  });
   
   // Handle status updates - skip here, statuses are saved via message.any event only
   if (payload.from === 'status@broadcast') {
