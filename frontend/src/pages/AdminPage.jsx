@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2, Bell, Package, Smartphone
+  Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2, Bell, Package, Smartphone, Globe
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
@@ -20,6 +20,7 @@ import AdminAffiliate from '../components/admin/AdminAffiliate';
 import AdminNotifications from '../components/admin/AdminNotifications';
 import AdminServices from '../components/admin/AdminServices';
 import AdminStatusBot from '../components/admin/AdminStatusBot';
+import AdminSiteConfig from '../components/admin/AdminSiteConfig';
 
 const TABS = [
   { id: 'dashboard', label: 'דשבורד', icon: BarChart3 },
@@ -30,7 +31,8 @@ const TABS = [
   { id: 'affiliate', label: 'תוכנית שותפים', icon: Share2 },
   { id: 'notifications', label: 'התראות', icon: Bell },
   { id: 'templates', label: 'תבניות', icon: Grid },
-  { id: 'settings', label: 'הגדרות', icon: Settings },
+  { id: 'site-config', label: 'הגדרות אתר', icon: Globe },
+  { id: 'settings', label: 'הגדרות מערכת', icon: Settings },
   { id: 'backups', label: 'גיבויים', icon: Database },
   { id: 'logs', label: 'לוגים', icon: Activity },
 ];
@@ -109,6 +111,8 @@ export default function AdminPage() {
         return <AdminNotifications />;
       case 'templates':
         return <AdminTemplates />;
+      case 'site-config':
+        return <AdminSiteConfig />;
       case 'settings':
         return <AdminSettings />;
       case 'backups':

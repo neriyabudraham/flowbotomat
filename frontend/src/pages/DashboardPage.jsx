@@ -6,8 +6,17 @@ import {
   Plus, ArrowUpRight, CheckCircle, Crown, Bell,
   Sparkles, ArrowRight, BarChart3, Calendar, Phone, Star,
   Target, Rocket, Gift, AlertCircle, X, ExternalLink, Lightbulb,
-  Gauge, HardDrive, Code, Forward, Send, Upload
+  Gauge, HardDrive, Code, Forward, Send, Upload, HelpCircle
 } from 'lucide-react';
+
+// Icon mapping for community links
+const COMMUNITY_ICONS = {
+  bell: Bell,
+  help: HelpCircle,
+  users: Users,
+  message: MessageCircle,
+  gift: Gift,
+};
 import useAuthStore from '../store/authStore';
 import useWhatsappStore from '../store/whatsappStore';
 import useStatsStore from '../store/statsStore';
@@ -163,6 +172,10 @@ export default function DashboardPage() {
   const [usage, setUsage] = useState(null);
   const [setupDismissed, setSetupDismissed] = useState(() => localStorage.getItem('setupDismissed') === 'true');
   const [showCompletionMessage, setShowCompletionMessage] = useState(false);
+  const [siteConfig, setSiteConfig] = useState({
+    community: { enabled: true, links: [] },
+    features: { showCommunityLinks: true }
+  });
 
   // Check if user is admin (either directly or viewing as another account)
   const isAdmin = (() => {
@@ -188,6 +201,7 @@ export default function DashboardPage() {
     fetchStatus();
     fetchDashboardStats();
     loadUsage();
+    loadSiteConfig();
     
     // Set greeting based on time
     const hour = new Date().getHours();
@@ -212,6 +226,17 @@ export default function DashboardPage() {
       await api.post('/notifications/check-usage');
     } catch (e) {
       console.error('Failed to load usage:', e);
+    }
+  };
+
+  const loadSiteConfig = async () => {
+    try {
+      const { data } = await api.get('/public/config');
+      if (data.config) {
+        setSiteConfig(data.config);
+      }
+    } catch (e) {
+      console.error('Failed to load site config:', e);
     }
   };
 
@@ -818,6 +843,40 @@ export default function DashboardPage() {
               >
                 צפה בתכניות
               </Link>
+            </div>
+          </div>
+        )}
+
+        {/* Community Links */}
+        {siteConfig.features.showCommunityLinks && siteConfig.community?.links?.length > 0 && (
+          <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl border border-green-200 p-6 mb-8">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
+                  <Users className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900">הצטרפו לקהילה</h3>
+                  <p className="text-sm text-gray-600">קבלו עדכונים, עזרה וטיפים</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {siteConfig.community.links.map((link, i) => {
+                  const IconComponent = COMMUNITY_ICONS[link.icon] || Users;
+                  return (
+                    <a
+                      key={i}
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-500 text-white rounded-xl text-sm font-medium transition-colors"
+                    >
+                      <IconComponent className="w-4 h-4" />
+                      {link.name}
+                    </a>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}

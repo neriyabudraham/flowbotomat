@@ -61,6 +61,10 @@ router.use('/status-bot', statusBotRoutes);
 // Public API (v1)
 router.use('/v1', publicApiRoutes);
 
+// Public site config (no auth required)
+const settingsController = require('../controllers/admin/settings.controller');
+router.get('/public/config', settingsController.getPublicConfig);
+
 // Health check endpoint for deployment monitoring
 router.get('/health', async (req, res) => {
   try {

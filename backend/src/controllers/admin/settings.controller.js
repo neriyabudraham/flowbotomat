@@ -223,11 +223,74 @@ async function getLogs(req, res) {
   }
 }
 
+/**
+ * Get public site config (no auth required)
+ * Returns trial settings, community links, etc.
+ */
+async function getPublicConfig(req, res) {
+  try {
+    // Get site config from system_settings
+    const result = await db.query(
+      "SELECT value FROM system_settings WHERE key = 'site_config'"
+    );
+    
+    // Default config
+    const defaultConfig = {
+      trial: {
+        enabled: false,
+        days: 14,
+        modules: ['bots', 'statusBot'] // which modules have trial
+      },
+      community: {
+        enabled: true,
+        links: [
+          { name: 'קבוצת עדכונים', url: 'https://chat.whatsapp.com/JPHOpCFa8aA9DOMgzPIIL7?mode=gi_t', icon: 'bell' },
+          { name: 'קבוצת עזרה הדדית', url: 'https://chat.whatsapp.com/JPHOpCFa8aA9DOMgzPIIL7?mode=gi_t', icon: 'help' }
+        ]
+      },
+      features: {
+        showTrialBadge: false,
+        showCommunityLinks: true
+      }
+    };
+    
+    if (result.rows.length > 0 && result.rows[0].value) {
+      const savedConfig = typeof result.rows[0].value === 'string' 
+        ? JSON.parse(result.rows[0].value) 
+        : result.rows[0].value;
+      
+      // Merge with defaults
+      res.json({ 
+        config: { 
+          ...defaultConfig, 
+          ...savedConfig,
+          trial: { ...defaultConfig.trial, ...savedConfig.trial },
+          community: { ...defaultConfig.community, ...savedConfig.community },
+          features: { ...defaultConfig.features, ...savedConfig.features }
+        } 
+      });
+    } else {
+      res.json({ config: defaultConfig });
+    }
+  } catch (error) {
+    console.error('[Settings] Get public config error:', error);
+    // Return defaults on error
+    res.json({ 
+      config: {
+        trial: { enabled: false, days: 14, modules: [] },
+        community: { enabled: true, links: [] },
+        features: { showTrialBadge: false, showCommunityLinks: true }
+      }
+    });
+  }
+}
+
 module.exports = { 
   getSettings, 
   updateSetting, 
   getLogs, 
   getStatusBotColors,
   updateStatusBotColors,
-  resetStatusBotColors 
+  resetStatusBotColors,
+  getPublicConfig
 };

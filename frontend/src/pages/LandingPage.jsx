@@ -4,7 +4,8 @@ import {
   Bot, MessageCircle, Zap, Users, Check, ChevronLeft, Play, 
   List, Clock, BarChart3, Shield, Sparkles,
   Globe, Headphones, Workflow, Database, RefreshCw, X,
-  ArrowRight, Star, TrendingUp, Award, Heart
+  ArrowRight, Star, TrendingUp, Award, Heart, Bell, HelpCircle, Gift, 
+  Forward, Share2, Upload, Radio
 } from 'lucide-react';
 import api from '../services/api';
 import {
@@ -179,6 +180,7 @@ function InteractiveFlowDemo() {
       minZoom={0.5}
       maxZoom={1.5}
       className="bg-gradient-to-br from-slate-50 to-blue-50"
+      proOptions={{ hideAttribution: true }}
     >
       <Background color="#cbd5e1" gap={20} size={1} />
       <Controls 
@@ -189,15 +191,32 @@ function InteractiveFlowDemo() {
   );
 }
 
+// Icon mapping for community links
+const COMMUNITY_ICONS = {
+  bell: Bell,
+  help: HelpCircle,
+  users: Users,
+  message: MessageCircle,
+  gift: Gift,
+};
+
 export default function LandingPage() {
   const navigate = useNavigate();
   const [trialDays, setTrialDays] = useState(14);
+  const [siteConfig, setSiteConfig] = useState({
+    trial: { enabled: false, days: 14 },
+    community: { enabled: true, links: [] },
+    features: { showTrialBadge: false, showCommunityLinks: true }
+  });
 
   useEffect(() => {
-    api.get('/subscriptions/plans').then(({ data }) => {
-      const basicPlan = data.plans?.find(p => p.name === 'basic');
-      if (basicPlan?.trial_days) {
-        setTrialDays(basicPlan.trial_days);
+    // Load public config
+    api.get('/public/config').then(({ data }) => {
+      if (data.config) {
+        setSiteConfig(data.config);
+        if (data.config.trial?.days) {
+          setTrialDays(data.config.trial.days);
+        }
       }
     }).catch(() => {});
   }, []);
@@ -218,6 +237,27 @@ export default function LandingPage() {
       bg: 'bg-green-50',
     },
     {
+      icon: Upload,
+      title: 'בוט סטטוסים',
+      desc: 'העלה סטטוסים לוואטסאפ באופן אוטומטי - תמונות, סרטונים וטקסט. תזמן מראש.',
+      color: 'from-pink-500 to-rose-600',
+      bg: 'bg-pink-50',
+    },
+    {
+      icon: Forward,
+      title: 'העברת הודעות בין קבוצות',
+      desc: 'סנכרן הודעות בין קבוצות וואטסאפ עם זיהוי שולחים אוטומטי.',
+      color: 'from-amber-500 to-orange-600',
+      bg: 'bg-amber-50',
+    },
+    {
+      icon: Radio,
+      title: 'שליחת תפוצה',
+      desc: 'שלח הודעות לקבוצות ולרשימות תפוצה עם תזמון ודיוור מותאם אישית.',
+      color: 'from-teal-500 to-cyan-600',
+      bg: 'bg-teal-50',
+    },
+    {
       icon: Users,
       title: 'ניהול אנשי קשר',
       desc: 'CRM מובנה - צפה בכל השיחות, סמן תוויות, וצור פילוחים חכמים.',
@@ -233,8 +273,8 @@ export default function LandingPage() {
     },
     {
       icon: Database,
-      title: 'משתנים ונתונים',
-      desc: 'שמור מידע על לקוחות, צור טפסים דינמיים, ואסוף לידים.',
+      title: 'אינטגרציות חכמות',
+      desc: 'חיבור ל-Google Sheets, Google Contacts, ו-API חיצוניים.',
       color: 'from-cyan-500 to-blue-600',
       bg: 'bg-cyan-50',
     },
@@ -311,13 +351,24 @@ export default function LandingPage() {
         
         <div className="max-w-7xl mx-auto relative z-10">
           <div className="text-center max-w-4xl mx-auto">
-            {/* Badge */}
-            <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 shadow-lg rounded-full text-sm font-medium mb-8">
-              <Sparkles className="w-4 h-4 text-yellow-500" />
-              <span className="text-gray-700">{trialDays} ימי ניסיון חינם</span>
-              <span className="w-1.5 h-1.5 bg-gray-300 rounded-full" />
-              <span className="text-gray-500">ביטול בכל עת</span>
-            </div>
+            {/* Badge - Only show if trial is enabled and showTrialBadge is true */}
+            {siteConfig.features.showTrialBadge && siteConfig.trial.enabled && (
+              <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 shadow-lg rounded-full text-sm font-medium mb-8">
+                <Sparkles className="w-4 h-4 text-yellow-500" />
+                <span className="text-gray-700">{trialDays} ימי ניסיון חינם</span>
+                <span className="w-1.5 h-1.5 bg-gray-300 rounded-full" />
+                <span className="text-gray-500">ביטול בכל עת</span>
+              </div>
+            )}
+            {/* Free account badge when no trial */}
+            {!siteConfig.trial.enabled && (
+              <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 shadow-lg rounded-full text-sm font-medium mb-8">
+                <Gift className="w-4 h-4 text-green-500" />
+                <span className="text-gray-700">התחל חינם</span>
+                <span className="w-1.5 h-1.5 bg-gray-300 rounded-full" />
+                <span className="text-gray-500">ללא כרטיס אשראי</span>
+              </div>
+            )}
             
             {/* Heading */}
             <h1 className="text-5xl lg:text-6xl xl:text-7xl font-extrabold text-gray-900 mb-6 leading-tight">
@@ -550,12 +601,14 @@ export default function LandingPage() {
               to="/signup"
               className="inline-flex items-center justify-center gap-2 px-10 py-5 bg-white text-gray-900 rounded-2xl font-bold text-lg hover:bg-gray-100 transition-all shadow-2xl hover:-translate-y-0.5"
             >
-              התחל {trialDays} ימי ניסיון חינם
+              {siteConfig.trial.enabled ? `התחל ${trialDays} ימי ניסיון חינם` : 'התחל עכשיו בחינם'}
               <ChevronLeft className="w-5 h-5" />
             </Link>
           </div>
           <p className="text-white/60 text-sm mt-6">
-            ביטול בכל עת • תשלום רק אחרי {trialDays} יום
+            {siteConfig.trial.enabled 
+              ? `ביטול בכל עת • תשלום רק אחרי ${trialDays} יום`
+              : 'ללא כרטיס אשראי • שדרג בכל עת'}
           </p>
         </div>
       </section>
@@ -575,6 +628,31 @@ export default function LandingPage() {
               <Link to="/login" className="text-gray-400 hover:text-white transition-colors">התחברות</Link>
             </div>
           </div>
+          
+          {/* Community Links */}
+          {siteConfig.features.showCommunityLinks && siteConfig.community.links.length > 0 && (
+            <div className="py-6 border-b border-gray-800">
+              <p className="text-center text-gray-400 text-sm mb-4">הצטרפו לקהילה שלנו</p>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                {siteConfig.community.links.map((link, i) => {
+                  const IconComponent = COMMUNITY_ICONS[link.icon] || Users;
+                  return (
+                    <a
+                      key={i}
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg text-sm transition-colors"
+                    >
+                      <IconComponent className="w-4 h-4" />
+                      {link.name}
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          
           <div className="pt-8 text-center">
             <p className="text-gray-500 text-sm">
               © 2026 Botomat. כל הזכויות שמורות.
