@@ -469,7 +469,26 @@ async function handleIncomingMessage(userId, event) {
   // Handle outgoing messages (sent from device, not from bot)
   if (payload.fromMe) {
     await handleOutgoingDeviceMessage(userId, payload);
-    return;
+    
+    // Check if any bot wants to respond to self-messages (for testing)
+    // This allows bot owners to test their bots by sending messages from their own device
+    try {
+      const botsWithRespondToSelf = await pool.query(`
+        SELECT b.* FROM bots b
+        WHERE b.user_id = $1 AND b.is_active = true
+        AND b.flow_data::text LIKE '%"respondToSelf":true%'
+      `, [userId]);
+      
+      if (botsWithRespondToSelf.rows.length > 0) {
+        console.log(`[Webhook] 🔄 Processing self-message for ${botsWithRespondToSelf.rows.length} bot(s) with respondToSelf enabled`);
+        // Don't return - continue processing as if it's an incoming message
+      } else {
+        return; // No bots want self-messages, exit normally
+      }
+    } catch (e) {
+      console.log('[Webhook] respondToSelf check failed:', e.message);
+      return;
+    }
   }
   
   // Determine if this is a group message or channel message
@@ -1652,10 +1671,11 @@ async function syncStatusBotReaction(userId, waMessageId, reactorPhone, reaction
     
     const statusId = statusResult.rows[0].id;
     
-    // Insert reaction (allow multiple reactions from same user)
+    // Insert or update reaction (user can only have one reaction per status)
     await pool.query(`
       INSERT INTO status_bot_reactions (status_id, reactor_phone, reaction)
       VALUES ($1, $2, $3)
+      ON CONFLICT (status_id, reactor_phone) DO UPDATE SET reaction = $3, reacted_at = NOW()
     `, [statusId, reactorPhone, reactionText || '❤️']);
     
     // Update reaction count

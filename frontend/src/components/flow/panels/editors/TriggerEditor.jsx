@@ -998,7 +998,19 @@ export default function TriggerEditor({ data, onUpdate }) {
         </div>
       )}
 
-      {/* Global Settings removed - autoMarkSeen no longer shown */}
+      {/* Respond to Self Messages - for testing bots */}
+      <div className="mt-4 p-3 bg-amber-50 border border-amber-100 rounded-lg">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={data.respondToSelf || false}
+            onChange={(e) => onUpdate({ respondToSelf: e.target.checked })}
+            className="w-4 h-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+          />
+          <span className="text-sm text-amber-800 font-medium">הגב גם להודעות שאני שולח</span>
+        </label>
+        <p className="text-xs text-amber-600 mt-1 mr-6">מאפשר לבדוק את הבוט על ידי שליחת הודעות מהמכשיר שלך או ממכשיר מקושר</p>
+      </div>
     </div>
   );
 }
