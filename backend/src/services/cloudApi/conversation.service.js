@@ -2082,9 +2082,18 @@ async function handleIdleState(phone, message, state) {
   let originalCaption = '';
   
   if (message.type === 'text' && message.text?.body) {
+    let textContent = message.text.body;
+    
+    // Limit text statuses to 10 lines
+    const lines = textContent.split('\n');
+    if (lines.length > 10) {
+      textContent = lines.slice(0, 10).join('\n');
+      await cloudApi.sendTextMessage(phone, '⚠️ הטקסט קוצר ל-10 שורות', messageId);
+    }
+    
     statusData = {
       type: 'text',
-      text: message.text.body,
+      text: textContent,
       messageId
     };
   } else if (message.type === 'image' && message.image?.id) {
