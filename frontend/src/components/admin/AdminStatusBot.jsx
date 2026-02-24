@@ -2,14 +2,14 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   Smartphone, RefreshCw, Users, Upload, Eye, Heart,
   Clock, Check, X, AlertCircle, Shield, Wifi, WifiOff,
-  Phone, Search, ChevronDown, Activity, MessageCircle, Loader2,
-  RotateCcw, PhoneCall, XCircle
+  Phone, Search, ChevronDown, ChevronUp, Activity, MessageCircle, Loader2,
+  RotateCcw, PhoneCall, XCircle, AlertTriangle, BarChart3, TrendingUp,
+  Trash2, RotateCw, FileText, Calendar, Zap, Timer, ChevronRight
 } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
 import { io } from 'socket.io-client';
 
-// Helper to translate state names
 function getStateName(state) {
   const stateNames = {
     'idle': 'לא פעיל',
@@ -27,19 +27,38 @@ function getStateName(state) {
   return stateNames[state] || state;
 }
 
+function formatTime(seconds) {
+  if (seconds < 60) return `${seconds} שניות`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')} דקות`;
+  return `${Math.floor(seconds / 3600)}:${Math.floor((seconds % 3600) / 60).toString().padStart(2, '0')} שעות`;
+}
+
+function formatDate(date) {
+  if (!date) return '—';
+  return new Date(date).toLocaleString('he-IL', {
+    day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit'
+  });
+}
+
 export default function AdminStatusBot() {
   const [users, setUsers] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [liftingRestriction, setLiftingRestriction] = useState(null);
+  const [expandedUser, setExpandedUser] = useState(null);
+  const [userDetails, setUserDetails] = useState(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [showErrorsModal, setShowErrorsModal] = useState(null);
+  const [userErrors, setUserErrors] = useState([]);
+  const [loadingErrors, setLoadingErrors] = useState(false);
   
-  // Admin actions state
   const [syncingPhones, setSyncingPhones] = useState(false);
   const [resettingQueue, setResettingQueue] = useState(false);
   const [cancellingItem, setCancellingItem] = useState(null);
+  const [clearingErrors, setClearingErrors] = useState(null);
+  const [retryingErrors, setRetryingErrors] = useState(null);
   
-  // Real-time monitoring state
   const [activeProcesses, setActiveProcesses] = useState({
     activeConversations: [],
     processingUploads: [],
@@ -47,13 +66,15 @@ export default function AdminStatusBot() {
     pendingCount: 0
   });
   const [loadingProcesses, setLoadingProcesses] = useState(true);
+  const [now, setNow] = useState(Date.now());
   const socketRef = useRef(null);
 
   useEffect(() => {
     loadData();
     loadActiveProcesses();
     
-    // Setup socket connection
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    
     const socket = io(import.meta.env.VITE_API_URL?.replace('/api', '') || '', {
       transports: ['websocket', 'polling']
     });
@@ -64,23 +85,15 @@ export default function AdminStatusBot() {
       socket.emit('join_admin');
     });
     
-    // Real-time updates
-    socket.on('statusbot:conversation_update', (data) => {
-      console.log('Conversation update:', data);
+    socket.on('statusbot:conversation_update', () => loadActiveProcesses());
+    socket.on('statusbot:processing_start', () => loadActiveProcesses());
+    socket.on('statusbot:processing_end', () => {
       loadActiveProcesses();
-    });
-    
-    socket.on('statusbot:processing_start', (data) => {
-      console.log('Processing started:', data);
-      loadActiveProcesses();
-    });
-    
-    socket.on('statusbot:processing_end', (data) => {
-      console.log('Processing ended:', data);
-      loadActiveProcesses();
+      loadData();
     });
     
     return () => {
+      clearInterval(timer);
       socket.emit('leave_admin');
       socket.disconnect();
     };
@@ -111,6 +124,45 @@ export default function AdminStatusBot() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadUserDetails = async (connectionId) => {
+    setLoadingDetails(true);
+    try {
+      const res = await api.get(`/status-bot/admin/user/${connectionId}/details`);
+      setUserDetails(res.data);
+    } catch (err) {
+      console.error('Failed to load user details:', err);
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const loadUserErrors = async (connectionId) => {
+    setLoadingErrors(true);
+    try {
+      const res = await api.get(`/status-bot/admin/user/${connectionId}/errors`);
+      setUserErrors(res.data.errors || []);
+    } catch (err) {
+      console.error('Failed to load user errors:', err);
+    } finally {
+      setLoadingErrors(false);
+    }
+  };
+
+  const handleExpandUser = async (userId) => {
+    if (expandedUser === userId) {
+      setExpandedUser(null);
+      setUserDetails(null);
+    } else {
+      setExpandedUser(userId);
+      await loadUserDetails(userId);
+    }
+  };
+
+  const handleShowErrors = async (user) => {
+    setShowErrorsModal(user);
+    await loadUserErrors(user.id);
   };
 
   const handleLiftRestriction = async (connectionId) => {
@@ -165,12 +217,43 @@ export default function AdminStatusBot() {
     setCancellingItem(queueId);
     try {
       await api.post(`/status-bot/admin/cancel-item/${queueId}`);
-      alert('התהליך בוטל');
       loadActiveProcesses();
     } catch (err) {
       alert(err.response?.data?.error || 'שגיאה בביטול');
     } finally {
       setCancellingItem(null);
+    }
+  };
+
+  const handleClearUserErrors = async (connectionId) => {
+    if (!confirm('למחוק את כל השגיאות?')) return;
+    
+    setClearingErrors(connectionId);
+    try {
+      const res = await api.delete(`/status-bot/admin/user/${connectionId}/errors`);
+      alert(res.data.message);
+      setShowErrorsModal(null);
+      loadData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה במחיקה');
+    } finally {
+      setClearingErrors(null);
+    }
+  };
+
+  const handleRetryUserErrors = async (connectionId) => {
+    if (!confirm('להחזיר את כל הנכשלים לתור?')) return;
+    
+    setRetryingErrors(connectionId);
+    try {
+      const res = await api.post(`/status-bot/admin/user/${connectionId}/retry-errors`);
+      alert(res.data.message);
+      setShowErrorsModal(null);
+      loadData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה');
+    } finally {
+      setRetryingErrors(null);
     }
   };
 
@@ -181,14 +264,10 @@ export default function AdminStatusBot() {
     u.phone_number?.includes(search)
   );
 
-  // Check if user is in restriction period (24h or 30min short restriction)
   const getRestrictionInfo = (user) => {
-    // First check short restriction (30 min "system updates")
     if (user.short_restriction_until && new Date(user.short_restriction_until) > new Date()) {
       return { restricted: true, type: 'short', endsAt: new Date(user.short_restriction_until) };
     }
-    
-    // Then check 24h restriction
     if (user.restriction_lifted) return { restricted: false };
     const connectionDate = user.last_connected_at || user.first_connected_at;
     if (!connectionDate) return { restricted: false };
@@ -198,27 +277,23 @@ export default function AdminStatusBot() {
     if (new Date() < restrictionEnd) {
       return { restricted: true, type: 'full', endsAt: restrictionEnd };
     }
-    
     return { restricted: false };
   };
-  
-  const isRestricted = (user) => getRestrictionInfo(user).restricted;
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <Smartphone className="w-6 h-6 text-green-600" />
           <h2 className="text-xl font-bold text-gray-800 dark:text-white">בוט העלאת סטטוסים</h2>
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={handleSyncPhones}
             disabled={syncingPhones}
             className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50"
-            title="סנכרון מספרי טלפון מ-WAHA"
           >
             {syncingPhones ? <Loader2 className="w-4 h-4 animate-spin" /> : <PhoneCall className="w-4 h-4" />}
             סנכרן טלפונים
@@ -228,7 +303,6 @@ export default function AdminStatusBot() {
             onClick={handleResetQueue}
             disabled={resettingQueue}
             className="flex items-center gap-2 px-3 py-2 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 disabled:opacity-50"
-            title="איפוס התור וביטול תהליכים תקועים"
           >
             {resettingQueue ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
             אפס תור
@@ -240,33 +314,15 @@ export default function AdminStatusBot() {
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Main Stats Grid */}
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard
-            icon={Users}
-            label="סה״כ חיבורים"
-            value={stats.connections?.total || 0}
-            color="blue"
-          />
-          <StatCard
-            icon={Wifi}
-            label="מחוברים"
-            value={stats.connections?.connected || 0}
-            color="green"
-          />
-          <StatCard
-            icon={Clock}
-            label="בחסימה"
-            value={stats.connections?.restricted || 0}
-            color="amber"
-          />
-          <StatCard
-            icon={Upload}
-            label="סטטוסים היום"
-            value={stats.statusesToday || 0}
-            color="purple"
-          />
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+          <StatCard icon={Users} label="סה״כ חיבורים" value={stats.connections?.total || 0} color="blue" />
+          <StatCard icon={Wifi} label="מחוברים" value={stats.connections?.connected || 0} color="green" />
+          <StatCard icon={WifiOff} label="מנותקים" value={stats.connections?.disconnected || 0} color="gray" />
+          <StatCard icon={Upload} label="סטטוסים היום" value={stats.statuses?.today || stats.statusesToday || 0} color="purple" />
+          <StatCard icon={Eye} label="צפיות היום" value={stats.statuses?.views_today || 0} color="cyan" />
+          <StatCard icon={Heart} label="לבבות היום" value={stats.statuses?.reactions_today || 0} color="pink" />
         </div>
       )}
 
@@ -277,24 +333,44 @@ export default function AdminStatusBot() {
             <Clock className="w-4 h-4" />
             מצב תור
           </h3>
-          <div className="flex gap-6">
-            <div>
-              <span className="text-2xl font-bold text-blue-600">{stats.queue.pending || 0}</span>
-              <span className="text-sm text-gray-500 mr-1">ממתינים</span>
-            </div>
-            <div>
-              <span className="text-2xl font-bold text-amber-600">{stats.queue.processing || 0}</span>
-              <span className="text-sm text-gray-500 mr-1">בעיבוד</span>
-            </div>
-            <div>
-              <span className="text-2xl font-bold text-red-600">{stats.queue.failed || 0}</span>
-              <span className="text-sm text-gray-500 mr-1">נכשלו</span>
-            </div>
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
+            <QueueStat label="ממתינים" value={stats.queue.pending || 0} color="blue" />
+            <QueueStat label="בעיבוד" value={stats.queue.processing || 0} color="amber" pulse />
+            <QueueStat label="נכשלו" value={stats.queue.failed || 0} color="red" />
+            <QueueStat label="מתוזמנים" value={stats.queue.scheduled || 0} color="indigo" />
+            <QueueStat label="נשלחו היום" value={stats.queue.sent_today || 0} color="green" />
+            <QueueStat label="נכשלו היום" value={stats.queue.failed_today || 0} color="orange" />
+          </div>
+        </div>
+      )}
+
+      {/* Top Users Today */}
+      {stats?.topUsersToday?.length > 0 && (
+        <div className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-xl p-4 border border-purple-200 dark:border-purple-800">
+          <h3 className="font-medium text-gray-800 dark:text-white mb-3 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-purple-600" />
+            הכי פעילים היום
+          </h3>
+          <div className="flex gap-4 overflow-x-auto pb-2">
+            {stats.topUsersToday.map((user, idx) => (
+              <div key={idx} className="flex-shrink-0 bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm min-w-[150px]">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="w-6 h-6 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-sm font-bold">
+                    {idx + 1}
+                  </span>
+                  <span className="font-medium text-gray-800 dark:text-white truncate">
+                    {user.display_name || user.user_name || 'ללא שם'}
+                  </span>
+                </div>
+                <p className="text-2xl font-bold text-purple-600">{user.status_count}</p>
+                <p className="text-xs text-gray-500 truncate">{user.email}</p>
+              </div>
+            ))}
           </div>
         </div>
       )}
       
-      {/* Real-time Active Processes Monitoring */}
+      {/* Real-time Active Processes */}
       <div className="bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 rounded-xl p-4 border border-green-200 dark:border-green-800">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-medium text-gray-800 dark:text-white flex items-center gap-2">
@@ -302,10 +378,7 @@ export default function AdminStatusBot() {
             ניטור בזמן אמת
             <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
           </h3>
-          <button
-            onClick={loadActiveProcesses}
-            className="text-sm text-green-600 hover:text-green-700 flex items-center gap-1"
-          >
+          <button onClick={loadActiveProcesses} className="text-sm text-green-600 hover:text-green-700 flex items-center gap-1">
             <RefreshCw className="w-3 h-3" />
             רענן
           </button>
@@ -327,32 +400,19 @@ export default function AdminStatusBot() {
               {activeProcesses.activeConversations.length === 0 ? (
                 <p className="text-sm text-gray-400 py-2">אין שיחות פעילות כרגע</p>
               ) : (
-                <div className="space-y-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                   {activeProcesses.activeConversations.map((conv, idx) => (
                     <div key={idx} className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border border-gray-100 dark:border-gray-700">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                            <Phone className="w-4 h-4 text-blue-600" />
-                          </div>
-                          <div>
-                            <p className="font-medium text-gray-800 dark:text-white" dir="ltr">
-                              +{conv.phone}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {conv.userName || conv.userEmail || 'משתמש לא ידוע'}
-                            </p>
-                          </div>
+                        <div className="flex items-center gap-2">
+                          <Phone className="w-4 h-4 text-blue-600" />
+                          <span className="font-medium text-gray-800 dark:text-white" dir="ltr">+{conv.phone}</span>
                         </div>
-                        <div className="text-left">
-                          <span className="inline-block px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
-                            {getStateName(conv.state)}
-                          </span>
-                          <p className="text-xs text-gray-400 mt-1">
-                            {new Date(conv.lastMessageAt).toLocaleTimeString('he-IL')}
-                          </p>
-                        </div>
+                        <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">
+                          {getStateName(conv.state)}
+                        </span>
                       </div>
+                      <p className="text-xs text-gray-500 mt-1">{conv.userName || conv.userEmail}</p>
                     </div>
                   ))}
                 </div>
@@ -363,7 +423,7 @@ export default function AdminStatusBot() {
             <div>
               <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-2">
                 <Upload className="w-4 h-4" />
-                העלאות בעיבוד ({activeProcesses.processingUploads.length})
+                העלאות בתהליך ({activeProcesses.processingUploads.length})
               </h4>
               {activeProcesses.processingUploads.length === 0 ? (
                 <p className="text-sm text-gray-400 py-2">אין העלאות בעיבוד כרגע</p>
@@ -371,50 +431,57 @@ export default function AdminStatusBot() {
                 <div className="space-y-2">
                   {activeProcesses.processingUploads.map((upload, idx) => {
                     const startTime = new Date(upload.startedAt);
-                    const processingTime = Math.round((Date.now() - startTime.getTime()) / 1000);
-                    const isStuck = processingTime > 180; // More than 3 minutes
+                    const processingSeconds = Math.round((now - startTime.getTime()) / 1000);
+                    const isStuck = processingSeconds > 600; // 10 minutes
+                    const isWarning = processingSeconds > 180; // 3 minutes
                     
                     return (
-                      <div key={idx} className={`bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border ${isStuck ? 'border-red-300 dark:border-red-700' : 'border-amber-200 dark:border-amber-800'}`}>
+                      <div key={idx} className={`bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border ${
+                        isStuck ? 'border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20' : 
+                        isWarning ? 'border-amber-300 dark:border-amber-700' : 
+                        'border-green-200 dark:border-green-800'
+                      }`}>
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <div className={`w-8 h-8 ${isStuck ? 'bg-red-100' : 'bg-amber-100'} rounded-full flex items-center justify-center`}>
-                              <Loader2 className={`w-4 h-4 ${isStuck ? 'text-red-600' : 'text-amber-600'} animate-spin`} />
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                              isStuck ? 'bg-red-100' : isWarning ? 'bg-amber-100' : 'bg-green-100'
+                            }`}>
+                              <Loader2 className={`w-5 h-5 animate-spin ${
+                                isStuck ? 'text-red-600' : isWarning ? 'text-amber-600' : 'text-green-600'
+                              }`} />
                             </div>
                             <div>
                               <p className="font-medium text-gray-800 dark:text-white">
-                                {upload.statusType === 'text' ? 'טקסט' : 
-                                 upload.statusType === 'image' ? 'תמונה' : 
-                                 upload.statusType === 'video' ? 'סרטון' : 'קול'}
+                                {upload.statusType === 'text' ? '📝 טקסט' : 
+                                 upload.statusType === 'image' ? '🖼️ תמונה' : 
+                                 upload.statusType === 'video' ? '🎬 סרטון' : '🎤 קול'}
                                 {upload.totalParts > 1 && ` (חלק ${upload.partNumber}/${upload.totalParts})`}
                               </p>
-                              <p className="text-xs text-gray-500">
-                                {upload.userName || upload.userEmail || 'משתמש לא ידוע'}
-                                {upload.source === 'whatsapp' && upload.sourcePhone && (
-                                  <span className="mr-1" dir="ltr">• מ-{upload.sourcePhone}</span>
-                                )}
+                              <p className="text-sm text-gray-500">
+                                {upload.userName || upload.userEmail}
+                                {upload.sourcePhone && <span className="mr-1" dir="ltr">• {upload.sourcePhone}</span>}
                               </p>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-3">
                             <div className="text-left">
-                              <span className={`inline-block px-2 py-1 ${isStuck ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'} rounded-full text-xs font-medium ${!isStuck && 'animate-pulse'}`}>
-                                {isStuck ? `תקוע! ${Math.floor(processingTime / 60)}:${(processingTime % 60).toString().padStart(2, '0')}` : 'מעלה...'}
-                              </span>
-                              <p className="text-xs text-gray-400 mt-1">
-                                התחיל: {startTime.toLocaleTimeString('he-IL')}
-                              </p>
+                              <div className={`text-lg font-mono font-bold ${
+                                isStuck ? 'text-red-600' : isWarning ? 'text-amber-600' : 'text-green-600'
+                              }`}>
+                                <Timer className="w-4 h-4 inline mr-1" />
+                                {formatTime(processingSeconds)}
+                              </div>
+                              <p className="text-xs text-gray-400">התחיל: {startTime.toLocaleTimeString('he-IL')}</p>
                             </div>
                             <button
                               onClick={() => handleCancelItem(upload.id)}
                               disabled={cancellingItem === upload.id}
                               className="p-2 text-red-600 hover:bg-red-100 rounded-lg disabled:opacity-50"
-                              title="בטל תהליך"
                             >
                               {cancellingItem === upload.id ? (
                                 <Loader2 className="w-4 h-4 animate-spin" />
                               ) : (
-                                <XCircle className="w-4 h-4" />
+                                <XCircle className="w-5 h-5" />
                               )}
                             </button>
                           </div>
@@ -426,34 +493,26 @@ export default function AdminStatusBot() {
               )}
             </div>
             
-            {/* Summary for restart safety */}
+            {/* Status Summary */}
             <div className={`p-3 rounded-lg ${
               activeProcesses.activeConversations.length === 0 && activeProcesses.processingUploads.length === 0
-                ? 'bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700'
-                : 'bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700'
+                ? 'bg-green-100 dark:bg-green-900/30 border border-green-300'
+                : 'bg-amber-100 dark:bg-amber-900/30 border border-amber-300'
             }`}>
               <p className={`text-sm font-medium ${
                 activeProcesses.activeConversations.length === 0 && activeProcesses.processingUploads.length === 0
-                  ? 'text-green-700 dark:text-green-400'
-                  : 'text-red-700 dark:text-red-400'
+                  ? 'text-green-700' : 'text-amber-700'
               }`}>
                 {activeProcesses.activeConversations.length === 0 && activeProcesses.processingUploads.length === 0 ? (
-                  <>
-                    <Check className="w-4 h-4 inline mr-1" />
-                    בטוח לעשות ריסטארט לשרת
-                  </>
+                  <><Check className="w-4 h-4 inline mr-1" />בטוח לעשות ריסטארט</>
                 ) : (
-                  <>
-                    <AlertCircle className="w-4 h-4 inline mr-1" />
-                    יש תהליכים פעילים! המתן לפני ריסטארט
-                    ({activeProcesses.activeConversations.length} שיחות, {activeProcesses.processingUploads.length} העלאות)
+                  <><AlertCircle className="w-4 h-4 inline mr-1" />
+                    יש {activeProcesses.activeConversations.length} שיחות + {activeProcesses.processingUploads.length} העלאות פעילות
                   </>
                 )}
               </p>
               {activeProcesses.pendingCount > 0 && (
-                <p className="text-xs text-gray-500 mt-1">
-                  {activeProcesses.pendingCount} סטטוסים בתור ממתינים לשליחה
-                </p>
+                <p className="text-xs text-gray-500 mt-1">{activeProcesses.pendingCount} סטטוסים ממתינים בתור</p>
               )}
             </div>
           </div>
@@ -474,120 +533,213 @@ export default function AdminStatusBot() {
 
       {/* Users List */}
       {loading ? (
-        <div className="text-center py-8 text-gray-500">טוען...</div>
+        <div className="text-center py-8 text-gray-500">
+          <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
+          טוען משתמשים...
+        </div>
       ) : filteredUsers.length === 0 ? (
         <div className="text-center py-12 text-gray-500">
           <Smartphone className="w-12 h-12 mx-auto mb-3 opacity-50" />
           <p>אין משתמשים בשירות</p>
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 dark:bg-gray-700/50">
-                <tr>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">משתמש</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">מצב חיבור</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">מספר טלפון</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-500">סטטוסים</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-500">מורשים</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">חסימה</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">פעולות</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                {filteredUsers.map(user => {
-                  const restricted = isRestricted(user);
+        <div className="space-y-2">
+          {filteredUsers.map(user => {
+            const restriction = getRestrictionInfo(user);
+            const isExpanded = expandedUser === user.id;
+            const hasErrors = parseInt(user.failed_count || 0) > 0;
+            
+            return (
+              <div key={user.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                {/* User Row */}
+                <div 
+                  className="p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30"
+                  onClick={() => handleExpandUser(user.id)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      {/* Expand Icon */}
+                      <ChevronRight className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                      
+                      {/* User Info */}
+                      <div>
+                        <p className="font-medium text-gray-800 dark:text-white">{user.user_name || '—'}</p>
+                        <p className="text-sm text-gray-500">{user.email}</p>
+                      </div>
+                      
+                      {/* Connection Status */}
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        user.connection_status === 'connected' ? 'bg-green-100 text-green-700' :
+                        user.connection_status === 'qr_pending' ? 'bg-blue-100 text-blue-700' :
+                        'bg-gray-100 text-gray-600'
+                      }`}>
+                        {user.connection_status === 'connected' ? <><Wifi className="w-3 h-3 inline mr-1" />מחובר</> :
+                         user.connection_status === 'qr_pending' ? 'ממתין ל-QR' : 'מנותק'}
+                      </span>
+                      
+                      {/* Phone */}
+                      {user.phone_number && (
+                        <span className="text-sm text-gray-600 dark:text-gray-400" dir="ltr">+{user.phone_number}</span>
+                      )}
+                    </div>
+                    
+                    {/* Stats Badges */}
+                    <div className="flex items-center gap-3">
+                      <StatBadge icon={Upload} value={user.statuses_today || 0} label="היום" color="purple" />
+                      <StatBadge icon={Clock} value={user.pending_count || 0} label="בתור" color="blue" />
+                      {hasErrors && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleShowErrors(user); }}
+                          className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
+                        >
+                          <AlertTriangle className="w-4 h-4" />
+                          <span>{user.failed_count}</span>
+                        </button>
+                      )}
+                      <StatBadge icon={Users} value={user.authorized_count || 0} label="מורשים" color="green" />
+                      
+                      {restriction.restricted && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleLiftRestriction(user.id); }}
+                          disabled={liftingRestriction === user.id}
+                          className="px-3 py-1 text-sm bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200"
+                        >
+                          {liftingRestriction === user.id ? <Loader2 className="w-4 h-4 animate-spin" /> : 
+                            restriction.type === 'short' ? '30 דק׳' : '24 שעות'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
                   
-                  return (
-                    <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                      <td className="px-4 py-3">
+                  {/* Quick Stats Row */}
+                  <div className="flex items-center gap-6 mt-3 text-sm text-gray-500">
+                    <span>סה״כ: <strong className="text-gray-700 dark:text-gray-300">{user.total_statuses || 0}</strong></span>
+                    <span>צפיות היום: <strong className="text-cyan-600">{user.views_today || 0}</strong></span>
+                    <span>לבבות היום: <strong className="text-pink-600">{user.reactions_today || 0}</strong></span>
+                    <span>תגובות היום: <strong className="text-blue-600">{user.replies_today || 0}</strong></span>
+                    {user.last_status_sent && (
+                      <span>שליחה אחרונה: <strong>{formatDate(user.last_status_sent)}</strong></span>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Expanded Details */}
+                {isExpanded && (
+                  <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900/50">
+                    {loadingDetails ? (
+                      <div className="text-center py-4">
+                        <Loader2 className="w-5 h-5 animate-spin mx-auto" />
+                      </div>
+                    ) : userDetails ? (
+                      <div className="space-y-4">
+                        {/* Recent Queue Items */}
                         <div>
-                          <p className="font-medium text-gray-800 dark:text-white">
-                            {user.user_name || '—'}
-                          </p>
-                          <p className="text-sm text-gray-500">{user.email}</p>
+                          <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2">פריטים בתור</h4>
+                          <div className="space-y-1 max-h-48 overflow-y-auto">
+                            {userDetails.queueItems?.slice(0, 10).map(item => (
+                              <div key={item.id} className={`flex items-center justify-between p-2 rounded text-sm ${
+                                item.queue_status === 'sent' ? 'bg-green-50' :
+                                item.queue_status === 'failed' ? 'bg-red-50' :
+                                item.queue_status === 'processing' ? 'bg-amber-50' :
+                                'bg-white'
+                              }`}>
+                                <div className="flex items-center gap-2">
+                                  <span>{item.status_type === 'text' ? '📝' : item.status_type === 'image' ? '🖼️' : item.status_type === 'video' ? '🎬' : '🎤'}</span>
+                                  <span className={`px-2 py-0.5 rounded text-xs ${
+                                    item.queue_status === 'sent' ? 'bg-green-100 text-green-700' :
+                                    item.queue_status === 'failed' ? 'bg-red-100 text-red-700' :
+                                    item.queue_status === 'processing' ? 'bg-amber-100 text-amber-700' :
+                                    item.queue_status === 'scheduled' ? 'bg-indigo-100 text-indigo-700' :
+                                    'bg-blue-100 text-blue-700'
+                                  }`}>{item.queue_status}</span>
+                                  {item.error_message && <span className="text-red-600 text-xs truncate max-w-[200px]">{item.error_message}</span>}
+                                </div>
+                                <span className="text-gray-400 text-xs">{formatDate(item.created_at)}</span>
+                              </div>
+                            ))}
+                            {(!userDetails.queueItems || userDetails.queueItems.length === 0) && (
+                              <p className="text-gray-400 text-sm">אין פריטים בתור</p>
+                            )}
+                          </div>
                         </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                          user.connection_status === 'connected'
-                            ? 'bg-green-100 text-green-700'
-                            : user.connection_status === 'qr_pending'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-gray-100 text-gray-600'
-                        }`}>
-                          {user.connection_status === 'connected' ? (
-                            <><Wifi className="w-3 h-3" /> מחובר</>
-                          ) : user.connection_status === 'qr_pending' ? (
-                            <><Clock className="w-3 h-3" /> ממתין ל-QR</>
-                          ) : (
-                            <><WifiOff className="w-3 h-3" /> לא מחובר</>
-                          )}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {user.phone_number ? (
-                          <span dir="ltr" className="text-gray-700 dark:text-gray-300">
-                            +{user.phone_number}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="font-medium text-gray-800 dark:text-white">
-                          {user.total_statuses || 0}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="text-gray-600 dark:text-gray-400">
-                          {user.authorized_count || 0}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {(() => {
-                          const info = getRestrictionInfo(user);
-                          if (user.restriction_lifted && !info.restricted) {
-                            return (
-                              <span className="inline-flex items-center gap-1 text-xs text-green-600">
-                                <Shield className="w-3 h-3" />
-                                שוחרר
+                        
+                        {/* Authorized Numbers */}
+                        <div>
+                          <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2">מספרים מורשים ({userDetails.authorizedNumbers?.length || 0})</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {userDetails.authorizedNumbers?.map((num, idx) => (
+                              <span key={idx} className={`px-2 py-1 rounded text-sm ${num.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`} dir="ltr">
+                                +{num.phone_number}
                               </span>
-                            );
-                          } else if (info.restricted) {
-                            return (
-                              <span className="inline-flex items-center gap-1 text-xs text-amber-600">
-                                <AlertCircle className="w-3 h-3" />
-                                {info.type === 'short' ? '30 דק׳' : '24 שעות'}
-                              </span>
-                            );
-                          }
-                          return <span className="text-gray-400 text-xs">—</span>;
-                        })()}
-                      </td>
-                      <td className="px-4 py-3">
-                        {(() => {
-                          const info = getRestrictionInfo(user);
-                          if (info.restricted) {
-                            return (
-                              <button
-                                onClick={() => handleLiftRestriction(user.id)}
-                                disabled={liftingRestriction === user.id}
-                                className="px-3 py-1.5 text-sm bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 disabled:opacity-50"
-                              >
-                                {liftingRestriction === user.id ? 'מסיר...' : 'הסר חסימה'}
-                              </button>
-                            );
-                          }
-                          return null;
-                        })()}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            ))}
+                            {(!userDetails.authorizedNumbers || userDetails.authorizedNumbers.length === 0) && (
+                              <p className="text-gray-400 text-sm">אין מספרים מורשים</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Errors Modal */}
+      {showErrorsModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowErrorsModal(null)}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl max-w-2xl w-full max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <h3 className="font-bold text-lg">שגיאות - {showErrorsModal.user_name || showErrorsModal.email}</h3>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleRetryUserErrors(showErrorsModal.id)}
+                  disabled={retryingErrors === showErrorsModal.id}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 text-sm"
+                >
+                  {retryingErrors === showErrorsModal.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCw className="w-4 h-4" />}
+                  נסה שוב הכל
+                </button>
+                <button
+                  onClick={() => handleClearUserErrors(showErrorsModal.id)}
+                  disabled={clearingErrors === showErrorsModal.id}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 text-sm"
+                >
+                  {clearingErrors === showErrorsModal.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  מחק הכל
+                </button>
+                <button onClick={() => setShowErrorsModal(null)} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="p-4 overflow-y-auto max-h-[60vh]">
+              {loadingErrors ? (
+                <div className="text-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin mx-auto" />
+                </div>
+              ) : userErrors.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">אין שגיאות</p>
+              ) : (
+                <div className="space-y-2">
+                  {userErrors.map(err => (
+                    <div key={err.id} className="bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <span className="font-medium">{err.status_type === 'text' ? '📝 טקסט' : err.status_type === 'image' ? '🖼️ תמונה' : err.status_type === 'video' ? '🎬 סרטון' : '🎤 קול'}</span>
+                          {err.part_number && <span className="text-sm text-gray-500 mr-2">(חלק {err.part_number}/{err.total_parts})</span>}
+                        </div>
+                        <span className="text-xs text-gray-500">{formatDate(err.created_at)}</span>
+                      </div>
+                      <p className="text-red-700 text-sm mt-1">{err.error_message || 'שגיאה לא ידועה'}</p>
+                      {err.source_phone && <p className="text-xs text-gray-500 mt-1" dir="ltr">מ: {err.source_phone}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -601,19 +753,56 @@ function StatCard({ icon: Icon, label, value, color }) {
     green: 'bg-green-100 text-green-600',
     amber: 'bg-amber-100 text-amber-600',
     purple: 'bg-purple-100 text-purple-600',
+    cyan: 'bg-cyan-100 text-cyan-600',
+    pink: 'bg-pink-100 text-pink-600',
+    gray: 'bg-gray-100 text-gray-600',
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-      <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-lg ${colors[color]} flex items-center justify-center`}>
-          <Icon className="w-5 h-5" />
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-3">
+      <div className="flex items-center gap-2">
+        <div className={`w-8 h-8 rounded-lg ${colors[color]} flex items-center justify-center`}>
+          <Icon className="w-4 h-4" />
         </div>
         <div>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
-          <p className="text-sm text-gray-500">{label}</p>
+          <p className="text-xl font-bold text-gray-900 dark:text-white">{value}</p>
+          <p className="text-xs text-gray-500">{label}</p>
         </div>
       </div>
+    </div>
+  );
+}
+
+function QueueStat({ label, value, color, pulse }) {
+  const colors = {
+    blue: 'text-blue-600',
+    amber: 'text-amber-600',
+    red: 'text-red-600',
+    green: 'text-green-600',
+    indigo: 'text-indigo-600',
+    orange: 'text-orange-600',
+  };
+
+  return (
+    <div className="text-center">
+      <span className={`text-2xl font-bold ${colors[color]} ${pulse && value > 0 ? 'animate-pulse' : ''}`}>{value}</span>
+      <p className="text-xs text-gray-500">{label}</p>
+    </div>
+  );
+}
+
+function StatBadge({ icon: Icon, value, label, color }) {
+  const colors = {
+    purple: 'bg-purple-50 text-purple-600',
+    blue: 'bg-blue-50 text-blue-600',
+    green: 'bg-green-50 text-green-600',
+    red: 'bg-red-50 text-red-600',
+  };
+
+  return (
+    <div className={`flex items-center gap-1 px-2 py-1 rounded-lg ${colors[color]}`}>
+      <Icon className="w-3 h-3" />
+      <span className="font-medium text-sm">{value}</span>
     </div>
   );
 }

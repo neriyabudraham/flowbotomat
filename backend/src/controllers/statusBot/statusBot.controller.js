@@ -2078,7 +2078,7 @@ async function getInProgressStatuses(req, res) {
 // ============================================
 
 /**
- * Get all status bot users (admin)
+ * Get all status bot users (admin) - comprehensive stats
  */
 async function adminGetUsers(req, res) {
   try {
@@ -2086,11 +2086,33 @@ async function adminGetUsers(req, res) {
       SELECT 
         sbc.*,
         u.email, u.name as user_name,
+        -- Total statuses ever sent
         (SELECT COUNT(*) FROM status_bot_statuses WHERE connection_id = sbc.id) as total_statuses,
-        (SELECT COUNT(*) FROM status_bot_authorized_numbers WHERE connection_id = sbc.id AND is_active = true) as authorized_count
+        -- Statuses sent today
+        (SELECT COUNT(*) FROM status_bot_statuses WHERE connection_id = sbc.id AND sent_at > NOW() - INTERVAL '24 hours') as statuses_today,
+        -- Authorized numbers
+        (SELECT COUNT(*) FROM status_bot_authorized_numbers WHERE connection_id = sbc.id AND is_active = true) as authorized_count,
+        -- Queue stats
+        (SELECT COUNT(*) FROM status_bot_queue WHERE connection_id = sbc.id AND queue_status = 'pending') as pending_count,
+        (SELECT COUNT(*) FROM status_bot_queue WHERE connection_id = sbc.id AND queue_status = 'processing') as processing_count,
+        (SELECT COUNT(*) FROM status_bot_queue WHERE connection_id = sbc.id AND queue_status = 'failed') as failed_count,
+        (SELECT COUNT(*) FROM status_bot_queue WHERE connection_id = sbc.id AND queue_status = 'scheduled') as scheduled_count,
+        -- Engagement stats (last 24h)
+        (SELECT COALESCE(SUM(view_count), 0) FROM status_bot_statuses WHERE connection_id = sbc.id AND sent_at > NOW() - INTERVAL '24 hours') as views_today,
+        (SELECT COALESCE(SUM(reaction_count), 0) FROM status_bot_statuses WHERE connection_id = sbc.id AND sent_at > NOW() - INTERVAL '24 hours') as reactions_today,
+        (SELECT COALESCE(SUM(reply_count), 0) FROM status_bot_statuses WHERE connection_id = sbc.id AND sent_at > NOW() - INTERVAL '24 hours') as replies_today,
+        -- Last activity
+        (SELECT MAX(sent_at) FROM status_bot_statuses WHERE connection_id = sbc.id) as last_status_sent,
+        -- Error messages (get last 5)
+        (SELECT json_agg(errors ORDER BY created_at DESC) FROM (
+          SELECT id, error_message, status_type, created_at, content 
+          FROM status_bot_queue 
+          WHERE connection_id = sbc.id AND queue_status = 'failed' 
+          ORDER BY created_at DESC LIMIT 5
+        ) errors) as recent_errors
       FROM status_bot_connections sbc
       JOIN users u ON u.id = sbc.user_id
-      ORDER BY sbc.created_at DESC
+      ORDER BY sbc.last_connected_at DESC NULLS LAST, sbc.created_at DESC
     `);
 
     res.json({ users: result.rows });
@@ -2128,39 +2150,83 @@ async function adminLiftRestriction(req, res) {
 }
 
 /**
- * Get status bot stats (admin)
+ * Get status bot stats (admin) - comprehensive global stats
  */
 async function adminGetStats(req, res) {
   try {
     const stats = {};
 
-    // Total connections
+    // Total connections with more details
     const connResult = await db.query(`
       SELECT 
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE connection_status = 'connected') as connected,
+        COUNT(*) FILTER (WHERE connection_status = 'disconnected') as disconnected,
+        COUNT(*) FILTER (WHERE connection_status = 'qr_pending') as qr_pending,
         COUNT(*) FILTER (WHERE restriction_lifted = false AND first_connected_at IS NOT NULL 
-          AND first_connected_at > NOW() - INTERVAL '24 hours') as restricted
+          AND first_connected_at > NOW() - INTERVAL '24 hours') as restricted_24h,
+        COUNT(*) FILTER (WHERE short_restriction_until IS NOT NULL 
+          AND short_restriction_until > NOW()) as restricted_30min
       FROM status_bot_connections
     `);
     stats.connections = connResult.rows[0];
 
-    // Total statuses today
+    // Statuses stats
     const statusResult = await db.query(`
-      SELECT COUNT(*) FROM status_bot_statuses 
-      WHERE sent_at > NOW() - INTERVAL '24 hours'
+      SELECT 
+        COUNT(*) as total_ever,
+        COUNT(*) FILTER (WHERE sent_at > NOW() - INTERVAL '24 hours') as today,
+        COUNT(*) FILTER (WHERE sent_at > NOW() - INTERVAL '1 hour') as last_hour,
+        COALESCE(SUM(view_count) FILTER (WHERE sent_at > NOW() - INTERVAL '24 hours'), 0) as views_today,
+        COALESCE(SUM(reaction_count) FILTER (WHERE sent_at > NOW() - INTERVAL '24 hours'), 0) as reactions_today,
+        COALESCE(SUM(reply_count) FILTER (WHERE sent_at > NOW() - INTERVAL '24 hours'), 0) as replies_today
+      FROM status_bot_statuses
     `);
-    stats.statusesToday = parseInt(statusResult.rows[0].count);
+    stats.statuses = statusResult.rows[0];
+    stats.statusesToday = parseInt(statusResult.rows[0].today); // backward compat
 
-    // Queue status
+    // Queue status with more details
     const queueResult = await db.query(`
       SELECT 
         COUNT(*) FILTER (WHERE queue_status = 'pending') as pending,
         COUNT(*) FILTER (WHERE queue_status = 'processing') as processing,
-        COUNT(*) FILTER (WHERE queue_status = 'failed') as failed
+        COUNT(*) FILTER (WHERE queue_status = 'failed') as failed,
+        COUNT(*) FILTER (WHERE queue_status = 'scheduled') as scheduled,
+        COUNT(*) FILTER (WHERE queue_status = 'sent' AND sent_at > NOW() - INTERVAL '24 hours') as sent_today,
+        COUNT(*) FILTER (WHERE queue_status = 'failed' AND created_at > NOW() - INTERVAL '24 hours') as failed_today
       FROM status_bot_queue
     `);
     stats.queue = queueResult.rows[0];
+
+    // Top users today
+    const topUsersResult = await db.query(`
+      SELECT 
+        sbc.display_name,
+        sbc.phone_number,
+        u.name as user_name,
+        u.email,
+        COUNT(*) as status_count
+      FROM status_bot_statuses sbs
+      JOIN status_bot_connections sbc ON sbc.id = sbs.connection_id
+      JOIN users u ON u.id = sbc.user_id
+      WHERE sbs.sent_at > NOW() - INTERVAL '24 hours'
+      GROUP BY sbc.id, sbc.display_name, sbc.phone_number, u.name, u.email
+      ORDER BY status_count DESC
+      LIMIT 5
+    `);
+    stats.topUsersToday = topUsersResult.rows;
+
+    // Hourly distribution (last 24h)
+    const hourlyResult = await db.query(`
+      SELECT 
+        date_trunc('hour', sent_at) as hour,
+        COUNT(*) as count
+      FROM status_bot_statuses
+      WHERE sent_at > NOW() - INTERVAL '24 hours'
+      GROUP BY date_trunc('hour', sent_at)
+      ORDER BY hour
+    `);
+    stats.hourlyDistribution = hourlyResult.rows;
 
     res.json({ stats });
 
@@ -2340,6 +2406,166 @@ async function adminForceCancelItem(req, res) {
   } catch (error) {
     console.error('[StatusBot Admin] Force cancel item error:', error);
     res.status(500).json({ error: 'שגיאה בביטול הפריט' });
+  }
+}
+
+/**
+ * Admin: Get all errors/failures for a specific connection
+ */
+async function adminGetUserErrors(req, res) {
+  try {
+    const { connectionId } = req.params;
+
+    const result = await db.query(`
+      SELECT 
+        q.id,
+        q.status_type,
+        q.content,
+        q.error_message,
+        q.created_at,
+        q.source,
+        q.source_phone,
+        q.part_number,
+        q.total_parts
+      FROM status_bot_queue q
+      WHERE q.connection_id = $1 AND q.queue_status = 'failed'
+      ORDER BY q.created_at DESC
+      LIMIT 50
+    `, [connectionId]);
+
+    res.json({ errors: result.rows });
+
+  } catch (error) {
+    console.error('[StatusBot Admin] Get user errors:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת שגיאות' });
+  }
+}
+
+/**
+ * Admin: Get detailed stats for a specific connection
+ */
+async function adminGetUserDetails(req, res) {
+  try {
+    const { connectionId } = req.params;
+
+    // Get connection info
+    const connResult = await db.query(`
+      SELECT 
+        sbc.*,
+        u.email, u.name as user_name
+      FROM status_bot_connections sbc
+      JOIN users u ON u.id = sbc.user_id
+      WHERE sbc.id = $1
+    `, [connectionId]);
+
+    if (connResult.rows.length === 0) {
+      return res.status(404).json({ error: 'חיבור לא נמצא' });
+    }
+
+    const connection = connResult.rows[0];
+
+    // Get recent statuses
+    const statusesResult = await db.query(`
+      SELECT 
+        id, status_type, content, sent_at, 
+        view_count, reaction_count, reply_count, waha_message_id
+      FROM status_bot_statuses
+      WHERE connection_id = $1
+      ORDER BY sent_at DESC
+      LIMIT 20
+    `, [connectionId]);
+
+    // Get queue items
+    const queueResult = await db.query(`
+      SELECT 
+        id, status_type, content, queue_status, error_message,
+        created_at, processing_started_at, sent_at, scheduled_for,
+        source, source_phone, part_number, total_parts
+      FROM status_bot_queue
+      WHERE connection_id = $1
+      ORDER BY created_at DESC
+      LIMIT 30
+    `, [connectionId]);
+
+    // Get authorized numbers
+    const numbersResult = await db.query(`
+      SELECT phone_number, name, is_active, created_at
+      FROM status_bot_authorized_numbers
+      WHERE connection_id = $1
+      ORDER BY created_at DESC
+    `, [connectionId]);
+
+    // Get activity log (recent conversations)
+    const activityResult = await db.query(`
+      SELECT phone_number, state, last_message_at
+      FROM cloud_api_conversation_states
+      WHERE connection_id = $1
+      ORDER BY last_message_at DESC
+      LIMIT 10
+    `, [connectionId]);
+
+    res.json({
+      connection,
+      recentStatuses: statusesResult.rows,
+      queueItems: queueResult.rows,
+      authorizedNumbers: numbersResult.rows,
+      recentActivity: activityResult.rows
+    });
+
+  } catch (error) {
+    console.error('[StatusBot Admin] Get user details:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת פרטי משתמש' });
+  }
+}
+
+/**
+ * Admin: Delete all failed items for a user
+ */
+async function adminClearUserErrors(req, res) {
+  try {
+    const { connectionId } = req.params;
+
+    const result = await db.query(`
+      DELETE FROM status_bot_queue 
+      WHERE connection_id = $1 AND queue_status = 'failed'
+      RETURNING id
+    `, [connectionId]);
+
+    res.json({ 
+      success: true, 
+      message: `${result.rowCount} שגיאות נמחקו`,
+      deletedCount: result.rowCount
+    });
+
+  } catch (error) {
+    console.error('[StatusBot Admin] Clear user errors:', error);
+    res.status(500).json({ error: 'שגיאה במחיקת שגיאות' });
+  }
+}
+
+/**
+ * Admin: Retry all failed items for a user
+ */
+async function adminRetryUserErrors(req, res) {
+  try {
+    const { connectionId } = req.params;
+
+    const result = await db.query(`
+      UPDATE status_bot_queue 
+      SET queue_status = 'pending', error_message = NULL
+      WHERE connection_id = $1 AND queue_status = 'failed'
+      RETURNING id
+    `, [connectionId]);
+
+    res.json({ 
+      success: true, 
+      message: `${result.rowCount} פריטים הוחזרו לתור`,
+      retriedCount: result.rowCount
+    });
+
+  } catch (error) {
+    console.error('[StatusBot Admin] Retry user errors:', error);
+    res.status(500).json({ error: 'שגיאה בהחזרה לתור' });
   }
 }
 
@@ -3383,6 +3609,10 @@ module.exports = {
   adminResetQueueLock,
   adminForceCancelItem,
   adminSyncPhoneNumbers,
+  adminGetUserErrors,
+  adminGetUserDetails,
+  adminClearUserErrors,
+  adminRetryUserErrors,
   
   // Queue management
   forceCancelProcessing,

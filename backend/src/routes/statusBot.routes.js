@@ -122,4 +122,10 @@ router.post('/admin/reset-queue', authMiddleware, adminMiddleware, statusBotCont
 router.post('/admin/cancel-item/:queueId', authMiddleware, adminMiddleware, statusBotController.adminForceCancelItem);
 router.post('/admin/sync-phones', authMiddleware, adminMiddleware, statusBotController.adminSyncPhoneNumbers);
 
+// User-specific admin routes
+router.get('/admin/user/:connectionId/errors', authMiddleware, adminMiddleware, statusBotController.adminGetUserErrors);
+router.get('/admin/user/:connectionId/details', authMiddleware, adminMiddleware, statusBotController.adminGetUserDetails);
+router.delete('/admin/user/:connectionId/errors', authMiddleware, adminMiddleware, statusBotController.adminClearUserErrors);
+router.post('/admin/user/:connectionId/retry-errors', authMiddleware, adminMiddleware, statusBotController.adminRetryUserErrors);
+
 module.exports = router;
