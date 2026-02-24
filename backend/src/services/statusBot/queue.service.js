@@ -23,7 +23,7 @@ function emitToAdmin(event, data) {
 
 const QUEUE_INTERVAL = 5000; // Check queue every 5 seconds
 const STATUS_DELAY = 30000; // 30 seconds between statuses
-const STATUS_TIMEOUT = 180000; // 3 minutes timeout per status
+const STATUS_TIMEOUT = 600000; // 10 minutes timeout per status
 
 /**
  * Extract file URL from various content formats
