@@ -52,7 +52,7 @@ async function getUsers(req, res) {
     );
     const total = parseInt(countResult.rows[0].count);
     
-    // Get users with subscription info and referrer
+    // Get users with subscription info, referrer, and feature usage
     const result = await db.query(
       `SELECT u.id, u.email, u.name, u.role, u.plan, u.is_verified, u.is_active, 
               u.language, u.theme, u.created_at, u.last_login_at,
@@ -88,7 +88,16 @@ async function getUsers(req, res) {
               EXISTS(SELECT 1 FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_default = true) as has_payment_method,
               (SELECT pm.card_last_digits FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_default = true LIMIT 1) as card_last_digits,
               wc.status as whatsapp_status,
-              wc.phone_number as whatsapp_phone
+              wc.phone_number as whatsapp_phone,
+              -- Feature usage statistics
+              (SELECT COUNT(*) FROM group_forwards gf WHERE gf.user_id = u.id) as group_forwards_count,
+              (SELECT COUNT(*) FROM forward_jobs fj WHERE fj.user_id = u.id) as forward_jobs_count,
+              (SELECT COUNT(*) FROM group_transfers gt WHERE gt.user_id = u.id) as group_transfers_count,
+              (SELECT COUNT(*) FROM transfer_jobs tj WHERE tj.user_id = u.id) as transfer_jobs_count,
+              (SELECT COUNT(*) FROM broadcast_campaigns bc WHERE bc.user_id = u.id) as broadcast_campaigns_count,
+              (SELECT SUM(bc.total_recipients) FROM broadcast_campaigns bc WHERE bc.user_id = u.id) as broadcast_recipients_total,
+              EXISTS(SELECT 1 FROM user_service_subscriptions uss WHERE uss.user_id = u.id AND uss.status IN ('active', 'trial')) as has_status_bot,
+              (SELECT uss.status FROM user_service_subscriptions uss WHERE uss.user_id = u.id LIMIT 1) as status_bot_status
        FROM users u
        LEFT JOIN user_subscriptions us ON us.user_id = u.id
        LEFT JOIN subscription_plans sp ON sp.id = us.plan_id

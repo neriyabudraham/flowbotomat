@@ -6,6 +6,7 @@ const groupTransfersTrigger = require('../../services/groupTransfers/trigger.ser
 const wahaSession = require('../../services/waha/session.service');
 const { decrypt } = require('../../services/crypto/encrypt.service');
 const { getWahaCredentials } = require('../../services/settings/system.service');
+const { checkContactLimit } = require('../../services/limits.service');
 
 // In-memory cache: callId -> { callerPhone, userId, isVideo, isGroup, timestamp }
 // Used to resolve caller phone for call.rejected/call.accepted events
@@ -1067,6 +1068,18 @@ async function getOrCreateContact(userId, phone, payload) {
       contact.display_name = displayName;
     }
     return contact;
+  }
+  
+  // Check contact limit before creating new contact (groups don't count)
+  if (!isGroup) {
+    try {
+      const limitCheck = await checkContactLimit(userId);
+      if (!limitCheck.allowed) {
+        console.warn(`[Webhook] User ${userId} over contact limit (${limitCheck.used}/${limitCheck.limit}), still creating contact for message processing`);
+      }
+    } catch (err) {
+      console.error('[Webhook] Error checking contact limit:', err.message);
+    }
   }
   
   // Create new contact

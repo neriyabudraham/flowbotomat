@@ -1,4 +1,5 @@
 const pool = require('../../config/database');
+const { checkContactLimit } = require('../../services/limits.service');
 
 /**
  * Toggle bot status for contact
@@ -308,6 +309,25 @@ async function createOrUpdateContact(req, res) {
     let cleanPhone = String(phone).replace(/[^\d]/g, '');
     if (!/^\d{10,15}$/.test(cleanPhone)) {
       return res.status(400).json({ error: 'מספר טלפון לא תקין' });
+    }
+    
+    // Check if contact already exists
+    const existsCheck = await pool.query(
+      'SELECT id FROM contacts WHERE user_id = $1 AND phone = $2',
+      [userId, cleanPhone]
+    );
+    
+    // Only check limit if this is a NEW contact
+    if (existsCheck.rows.length === 0) {
+      const limitCheck = await checkContactLimit(userId);
+      if (!limitCheck.allowed) {
+        return res.status(400).json({ 
+          error: limitCheck.error,
+          code: 'CONTACTS_LIMIT_REACHED',
+          limit: limitCheck.limit,
+          used: limitCheck.used
+        });
+      }
     }
     
     // Insert or update contact

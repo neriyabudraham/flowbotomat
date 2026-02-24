@@ -29,10 +29,28 @@ export default function SignupPage() {
   const [focusedField, setFocusedField] = useState(null);
   const [googleLoading, setGoogleLoading] = useState(false);
   
+  // Site config for trial settings
+  const [siteConfig, setSiteConfig] = useState({
+    trial: { enabled: false, days: 14 },
+    features: { showTrialBadge: false }
+  });
+  
   // Account linking
   const [linkCode, setLinkCode] = useState(null);
   const [linkParentName, setLinkParentName] = useState(null);
   const [linkValidating, setLinkValidating] = useState(false);
+
+  // Load site config on mount
+  useEffect(() => {
+    fetch('/api/public/config')
+      .then(res => res.json())
+      .then(data => {
+        if (data.config) {
+          setSiteConfig(data.config);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Validate link code on mount
   useEffect(() => {
@@ -144,7 +162,7 @@ export default function SignupPage() {
   };
 
   const benefits = [
-    { icon: Sparkles, text: '14 ימי ניסיון חינם', highlight: true },
+    ...(siteConfig.trial.enabled && siteConfig.features.showTrialBadge ? [{ icon: Sparkles, text: `${siteConfig.trial.days} ימי ניסיון חינם`, highlight: true }] : [{ icon: Gift, text: 'חשבון חינמי', highlight: true }]),
     { icon: MessageCircle, text: 'בוטים ללא הגבלה' },
     { icon: Users, text: 'ניהול לקוחות מתקדם' },
     { icon: Shield, text: 'אבטחה ברמה הגבוהה' },
@@ -154,7 +172,7 @@ export default function SignupPage() {
 
   const stats = [
     { value: '5 דק׳', label: 'ליצירת בוט' },
-    { value: '14', label: 'ימי ניסיון' },
+    ...(siteConfig.trial.enabled ? [{ value: String(siteConfig.trial.days), label: 'ימי ניסיון' }] : [{ value: 'חינם', label: 'להתחלה' }]),
     { value: '0', label: 'קוד נדרש' },
   ];
 
@@ -200,10 +218,17 @@ export default function SignupPage() {
 
           {/* Header */}
           <div className="mb-8">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-full mb-4">
-              <Gift className="w-4 h-4 text-emerald-600" />
-              <span className="text-sm font-medium text-emerald-700">14 ימי ניסיון חינם</span>
-            </div>
+            {siteConfig.trial.enabled && siteConfig.features.showTrialBadge ? (
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-full mb-4">
+                <Gift className="w-4 h-4 text-emerald-600" />
+                <span className="text-sm font-medium text-emerald-700">{siteConfig.trial.days} ימי ניסיון חינם</span>
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-full mb-4">
+                <Gift className="w-4 h-4 text-emerald-600" />
+                <span className="text-sm font-medium text-emerald-700">הרשמה חינם</span>
+              </div>
+            )}
             <h1 className="text-3xl font-bold text-gray-900 mb-2">
               צור חשבון חדש 🚀
             </h1>

@@ -689,7 +689,7 @@ export default function DashboardPage() {
             <div className="p-4">
               {activity && activity.length > 0 ? (
                 <div className="space-y-3">
-                  {activity.slice(0, 5).map((contact, i) => (
+                  {activity.slice(0, 7).map((contact, i) => (
                     <Link 
                       key={contact.id || i} 
                       to={`/contacts?chat=${contact.id}`}

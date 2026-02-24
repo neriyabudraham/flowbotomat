@@ -829,7 +829,7 @@ export default function PricingPage() {
                         }
                         {/* Status service link */}
                         <Link 
-                          to="/services/status-bot" 
+                          to="/status-bot" 
                           className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 mt-4 pt-4 border-t border-gray-100"
                         >
                           <ImagePlus className="w-4 h-4" />

@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { 
   Search, ChevronLeft, ChevronRight, Edit, Trash2,
   Check, X, RefreshCw, Eye, CreditCard, Calendar, AlertCircle,
-  ExternalLink, Users, Phone
+  ExternalLink, Users, Phone, BarChart3, Send, ArrowRightLeft, 
+  MessageSquare, Image, Bot
 } from 'lucide-react';
 import api from '../../services/api';
 import useAuthStore from '../../store/authStore';
@@ -1159,10 +1160,10 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
           </h3>
           
           {/* Tabs */}
-          <div className="flex gap-1 mb-4 p-1 bg-gray-100 rounded-xl">
+          <div className="flex gap-1 mb-4 p-1 bg-gray-100 rounded-xl flex-wrap">
             <button
               onClick={() => setActiveTab('subscription')}
-              className={`flex-1 px-3 py-2.5 text-sm rounded-lg transition-colors ${
+              className={`flex-1 min-w-[70px] px-2 py-2.5 text-xs rounded-lg transition-colors ${
                 activeTab === 'subscription' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-600 hover:text-gray-800'
               }`}
             >
@@ -1170,7 +1171,7 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
             </button>
             <button
               onClick={() => setActiveTab('payments')}
-              className={`flex-1 px-3 py-2.5 text-sm rounded-lg transition-colors ${
+              className={`flex-1 min-w-[70px] px-2 py-2.5 text-xs rounded-lg transition-colors ${
                 activeTab === 'payments' ? 'bg-white shadow text-cyan-600 font-medium' : 'text-gray-600 hover:text-gray-800'
               }`}
             >
@@ -1178,7 +1179,7 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
             </button>
             <button
               onClick={() => setActiveTab('discount')}
-              className={`flex-1 px-3 py-2.5 text-sm rounded-lg transition-colors ${
+              className={`flex-1 min-w-[70px] px-2 py-2.5 text-xs rounded-lg transition-colors ${
                 activeTab === 'discount' ? 'bg-white shadow text-green-600 font-medium' : 'text-gray-600 hover:text-gray-800'
               }`}
             >
@@ -1186,7 +1187,7 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
             </button>
             <button
               onClick={() => setActiveTab('referral')}
-              className={`flex-1 px-3 py-2.5 text-sm rounded-lg transition-colors ${
+              className={`flex-1 min-w-[70px] px-2 py-2.5 text-xs rounded-lg transition-colors ${
                 activeTab === 'referral' ? 'bg-white shadow text-purple-600 font-medium' : 'text-gray-600 hover:text-gray-800'
               }`}
             >
@@ -1194,7 +1195,7 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
             </button>
             <button
               onClick={() => setActiveTab('features')}
-              className={`flex-1 px-3 py-2.5 text-sm rounded-lg transition-colors ${
+              className={`flex-1 min-w-[70px] px-2 py-2.5 text-xs rounded-lg transition-colors ${
                 activeTab === 'features' ? 'bg-white shadow text-orange-600 font-medium' : 'text-gray-600 hover:text-gray-800'
               }`}
             >
@@ -1202,11 +1203,19 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
             </button>
             <button
               onClick={() => setActiveTab('services')}
-              className={`flex-1 px-3 py-2.5 text-sm rounded-lg transition-colors ${
-                activeTab === 'services' ? 'bg-white shadow text-green-600 font-medium' : 'text-gray-600 hover:text-gray-800'
+              className={`flex-1 min-w-[70px] px-2 py-2.5 text-xs rounded-lg transition-colors ${
+                activeTab === 'services' ? 'bg-white shadow text-teal-600 font-medium' : 'text-gray-600 hover:text-gray-800'
               }`}
             >
               שירותים
+            </button>
+            <button
+              onClick={() => setActiveTab('stats')}
+              className={`flex-1 min-w-[70px] px-2 py-2.5 text-xs rounded-lg transition-colors ${
+                activeTab === 'stats' ? 'bg-white shadow text-indigo-600 font-medium' : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              סטטיסטיקות
             </button>
           </div>
 
@@ -2075,6 +2084,165 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
             {/* Services Tab - Status Bot and other additional services */}
             {activeTab === 'services' && (
               <ServicesTab userId={user.id} userName={user.name || user.email} />
+            )}
+
+            {/* Statistics Tab - Feature usage stats */}
+            {activeTab === 'stats' && (
+              <div className="space-y-4">
+                <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl">
+                  <p className="text-sm text-indigo-800">
+                    <strong>שימוש בפיצ׳רים</strong>
+                    <br />
+                    <span className="text-xs">סטטיסטיקות על השימוש של המשתמש במודולים השונים</span>
+                  </p>
+                </div>
+
+                {/* Feature Usage Grid */}
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Bots */}
+                  <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Bot className="w-5 h-5 text-purple-600" />
+                      <span className="font-medium text-purple-800">בוטים</span>
+                    </div>
+                    <div className="text-2xl font-bold text-purple-700">{user.bots_count || 0}</div>
+                    <p className="text-xs text-purple-600 mt-1">בוטים פעילים</p>
+                  </div>
+
+                  {/* Contacts */}
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Users className="w-5 h-5 text-blue-600" />
+                      <span className="font-medium text-blue-800">אנשי קשר</span>
+                    </div>
+                    <div className="text-2xl font-bold text-blue-700">{user.contacts_count || 0}</div>
+                    <p className="text-xs text-blue-600 mt-1">אנשי קשר שמורים</p>
+                  </div>
+
+                  {/* Group Forwards */}
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Send className="w-5 h-5 text-green-600" />
+                      <span className="font-medium text-green-800">העברת הודעות</span>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <div className="text-2xl font-bold text-green-700">{user.group_forwards_count || 0}</div>
+                      <span className="text-sm text-green-600">כללי העברה</span>
+                    </div>
+                    <p className="text-xs text-green-600 mt-1">
+                      {user.forward_jobs_count || 0} הרצות בוצעו
+                    </p>
+                    {parseInt(user.group_forwards_count) > 0 && (
+                      <span className="inline-block mt-2 px-2 py-0.5 bg-green-200 text-green-800 rounded-full text-xs">
+                        משתמש פעיל
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Group Transfers */}
+                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl">
+                    <div className="flex items-center gap-2 mb-2">
+                      <ArrowRightLeft className="w-5 h-5 text-orange-600" />
+                      <span className="font-medium text-orange-800">העברה בין קבוצות</span>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <div className="text-2xl font-bold text-orange-700">{user.group_transfers_count || 0}</div>
+                      <span className="text-sm text-orange-600">חבילות</span>
+                    </div>
+                    <p className="text-xs text-orange-600 mt-1">
+                      {user.transfer_jobs_count || 0} העברות בוצעו
+                    </p>
+                    {parseInt(user.group_transfers_count) > 0 && (
+                      <span className="inline-block mt-2 px-2 py-0.5 bg-orange-200 text-orange-800 rounded-full text-xs">
+                        משתמש פעיל
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Broadcasts */}
+                  <div className="p-4 bg-cyan-50 border border-cyan-200 rounded-xl">
+                    <div className="flex items-center gap-2 mb-2">
+                      <MessageSquare className="w-5 h-5 text-cyan-600" />
+                      <span className="font-medium text-cyan-800">הודעות תפוצה</span>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <div className="text-2xl font-bold text-cyan-700">{user.broadcast_campaigns_count || 0}</div>
+                      <span className="text-sm text-cyan-600">קמפיינים</span>
+                    </div>
+                    <p className="text-xs text-cyan-600 mt-1">
+                      {user.broadcast_recipients_total || 0} נמענים בסה״כ
+                    </p>
+                    {parseInt(user.broadcast_campaigns_count) > 0 && (
+                      <span className="inline-block mt-2 px-2 py-0.5 bg-cyan-200 text-cyan-800 rounded-full text-xs">
+                        משתמש פעיל
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Status Bot */}
+                  <div className="p-4 bg-pink-50 border border-pink-200 rounded-xl">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Image className="w-5 h-5 text-pink-600" />
+                      <span className="font-medium text-pink-800">בוט סטטוסים</span>
+                    </div>
+                    {user.has_status_bot ? (
+                      <>
+                        <div className="text-lg font-bold text-green-600 flex items-center gap-1">
+                          <Check className="w-4 h-4" />
+                          פעיל
+                        </div>
+                        <p className="text-xs text-pink-600 mt-1">
+                          סטטוס: {user.status_bot_status === 'active' ? 'פעיל' : 
+                                  user.status_bot_status === 'trial' ? 'ניסיון' : 
+                                  user.status_bot_status || 'לא ידוע'}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-lg font-bold text-gray-400 flex items-center gap-1">
+                          <X className="w-4 h-4" />
+                          לא פעיל
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">לא רשום לשירות</p>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Usage Summary */}
+                <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4" />
+                    סיכום שימוש
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">העברת הודעות לקבוצות:</span>
+                      <span className={parseInt(user.group_forwards_count) > 0 ? 'text-green-600 font-medium' : 'text-gray-400'}>
+                        {parseInt(user.group_forwards_count) > 0 ? 'משתמש' : 'לא משתמש'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">העברה בין קבוצות:</span>
+                      <span className={parseInt(user.group_transfers_count) > 0 ? 'text-green-600 font-medium' : 'text-gray-400'}>
+                        {parseInt(user.group_transfers_count) > 0 ? 'משתמש' : 'לא משתמש'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">הודעות תפוצה:</span>
+                      <span className={parseInt(user.broadcast_campaigns_count) > 0 ? 'text-green-600 font-medium' : 'text-gray-400'}>
+                        {parseInt(user.broadcast_campaigns_count) > 0 ? 'משתמש' : 'לא משתמש'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">בוט סטטוסים:</span>
+                      <span className={user.has_status_bot ? 'text-green-600 font-medium' : 'text-gray-400'}>
+                        {user.has_status_bot ? 'רשום' : 'לא רשום'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             )}
 
             {/* Save Button - Always visible */}

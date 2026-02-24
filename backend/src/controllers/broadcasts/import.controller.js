@@ -3,6 +3,7 @@ const multer = require('multer');
 const XLSX = require('xlsx');
 const path = require('path');
 const fs = require('fs');
+const { checkContactLimit } = require('../../services/limits.service');
 
 // Configure multer for file upload
 const storage = multer.diskStorage({
@@ -152,11 +153,29 @@ async function executeImport(req, res) {
     
     console.log(`[Import] Starting import: ${rows.length} rows, country code: ${default_country_code}, mapping:`, mapping);
     
+    // Check contact limit before starting
+    const limitCheck = await checkContactLimit(userId);
+    let remainingSlots = limitCheck.limit === -1 ? Infinity : (limitCheck.limit - limitCheck.used);
+    
+    console.log(`[Import] User ${userId} contact limit: ${limitCheck.limit}, used: ${limitCheck.used}, remaining: ${remainingSlots}`);
+    
+    if (remainingSlots <= 0) {
+      // Cleanup file before returning error
+      try { fs.unlinkSync(file_path); } catch {}
+      return res.status(400).json({ 
+        error: `הגעת למגבלת אנשי הקשר (${limitCheck.limit}). שדרג את החבילה שלך להוספת אנשי קשר נוספים.`,
+        code: 'CONTACTS_LIMIT_REACHED',
+        limit: limitCheck.limit,
+        used: limitCheck.used
+      });
+    }
+    
     let imported = 0;
     let updated = 0;
     let errors = [];
     let importedContacts = [];
     let updatedContacts = [];
+    let skippedDueToLimit = 0;
     
     // Get column indices
     const phoneColIndex = headers.indexOf(phoneColumn);
@@ -202,6 +221,24 @@ async function executeImport(req, res) {
         // Get name if mapped
         let displayName = nameColIndex >= 0 ? String(row[nameColIndex] || '').trim() || null : null;
         
+        // Check if contact already exists
+        const existsCheck = await db.query(
+          'SELECT id FROM contacts WHERE user_id = $1 AND phone = $2',
+          [userId, phone]
+        );
+        
+        // If contact doesn't exist and we've hit the limit, skip
+        if (existsCheck.rows.length === 0 && remainingSlots <= 0) {
+          skippedDueToLimit++;
+          errors.push({ 
+            row: i + 2, 
+            error: 'הגעת למגבלת אנשי הקשר', 
+            phone: rawPhone,
+            data: rowData
+          });
+          continue;
+        }
+        
         // Insert or update contact in existing contacts table
         const contactResult = await db.query(`
           INSERT INTO contacts (user_id, phone, display_name)
@@ -218,6 +255,7 @@ async function executeImport(req, res) {
         
         if (isNew) {
           imported++;
+          remainingSlots--; // Decrement available slots
           if (importedContacts.length < 100) {
             importedContacts.push({ id: contact.id, phone: contact.phone, name: contact.display_name });
           }
@@ -287,7 +325,7 @@ async function executeImport(req, res) {
       fs.unlinkSync(file_path);
     } catch {}
     
-    console.log(`[Import] Completed: ${imported} new, ${updated} updated, ${errors.length} errors`);
+    console.log(`[Import] Completed: ${imported} new, ${updated} updated, ${errors.length} errors, ${skippedDueToLimit} skipped due to limit`);
     
     res.json({
       success: true,
@@ -295,11 +333,15 @@ async function executeImport(req, res) {
         total: rows.length,
         imported,
         updated,
-        errors: errors.length
+        errors: errors.length,
+        skippedDueToLimit
       },
       importedContacts: importedContacts.slice(0, 50), // First 50 imported
       updatedContacts: updatedContacts.slice(0, 50), // First 50 updated
-      errors: errors // All errors with data for editing
+      errors: errors, // All errors with data for editing
+      limitWarning: skippedDueToLimit > 0 
+        ? `${skippedDueToLimit} אנשי קשר לא יובאו עקב מגבלת אנשי הקשר. שדרג את החבילה שלך להוספת אנשי קשר נוספים.`
+        : null
     });
     
   } catch (error) {
