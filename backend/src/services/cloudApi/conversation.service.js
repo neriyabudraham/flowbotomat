@@ -2248,8 +2248,8 @@ async function processVideoInBackground(phone, statusId, videoUrl, originalCapti
           title: 'חשבונות',
           rows: authorizedConnections.map(conn => ({
             id: `acc_${conn.connection_id}_${statusId}`,
-            title: conn.display_name || conn.user_name || conn.connection_phone,
-            description: conn.user_email
+            title: (conn.display_name || conn.user_name || conn.connection_phone || '').substring(0, 24),
+            description: (conn.user_email || '').substring(0, 72)
           }))
         }];
         
@@ -2342,8 +2342,8 @@ async function sendStatusMenu(phone, statusId, statusData, authorizedConnections
       title: 'חשבונות',
       rows: statusData.availableAccounts.map(acc => ({
         id: `acc_${acc.id}_${statusId}`,
-        title: acc.name,
-        description: acc.email
+        title: (acc.name || '').substring(0, 24),
+        description: (acc.email || '').substring(0, 72)
       }))
     }];
     
@@ -2473,8 +2473,8 @@ async function handleIdleState_LEGACY(phone, message, state) {
             title: 'חשבונות',
             rows: authorizedConnections.map(conn => ({
               id: `account_${conn.connection_id}`,
-              title: conn.display_name || conn.user_name || conn.connection_phone,
-              description: conn.user_email
+              title: (conn.display_name || conn.user_name || conn.connection_phone || '').substring(0, 24),
+              description: (conn.user_email || '').substring(0, 72)
             }))
           }];
           
@@ -2559,8 +2559,8 @@ async function handleIdleState_LEGACY(phone, message, state) {
       title: 'חשבונות',
       rows: authorizedConnections.map(conn => ({
         id: `account_${conn.connection_id}`,
-        title: conn.display_name || conn.user_name || conn.connection_phone,
-        description: conn.user_email
+        title: (conn.display_name || conn.user_name || conn.connection_phone || '').substring(0, 24),
+        description: (conn.user_email || '').substring(0, 72)
       }))
     }];
     
@@ -3798,8 +3798,8 @@ async function handleStatusesCommand(phone, state) {
         title: 'חשבונות',
         rows: authorizedConnections.map(conn => ({
           id: `statuses_account_${conn.connection_id}`,
-          title: conn.display_name || conn.user_name || conn.connection_phone,
-          description: conn.user_email
+          title: (conn.display_name || conn.user_name || conn.connection_phone || '').substring(0, 24),
+          description: (conn.user_email || '').substring(0, 72)
         }))
       }];
       
