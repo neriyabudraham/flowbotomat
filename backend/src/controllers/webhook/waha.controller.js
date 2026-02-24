@@ -510,16 +510,29 @@ async function handleIncomingMessage(userId, event) {
   // Entry point logging disabled to reduce noise
   
   // Extract sender's phone number and name
-  const senderPhone = extractRealPhone(payload);
+  let senderPhone = extractRealPhone(payload);
   const senderName = payload._data?.Info?.PushName || 
                      payload._data?.Info?.VerifiedName?.Details?.verifiedName ||
                      payload.notifyName || payload.pushName || null;
   
   // Store LID to phone mapping if we have both
-  const senderLid = payload._data?.Info?.SenderAlt || payload._data?.Info?.Sender;
+  const senderLid = payload._data?.Info?.SenderAlt || payload._data?.Info?.Sender || payload.from;
   if (senderLid && senderLid.includes('@lid') && senderPhone) {
     const lidOnly = senderLid.split('@')[0];
     await storeLidMapping(userId, lidOnly, senderPhone, senderName);
+  }
+  
+  // If no phone extracted but we have a LID, try to resolve it
+  if (!senderPhone && senderLid && senderLid.includes('@lid')) {
+    const lidOnly = senderLid.split('@')[0];
+    console.log(`[Webhook] 🔍 No phone found, attempting LID resolution for: ${lidOnly}`);
+    const resolvedPhone = await resolveLidToPhone(userId, lidOnly);
+    if (resolvedPhone) {
+      senderPhone = resolvedPhone;
+      console.log(`[Webhook] ✅ LID resolved to phone: ${senderPhone}`);
+    } else {
+      console.log(`[Webhook] ⚠️ Could not resolve LID to phone - message may not be processed`);
+    }
   }
   
   // For groups, use the group ID as the contact identifier
