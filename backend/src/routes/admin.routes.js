@@ -8,6 +8,7 @@ const usersController = require('../controllers/admin/users.controller');
 const settingsController = require('../controllers/admin/settings.controller');
 const backupsController = require('../controllers/admin/backups.controller');
 const promotionsController = require('../controllers/admin/promotions.controller');
+const billingController = require('../controllers/admin/billing.controller');
 
 // All admin routes require auth + admin role
 router.use(authMiddleware);
@@ -176,6 +177,18 @@ router.get('/notifications/online-users', adminMiddleware, async (req, res) => {
     res.status(500).json({ error: 'שגיאה' });
   }
 });
+
+// Billing management (self-managed billing system)
+router.get('/billing/stats', billingController.getBillingStats);
+router.get('/billing/upcoming', billingController.getUpcomingCharges);
+router.get('/billing/failed', billingController.getFailedCharges);
+router.get('/billing/history', billingController.getPaymentHistory);
+router.get('/billing/charge/:id', billingController.getChargeDetails);
+router.post('/billing/charge/:id', superadminMiddleware, billingController.chargeNow);
+router.post('/billing/retry/:id', superadminMiddleware, billingController.retryCharge);
+router.post('/billing/cancel/:id', superadminMiddleware, billingController.cancelCharge);
+router.post('/billing/schedule', superadminMiddleware, billingController.scheduleManualCharge);
+router.post('/billing/process-queue', superadminMiddleware, billingController.processBillingQueue);
 
 // System update notification - can be called without auth (for deploy script)
 // Uses a secret key for authentication

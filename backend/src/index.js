@@ -9,6 +9,7 @@ const path = require('path');
 const routes = require('./routes');
 const { initSocket } = require('./services/socket/manager.service');
 const { runBillingTasks } = require('./services/payment/billing.service');
+const billingQueueService = require('./services/payment/billingQueue.service');
 
 const app = express();
 const server = http.createServer(app);
@@ -44,6 +45,25 @@ cron.schedule('0 8 * * *', async () => {
 });
 
 console.log('📅 Billing cron job scheduled for 8:00 AM daily');
+
+// Schedule billing queue processing - run daily at 9:00 AM Israel time (self-managed billing)
+cron.schedule('0 9 * * *', async () => {
+  console.log('[Cron] Processing billing queue...');
+  try {
+    const queueResult = await billingQueueService.processQueue();
+    console.log(`[Cron] Billing queue processed: ${queueResult.processed} charges, ${queueResult.successful} successful, ${queueResult.failed} failed`);
+    
+    // Also process failed charge retries
+    const retryResult = await billingQueueService.retryFailedCharges();
+    console.log(`[Cron] Failed charge retries: ${retryResult.retried} retried, ${retryResult.successful} successful`);
+  } catch (err) {
+    console.error('[Cron] Billing queue processing failed:', err.message);
+  }
+}, {
+  timezone: 'Asia/Jerusalem'
+});
+
+console.log('📅 Billing queue processing scheduled for 9:00 AM daily');
 
 // Schedule subscription expiry check - run every hour
 const { handleExpiredSubscriptions, sendTrialExpiryReminders } = require('./services/subscription/expiry.service');

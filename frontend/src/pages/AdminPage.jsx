@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2, Bell, Package, Smartphone, Globe
+  Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2, Bell, Package, Smartphone, Globe, Receipt
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
@@ -21,10 +21,12 @@ import AdminNotifications from '../components/admin/AdminNotifications';
 import AdminServices from '../components/admin/AdminServices';
 import AdminStatusBot from '../components/admin/AdminStatusBot';
 import AdminSiteConfig from '../components/admin/AdminSiteConfig';
+import AdminBilling from '../components/admin/AdminBilling';
 
 const TABS = [
   { id: 'dashboard', label: 'דשבורד', icon: BarChart3 },
   { id: 'users', label: 'משתמשים', icon: Users },
+  { id: 'billing', label: 'חיובים', icon: Receipt },
   { id: 'subscriptions', label: 'תמחור', icon: CreditCard },
   { id: 'services', label: 'שירותים נוספים', icon: Package },
   { id: 'status-bot', label: 'בוט סטטוסים', icon: Smartphone },
@@ -99,6 +101,8 @@ export default function AdminPage() {
         return <AdminDashboard />;
       case 'users':
         return <AdminUsers />;
+      case 'billing':
+        return <AdminBilling />;
       case 'subscriptions':
         return <AdminSubscriptions />;
       case 'services':

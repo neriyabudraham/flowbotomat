@@ -1,5 +1,6 @@
 const db = require('../../config/database');
 const sumitService = require('../../services/payment/sumit.service');
+const billingQueueService = require('../../services/payment/billingQueue.service');
 const { sendNewSubscriptionEmail, sendRenewalEmail, sendCancellationEmail } = require('../../services/subscription/notification.service');
 
 /**
@@ -312,49 +313,34 @@ async function savePaymentMethod(req, res) {
           }
         }
         
-        // Create standing order in Sumit with future start date (trial end)
-        if (chargeAmount > 0 && sumitResult.customerId) {
+        // Schedule charge in billing queue for trial end (self-managed billing)
+        if (chargeAmount > 0) {
           try {
-            console.log(`[Payment] Creating standing order in Sumit for trial - amount: ${chargeAmount}, start: ${trialEndsAt.toISOString()}`);
+            console.log(`[Payment] Scheduling charge in billing queue for trial - amount: ${chargeAmount}, date: ${trialEndsAt.toISOString()}`);
             
-            const standingOrderResult = await sumitService.chargeRecurring({
-              customerId: sumitResult.customerId,
+            await billingQueueService.scheduleCharge({
+              userId,
+              subscriptionId: null, // Will be set after subscription created
               amount: chargeAmount,
+              chargeDate: trialEndsAt.toISOString().split('T')[0],
+              billingType: 'trial_conversion',
+              planId: planId,
               description: `מנוי חודשי - ${planNameHe}`,
-              durationMonths: 1,
-              recurrence: null, // unlimited
-              startDate: trialEndsAt, // First charge at trial end
             });
             
-            if (standingOrderResult.success) {
-              standingOrderId = standingOrderResult.standingOrderId;
-              console.log(`[Payment] ✅ Standing order created: ${standingOrderId}`);
-            } else {
-              console.error(`[Payment] ⚠️ Failed to create standing order: ${standingOrderResult.error}`);
-              // Continue anyway - subscription can still work, just no auto-charge
-              
-              // Notify admin
-              await db.query(`
-                INSERT INTO notifications (
-                  user_id, notification_type, title, message, metadata, is_admin_notification
-                ) VALUES ($1, 'payment_warning', 'הוראת קבע לא נוצרה', $2, $3, true)
-              `, [
-                userId,
-                `לא הצלחנו ליצור הוראת קבע בסומיט עבור משתמש חדש. החיוב בסוף הניסיון עלול לא להתבצע אוטומטית.`,
-                JSON.stringify({ userId, error: standingOrderResult.error })
-              ]);
-            }
-          } catch (soErr) {
-            console.error(`[Payment] Error creating standing order:`, soErr.message);
+            console.log(`[Payment] ✅ Charge scheduled in billing queue for ${trialEndsAt.toISOString().split('T')[0]}`);
+          } catch (queueErr) {
+            console.error(`[Payment] Error scheduling charge in queue:`, queueErr.message);
+            // Continue anyway - we can manually handle this later
           }
         }
         
         await db.query(`
           INSERT INTO user_subscriptions (
             user_id, plan_id, status, is_trial, trial_ends_at, 
-            payment_method_id, next_charge_date, started_at, sumit_customer_id, sumit_standing_order_id,
+            payment_method_id, next_charge_date, started_at, sumit_customer_id,
             trial_used_at
-          ) VALUES ($1, $2, 'trial', true, $3, $4, $3, NOW(), $5, $6, NOW())
+          ) VALUES ($1, $2, 'trial', true, $3, $4, $3, NOW(), $5, NOW())
           ON CONFLICT (user_id) 
           DO UPDATE SET 
             plan_id = COALESCE(user_subscriptions.custom_discount_plan_id, $2), 
@@ -365,13 +351,12 @@ async function savePaymentMethod(req, res) {
             next_charge_date = $3,
             started_at = COALESCE(user_subscriptions.started_at, NOW()),
             sumit_customer_id = $5,
-            sumit_standing_order_id = COALESCE($6, user_subscriptions.sumit_standing_order_id),
             trial_used_at = COALESCE(user_subscriptions.trial_used_at, NOW()),
             updated_at = NOW()
-        `, [userId, planId, trialEndsAt, paymentMethodId, sumitResult.customerId, standingOrderId]);
+        `, [userId, planId, trialEndsAt, paymentMethodId, sumitResult.customerId]);
         
         subscriptionCreated = true;
-        console.log(`[Payment] ✅ Trial subscription created, ends at: ${trialEndsAt.toISOString()}, standing order: ${standingOrderId || 'none'}`);
+        console.log(`[Payment] ✅ Trial subscription created, ends at: ${trialEndsAt.toISOString()}, charge scheduled in billing queue`);
       }
     } else {
       // User already has a subscription, just update the payment method
@@ -412,40 +397,58 @@ async function savePaymentMethod(req, res) {
             const nextChargeDate = new Date();
             nextChargeDate.setMonth(nextChargeDate.getMonth() + 1);
             
-            // Charge IMMEDIATELY - no startDate means charge now
+            // Charge IMMEDIATELY with one-time charge (self-managed billing)
             console.log(`[Payment] Charging immediately: ${chargeAmount} ILS`);
-            const chargeResult = await sumitService.chargeRecurring({
+            const chargeResult = await sumitService.chargeOneTime({
               customerId: sumitResult.customerId,
               amount: chargeAmount,
               description: `מנוי חודשי - ${planData.name_he}`,
-              durationMonths: 1,
-              recurrence: null,
-              // NO startDate = charge immediately
+              sendEmail: true
             });
             
             if (chargeResult.success) {
-              // Update subscription with standing order and reactivate
+              // Update subscription and reactivate
               try {
+                // Get subscription ID first
+                const subIdResult = await db.query(
+                  `SELECT id FROM user_subscriptions WHERE user_id = $1`,
+                  [userId]
+                );
+                const subscriptionId = subIdResult.rows[0]?.id;
+                
                 await db.query(`
                   UPDATE user_subscriptions 
-                  SET sumit_standing_order_id = $1, 
-                      status = 'active',
+                  SET status = 'active',
                       is_trial = false,
                       cancelled_at = NULL,
-                      next_charge_date = $2,
-                      expires_at = $2,
+                      next_charge_date = $1,
+                      expires_at = $1,
                       started_at = NOW(),
                       updated_at = NOW()
-                  WHERE user_id = $3
-                `, [chargeResult.standingOrderId, nextChargeDate, userId]);
+                  WHERE user_id = $2
+                `, [nextChargeDate, userId]);
+                
+                // Schedule next month's charge in billing queue
+                await billingQueueService.scheduleCharge({
+                  userId,
+                  subscriptionId,
+                  amount: chargeAmount,
+                  chargeDate: nextChargeDate.toISOString().split('T')[0],
+                  billingType: 'monthly',
+                  planId: existingSub?.plan_id,
+                  description: `מנוי חודשי - ${planData.name_he}`,
+                });
+                
+                // Log payment
+                await db.query(`
+                  INSERT INTO payment_history (user_id, subscription_id, amount, status, sumit_transaction_id, sumit_document_number, description)
+                  VALUES ($1, $2, $3, 'success', $4, $5, $6)
+                `, [userId, subscriptionId, chargeAmount, chargeResult.transactionId, chargeResult.documentNumber, `מנוי חודשי - ${planData.name_he}`]);
                 
                 subscriptionCreated = true;
-                console.log(`[Payment] ✅ Charged immediately and reactivated subscription with standing order: ${chargeResult.standingOrderId}`);
+                console.log(`[Payment] ✅ Charged immediately and scheduled next charge for ${nextChargeDate.toISOString().split('T')[0]}`);
               } catch (dbErr) {
-                // CRITICAL: Charge succeeded but DB update failed
-                // Log this for manual fix, but tell user the charge worked
                 console.error(`[Payment] CRITICAL: Charge succeeded but DB update failed for user ${userId}:`, dbErr.message);
-                console.error(`[Payment] Standing order ID: ${chargeResult.standingOrderId}, Amount: ${chargeAmount}`);
                 
                 // Notify admin
                 try {
@@ -461,12 +464,10 @@ async function savePaymentMethod(req, res) {
                   console.error('[Payment] Failed to notify admin:', notifyErr.message);
                 }
                 
-                // Still consider it a success for the user - they were charged
                 subscriptionCreated = true;
               }
             } else {
               console.error(`[Payment] Failed to charge for reactivation: ${chargeResult.error}`);
-              // Return error to user - charge actually failed
               return res.status(400).json({
                 error: chargeResult.error || 'החיוב נכשל. אנא בדוק את פרטי האשראי.',
                 code: 'CHARGE_FAILED',
@@ -1075,10 +1076,9 @@ async function subscribe(req, res) {
       });
     }
     
-    // Charge immediately with recurring billing
+    // Charge immediately with one-time charge (self-managed billing)
     let chargeResult;
-    const durationMonths = billingPeriod === 'yearly' && !promotion ? 12 : 1;
-    const periodLabel = billingPeriod === 'yearly' && !promotion ? 'שנתי' : 'חודשי';
+    const periodLabel = billingPeriod === 'yearly' ? 'שנתי' : 'חודשי';
     
     let description = `מנוי ${periodLabel} - ${plan.name_he}`;
     if (promotion) {
@@ -1100,17 +1100,12 @@ async function subscribe(req, res) {
     
     console.log(`[Payment] Charging user ${userId} - Amount: ${actualChargeAmount} ILS, Period: ${billingPeriod}, Promo: ${promotion?.id || 'none'}, Upgrade: ${isUpgrade || false}`);
     
-    // For promotions, we create a recurring charge for the promo price
-    // The expiry service will update the price after promo ends
-    // For upgrades, charge the prorated amount now but set up recurring for full price
-    chargeResult = await sumitService.chargeRecurring({
+    // Charge immediately with one-time charge
+    chargeResult = await sumitService.chargeOneTime({
       customerId: paymentMethod.sumit_customer_id,
       amount: actualChargeAmount,
       description: description,
-      durationMonths: durationMonths,
-      recurrence: null, // unlimited - auto-renew
-      // For upgrades, the full price will be used for future charges
-      futureAmount: isUpgrade ? chargeAmount : undefined,
+      sendEmail: true
     });
     
     if (!chargeResult.success) {
@@ -1149,7 +1144,7 @@ async function subscribe(req, res) {
       });
     }
     
-    console.log(`[Payment] Charge successful - Transaction: ${chargeResult.transactionId}, StandingOrder: ${chargeResult.standingOrderId}`);
+    console.log(`[Payment] Charge successful - Transaction: ${chargeResult.transactionId}`);
     
     // Log successful payment
     try {
@@ -1173,14 +1168,14 @@ async function subscribe(req, res) {
       END $$;
     `);
     
-    // Save subscription with promotion and referral info
+    // Save subscription with promotion and referral info (no standing order - self-managed billing)
     const subResult = await db.query(`
       INSERT INTO user_subscriptions (
         user_id, plan_id, status, payment_method_id, 
-        sumit_customer_id, sumit_standing_order_id, next_charge_date, billing_period, expires_at,
+        sumit_customer_id, next_charge_date, billing_period, expires_at,
         active_promotion_id, promo_months_remaining, promo_price, regular_price_after_promo,
         referral_discount_type, referral_discount_percent, referral_months_remaining, referral_regular_price
-      ) VALUES ($1, $2, 'active', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      ) VALUES ($1, $2, 'active', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       ON CONFLICT (user_id) 
       DO UPDATE SET 
         plan_id = $2, 
@@ -1188,39 +1183,53 @@ async function subscribe(req, res) {
         is_trial = false,
         payment_method_id = $3,
         sumit_customer_id = $4,
-        sumit_standing_order_id = $5,
-        next_charge_date = $6,
-        billing_period = $7,
-        expires_at = $8,
-        active_promotion_id = $9,
-        promo_months_remaining = $10,
-        promo_price = $11,
-        regular_price_after_promo = $12,
-        referral_discount_type = COALESCE($13, user_subscriptions.referral_discount_type),
-        referral_discount_percent = COALESCE($14, user_subscriptions.referral_discount_percent),
+        next_charge_date = $5,
+        billing_period = $6,
+        expires_at = $7,
+        active_promotion_id = $8,
+        promo_months_remaining = $9,
+        promo_price = $10,
+        regular_price_after_promo = $11,
+        referral_discount_type = COALESCE($12, user_subscriptions.referral_discount_type),
+        referral_discount_percent = COALESCE($13, user_subscriptions.referral_discount_percent),
         referral_months_remaining = CASE 
-          WHEN $13 IS NOT NULL THEN $15 
+          WHEN $12 IS NOT NULL THEN $14 
           ELSE GREATEST(0, COALESCE(user_subscriptions.referral_months_remaining, 0) - 1)
         END,
-        referral_regular_price = COALESCE($16, user_subscriptions.referral_regular_price),
+        referral_regular_price = COALESCE($15, user_subscriptions.referral_regular_price),
         updated_at = NOW()
       RETURNING *
     `, [
       userId, planId, paymentMethodId, 
       paymentMethod.sumit_customer_id, 
-      chargeResult.standingOrderId || null,
       nextChargeDate,
       billingPeriod,
       expiresAt,
       promotion?.id || null,
-      promoMonthsRemaining > 0 ? promoMonthsRemaining - 1 : 0, // -1 because first month is charged now
+      promoMonthsRemaining > 0 ? promoMonthsRemaining - 1 : 0,
       promotion ? chargeAmount : null,
       regularPriceAfterPromo,
       referralDiscountType,
       referralDiscountPercent > 0 ? referralDiscountPercent : null,
-      referralMonthsRemaining > 0 ? referralMonthsRemaining - 1 : referralMonthsRemaining, // -1 because first month charged now
+      referralMonthsRemaining > 0 ? referralMonthsRemaining - 1 : referralMonthsRemaining,
       referralRegularPrice
     ]);
+    
+    // Schedule next charge in billing queue
+    const billingType = billingPeriod === 'yearly' ? 'yearly' : 'monthly';
+    const nextAmount = promotion ? chargeAmount : (referralDiscount > 0 ? chargeAmount : originalPrice);
+    
+    await billingQueueService.scheduleCharge({
+      userId,
+      subscriptionId: subResult.rows[0].id,
+      amount: nextAmount,
+      chargeDate: nextChargeDate.toISOString().split('T')[0],
+      billingType,
+      planId,
+      description: `מנוי ${periodLabel} - ${plan.name_he}`,
+    });
+    
+    console.log(`[Payment] Scheduled next ${billingType} charge for ${nextChargeDate.toISOString().split('T')[0]}`);
     
     // Mark user as having paid
     await db.query(
@@ -1348,12 +1357,14 @@ async function cancelSubscription(req, res) {
     
     const subscription = subResult.rows[0];
     
-    // Cancel recurring in Sumit - CRITICAL: Must succeed before marking cancelled in DB
-    let sumitCancelled = false;
-    let sumitError = null;
+    // Cancel any pending charges in the billing queue
+    await billingQueueService.cancelUserCharges(userId);
+    console.log(`[Payment] Cancelled pending charges in billing queue for user ${userId}`);
+    
+    // Also cancel Sumit standing order if exists (for legacy subscriptions)
+    let sumitCancelled = true;
     
     if (subscription.sumit_standing_order_id) {
-      // Get customer ID - might be in subscription or payment method
       let customerId = subscription.sumit_customer_id;
       
       if (!customerId && subscription.payment_method_id) {
@@ -1372,36 +1383,12 @@ async function cancelSubscription(req, res) {
           customerId
         );
         if (!cancelResult.success) {
-          console.error('[Payment] Failed to cancel Sumit recurring:', cancelResult.error);
-          sumitError = cancelResult.error;
-          
-          // Check if it's a credentials/connectivity issue vs actual business error
-          const isRetryableError = cancelResult.error?.includes('credentials') || 
-                                   cancelResult.error?.includes('המשתמש אינו מחובר') ||
-                                   cancelResult.error?.includes('timeout') ||
-                                   cancelResult.error?.includes('connection');
-          
-          if (isRetryableError) {
-            // Don't cancel subscription - Sumit has a temporary issue
-            console.error('[Payment] CRITICAL: Sumit has temporary issue, NOT marking subscription as cancelled');
-            return res.status(503).json({ 
-              error: 'שגיאה זמנית במערכת התשלומים. המנוי לא בוטל. אנא נסה שוב בעוד מספר דקות.',
-              code: 'SUMIT_TEMPORARY_ERROR',
-              retryable: true
-            });
-          }
-          // For other errors (like standing order already cancelled), continue
+          console.error('[Payment] Failed to cancel Sumit recurring (legacy):', cancelResult.error);
+          // Continue anyway - we've cancelled in billing queue
         } else {
           console.log(`[Payment] Successfully cancelled Sumit recurring ${subscription.sumit_standing_order_id}`);
-          sumitCancelled = true;
         }
-      } else {
-        console.error('[Payment] Cannot cancel Sumit - no customer ID found');
-        // Continue anyway - no customer ID means we can't charge anyway
       }
-    } else {
-      // No standing order to cancel
-      sumitCancelled = true;
     }
     
     // Update subscription status - ALSO clear standing order ID since it's cancelled
@@ -1575,41 +1562,42 @@ async function reactivateSubscription(req, res) {
     }
     
     // User already paid until currentEndDate, so schedule first charge for that date
-    // This creates a standing order WITHOUT charging now
     const firstChargeDate = new Date(currentEndDate);
     
     console.log(`[Payment] Reactivating subscription for user ${userId}, period: ${subscription.billing_period}, amount: ${amount}, first charge: ${firstChargeDate.toISOString()}`);
     
-    const chargeResult = await sumitService.chargeRecurring({
-      customerId: paymentMethod.sumit_customer_id,
-      amount: amount,
+    // Get subscription ID for billing queue
+    const subIdResult = await db.query(
+      `SELECT id FROM user_subscriptions WHERE user_id = $1`,
+      [userId]
+    );
+    const subscriptionId = subIdResult.rows[0]?.id;
+    
+    // Schedule charge in billing queue for when current period ends (self-managed billing)
+    const billingType = subscription.billing_period === 'yearly' ? 'yearly' : 'monthly';
+    
+    await billingQueueService.scheduleCharge({
+      userId,
+      subscriptionId,
+      amount,
+      chargeDate: firstChargeDate.toISOString().split('T')[0],
+      billingType,
+      planId: subscription.plan_id,
       description: `מנוי ${periodLabel} - ${subscription.name_he}`,
-      durationMonths: durationMonths,
-      recurrence: null, // unlimited
-      startDate: firstChargeDate, // Schedule first charge for when current period ends
     });
     
-    if (!chargeResult.success) {
-      return res.status(400).json({ 
-        error: chargeResult.error || 'שגיאה בחידוש המנוי'
-      });
-    }
-    
-    const standingOrderId = chargeResult.standingOrderId;
-    console.log(`[Payment] Created new Sumit standing order: ${standingOrderId}, first charge scheduled for: ${firstChargeDate.toISOString()}`);
+    console.log(`[Payment] Scheduled charge in billing queue for: ${firstChargeDate.toISOString().split('T')[0]}`);
     
     // Reactivate subscription - keep existing dates (user already paid until then)
-    // Just update status and standing order ID
     const result = await db.query(`
       UPDATE user_subscriptions 
       SET status = 'active', 
           cancelled_at = NULL,
-          sumit_standing_order_id = $2,
-          payment_method_id = $3,
+          payment_method_id = $2,
           updated_at = NOW()
       WHERE user_id = $1 AND status = 'cancelled'
       RETURNING *
-    `, [userId, standingOrderId, paymentMethod.id]);
+    `, [userId, paymentMethod.id]);
     
     res.json({ 
       success: true, 
@@ -1668,13 +1656,17 @@ async function removeAllPaymentMethods(req, res) {
     if (subResult.rows.length > 0) {
       const subscription = subResult.rows[0];
       
-      // Cancel in Sumit
+      // Cancel pending charges in billing queue
+      await billingQueueService.cancelUserCharges(userId);
+      console.log(`[Payment] Cancelled pending charges in billing queue for user ${userId}`);
+      
+      // Also cancel Sumit standing order if exists (legacy)
       if (subscription.sumit_standing_order_id) {
         try {
           await sumitService.cancelRecurring(subscription.sumit_standing_order_id, subscription.sumit_customer_id);
-          console.log(`[Payment] Cancelled Sumit recurring ${subscription.sumit_standing_order_id}`);
+          console.log(`[Payment] Cancelled Sumit recurring ${subscription.sumit_standing_order_id} (legacy)`);
         } catch (err) {
-          console.error('[Payment] Failed to cancel Sumit recurring:', err.message);
+          console.error('[Payment] Failed to cancel Sumit recurring (legacy):', err.message);
         }
       }
       
@@ -2123,60 +2115,19 @@ async function processEndingPromotions() {
     for (const sub of endingPromos.rows) {
       try {
         const regularPrice = sub.regular_price_after_promo || parseFloat(sub.plan_price);
-        const customerId = sub.payment_sumit_customer_id || sub.sumit_customer_id;
-        
-        if (!customerId) {
-          console.error(`[Promotions] No customer ID for user ${sub.user_id}, skipping`);
-          continue;
-        }
         
         console.log(`[Promotions] Transitioning user ${sub.user_id} from promo to regular price: ${regularPrice} ILS`);
         
-        // Cancel old standing order if exists
-        if (sub.sumit_standing_order_id) {
-          try {
-            await sumitService.cancelRecurring(sub.sumit_standing_order_id, customerId);
-            console.log(`[Promotions] Cancelled old standing order ${sub.sumit_standing_order_id}`);
-          } catch (cancelErr) {
-            console.error(`[Promotions] Failed to cancel old standing order:`, cancelErr.message);
-          }
-        }
-        
-        // Create new standing order with regular price
-        const chargeResult = await sumitService.chargeRecurring({
-          customerId: customerId,
-          amount: regularPrice,
-          description: `מנוי חודשי - ${sub.plan_name}`,
-          durationMonths: 1,
-          recurrence: null, // unlimited
-        });
-        
-        if (!chargeResult.success) {
-          console.error(`[Promotions] Failed to create new standing order for user ${sub.user_id}:`, chargeResult.error);
-          
-          // Notify admin about failed transition
-          await db.query(`
-            INSERT INTO notifications (user_id, notification_type, title, message, metadata, is_admin_notification)
-            VALUES ($1, 'payment_failure', 'שגיאה במעבר ממבצע למחיר רגיל', $2, $3, true)
-          `, [
-            sub.user_id,
-            `המשתמש ${sub.user_id} לא עבר בהצלחה למחיר רגיל לאחר סיום מבצע`,
-            JSON.stringify({ error: chargeResult.error, userId: sub.user_id, planId: sub.plan_id })
-          ]);
-          continue;
-        }
-        
-        // Update subscription with new standing order and clear promo fields
+        // Update subscription to clear promo fields - future charges from billing queue will use regular price
         await db.query(`
           UPDATE user_subscriptions 
-          SET sumit_standing_order_id = $1,
-              active_promotion_id = NULL,
+          SET active_promotion_id = NULL,
               promo_months_remaining = 0,
               promo_price = NULL,
               regular_price_after_promo = NULL,
               updated_at = NOW()
-          WHERE user_id = $2
-        `, [chargeResult.standingOrderId, sub.user_id]);
+          WHERE user_id = $1
+        `, [sub.user_id]);
         
         // Update user_promotions record
         await db.query(`
@@ -2184,6 +2135,13 @@ async function processEndingPromotions() {
           SET status = 'completed', updated_at = NOW()
           WHERE user_id = $1 AND promotion_id = $2 AND status = 'active'
         `, [sub.user_id, sub.active_promotion_id]);
+        
+        // Update any pending charges in billing queue to use regular price
+        await db.query(`
+          UPDATE billing_queue 
+          SET amount = $1, updated_at = NOW()
+          WHERE user_id = $2 AND status = 'pending'
+        `, [regularPrice, sub.user_id]);
         
         // Notify user about the transition
         await db.query(`
@@ -2278,60 +2236,26 @@ async function processEndingReferralDiscounts() {
     for (const sub of endingDiscounts.rows) {
       try {
         const regularPrice = sub.referral_regular_price || parseFloat(sub.plan_price);
-        const customerId = sub.payment_sumit_customer_id || sub.sumit_customer_id;
-        
-        if (!customerId) {
-          console.error(`[Referral] No customer ID for user ${sub.user_id}, skipping`);
-          continue;
-        }
         
         console.log(`[Referral] Transitioning user ${sub.user_id} from referral discount to regular price: ${regularPrice} ILS`);
         
-        // Cancel old standing order if exists
-        if (sub.sumit_standing_order_id) {
-          try {
-            await sumitService.cancelRecurring(sub.sumit_standing_order_id, customerId);
-            console.log(`[Referral] Cancelled old standing order ${sub.sumit_standing_order_id}`);
-          } catch (cancelErr) {
-            console.error(`[Referral] Failed to cancel old standing order:`, cancelErr.message);
-          }
-        }
-        
-        // Create new standing order with regular price
-        const chargeResult = await sumitService.chargeRecurring({
-          customerId: customerId,
-          amount: regularPrice,
-          description: `מנוי חודשי - ${sub.plan_name}`,
-          durationMonths: 1,
-          recurrence: null, // unlimited
-        });
-        
-        if (!chargeResult.success) {
-          console.error(`[Referral] Failed to create new standing order for user ${sub.user_id}:`, chargeResult.error);
-          
-          // Notify admin about failed transition
-          await db.query(`
-            INSERT INTO notifications (user_id, notification_type, title, message, metadata, is_admin_notification)
-            VALUES ($1, 'payment_failure', 'שגיאה במעבר מהנחת חבר למחיר רגיל', $2, $3, true)
-          `, [
-            sub.user_id,
-            `המשתמש ${sub.user_id} לא עבר בהצלחה למחיר רגיל לאחר סיום הנחת חבר`,
-            JSON.stringify({ error: chargeResult.error, userId: sub.user_id, planId: sub.plan_id })
-          ]);
-          continue;
-        }
-        
-        // Update subscription with new standing order and clear referral discount fields
+        // Update subscription to clear referral discount fields - future charges from billing queue will use regular price
         await db.query(`
           UPDATE user_subscriptions 
-          SET sumit_standing_order_id = $1,
-              referral_discount_type = NULL,
+          SET referral_discount_type = NULL,
               referral_discount_percent = NULL,
               referral_months_remaining = 0,
               referral_regular_price = NULL,
               updated_at = NOW()
-          WHERE user_id = $2
-        `, [chargeResult.standingOrderId, sub.user_id]);
+          WHERE user_id = $1
+        `, [sub.user_id]);
+        
+        // Update any pending charges in billing queue to use regular price
+        await db.query(`
+          UPDATE billing_queue 
+          SET amount = $1, updated_at = NOW()
+          WHERE user_id = $2 AND status = 'pending'
+        `, [regularPrice, sub.user_id]);
         
         // Notify user about the transition
         await db.query(`
