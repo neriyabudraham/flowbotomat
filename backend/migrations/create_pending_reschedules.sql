@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS pending_reschedules (
     id SERIAL PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    scheduled_id INTEGER NOT NULL REFERENCES scheduled_forwards(id) ON DELETE CASCADE,
+    scheduled_id UUID NOT NULL REFERENCES scheduled_forwards(id) ON DELETE CASCADE,
     selected_date DATE NOT NULL,
     sender_phone VARCHAR(20) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
