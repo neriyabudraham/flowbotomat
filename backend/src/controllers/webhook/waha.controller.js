@@ -289,7 +289,19 @@ async function handleWebhook(req, res) {
       case 'poll.vote':
         await handlePollVote(userId, event);
         break;
+      case 'event.response':
+        // WAHA sends list/button responses through this event
+        console.log('[Webhook] 📋 event.response received:', JSON.stringify(event, null, 2));
+        // Try to handle it as a message
+        if (event.payload) {
+          await handleIncomingMessage(userId, event);
+        }
+        break;
       default:
+        // Log unknown events to help debug
+        if (event.event && !['presence.update', 'chat.archive', 'message.waiting', 'message.revoked', 'message.edited', 'message.ack.group'].includes(event.event)) {
+          console.log('[Webhook] Unhandled event type:', event.event);
+        }
         break;
     }
     
@@ -479,6 +491,16 @@ async function handleIncomingMessage(userId, event) {
     participant: payload.participant,
     id: typeof payload.id === 'string' ? payload.id : payload.id?._serialized || payload.id?.id
   });
+  
+  // Extra debug for list responses - log full Message structure if present
+  if (payload._data?.Message) {
+    const msgKeys = Object.keys(payload._data.Message);
+    console.log('[Webhook] 📋 Message structure:', msgKeys.join(', '));
+    // If there's any response-like key, log more details
+    if (msgKeys.some(k => k.includes('response') || k.includes('Response') || k.includes('list') || k.includes('List'))) {
+      console.log('[Webhook] 📋 Full Message object:', JSON.stringify(payload._data.Message, null, 2));
+    }
+  }
   
   // Handle status updates - skip here, statuses are saved via message.any event only
   if (payload.from === 'status@broadcast') {
