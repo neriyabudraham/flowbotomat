@@ -65,6 +65,42 @@ function convertIsraelTimeToUTC(israelDateTimeStr) {
 }
 
 /**
+ * Get current date/time in Israel timezone
+ * Returns a Date object with Israel local time values
+ */
+function getNowInIsrael() {
+  const now = new Date();
+  const israelStr = now.toLocaleString('en-US', { 
+    timeZone: 'Asia/Jerusalem',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  
+  // Parse: MM/DD/YYYY, HH:MM:SS
+  const [datePart, timePart] = israelStr.split(', ');
+  const [month, day, year] = datePart.split('/').map(Number);
+  const [hours, minutes, seconds] = timePart.split(':').map(Number);
+  
+  return new Date(year, month - 1, day, hours, minutes, seconds);
+}
+
+/**
+ * Get today's date string in Israel timezone (YYYY-MM-DD format)
+ */
+function getTodayInIsrael() {
+  const israelNow = getNowInIsrael();
+  const year = israelNow.getFullYear();
+  const month = String(israelNow.getMonth() + 1).padStart(2, '0');
+  const day = String(israelNow.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * Get conversation state for a phone number
  */
 async function getState(phone) {
@@ -1155,10 +1191,11 @@ async function handleStatusAction(phone, selectedId) {
       return;
     }
     
-    // Show day selection for rescheduling
+    // Show day selection for rescheduling (use Israel timezone)
     const days = [];
+    const nowIsrael = getNowInIsrael();
     for (let i = 0; i < 8; i++) {
-      const date = new Date();
+      const date = new Date(nowIsrael);
       date.setDate(date.getDate() + i);
       const dayName = DAY_NAMES[date.getDay()];
       const dateStr = `${date.getDate()}/${date.getMonth() + 1}`;
@@ -1197,8 +1234,16 @@ async function handleRescheduleAction(phone, selectedId) {
     const dayOffset = parseInt(parts[2]);
     const statusId = parts.slice(3).join('_');
     
-    const scheduledDate = new Date();
+    // Use Israel timezone for date calculation
+    const nowIsrael = getNowInIsrael();
+    const scheduledDate = new Date(nowIsrael);
     scheduledDate.setDate(scheduledDate.getDate() + dayOffset);
+    
+    // Format date as YYYY-MM-DD
+    const year = scheduledDate.getFullYear();
+    const month = String(scheduledDate.getMonth() + 1).padStart(2, '0');
+    const day = String(scheduledDate.getDate()).padStart(2, '0');
+    const scheduledDateStr = `${year}-${month}-${day}`;
     
     // Store in state and ask for time
     const connections = await checkAuthorization(phone);
@@ -1206,7 +1251,7 @@ async function handleRescheduleAction(phone, selectedId) {
     
     await setState(phone, 'waiting_reschedule_time', { 
       statusId, 
-      scheduledDateStr: scheduledDate.toISOString().split('T')[0],
+      scheduledDateStr,
       dayOffset
     }, null, connectionId);
     
@@ -1688,16 +1733,16 @@ async function handleCustomCaptionInput(phone, text) {
  * Handle schedule start - show day selection
  */
 async function handleScheduleStart(phone, statusId, pendingStatus) {
-  // Generate next 8 days including today
+  // Generate next 8 days including today (use Israel timezone)
   const days = [];
-  const now = new Date();
+  const nowIsrael = getNowInIsrael();
   
   for (let i = 0; i < 8; i++) {
-    const date = new Date(now);
+    const date = new Date(nowIsrael);
     date.setDate(date.getDate() + i);
     
     const dayOfWeek = DAY_NAMES[date.getDay()];
-    const dateStr = date.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' });
+    const dateStr = `${date.getDate()}/${date.getMonth() + 1}`;
     
     let title = `יום ${dayOfWeek} - ${dateStr}`;
     if (i === 0) title = `היום - ${dayOfWeek}`;
@@ -1725,13 +1770,22 @@ async function handleScheduleStart(phone, statusId, pendingStatus) {
  */
 async function handleDaySelection(phone, statusId, pendingStatus, dayOffset) {
   const offset = parseInt(dayOffset);
-  const scheduledDate = new Date();
+  
+  // Use Israel timezone for date calculation
+  const nowIsrael = getNowInIsrael();
+  const scheduledDate = new Date(nowIsrael);
   scheduledDate.setDate(scheduledDate.getDate() + offset);
+  
+  // Format date as YYYY-MM-DD
+  const year = scheduledDate.getFullYear();
+  const month = String(scheduledDate.getMonth() + 1).padStart(2, '0');
+  const day = String(scheduledDate.getDate()).padStart(2, '0');
+  const scheduledDateStr = `${year}-${month}-${day}`;
   
   // Store selected day and set state to wait for time input
   const updates = { 
     scheduledDay: offset,
-    scheduledDateStr: scheduledDate.toISOString().split('T')[0]
+    scheduledDateStr
   };
   await updatePendingStatus(phone, statusId, updates);
   
@@ -2920,8 +2974,9 @@ async function sendDaySelection(phone) {
   const dayLabels = ['היום', 'מחר', 'מחרתיים', 'בעוד 3 ימים', 'בעוד 4 ימים', 'בעוד 5 ימים', 'בעוד 6 ימים', 'בעוד שבוע'];
   
   const rows = [];
+  const nowIsrael = getNowInIsrael();
   for (let i = 0; i < 8; i++) {
-    const date = new Date();
+    const date = new Date(nowIsrael);
     date.setDate(date.getDate() + i);
     const dayName = DAY_NAMES[date.getDay()];
     const dateStr = `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -2960,11 +3015,19 @@ async function handleSelectScheduleDayState(phone, message, state) {
   const daysOffset = parseInt(selectedId.replace('day_', ''));
   const currentStateData = state.state_data || {};
   
-  const selectedDate = new Date();
+  // Use Israel timezone for date calculation
+  const nowIsrael = getNowInIsrael();
+  const selectedDate = new Date(nowIsrael);
   selectedDate.setDate(selectedDate.getDate() + daysOffset);
   
+  // Format date as YYYY-MM-DD
+  const year = selectedDate.getFullYear();
+  const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+  const day = String(selectedDate.getDate()).padStart(2, '0');
+  const scheduledDateStr = `${year}-${month}-${day}`;
+  
   const stateData = {
-    scheduledDate: selectedDate.toISOString().split('T')[0],
+    scheduledDate: scheduledDateStr,
     daysOffset: daysOffset,
     isVideoSplit: currentStateData.isVideoSplit,
     rescheduleId: currentStateData.rescheduleId

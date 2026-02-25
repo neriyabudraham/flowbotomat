@@ -960,6 +960,31 @@ async function handleTextStop(userId, senderPhone, shouldDelete) {
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
 /**
+ * Get current date/time in Israel timezone
+ * Returns a Date object with Israel local time values
+ */
+function getNowInIsrael() {
+  const now = new Date();
+  const israelStr = now.toLocaleString('en-US', { 
+    timeZone: 'Asia/Jerusalem',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  
+  // Parse: MM/DD/YYYY, HH:MM:SS
+  const [datePart, timePart] = israelStr.split(', ');
+  const [month, day, year] = datePart.split('/').map(Number);
+  const [hours, minutes, seconds] = timePart.split(':').map(Number);
+  
+  return new Date(year, month - 1, day, hours, minutes, seconds);
+}
+
+/**
  * Convert Israel time string to UTC Date
  */
 function convertIsraelTimeToUTC(israelDateTimeStr) {
@@ -1051,16 +1076,16 @@ async function handleSchedulePrompt(userId, senderPhone, jobId) {
   const wahaService = require('../waha/session.service');
   
   try {
-    // Generate next 8 days including today (exactly like Status Bot)
+    // Generate next 8 days including today (use Israel timezone)
     const days = [];
-    const now = new Date();
+    const nowIsrael = getNowInIsrael();
     
     for (let i = 0; i < 8; i++) {
-      const date = new Date(now);
+      const date = new Date(nowIsrael);
       date.setDate(date.getDate() + i);
       
       const dayOfWeek = DAY_NAMES[date.getDay()];
-      const dateStr = date.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' });
+      const dateStr = `${date.getDate()}/${date.getMonth() + 1}`;
       
       let title = `יום ${dayOfWeek} - ${dateStr}`;
       if (i === 0) title = `היום - ${dayOfWeek}`;
@@ -1112,11 +1137,17 @@ async function handleDaySelection(userId, senderPhone, jobId, dayOffset) {
   console.log(`[GroupForwards] handleDaySelection - jobId: ${jobId}, dayOffset: ${dayOffset}`);
   
   const offset = parseInt(dayOffset);
-  const scheduledDate = new Date();
+  
+  // Use Israel timezone for date calculation
+  const nowIsrael = getNowInIsrael();
+  const scheduledDate = new Date(nowIsrael);
   scheduledDate.setDate(scheduledDate.getDate() + offset);
   
-  // Store selected day in job metadata
-  const dateStr = scheduledDate.toISOString().split('T')[0];
+  // Format date as YYYY-MM-DD
+  const year = scheduledDate.getFullYear();
+  const month = String(scheduledDate.getMonth() + 1).padStart(2, '0');
+  const day = String(scheduledDate.getDate()).padStart(2, '0');
+  const dateStr = `${year}-${month}-${day}`;
   await db.query(`
     UPDATE forward_jobs SET 
       status = 'pending_schedule_time',
