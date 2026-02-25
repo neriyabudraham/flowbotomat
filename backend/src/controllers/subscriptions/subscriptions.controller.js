@@ -115,12 +115,22 @@ async function getMyUsage(req, res) {
       )
     `, [userId]);
     
-    // Default to free plan limits if no subscription
-    const planLimits = subResult.rows[0] || {
-      max_bot_runs_per_month: 500,
-      max_contacts: 100,
-      max_bots: 1
-    };
+    // Get free plan limits as default
+    let planLimits = subResult.rows[0];
+    if (!planLimits) {
+      const freePlanResult = await db.query(`
+        SELECT max_bot_runs_per_month, max_contacts, max_bots
+        FROM subscription_plans
+        WHERE price = 0 AND is_active = true
+        ORDER BY sort_order ASC
+        LIMIT 1
+      `);
+      planLimits = freePlanResult.rows[0] || {
+        max_bot_runs_per_month: 0,
+        max_contacts: 0,
+        max_bots: 0
+      };
+    }
     
     // Merge: feature overrides take precedence over plan limits
     const limits = { ...planLimits };

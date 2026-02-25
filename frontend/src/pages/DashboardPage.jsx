@@ -536,7 +536,7 @@ export default function DashboardPage() {
                   label="הרצות בוט החודש"
                   icon={Zap}
                   used={usage.usage?.bot_runs || 0}
-                  limit={usage.limits?.max_bot_runs_per_month || 500}
+                  limit={usage.limits?.max_bot_runs_per_month ?? 0}
                   color="indigo"
                 />
                 
@@ -545,7 +545,7 @@ export default function DashboardPage() {
                   label="בוטים"
                   icon={Bot}
                   used={usage.counts?.bots || 0}
-                  limit={usage.limits?.max_bots || 1}
+                  limit={usage.limits?.max_bots ?? 0}
                   color="purple"
                 />
                 
@@ -554,7 +554,7 @@ export default function DashboardPage() {
                   label="אנשי קשר"
                   icon={Users}
                   used={usage.counts?.contacts || 0}
-                  limit={usage.limits?.max_contacts || 100}
+                  limit={usage.limits?.max_contacts ?? 0}
                   color="blue"
                 />
               </div>
