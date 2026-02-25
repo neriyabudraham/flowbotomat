@@ -1108,6 +1108,11 @@ async function getOrCreateContact(userId, phone, payload) {
 function parseMessage(payload) {
   const body = payload.body || '';
   
+  // Debug: Log raw payload structure for diagnosing list response issues
+  if (payload._data?.Message) {
+    console.log('[Webhook] parseMessage - Message keys:', Object.keys(payload._data.Message).join(', '));
+    console.log('[Webhook] parseMessage - MediaType:', payload._data?.Info?.MediaType, ', type:', payload.type);
+  }
   
   // Check for list response (button click)
   const listResponse = payload._data?.Message?.listResponseMessage;
@@ -1136,6 +1141,28 @@ function parseMessage(payload) {
       selectedRowId: selectedRowId,
       quotedListTitle: quotedListTitle,
     };
+  }
+  
+  // Additional fallback: Check for listResponse in various WAHA formats
+  // Some WAHA versions use different field names
+  const altListResponse = payload._data?.Message?.listMessage?.listType === 2 ||
+                          payload.type === 'list_response';
+  if (altListResponse) {
+    console.log('[Webhook] Detected alternative list response format, body:', body);
+    // Try to extract rowId from body if it matches the fwd_ pattern
+    if (body && body.includes('fwd_')) {
+      // The body might contain the rowId directly in some WAHA formats
+      const match = body.match(/(fwd_[a-z]+_\d+)/);
+      if (match) {
+        console.log('[Webhook] Extracted rowId from body:', match[1]);
+        return {
+          type: 'list_response',
+          content: body,
+          selectedRowId: match[1],
+          quotedListTitle: null,
+        };
+      }
+    }
   }
   
   // Check for media via hasMedia flag or media property (WAHA formats)

@@ -673,34 +673,44 @@ async function sendNotificationMessage(userId, phone, text) {
  */
 async function handleConfirmationResponse(userId, senderPhone, messageContent, selectedRowId) {
   try {
+    console.log(`[GroupForwards] handleConfirmationResponse called - userId: ${userId}, senderPhone: ${senderPhone}, content: ${messageContent?.substring(0, 50)}, selectedRowId: ${selectedRowId}`);
+    
     // Check for list response (button click)
     if (selectedRowId) {
       console.log(`[GroupForwards] Processing list response: ${selectedRowId} from ${senderPhone} for user ${userId}`);
       
+      // If it's a forward-related response, always return true to prevent creating new jobs
+      const isForwardResponse = selectedRowId.startsWith('fwd_');
+      
       // Parse the row ID
       if (selectedRowId.startsWith('fwd_confirm_')) {
         const jobId = selectedRowId.replace('fwd_confirm_', '');
-        return await handleConfirm(userId, senderPhone, jobId);
+        await handleConfirm(userId, senderPhone, jobId);
+        return true;
       }
       
       if (selectedRowId.startsWith('fwd_schedule_')) {
         const jobId = selectedRowId.replace('fwd_schedule_', '');
-        return await handleSchedulePrompt(userId, senderPhone, jobId);
+        await handleSchedulePrompt(userId, senderPhone, jobId);
+        return true;
       }
       
       if (selectedRowId.startsWith('fwd_cancel_')) {
         const jobId = selectedRowId.replace('fwd_cancel_', '');
-        return await handleCancel(userId, senderPhone, jobId);
+        await handleCancel(userId, senderPhone, jobId);
+        return true;
       }
       
       if (selectedRowId.startsWith('fwd_stop_')) {
         const jobId = selectedRowId.replace('fwd_stop_', '');
-        return await handleStop(userId, senderPhone, jobId, false);
+        await handleStop(userId, senderPhone, jobId, false);
+        return true;
       }
       
       if (selectedRowId.startsWith('fwd_stopdelete_')) {
         const jobId = selectedRowId.replace('fwd_stopdelete_', '');
-        return await handleStop(userId, senderPhone, jobId, true);
+        await handleStop(userId, senderPhone, jobId, true);
+        return true;
       }
       
       // Handle day selection for scheduling
@@ -708,13 +718,22 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
         const parts = selectedRowId.replace('fwd_day_', '').split('_');
         const jobId = parts[0];
         const dayOffset = parts[1];
-        return await handleDaySelection(userId, senderPhone, jobId, dayOffset);
+        await handleDaySelection(userId, senderPhone, jobId, dayOffset);
+        return true;
       }
       
       // Handle back button from schedule menu
       if (selectedRowId.startsWith('fwd_back_')) {
         const jobId = selectedRowId.replace('fwd_back_', '');
-        return await handleScheduleBack(userId, senderPhone, jobId);
+        await handleScheduleBack(userId, senderPhone, jobId);
+        return true;
+      }
+      
+      // If it's a forward-related response but we didn't handle it, still return true
+      // to prevent creating a new job
+      if (isForwardResponse) {
+        console.log(`[GroupForwards] Unhandled forward response: ${selectedRowId}`);
+        return true;
       }
     }
     
