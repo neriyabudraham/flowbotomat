@@ -1275,16 +1275,44 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
   }
   
   // Get the stored date
-  const dateStr = job.scheduled_date;
-  if (!dateStr) {
+  const rawDate = job.scheduled_date;
+  if (!rawDate) {
     await sendNotificationMessage(userId, senderPhone, 'לא נבחר תאריך, אנא התחל מחדש');
     await db.query(`UPDATE forward_jobs SET status = 'cancelled' WHERE id = $1`, [job.id]);
     return true;
   }
   
+  // Format date properly - PostgreSQL DATE may come as Date object or string
+  let dateStr;
+  if (rawDate instanceof Date) {
+    // It's a Date object - format it
+    const year = rawDate.getFullYear();
+    const month = String(rawDate.getMonth() + 1).padStart(2, '0');
+    const day = String(rawDate.getDate()).padStart(2, '0');
+    dateStr = `${year}-${month}-${day}`;
+  } else if (typeof rawDate === 'string') {
+    // It might be in format "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM:SS..."
+    dateStr = rawDate.split('T')[0];
+  } else {
+    console.log(`[GroupForwards] Unexpected date format:`, typeof rawDate, rawDate);
+    await sendNotificationMessage(userId, senderPhone, 'שגיאה בעיבוד התאריך, אנא התחל מחדש');
+    return true;
+  }
+  
+  console.log(`[GroupForwards] Parsed date: ${dateStr} from raw: ${rawDate}`);
+  
   // Build scheduled time (convert from Israel time to UTC)
   const timeStr = `${String(parsedTime.hours).padStart(2, '0')}:${String(parsedTime.minutes).padStart(2, '0')}`;
   const scheduledAt = convertIsraelTimeToUTC(`${dateStr}T${timeStr}:00`);
+  
+  console.log(`[GroupForwards] Scheduled at: ${scheduledAt?.toISOString()}`);
+  
+  // Verify scheduledAt is valid
+  if (!scheduledAt || isNaN(scheduledAt.getTime())) {
+    console.error(`[GroupForwards] Invalid scheduledAt generated from dateStr=${dateStr}, timeStr=${timeStr}`);
+    await sendNotificationMessage(userId, senderPhone, 'שגיאה ביצירת התזמון, אנא נסה שוב');
+    return true;
+  }
   
   // Check if time is in the past
   if (scheduledAt <= new Date()) {
