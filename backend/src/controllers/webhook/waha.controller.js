@@ -434,6 +434,9 @@ async function saveUserStatus(userId, payload) {
 async function handleIncomingMessage(userId, event) {
   const { payload } = event;
   
+  // Debug: Log incoming message type for diagnosing list response issues
+  console.log(`[Webhook] handleIncomingMessage - payload.type: ${payload.type}, MediaType: ${payload._data?.Info?.MediaType}, hasListResponse: ${!!payload._data?.Message?.listResponseMessage}`);
+  
   // Extract message ID for deduplication
   let messageId = '';
   if (typeof payload.id === 'string') {
@@ -1121,7 +1124,25 @@ function parseMessage(payload) {
   // Debug: Log raw payload structure for diagnosing list response issues
   if (payload._data?.Message) {
     console.log('[Webhook] parseMessage - Message keys:', Object.keys(payload._data.Message).join(', '));
-    console.log('[Webhook] parseMessage - MediaType:', payload._data?.Info?.MediaType, ', type:', payload.type);
+    console.log('[Webhook] parseMessage - MediaType:', payload._data?.Info?.MediaType, ', type:', payload.type, ', body:', body?.substring(0, 50));
+  }
+  
+  // Check payload.type directly (WAHA sometimes sends type: 'list_response')
+  if (payload.type === 'list_response' || payload.type === 'interactive') {
+    console.log('[Webhook] Detected list_response via payload.type');
+    // Try to find the selectedRowId in various places
+    const rowId = payload._data?.Message?.listResponseMessage?.singleSelectReply?.selectedRowID ||
+                  payload.selectedRowId ||
+                  payload.rowId ||
+                  payload._data?.selectedRowId;
+    if (rowId) {
+      return {
+        type: 'list_response',
+        content: body,
+        selectedRowId: rowId,
+        quotedListTitle: null,
+      };
+    }
   }
   
   // Check for list response (button click)
