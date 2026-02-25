@@ -1706,6 +1706,20 @@ async function handleSessionStatus(userId, event) {
       console.log(`[SessionMonitor] Cleared monitor for ${monitorKey} - reconnected via webhook`);
       activeDisconnectMonitors.delete(monitorKey);
     }
+    
+    // Check if affiliate conversion should happen on WhatsApp connection
+    try {
+      const settings = await pool.query('SELECT * FROM affiliate_settings LIMIT 1');
+      if (settings.rows[0]?.is_active && settings.rows[0]?.conversion_type === 'whatsapp_connected') {
+        const { completeConversion } = require('../admin/promotions.controller');
+        const result = await completeConversion(userId);
+        if (result) {
+          console.log(`[Webhook] Affiliate conversion completed for user ${userId} on WhatsApp connect: ₪${result.commission}`);
+        }
+      }
+    } catch (affError) {
+      console.error('[Webhook] Affiliate conversion error on WhatsApp connect:', affError.message);
+    }
   }
 }
 

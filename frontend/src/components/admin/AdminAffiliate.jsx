@@ -312,6 +312,7 @@ export default function AdminAffiliate() {
               >
                 <option value="signup">הרשמה למערכת</option>
                 <option value="email_verified">אימות אימייל</option>
+                <option value="whatsapp_connected">חיבור ווצאפ</option>
                 <option value="paid_subscription">תשלום למנוי</option>
               </select>
             </div>
