@@ -87,8 +87,9 @@ async function getUsers(req, res) {
               ref_user.email as referred_by_email,
               ar.status as referral_status,
               aff.id as referred_by_affiliate_id,
-              EXISTS(SELECT 1 FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_default = true) as has_payment_method,
-              (SELECT pm.card_last_digits FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_default = true LIMIT 1) as card_last_digits,
+              u.credit_card_exempt,
+              EXISTS(SELECT 1 FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_active = true) as has_payment_method,
+              (SELECT pm.card_last_four FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_active = true LIMIT 1) as card_last_digits,
               wc.status as whatsapp_status,
               wc.phone_number as whatsapp_phone,
               -- Feature usage statistics
@@ -840,6 +841,72 @@ async function getUserBots(req, res) {
   }
 }
 
+/**
+ * Generate a direct payment link for a user
+ * This link allows the user to add their credit card without logging in
+ */
+async function generatePaymentLink(req, res) {
+  try {
+    const { id: userId } = req.params;
+    const adminId = req.user.id;
+    
+    // Verify user exists
+    const userResult = await db.query('SELECT id, email, name FROM users WHERE id = $1', [userId]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'משתמש לא נמצא' });
+    }
+    
+    // Generate a secure token
+    const crypto = require('crypto');
+    const token = crypto.randomBytes(32).toString('hex');
+    
+    // Create the link record (expires in 7 days)
+    await db.query(`
+      INSERT INTO direct_payment_links (user_id, token, created_by)
+      VALUES ($1, $2, $3)
+    `, [userId, token, adminId]);
+    
+    // Build the URL
+    const appUrl = process.env.APP_URL || 'https://botomat.co.il';
+    const link = `${appUrl}/add-payment/${token}`;
+    
+    console.log(`[Admin] Generated payment link for user ${userId} by admin ${adminId}`);
+    
+    res.json({ 
+      success: true, 
+      link,
+      expiresIn: '7 days',
+      userName: userResult.rows[0].name,
+      userEmail: userResult.rows[0].email
+    });
+  } catch (error) {
+    console.error('[Admin] Generate payment link error:', error);
+    res.status(500).json({ error: 'שגיאה ביצירת לינק תשלום' });
+  }
+}
+
+/**
+ * Toggle credit card exempt status for a user
+ */
+async function toggleCreditCardExempt(req, res) {
+  try {
+    const { id: userId } = req.params;
+    const { exempt } = req.body;
+    
+    await db.query(
+      `UPDATE users SET credit_card_exempt = $1, updated_at = NOW() WHERE id = $2`,
+      [exempt === true, userId]
+    );
+    
+    console.log(`[Admin] Set credit_card_exempt=${exempt} for user ${userId}`);
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Admin] Toggle credit card exempt error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון פטור אשראי' });
+  }
+}
+
 module.exports = { 
   getUsers, 
   getUser, 
@@ -853,5 +920,7 @@ module.exports = {
   clearUserFeatureOverrides,
   getUserServices,
   toggleBotLock,
-  getUserBots
+  getUserBots,
+  generatePaymentLink,
+  toggleCreditCardExempt
 };

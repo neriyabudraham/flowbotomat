@@ -279,8 +279,18 @@ function UpcomingCharges({ onRefresh, onViewUser, loadingUser }) {
                           <User className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                         )}
                         {charge.display_name || 'ללא שם'}
+                        {!charge.has_payment_method && (
+                          <span className="px-1.5 py-0.5 bg-red-100 text-red-600 text-[10px] rounded-full mr-1" title="אין כרטיס אשראי">
+                            <AlertTriangle className="w-3 h-3 inline" />
+                          </span>
+                        )}
                       </div>
-                      <div className="text-sm text-gray-500">{charge.email}</div>
+                      <div className="text-sm text-gray-500 flex items-center gap-1">
+                        {charge.email}
+                        {charge.has_payment_method && charge.card_last_digits && (
+                          <span className="text-[10px] text-gray-400">({charge.card_last_digits})</span>
+                        )}
+                      </div>
                     </button>
                   </td>
                   <td className="px-4 py-3 font-medium text-gray-800">

@@ -30,6 +30,7 @@ import ServicesPage from './pages/ServicesPage';
 import StatusBotLandingPage from './pages/statusBot/StatusBotLandingPage';
 import StatusBotDashboardPage from './pages/statusBot/StatusBotDashboardPage';
 import StatusBotSubscribePage from './pages/statusBot/StatusBotSubscribePage';
+import DirectPaymentPage from './pages/DirectPaymentPage';
 import SystemAlertOverlay from './components/notifications/SystemAlertOverlay';
 import MaintenanceOverlay from './components/MaintenanceOverlay';
 import SocketProvider from './components/providers/SocketProvider';
@@ -139,6 +140,7 @@ function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/checkout" element={<CheckoutPage />} />
+          <Route path="/add-payment/:token" element={<DirectPaymentPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/affiliate-terms" element={<AffiliateTermsPage />} />
           <Route path="/signup" element={<SignupPage />} />

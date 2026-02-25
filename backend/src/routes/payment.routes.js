@@ -9,6 +9,10 @@ router.get('/promotions/active', promotionsController.getActivePromotions);
 router.post('/affiliate/track-click', promotionsController.trackClick);
 router.get('/affiliate/terms', promotionsController.getAffiliateTerms);
 
+// Direct payment link (public - for users without login)
+router.get('/direct-link/:token', paymentController.validatePaymentLink);
+router.post('/direct-link/:token', paymentController.submitPaymentViaLink);
+
 // Routes that require authentication
 router.use(authMiddleware);
 

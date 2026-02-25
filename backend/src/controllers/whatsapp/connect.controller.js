@@ -68,6 +68,19 @@ async function createManaged(req, res) {
   try {
     const userId = req.user.id;
     
+    // Check global credit card requirement setting
+    const ccRequiredResult = await pool.query(
+      `SELECT value FROM system_settings WHERE key = 'require_credit_card_for_whatsapp'`
+    );
+    const creditCardRequired = ccRequiredResult.rows[0]?.value === true || ccRequiredResult.rows[0]?.value === 'true';
+    
+    // Check if user is exempt from credit card requirement
+    const userExemptResult = await pool.query(
+      `SELECT credit_card_exempt FROM users WHERE id = $1`,
+      [userId]
+    );
+    const isExempt = userExemptResult.rows[0]?.credit_card_exempt === true;
+    
     // Check if user has a manual subscription (bypasses payment requirement)
     const manualSubCheck = await pool.query(
       `SELECT id FROM user_subscriptions WHERE user_id = $1 AND is_manual = true AND status = 'active'`,
@@ -93,10 +106,11 @@ async function createManaged(req, res) {
     
     const hasFreePlanWithWaha = freePlanWithWaha.rows.length > 0;
     
-    // Payment method is NOT required if:
-    // 1. User has manual subscription, OR
-    // 2. There's a free plan that allows WAHA creation
-    if (!hasPaymentMethod && !hasManualSubscription && !hasFreePlanWithWaha) {
+    // Credit card requirement check:
+    // Required if: global setting is ON AND user is NOT exempt AND doesn't have manual subscription AND no free plan with WAHA
+    const needsCreditCard = creditCardRequired && !isExempt && !hasManualSubscription && !hasFreePlanWithWaha;
+    
+    if (needsCreditCard && !hasPaymentMethod) {
       return res.status(402).json({ 
         error: 'נדרש להזין פרטי כרטיס אשראי לפני חיבור WhatsApp. לא יבוצע חיוב בתקופת הניסיון.',
         code: 'PAYMENT_REQUIRED',

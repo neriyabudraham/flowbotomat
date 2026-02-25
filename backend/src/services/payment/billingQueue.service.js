@@ -68,9 +68,13 @@ async function getUpcomingCharges(days = 7, limit = 100) {
   const result = await pool.query(
     `SELECT bq.*, 
             u.email, u.name as display_name,
-            sp.name as plan_name, sp.name_he as plan_name_he
+            sp.name as plan_name, sp.name_he as plan_name_he,
+            us.sumit_customer_id,
+            EXISTS(SELECT 1 FROM user_payment_methods pm WHERE pm.user_id = bq.user_id AND pm.is_active = true) as has_payment_method,
+            (SELECT pm.card_last_four FROM user_payment_methods pm WHERE pm.user_id = bq.user_id AND pm.is_active = true LIMIT 1) as card_last_digits
      FROM billing_queue bq
      JOIN users u ON u.id = bq.user_id
+     LEFT JOIN user_subscriptions us ON us.user_id = bq.user_id
      LEFT JOIN subscription_plans sp ON sp.id = bq.plan_id
      WHERE bq.status = 'pending' 
        AND bq.charge_date <= CURRENT_DATE + INTERVAL '${days} days'
@@ -221,6 +225,33 @@ async function processQueue() {
     processed++;
     
     try {
+      // Skip 0 ILS charges - no need to send payment request for free
+      const chargeAmount = parseFloat(charge.amount);
+      if (chargeAmount <= 0) {
+        console.log(`[BillingQueue] Skipping 0 ILS charge for user ${charge.user_id} (${charge.email})`);
+        
+        // Mark as completed without actually charging
+        await pool.query(
+          `UPDATE billing_queue 
+           SET status = 'completed', 
+               completed_at = NOW(),
+               notes = 'סכום 0 - דולג ללא חיוב',
+               updated_at = NOW() 
+           WHERE id = $1`,
+          [charge.id]
+        );
+        
+        // Still handle the subscription update (extend period, etc.)
+        await handleChargeSuccess(charge, { 
+          success: true, 
+          skipped: true,
+          message: 'No charge - amount is 0'
+        });
+        
+        successful++;
+        continue;
+      }
+      
       // Mark as processing
       await pool.query(
         `UPDATE billing_queue SET status = 'processing', updated_at = NOW() WHERE id = $1`,
@@ -238,7 +269,7 @@ async function processQueue() {
       const description = charge.description || charge.plan_name_he || `מנוי ${charge.billing_type}`;
       const chargeResult = await sumitService.chargeOneTime({
         customerId: charge.sumit_customer_id,
-        amount: parseFloat(charge.amount),
+        amount: chargeAmount,
         description,
         sendEmail: true
       });

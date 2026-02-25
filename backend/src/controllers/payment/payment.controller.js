@@ -1789,6 +1789,35 @@ async function removeAllPaymentMethods(req, res) {
       message = 'פרטי האשראי הוסרו והשירות נותק';
     }
     
+    // Check if credit card is required for WhatsApp - if so, disconnect when removed
+    if (!disconnectImmediately) {
+      const ccRequiredResult = await db.query(
+        `SELECT value FROM system_settings WHERE key = 'require_credit_card_for_whatsapp'`
+      );
+      const creditCardRequired = ccRequiredResult.rows[0]?.value === true || ccRequiredResult.rows[0]?.value === 'true';
+      
+      // Check if user is exempt
+      const userResult = await db.query(
+        `SELECT credit_card_exempt FROM users WHERE id = $1`,
+        [userId]
+      );
+      const isExempt = userResult.rows[0]?.credit_card_exempt === true;
+      
+      // Check if manual subscription
+      const manualSubResult = await db.query(
+        `SELECT id FROM user_subscriptions WHERE user_id = $1 AND is_manual = true AND status = 'active'`,
+        [userId]
+      );
+      const hasManualSub = manualSubResult.rows.length > 0;
+      
+      // If credit card required and user is not exempt and not manual - disconnect
+      if (creditCardRequired && !isExempt && !hasManualSub && connectionResult.rows.length > 0) {
+        disconnectImmediately = true;
+        message = 'פרטי האשראי הוסרו. חיבור WhatsApp מחייב אשראי פעיל - השירות נותק.';
+        console.log(`[Payment] Credit card required - disconnecting WhatsApp for user ${userId}`);
+      }
+    }
+    
     // Disconnect immediately if needed (trial or no subscription)
     // NOTE: We only mark as disconnected in DB, we do NOT delete the WAHA session
     if (disconnectImmediately) {
@@ -2450,6 +2479,155 @@ async function getPaymentDefaults(req, res) {
   }
 }
 
+/**
+ * Validate direct payment link token (public - no auth)
+ */
+async function validatePaymentLink(req, res) {
+  try {
+    const { token } = req.params;
+    
+    const result = await db.query(`
+      SELECT dpl.*, u.name, u.email 
+      FROM direct_payment_links dpl
+      JOIN users u ON u.id = dpl.user_id
+      WHERE dpl.token = $1 AND dpl.used_at IS NULL AND dpl.expires_at > NOW()
+    `, [token]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        error: 'הלינק אינו תקף או שפג תוקפו',
+        code: 'INVALID_LINK'
+      });
+    }
+    
+    const link = result.rows[0];
+    
+    res.json({
+      valid: true,
+      userName: link.name,
+      userEmail: link.email,
+      expiresAt: link.expires_at
+    });
+  } catch (error) {
+    console.error('[Payment] Validate payment link error:', error);
+    res.status(500).json({ error: 'שגיאה בבדיקת הלינק' });
+  }
+}
+
+/**
+ * Submit payment method via direct link (public - no auth)
+ */
+async function submitPaymentViaLink(req, res) {
+  try {
+    const { token } = req.params;
+    const { cardNumber, expiryMonth, expiryYear, cvv, citizenId, name, phone } = req.body;
+    
+    // Validate the token
+    const linkResult = await db.query(`
+      SELECT * FROM direct_payment_links 
+      WHERE token = $1 AND used_at IS NULL AND expires_at > NOW()
+    `, [token]);
+    
+    if (linkResult.rows.length === 0) {
+      return res.status(404).json({ 
+        error: 'הלינק אינו תקף או שפג תוקפו',
+        code: 'INVALID_LINK'
+      });
+    }
+    
+    const link = linkResult.rows[0];
+    const userId = link.user_id;
+    
+    // Get user data
+    const userResult = await db.query('SELECT * FROM users WHERE id = $1', [userId]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'משתמש לא נמצא' });
+    }
+    
+    const user = userResult.rows[0];
+    
+    // Use Sumit to create customer and save card
+    const sumitService = require('../../services/payment/sumit.service');
+    
+    // Create customer in Sumit
+    const customerResult = await sumitService.createCustomer({
+      email: user.email,
+      name: name || user.name,
+      phone: phone || user.phone
+    });
+    
+    if (!customerResult.success) {
+      return res.status(400).json({ error: customerResult.error || 'שגיאה ביצירת לקוח' });
+    }
+    
+    const customerId = customerResult.customerId;
+    
+    // Add payment method
+    const paymentMethodResult = await sumitService.createPaymentMethod({
+      customerId,
+      cardNumber,
+      expiryMonth,
+      expiryYear,
+      cvv,
+      citizenId
+    });
+    
+    if (!paymentMethodResult.success) {
+      return res.status(400).json({ error: paymentMethodResult.error || 'שגיאה בשמירת כרטיס' });
+    }
+    
+    // Save to database
+    await db.query(`
+      INSERT INTO user_payment_methods (
+        user_id, sumit_customer_id, sumit_payment_method_id, 
+        card_last_four, card_expiry, is_active, is_default
+      )
+      VALUES ($1, $2, $3, $4, $5, true, true)
+      ON CONFLICT (user_id, sumit_payment_method_id) 
+      DO UPDATE SET is_active = true, is_default = true, updated_at = NOW()
+    `, [
+      userId, 
+      customerId, 
+      paymentMethodResult.paymentMethodId,
+      cardNumber.slice(-4),
+      `${expiryMonth}/${expiryYear}`
+    ]);
+    
+    // Update user
+    await db.query(`
+      UPDATE users 
+      SET has_payment_method = true, 
+          phone = COALESCE($2, phone),
+          citizen_id = COALESCE($3, citizen_id),
+          updated_at = NOW()
+      WHERE id = $1
+    `, [userId, phone, citizenId]);
+    
+    // Update user_subscriptions with sumit_customer_id
+    await db.query(`
+      UPDATE user_subscriptions 
+      SET sumit_customer_id = $1, updated_at = NOW()
+      WHERE user_id = $2
+    `, [customerId, userId]);
+    
+    // Mark the link as used
+    await db.query(`
+      UPDATE direct_payment_links SET used_at = NOW() WHERE id = $1
+    `, [link.id]);
+    
+    console.log(`[Payment] User ${userId} added payment method via direct link ${token}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'פרטי האשראי נשמרו בהצלחה!',
+      userName: name || user.name
+    });
+  } catch (error) {
+    console.error('[Payment] Submit payment via link error:', error);
+    res.status(500).json({ error: 'שגיאה בשמירת פרטי התשלום' });
+  }
+}
+
 module.exports = {
   savePaymentMethod,
   getPaymentMethods,
@@ -2467,4 +2645,6 @@ module.exports = {
   processEndingReferralDiscounts,
   decrementReferralMonths,
   getPaymentDefaults,
+  validatePaymentLink,
+  submitPaymentViaLink,
 };
