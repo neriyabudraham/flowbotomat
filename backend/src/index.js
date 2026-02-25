@@ -99,6 +99,21 @@ cron.schedule('0 * * * *', async () => {
 
 console.log('📅 Forward jobs cleanup cron job scheduled (hourly)');
 
+// Schedule scheduled forwards processor - run every minute
+const { processScheduledForwards } = require('./controllers/groupForwards/scheduled.controller');
+
+cron.schedule('* * * * *', async () => {
+  try {
+    await processScheduledForwards();
+  } catch (err) {
+    console.error('[Cron] Scheduled forwards processing failed:', err.message);
+  }
+}, {
+  timezone: 'Asia/Jerusalem'
+});
+
+console.log('📅 Scheduled forwards processor started (every minute)');
+
 // Schedule session timeout checker - run every 30 seconds
 const db = require('./config/database');
 const BotEngine = require('./services/botEngine.service');

@@ -436,13 +436,14 @@ async function sendConfirmationList(userId, senderPhone, forward, job) {
     const chatId = `${senderPhone}@s.whatsapp.net`;
     const wahaService = require('../waha/session.service');
     
-    // Build list message - concise version
+    // Build list message - concise version with schedule option
     const listData = {
       title: `📤 ${forward.name}`,
       body: `לשלוח ל-*${forward.target_count}* קבוצות?`,
       buttonText: 'בחר פעולה',
       buttons: [
-        { title: '✅ שלח', rowId: `fwd_confirm_${job.id}` },
+        { title: '✅ שלח עכשיו', rowId: `fwd_confirm_${job.id}` },
+        { title: '⏰ תזמן שליחה', rowId: `fwd_schedule_${job.id}` },
         { title: '❌ בטל', rowId: `fwd_cancel_${job.id}` }
       ]
     };
@@ -682,6 +683,11 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
         return await handleConfirm(userId, senderPhone, jobId);
       }
       
+      if (selectedRowId.startsWith('fwd_schedule_')) {
+        const jobId = selectedRowId.replace('fwd_schedule_', '');
+        return await handleSchedulePrompt(userId, senderPhone, jobId);
+      }
+      
       if (selectedRowId.startsWith('fwd_cancel_')) {
         const jobId = selectedRowId.replace('fwd_cancel_', '');
         return await handleCancel(userId, senderPhone, jobId);
@@ -695,6 +701,20 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
       if (selectedRowId.startsWith('fwd_stopdelete_')) {
         const jobId = selectedRowId.replace('fwd_stopdelete_', '');
         return await handleStop(userId, senderPhone, jobId, true);
+      }
+      
+      // Handle time selection for scheduling
+      if (selectedRowId.startsWith('fwd_time_')) {
+        const parts = selectedRowId.replace('fwd_time_', '').split('_');
+        const jobId = parts[0];
+        const timeOption = parts[1];
+        return await handleScheduleTime(userId, senderPhone, jobId, timeOption);
+      }
+      
+      // Handle back button from schedule menu
+      if (selectedRowId.startsWith('fwd_back_')) {
+        const jobId = selectedRowId.replace('fwd_back_', '');
+        return await handleScheduleBack(userId, senderPhone, jobId);
       }
     }
     
@@ -928,6 +948,207 @@ async function handleTextStop(userId, senderPhone, shouldDelete) {
   }
   
   return await handleStop(userId, senderPhone, activeJob.rows[0].id, shouldDelete);
+}
+
+/**
+ * Handle schedule prompt - ask user for time
+ */
+async function handleSchedulePrompt(userId, senderPhone, jobId) {
+  console.log(`[GroupForwards] handleSchedulePrompt called - jobId: ${jobId}, userId: ${userId}, senderPhone: ${senderPhone}`);
+  
+  // Verify job exists and belongs to user
+  const jobResult = await db.query(`
+    SELECT fj.*, gf.name as forward_name
+    FROM forward_jobs fj
+    JOIN group_forwards gf ON fj.forward_id = gf.id
+    WHERE fj.id = $1 AND fj.user_id = $2 AND fj.status = 'pending'
+  `, [jobId, userId]);
+  
+  if (jobResult.rows.length === 0) {
+    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
+    return true;
+  }
+  
+  const job = jobResult.rows[0];
+  
+  // Mark job as waiting for schedule input
+  await db.query(`
+    UPDATE forward_jobs SET 
+      status = 'pending_schedule',
+      updated_at = NOW()
+    WHERE id = $1
+  `, [jobId]);
+  
+  // Send schedule options as list
+  const wahaConnection = await getWahaConnection(userId);
+  if (!wahaConnection) {
+    console.log('[GroupForwards] No WhatsApp connection for schedule prompt');
+    return true;
+  }
+  
+  const chatId = `${senderPhone}@s.whatsapp.net`;
+  const wahaService = require('../waha/session.service');
+  
+  try {
+    const listData = {
+      title: `⏰ תזמון - ${job.forward_name}`,
+      body: `בחר מתי לשלוח ל-*${job.total_targets}* קבוצות:`,
+      buttonText: 'בחר זמן',
+      buttons: [
+        { title: '🕐 בעוד 30 דקות', rowId: `fwd_time_${jobId}_30m` },
+        { title: '🕐 בעוד שעה', rowId: `fwd_time_${jobId}_1h` },
+        { title: '🕐 בעוד 2 שעות', rowId: `fwd_time_${jobId}_2h` },
+        { title: '🕐 בעוד 6 שעות', rowId: `fwd_time_${jobId}_6h` },
+        { title: '📅 מחר בשעה 9:00', rowId: `fwd_time_${jobId}_tomorrow9` },
+        { title: '📅 מחר בשעה 18:00', rowId: `fwd_time_${jobId}_tomorrow18` },
+        { title: '🔙 חזרה', rowId: `fwd_back_${jobId}` }
+      ]
+    };
+    
+    await wahaService.sendList(wahaConnection, chatId, listData);
+    console.log(`[GroupForwards] Sent schedule list for job ${jobId}`);
+    
+    // Save to Live Chat
+    await saveOutgoingMessage(
+      userId, 
+      chatId, 
+      'list', 
+      listData.body,
+      null, null, null,
+      { title: listData.title, buttonText: listData.buttonText, buttons: listData.buttons }
+    );
+    
+  } catch (error) {
+    console.error('[GroupForwards] Send schedule list error:', error.message);
+    await sendNotificationMessage(userId, senderPhone, 
+      `⏰ *תזמון - ${job.forward_name}*\n\nבחר מתי לשלוח:\n• "30 דקות"\n• "שעה"\n• "2 שעות"\n• "מחר 9"\n• "מחר 18"\n\nאו השב "בטל" לביטול.`
+    );
+  }
+  
+  return true;
+}
+
+/**
+ * Handle schedule time selection
+ */
+async function handleScheduleTime(userId, senderPhone, jobId, timeOption) {
+  console.log(`[GroupForwards] handleScheduleTime - jobId: ${jobId}, timeOption: ${timeOption}`);
+  
+  // Verify job exists and is in pending_schedule status
+  const jobResult = await db.query(`
+    SELECT fj.*, gf.name as forward_name, gf.id as forward_id
+    FROM forward_jobs fj
+    JOIN group_forwards gf ON fj.forward_id = gf.id
+    WHERE fj.id = $1 AND fj.user_id = $2 AND fj.status IN ('pending', 'pending_schedule')
+  `, [jobId, userId]);
+  
+  if (jobResult.rows.length === 0) {
+    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה לתזמון.');
+    return true;
+  }
+  
+  const job = jobResult.rows[0];
+  
+  // Calculate scheduled time
+  let scheduledAt = new Date();
+  let timeLabel = '';
+  
+  switch (timeOption) {
+    case '30m':
+      scheduledAt.setMinutes(scheduledAt.getMinutes() + 30);
+      timeLabel = 'בעוד 30 דקות';
+      break;
+    case '1h':
+      scheduledAt.setHours(scheduledAt.getHours() + 1);
+      timeLabel = 'בעוד שעה';
+      break;
+    case '2h':
+      scheduledAt.setHours(scheduledAt.getHours() + 2);
+      timeLabel = 'בעוד 2 שעות';
+      break;
+    case '6h':
+      scheduledAt.setHours(scheduledAt.getHours() + 6);
+      timeLabel = 'בעוד 6 שעות';
+      break;
+    case 'tomorrow9':
+      scheduledAt.setDate(scheduledAt.getDate() + 1);
+      scheduledAt.setHours(9, 0, 0, 0);
+      timeLabel = 'מחר בשעה 9:00';
+      break;
+    case 'tomorrow18':
+      scheduledAt.setDate(scheduledAt.getDate() + 1);
+      scheduledAt.setHours(18, 0, 0, 0);
+      timeLabel = 'מחר בשעה 18:00';
+      break;
+    default:
+      await sendNotificationMessage(userId, senderPhone, '❌ זמן לא תקין. אנא בחר מהרשימה.');
+      return true;
+  }
+  
+  // Create scheduled forward entry
+  await db.query(`
+    INSERT INTO scheduled_forwards 
+    (user_id, forward_id, message_type, message_content, media_url, media_filename, scheduled_at, status)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+  `, [
+    userId,
+    job.forward_id,
+    job.message_type,
+    job.message_text,
+    job.media_url,
+    job.media_filename,
+    scheduledAt
+  ]);
+  
+  // Cancel the original job (it will be replaced by the scheduled one)
+  await db.query(`
+    UPDATE forward_jobs SET status = 'cancelled', updated_at = NOW()
+    WHERE id = $1
+  `, [jobId]);
+  
+  const formattedTime = scheduledAt.toLocaleString('he-IL', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+  
+  await sendNotificationMessage(userId, senderPhone, 
+    `✅ *ההודעה תוזמנה בהצלחה!*\n\n📤 ${job.forward_name}\n⏰ ${timeLabel}\n📅 ${formattedTime}\n\nתקבל הודעה כשההודעה תישלח.`
+  );
+  
+  return true;
+}
+
+/**
+ * Handle back button - return to confirm/cancel menu
+ */
+async function handleScheduleBack(userId, senderPhone, jobId) {
+  // Restore job to pending status
+  const jobResult = await db.query(`
+    UPDATE forward_jobs SET status = 'pending', updated_at = NOW()
+    WHERE id = $1 AND user_id = $2 AND status = 'pending_schedule'
+    RETURNING *
+  `, [jobId, userId]);
+  
+  if (jobResult.rows.length === 0) {
+    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה.');
+    return true;
+  }
+  
+  // Get forward details
+  const forwardResult = await db.query(`
+    SELECT gf.* FROM group_forwards gf
+    JOIN forward_jobs fj ON fj.forward_id = gf.id
+    WHERE fj.id = $1
+  `, [jobId]);
+  
+  if (forwardResult.rows.length > 0) {
+    await sendConfirmationList(userId, senderPhone, forwardResult.rows[0], jobResult.rows[0]);
+  }
+  
+  return true;
 }
 
 /**

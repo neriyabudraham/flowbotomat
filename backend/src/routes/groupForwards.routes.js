@@ -4,6 +4,7 @@ const authMiddleware = require('../middlewares/auth.middleware');
 const listController = require('../controllers/groupForwards/list.controller');
 const manageController = require('../controllers/groupForwards/manage.controller');
 const jobsController = require('../controllers/groupForwards/jobs.controller');
+const scheduledController = require('../controllers/groupForwards/scheduled.controller');
 
 // All routes require authentication
 router.use(authMiddleware);
@@ -46,5 +47,13 @@ router.post('/jobs/:jobId/cancel', jobsController.cancelForwardJob);
 router.post('/jobs/:jobId/retry-failed', jobsController.retryFailedMessages);
 router.post('/jobs/:jobId/resume', jobsController.resumeForwardJob);
 router.delete('/jobs/:jobId', jobsController.deleteJob);
+
+// =============================================
+// Scheduled Forwards
+// =============================================
+router.get('/scheduled', scheduledController.getScheduledForwards);
+router.post('/scheduled', scheduledController.createScheduledForward);
+router.put('/scheduled/:id', scheduledController.updateScheduledForward);
+router.delete('/scheduled/:id', scheduledController.deleteScheduledForward);
 
 module.exports = router;

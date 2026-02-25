@@ -594,7 +594,7 @@ async function startForwardJob(jobId) {
     
     // Get all pending messages with custom suffix per target
     const messagesResult = await db.query(`
-      SELECT fjm.*, gft.group_id, gft.group_name, gft.custom_suffix
+      SELECT fjm.*, gft.group_id, gft.group_name, gft.custom_suffix, gft.no_suffix
       FROM forward_job_messages fjm
       JOIN group_forward_targets gft ON fjm.target_id = gft.id
       WHERE fjm.job_id = $1 AND fjm.status = 'pending'
@@ -679,10 +679,13 @@ async function startForwardJob(jobId) {
             }
             
             // Calculate suffix for this specific target
-            // Priority: custom_suffix (if not null) > default message_suffix (if enabled) > none
+            // Priority: no_suffix flag > custom_suffix (if not null) > default message_suffix (if enabled) > none
             let suffixToUse = '';
-            if (message.custom_suffix !== null && message.custom_suffix !== undefined) {
-              // Custom suffix for this specific group (empty string = no suffix)
+            if (message.no_suffix === true) {
+              // Explicitly no suffix for this group
+              suffixToUse = '';
+            } else if (message.custom_suffix !== null && message.custom_suffix !== undefined && message.custom_suffix !== '') {
+              // Custom suffix for this specific group
               suffixToUse = message.custom_suffix;
             } else if (job.suffix_enabled && job.message_suffix) {
               // Use default suffix from forward settings

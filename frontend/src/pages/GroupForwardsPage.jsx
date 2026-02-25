@@ -5,7 +5,7 @@ import {
   Search, MoreHorizontal, Copy, ChevronRight, MessageSquare, Send, Phone,
   CheckCircle, AlertCircle, Loader2, ChevronDown, Filter, RefreshCw,
   ArrowLeft, Zap, Target, Crown, UserCheck, Image, Video, Mic, FileText,
-  History, LayoutGrid, Sparkles, Shield, Lock
+  History, LayoutGrid, Sparkles, Shield, Lock, Calendar
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Button from '../components/atoms/Button';
@@ -15,6 +15,7 @@ import Logo from '../components/atoms/Logo';
 import api from '../services/api';
 import GroupForwardEditor from '../components/groupForwards/GroupForwardEditor';
 import JobHistoryTab from '../components/groupForwards/JobHistoryTab';
+import ScheduledTab from '../components/groupForwards/ScheduledTab';
 
 export default function GroupForwardsPage() {
   const navigate = useNavigate();
@@ -34,7 +35,7 @@ export default function GroupForwardsPage() {
   const [limit, setLimit] = useState(null);
   const [activeJobs, setActiveJobs] = useState([]);
   const [quickSendForward, setQuickSendForward] = useState(null);
-  const [activeTab, setActiveTab] = useState('forwards'); // 'forwards' | 'history'
+  const [activeTab, setActiveTab] = useState('forwards'); // 'forwards' | 'history' | 'scheduled'
   const [errorMessage, setErrorMessage] = useState(null);
   const [limitLoading, setLimitLoading] = useState(true);
 
@@ -516,6 +517,17 @@ export default function GroupForwardsPage() {
               <History className="w-4 h-4" />
               היסטוריה
             </button>
+            <button
+              onClick={() => setActiveTab('scheduled')}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all ${
+                activeTab === 'scheduled'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Calendar className="w-4 h-4" />
+              מתוזמנות
+            </button>
           </div>
 
           {/* Search - only on forwards tab */}
@@ -659,6 +671,9 @@ export default function GroupForwardsPage() {
 
         {/* History Tab */}
         {activeTab === 'history' && <JobHistoryTab key={user?.id} />}
+
+        {/* Scheduled Tab */}
+        {activeTab === 'scheduled' && <ScheduledTab forwards={forwards} />}
 
         {/* Forwards Tab Content */}
         {activeTab === 'forwards' && (

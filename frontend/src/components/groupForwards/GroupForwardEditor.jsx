@@ -141,7 +141,8 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
           group_name: t.group_name,
           group_image_url: t.group_image_url,
           sort_order: i,
-          custom_suffix: t.custom_suffix
+          custom_suffix: t.custom_suffix,
+          no_suffix: t.no_suffix || false
         }))
       });
       return true;
@@ -997,26 +998,49 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                     </button>
                     
                     {showSuffixSettings && targets.length > 0 && (
-                      <div className="mt-4 p-4 bg-white rounded-xl border border-emerald-100 space-y-3 max-h-64 overflow-y-auto">
+                      <div className="mt-4 p-4 bg-white rounded-xl border border-emerald-100 space-y-4 max-h-96 overflow-y-auto">
                         <p className="text-xs text-gray-500 mb-2">הגדר סיומת ייחודית לכל קבוצה (השאר ריק לשימוש בסיומת ברירת המחדל)</p>
                         {targets.map((target, index) => (
-                          <div key={target.group_id} className="flex items-start gap-3">
+                          <div key={target.group_id} className="flex items-start gap-3 pb-3 border-b border-gray-100 last:border-0 last:pb-0">
                             <div className="flex-shrink-0 w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center text-xs font-bold text-gray-500">
                               {index + 1}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-800 truncate mb-1">{target.group_name}</p>
-                              <input
-                                type="text"
-                                value={target.custom_suffix || ''}
-                                onChange={(e) => {
-                                  const newTargets = [...targets];
-                                  newTargets[index] = { ...newTargets[index], custom_suffix: e.target.value || null };
-                                  setTargets(newTargets);
-                                }}
-                                placeholder="סיומת מותאמת (ריק = ברירת מחדל)"
-                                className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:ring-1 focus:ring-emerald-500/20 focus:border-emerald-400"
-                              />
+                              <p className="text-sm font-medium text-gray-800 truncate mb-2">{target.group_name}</p>
+                              
+                              {/* No suffix checkbox */}
+                              <label className="flex items-center gap-2 mb-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={target.no_suffix === true}
+                                  onChange={(e) => {
+                                    const newTargets = [...targets];
+                                    newTargets[index] = { 
+                                      ...newTargets[index], 
+                                      no_suffix: e.target.checked,
+                                      custom_suffix: e.target.checked ? null : newTargets[index].custom_suffix 
+                                    };
+                                    setTargets(newTargets);
+                                  }}
+                                  className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                                />
+                                <span className="text-sm text-gray-600">ללא סיומת</span>
+                              </label>
+                              
+                              {/* Custom suffix textarea - hidden if no_suffix is checked */}
+                              {!target.no_suffix && (
+                                <textarea
+                                  value={target.custom_suffix || ''}
+                                  onChange={(e) => {
+                                    const newTargets = [...targets];
+                                    newTargets[index] = { ...newTargets[index], custom_suffix: e.target.value || null };
+                                    setTargets(newTargets);
+                                  }}
+                                  placeholder="סיומת מותאמת (ריק = ברירת מחדל)"
+                                  rows={2}
+                                  className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:ring-1 focus:ring-emerald-500/20 focus:border-emerald-400 resize-none"
+                                />
+                              )}
                             </div>
                           </div>
                         ))}

@@ -235,15 +235,16 @@ async function updateTargets(req, res) {
         const target = targets[i];
         await client.query(`
           INSERT INTO group_forward_targets 
-          (forward_id, group_id, group_name, group_image_url, sort_order, custom_suffix)
-          VALUES ($1, $2, $3, $4, $5, $6)
+          (forward_id, group_id, group_name, group_image_url, sort_order, custom_suffix, no_suffix)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
         `, [
           forwardId,
           target.group_id,
           target.group_name,
           target.group_image_url || null,
           target.sort_order ?? i,
-          target.custom_suffix !== undefined ? target.custom_suffix : null
+          target.custom_suffix !== undefined ? target.custom_suffix : null,
+          target.no_suffix || false
         ]);
       }
       
@@ -445,12 +446,12 @@ async function duplicateGroupForward(req, res) {
       
       const newId = newForward.rows[0].id;
       
-      // Copy targets (including custom suffix)
+      // Copy targets (including custom suffix and no_suffix)
       await client.query(`
         INSERT INTO group_forward_targets (
-          forward_id, group_id, group_name, group_image_url, sort_order, custom_suffix
+          forward_id, group_id, group_name, group_image_url, sort_order, custom_suffix, no_suffix
         )
-        SELECT $1, group_id, group_name, group_image_url, sort_order, custom_suffix
+        SELECT $1, group_id, group_name, group_image_url, sort_order, custom_suffix, COALESCE(no_suffix, false)
         FROM group_forward_targets WHERE forward_id = $2
       `, [newId, forwardId]);
       
