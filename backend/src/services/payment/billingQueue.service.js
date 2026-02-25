@@ -1,6 +1,6 @@
 const { pool } = require('../../config/database');
 const sumitService = require('./sumit.service');
-const emailService = require('../email.service');
+const { sendMail } = require('../mail/transport.service');
 
 /**
  * Schedule a charge in the billing queue
@@ -559,10 +559,10 @@ async function sendFailureNotifications(charge, errorCode, errorMessage, retryCo
     
     // Send to admin
     if (adminEmail) {
-      await emailService.sendEmail({
-        to: adminEmail,
-        subject: `⚠️ כשלון בחיוב - ${charge.display_name || charge.email}`,
-        html: `
+      await sendMail(
+        adminEmail,
+        `⚠️ כשלון בחיוב - ${charge.display_name || charge.email}`,
+        `
           <div dir="rtl" style="font-family: Arial, sans-serif;">
             <h2>כשלון בחיוב אוטומטי</h2>
             <table style="border-collapse: collapse; width: 100%;">
@@ -581,15 +581,15 @@ async function sendFailureNotifications(charge, errorCode, errorMessage, retryCo
             <p><a href="${process.env.FRONTEND_URL}/admin?tab=users">צפה בפרופיל המשתמש</a></p>
           </div>
         `
-      });
+      );
     }
     
     // Send to user
     if (charge.email) {
-      await emailService.sendEmail({
-        to: charge.email,
-        subject: 'בעיה בחיוב החודשי שלך - נדרשת פעולה',
-        html: `
+      await sendMail(
+        charge.email,
+        'בעיה בחיוב החודשי שלך - נדרשת פעולה',
+        `
           <div dir="rtl" style="font-family: Arial, sans-serif;">
             <h2>שלום ${charge.display_name || ''},</h2>
             <p>לא הצלחנו לחייב את אמצעי התשלום שלך עבור המנוי.</p>
@@ -602,7 +602,7 @@ async function sendFailureNotifications(charge, errorCode, errorMessage, retryCo
             }
           </div>
         `
-      });
+      );
     }
     
   } catch (error) {
@@ -624,10 +624,10 @@ async function sendDowngradeNotification(charge) {
     
     // Notify admin
     if (adminEmail) {
-      await emailService.sendEmail({
-        to: adminEmail,
-        subject: `🔻 משתמש הורד לתוכנית חינמית - ${charge.email}`,
-        html: `
+      await sendMail(
+        adminEmail,
+        `🔻 משתמש הורד לתוכנית חינמית - ${charge.email}`,
+        `
           <div dir="rtl" style="font-family: Arial, sans-serif;">
             <h2>משתמש הורד לתוכנית חינמית</h2>
             <p>לאחר ${charge.max_retries || 2} ניסיונות חיוב כושלים, המשתמש הועבר לתוכנית החינמית.</p>
@@ -638,15 +638,15 @@ async function sendDowngradeNotification(charge) {
             </table>
           </div>
         `
-      });
+      );
     }
     
     // Notify user
     if (charge.email) {
-      await emailService.sendEmail({
-        to: charge.email,
-        subject: 'המנוי שלך הועבר לתוכנית החינמית',
-        html: `
+      await sendMail(
+        charge.email,
+        'המנוי שלך הועבר לתוכנית החינמית',
+        `
           <div dir="rtl" style="font-family: Arial, sans-serif;">
             <h2>שלום ${charge.display_name || ''},</h2>
             <p>לצערנו, לא הצלחנו לחייב את אמצעי התשלום שלך למרות מספר ניסיונות.</p>
@@ -655,7 +655,7 @@ async function sendDowngradeNotification(charge) {
             <p><a href="${process.env.FRONTEND_URL}/pricing" style="background: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">צפה בתוכניות</a></p>
           </div>
         `
-      });
+      );
     }
     
   } catch (error) {
