@@ -1,6 +1,7 @@
 const db = require('../../config/database');
 const { getWahaCredentials } = require('../settings/system.service');
 const wahaSession = require('../waha/session.service');
+const { sendMail } = require('../mail/transport.service');
 
 /**
  * Check and handle expired subscriptions
@@ -198,7 +199,147 @@ async function sendTrialExpiryReminders() {
   }
 }
 
+/**
+ * Handle manual subscriptions approaching expiry
+ * - Sends notifications 5 days before expiry
+ * - If user has payment method, schedules a charge
+ * Called daily
+ */
+async function handleExpiringManualSubscriptions() {
+  console.log('[Manual Expiry] Checking manual subscriptions approaching expiry...');
+  
+  try {
+    // Find manual subscriptions expiring in 5 days that haven't been notified yet
+    const expiringResult = await db.query(`
+      SELECT 
+        us.*,
+        u.id as uid,
+        u.name as user_name,
+        u.email as user_email,
+        sp.name_he as plan_name,
+        sp.price as plan_price,
+        (SELECT COUNT(*) > 0 FROM user_payment_methods pm WHERE pm.user_id = us.user_id AND pm.is_active = true) as has_payment_method,
+        (SELECT COUNT(*) > 0 FROM billing_queue bq WHERE bq.user_id = us.user_id AND bq.status = 'pending' AND bq.charge_date = us.expires_at::date) as has_scheduled_charge
+      FROM user_subscriptions us
+      JOIN users u ON us.user_id = u.id
+      JOIN subscription_plans sp ON us.plan_id = sp.id
+      WHERE us.is_manual = true 
+        AND us.status = 'active'
+        AND sp.price > 0
+        AND us.expires_at IS NOT NULL 
+        AND us.expires_at > NOW()
+        AND us.expires_at < NOW() + INTERVAL '5 days'
+    `);
+    
+    if (expiringResult.rows.length === 0) {
+      return { processed: 0, scheduled: 0, notified: 0 };
+    }
+    
+    console.log(`[Manual Expiry] Found ${expiringResult.rows.length} manual subscriptions expiring soon`);
+    
+    let scheduled = 0;
+    let notified = 0;
+    
+    for (const sub of expiringResult.rows) {
+      try {
+        // Skip if already has a scheduled charge
+        if (sub.has_scheduled_charge) {
+          console.log(`[Manual Expiry] User ${sub.user_email} already has scheduled charge, skipping`);
+          continue;
+        }
+        
+        const expiresAt = new Date(sub.expires_at);
+        const formattedDate = expiresAt.toLocaleDateString('he-IL', { 
+          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
+        });
+        
+        if (sub.has_payment_method) {
+          // Schedule charge in billing queue
+          await db.query(`
+            INSERT INTO billing_queue (user_id, subscription_id, amount, charge_date, status, billing_type, plan_id, description)
+            VALUES ($1, $2, $3, $4::date, 'pending', 'renewal', $5, $6)
+            ON CONFLICT DO NOTHING
+          `, [
+            sub.user_id, 
+            sub.id, 
+            parseFloat(sub.plan_price), 
+            sub.expires_at,
+            sub.plan_id,
+            `חידוש מנוי - ${sub.plan_name}`
+          ]);
+          
+          scheduled++;
+          console.log(`[Manual Expiry] Scheduled renewal charge for ${sub.user_email} on ${expiresAt.toISOString().split('T')[0]}`);
+          
+          // Send notification about upcoming charge
+          await sendMail(
+            sub.user_email,
+            `המנוי שלך יחודש אוטומטית ב-${formattedDate}`,
+            `
+              <div dir="rtl" style="font-family: Arial, sans-serif;">
+                <h2>שלום ${sub.user_name || ''},</h2>
+                <p>המנוי שלך לתכנית "${sub.plan_name}" יסתיים ב-${formattedDate}.</p>
+                <p>מכיוון שיש לך אמצעי תשלום שמור, המנוי יחודש אוטומטית ותחויב ב-₪${sub.plan_price}.</p>
+                <p>אם אינך מעוניין בחידוש, ניתן לבטל את המנוי עד למועד זה:</p>
+                <p><a href="${process.env.FRONTEND_URL}/settings/billing" style="background: #f59e0b; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">נהל מנוי</a></p>
+              </div>
+            `
+          );
+          
+        } else {
+          // No payment method - just notify about expiry
+          await sendMail(
+            sub.user_email,
+            `המנוי שלך מסתיים ב-${formattedDate}`,
+            `
+              <div dir="rtl" style="font-family: Arial, sans-serif;">
+                <h2>שלום ${sub.user_name || ''},</h2>
+                <p>המנוי שלך לתכנית "${sub.plan_name}" יסתיים ב-${formattedDate}.</p>
+                <p>לאחר תאריך זה, החשבון שלך יעבור לתכנית החינמית.</p>
+                <p>כדי להמשיך ליהנות מהיתרונות של התכנית הנוכחית, הוסף אמצעי תשלום:</p>
+                <p><a href="${process.env.FRONTEND_URL}/settings/billing" style="background: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">הוסף אמצעי תשלום</a></p>
+              </div>
+            `
+          );
+          
+          console.log(`[Manual Expiry] Notified ${sub.user_email} about expiring subscription (no payment method)`);
+        }
+        
+        notified++;
+        
+        // Create in-app notification
+        await db.query(`
+          INSERT INTO notifications (user_id, notification_type, title, message, metadata)
+          VALUES ($1, 'subscription_expiring', 'המנוי שלך מסתיים בקרוב', $2, $3)
+          ON CONFLICT DO NOTHING
+        `, [
+          sub.user_id,
+          sub.has_payment_method 
+            ? `המנוי שלך יחודש אוטומטית ב-${formattedDate} ותחויב ב-₪${sub.plan_price}`
+            : `המנוי שלך מסתיים ב-${formattedDate}. הוסף אמצעי תשלום כדי להמשיך.`,
+          JSON.stringify({ 
+            expires_at: sub.expires_at, 
+            has_payment: sub.has_payment_method,
+            plan_name: sub.plan_name
+          })
+        ]);
+        
+      } catch (userError) {
+        console.error(`[Manual Expiry] Error processing user ${sub.user_email}:`, userError.message);
+      }
+    }
+    
+    console.log(`[Manual Expiry] ✅ Processed ${expiringResult.rows.length} subscriptions: ${scheduled} scheduled, ${notified} notified`);
+    return { processed: expiringResult.rows.length, scheduled, notified };
+    
+  } catch (error) {
+    console.error('[Manual Expiry] Error:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   handleExpiredSubscriptions,
   sendTrialExpiryReminders,
+  handleExpiringManualSubscriptions,
 };

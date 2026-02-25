@@ -66,7 +66,7 @@ cron.schedule('0 9 * * *', async () => {
 console.log('📅 Billing queue processing scheduled for 9:00 AM daily');
 
 // Schedule subscription expiry check - run every hour
-const { handleExpiredSubscriptions, sendTrialExpiryReminders } = require('./services/subscription/expiry.service');
+const { handleExpiredSubscriptions, sendTrialExpiryReminders, handleExpiringManualSubscriptions } = require('./services/subscription/expiry.service');
 
 cron.schedule('0 * * * *', async () => {
   console.log('[Cron] Checking expired subscriptions...');
@@ -86,6 +86,18 @@ cron.schedule('0 10 * * *', async () => {
     await sendTrialExpiryReminders();
   } catch (err) {
     console.error('[Cron] Trial reminder failed:', err.message);
+  }
+}, {
+  timezone: 'Asia/Jerusalem'
+});
+
+// Check manual subscriptions expiring soon - run daily at 10:30 AM
+cron.schedule('30 10 * * *', async () => {
+  console.log('[Cron] Checking expiring manual subscriptions...');
+  try {
+    await handleExpiringManualSubscriptions();
+  } catch (err) {
+    console.error('[Cron] Manual expiry check failed:', err.message);
   }
 }, {
   timezone: 'Asia/Jerusalem'
