@@ -74,7 +74,9 @@ export default function AdminStatusBot() {
     recentMessages: [],
     processingUploads: [],
     queueLock: null,
-    pendingCount: 0
+    pendingCount: 0,
+    pendingQueue: [],
+    scheduledStatuses: []
   });
   const [loadingProcesses, setLoadingProcesses] = useState(true);
   const [now, setNow] = useState(Date.now());
@@ -97,11 +99,18 @@ export default function AdminStatusBot() {
     });
     
     socket.on('statusbot:conversation_update', () => loadActiveProcesses());
-    socket.on('statusbot:processing_start', () => loadActiveProcesses());
-    socket.on('statusbot:processing_end', () => {
+    socket.on('statusbot:processing_start', (data) => {
+      console.log('Processing started:', data);
+      loadActiveProcesses();
+    });
+    socket.on('statusbot:processing_end', (data) => {
+      console.log('Processing ended:', data);
       loadActiveProcesses();
       loadData();
     });
+    
+    // Auto-refresh active processes every 5 seconds
+    const processTimer = setInterval(() => loadActiveProcesses(), 5000);
     
     // Real-time message received - update recent messages list
     socket.on('statusbot:message_received', (data) => {
@@ -136,6 +145,7 @@ export default function AdminStatusBot() {
     
     return () => {
       clearInterval(timer);
+      clearInterval(processTimer);
       socket.emit('leave_admin');
       socket.disconnect();
     };
@@ -486,34 +496,6 @@ export default function AdminStatusBot() {
               })()}
             </div>
             
-            {/* Active Conversations */}
-            <div>
-              <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-2">
-                <MessageCircle className="w-4 h-4" />
-                שיחות פעילות ({activeProcesses.activeConversations.length})
-              </h4>
-              {activeProcesses.activeConversations.length === 0 ? (
-                <p className="text-sm text-gray-400 py-2">אין שיחות פעילות כרגע</p>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {activeProcesses.activeConversations.map((conv, idx) => (
-                    <div key={idx} className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border border-gray-100 dark:border-gray-700">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Phone className="w-4 h-4 text-blue-600" />
-                          <span className="font-medium text-gray-800 dark:text-white" dir="ltr">+{conv.phone}</span>
-                        </div>
-                        <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">
-                          {getStateName(conv.state)}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1">{conv.userName || conv.userEmail}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            
             {/* Processing Uploads */}
             <div>
               <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-2">
@@ -587,22 +569,127 @@ export default function AdminStatusBot() {
                 </div>
               )}
             </div>
+
+            {/* Pending Queue */}
+            {activeProcesses.pendingQueue?.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-blue-500" />
+                  תור ממתין ({activeProcesses.pendingCount})
+                </h4>
+                <div className="space-y-2">
+                  {activeProcesses.pendingQueue.map((item, idx) => (
+                    <div key={item.id} className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border border-blue-100 dark:border-blue-800">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-sm font-bold">
+                            #{idx + 1}
+                          </span>
+                          <div>
+                            <p className="font-medium text-gray-800 dark:text-white">
+                              {item.statusType === 'text' ? '📝 טקסט' : 
+                               item.statusType === 'image' ? '🖼️ תמונה' : 
+                               item.statusType === 'video' ? '🎬 סרטון' : '🎤 קול'}
+                              {item.totalParts > 1 && ` (חלק ${item.partNumber}/${item.totalParts})`}
+                            </p>
+                            <p className="text-sm text-gray-500">{item.userName || item.userEmail}</p>
+                          </div>
+                        </div>
+                        <div className="text-left">
+                          <p className="text-xs text-gray-400">
+                            נוסף: {new Date(item.createdAt).toLocaleTimeString('he-IL')}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {activeProcesses.pendingCount > activeProcesses.pendingQueue.length && (
+                    <p className="text-center text-sm text-gray-400">
+                      + {activeProcesses.pendingCount - activeProcesses.pendingQueue.length} נוספים בתור
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Scheduled Statuses */}
+            {activeProcesses.scheduledStatuses?.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-indigo-500" />
+                  מתוזמנים ({activeProcesses.scheduledStatuses.length})
+                </h4>
+                <div className="space-y-2">
+                  {activeProcesses.scheduledStatuses.map((item) => {
+                    const scheduledTime = new Date(item.scheduledFor);
+                    const timeUntil = scheduledTime.getTime() - now;
+                    const hoursUntil = Math.floor(timeUntil / (1000 * 60 * 60));
+                    const minutesUntil = Math.floor((timeUntil % (1000 * 60 * 60)) / (1000 * 60));
+                    const secondsUntil = Math.floor((timeUntil % (1000 * 60)) / 1000);
+                    
+                    let countdownText = '';
+                    if (hoursUntil > 0) {
+                      countdownText = `${hoursUntil}:${minutesUntil.toString().padStart(2, '0')}:${secondsUntil.toString().padStart(2, '0')}`;
+                    } else if (minutesUntil > 0) {
+                      countdownText = `${minutesUntil}:${secondsUntil.toString().padStart(2, '0')}`;
+                    } else {
+                      countdownText = `${secondsUntil} שניות`;
+                    }
+                    
+                    const isNear = timeUntil < 5 * 60 * 1000; // Less than 5 minutes
+                    
+                    return (
+                      <div key={item.id} className={`bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border ${
+                        isNear ? 'border-indigo-300 bg-indigo-50 dark:bg-indigo-900/20' : 'border-indigo-100 dark:border-indigo-800'
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                              isNear ? 'bg-indigo-200' : 'bg-indigo-100'
+                            }`}>
+                              <Timer className={`w-5 h-5 text-indigo-600 ${isNear ? 'animate-pulse' : ''}`} />
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-800 dark:text-white">
+                                {item.statusType === 'text' ? '📝 טקסט' : 
+                                 item.statusType === 'image' ? '🖼️ תמונה' : 
+                                 item.statusType === 'video' ? '🎬 סרטון' : '🎤 קול'}
+                                {item.totalParts > 1 && ` (חלק ${item.partNumber}/${item.totalParts})`}
+                              </p>
+                              <p className="text-sm text-gray-500">{item.userName || item.userEmail}</p>
+                            </div>
+                          </div>
+                          <div className="text-left">
+                            <div className={`text-lg font-mono font-bold ${isNear ? 'text-indigo-600' : 'text-gray-600'}`}>
+                              {countdownText}
+                            </div>
+                            <p className="text-xs text-gray-400">
+                              {scheduledTime.toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric' })}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             
             {/* Status Summary */}
             <div className={`p-3 rounded-lg ${
-              activeProcesses.activeConversations.length === 0 && activeProcesses.processingUploads.length === 0
+              activeProcesses.processingUploads.length === 0
                 ? 'bg-green-100 dark:bg-green-900/30 border border-green-300'
                 : 'bg-amber-100 dark:bg-amber-900/30 border border-amber-300'
             }`}>
               <p className={`text-sm font-medium ${
-                activeProcesses.activeConversations.length === 0 && activeProcesses.processingUploads.length === 0
+                activeProcesses.processingUploads.length === 0
                   ? 'text-green-700' : 'text-amber-700'
               }`}>
-                {activeProcesses.activeConversations.length === 0 && activeProcesses.processingUploads.length === 0 ? (
+                {activeProcesses.processingUploads.length === 0 ? (
                   <><Check className="w-4 h-4 inline mr-1" />בטוח לעשות ריסטארט</>
                 ) : (
                   <><AlertCircle className="w-4 h-4 inline mr-1" />
-                    יש {activeProcesses.activeConversations.length} שיחות + {activeProcesses.processingUploads.length} העלאות פעילות
+                    יש {activeProcesses.processingUploads.length} העלאות פעילות
                   </>
                 )}
               </p>

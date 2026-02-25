@@ -2321,6 +2321,52 @@ async function adminGetActiveProcesses(req, res) {
       SELECT COUNT(*) as count FROM status_bot_queue WHERE queue_status = 'pending'
     `);
 
+    // Get pending queue items (next 20)
+    const pendingQueueResult = await db.query(`
+      SELECT 
+        q.id,
+        q.status_type,
+        q.created_at,
+        q.source,
+        q.source_phone,
+        q.part_number,
+        q.total_parts,
+        conn.display_name,
+        conn.phone_number as bot_phone,
+        u.name as user_name,
+        u.email as user_email
+      FROM status_bot_queue q
+      JOIN status_bot_connections conn ON conn.id = q.connection_id
+      JOIN users u ON conn.user_id = u.id
+      WHERE q.queue_status = 'pending'
+      ORDER BY q.created_at ASC
+      LIMIT 20
+    `);
+
+    // Get scheduled statuses
+    const scheduledResult = await db.query(`
+      SELECT 
+        q.id,
+        q.status_type,
+        q.scheduled_for,
+        q.created_at,
+        q.source,
+        q.source_phone,
+        q.part_number,
+        q.total_parts,
+        conn.display_name,
+        conn.phone_number as bot_phone,
+        u.name as user_name,
+        u.email as user_email
+      FROM status_bot_queue q
+      JOIN status_bot_connections conn ON conn.id = q.connection_id
+      JOIN users u ON conn.user_id = u.id
+      WHERE q.queue_status = 'scheduled'
+        AND q.scheduled_for > NOW()
+      ORDER BY q.scheduled_for ASC
+      LIMIT 20
+    `);
+
     res.json({
       activeConversations: conversationsResult.rows.map(c => ({
         phone: c.phone_number,
@@ -2357,7 +2403,34 @@ async function adminGetActiveProcesses(req, res) {
         userEmail: p.user_email
       })),
       queueLock: lockResult.rows[0] || null,
-      pendingCount: parseInt(pendingResult.rows[0].count)
+      pendingCount: parseInt(pendingResult.rows[0].count),
+      pendingQueue: pendingQueueResult.rows.map(p => ({
+        id: p.id,
+        statusType: p.status_type,
+        createdAt: p.created_at,
+        source: p.source,
+        sourcePhone: p.source_phone,
+        partNumber: p.part_number,
+        totalParts: p.total_parts,
+        displayName: p.display_name,
+        botPhone: p.bot_phone,
+        userName: p.user_name,
+        userEmail: p.user_email
+      })),
+      scheduledStatuses: scheduledResult.rows.map(s => ({
+        id: s.id,
+        statusType: s.status_type,
+        scheduledFor: s.scheduled_for,
+        createdAt: s.created_at,
+        source: s.source,
+        sourcePhone: s.source_phone,
+        partNumber: s.part_number,
+        totalParts: s.total_parts,
+        displayName: s.display_name,
+        botPhone: s.bot_phone,
+        userName: s.user_name,
+        userEmail: s.user_email
+      }))
     });
 
   } catch (error) {
