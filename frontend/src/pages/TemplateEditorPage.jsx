@@ -242,31 +242,40 @@ export default function TemplateEditorPage() {
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 flex relative overflow-hidden">
-        {/* Node Palette - Left */}
-        <NodePalette />
-
-        {/* Flow Builder - Center */}
-        <div className="flex-1 relative">
-          {flowData && (
-            <FlowBuilder
-              key={flowKey}
-              initialData={flowData}
-              onChange={handleFlowChange}
-              onNodeSelect={handleNodeSelect}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Right Panel - Editor or Palette (switches automatically) */}
+        <div className="w-96 flex-shrink-0 order-first h-full">
+          {selectedNode ? (
+            <NodeEditor
+              node={selectedNode}
+              onUpdate={handleUpdateNode}
+              onClose={() => setSelectedNodeId(null)}
+              onDelete={handleDeleteNode}
+              isNodeConnected={(nodeId) => {
+                if (!flowData?.edges) return true;
+                return flowData.edges.some(e => e.source === nodeId || e.target === nodeId);
+              }}
             />
+          ) : (
+            <div className="h-full p-3 bg-white border-r border-gray-200 overflow-y-auto">
+              <NodePalette />
+            </div>
           )}
         </div>
 
-        {/* Node Editor - Right */}
-        {selectedNode && (
-          <NodeEditor
-            node={selectedNode}
-            onUpdate={handleUpdateNode}
-            onDelete={handleDeleteNode}
-            onClose={() => setSelectedNodeId(null)}
-          />
-        )}
+        {/* Canvas */}
+        <div className="flex-1 m-4">
+          <div className="h-full bg-white/50 backdrop-blur rounded-2xl border border-gray-200 shadow-inner overflow-hidden">
+            {flowData && (
+              <FlowBuilder
+                key={flowKey}
+                initialData={flowData}
+                onChange={handleFlowChange}
+                onNodeSelect={handleNodeSelect}
+              />
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Change Indicator */}
