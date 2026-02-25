@@ -1360,23 +1360,22 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
     SELECT COUNT(*) FROM group_forward_targets WHERE forward_id = $1 AND is_active = true
   `, [job.forward_id]);
   
-  const session = await getUserSession(userId);
-  await wahaService.sendListMessage(session, `${senderPhone}@s.whatsapp.net`, {
-    title: `✅ תוזמן בהצלחה`,
-    description: `📤 ${job.forward_name}\n📅 יום ${hebrewDate}\n📊 יישלח ל-${targetCount.rows[0].count} קבוצות`,
-    footer: '',
-    button: 'אפשרויות',
-    sections: [{
-      title: 'פעולות',
-      rows: [
+  const wahaConnection = await getWahaConnection(userId);
+  if (wahaConnection) {
+    const chatId = `${senderPhone}@s.whatsapp.net`;
+    const listData = {
+      title: `✅ תוזמן בהצלחה`,
+      body: `📤 ${job.forward_name}\n📅 יום ${hebrewDate}\n📊 יישלח ל-${targetCount.rows[0].count} קבוצות`,
+      buttonText: 'אפשרויות',
+      buttons: [
         { title: '⏹️ עצור וביטול', rowId: `fwd_sched_cancel_${scheduledId}` },
         { title: '🗑️ עצור ומחק', rowId: `fwd_sched_delete_${scheduledId}` },
         { title: '🕐 שנה תזמון', rowId: `fwd_sched_change_${scheduledId}` }
       ]
-    }]
-  });
-  
-  await saveOutgoingMessage(userId, senderPhone, 'list', `תזמון: ${job.forward_name}`);
+    };
+    await wahaService.sendList(wahaConnection, chatId, listData);
+    await saveOutgoingMessage(userId, senderPhone, 'list', `תזמון: ${job.forward_name}`);
+  }
   
   return true;
 }
@@ -1484,13 +1483,28 @@ async function handleScheduledDelete(userId, senderPhone, scheduledId) {
     `, [scheduled.job_id]);
     
     // Delete messages
-    const session = await getUserSession(userId);
-    for (const msg of messagesResult.rows) {
-      try {
-        await wahaService.deleteMessage(session, msg.group_id, msg.sent_message_id);
-        deletedCount++;
-      } catch (err) {
-        console.error(`[GroupForwards] Failed to delete message ${msg.sent_message_id}:`, err.message);
+    const wahaConnection = await getWahaConnection(userId);
+    if (wahaConnection) {
+      for (const msg of messagesResult.rows) {
+        try {
+          await axios.post(
+            `${wahaConnection.base_url}/api/deleteMessage`,
+            {
+              session: wahaConnection.session_name,
+              chatId: msg.group_id,
+              messageId: msg.sent_message_id
+            },
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Api-Key': wahaConnection.api_key
+              }
+            }
+          );
+          deletedCount++;
+        } catch (err) {
+          console.error(`[GroupForwards] Failed to delete message:`, err.message);
+        }
       }
     }
   }
@@ -1553,19 +1567,18 @@ async function handleScheduledChangeTime(userId, senderPhone, scheduledId) {
     });
   }
   
-  const session = await getUserSession(userId);
-  await wahaService.sendListMessage(session, `${senderPhone}@s.whatsapp.net`, {
-    title: `🕐 שינוי תזמון`,
-    description: `📤 ${scheduled.forward_name}\nבחר יום חדש לשליחה:`,
-    footer: '',
-    button: 'בחר יום',
-    sections: [{
-      title: 'ימים',
-      rows: days
-    }]
-  });
-  
-  await saveOutgoingMessage(userId, senderPhone, 'list', `שינוי תזמון: ${scheduled.forward_name}`);
+  const wahaConnection = await getWahaConnection(userId);
+  if (wahaConnection) {
+    const chatId = `${senderPhone}@s.whatsapp.net`;
+    const listData = {
+      title: `🕐 שינוי תזמון`,
+      body: `📤 ${scheduled.forward_name}\nבחר יום חדש לשליחה:`,
+      buttonText: 'בחר יום',
+      buttons: days
+    };
+    await wahaService.sendList(wahaConnection, chatId, listData);
+    await saveOutgoingMessage(userId, senderPhone, 'list', `שינוי תזמון: ${scheduled.forward_name}`);
+  }
 }
 
 /**
@@ -1671,23 +1684,22 @@ async function handleRescheduleTimeInput(userId, senderPhone, timeInput, pending
   `, [pendingReschedule.forward_id]);
   
   // Send list with action buttons
-  const session = await getUserSession(userId);
-  await wahaService.sendListMessage(session, `${senderPhone}@s.whatsapp.net`, {
-    title: `✅ התזמון עודכן`,
-    description: `📤 ${pendingReschedule.forward_name}\n📅 יום ${hebrewDate}\n📊 יישלח ל-${targetCount.rows[0].count} קבוצות`,
-    footer: '',
-    button: 'אפשרויות',
-    sections: [{
-      title: 'פעולות',
-      rows: [
+  const wahaConnection = await getWahaConnection(userId);
+  if (wahaConnection) {
+    const chatId = `${senderPhone}@s.whatsapp.net`;
+    const listData = {
+      title: `✅ התזמון עודכן`,
+      body: `📤 ${pendingReschedule.forward_name}\n📅 יום ${hebrewDate}\n📊 יישלח ל-${targetCount.rows[0].count} קבוצות`,
+      buttonText: 'אפשרויות',
+      buttons: [
         { title: '⏹️ עצור וביטול', rowId: `fwd_sched_cancel_${pendingReschedule.scheduled_id}` },
         { title: '🗑️ עצור ומחק', rowId: `fwd_sched_delete_${pendingReschedule.scheduled_id}` },
         { title: '🕐 שנה תזמון', rowId: `fwd_sched_change_${pendingReschedule.scheduled_id}` }
       ]
-    }]
-  });
-  
-  await saveOutgoingMessage(userId, senderPhone, 'list', `עדכון תזמון: ${pendingReschedule.forward_name}`);
+    };
+    await wahaService.sendList(wahaConnection, chatId, listData);
+    await saveOutgoingMessage(userId, senderPhone, 'list', `עדכון תזמון: ${pendingReschedule.forward_name}`);
+  }
   
   return true;
 }
