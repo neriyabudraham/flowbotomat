@@ -2,6 +2,10 @@
 ALTER TABLE group_forward_targets
 ADD COLUMN IF NOT EXISTS no_suffix BOOLEAN DEFAULT false;
 
+-- Add scheduled_date column to forward_jobs (for storing selected date during scheduling flow)
+ALTER TABLE forward_jobs
+ADD COLUMN IF NOT EXISTS scheduled_date DATE;
+
 -- Create scheduled_forwards table for message scheduling
 CREATE TABLE IF NOT EXISTS scheduled_forwards (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

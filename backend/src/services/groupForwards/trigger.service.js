@@ -703,12 +703,12 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
         return await handleStop(userId, senderPhone, jobId, true);
       }
       
-      // Handle time selection for scheduling
-      if (selectedRowId.startsWith('fwd_time_')) {
-        const parts = selectedRowId.replace('fwd_time_', '').split('_');
+      // Handle day selection for scheduling
+      if (selectedRowId.startsWith('fwd_day_')) {
+        const parts = selectedRowId.replace('fwd_day_', '').split('_');
         const jobId = parts[0];
-        const timeOption = parts[1];
-        return await handleScheduleTime(userId, senderPhone, jobId, timeOption);
+        const dayOffset = parts[1];
+        return await handleDaySelection(userId, senderPhone, jobId, dayOffset);
       }
       
       // Handle back button from schedule menu
@@ -716,6 +716,12 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
         const jobId = selectedRowId.replace('fwd_back_', '');
         return await handleScheduleBack(userId, senderPhone, jobId);
       }
+    }
+    
+    // Check for time input (when waiting for schedule time)
+    if (messageContent && /^\d{1,4}:?\d{0,2}$/.test(messageContent.trim())) {
+      const handled = await handleScheduleTimeInput(userId, senderPhone, messageContent.trim());
+      if (handled) return true;
     }
     
     // Check for text response
@@ -950,11 +956,66 @@ async function handleTextStop(userId, senderPhone, shouldDelete) {
   return await handleStop(userId, senderPhone, activeJob.rows[0].id, shouldDelete);
 }
 
+// Hebrew day names
+const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+
 /**
- * Handle schedule prompt - ask user for time
+ * Convert Israel time string to UTC Date
+ */
+function convertIsraelTimeToUTC(israelDateTimeStr) {
+  const [datePart, timePart] = israelDateTimeStr.split('T');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hours, minutes, seconds = 0] = timePart.split(':').map(Number);
+  
+  const refDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const israelStr = refDate.toLocaleString('en-US', { 
+    timeZone: 'Asia/Jerusalem',
+    hour: '2-digit',
+    hour12: false 
+  });
+  const israelHour = parseInt(israelStr);
+  const utcHour = refDate.getUTCHours();
+  const offsetHours = israelHour - utcHour;
+  
+  return new Date(Date.UTC(year, month - 1, day, hours - offsetHours, minutes, seconds));
+}
+
+/**
+ * Parse flexible time input (like Status Bot)
+ */
+function parseTimeInput(input) {
+  const cleaned = input.replace(/[^\d:]/g, '');
+  
+  let hours, minutes;
+  
+  if (cleaned.includes(':')) {
+    const parts = cleaned.split(':');
+    hours = parseInt(parts[0]);
+    minutes = parseInt(parts[1]) || 0;
+  } else if (cleaned.length >= 3) {
+    if (cleaned.length === 4) {
+      hours = parseInt(cleaned.substring(0, 2));
+      minutes = parseInt(cleaned.substring(2, 4));
+    } else {
+      hours = parseInt(cleaned.substring(0, cleaned.length - 2));
+      minutes = parseInt(cleaned.substring(cleaned.length - 2));
+    }
+  } else {
+    hours = parseInt(cleaned);
+    minutes = 0;
+  }
+  
+  if (isNaN(hours) || hours < 0 || hours > 23) return null;
+  if (isNaN(minutes) || minutes < 0 || minutes > 59) return null;
+  
+  return { hours, minutes };
+}
+
+/**
+ * Handle schedule prompt - show day selection list (like Status Bot)
  */
 async function handleSchedulePrompt(userId, senderPhone, jobId) {
-  console.log(`[GroupForwards] handleSchedulePrompt called - jobId: ${jobId}, userId: ${userId}, senderPhone: ${senderPhone}`);
+  console.log(`[GroupForwards] handleSchedulePrompt called - jobId: ${jobId}`);
   
   // Verify job exists and belongs to user
   const jobResult = await db.query(`
@@ -979,7 +1040,7 @@ async function handleSchedulePrompt(userId, senderPhone, jobId) {
     WHERE id = $1
   `, [jobId]);
   
-  // Send schedule options as list
+  // Send day selection list (like Status Bot)
   const wahaConnection = await getWahaConnection(userId);
   if (!wahaConnection) {
     console.log('[GroupForwards] No WhatsApp connection for schedule prompt');
@@ -990,23 +1051,39 @@ async function handleSchedulePrompt(userId, senderPhone, jobId) {
   const wahaService = require('../waha/session.service');
   
   try {
+    // Generate next 8 days including today (exactly like Status Bot)
+    const days = [];
+    const now = new Date();
+    
+    for (let i = 0; i < 8; i++) {
+      const date = new Date(now);
+      date.setDate(date.getDate() + i);
+      
+      const dayOfWeek = DAY_NAMES[date.getDay()];
+      const dateStr = date.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' });
+      
+      let title = `יום ${dayOfWeek} - ${dateStr}`;
+      if (i === 0) title = `היום - ${dayOfWeek}`;
+      if (i === 1) title = `מחר - ${dayOfWeek}`;
+      
+      days.push({
+        title,
+        rowId: `fwd_day_${jobId}_${i}`
+      });
+    }
+    
+    // Add back button
+    days.push({ title: '🔙 חזרה', rowId: `fwd_back_${jobId}` });
+    
     const listData = {
       title: `⏰ תזמון - ${job.forward_name}`,
-      body: `בחר מתי לשלוח ל-*${job.total_targets}* קבוצות:`,
-      buttonText: 'בחר זמן',
-      buttons: [
-        { title: '🕐 בעוד 30 דקות', rowId: `fwd_time_${jobId}_30m` },
-        { title: '🕐 בעוד שעה', rowId: `fwd_time_${jobId}_1h` },
-        { title: '🕐 בעוד 2 שעות', rowId: `fwd_time_${jobId}_2h` },
-        { title: '🕐 בעוד 6 שעות', rowId: `fwd_time_${jobId}_6h` },
-        { title: '📅 מחר בשעה 9:00', rowId: `fwd_time_${jobId}_tomorrow9` },
-        { title: '📅 מחר בשעה 18:00', rowId: `fwd_time_${jobId}_tomorrow18` },
-        { title: '🔙 חזרה', rowId: `fwd_back_${jobId}` }
-      ]
+      body: `באיזה יום לשלוח ל-*${job.total_targets}* קבוצות?`,
+      buttonText: 'בחר יום',
+      buttons: days
     };
     
     await wahaService.sendList(wahaConnection, chatId, listData);
-    console.log(`[GroupForwards] Sent schedule list for job ${jobId}`);
+    console.log(`[GroupForwards] Sent schedule day list for job ${jobId}`);
     
     // Save to Live Chat
     await saveOutgoingMessage(
@@ -1021,7 +1098,7 @@ async function handleSchedulePrompt(userId, senderPhone, jobId) {
   } catch (error) {
     console.error('[GroupForwards] Send schedule list error:', error.message);
     await sendNotificationMessage(userId, senderPhone, 
-      `⏰ *תזמון - ${job.forward_name}*\n\nבחר מתי לשלוח:\n• "30 דקות"\n• "שעה"\n• "2 שעות"\n• "מחר 9"\n• "מחר 18"\n\nאו השב "בטל" לביטול.`
+      `⏰ *תזמון - ${job.forward_name}*\n\nבאיזה יום לשלוח?\n• "היום"\n• "מחר"\n• או מספר ימים (0-7)\n\nאו השב "בטל" לביטול.`
     );
   }
   
@@ -1029,60 +1106,100 @@ async function handleSchedulePrompt(userId, senderPhone, jobId) {
 }
 
 /**
- * Handle schedule time selection
+ * Handle day selection - ask for time (like Status Bot)
  */
-async function handleScheduleTime(userId, senderPhone, jobId, timeOption) {
-  console.log(`[GroupForwards] handleScheduleTime - jobId: ${jobId}, timeOption: ${timeOption}`);
+async function handleDaySelection(userId, senderPhone, jobId, dayOffset) {
+  console.log(`[GroupForwards] handleDaySelection - jobId: ${jobId}, dayOffset: ${dayOffset}`);
   
-  // Verify job exists and is in pending_schedule status
+  const offset = parseInt(dayOffset);
+  const scheduledDate = new Date();
+  scheduledDate.setDate(scheduledDate.getDate() + offset);
+  
+  // Store selected day in job metadata
+  const dateStr = scheduledDate.toISOString().split('T')[0];
+  await db.query(`
+    UPDATE forward_jobs SET 
+      status = 'pending_schedule_time',
+      updated_at = NOW()
+    WHERE id = $1
+  `, [jobId]);
+  
+  // Store the selected date in a temporary way (using the job's message_text temporarily)
+  // We'll need to add a proper field for this, but for now use a workaround
+  await db.query(`
+    UPDATE forward_jobs SET 
+      scheduled_date = $1
+    WHERE id = $2
+  `, [dateStr, jobId]);
+  
+  // Get job details
   const jobResult = await db.query(`
-    SELECT fj.*, gf.name as forward_name, gf.id as forward_id
+    SELECT fj.*, gf.name as forward_name
     FROM forward_jobs fj
     JOIN group_forwards gf ON fj.forward_id = gf.id
-    WHERE fj.id = $1 AND fj.user_id = $2 AND fj.status IN ('pending', 'pending_schedule')
-  `, [jobId, userId]);
+    WHERE fj.id = $1
+  `, [jobId]);
   
   if (jobResult.rows.length === 0) {
-    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה לתזמון.');
+    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה.');
     return true;
   }
   
   const job = jobResult.rows[0];
+  const dayName = DAY_NAMES[scheduledDate.getDay()];
+  const dateDisplay = `${scheduledDate.getDate()}/${scheduledDate.getMonth() + 1}`;
   
-  // Calculate scheduled time
-  let scheduledAt = new Date();
-  let timeLabel = '';
+  await sendNotificationMessage(userId, senderPhone, 
+    `📅 נבחר: יום ${dayName}, ${dateDisplay}\n\n⏰ באיזו שעה לתזמן?\n\nשלח את השעה בפורמט: 13:00\n(מקבל גם 1300 או 13)`
+  );
   
-  switch (timeOption) {
-    case '30m':
-      scheduledAt.setMinutes(scheduledAt.getMinutes() + 30);
-      timeLabel = 'בעוד 30 דקות';
-      break;
-    case '1h':
-      scheduledAt.setHours(scheduledAt.getHours() + 1);
-      timeLabel = 'בעוד שעה';
-      break;
-    case '2h':
-      scheduledAt.setHours(scheduledAt.getHours() + 2);
-      timeLabel = 'בעוד 2 שעות';
-      break;
-    case '6h':
-      scheduledAt.setHours(scheduledAt.getHours() + 6);
-      timeLabel = 'בעוד 6 שעות';
-      break;
-    case 'tomorrow9':
-      scheduledAt.setDate(scheduledAt.getDate() + 1);
-      scheduledAt.setHours(9, 0, 0, 0);
-      timeLabel = 'מחר בשעה 9:00';
-      break;
-    case 'tomorrow18':
-      scheduledAt.setDate(scheduledAt.getDate() + 1);
-      scheduledAt.setHours(18, 0, 0, 0);
-      timeLabel = 'מחר בשעה 18:00';
-      break;
-    default:
-      await sendNotificationMessage(userId, senderPhone, '❌ זמן לא תקין. אנא בחר מהרשימה.');
-      return true;
+  return true;
+}
+
+/**
+ * Handle time input for scheduling (text message)
+ */
+async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
+  console.log(`[GroupForwards] handleScheduleTimeInput - timeInput: ${timeInput}`);
+  
+  // Find pending schedule job for this user
+  const jobResult = await db.query(`
+    SELECT fj.*, gf.name as forward_name, gf.id as forward_id
+    FROM forward_jobs fj
+    JOIN group_forwards gf ON fj.forward_id = gf.id
+    WHERE fj.user_id = $1 AND fj.sender_phone = $2 AND fj.status = 'pending_schedule_time'
+    ORDER BY fj.updated_at DESC
+    LIMIT 1
+  `, [userId, senderPhone]);
+  
+  if (jobResult.rows.length === 0) {
+    return false; // No pending schedule
+  }
+  
+  const job = jobResult.rows[0];
+  const parsedTime = parseTimeInput(timeInput);
+  
+  if (!parsedTime) {
+    await sendNotificationMessage(userId, senderPhone, 'פורמט שעה לא תקין, אנא נסה שוב (לדוגמא 13:00)');
+    return true;
+  }
+  
+  // Get the stored date
+  const dateStr = job.scheduled_date;
+  if (!dateStr) {
+    await sendNotificationMessage(userId, senderPhone, 'לא נבחר תאריך, אנא התחל מחדש');
+    await db.query(`UPDATE forward_jobs SET status = 'cancelled' WHERE id = $1`, [job.id]);
+    return true;
+  }
+  
+  // Build scheduled time (convert from Israel time to UTC)
+  const timeStr = `${String(parsedTime.hours).padStart(2, '0')}:${String(parsedTime.minutes).padStart(2, '0')}`;
+  const scheduledAt = convertIsraelTimeToUTC(`${dateStr}T${timeStr}:00`);
+  
+  // Check if time is in the past
+  if (scheduledAt <= new Date()) {
+    await sendNotificationMessage(userId, senderPhone, 'לא ניתן לתזמן לזמן שעבר, אנא בחר שעה עתידית');
+    return true;
   }
   
   // Create scheduled forward entry
@@ -1100,22 +1217,23 @@ async function handleScheduleTime(userId, senderPhone, jobId, timeOption) {
     scheduledAt
   ]);
   
-  // Cancel the original job (it will be replaced by the scheduled one)
+  // Cancel the original job
   await db.query(`
     UPDATE forward_jobs SET status = 'cancelled', updated_at = NOW()
     WHERE id = $1
-  `, [jobId]);
+  `, [job.id]);
   
-  const formattedTime = scheduledAt.toLocaleString('he-IL', {
+  const hebrewDate = scheduledAt.toLocaleString('he-IL', { 
+    timeZone: 'Asia/Jerusalem',
     weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    hour: '2-digit',
+    day: 'numeric', 
+    month: 'numeric', 
+    hour: '2-digit', 
     minute: '2-digit'
   });
   
   await sendNotificationMessage(userId, senderPhone, 
-    `✅ *ההודעה תוזמנה בהצלחה!*\n\n📤 ${job.forward_name}\n⏰ ${timeLabel}\n📅 ${formattedTime}\n\nתקבל הודעה כשההודעה תישלח.`
+    `✅ *ההודעה תוזמנה בהצלחה!*\n\n📤 ${job.forward_name}\n📅 יום ${hebrewDate}\n\nתקבל הודעה כשההודעה תישלח.`
   );
   
   return true;
@@ -1128,7 +1246,7 @@ async function handleScheduleBack(userId, senderPhone, jobId) {
   // Restore job to pending status
   const jobResult = await db.query(`
     UPDATE forward_jobs SET status = 'pending', updated_at = NOW()
-    WHERE id = $1 AND user_id = $2 AND status = 'pending_schedule'
+    WHERE id = $1 AND user_id = $2 AND status IN ('pending_schedule', 'pending_schedule_time')
     RETURNING *
   `, [jobId, userId]);
   
