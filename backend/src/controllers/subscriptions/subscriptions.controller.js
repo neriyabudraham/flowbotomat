@@ -27,7 +27,8 @@ async function getMySubscription(req, res) {
         up.name_he as upgrade_plan_name,
         up.price as upgrade_plan_price,
         (SELECT MAX(created_at) FROM payment_history ph WHERE ph.user_id = us.user_id AND ph.status = 'success') as last_charge_date,
-        (SELECT COUNT(*) > 0 FROM user_payment_methods pm WHERE pm.user_id = us.user_id AND pm.is_active = true) as has_payment_method
+        (SELECT COUNT(*) > 0 FROM user_payment_methods pm WHERE pm.user_id = us.user_id AND pm.is_active = true) as has_payment_method,
+        (SELECT COUNT(*) > 0 FROM billing_queue bq WHERE bq.user_id = us.user_id AND bq.status = 'pending') as has_scheduled_billing
       FROM user_subscriptions us
       JOIN subscription_plans sp ON us.plan_id = sp.id
       LEFT JOIN subscription_plans up ON sp.upgrade_plan_id = up.id

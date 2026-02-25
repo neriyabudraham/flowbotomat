@@ -176,7 +176,7 @@ export default function SubscriptionManager() {
   const isActive = status === 'active';
   const isCancelled = status === 'cancelled';
   const isManual = subscription?.is_manual === true;
-  const hasStandingOrder = !!subscription?.sumit_standing_order_id;
+  const hasStandingOrder = !!subscription?.sumit_standing_order_id || subscription?.has_scheduled_billing === true;
   
   // Get end date (for manual subscriptions, only use expires_at, not next_charge_date)
   const endDateRaw = isManual
