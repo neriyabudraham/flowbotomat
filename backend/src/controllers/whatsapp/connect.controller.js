@@ -43,7 +43,21 @@ function getWebhookUrl(userId) {
   return `${appUrl}/api/webhook/waha/${userId}`;
 }
 
-const TRIAL_DAYS = 14; // 2 weeks trial period
+// Get trial configuration from site_config
+async function getTrialConfig() {
+  try {
+    const result = await pool.query(
+      "SELECT value FROM system_settings WHERE key = 'site_config'"
+    );
+    if (result.rows.length > 0 && result.rows[0].value?.trial) {
+      return result.rows[0].value.trial;
+    }
+  } catch (e) {
+    console.error('[WhatsApp] Error getting trial config:', e);
+  }
+  // Default - trial disabled
+  return { enabled: false, days: 14, modules: [] };
+}
 
 /**
  * Create managed WhatsApp connection (system WAHA)
@@ -162,28 +176,55 @@ async function createManaged(req, res) {
           `, [userId, planId]);
           console.log(`[WhatsApp] ✅ Free subscription activated`);
         } else {
-          // Paid plan - create trial
-          console.log(`[WhatsApp] Creating trial subscription for user ${userId}`);
-          const trialEndsAt = new Date();
-          trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
+          // Get trial config from site settings
+          const trialConfig = await getTrialConfig();
+          const trialEnabled = trialConfig.enabled && trialConfig.modules?.includes('bots');
           
-          await pool.query(`
-            INSERT INTO user_subscriptions (
-              user_id, plan_id, status, is_trial, trial_ends_at, 
-              payment_method_id, next_charge_date, started_at
-            ) VALUES ($1, $2, 'trial', true, $3, $4, $3, NOW())
-            ON CONFLICT (user_id) 
-            DO UPDATE SET 
-              plan_id = COALESCE(user_subscriptions.custom_discount_plan_id, $2), 
-              status = 'trial',
-              is_trial = true,
-              trial_ends_at = $3,
-              payment_method_id = COALESCE($4, user_subscriptions.payment_method_id),
-              next_charge_date = $3,
-              started_at = NOW(),
-              updated_at = NOW()
-          `, [userId, planId, trialEndsAt, paymentMethodId]);
-          console.log(`[WhatsApp] ✅ Trial subscription created, ends at: ${trialEndsAt.toISOString()}`);
+          if (trialEnabled) {
+            // Trial is enabled - create trial subscription
+            console.log(`[WhatsApp] Creating trial subscription for user ${userId} (${trialConfig.days} days)`);
+            const trialEndsAt = new Date();
+            trialEndsAt.setDate(trialEndsAt.getDate() + (trialConfig.days || 14));
+            
+            await pool.query(`
+              INSERT INTO user_subscriptions (
+                user_id, plan_id, status, is_trial, trial_ends_at, 
+                payment_method_id, next_charge_date, started_at
+              ) VALUES ($1, $2, 'trial', true, $3, $4, $3, NOW())
+              ON CONFLICT (user_id) 
+              DO UPDATE SET 
+                plan_id = COALESCE(user_subscriptions.custom_discount_plan_id, $2), 
+                status = 'trial',
+                is_trial = true,
+                trial_ends_at = $3,
+                payment_method_id = COALESCE($4, user_subscriptions.payment_method_id),
+                next_charge_date = $3,
+                started_at = NOW(),
+                updated_at = NOW()
+            `, [userId, planId, trialEndsAt, paymentMethodId]);
+            console.log(`[WhatsApp] ✅ Trial subscription created, ends at: ${trialEndsAt.toISOString()}`);
+          } else {
+            // Trial disabled - create free subscription instead
+            console.log(`[WhatsApp] Trial disabled, creating free subscription for user ${userId}`);
+            const freePlanResult = await pool.query(
+              `SELECT id FROM subscription_plans WHERE is_active = true AND price = 0 LIMIT 1`
+            );
+            const freePlanId = freePlanResult.rows[0]?.id || planId;
+            
+            await pool.query(`
+              INSERT INTO user_subscriptions (
+                user_id, plan_id, status, is_trial, started_at
+              ) VALUES ($1, $2, 'active', false, NOW())
+              ON CONFLICT (user_id) 
+              DO UPDATE SET 
+                plan_id = $2, 
+                status = 'active',
+                is_trial = false,
+                started_at = NOW(),
+                updated_at = NOW()
+            `, [userId, freePlanId]);
+            console.log(`[WhatsApp] ✅ Free subscription activated (trial disabled)`);
+          }
         }
         
         justCreatedSubscription = true;
