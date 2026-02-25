@@ -1175,7 +1175,7 @@ async function handleDaySelection(userId, senderPhone, jobId, dayOffset) {
   const dateStr = `${year}-${month}-${day}`;
   await db.query(`
     UPDATE forward_jobs SET 
-      status = 'pending_schedule_time',
+      status = 'pending_time',
       updated_at = NOW()
     WHERE id = $1
   `, [jobId]);
@@ -1223,7 +1223,7 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
     SELECT fj.*, gf.name as forward_name, gf.id as forward_id
     FROM forward_jobs fj
     JOIN group_forwards gf ON fj.forward_id = gf.id
-    WHERE fj.user_id = $1 AND fj.sender_phone = $2 AND fj.status = 'pending_schedule_time'
+    WHERE fj.user_id = $1 AND fj.sender_phone = $2 AND fj.status = 'pending_time'
     ORDER BY fj.updated_at DESC
     LIMIT 1
   `, [userId, senderPhone]);
@@ -1302,7 +1302,7 @@ async function handleScheduleBack(userId, senderPhone, jobId) {
   // Restore job to pending status
   const jobResult = await db.query(`
     UPDATE forward_jobs SET status = 'pending', updated_at = NOW()
-    WHERE id = $1 AND user_id = $2 AND status IN ('pending_schedule', 'pending_schedule_time')
+    WHERE id = $1 AND user_id = $2 AND status IN ('pending_schedule', 'pending_time')
     RETURNING *
   `, [jobId, userId]);
   
