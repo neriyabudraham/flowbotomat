@@ -46,7 +46,12 @@ export default function TemplateEditorPage() {
       // Parse flow_data if it's a string
       let flowDataParsed = data.template.flow_data;
       if (typeof flowDataParsed === 'string') {
-        flowDataParsed = JSON.parse(flowDataParsed);
+        try {
+          flowDataParsed = JSON.parse(flowDataParsed);
+        } catch (e) {
+          console.error('Failed to parse flow_data:', e);
+          flowDataParsed = null;
+        }
       }
       
       const savedData = flowDataParsed?.nodes?.length > 0 ? flowDataParsed : defaultData;
@@ -246,11 +251,9 @@ export default function TemplateEditorPage() {
           {flowData && (
             <FlowBuilder
               key={flowKey}
-              flowData={flowData}
-              onFlowChange={handleFlowChange}
-              selectedNodeId={selectedNodeId}
+              initialData={flowData}
+              onChange={handleFlowChange}
               onNodeSelect={handleNodeSelect}
-              readOnly={false}
             />
           )}
         </div>

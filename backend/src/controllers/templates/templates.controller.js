@@ -208,6 +208,7 @@ async function submitTemplate(req, res) {
     const userName = userResult.rows[0]?.name || userResult.rows[0]?.email || 'משתמש';
     
     // Create template with pending status
+    // Note: flow_data and trigger_config are JSONB columns, so we pass objects directly
     const result = await db.query(`
       INSERT INTO bot_templates (
         name, name_he, description, description_he,
@@ -567,7 +568,15 @@ async function getAdminTemplate(req, res) {
       return res.status(404).json({ error: 'תבנית לא נמצאה' });
     }
     
-    res.json({ template: result.rows[0] });
+    const template = result.rows[0];
+    
+    // Log for debugging
+    console.log(`[Templates] Admin template ${id} loaded:`);
+    console.log(`  - flow_data type: ${typeof template.flow_data}`);
+    console.log(`  - nodes count: ${template.flow_data?.nodes?.length || 0}`);
+    console.log(`  - edges count: ${template.flow_data?.edges?.length || 0}`);
+    
+    res.json({ template });
   } catch (error) {
     console.error('[Templates] Get admin template error:', error);
     res.status(500).json({ error: 'שגיאה בטעינת תבנית' });
