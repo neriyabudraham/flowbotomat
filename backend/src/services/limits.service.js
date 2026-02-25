@@ -50,8 +50,8 @@ async function checkContactLimit(userId) {
     )
   `, [userId]);
   
-  // Default free plan limit
-  let maxContacts = 100;
+  // Default - unlimited contacts
+  let maxContacts = -1;
   
   // Check feature overrides first (highest priority)
   if (featureOverrides?.max_contacts !== null && featureOverrides?.max_contacts !== undefined) {
