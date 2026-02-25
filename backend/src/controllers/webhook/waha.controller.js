@@ -526,7 +526,7 @@ async function handleIncomingMessage(userId, event) {
   const senderLid = payload._data?.Info?.SenderAlt || payload._data?.Info?.Sender || payload.from;
   
   // Debug: log what we got for senderLid
-  console.log(`[Webhook] 🔎 senderPhone: ${senderPhone}, senderLid: ${senderLid}, from: ${payload.from}`);
+  // Reduced logging - only log when there's something interesting
   
   if (senderLid && senderLid.includes('@lid') && senderPhone) {
     const lidOnly = senderLid.split('@')[0];
@@ -541,7 +541,7 @@ async function handleIncomingMessage(userId, event) {
       const resolvedPhone = await resolveLidToPhone(userId, lidOnly);
       if (resolvedPhone) {
         senderPhone = resolvedPhone;
-        console.log(`[Webhook] ✅ LID resolved to phone: ${senderPhone}`);
+        // LID resolved successfully
       } else {
         console.log(`[Webhook] ⚠️ Could not resolve LID to phone - message may not be processed`);
       }
@@ -821,7 +821,7 @@ async function handleIncomingMessage(userId, event) {
     );
     
     if (wasConfirmation) {
-      console.log(`[Webhook] Message handled as forward confirmation - skipping bot engine`);
+      // Forward confirmation handled
       handledByForwards = true;
     } else {
       // Skip forward triggering for list_response messages
@@ -841,11 +841,11 @@ async function handleIncomingMessage(userId, event) {
         );
         
         if (forwardTriggered) {
-          console.log(`[Webhook] Message handled as forward trigger - skipping bot engine`);
+          // Forward trigger handled
           handledByForwards = true;
         }
       } else {
-        console.log(`[Webhook] Skipping forward trigger check for list_response message`);
+        // Skipping forward trigger for list_response
       }
     }
   } catch (forwardError) {
@@ -859,7 +859,7 @@ async function handleIncomingMessage(userId, event) {
       const transfers = await groupTransfersTrigger.checkForTransferTrigger(userId, groupId, senderPhone);
       
       if (transfers.length > 0) {
-        console.log(`[Webhook] Group message triggers ${transfers.length} transfer(s)`);
+        // Group message triggers transfers
         
         // Process each transfer in parallel
         for (const transfer of transfers) {
@@ -867,7 +867,7 @@ async function handleIncomingMessage(userId, event) {
           // senderName is already extracted at line ~505 from the message payload
           // It contains the actual sender's PushName, not the group name
           // senderLid is used for WhatsApp mention (@mention) if available
-          console.log(`[Webhook] Transfer - senderPhone: ${senderPhone}, senderName: ${senderName}, senderLid: ${senderLid}`);
+          // Transfer processing
           
           groupTransfersTrigger.processGroupMessage({
             userId,
@@ -1277,7 +1277,7 @@ async function handleOutgoingDeviceMessage(userId, payload) {
     return;
   }
   
-  console.log(`[Webhook] Outgoing device message to: ${toPhone}`);
+  // Outgoing device message
   
   // Find the contact
   const contactResult = await pool.query(
@@ -1340,7 +1340,7 @@ async function handleOutgoingDeviceMessage(userId, payload) {
     contact,
   });
   
-  console.log(`[Webhook] Outgoing device message saved for user ${userId} to ${toPhone}`);
+  // Outgoing message saved
 }
 
 /**
@@ -1704,9 +1704,7 @@ async function handleMessageReaction(userId, event) {
       
       const reactionMsgId = payload.reaction?.messageId || payload.reaction?.id?._serialized || payload.reaction?.id || '';
       
-      console.log(`[Webhook] Status reaction from ${reactorPhone}: ${reactionText}`);
-      console.log(`[Webhook] Status reaction messageId: ${reactionMsgId}`);
-      console.log(`[Webhook] Status reaction payload.reaction keys: ${JSON.stringify(Object.keys(payload.reaction || {}))}`);
+      // Status reaction detected
       
       // Trigger bot engine with special event type
       await botEngine.processEvent(userId, reactorPhone, 'status_reaction', {

@@ -1,4 +1,5 @@
 const db = require('../../config/database');
+const { sendNotificationMessage, sendCompletionMessage } = require('../../services/groupForwards/trigger.service');
 
 /**
  * Get all scheduled forwards for user
@@ -225,6 +226,10 @@ async function processScheduledForwards() {
     
     for (const schedule of pending.rows) {
       try {
+        // Get user's phone for notifications
+        const userResult = await db.query('SELECT phone FROM users WHERE id = $1', [schedule.user_id]);
+        const userPhone = userResult.rows[0]?.phone;
+        
         // Mark as processing
         await db.query(`
           UPDATE scheduled_forwards SET status = 'processing', updated_at = NOW()
@@ -243,18 +248,8 @@ async function processScheduledForwards() {
           throw new Error('אין קבוצות יעד להעברה');
         }
         
-        // Get forward settings to apply suffix
-        const forwardResult = await db.query(`
-          SELECT suffix_enabled, message_suffix FROM group_forwards WHERE id = $1
-        `, [schedule.forward_id]);
-        
-        const forward = forwardResult.rows[0];
+        // Get message content (suffix will be applied by jobs.controller.js per target)
         let messageContent = schedule.message_content || schedule.media_caption || '';
-        
-        // Apply suffix if enabled
-        if (forward?.suffix_enabled && forward?.message_suffix) {
-          messageContent = messageContent + '\n\n' + forward.message_suffix;
-        }
         
         // Create job
         const jobResult = await db.query(`
@@ -282,8 +277,44 @@ async function processScheduledForwards() {
           `, [job.id, target.id]);
         }
         
-        // Start the job (don't wait for it)
-        startForwardJob(job.id).catch(err => {
+        // Send start notification to user
+        if (userPhone) {
+          try {
+            await sendNotificationMessage(
+              schedule.user_id, 
+              userPhone, 
+              `🚀 *התחלתי לשלוח!*\n\n📤 ${schedule.forward_name}\n📊 שליחה ל-${targetsResult.rows.length} קבוצות\n⏰ תזמון אוטומטי`
+            );
+          } catch (notifyErr) {
+            console.error(`[ScheduledForwards] Failed to send start notification:`, notifyErr.message);
+          }
+        }
+        
+        // Start the job and wait for completion to send completion notification
+        startForwardJob(job.id).then(async () => {
+          // Send completion notification
+          if (userPhone) {
+            try {
+              const completedJob = await db.query(`
+                SELECT * FROM forward_jobs WHERE id = $1
+              `, [job.id]);
+              
+              if (completedJob.rows.length > 0) {
+                const j = completedJob.rows[0];
+                const successCount = j.success_count || 0;
+                const failCount = j.fail_count || 0;
+                
+                await sendNotificationMessage(
+                  schedule.user_id,
+                  userPhone,
+                  `✅ *השליחה הושלמה!*\n\n📤 ${schedule.forward_name}\n✅ נשלח: ${successCount}/${j.total_targets}\n${failCount > 0 ? `❌ נכשל: ${failCount}` : ''}`
+                );
+              }
+            } catch (notifyErr) {
+              console.error(`[ScheduledForwards] Failed to send completion notification:`, notifyErr.message);
+            }
+          }
+        }).catch(err => {
           console.error(`[ScheduledForwards] Error starting job ${job.id}:`, err);
         });
         
@@ -297,7 +328,7 @@ async function processScheduledForwards() {
           WHERE id = $2
         `, [job.id, schedule.id]);
         
-        console.log(`[ScheduledForwards] ✅ Started scheduled forward ${schedule.id} as job ${job.id}`);
+        console.log(`[ScheduledForwards] Started scheduled forward ${schedule.id} as job ${job.id}`);
         
       } catch (scheduleError) {
         console.error(`[ScheduledForwards] Error processing schedule ${schedule.id}:`, scheduleError);

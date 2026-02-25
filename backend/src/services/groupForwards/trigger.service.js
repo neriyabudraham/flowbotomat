@@ -104,7 +104,7 @@ async function saveOutgoingMessage(userId, chatId, messageType, content, mediaUr
     const phone = chatId.split('@')[0] + (chatId.includes('@g.us') ? '@g.us' : '');
     const isGroup = chatId.includes('@g.us');
     
-    console.log(`[GroupForwards] saveOutgoingMessage - userId: ${userId}, phone: ${phone}, type: ${messageType}, isGroup: ${isGroup}`);
+    // Log removed for cleaner output
     
     // Get or create contact
     let contact = await db.query(
@@ -128,7 +128,7 @@ async function saveOutgoingMessage(userId, chatId, messageType, content, mediaUr
       
       // Create contact - use displayName if available, otherwise leave null to show phone
       const contactName = displayName || null;
-      console.log(`[GroupForwards] Creating new contact for ${phone} with name: ${contactName}`);
+      // Log removed
       contact = await db.query(
         `INSERT INTO contacts (user_id, phone, wa_id, display_name)
          VALUES ($1, $2, $3, $4)
@@ -138,7 +138,7 @@ async function saveOutgoingMessage(userId, chatId, messageType, content, mediaUr
     }
     
     const contactId = contact.rows[0].id;
-    console.log(`[GroupForwards] Found/created contact: ${contactId}`);
+    // Log removed
     
     // Save message - match schema used in other places
     const result = await db.query(`
@@ -164,7 +164,7 @@ async function saveOutgoingMessage(userId, chatId, messageType, content, mediaUr
       [contactId]
     );
     
-    console.log(`[GroupForwards] Saved outgoing message ${result.rows[0]?.id} to ${phone}`);
+    // Log removed
     
     return result.rows[0];
     
@@ -236,7 +236,7 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
   try {
     // Skip list responses - these should only be handled by handleConfirmationResponse
     if (messageData.type === 'list_response' || messageData.selectedRowId) {
-      console.log(`[GroupForwards] Skipping list response message in processMessageForForwards`);
+      // Skipping list response
       return false;
     }
     
@@ -307,8 +307,6 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
         continue;
       }
       
-      console.log(`[GroupForwards] ✅ Triggering forward ${forward.id} (${forward.name}) for sender ${senderPhone}`);
-      
       await createTriggerJob(userId, forward, senderPhone, messageData, payload);
       anyForwardTriggered = true;
     }
@@ -325,16 +323,7 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
  * Create a forward job from webhook trigger
  */
 async function createTriggerJob(userId, forward, senderPhone, messageData, payload) {
-  console.log(`[GroupForwards] createTriggerJob called:`, {
-    userId,
-    forwardId: forward.id,
-    forwardName: forward.name,
-    senderPhone,
-    requireConfirmation: forward.require_confirmation,
-    targetCount: forward.target_count,
-    messageType: messageData?.type,
-    payloadId: typeof payload.id === 'string' ? payload.id : payload.id?._serialized
-  });
+  // Log reduced
   
   try {
     // Determine message type and extract media
@@ -344,9 +333,7 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
     let mediaMimeType = null;
     let mediaFilename = null;
     
-    console.log(`[GroupForwards] Creating job - messageType: ${messageType}, content: ${messageText?.substring(0, 50)}`);
-    console.log(`[GroupForwards] Payload media info - mediaUrl: ${payload.mediaUrl}, mimetype: ${payload.mimetype}`);
-    console.log(`[GroupForwards] MessageData media info - mediaUrl: ${messageData.mediaUrl}, mimeType: ${messageData.mimeType}`);
+    // Logs removed
     
     // Handle different message types
     if (messageType === 'image' || messageType === 'video' || messageType === 'audio') {
@@ -355,7 +342,7 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
       mediaMimeType = payload.mimetype || messageData.mimeType;
       mediaFilename = payload.filename || messageData.filename;
       
-      console.log(`[GroupForwards] Media message - type: ${messageType}, url: ${mediaUrl}, mime: ${mediaMimeType}`);
+      // Log removed
       
       if (!mediaUrl) {
         console.log(`[GroupForwards] No media URL found, skipping`);
@@ -409,7 +396,7 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
       `, [job.id, target.id]);
     }
     
-    console.log(`[GroupForwards] Created trigger job ${job.id} for forward ${forward.id} with ${forward.target_count} targets, type: ${messageType}`);
+    // Job created
     
     // Send confirmation or start sending
     if (forward.require_confirmation) {
@@ -455,7 +442,7 @@ async function sendConfirmationList(userId, senderPhone, forward, job) {
     };
     
     await wahaService.sendList(wahaConnection, chatId, listData);
-    console.log(`[GroupForwards] Sent confirmation list for job ${job.id}`);
+    // Confirmation list sent
     
     // Save to Live Chat
     await saveOutgoingMessage(
@@ -634,7 +621,7 @@ async function sendGroupCompletionSummary(userId, groupId, sent, failed, total, 
     // Save to Live Chat
     await saveOutgoingMessage(userId, groupId, 'text', message, null, null, null, null, response.data?.id);
     
-    console.log(`[GroupForwards] Sent completion summary to group ${groupId}`);
+    // Completion summary sent
     
   } catch (error) {
     console.error('[GroupForwards] Send group completion summary error:', error.message);
@@ -679,11 +666,14 @@ async function sendNotificationMessage(userId, phone, text) {
  */
 async function handleConfirmationResponse(userId, senderPhone, messageContent, selectedRowId) {
   try {
-    console.log(`[GroupForwards] handleConfirmationResponse called - userId: ${userId}, senderPhone: ${senderPhone}, content: ${messageContent?.substring(0, 50)}, selectedRowId: ${selectedRowId}`);
+    // Only log when actually processing a forward response
+    if (selectedRowId?.startsWith('fwd_')) {
+      console.log(`[GroupForwards] Processing list response: ${selectedRowId}`);
+    }
     
     // Check for list response (button click)
     if (selectedRowId) {
-      console.log(`[GroupForwards] Processing list response: ${selectedRowId} from ${senderPhone} for user ${userId}`);
+      // Log already printed above
       
       // If it's a forward-related response, always return true to prevent creating new jobs
       const isForwardResponse = selectedRowId.startsWith('fwd_');
@@ -735,6 +725,36 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
         return true;
       }
       
+      // Handle scheduled forward cancel
+      if (selectedRowId.startsWith('fwd_sched_cancel_')) {
+        const scheduledId = selectedRowId.replace('fwd_sched_cancel_', '');
+        await handleScheduledCancel(userId, senderPhone, scheduledId);
+        return true;
+      }
+      
+      // Handle scheduled forward delete (stop + delete sent messages)
+      if (selectedRowId.startsWith('fwd_sched_delete_')) {
+        const scheduledId = selectedRowId.replace('fwd_sched_delete_', '');
+        await handleScheduledDelete(userId, senderPhone, scheduledId);
+        return true;
+      }
+      
+      // Handle scheduled forward change time
+      if (selectedRowId.startsWith('fwd_sched_change_')) {
+        const scheduledId = selectedRowId.replace('fwd_sched_change_', '');
+        await handleScheduledChangeTime(userId, senderPhone, scheduledId);
+        return true;
+      }
+      
+      // Handle scheduled forward day selection (for reschedule)
+      if (selectedRowId.startsWith('fwd_rsched_day_')) {
+        const parts = selectedRowId.replace('fwd_rsched_day_', '').split('_');
+        const scheduledId = parts[0];
+        const dayOffset = parseInt(parts[1], 10);
+        await handleScheduledDaySelection(userId, senderPhone, scheduledId, dayOffset);
+        return true;
+      }
+      
       // If it's a forward-related response but we didn't handle it, still return true
       // to prevent creating a new job
       if (isForwardResponse) {
@@ -745,9 +765,7 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
     
     // Check for time input (when waiting for schedule time)
     if (messageContent && /^\d{1,4}:?\d{0,2}$/.test(messageContent.trim())) {
-      console.log(`[GroupForwards] Detected potential time input: ${messageContent.trim()}`);
       const handled = await handleScheduleTimeInput(userId, senderPhone, messageContent.trim());
-      console.log(`[GroupForwards] Time input handled: ${handled}`);
       if (handled) return true;
     }
     
@@ -782,8 +800,6 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
  * Handle confirm action
  */
 async function handleConfirm(userId, senderPhone, jobId) {
-  console.log(`[GroupForwards] handleConfirm called - jobId: ${jobId}, userId: ${userId}, senderPhone: ${senderPhone}`);
-  
   // First check if job exists at all
   const jobExistsResult = await db.query(`
     SELECT fj.id, fj.status, fj.user_id, gf.name as forward_name
@@ -793,24 +809,20 @@ async function handleConfirm(userId, senderPhone, jobId) {
   `, [jobId]);
   
   if (jobExistsResult.rows.length === 0) {
-    console.log(`[GroupForwards] Job ${jobId} not found in database at all`);
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
     return true;
   }
   
   const existingJob = jobExistsResult.rows[0];
-  console.log(`[GroupForwards] Job ${jobId} found - status: ${existingJob.status}, owner: ${existingJob.user_id}, name: ${existingJob.forward_name}`);
   
   // Check if job belongs to user
   if (existingJob.user_id !== userId) {
-    console.log(`[GroupForwards] Job ${jobId} belongs to user ${existingJob.user_id}, not ${userId}`);
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
     return true;
   }
   
   // Check if job is in pending status
   if (existingJob.status !== 'pending') {
-    console.log(`[GroupForwards] Job ${jobId} is in status '${existingJob.status}', not 'pending'`);
     
     if (existingJob.status === 'sending') {
       await sendNotificationMessage(userId, senderPhone, '⏳ המשימה כבר בתהליך שליחה.');
@@ -832,7 +844,6 @@ async function handleConfirm(userId, senderPhone, jobId) {
   `, [jobId, userId]);
   
   if (jobResult.rows.length === 0) {
-    console.log(`[GroupForwards] Job ${jobId} passed all checks but final query returned empty (forward might be deleted)`);
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
     return true;
   }
@@ -1067,8 +1078,6 @@ function parseTimeInput(input) {
  * Handle schedule prompt - show day selection list (like Status Bot)
  */
 async function handleSchedulePrompt(userId, senderPhone, jobId) {
-  console.log(`[GroupForwards] handleSchedulePrompt called - jobId: ${jobId}`);
-  
   // Verify job exists and belongs to user
   const jobResult = await db.query(`
     SELECT fj.*, gf.name as forward_name
@@ -1095,7 +1104,6 @@ async function handleSchedulePrompt(userId, senderPhone, jobId) {
   // Send day selection list (like Status Bot)
   const wahaConnection = await getWahaConnection(userId);
   if (!wahaConnection) {
-    console.log('[GroupForwards] No WhatsApp connection for schedule prompt');
     return true;
   }
   
@@ -1135,7 +1143,6 @@ async function handleSchedulePrompt(userId, senderPhone, jobId) {
     };
     
     await wahaService.sendList(wahaConnection, chatId, listData);
-    console.log(`[GroupForwards] Sent schedule day list for job ${jobId}`);
     
     // Save to Live Chat
     await saveOutgoingMessage(
@@ -1161,8 +1168,6 @@ async function handleSchedulePrompt(userId, senderPhone, jobId) {
  * Handle day selection - ask for time (like Status Bot)
  */
 async function handleDaySelection(userId, senderPhone, jobId, dayOffset) {
-  console.log(`[GroupForwards] handleDaySelection - userId: ${userId}, senderPhone: ${senderPhone}, jobId: ${jobId}, dayOffset: ${dayOffset}`);
-  
   const offset = parseInt(dayOffset);
   
   // Use Israel timezone for date calculation
@@ -1185,8 +1190,6 @@ async function handleDaySelection(userId, senderPhone, jobId, dayOffset) {
     WHERE id = $2
     RETURNING id, status, sender_phone
   `, [dateStr, jobId]);
-  
-  console.log(`[GroupForwards] Updated job ${jobId} to pending_time:`, updateResult.rows[0]);
   
   // Get job details
   const jobResult = await db.query(`
@@ -1216,10 +1219,22 @@ async function handleDaySelection(userId, senderPhone, jobId, dayOffset) {
  * Handle time input for scheduling (text message)
  */
 async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
-  console.log(`[GroupForwards] handleScheduleTimeInput - userId: ${userId}, senderPhone: ${senderPhone}, timeInput: ${timeInput}`);
-  
   // Normalize phone number for matching
   const normalizedPhone = normalizePhoneNumber(senderPhone);
+  
+  // First check if there's a pending reschedule
+  const reschedResult = await db.query(`
+    SELECT pr.*, sf.forward_id, gf.name as forward_name
+    FROM pending_reschedules pr
+    JOIN scheduled_forwards sf ON sf.id = pr.scheduled_id
+    JOIN group_forwards gf ON gf.id = sf.forward_id
+    WHERE pr.user_id = $1 AND (pr.sender_phone = $2 OR pr.sender_phone = $3)
+    ORDER BY pr.created_at DESC LIMIT 1
+  `, [userId, senderPhone, normalizedPhone]);
+  
+  if (reschedResult.rows.length > 0) {
+    return await handleRescheduleTimeInput(userId, senderPhone, timeInput, reschedResult.rows[0]);
+  }
   
   // Find pending schedule job for this user - try both phone formats
   let jobResult = await db.query(`
@@ -1232,7 +1247,7 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
     LIMIT 1
   `, [userId, senderPhone, normalizedPhone]);
   
-  console.log(`[GroupForwards] Found ${jobResult.rows.length} pending_time jobs for ${senderPhone}/${normalizedPhone}`);
+  // Log removed
   
   if (jobResult.rows.length === 0) {
     // Also try to find any pending_time job for this user (in case phone mismatch)
@@ -1243,7 +1258,6 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
     `, [userId]);
     
     if (anyPendingTime.rows.length > 0) {
-      console.log(`[GroupForwards] Found pending_time job with different phone: ${anyPendingTime.rows[0].sender_phone} (looking for ${senderPhone})`);
       // Use this job if found
       const matchingJob = await db.query(`
         SELECT fj.*, gf.name as forward_name, gf.id as forward_id
@@ -1255,13 +1269,6 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
         jobResult = matchingJob;
       }
     } else {
-      // Debug: check what jobs exist for this user
-      const debugResult = await db.query(`
-        SELECT id, status, sender_phone FROM forward_jobs 
-        WHERE user_id = $1 
-        ORDER BY updated_at DESC LIMIT 5
-      `, [userId]);
-      console.log(`[GroupForwards] Debug - Recent jobs for user:`, debugResult.rows.map(r => `${r.id.substring(0,8)}: ${r.status} (${r.sender_phone})`).join(', '));
       return false; // No pending schedule
     }
   }
@@ -1294,18 +1301,13 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
     // It might be in format "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM:SS..."
     dateStr = rawDate.split('T')[0];
   } else {
-    console.log(`[GroupForwards] Unexpected date format:`, typeof rawDate, rawDate);
     await sendNotificationMessage(userId, senderPhone, 'שגיאה בעיבוד התאריך, אנא התחל מחדש');
     return true;
   }
   
-  console.log(`[GroupForwards] Parsed date: ${dateStr} from raw: ${rawDate}`);
-  
   // Build scheduled time (convert from Israel time to UTC)
   const timeStr = `${String(parsedTime.hours).padStart(2, '0')}:${String(parsedTime.minutes).padStart(2, '0')}`;
   const scheduledAt = convertIsraelTimeToUTC(`${dateStr}T${timeStr}:00`);
-  
-  console.log(`[GroupForwards] Scheduled at: ${scheduledAt?.toISOString()}`);
   
   // Verify scheduledAt is valid
   if (!scheduledAt || isNaN(scheduledAt.getTime())) {
@@ -1321,10 +1323,11 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
   }
   
   // Create scheduled forward entry
-  await db.query(`
+  const insertResult = await db.query(`
     INSERT INTO scheduled_forwards 
     (user_id, forward_id, message_type, message_content, media_url, media_filename, scheduled_at, status)
     VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+    RETURNING id
   `, [
     userId,
     job.forward_id,
@@ -1334,6 +1337,8 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
     job.media_filename,
     scheduledAt
   ]);
+  
+  const scheduledId = insertResult.rows[0].id;
   
   // Cancel the original job
   await db.query(`
@@ -1350,9 +1355,28 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
     minute: '2-digit'
   });
   
-  await sendNotificationMessage(userId, senderPhone, 
-    `✅ *ההודעה תוזמנה בהצלחה!*\n\n📤 ${job.forward_name}\n📅 יום ${hebrewDate}\n\nתקבל הודעה כשההודעה תישלח.`
-  );
+  // Send list with action buttons
+  const targetCount = await db.query(`
+    SELECT COUNT(*) FROM group_forward_targets WHERE forward_id = $1 AND is_active = true
+  `, [job.forward_id]);
+  
+  const session = await getUserSession(userId);
+  await wahaService.sendListMessage(session, `${senderPhone}@s.whatsapp.net`, {
+    title: `✅ תוזמן בהצלחה`,
+    description: `📤 ${job.forward_name}\n📅 יום ${hebrewDate}\n📊 יישלח ל-${targetCount.rows[0].count} קבוצות`,
+    footer: '',
+    button: 'אפשרויות',
+    sections: [{
+      title: 'פעולות',
+      rows: [
+        { title: '⏹️ עצור וביטול', rowId: `fwd_sched_cancel_${scheduledId}` },
+        { title: '🗑️ עצור ומחק', rowId: `fwd_sched_delete_${scheduledId}` },
+        { title: '🕐 שנה תזמון', rowId: `fwd_sched_change_${scheduledId}` }
+      ]
+    }]
+  });
+  
+  await saveOutgoingMessage(userId, senderPhone, 'list', `תזמון: ${job.forward_name}`);
   
   return true;
 }
@@ -1383,6 +1407,287 @@ async function handleScheduleBack(userId, senderPhone, jobId) {
   if (forwardResult.rows.length > 0) {
     await sendConfirmationList(userId, senderPhone, forwardResult.rows[0], jobResult.rows[0]);
   }
+  
+  return true;
+}
+
+/**
+ * Cancel a scheduled forward (stop if in progress, cancel if pending)
+ */
+async function handleScheduledCancel(userId, senderPhone, scheduledId) {
+  // Get scheduled forward
+  const schedResult = await db.query(`
+    SELECT sf.*, gf.name as forward_name
+    FROM scheduled_forwards sf
+    JOIN group_forwards gf ON gf.id = sf.forward_id
+    WHERE sf.id = $1 AND sf.user_id = $2
+  `, [scheduledId, userId]);
+  
+  if (schedResult.rows.length === 0) {
+    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצא תזמון.');
+    return;
+  }
+  
+  const scheduled = schedResult.rows[0];
+  
+  // If job is running, stop it
+  if (scheduled.job_id) {
+    await db.query(`
+      UPDATE forward_jobs SET status = 'cancelled', updated_at = NOW()
+      WHERE id = $1 AND status IN ('pending', 'running')
+    `, [scheduled.job_id]);
+  }
+  
+  // Cancel the scheduled forward
+  await db.query(`
+    UPDATE scheduled_forwards SET status = 'cancelled', updated_at = NOW()
+    WHERE id = $1
+  `, [scheduledId]);
+  
+  await sendNotificationMessage(userId, senderPhone, 
+    `✅ התזמון בוטל בהצלחה!\n\n📤 ${scheduled.forward_name}`
+  );
+}
+
+/**
+ * Stop and delete messages from a scheduled forward
+ */
+async function handleScheduledDelete(userId, senderPhone, scheduledId) {
+  // Get scheduled forward
+  const schedResult = await db.query(`
+    SELECT sf.*, gf.name as forward_name
+    FROM scheduled_forwards sf
+    JOIN group_forwards gf ON gf.id = sf.forward_id
+    WHERE sf.id = $1 AND sf.user_id = $2
+  `, [scheduledId, userId]);
+  
+  if (schedResult.rows.length === 0) {
+    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצא תזמון.');
+    return;
+  }
+  
+  const scheduled = schedResult.rows[0];
+  let deletedCount = 0;
+  
+  // If job exists, stop it and delete sent messages
+  if (scheduled.job_id) {
+    // Stop the job
+    await db.query(`
+      UPDATE forward_jobs SET status = 'cancelled', updated_at = NOW()
+      WHERE id = $1
+    `, [scheduled.job_id]);
+    
+    // Get sent message IDs
+    const messagesResult = await db.query(`
+      SELECT sent_message_id, group_id FROM forward_job_messages
+      WHERE job_id = $1 AND sent_message_id IS NOT NULL
+    `, [scheduled.job_id]);
+    
+    // Delete messages
+    const session = await getUserSession(userId);
+    for (const msg of messagesResult.rows) {
+      try {
+        await wahaService.deleteMessage(session, msg.group_id, msg.sent_message_id);
+        deletedCount++;
+      } catch (err) {
+        console.error(`[GroupForwards] Failed to delete message ${msg.sent_message_id}:`, err.message);
+      }
+    }
+  }
+  
+  // Cancel the scheduled forward
+  await db.query(`
+    UPDATE scheduled_forwards SET status = 'cancelled', updated_at = NOW()
+    WHERE id = $1
+  `, [scheduledId]);
+  
+  await sendNotificationMessage(userId, senderPhone, 
+    `✅ התזמון בוטל${deletedCount > 0 ? ` ו-${deletedCount} הודעות נמחקו` : ''}\n\n📤 ${scheduled.forward_name}`
+  );
+}
+
+/**
+ * Change scheduled time for a forward
+ */
+async function handleScheduledChangeTime(userId, senderPhone, scheduledId) {
+  // Get scheduled forward
+  const schedResult = await db.query(`
+    SELECT sf.*, gf.name as forward_name
+    FROM scheduled_forwards sf
+    JOIN group_forwards gf ON gf.id = sf.forward_id
+    WHERE sf.id = $1 AND sf.user_id = $2 AND sf.status = 'pending'
+  `, [scheduledId, userId]);
+  
+  if (schedResult.rows.length === 0) {
+    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצא תזמון פעיל.');
+    return;
+  }
+  
+  const scheduled = schedResult.rows[0];
+  
+  // Get target count
+  const targetCount = await db.query(`
+    SELECT COUNT(*) FROM group_forward_targets WHERE forward_id = $1 AND is_active = true
+  `, [scheduled.forward_id]);
+  
+  // Generate day list (8 days from today)
+  const now = getNowInIsrael();
+  const days = [];
+  
+  for (let i = 0; i < 8; i++) {
+    const date = new Date(now);
+    date.setDate(date.getDate() + i);
+    
+    let title;
+    if (i === 0) {
+      title = `היום - ${DAY_NAMES[date.getDay()]}`;
+    } else if (i === 1) {
+      title = `מחר - ${DAY_NAMES[date.getDay()]}`;
+    } else {
+      title = `${DAY_NAMES[date.getDay()]} - ${date.getDate()}/${date.getMonth() + 1}`;
+    }
+    
+    days.push({
+      title,
+      rowId: `fwd_rsched_day_${scheduledId}_${i}`
+    });
+  }
+  
+  const session = await getUserSession(userId);
+  await wahaService.sendListMessage(session, `${senderPhone}@s.whatsapp.net`, {
+    title: `🕐 שינוי תזמון`,
+    description: `📤 ${scheduled.forward_name}\nבחר יום חדש לשליחה:`,
+    footer: '',
+    button: 'בחר יום',
+    sections: [{
+      title: 'ימים',
+      rows: days
+    }]
+  });
+  
+  await saveOutgoingMessage(userId, senderPhone, 'list', `שינוי תזמון: ${scheduled.forward_name}`);
+}
+
+/**
+ * Handle day selection for rescheduling
+ */
+async function handleScheduledDaySelection(userId, senderPhone, scheduledId, dayOffset) {
+  // Get scheduled forward
+  const schedResult = await db.query(`
+    SELECT sf.*, gf.name as forward_name
+    FROM scheduled_forwards sf
+    JOIN group_forwards gf ON gf.id = sf.forward_id
+    WHERE sf.id = $1 AND sf.user_id = $2 AND sf.status = 'pending'
+  `, [scheduledId, userId]);
+  
+  if (schedResult.rows.length === 0) {
+    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצא תזמון פעיל.');
+    return;
+  }
+  
+  const scheduled = schedResult.rows[0];
+  
+  // Calculate scheduled date
+  const now = getNowInIsrael();
+  const selectedDate = new Date(now);
+  selectedDate.setDate(selectedDate.getDate() + dayOffset);
+  const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
+  
+  // Update scheduled forward with pending_time status (using a temp column or just storing in memory)
+  await db.query(`
+    UPDATE scheduled_forwards 
+    SET updated_at = NOW()
+    WHERE id = $1
+  `, [scheduledId]);
+  
+  // Store the date temporarily by saving to a pending_reschedule entry
+  await db.query(`
+    INSERT INTO pending_reschedules (user_id, scheduled_id, selected_date, sender_phone, created_at)
+    VALUES ($1, $2, $3, $4, NOW())
+    ON CONFLICT (user_id, scheduled_id) DO UPDATE SET selected_date = $3, sender_phone = $4, created_at = NOW()
+  `, [userId, scheduledId, dateStr, senderPhone]);
+  
+  const hebrewDate = selectedDate.toLocaleDateString('he-IL', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'numeric'
+  });
+  
+  await sendNotificationMessage(userId, senderPhone,
+    `📅 נבחר: יום ${hebrewDate}\n\n⏰ באיזו שעה לתזמן?\n\nשלח את השעה בפורמט: 13:00\n(מקבל גם 1300 או 13)`
+  );
+  
+  await saveOutgoingMessage(userId, senderPhone, 'text', 'בקשת שעה לשינוי תזמון');
+}
+
+/**
+ * Handle time input for rescheduling
+ */
+async function handleRescheduleTimeInput(userId, senderPhone, timeInput, pendingReschedule) {
+  const parsedTime = parseTimeInput(timeInput);
+  
+  if (!parsedTime) {
+    await sendNotificationMessage(userId, senderPhone, 'פורמט שעה לא תקין, אנא נסה שוב (לדוגמא 13:00)');
+    return true;
+  }
+  
+  const dateStr = pendingReschedule.selected_date;
+  const timeStr = `${String(parsedTime.hours).padStart(2, '0')}:${String(parsedTime.minutes).padStart(2, '0')}`;
+  const scheduledAt = convertIsraelTimeToUTC(dateStr, timeStr);
+  
+  if (!scheduledAt || isNaN(scheduledAt.getTime())) {
+    await sendNotificationMessage(userId, senderPhone, 'שגיאה ביצירת התזמון, אנא נסה שוב');
+    return true;
+  }
+  
+  if (scheduledAt <= new Date()) {
+    await sendNotificationMessage(userId, senderPhone, 'לא ניתן לתזמן לזמן שעבר, אנא בחר שעה עתידית');
+    return true;
+  }
+  
+  // Update the scheduled forward with new time
+  await db.query(`
+    UPDATE scheduled_forwards SET scheduled_at = $1, updated_at = NOW()
+    WHERE id = $2
+  `, [scheduledAt, pendingReschedule.scheduled_id]);
+  
+  // Delete the pending reschedule
+  await db.query(`
+    DELETE FROM pending_reschedules WHERE id = $1
+  `, [pendingReschedule.id]);
+  
+  const hebrewDate = scheduledAt.toLocaleString('he-IL', { 
+    timeZone: 'Asia/Jerusalem',
+    weekday: 'long',
+    day: 'numeric', 
+    month: 'numeric', 
+    hour: '2-digit', 
+    minute: '2-digit'
+  });
+  
+  // Get target count
+  const targetCount = await db.query(`
+    SELECT COUNT(*) FROM group_forward_targets WHERE forward_id = $1 AND is_active = true
+  `, [pendingReschedule.forward_id]);
+  
+  // Send list with action buttons
+  const session = await getUserSession(userId);
+  await wahaService.sendListMessage(session, `${senderPhone}@s.whatsapp.net`, {
+    title: `✅ התזמון עודכן`,
+    description: `📤 ${pendingReschedule.forward_name}\n📅 יום ${hebrewDate}\n📊 יישלח ל-${targetCount.rows[0].count} קבוצות`,
+    footer: '',
+    button: 'אפשרויות',
+    sections: [{
+      title: 'פעולות',
+      rows: [
+        { title: '⏹️ עצור וביטול', rowId: `fwd_sched_cancel_${pendingReschedule.scheduled_id}` },
+        { title: '🗑️ עצור ומחק', rowId: `fwd_sched_delete_${pendingReschedule.scheduled_id}` },
+        { title: '🕐 שנה תזמון', rowId: `fwd_sched_change_${pendingReschedule.scheduled_id}` }
+      ]
+    }]
+  });
+  
+  await saveOutgoingMessage(userId, senderPhone, 'list', `עדכון תזמון: ${pendingReschedule.forward_name}`);
   
   return true;
 }
