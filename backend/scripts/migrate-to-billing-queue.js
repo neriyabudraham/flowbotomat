@@ -39,7 +39,7 @@ async function migrate() {
     
     const subsResult = await client.query(`
       SELECT us.*, 
-             u.email, u.display_name,
+             u.email, u.name as display_name,
              sp.name_he as plan_name, sp.price as plan_price,
              upm.sumit_customer_id as payment_customer_id
       FROM user_subscriptions us

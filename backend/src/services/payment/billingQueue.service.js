@@ -67,7 +67,7 @@ async function cancelUserCharges(userId) {
 async function getUpcomingCharges(days = 7, limit = 100) {
   const result = await pool.query(
     `SELECT bq.*, 
-            u.email, u.display_name,
+            u.email, u.name as display_name,
             sp.name as plan_name, sp.name_he as plan_name_he
      FROM billing_queue bq
      JOIN users u ON u.id = bq.user_id
@@ -87,7 +87,7 @@ async function getUpcomingCharges(days = 7, limit = 100) {
 async function getFailedCharges(limit = 100) {
   const result = await pool.query(
     `SELECT bq.*, 
-            u.email, u.display_name,
+            u.email, u.name as display_name,
             sp.name as plan_name, sp.name_he as plan_name_he
      FROM billing_queue bq
      JOIN users u ON u.id = bq.user_id
@@ -106,7 +106,7 @@ async function getFailedCharges(limit = 100) {
 async function getPaymentHistory({ userId, status, startDate, endDate, limit = 100, offset = 0 }) {
   let query = `
     SELECT ph.*, 
-           u.email, u.display_name,
+           u.email, u.name as display_name,
            sp.name as plan_name, sp.name_he as plan_name_he
     FROM payment_history ph
     JOIN users u ON u.id = ph.user_id
@@ -177,7 +177,7 @@ async function processQueue() {
   // Get all pending charges due today or earlier
   const pendingResult = await pool.query(
     `SELECT bq.*, 
-            u.email, u.display_name,
+            u.email, u.name as display_name,
             us.sumit_customer_id,
             upm.id as payment_method_id,
             sp.name as plan_name, sp.name_he as plan_name_he, sp.price as plan_price
@@ -253,7 +253,7 @@ async function retryFailedCharges() {
   // Get failed charges that are due for retry
   const failedResult = await pool.query(
     `SELECT bq.*, 
-            u.email, u.display_name,
+            u.email, u.name as display_name,
             us.sumit_customer_id,
             sp.name as plan_name, sp.name_he as plan_name_he
      FROM billing_queue bq
@@ -669,7 +669,7 @@ async function sendDowngradeNotification(charge) {
 async function chargeNow(queueId) {
   const chargeResult = await pool.query(
     `SELECT bq.*, 
-            u.email, u.display_name,
+            u.email, u.name as display_name,
             us.sumit_customer_id,
             upm.id as payment_method_id,
             sp.name as plan_name, sp.name_he as plan_name_he

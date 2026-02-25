@@ -219,7 +219,7 @@ async function getChargeDetails(req, res) {
     
     const result = await pool.query(`
       SELECT bq.*, 
-             u.email, u.display_name, u.name,
+             u.email, u.name as display_name,
              sp.name as plan_name, sp.name_he as plan_name_he
       FROM billing_queue bq
       JOIN users u ON u.id = bq.user_id
