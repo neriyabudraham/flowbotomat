@@ -72,9 +72,10 @@ class BotEngine {
   async processMessage(userId, contactPhone, message, messageType = 'text', selectedRowId = null, quotedListTitle = null, isGroupMessage = false, groupId = null, extraContext = {}) {
     try {
       
-      // Get all active bots for this user
+      // Get all active AND unlocked bots for this user
+      // Locked bots cannot run regardless of is_active status
       const botsResult = await db.query(
-        'SELECT * FROM bots WHERE user_id = $1 AND is_active = true',
+        'SELECT * FROM bots WHERE user_id = $1 AND is_active = true AND locked_reason IS NULL',
         [userId]
       );
       
@@ -141,9 +142,9 @@ class BotEngine {
   // Process special events (status view, status reaction, group join/leave, calls, poll vote)
   async processEvent(userId, contactPhone, eventType, eventData = {}) {
     try {
-      // Get all active bots for this user
+      // Get all active AND unlocked bots for this user
       const botsResult = await db.query(
-        'SELECT * FROM bots WHERE user_id = $1 AND is_active = true',
+        'SELECT * FROM bots WHERE user_id = $1 AND is_active = true AND locked_reason IS NULL',
         [userId]
       );
       

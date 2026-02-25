@@ -60,14 +60,16 @@ async function getSharedWithMe(req, res) {
   try {
     const userId = req.user.id;
     
+    // Note: locked_reason is included so UI can show if bot is locked
     const result = await db.query(
-      `SELECT b.*, bs.permission, bs.allow_export, u.email as owner_email, u.name as owner_name
+      `SELECT b.*, bs.permission, bs.allow_export, u.email as owner_email, u.name as owner_name,
+              b.locked_reason, b.locked_at
        FROM bot_shares bs
        JOIN bots b ON bs.bot_id = b.id
        JOIN users u ON bs.owner_id = u.id
        WHERE bs.shared_with_id = $1
        AND (bs.expires_at IS NULL OR bs.expires_at > NOW())
-       ORDER BY bs.created_at DESC`,
+       ORDER BY b.locked_reason IS NOT NULL ASC, bs.created_at DESC`,
       [userId]
     );
     
@@ -91,9 +93,9 @@ async function shareBot(req, res) {
       return res.status(400).json({ error: 'נדרש מייל' });
     }
     
-    // Verify ownership
+    // Verify ownership and check lock status
     const bot = await db.query(
-      'SELECT id, user_id, name FROM bots WHERE id = $1',
+      'SELECT id, user_id, name, locked_reason FROM bots WHERE id = $1',
       [botId]
     );
     
@@ -103,6 +105,14 @@ async function shareBot(req, res) {
     
     if (bot.rows[0].user_id !== userId) {
       return res.status(403).json({ error: 'אין לך הרשאה לשתף בוט זה' });
+    }
+    
+    // Block sharing of locked bots
+    if (bot.rows[0].locked_reason) {
+      return res.status(403).json({ 
+        error: 'לא ניתן לשתף בוט חסום. שדרג את התוכנית כדי לפתוח אותו.',
+        code: 'BOT_LOCKED'
+      });
     }
     
     // Find user by email

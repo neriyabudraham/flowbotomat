@@ -2,18 +2,55 @@ import { useState, useEffect } from 'react';
 import { 
   CreditCard, Clock, AlertTriangle, CheckCircle, XCircle, 
   RefreshCw, Play, Calendar, Search, Filter, DollarSign,
-  ChevronLeft, ChevronRight, Loader2, History, Ban, FileText, Download
+  ChevronLeft, ChevronRight, Loader2, History, Ban, FileText, Download,
+  User, ExternalLink
 } from 'lucide-react';
 import api from '../../services/api';
+import { UnifiedUserModal } from './AdminUsers';
+import useAuthStore from '../../store/authStore';
 
 export default function AdminBilling() {
+  const { user: currentUser } = useAuthStore();
   const [activeTab, setActiveTab] = useState('upcoming');
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [loadingUser, setLoadingUser] = useState(null);
   
   useEffect(() => {
     loadStats();
   }, []);
+
+  const handleViewUser = async (userId) => {
+    setLoadingUser(userId);
+    try {
+      const { data } = await api.get(`/admin/users?search=${userId}&limit=50`);
+      const user = data.users?.find(u => u.id === userId);
+      if (user) {
+        setSelectedUser(user);
+      }
+    } catch (err) {
+      console.error('Failed to load user:', err);
+    } finally {
+      setLoadingUser(null);
+    }
+  };
+
+  const handleSwitchToAccount = async (userId) => {
+    try {
+      const currentToken = localStorage.getItem('accessToken');
+      if (currentToken && !localStorage.getItem('originalAccessToken')) {
+        localStorage.setItem('originalAccessToken', currentToken);
+      }
+      const { data } = await api.post(`/experts/switch/${userId}`);
+      if (data?.token) {
+        localStorage.setItem('accessToken', data.token);
+        window.location.href = '/dashboard';
+      }
+    } catch (err) {
+      console.error('Switch error:', err);
+    }
+  };
   
   const loadStats = async () => {
     try {
@@ -105,14 +142,28 @@ export default function AdminBilling() {
       </div>
       
       {/* Tab Content */}
-      {activeTab === 'upcoming' && <UpcomingCharges onRefresh={loadStats} />}
-      {activeTab === 'failed' && <FailedCharges onRefresh={loadStats} />}
-      {activeTab === 'history' && <PaymentHistory />}
+      {activeTab === 'upcoming' && <UpcomingCharges onRefresh={loadStats} onViewUser={handleViewUser} loadingUser={loadingUser} />}
+      {activeTab === 'failed' && <FailedCharges onRefresh={loadStats} onViewUser={handleViewUser} loadingUser={loadingUser} />}
+      {activeTab === 'history' && <PaymentHistory onViewUser={handleViewUser} loadingUser={loadingUser} />}
+
+      {/* User Details Modal */}
+      {selectedUser && (
+        <UnifiedUserModal 
+          user={selectedUser} 
+          onClose={() => setSelectedUser(null)}
+          onSuccess={() => {
+            loadStats();
+            setSelectedUser(null);
+          }}
+          onSwitchAccount={handleSwitchToAccount}
+          currentUserId={currentUser?.id}
+        />
+      )}
     </div>
   );
 }
 
-function UpcomingCharges({ onRefresh }) {
+function UpcomingCharges({ onRefresh, onViewUser, loadingUser }) {
   const [charges, setCharges] = useState([]);
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
@@ -216,10 +267,21 @@ function UpcomingCharges({ onRefresh }) {
               {charges.map(charge => (
                 <tr key={charge.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
-                    <div>
-                      <div className="font-medium text-gray-800">{charge.display_name || 'ללא שם'}</div>
+                    <button
+                      onClick={() => onViewUser(charge.user_id)}
+                      className="text-right hover:bg-purple-50 rounded p-1 -m-1 transition-colors group"
+                      disabled={loadingUser === charge.user_id}
+                    >
+                      <div className="font-medium text-gray-800 group-hover:text-purple-600 flex items-center gap-1">
+                        {loadingUser === charge.user_id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <User className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        )}
+                        {charge.display_name || 'ללא שם'}
+                      </div>
                       <div className="text-sm text-gray-500">{charge.email}</div>
-                    </div>
+                    </button>
                   </td>
                   <td className="px-4 py-3 font-medium text-gray-800">
                     ₪{Number(charge.amount).toLocaleString()}
@@ -267,7 +329,7 @@ function UpcomingCharges({ onRefresh }) {
   );
 }
 
-function FailedCharges({ onRefresh }) {
+function FailedCharges({ onRefresh, onViewUser, loadingUser }) {
   const [charges, setCharges] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
@@ -345,13 +407,22 @@ function FailedCharges({ onRefresh }) {
           key={charge.id}
           className="bg-red-50 border border-red-200 rounded-xl p-4"
         >
-          <div className="flex items-start justify-between">
+            <div className="flex items-start justify-between">
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
                 <AlertTriangle className="w-5 h-5 text-red-500" />
-                <span className="font-medium text-gray-800">
+                <button
+                  onClick={() => onViewUser(charge.user_id)}
+                  disabled={loadingUser === charge.user_id}
+                  className="font-medium text-gray-800 hover:text-purple-600 flex items-center gap-1 transition-colors"
+                >
+                  {loadingUser === charge.user_id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <User className="w-4 h-4" />
+                  )}
                   {charge.display_name || charge.email}
-                </span>
+                </button>
                 <span className="text-lg font-bold text-red-600">
                   ₪{Number(charge.amount).toLocaleString()}
                 </span>
@@ -421,7 +492,7 @@ function FailedCharges({ onRefresh }) {
   );
 }
 
-function PaymentHistory() {
+function PaymentHistory({ onViewUser, loadingUser }) {
   const [payments, setPayments] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -577,14 +648,31 @@ function PaymentHistory() {
                     {new Date(payment.created_at).toLocaleString('he-IL')}
                   </td>
                   <td className="px-4 py-3">
-                    <button
-                      onClick={() => filterByUser(payment.email)}
-                      className="text-right hover:bg-gray-100 rounded p-1 -m-1 transition-colors"
-                      title="לחץ לסינון לפי משתמש"
-                    >
-                      <div className="font-medium text-gray-800 text-sm hover:text-purple-600">{payment.display_name || 'ללא שם'}</div>
-                      <div className="text-xs text-gray-500">{payment.email}</div>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => onViewUser(payment.user_id)}
+                        disabled={loadingUser === payment.user_id}
+                        className="text-right hover:bg-purple-50 rounded p-1 -m-1 transition-colors group"
+                        title="לחץ לצפייה בפרטי המשתמש"
+                      >
+                        <div className="font-medium text-gray-800 text-sm group-hover:text-purple-600 flex items-center gap-1">
+                          {loadingUser === payment.user_id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <User className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          )}
+                          {payment.display_name || 'ללא שם'}
+                        </div>
+                        <div className="text-xs text-gray-500">{payment.email}</div>
+                      </button>
+                      <button
+                        onClick={() => filterByUser(payment.email)}
+                        className="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
+                        title="סנן לפי משתמש"
+                      >
+                        <Filter className="w-3 h-3" />
+                      </button>
+                    </div>
                   </td>
                   <td className="px-4 py-3 font-medium text-gray-800">
                     ₪{Number(payment.amount).toLocaleString()}

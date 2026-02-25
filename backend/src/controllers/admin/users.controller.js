@@ -489,6 +489,129 @@ async function updateUserSubscription(req, res) {
       await assignUserToAffiliate(id, affiliateId);
     }
     
+    // IMPORTANT: Update pending billing queue entries if discount settings changed
+    // This ensures the scheduled charges reflect the new discount
+    const discountChanged = customDiscountMode !== undefined || customDiscountPercent !== undefined || 
+                           customFixedPrice !== undefined || customDiscountType !== undefined;
+    const planChanged = planId !== undefined;
+    
+    if (discountChanged || planChanged) {
+      const sub = result.rows[0];
+      if (sub) {
+        // Get the plan price for calculation
+        const planResult = await db.query(
+          'SELECT price, name_he FROM subscription_plans WHERE id = $1',
+          [sub.plan_id]
+        );
+        const plan = planResult.rows[0];
+        
+        if (plan && plan.price > 0) {
+          let newAmount = parseFloat(plan.price);
+          let newDescription = `מנוי חודשי - ${plan.name_he}`;
+          
+          // Apply custom discount from admin
+          if (sub.custom_discount_mode === 'fixed_price' && sub.custom_fixed_price) {
+            newAmount = parseFloat(sub.custom_fixed_price);
+            newDescription += ' (מחיר מותאם)';
+          } else if (sub.custom_discount_mode === 'percent' && sub.referral_discount_percent) {
+            newAmount = Math.floor(newAmount * (1 - sub.referral_discount_percent / 100));
+            newDescription += ` (${sub.referral_discount_percent}% הנחה)`;
+          }
+          // Apply referral discount if active
+          else if (sub.referral_discount_percent && sub.referral_months_remaining !== 0) {
+            newAmount = Math.floor(newAmount * (1 - sub.referral_discount_percent / 100));
+            newDescription += ` (${sub.referral_discount_percent}% הנחת הפניה)`;
+          }
+          
+          // Update pending billing queue entries with new amount
+          const updateResult = await db.query(`
+            UPDATE billing_queue 
+            SET amount = $1, 
+                description = $2,
+                plan_id = $3,
+                updated_at = NOW()
+            WHERE user_id = $4 
+              AND status = 'pending'
+              AND billing_type IN ('monthly', 'renewal', 'trial_conversion', 'first_payment')
+            RETURNING id
+          `, [newAmount, newDescription, sub.plan_id, id]);
+          
+          if (updateResult.rows.length > 0) {
+            console.log(`[Admin] Updated ${updateResult.rows.length} pending charges for user ${id} to ₪${newAmount}`);
+          }
+        }
+      }
+    }
+    
+    // IMPORTANT: Handle bot locking/unlocking when plan changes
+    if (planChanged || status === 'active') {
+      const sub = result.rows[0];
+      if (sub) {
+        // Get the new plan's bot limit
+        const planLimitResult = await db.query(
+          'SELECT max_bots FROM subscription_plans WHERE id = $1',
+          [sub.plan_id]
+        );
+        const maxBots = planLimitResult.rows[0]?.max_bots;
+        
+        if (maxBots !== undefined && maxBots !== 0) {
+          const botLimit = maxBots === -1 ? 1000 : maxBots;
+          
+          // Count current unlocked bots
+          const unlockedBotsResult = await db.query(
+            `SELECT COUNT(*) as count FROM bots WHERE user_id = $1 AND locked_reason IS NULL`,
+            [id]
+          );
+          const unlockedBots = parseInt(unlockedBotsResult.rows[0]?.count || 0);
+          
+          if (unlockedBots < botLimit) {
+            // Unlock more bots up to the limit
+            const botsToUnlockCount = botLimit - unlockedBots;
+            const botsToUnlockResult = await db.query(`
+              SELECT id FROM bots 
+              WHERE user_id = $1 AND locked_reason IS NOT NULL
+              ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+              LIMIT $2
+            `, [id, botsToUnlockCount]);
+            
+            if (botsToUnlockResult.rows.length > 0) {
+              const botsToUnlock = botsToUnlockResult.rows.map(b => b.id);
+              await db.query(`
+                UPDATE bots 
+                SET locked_reason = NULL, locked_at = NULL, updated_at = NOW()
+                WHERE id = ANY($1::uuid[])
+              `, [botsToUnlock]);
+              
+              console.log(`[Admin] Unlocked ${botsToUnlock.length} bots for user ${id} due to plan change`);
+            }
+          } else if (unlockedBots > botLimit) {
+            // Lock excess bots (keep the most recently updated ones unlocked)
+            const excessCount = unlockedBots - botLimit;
+            const botsToLockResult = await db.query(`
+              SELECT id FROM bots 
+              WHERE user_id = $1 AND locked_reason IS NULL
+              ORDER BY updated_at ASC NULLS FIRST, created_at ASC NULLS FIRST
+              LIMIT $2
+            `, [id, excessCount]);
+            
+            if (botsToLockResult.rows.length > 0) {
+              const botsToLock = botsToLockResult.rows.map(b => b.id);
+              await db.query(`
+                UPDATE bots 
+                SET locked_reason = 'subscription_limit', 
+                    locked_at = NOW(), 
+                    is_active = false,
+                    updated_at = NOW()
+                WHERE id = ANY($1::uuid[])
+              `, [botsToLock]);
+              
+              console.log(`[Admin] Locked ${botsToLock.length} bots for user ${id} due to plan downgrade`);
+            }
+          }
+        }
+      }
+    }
+    
     res.json({ subscription: result.rows[0] });
   } catch (error) {
     console.error('[Admin] Update user subscription error:', error);
@@ -646,6 +769,77 @@ async function getUserServices(req, res) {
   }
 }
 
+/**
+ * Lock or unlock a bot manually (admin only)
+ * locked_reason = 'admin' for admin-locked bots
+ */
+async function toggleBotLock(req, res) {
+  try {
+    const { botId } = req.params;
+    const { lock, reason } = req.body;
+    
+    // Verify bot exists
+    const botCheck = await db.query('SELECT id, user_id, name, locked_reason FROM bots WHERE id = $1', [botId]);
+    if (botCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'בוט לא נמצא' });
+    }
+    
+    const bot = botCheck.rows[0];
+    
+    if (lock) {
+      // Lock the bot
+      await db.query(`
+        UPDATE bots 
+        SET locked_reason = $1, 
+            locked_at = NOW(), 
+            is_active = false,
+            updated_at = NOW()
+        WHERE id = $2
+      `, [reason || 'admin', botId]);
+      
+      console.log(`[Admin] Locked bot "${bot.name}" (${botId}) for user ${bot.user_id}`);
+      res.json({ success: true, message: 'הבוט ננעל בהצלחה' });
+    } else {
+      // Unlock the bot
+      await db.query(`
+        UPDATE bots 
+        SET locked_reason = NULL, 
+            locked_at = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+      `, [botId]);
+      
+      console.log(`[Admin] Unlocked bot "${bot.name}" (${botId}) for user ${bot.user_id}`);
+      res.json({ success: true, message: 'הבוט שוחרר בהצלחה' });
+    }
+  } catch (error) {
+    console.error('[Admin] Toggle bot lock error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון נעילת הבוט' });
+  }
+}
+
+/**
+ * Get all bots for a user (admin view)
+ */
+async function getUserBots(req, res) {
+  try {
+    const { id } = req.params;
+    
+    const result = await db.query(`
+      SELECT id, name, description, is_active, locked_reason, locked_at, 
+             pending_deletion, created_at, updated_at
+      FROM bots 
+      WHERE user_id = $1
+      ORDER BY locked_reason IS NOT NULL ASC, updated_at DESC
+    `, [id]);
+    
+    res.json({ bots: result.rows });
+  } catch (error) {
+    console.error('[Admin] Get user bots error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת בוטים' });
+  }
+}
+
 module.exports = { 
   getUsers, 
   getUser, 
@@ -657,5 +851,7 @@ module.exports = {
   getUserFeatureOverrides,
   updateUserFeatureOverrides,
   clearUserFeatureOverrides,
-  getUserServices
+  getUserServices,
+  toggleBotLock,
+  getUserBots
 };

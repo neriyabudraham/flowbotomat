@@ -814,6 +814,9 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
     skipTrial: user.skip_trial || false, // Skip free trial - immediate payment
     // Referral settings
     affiliateId: user.referred_by_affiliate_id || '',
+    // Invoice settings
+    invoiceName: user.invoice_name || '',
+    receiptEmail: user.receipt_email || '',
   });
   
   // Calculate trial days used
@@ -942,6 +945,9 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
         skipTrial: formData.skipTrial || false,
         // Referral
         affiliateId: formData.affiliateId || null,
+        // Invoice
+        invoiceName: formData.invoiceName || null,
+        receiptEmail: formData.receiptEmail || null,
       });
       onSuccess();
     } catch (err) {
@@ -1589,6 +1595,35 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
                                 : 'חינם'
                         }
                       </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Invoice Settings */}
+                <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
+                  <h4 className="text-sm font-semibold text-purple-800 mb-3">📄 פרטי חשבונית</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-purple-700 mb-1">שם לחשבונית</label>
+                      <input
+                        type="text"
+                        value={formData.invoiceName}
+                        onChange={(e) => setFormData(f => ({ ...f, invoiceName: e.target.value }))}
+                        placeholder={user.name || 'שם העסק / שם מלא'}
+                        className="w-full px-3 py-2 border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
+                      />
+                      <p className="text-xs text-purple-600 mt-1">יופיע בקבלה ובחשבונית</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-purple-700 mb-1">מייל לקבלה</label>
+                      <input
+                        type="email"
+                        value={formData.receiptEmail}
+                        onChange={(e) => setFormData(f => ({ ...f, receiptEmail: e.target.value }))}
+                        placeholder={user.email || 'email@example.com'}
+                        className="w-full px-3 py-2 border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
+                      />
+                      <p className="text-xs text-purple-600 mt-1">הקבלה תישלח לכתובת זו (אם שונה מהמייל הראשי)</p>
                     </div>
                   </div>
                 </div>
@@ -2268,3 +2303,6 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
     </div>
   );
 }
+
+// Export UnifiedUserModal for use in other admin components
+export { UnifiedUserModal };

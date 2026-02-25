@@ -1447,23 +1447,64 @@ async function cancelSubscription(req, res) {
       }
       console.log(`[Payment] Paid subscription cancelled - service continues until ${subscription.expires_at} for user ${userId}`);
     } else {
-      // Edge case: unknown state - disconnect to be safe
+      // Edge case: unknown state - downgrade to free tier (keep one bot unlocked)
       await db.query(
         `UPDATE whatsapp_connections 
          SET status = 'disconnected', updated_at = NOW()
-         WHERE user_id = $1 AND status = 'connected'`,
+         WHERE user_id = $1 AND connection_type = 'managed' AND status = 'connected'`,
         [userId]
       );
       
-      await db.query(
-        `UPDATE bots 
-         SET is_active = false, updated_at = NOW()
-         WHERE user_id = $1`,
-        [userId]
+      // Get free plan limit
+      const freePlanResult = await db.query(
+        `SELECT max_bots FROM subscription_plans WHERE price = 0 AND is_active = true LIMIT 1`
       );
+      const freeBotLimit = freePlanResult.rows[0]?.max_bots || 1;
       
-      message = 'המנוי בוטל והשירות הופסק.';
-      console.log(`[Payment] Unknown subscription state cancelled - disconnected for safety for user ${userId}`);
+      // Get the most recently updated bots up to limit
+      const botsToKeep = await db.query(`
+        SELECT id FROM bots 
+        WHERE user_id = $1 AND pending_deletion = false
+        ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+        LIMIT $2
+      `, [userId, freeBotLimit === -1 ? 1000 : freeBotLimit]);
+      
+      const keepBotIds = botsToKeep.rows.map(b => b.id);
+      
+      if (keepBotIds.length > 0) {
+        // LOCK all bots EXCEPT the ones we're keeping
+        await db.query(`
+          UPDATE bots 
+          SET is_active = false,
+              locked_reason = 'subscription_limit',
+              locked_at = NOW(),
+              updated_at = NOW()
+          WHERE user_id = $1 AND id != ALL($2::uuid[])
+        `, [userId, keepBotIds]);
+        
+        // Make sure kept bots are unlocked, first one active
+        await db.query(`
+          UPDATE bots 
+          SET locked_reason = NULL,
+              locked_at = NULL,
+              is_active = CASE WHEN id = $2 THEN true ELSE false END,
+              updated_at = NOW()
+          WHERE id = ANY($1::uuid[])
+        `, [keepBotIds, keepBotIds[0]]);
+      } else {
+        // No bots - lock all
+        await db.query(`
+          UPDATE bots 
+          SET is_active = false,
+              locked_reason = 'subscription_limit',
+              locked_at = NOW(),
+              updated_at = NOW()
+          WHERE user_id = $1
+        `, [userId]);
+      }
+      
+      message = 'המנוי בוטל והורדת לתוכנית חינמית.';
+      console.log(`[Payment] Unknown subscription state cancelled - downgraded to free for user ${userId}`);
     }
     
     // Send cancellation emails to user and admin
@@ -1603,6 +1644,39 @@ async function reactivateSubscription(req, res) {
       WHERE user_id = $1 AND status = 'cancelled'
       RETURNING *
     `, [userId, paymentMethod.id]);
+    
+    // IMPORTANT: Unlock bots after reactivation
+    // Get the plan's bot limit
+    const planResult = await db.query(
+      `SELECT sp.max_bots FROM subscription_plans sp 
+       JOIN user_subscriptions us ON us.plan_id = sp.id 
+       WHERE us.user_id = $1`,
+      [userId]
+    );
+    const maxBots = planResult.rows[0]?.max_bots || 1;
+    
+    if (maxBots !== 0) {
+      const botLimit = maxBots === -1 ? 1000 : maxBots;
+      
+      // Unlock bots up to the limit
+      const lockedBotsResult = await db.query(`
+        SELECT id FROM bots 
+        WHERE user_id = $1 AND locked_reason IS NOT NULL
+        ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+        LIMIT $2
+      `, [userId, botLimit]);
+      
+      if (lockedBotsResult.rows.length > 0) {
+        const botsToUnlock = lockedBotsResult.rows.map(b => b.id);
+        await db.query(`
+          UPDATE bots 
+          SET locked_reason = NULL, locked_at = NULL, updated_at = NOW()
+          WHERE id = ANY($1::uuid[])
+        `, [botsToUnlock]);
+        
+        console.log(`[Payment] Unlocked ${botsToUnlock.length} bots for user ${userId} after reactivation`);
+      }
+    }
     
     res.json({ 
       success: true, 
@@ -2063,6 +2137,32 @@ async function changePlan(req, res) {
           updated_at = NOW()
       WHERE user_id = $4 AND status IN ('active', 'cancelled')
     `, [targetPlanId, billingPeriod, newExpiresAt, userId]);
+    
+    // IMPORTANT: Unlock bots up to the new plan's limit
+    if (targetPlan.max_bots && targetPlan.max_bots !== 0) {
+      const newBotLimit = targetPlan.max_bots === -1 ? 1000 : targetPlan.max_bots;
+      
+      // Get locked bots ordered by most recently updated
+      const lockedBotsResult = await db.query(`
+        SELECT id FROM bots 
+        WHERE user_id = $1 AND locked_reason IS NOT NULL
+        ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+        LIMIT $2
+      `, [userId, newBotLimit]);
+      
+      if (lockedBotsResult.rows.length > 0) {
+        const botsToUnlock = lockedBotsResult.rows.map(b => b.id);
+        
+        // Unlock these bots
+        await db.query(`
+          UPDATE bots 
+          SET locked_reason = NULL, locked_at = NULL, updated_at = NOW()
+          WHERE id = ANY($1::uuid[])
+        `, [botsToUnlock]);
+        
+        console.log(`[Payment] Unlocked ${botsToUnlock.length} bots for user ${userId} after plan upgrade`);
+      }
+    }
     
     // Log the transaction
     await db.query(`

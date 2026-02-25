@@ -55,15 +55,18 @@ async function checkBotAccess(userId, botId) {
 
 /**
  * List all bots for user
+ * Returns locked_reason and locked_at for locked bots
  */
 async function listBots(req, res) {
   try {
     const userId = req.user.id;
     
     const result = await pool.query(
-      `SELECT id, name, description, is_active, created_at, updated_at
+      `SELECT id, name, description, is_active, locked_reason, locked_at, created_at, updated_at
        FROM bots WHERE user_id = $1
-       ORDER BY updated_at DESC`,
+       ORDER BY 
+         locked_reason IS NOT NULL ASC,  -- Unlocked bots first
+         updated_at DESC`,
       [userId]
     );
     

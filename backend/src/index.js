@@ -66,12 +66,14 @@ cron.schedule('0 9 * * *', async () => {
 console.log('📅 Billing queue processing scheduled for 9:00 AM daily');
 
 // Schedule subscription expiry check - run every hour
-const { handleExpiredSubscriptions, sendTrialExpiryReminders, handleExpiringManualSubscriptions } = require('./services/subscription/expiry.service');
+const { handleExpiredSubscriptions, sendTrialExpiryReminders, handleExpiringManualSubscriptions, handleExpiredServiceSubscriptions, handleExpiringServiceSubscriptions } = require('./services/subscription/expiry.service');
 
 cron.schedule('0 * * * *', async () => {
   console.log('[Cron] Checking expired subscriptions...');
   try {
     await handleExpiredSubscriptions();
+    // Also check service subscriptions (Status Bot, etc.)
+    await handleExpiredServiceSubscriptions();
   } catch (err) {
     console.error('[Cron] Subscription expiry check failed:', err.message);
   }
@@ -96,6 +98,8 @@ cron.schedule('30 10 * * *', async () => {
   console.log('[Cron] Checking expiring manual subscriptions...');
   try {
     await handleExpiringManualSubscriptions();
+    // Also check service subscriptions (Status Bot, etc.)
+    await handleExpiringServiceSubscriptions();
   } catch (err) {
     console.error('[Cron] Manual expiry check failed:', err.message);
   }
@@ -103,7 +107,7 @@ cron.schedule('30 10 * * *', async () => {
   timezone: 'Asia/Jerusalem'
 });
 
-console.log('📅 Subscription expiry cron jobs scheduled');
+console.log('📅 Subscription expiry cron jobs scheduled (including Status Bot)');
 
 // Schedule campaign scheduler - run every 10 seconds for fast response
 const { startScheduler } = require('./services/broadcasts/scheduler.service');

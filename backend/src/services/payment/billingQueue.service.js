@@ -382,113 +382,172 @@ async function handleChargeSuccess(charge, chargeResult) {
       ]
     );
     
-    // Update subscription next_charge_date
-    if (charge.billing_type === 'monthly' || charge.billing_type === 'renewal') {
+    // Get current subscription with discount info
+    const subResult = await client.query(
+      `SELECT us.*, sp.price as plan_price, sp.name_he as plan_name_he
+       FROM user_subscriptions us
+       JOIN subscription_plans sp ON sp.id = us.plan_id
+       WHERE us.user_id = $1`,
+      [charge.user_id]
+    );
+    
+    const sub = subResult.rows[0];
+    
+    // IMPORTANT: Always ensure subscription is active after successful payment
+    // This handles reactivation, trial conversion, etc.
+    if (sub && sub.status !== 'active') {
+      console.log(`[BillingQueue] Updating subscription status from '${sub.status}' to 'active' for user ${charge.user_id}`);
+    }
+    
+    // Decrement referral_months_remaining if using time-limited referral discount
+    // (not for fixed_price mode or forever discounts)
+    let shouldDecrementReferral = false;
+    if (sub && sub.referral_months_remaining > 0 && sub.custom_discount_mode !== 'fixed_price') {
+      shouldDecrementReferral = true;
+    }
+    
+    // Calculate next charge date - use CURRENT_DATE if next_charge_date is NULL
+    const billingPeriod = charge.billing_type === 'yearly' ? 'year' : 'month';
+    const isYearly = charge.billing_type === 'yearly';
+    
+    // Handle different billing types for scheduling next charge
+    const shouldScheduleNext = ['monthly', 'yearly', 'renewal', 'first_payment', 'trial_conversion', 'reactivation'].includes(charge.billing_type);
+    
+    if (shouldScheduleNext && charge.billing_type !== 'status_bot') {
+      // Update subscription to active and set next charge date
       await client.query(
         `UPDATE user_subscriptions 
-         SET next_charge_date = next_charge_date + INTERVAL '1 month',
+         SET status = 'active',
+             is_manual = false,
+             is_trial = false,
+             trial_ends_at = NULL,
+             next_charge_date = COALESCE(next_charge_date, CURRENT_DATE) + INTERVAL '1 ${billingPeriod}',
+             expires_at = CASE WHEN $2 THEN COALESCE(expires_at, CURRENT_DATE) + INTERVAL '1 year' ELSE expires_at END,
+             referral_months_remaining = CASE 
+               WHEN $3 AND referral_months_remaining > 0 THEN referral_months_remaining - 1 
+               ELSE referral_months_remaining 
+             END,
              updated_at = NOW()
          WHERE user_id = $1`,
-        [charge.user_id]
+        [charge.user_id, isYearly, shouldDecrementReferral]
       );
       
-      // Get current subscription with discount info to calculate next charge
-      const subResult = await client.query(
-        `SELECT us.*, sp.price as plan_price, sp.name_he as plan_name_he
-         FROM user_subscriptions us
-         JOIN subscription_plans sp ON sp.id = us.plan_id
-         WHERE us.user_id = $1`,
-        [charge.user_id]
-      );
+      // IMPORTANT: Unlock bots after successful payment
+      // Get the plan's bot limit
+      const planLimitResult = await client.query(`
+        SELECT sp.max_bots FROM subscription_plans sp 
+        JOIN user_subscriptions us ON us.plan_id = sp.id 
+        WHERE us.user_id = $1
+      `, [charge.user_id]);
+      const maxBots = planLimitResult.rows[0]?.max_bots || 1;
       
-      const sub = subResult.rows[0];
-      let nextAmount = parseFloat(sub?.plan_price || charge.amount);
-      let description = `מנוי חודשי - ${sub?.plan_name_he || charge.plan_name_he}`;
-      
-      if (sub) {
-        // Apply custom discount from admin
-        if (sub.custom_discount_mode === 'fixed_price' && sub.custom_fixed_price) {
-          nextAmount = parseFloat(sub.custom_fixed_price);
-          description += ' (מחיר מותאם)';
-        } else if (sub.custom_discount_mode === 'percent' && sub.referral_discount_percent) {
-          nextAmount = Math.floor(nextAmount * (1 - sub.referral_discount_percent / 100));
-          description += ` (${sub.referral_discount_percent}% הנחה)`;
-        }
-        // Apply referral discount if still active
-        else if (sub.referral_discount_percent && sub.referral_months_remaining > 0) {
-          nextAmount = Math.floor(nextAmount * (1 - sub.referral_discount_percent / 100));
-          description += ` (${sub.referral_discount_percent}% הנחת הפניה)`;
+      if (maxBots !== 0) {
+        const botLimit = maxBots === -1 ? 1000 : maxBots;
+        
+        // Unlock locked bots up to the limit (payment success = user can use their bots)
+        const lockedBotsResult = await client.query(`
+          SELECT id FROM bots 
+          WHERE user_id = $1 AND locked_reason IN ('subscription_limit', 'payment_failed')
+          ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+          LIMIT $2
+        `, [charge.user_id, botLimit]);
+        
+        if (lockedBotsResult.rows.length > 0) {
+          const botsToUnlock = lockedBotsResult.rows.map(b => b.id);
+          await client.query(`
+            UPDATE bots 
+            SET locked_reason = NULL, locked_at = NULL, updated_at = NOW()
+            WHERE id = ANY($1::uuid[])
+          `, [botsToUnlock]);
+          
+          console.log(`[BillingQueue] Unlocked ${botsToUnlock.length} bots for user ${charge.user_id} after successful payment`);
         }
       }
       
-      // Schedule next month's charge
+      // Calculate next charge amount with discounts
+      let nextAmount = parseFloat(sub?.plan_price || charge.amount);
+      let description = `מנוי ${isYearly ? 'שנתי' : 'חודשי'} - ${sub?.plan_name_he || charge.plan_name_he}`;
+      
+      if (sub) {
+        // Apply custom discount from admin (fixed price)
+        if (sub.custom_discount_mode === 'fixed_price' && sub.custom_fixed_price) {
+          nextAmount = parseFloat(sub.custom_fixed_price);
+          if (isYearly) nextAmount *= 12;
+          description += ' (מחיר מותאם)';
+        } 
+        // Apply admin percent discount
+        else if (sub.custom_discount_mode === 'percent' && sub.referral_discount_percent) {
+          if (isYearly) {
+            nextAmount = nextAmount * 12 * 0.8; // Base yearly discount
+          }
+          nextAmount = Math.floor(nextAmount * (1 - sub.referral_discount_percent / 100));
+          description += ` (${sub.referral_discount_percent}% הנחה)`;
+        }
+        // Apply referral discount if still active (check AFTER decrement)
+        else if (sub.referral_discount_percent && sub.referral_months_remaining > 1) {
+          // > 1 because we already decremented above
+          if (isYearly) {
+            nextAmount = nextAmount * 12 * 0.8;
+          }
+          nextAmount = Math.floor(nextAmount * (1 - sub.referral_discount_percent / 100));
+          description += ` (${sub.referral_discount_percent}% הנחת הפניה)`;
+        }
+        // Apply yearly discount only
+        else if (isYearly) {
+          nextAmount = nextAmount * 12 * 0.8; // 20% yearly discount
+          description += ' (20% הנחה שנתית)';
+        }
+      }
+      
+      // Schedule next charge
+      const nextChargeDate = new Date();
+      if (isYearly) {
+        nextChargeDate.setFullYear(nextChargeDate.getFullYear() + 1);
+      } else {
+        nextChargeDate.setMonth(nextChargeDate.getMonth() + 1);
+      }
+      
+      await client.query(
+        `INSERT INTO billing_queue 
+         (user_id, subscription_id, amount, charge_date, billing_type, plan_id, description, currency)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          charge.user_id,
+          charge.subscription_id,
+          nextAmount,
+          nextChargeDate.toISOString().split('T')[0],
+          isYearly ? 'yearly' : 'monthly',
+          charge.plan_id,
+          description,
+          charge.currency
+        ]
+      );
+    } else if (charge.billing_type === 'status_bot') {
+      // Status Bot charge - update service subscription
+      await client.query(
+        `UPDATE user_service_subscriptions 
+         SET status = 'active',
+             next_charge_date = COALESCE(next_charge_date, CURRENT_DATE) + INTERVAL '1 month',
+             updated_at = NOW()
+         WHERE user_id = $1 AND service_id = (SELECT id FROM additional_services WHERE slug = 'status-bot')`,
+        [charge.user_id]
+      );
+      
+      // Schedule next status bot charge
       const nextChargeDate = new Date();
       nextChargeDate.setMonth(nextChargeDate.getMonth() + 1);
       
       await client.query(
         `INSERT INTO billing_queue 
          (user_id, subscription_id, amount, charge_date, billing_type, plan_id, description, currency)
-         VALUES ($1, $2, $3, $4, 'monthly', $5, $6, $7)`,
+         VALUES ($1, $2, $3, $4, 'status_bot', $5, $6, $7)`,
         [
           charge.user_id,
           charge.subscription_id,
-          nextAmount,
+          charge.amount, // Status bot price doesn't change
           nextChargeDate.toISOString().split('T')[0],
           charge.plan_id,
-          description,
-          charge.currency
-        ]
-      );
-    } else if (charge.billing_type === 'yearly') {
-      await client.query(
-        `UPDATE user_subscriptions 
-         SET next_charge_date = next_charge_date + INTERVAL '1 year',
-             expires_at = expires_at + INTERVAL '1 year',
-             updated_at = NOW()
-         WHERE user_id = $1`,
-        [charge.user_id]
-      );
-      
-      // Get current subscription with discount info
-      const subResult = await client.query(
-        `SELECT us.*, sp.price as plan_price, sp.name_he as plan_name_he
-         FROM user_subscriptions us
-         JOIN subscription_plans sp ON sp.id = us.plan_id
-         WHERE us.user_id = $1`,
-        [charge.user_id]
-      );
-      
-      const sub = subResult.rows[0];
-      let nextAmount = parseFloat(sub?.plan_price || charge.amount) * 12 * 0.8; // Yearly 20% discount
-      let description = `מנוי שנתי - ${sub?.plan_name_he || charge.plan_name_he}`;
-      
-      if (sub) {
-        // Apply custom discount from admin
-        if (sub.custom_discount_mode === 'fixed_price' && sub.custom_fixed_price) {
-          nextAmount = parseFloat(sub.custom_fixed_price) * 12;
-          description += ' (מחיר מותאם)';
-        } else if (sub.custom_discount_mode === 'percent' && sub.referral_discount_percent) {
-          const baseYearly = parseFloat(sub.plan_price) * 12 * 0.8;
-          nextAmount = Math.floor(baseYearly * (1 - sub.referral_discount_percent / 100));
-          description += ` (${sub.referral_discount_percent}% הנחה)`;
-        }
-      }
-      
-      // Schedule next year's charge
-      const nextChargeDate = new Date();
-      nextChargeDate.setFullYear(nextChargeDate.getFullYear() + 1);
-      
-      await client.query(
-        `INSERT INTO billing_queue 
-         (user_id, subscription_id, amount, charge_date, billing_type, plan_id, description, currency)
-         VALUES ($1, $2, $3, $4, 'yearly', $5, $6, $7)`,
-        [
-          charge.user_id,
-          charge.subscription_id,
-          nextAmount,
-          nextChargeDate.toISOString().split('T')[0],
-          charge.plan_id,
-          description,
+          charge.description || 'בוט העלאת סטטוסים - חודשי',
           charge.currency
         ]
       );
@@ -498,11 +557,91 @@ async function handleChargeSuccess(charge, chargeResult) {
     
     console.log(`[BillingQueue] Charge ${charge.id} completed successfully. Transaction: ${chargeResult.transactionId}`);
     
+    // Send success notification to user (async - don't block)
+    sendSuccessNotification(charge, chargeResult).catch(err => 
+      console.error('[BillingQueue] Error sending success notification:', err)
+    );
+    
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
   } finally {
     client.release();
+  }
+}
+
+/**
+ * Send success notification to user after successful charge
+ */
+async function sendSuccessNotification(charge, chargeResult) {
+  try {
+    const userEmail = charge.receipt_email || charge.email;
+    const userName = charge.invoice_name || charge.display_name || '';
+    
+    // Get next charge date for the message
+    const nextChargeDate = new Date();
+    if (charge.billing_type === 'yearly') {
+      nextChargeDate.setFullYear(nextChargeDate.getFullYear() + 1);
+    } else {
+      nextChargeDate.setMonth(nextChargeDate.getMonth() + 1);
+    }
+    const formattedNextDate = nextChargeDate.toLocaleDateString('he-IL', {
+      year: 'numeric', month: 'long', day: 'numeric'
+    });
+    
+    // Create in-app notification
+    await pool.query(`
+      INSERT INTO notifications (user_id, notification_type, title, message, metadata)
+      VALUES ($1, 'payment_success', 'התשלום בוצע בהצלחה', $2, $3)
+    `, [
+      charge.user_id,
+      `חויבת בסכום של ₪${charge.amount} עבור ${charge.description || charge.plan_name_he}. החיוב הבא: ${formattedNextDate}`,
+      JSON.stringify({
+        amount: charge.amount,
+        billing_type: charge.billing_type,
+        transaction_id: chargeResult.transactionId,
+        next_charge_date: nextChargeDate.toISOString(),
+        receipt_url: chargeResult.documentURL
+      })
+    ]);
+    
+    // Send email notification
+    if (userEmail) {
+      await sendMail(
+        userEmail,
+        `התשלום בוצע בהצלחה - ₪${charge.amount}`,
+        `
+          <div dir="rtl" style="font-family: Arial, sans-serif;">
+            <h2>שלום ${userName},</h2>
+            <p>התשלום שלך בוצע בהצלחה! 🎉</p>
+            <table style="border-collapse: collapse; margin: 20px 0;">
+              <tr>
+                <td style="padding: 8px 16px; border: 1px solid #ddd; background: #f9f9f9;"><strong>סכום:</strong></td>
+                <td style="padding: 8px 16px; border: 1px solid #ddd;">₪${charge.amount}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 16px; border: 1px solid #ddd; background: #f9f9f9;"><strong>תיאור:</strong></td>
+                <td style="padding: 8px 16px; border: 1px solid #ddd;">${charge.description || charge.plan_name_he}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 16px; border: 1px solid #ddd; background: #f9f9f9;"><strong>חיוב הבא:</strong></td>
+                <td style="padding: 8px 16px; border: 1px solid #ddd;">${formattedNextDate}</td>
+              </tr>
+            </table>
+            ${chargeResult.documentURL ? `
+              <p><a href="${chargeResult.documentURL}" style="background: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">צפה בקבלה</a></p>
+            ` : ''}
+            <p style="color: #666; font-size: 12px; margin-top: 20px;">
+              לניהול המנוי שלך: <a href="${process.env.FRONTEND_URL}/settings/billing">לחץ כאן</a>
+            </p>
+          </div>
+        `
+      );
+    }
+    
+    console.log(`[BillingQueue] Sent success notification to ${userEmail}`);
+  } catch (error) {
+    console.error('[BillingQueue] Error sending success notification:', error);
   }
 }
 
@@ -516,6 +655,9 @@ async function handleChargeFailure(charge, errorCode, errorMessage, technicalErr
   // Calculate next retry date (tomorrow)
   const nextRetryDate = new Date();
   nextRetryDate.setDate(nextRetryDate.getDate() + 1);
+  const formattedRetryDate = nextRetryDate.toLocaleDateString('he-IL', {
+    weekday: 'long', month: 'long', day: 'numeric'
+  });
   
   // Update charge status
   await pool.query(
@@ -551,9 +693,31 @@ async function handleChargeFailure(charge, errorCode, errorMessage, technicalErr
     ]
   );
   
+  // Create in-app notification for user
+  const isLastRetry = retryCount >= maxRetries;
+  await pool.query(`
+    INSERT INTO notifications (user_id, notification_type, title, message, metadata, priority)
+    VALUES ($1, 'payment_failed', $2, $3, $4, $5)
+  `, [
+    charge.user_id,
+    isLastRetry ? '⚠️ בעיה בתשלום - נדרשת פעולה מיידית!' : 'בעיה בחיוב החודשי',
+    isLastRetry 
+      ? `לא הצלחנו לחייב את אמצעי התשלום שלך (₪${charge.amount}). זהו הניסיון האחרון - אנא עדכן את פרטי התשלום כדי למנוע הפסקת שירות.`
+      : `לא הצלחנו לחייב את אמצעי התשלום שלך (₪${charge.amount}). ננסה שוב ב-${formattedRetryDate}.`,
+    JSON.stringify({
+      amount: charge.amount,
+      error_code: errorCode,
+      retry_count: retryCount,
+      max_retries: maxRetries,
+      next_retry_date: nextRetryDate.toISOString(),
+      is_last_retry: isLastRetry
+    }),
+    isLastRetry ? 'high' : 'normal'
+  ]);
+  
   console.log(`[BillingQueue] Charge ${charge.id} failed: ${errorCode} - ${errorMessage}. Retry ${retryCount}/${maxRetries}`);
   
-  // Send notifications
+  // Send email notifications
   await sendFailureNotifications(charge, errorCode, errorMessage, retryCount, maxRetries);
 }
 
@@ -580,21 +744,87 @@ async function handleMaxRetriesReached(charge, lastError) {
     
     // Get free plan
     const freePlanResult = await client.query(
-      `SELECT id FROM subscription_plans WHERE price = 0 AND is_active = true LIMIT 1`
+      `SELECT id, max_bots FROM subscription_plans WHERE price = 0 AND is_active = true LIMIT 1`
     );
     
     if (freePlanResult.rows[0]) {
+      const freePlan = freePlanResult.rows[0];
+      
       // Downgrade to free plan
       await client.query(
         `UPDATE user_subscriptions 
          SET plan_id = $1,
-             status = 'active',
+             status = 'expired',
              is_manual = false,
+             expires_at = NULL,
+             next_charge_date = NULL,
              admin_notes = COALESCE(admin_notes, '') || E'\n[' || NOW()::text || '] הורד לתוכנית חינמית עקב כשלון בחיוב',
              updated_at = NOW()
          WHERE user_id = $2`,
-        [freePlanResult.rows[0].id, charge.user_id]
+        [freePlan.id, charge.user_id]
       );
+      
+      // IMPORTANT: Keep only the allowed number of bots UNLOCKED (same as expiry.service)
+      const freeBotLimit = freePlan.max_bots || 1;
+      
+      if (freeBotLimit > 0 && freeBotLimit !== -1) {
+        // Get the most recently updated bots up to the limit
+        const botsToKeep = await client.query(`
+          SELECT id, name FROM bots 
+          WHERE user_id = $1 AND pending_deletion = false
+          ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+          LIMIT $2
+        `, [charge.user_id, freeBotLimit]);
+        
+        const keepBotIds = botsToKeep.rows.map(b => b.id);
+        
+        if (keepBotIds.length > 0) {
+          const keepBotName = botsToKeep.rows[0].name;
+          
+          // LOCK all bots EXCEPT the ones we're keeping
+          await client.query(`
+            UPDATE bots 
+            SET is_active = false,
+                locked_reason = 'payment_failed',
+                locked_at = NOW(),
+                updated_at = NOW()
+            WHERE user_id = $1 AND id != ALL($2::uuid[])
+          `, [charge.user_id, keepBotIds]);
+          
+          // Make sure kept bots are unlocked, first one active
+          await client.query(`
+            UPDATE bots 
+            SET locked_reason = NULL,
+                locked_at = NULL,
+                is_active = CASE WHEN id = $2 THEN true ELSE false END,
+                updated_at = NOW()
+            WHERE id = ANY($1::uuid[])
+          `, [keepBotIds, keepBotIds[0]]);
+          
+          console.log(`[BillingQueue] Kept ${keepBotIds.length} bots unlocked for user ${charge.user_id}, locked others`);
+        } else {
+          // No bots to keep - lock all
+          await client.query(`
+            UPDATE bots 
+            SET is_active = false,
+                locked_reason = 'payment_failed',
+                locked_at = NOW(),
+                updated_at = NOW()
+            WHERE user_id = $1
+          `, [charge.user_id]);
+        }
+      } else if (freeBotLimit === 0) {
+        // Free plan allows 0 bots - lock all
+        await client.query(`
+          UPDATE bots 
+          SET is_active = false,
+              locked_reason = 'payment_failed',
+              locked_at = NOW(),
+              updated_at = NOW()
+          WHERE user_id = $1
+        `, [charge.user_id]);
+      }
+      // If freeBotLimit is -1, don't touch bots (unlimited)
     }
     
     // Cancel any other pending charges for this user
@@ -604,6 +834,16 @@ async function handleMaxRetriesReached(charge, lastError) {
        WHERE user_id = $1 AND status = 'pending'`,
       [charge.user_id]
     );
+    
+    // Create in-app notification
+    await client.query(`
+      INSERT INTO notifications (user_id, notification_type, title, message, metadata)
+      VALUES ($1, 'subscription_downgraded', 'המנוי שלך הורד לתוכנית חינמית', $2, $3)
+    `, [
+      charge.user_id,
+      'לא הצלחנו לחייב את אמצעי התשלום שלך. החשבון הורד לתוכנית החינמית.',
+      JSON.stringify({ reason: 'payment_failed', last_error: lastError })
+    ]);
     
     await client.query('COMMIT');
     
