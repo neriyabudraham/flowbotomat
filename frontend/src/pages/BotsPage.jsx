@@ -651,7 +651,7 @@ export default function BotsPage() {
                     </div>
                     
                     {/* Actions */}
-                    <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center gap-2">
                       <button
                         onClick={(e) => handleToggle(e, bot)}
                         className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -765,7 +765,7 @@ export default function BotsPage() {
                     </div>
                   </div>
                   
-                  <div className="px-4 py-3 bg-purple-50/50 border-t border-purple-100 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="px-4 py-3 bg-purple-50/50 border-t border-purple-100 flex items-center gap-2">
                     {(bot.permission === 'edit' || bot.permission === 'admin') && (
                       <button
                         onClick={(e) => { e.stopPropagation(); navigate(`/bots/${bot.id}`); }}

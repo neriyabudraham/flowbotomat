@@ -36,6 +36,7 @@ export default function GroupTransfersPage() {
   const [quickSendTransfer, setQuickSendTransfer] = useState(null);
   const [activeTab, setActiveTab] = useState('transfers'); // 'transfers' | 'history'
   const [errorMessage, setErrorMessage] = useState(null);
+  const [limitLoading, setLimitLoading] = useState(true);
 
   // Check if user is admin (either directly or viewing as another account)
   const isAdmin = (() => {
@@ -90,10 +91,13 @@ export default function GroupTransfersPage() {
 
   const fetchLimit = async () => {
     try {
+      setLimitLoading(true);
       const { data } = await api.get('/group-transfers/limit');
       setLimit(data);
     } catch (e) {
       console.error('Failed to fetch limit:', e);
+    } finally {
+      setLimitLoading(false);
     }
   };
 
@@ -217,6 +221,18 @@ export default function GroupTransfersPage() {
   const activeTransfers = transfers.filter(f => f.is_active).length;
   const totalTargets = transfers.reduce((sum, f) => sum + (f.target_count || 0), 0);
   const totalSent = transfers.reduce((sum, f) => sum + (f.total_transfers || 0), 0);
+
+  // Show loading while checking feature access
+  if (limitLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50/30 flex items-center justify-center" dir="rtl">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">טוען...</p>
+        </div>
+      </div>
+    );
+  }
 
   // Show upgrade page if feature is disabled
   if (limit?.featureDisabled) {
@@ -739,8 +755,8 @@ export default function GroupTransfersPage() {
                   </div>
                 </div>
                 
-                {/* Actions - appear on hover */}
-                <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                {/* Actions */}
+                <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center gap-2">
                   <button
                     onClick={(e) => { e.stopPropagation(); handleToggle(transfer); }}
                     className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${

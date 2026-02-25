@@ -22,6 +22,7 @@ export default function ContactsPage() {
   const [showMobileSidebar, setShowMobileSidebar] = useState(true);
   const [stats, setStats] = useState({ totalContacts: 0, activeChats: 0, messagesCount: 0 });
   const [contactLimit, setContactLimit] = useState(null);
+  const [limitLoading, setLimitLoading] = useState(true);
   const { user, logout, fetchMe } = useAuthStore();
   const {
     contacts, selectedContact, messages, isLoading, hasMore, loadingMore,
@@ -100,10 +101,14 @@ export default function ContactsPage() {
 
   const loadContactLimit = async () => {
     try {
+      setLimitLoading(true);
       const { data } = await api.get('/contacts/limit');
+      console.log('[ContactsPage] Contact limit:', data);
       setContactLimit(data);
     } catch (err) {
       console.error('Failed to load contact limit:', err);
+    } finally {
+      setLimitLoading(false);
     }
   };
 
@@ -175,7 +180,23 @@ export default function ContactsPage() {
   }).length;
 
   // Check if contact limit is exceeded - block Live Chat
-  const limitExceeded = contactLimit && !contactLimit.allowed && !contactLimit.statusBotUnlimited && contactLimit.limit !== -1;
+  // allowed: false means limit exceeded, statusBotUnlimited: true means no limit
+  const limitExceeded = contactLimit !== null && 
+    contactLimit.allowed === false && 
+    !contactLimit.statusBotUnlimited && 
+    contactLimit.limit !== -1;
+
+  // Show loading while checking limit
+  if (limitLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 flex items-center justify-center" dir="rtl">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">טוען...</p>
+        </div>
+      </div>
+    );
+  }
 
   // Show limit exceeded page
   if (limitExceeded) {

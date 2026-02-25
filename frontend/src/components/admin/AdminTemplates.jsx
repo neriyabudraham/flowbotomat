@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Plus, Edit, Trash2, Eye, EyeOff, Star, Crown, 
   Grid, X, Bot, RefreshCw, Copy, Search, Clock, Check,
-  XCircle, AlertTriangle, User, ChevronDown, ChevronUp
+  XCircle, AlertTriangle, User, ChevronDown, ChevronUp, PenTool
 } from 'lucide-react';
 import api from '../../services/api';
 import { getSocket } from '../../services/socket';
 
 export default function AdminTemplates() {
+  const navigate = useNavigate();
   const [templates, setTemplates] = useState([]);
   const [categories, setCategories] = useState([]);
   const [bots, setBots] = useState([]);
@@ -329,28 +331,39 @@ export default function AdminTemplates() {
 
               {/* Action buttons for pending templates */}
               {template.status === 'pending' ? (
-                <div className="flex items-center gap-2 border-t border-gray-100 pt-3">
-                  <button
-                    onClick={() => setPreviewTemplate(template)}
-                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium"
-                  >
-                    <Eye className="w-4 h-4" />
-                    צפייה
-                  </button>
-                  <button
-                    onClick={() => setApproveTemplate(template)}
-                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium"
-                  >
-                    <Check className="w-4 h-4" />
-                    אשר
-                  </button>
-                  <button
-                    onClick={() => setRejectTemplate(template)}
-                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium"
-                  >
-                    <XCircle className="w-4 h-4" />
-                    דחה
-                  </button>
+                <div className="space-y-2 border-t border-gray-100 pt-3">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setPreviewTemplate(template)}
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium"
+                    >
+                      <Eye className="w-4 h-4" />
+                      צפייה
+                    </button>
+                    <button
+                      onClick={() => navigate(`/admin/templates/edit/${template.id}`)}
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 text-sm font-medium"
+                    >
+                      <PenTool className="w-4 h-4" />
+                      ערוך
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setApproveTemplate(template)}
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium"
+                    >
+                      <Check className="w-4 h-4" />
+                      אשר
+                    </button>
+                    <button
+                      onClick={() => setRejectTemplate(template)}
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium"
+                    >
+                      <XCircle className="w-4 h-4" />
+                      דחה
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="flex items-center gap-1 border-t border-gray-100 pt-3">
@@ -386,9 +399,16 @@ export default function AdminTemplates() {
                   <button
                     onClick={() => setEditTemplate(template)}
                     className="p-1.5 hover:bg-blue-50 rounded text-blue-600"
-                    title="עריכה"
+                    title="עריכת פרטים"
                   >
                     <Edit className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => navigate(`/admin/templates/edit/${template.id}`)}
+                    className="p-1.5 hover:bg-purple-50 rounded text-purple-600"
+                    title="ערוך בקנבס"
+                  >
+                    <PenTool className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => handleDelete(template.id)}

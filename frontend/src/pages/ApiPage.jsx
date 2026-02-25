@@ -35,7 +35,7 @@ export default function ApiPage() {
   const [newKeyName, setNewKeyName] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [copiedKey, setCopiedKey] = useState(null);
-  const [hasApiAccess, setHasApiAccess] = useState(false);
+  const [hasApiAccess, setHasApiAccess] = useState(null); // null = loading, true/false = checked
   const [deleteModal, setDeleteModal] = useState({ show: false, keyId: null, keyName: '' });
   const [regenerateModal, setRegenerateModal] = useState({ show: false, keyId: null, keyName: '' });
   const [deleting, setDeleting] = useState(false);
@@ -298,6 +298,117 @@ export default function ApiPage() {
   -d '${JSON.stringify(doc.body, null, 2)}'`;
   };
 
+  // Show loading while checking access
+  if (hasApiAccess === null) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-purple-50 flex items-center justify-center" dir="rtl">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">טוען...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show upgrade page if no API access
+  if (hasApiAccess === false) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-purple-50/30" dir="rtl">
+        {/* Header */}
+        <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
+          <div className="max-w-7xl mx-auto px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => navigate('/dashboard')}
+                  className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                  <span className="font-medium">חזרה</span>
+                </button>
+                <div className="w-px h-6 bg-gray-200" />
+                <Logo onClick={() => navigate('/dashboard')} className="cursor-pointer" />
+              </div>
+              <div className="flex items-center gap-3">
+                {isAdmin && <AccountSwitcher />}
+                <NotificationsDropdown />
+                <div className="w-px h-6 bg-gray-200" />
+                <button onClick={() => navigate('/settings')} className="hover:bg-gray-100 p-2 rounded-lg transition-colors">
+                  <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center text-white font-medium">
+                    {user?.name?.charAt(0)?.toUpperCase() || '?'}
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="max-w-4xl mx-auto px-6 py-16">
+          <div className="text-center">
+            {/* Icon */}
+            <div className="w-24 h-24 mx-auto mb-8 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-3xl flex items-center justify-center shadow-xl shadow-purple-500/30">
+              <Lock className="w-12 h-12 text-white" />
+            </div>
+
+            {/* Title */}
+            <h1 className="text-4xl font-bold text-gray-900 mb-4">
+              גישה ל-API לא זמינה
+            </h1>
+            <p className="text-xl text-gray-600 mb-8 max-w-lg mx-auto">
+              התוכנית הנוכחית שלך לא כוללת גישה ל-API. שדרג כדי לשלב את Botomat עם המערכות שלך.
+            </p>
+
+            {/* Features */}
+            <div className="bg-white rounded-3xl border border-gray-200 shadow-lg p-8 mb-8 text-right">
+              <h3 className="text-lg font-bold text-gray-900 mb-6 text-center">מה תקבל עם גישה ל-API?</h3>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="flex items-center gap-3 p-4 bg-purple-50 rounded-xl">
+                  <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                    <Terminal className="w-5 h-5 text-purple-600" />
+                  </div>
+                  <span className="text-gray-800 font-medium">שליחת הודעות מהמערכות שלך</span>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-xl">
+                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <Zap className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <span className="text-gray-800 font-medium">אינטגרציה עם CRM וכלים</span>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-green-50 rounded-xl">
+                  <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                    <Shield className="w-5 h-5 text-green-600" />
+                  </div>
+                  <span className="text-gray-800 font-medium">מפתחות API מאובטחים</span>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-amber-50 rounded-xl">
+                  <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
+                    <Code className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <span className="text-gray-800 font-medium">תיעוד מלא ודוגמאות קוד</span>
+                </div>
+              </div>
+            </div>
+
+            {/* CTA */}
+            <button
+              onClick={() => navigate('/pricing')}
+              className="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-2xl font-bold text-lg hover:shadow-xl hover:shadow-purple-500/30 transition-all hover:scale-105"
+            >
+              <Crown className="w-6 h-6" />
+              שדרג עכשיו
+            </button>
+
+            <p className="text-sm text-gray-500 mt-4">
+              <button onClick={() => navigate('/dashboard')} className="text-purple-600 hover:underline">
+                חזרה לדשבורד
+              </button>
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-purple-50" dir="rtl">
       {/* Header */}
@@ -367,24 +478,6 @@ export default function ApiPage() {
             )}
           </div>
         </div>
-
-        {/* No API Access */}
-        {!hasApiAccess && (
-          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-8 mb-8 text-center">
-            <div className="w-16 h-16 mx-auto mb-4 bg-amber-100 rounded-2xl flex items-center justify-center">
-              <Crown className="w-8 h-8 text-amber-600" />
-            </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">גישת API זמינה למנויים בתשלום</h3>
-            <p className="text-gray-600 mb-6">שדרג את החבילה שלך כדי לקבל גישה ל-API ולשלוח הודעות ישירות מהמערכות שלך</p>
-            <Link
-              to="/pricing"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl font-bold hover:shadow-lg transition-all"
-            >
-              צפה בתכניות
-              <ExternalLink className="w-4 h-4" />
-            </Link>
-          </div>
-        )}
 
         {/* New Key Alert */}
         {showNewKey && (

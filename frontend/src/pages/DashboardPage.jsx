@@ -686,23 +686,23 @@ export default function DashboardPage() {
                 <ChevronLeft className="w-4 h-4" />
               </Link>
             </div>
-            <div className="p-4">
+            <div className="p-3">
               {activity && activity.length > 0 ? (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {activity.slice(0, 7).map((contact, i) => (
                     <Link 
                       key={contact.id || i} 
                       to={`/contacts?chat=${contact.id}`}
-                      className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors"
+                      className="flex items-center gap-3 p-2.5 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors"
                     >
                       {contact.profile_picture_url ? (
                         <img 
                           src={contact.profile_picture_url} 
                           alt="" 
-                          className="w-10 h-10 rounded-xl object-cover"
+                          className="w-9 h-9 rounded-lg object-cover"
                         />
                       ) : (
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold">
+                        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm">
                           {(contact.display_name || contact.phone_number || '?')[0].toUpperCase()}
                         </div>
                       )}
@@ -741,9 +741,9 @@ export default function DashboardPage() {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                    <Clock className="w-8 h-8 text-gray-400" />
+                <div className="text-center py-8">
+                  <div className="w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                    <Clock className="w-7 h-7 text-gray-400" />
                   </div>
                   <p className="text-gray-500 font-medium">אין שיחות אחרונות</p>
                   <p className="text-sm text-gray-400">שיחות חדשות יופיעו כאן</p>

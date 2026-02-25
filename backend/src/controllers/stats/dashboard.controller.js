@@ -39,7 +39,7 @@ async function getDashboardStats(req, res) {
        FROM contacts c
        WHERE c.user_id = $1 AND c.last_message_at IS NOT NULL
        ORDER BY c.last_message_at DESC
-       LIMIT 5`,
+       LIMIT 7`,
       [userId]
     );
 

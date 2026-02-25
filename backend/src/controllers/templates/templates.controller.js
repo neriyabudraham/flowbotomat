@@ -550,6 +550,31 @@ async function rejectTemplate(req, res) {
 }
 
 /**
+ * Get single template for admin editing
+ */
+async function getAdminTemplate(req, res) {
+  try {
+    const { id } = req.params;
+    
+    const result = await db.query(`
+      SELECT bt.*, u.name as creator_name, u.email as creator_email
+      FROM bot_templates bt
+      LEFT JOIN users u ON bt.created_by = u.id
+      WHERE bt.id = $1
+    `, [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'תבנית לא נמצאה' });
+    }
+    
+    res.json({ template: result.rows[0] });
+  } catch (error) {
+    console.error('[Templates] Get admin template error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת תבנית' });
+  }
+}
+
+/**
  * Create template (admin)
  */
 async function createTemplate(req, res) {
@@ -720,6 +745,7 @@ module.exports = {
   rateTemplate,
   getMyRating,
   adminGetTemplates,
+  getAdminTemplate,
   createTemplate,
   updateTemplate,
   deleteTemplate,

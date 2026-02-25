@@ -5,6 +5,7 @@ const { getWahaCredentials } = require('./settings/system.service');
 const validationService = require('./validation.service');
 const { checkLimit, incrementBotRuns } = require('../controllers/subscriptions/subscriptions.controller');
 const { getSocketManager } = require('./socket/manager.service');
+const { checkContactLimit } = require('./limits.service');
 
 // Ensure metadata column exists
 (async () => {
@@ -159,7 +160,21 @@ class BotEngine {
       
       if (contactResult.rows.length === 0) {
         // For some events like group_join we may not have the contact yet
-        // Try to create one
+        // Check contact limit before creating new contact (skip for groups)
+        const isGroup = contactPhone.includes('@g.us');
+        if (!isGroup) {
+          try {
+            const limitCheck = await checkContactLimit(userId);
+            if (!limitCheck.allowed) {
+              console.log(`[BotEngine] ⛔ User ${userId} over contact limit (${limitCheck.used}/${limitCheck.limit}) - NOT creating contact for event`);
+              return;
+            }
+          } catch (limitErr) {
+            console.log('[BotEngine] Error checking contact limit:', limitErr.message);
+          }
+        }
+        
+        // Try to create contact
         console.log('[BotEngine] Contact not found for event, creating:', contactPhone);
         try {
           const insertResult = await db.query(

@@ -1,6 +1,7 @@
 const db = require('../../config/database');
 const { getWahaCredentials } = require('../settings/system.service');
 const { decrypt } = require('../crypto/encrypt.service');
+const { checkContactLimit } = require('../limits.service');
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
@@ -112,6 +113,19 @@ async function saveOutgoingMessage(userId, chatId, messageType, content, mediaUr
     );
     
     if (contact.rows.length === 0) {
+      // Check contact limit for non-groups
+      if (!isGroup) {
+        try {
+          const limitCheck = await checkContactLimit(userId);
+          if (!limitCheck.allowed) {
+            console.log(`[GroupForwards] ⛔ User ${userId} over contact limit (${limitCheck.used}/${limitCheck.limit}) - NOT creating contact`);
+            return null;
+          }
+        } catch (limitErr) {
+          console.log('[GroupForwards] Error checking contact limit:', limitErr.message);
+        }
+      }
+      
       // Create contact - use displayName if available, otherwise leave null to show phone
       const contactName = displayName || null;
       console.log(`[GroupForwards] Creating new contact for ${phone} with name: ${contactName}`);

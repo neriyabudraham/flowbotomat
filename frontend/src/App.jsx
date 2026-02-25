@@ -14,6 +14,7 @@ import SettingsPage from './pages/SettingsPage';
 import BotsPage from './pages/BotsPage';
 import BotEditorPage from './pages/BotEditorPage';
 import TemplatesPage from './pages/TemplatesPage';
+import TemplateEditorPage from './pages/TemplateEditorPage';
 import AdminPage from './pages/AdminPage';
 import NotificationsPage from './pages/NotificationsPage';
 import ClientBotsPage from './pages/ClientBotsPage';
@@ -161,6 +162,7 @@ function App() {
           <Route path="/status-bot/subscribe" element={<StatusBotSubscribePage />} />
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/admin" element={<AdminPage />} />
+          <Route path="/admin/templates/edit/:templateId" element={<TemplateEditorPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/developers" element={<ApiPage />} />
           <Route path="/clients/:clientId/bots" element={<ClientBotsPage />} />

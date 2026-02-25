@@ -22,6 +22,7 @@ router.post('/:id/rate', templatesController.rateTemplate);
 // Admin routes
 router.get('/admin/all', adminMiddleware, templatesController.adminGetTemplates);
 router.post('/admin', adminMiddleware, templatesController.createTemplate);
+router.get('/admin/:id', adminMiddleware, templatesController.getAdminTemplate);
 router.put('/admin/:id', adminMiddleware, templatesController.updateTemplate);
 router.delete('/admin/:id', adminMiddleware, templatesController.deleteTemplate);
 router.post('/admin/from-bot/:botId', adminMiddleware, templatesController.createFromBot);

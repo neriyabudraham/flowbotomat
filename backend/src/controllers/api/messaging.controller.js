@@ -2,6 +2,7 @@ const db = require('../../config/database');
 const { decrypt } = require('../../services/crypto/encrypt.service');
 const { getWahaCredentials } = require('../../services/settings/system.service');
 const { createClient } = require('../../services/waha/client.service');
+const { checkContactLimit } = require('../../services/limits.service');
 
 /**
  * Get WhatsApp client for user
@@ -82,6 +83,16 @@ async function getOrCreateContact(userId, phone) {
   
   if (result.rows.length > 0) {
     return result.rows[0];
+  }
+  
+  // Check contact limit before creating new contact
+  const isGroup = phone.includes('@g.us');
+  if (!isGroup) {
+    const limitCheck = await checkContactLimit(userId);
+    if (!limitCheck.allowed) {
+      console.log(`[API] ⛔ User ${userId} over contact limit (${limitCheck.used}/${limitCheck.limit}) - NOT creating contact`);
+      return null;
+    }
   }
   
   // Create new contact

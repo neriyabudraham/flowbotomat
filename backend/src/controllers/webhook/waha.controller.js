@@ -765,6 +765,13 @@ async function handleIncomingMessage(userId, event) {
     }
   });
   
+  // If contact is null, it means the user is over their contact limit
+  // Skip processing this message entirely for new contacts
+  if (!contact) {
+    console.log(`[Webhook] ⛔ Skipping message from ${contactPhone} - user over contact limit`);
+    return;
+  }
+  
   // Parse message content
   const messageData = parseMessage(payload);
   
@@ -1075,10 +1082,12 @@ async function getOrCreateContact(userId, phone, payload) {
     try {
       const limitCheck = await checkContactLimit(userId);
       if (!limitCheck.allowed) {
-        console.warn(`[Webhook] User ${userId} over contact limit (${limitCheck.used}/${limitCheck.limit}), still creating contact for message processing`);
+        console.log(`[Webhook] ⛔ User ${userId} over contact limit (${limitCheck.used}/${limitCheck.limit}) - NOT creating new contact`);
+        return null; // Don't create contact, return null to skip processing
       }
     } catch (err) {
       console.error('[Webhook] Error checking contact limit:', err.message);
+      // On error, still allow to prevent blocking legitimate users
     }
   }
   

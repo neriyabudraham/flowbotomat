@@ -5,7 +5,7 @@ import {
   TrendingUp, Headphones, Calendar, ShoppingBag, Megaphone,
   Play, Check, X, Sparkles, Upload, Clock, Filter,
   ChevronDown, Heart, Download, Eye, MessageSquare, Plus,
-  AlertCircle, CheckCircle, XCircle, RefreshCw
+  AlertCircle, CheckCircle, XCircle, RefreshCw, Lock
 } from 'lucide-react';
 import api from '../services/api';
 import Logo from '../components/atoms/Logo';
@@ -56,6 +56,7 @@ export default function TemplatesPage() {
   const [submitData, setSubmitData] = useState({ botId: '', name: '', name_he: '', description: '', description_he: '', category: 'general' });
   const [submitting, setSubmitting] = useState(false);
   const [userRatings, setUserRatings] = useState({});
+  const [botLimitModal, setBotLimitModal] = useState(null); // { limit, used } or null
 
   useEffect(() => {
     loadData();
@@ -119,7 +120,8 @@ export default function TemplatesPage() {
     } catch (err) {
       if (err.response?.data?.limit_exceeded) {
         const { limit, used } = err.response.data;
-        alert(`הגעת למגבלת הבוטים (${used}/${limit}). מחק בוט קיים או שדרג את החשבון שלך כדי ליצור בוט נוסף.`);
+        setSelectedTemplate(null); // Close template modal
+        setBotLimitModal({ limit, used });
       } else if (err.response?.data?.upgrade_required) {
         alert('תבנית זו זמינה למנויים בלבד. שדרג את החשבון שלך כדי להשתמש בה.');
       } else {
@@ -520,6 +522,71 @@ export default function TemplatesPage() {
           onSubmit={handleSubmitTemplate}
           onClose={() => setShowSubmitModal(false)}
         />
+      )}
+
+      {/* Bot Limit Modal */}
+      {botLimitModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setBotLimitModal(null)}>
+          <div className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="p-6 text-center border-b border-gray-100 bg-gradient-to-r from-amber-50 to-orange-50">
+              <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl flex items-center justify-center shadow-lg shadow-amber-500/30">
+                <Crown className="w-8 h-8 text-white" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900">הגעת למגבלת הבוטים</h3>
+              <p className="text-gray-600 mt-1">{botLimitModal.used} מתוך {botLimitModal.limit} בוטים</p>
+            </div>
+
+            {/* Content */}
+            <div className="p-6">
+              {/* Bot icon with limit indicator */}
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl mb-6">
+                <div className="flex items-center justify-center gap-4">
+                  <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-sm">
+                    <Bot className="w-6 h-6 text-amber-600" />
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold text-amber-900">החבילה הנוכחית שלך מאפשרת עד {botLimitModal.limit} בוטים</p>
+                    <p className="text-sm text-amber-700">שדרג את החבילה שלך כדי ליצור בוטים נוספים ולפתוח יכולות מתקדמות</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Benefits */}
+              <div className="space-y-3 mb-6">
+                <div className="flex items-center gap-3 p-3 bg-green-50 rounded-xl">
+                  <Check className="w-5 h-5 text-green-600 flex-shrink-0" />
+                  <span className="text-gray-800">יותר בוטים פעילים</span>
+                </div>
+                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl">
+                  <Zap className="w-5 h-5 text-blue-600 flex-shrink-0" />
+                  <span className="text-gray-800">יותר הרצות פלואו בחודש</span>
+                </div>
+                <div className="flex items-center gap-3 p-3 bg-purple-50 rounded-xl">
+                  <Users className="w-5 h-5 text-purple-600 flex-shrink-0" />
+                  <span className="text-gray-800">יותר אנשי קשר</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="p-6 border-t border-gray-100 flex gap-3">
+              <button
+                onClick={() => setBotLimitModal(null)}
+                className="flex-1 px-4 py-3 border border-gray-200 rounded-xl hover:bg-gray-50 font-medium transition-colors"
+              >
+                אחר כך
+              </button>
+              <button
+                onClick={() => { setBotLimitModal(null); navigate('/pricing'); }}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-xl hover:shadow-lg hover:shadow-amber-500/30 font-medium transition-all flex items-center justify-center gap-2"
+              >
+                <Crown className="w-5 h-5" />
+                שדרג עכשיו
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
