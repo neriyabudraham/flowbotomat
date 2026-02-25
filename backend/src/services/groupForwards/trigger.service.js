@@ -745,7 +745,9 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
     
     // Check for time input (when waiting for schedule time)
     if (messageContent && /^\d{1,4}:?\d{0,2}$/.test(messageContent.trim())) {
+      console.log(`[GroupForwards] Detected potential time input: ${messageContent.trim()}`);
       const handled = await handleScheduleTimeInput(userId, senderPhone, messageContent.trim());
+      console.log(`[GroupForwards] Time input handled: ${handled}`);
       if (handled) return true;
     }
     
@@ -1216,7 +1218,7 @@ async function handleDaySelection(userId, senderPhone, jobId, dayOffset) {
  * Handle time input for scheduling (text message)
  */
 async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
-  console.log(`[GroupForwards] handleScheduleTimeInput - timeInput: ${timeInput}`);
+  console.log(`[GroupForwards] handleScheduleTimeInput - userId: ${userId}, senderPhone: ${senderPhone}, timeInput: ${timeInput}`);
   
   // Find pending schedule job for this user
   const jobResult = await db.query(`
@@ -1228,7 +1230,16 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
     LIMIT 1
   `, [userId, senderPhone]);
   
+  console.log(`[GroupForwards] Found ${jobResult.rows.length} pending_time jobs for ${senderPhone}`);
+  
   if (jobResult.rows.length === 0) {
+    // Debug: check what jobs exist for this user/phone
+    const debugResult = await db.query(`
+      SELECT id, status, sender_phone FROM forward_jobs 
+      WHERE user_id = $1 AND sender_phone = $2 
+      ORDER BY updated_at DESC LIMIT 5
+    `, [userId, senderPhone]);
+    console.log(`[GroupForwards] Debug - Recent jobs for ${senderPhone}:`, debugResult.rows.map(r => `${r.id.substring(0,8)}: ${r.status}`).join(', '));
     return false; // No pending schedule
   }
   
