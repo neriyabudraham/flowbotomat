@@ -241,7 +241,7 @@ async function processScheduledForwards() {
         
         // Get targets for this forward
         const targetsResult = await db.query(`
-          SELECT id FROM group_forward_targets WHERE forward_id = $1
+          SELECT id FROM group_forward_targets WHERE forward_id = $1 AND is_active = true
         `, [schedule.forward_id]);
         
         if (targetsResult.rows.length === 0) {
@@ -249,13 +249,14 @@ async function processScheduledForwards() {
         }
         
         // Get message content (suffix will be applied by jobs.controller.js per target)
+        // Delay settings are fetched from group_forwards when job runs
         let messageContent = schedule.message_content || schedule.media_caption || '';
         
-        // Create job
+        // Create job with sender_phone so completion notifications work
         const jobResult = await db.query(`
           INSERT INTO forward_jobs 
-          (forward_id, user_id, message_type, message_text, media_url, media_filename, total_targets, status)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, 'confirmed')
+          (forward_id, user_id, message_type, message_text, media_url, media_filename, total_targets, status, sender_phone)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, 'confirmed', $8)
           RETURNING *
         `, [
           schedule.forward_id,
@@ -264,7 +265,8 @@ async function processScheduledForwards() {
           messageContent,
           schedule.media_url,
           schedule.media_filename,
-          targetsResult.rows.length
+          targetsResult.rows.length,
+          userPhone
         ]);
         
         const job = jobResult.rows[0];
@@ -290,31 +292,8 @@ async function processScheduledForwards() {
           }
         }
         
-        // Start the job and wait for completion to send completion notification
-        startForwardJob(job.id).then(async () => {
-          // Send completion notification
-          if (userPhone) {
-            try {
-              const completedJob = await db.query(`
-                SELECT * FROM forward_jobs WHERE id = $1
-              `, [job.id]);
-              
-              if (completedJob.rows.length > 0) {
-                const j = completedJob.rows[0];
-                const successCount = j.success_count || 0;
-                const failCount = j.fail_count || 0;
-                
-                await sendNotificationMessage(
-                  schedule.user_id,
-                  userPhone,
-                  `✅ *השליחה הושלמה!*\n\n📤 ${schedule.forward_name}\n✅ נשלח: ${successCount}/${j.total_targets}\n${failCount > 0 ? `❌ נכשל: ${failCount}` : ''}`
-                );
-              }
-            } catch (notifyErr) {
-              console.error(`[ScheduledForwards] Failed to send completion notification:`, notifyErr.message);
-            }
-          }
-        }).catch(err => {
+        // Start the job (completion notification is handled by startForwardJob since sender_phone is set)
+        startForwardJob(job.id).catch(err => {
           console.error(`[ScheduledForwards] Error starting job ${job.id}:`, err);
         });
         
