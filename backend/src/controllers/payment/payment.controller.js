@@ -984,6 +984,7 @@ async function subscribe(req, res) {
           plan_id = $2, 
           status = 'active',
           is_trial = false,
+          cancelled_at = NULL,
           payment_method_id = NULL,
           sumit_customer_id = NULL,
           sumit_standing_order_id = NULL,
@@ -1023,6 +1024,7 @@ async function subscribe(req, res) {
           plan_id = $2, 
           status = 'trial',
           is_trial = true,
+          cancelled_at = NULL,
           trial_ends_at = $3,
           payment_method_id = $4,
           next_charge_date = $3,
@@ -1181,6 +1183,7 @@ async function subscribe(req, res) {
         plan_id = $2, 
         status = 'active',
         is_trial = false,
+        cancelled_at = NULL,
         payment_method_id = $3,
         sumit_customer_id = $4,
         next_charge_date = $5,
@@ -2053,6 +2056,7 @@ async function changePlan(req, res) {
       SET plan_id = $1, 
           billing_period = $2,
           status = 'active',
+          cancelled_at = NULL,
           expires_at = $3,
           updated_at = NOW()
       WHERE user_id = $4 AND status IN ('active', 'cancelled')
