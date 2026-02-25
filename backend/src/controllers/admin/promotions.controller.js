@@ -816,6 +816,23 @@ async function redeemCredits(req, res) {
       });
     }
     
+    // Check if user has a valid payment method - REQUIRED for credit redemption
+    const paymentMethodResult = await db.query(`
+      SELECT id, sumit_customer_id 
+      FROM user_payment_methods 
+      WHERE user_id = $1 AND is_active = true AND sumit_customer_id IS NOT NULL
+      ORDER BY created_at DESC LIMIT 1
+    `, [userId]);
+    
+    if (paymentMethodResult.rows.length === 0) {
+      return res.status(400).json({ 
+        error: 'נדרש אמצעי תשלום פעיל כדי לממש קרדיטים. הוסף כרטיס אשראי בדף התמחור ולאחר מכן תוכל לממש.',
+        requiresPaymentMethod: true
+      });
+    }
+    
+    const paymentMethod = paymentMethodResult.rows[0];
+    
     // Get user's current subscription
     const subscription = await db.query(`
       SELECT us.*, sp.name as plan_name, sp.price as plan_price, sp.name_he as plan_name_he
@@ -855,34 +872,41 @@ async function redeemCredits(req, res) {
     const isActive = currentSub?.status === 'active' && !isFree;
     
     if (isFree || !currentSub) {
-      // FREE USER - Create a new paid subscription
+      // FREE USER - Create a new paid subscription with next_charge_date set
+      // After credits expire, user will be charged normally
       const newExpiry = new Date();
       newExpiry.setMonth(newExpiry.getMonth() + monthsToAdd);
       
       if (currentSub) {
-        // Update existing subscription to paid plan
+        // Update existing subscription to paid plan - set next_charge_date for future billing
         await db.query(`
           UPDATE user_subscriptions SET
             plan_id = $1,
             status = 'active',
             expires_at = $2,
-            is_manual = true,
-            admin_notes = COALESCE(admin_notes, '') || E'\n' || $3,
+            next_charge_date = $2,
+            payment_method_id = $3,
+            sumit_customer_id = $4,
+            is_manual = false,
+            admin_notes = COALESCE(admin_notes, '') || E'\n' || $5,
             updated_at = NOW()
-          WHERE user_id = $4
-        `, [planForCalc.id, newExpiry, `מומש ${usedCredits} נקודות ל-${monthsToAdd} חודשי מנוי (${new Date().toLocaleDateString('he-IL')})`, userId]);
+          WHERE user_id = $6
+        `, [planForCalc.id, newExpiry, paymentMethod.id, paymentMethod.sumit_customer_id, 
+            `מומש ${usedCredits} נקודות ל-${monthsToAdd} חודשי מנוי - יתחיל חיוב רגיל ב-${newExpiry.toLocaleDateString('he-IL')} (${new Date().toLocaleDateString('he-IL')})`, 
+            userId]);
       } else {
-        // Create new subscription
+        // Create new subscription with next_charge_date for future billing
         await db.query(`
-          INSERT INTO user_subscriptions (user_id, plan_id, status, expires_at, is_manual, admin_notes, billing_period)
-          VALUES ($1, $2, 'active', $3, true, $4, 'monthly')
-        `, [userId, planForCalc.id, newExpiry, `מומש ${usedCredits} נקודות ל-${monthsToAdd} חודשי מנוי`]);
+          INSERT INTO user_subscriptions (user_id, plan_id, status, expires_at, next_charge_date, payment_method_id, sumit_customer_id, is_manual, admin_notes, billing_period)
+          VALUES ($1, $2, 'active', $3, $3, $4, $5, false, $6, 'monthly')
+        `, [userId, planForCalc.id, newExpiry, paymentMethod.id, paymentMethod.sumit_customer_id, 
+            `מומש ${usedCredits} נקודות ל-${monthsToAdd} חודשי מנוי - יתחיל חיוב רגיל ב-${newExpiry.toLocaleDateString('he-IL')}`]);
       }
       
-      resultMessage = `מעולה! קיבלת מנוי ${planForCalc.name_he || planForCalc.name} ל-${monthsToAdd} חודשים (עד ${newExpiry.toLocaleDateString('he-IL')})`;
+      resultMessage = `מעולה! קיבלת מנוי ${planForCalc.name_he || planForCalc.name} ל-${monthsToAdd} חודשים. לאחר מכן יתחילו חיובים רגילים (עד ${newExpiry.toLocaleDateString('he-IL')})`;
       
     } else if (isCancelled) {
-      // CANCELLED USER - Extend current subscription without future charges
+      // CANCELLED USER - Reactivate and extend with future billing
       let newExpiry = currentSub.expires_at ? new Date(currentSub.expires_at) : new Date();
       if (newExpiry < new Date()) {
         newExpiry = new Date();
@@ -891,13 +915,20 @@ async function redeemCredits(req, res) {
       
       await db.query(`
         UPDATE user_subscriptions SET
+          status = 'active',
           expires_at = $1,
-          admin_notes = COALESCE(admin_notes, '') || E'\n' || $2,
+          next_charge_date = $1,
+          payment_method_id = $2,
+          sumit_customer_id = $3,
+          is_manual = false,
+          admin_notes = COALESCE(admin_notes, '') || E'\n' || $4,
           updated_at = NOW()
-        WHERE user_id = $3
-      `, [newExpiry, `הוארך ${monthsToAdd} חודשים ע"י מימוש ${usedCredits} נקודות (${new Date().toLocaleDateString('he-IL')})`, userId]);
+        WHERE user_id = $5
+      `, [newExpiry, paymentMethod.id, paymentMethod.sumit_customer_id, 
+          `הופעל מחדש עם ${monthsToAdd} חודשים ע"י מימוש ${usedCredits} נקודות - יתחיל חיוב רגיל ב-${newExpiry.toLocaleDateString('he-IL')} (${new Date().toLocaleDateString('he-IL')})`, 
+          userId]);
       
-      resultMessage = `מעולה! המנוי שלך הוארך ב-${monthsToAdd} חודשים (עד ${newExpiry.toLocaleDateString('he-IL')}) ללא חיוב נוסף`;
+      resultMessage = `מעולה! המנוי שלך הופעל מחדש עם ${monthsToAdd} חודשים. לאחר מכן יתחילו חיובים רגילים (עד ${newExpiry.toLocaleDateString('he-IL')})`;
       
     } else if (isActive) {
       // ACTIVE PAYING USER - Extend next payment date

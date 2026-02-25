@@ -93,8 +93,23 @@ async function processSubscriptionCharges() {
           
           console.error(`[Billing] Failed to charge user ${sub.user_email}:`, chargeResult.error);
           
-          // TODO: Send failure email notification
-          // TODO: Retry logic (try again in 1 day, then 3 days)
+          // Downgrade to free plan on charge failure
+          const FREE_PLAN_ID = '00000000-0000-0000-0000-000000000001';
+          await db.query(`
+            UPDATE user_subscriptions 
+            SET plan_id = $1, 
+                status = 'active',
+                sumit_standing_order_id = NULL,
+                next_charge_date = NULL,
+                expires_at = NULL,
+                admin_notes = COALESCE(admin_notes, '') || E'\n' || $2,
+                updated_at = NOW()
+            WHERE id = $3
+          `, [FREE_PLAN_ID, `שודרג למנוי חינמי עקב כשלון חיוב (${new Date().toLocaleDateString('he-IL')})`, sub.id]);
+          
+          console.log(`[Billing] Downgraded user ${sub.user_email} to free plan due to charge failure`);
+          
+          // TODO: Send failure email notification with downgrade notice
         }
       } catch (err) {
         console.error(`[Billing] Error processing subscription ${sub.id}:`, err);
@@ -202,12 +217,20 @@ async function processTrialEndings() {
           }).catch(err => console.error('[Billing] Failed to send subscription email:', err));
           
         } else {
-          // Mark as expired (no valid payment)
+          // Downgrade to free plan (instead of just marking as expired)
+          const FREE_PLAN_ID = '00000000-0000-0000-0000-000000000001';
           await db.query(`
             UPDATE user_subscriptions 
-            SET status = 'expired', updated_at = NOW()
-            WHERE id = $1
-          `, [sub.id]);
+            SET plan_id = $1,
+                status = 'active',
+                is_trial = false,
+                sumit_standing_order_id = NULL,
+                next_charge_date = NULL,
+                expires_at = NULL,
+                admin_notes = COALESCE(admin_notes, '') || E'\n' || $2,
+                updated_at = NOW()
+            WHERE id = $3
+          `, [FREE_PLAN_ID, `שודרג למנוי חינמי עקב כשלון חיוב בסיום ניסיון (${new Date().toLocaleDateString('he-IL')})`, sub.id]);
           
           // Log failed payment
           await db.query(`
@@ -222,8 +245,9 @@ async function processTrialEndings() {
           ]);
           
           console.error(`[Billing] Failed to convert trial for user ${sub.user_email}:`, chargeResult.error);
+          console.log(`[Billing] Downgraded user ${sub.user_email} to free plan`);
           
-          // TODO: Send "trial ended, payment failed" email
+          // TODO: Send "trial ended, payment failed, downgraded to free" email
         }
       } catch (err) {
         console.error(`[Billing] Error processing trial ${sub.id}:`, err);
@@ -266,20 +290,26 @@ async function processExpiredTrialsWithoutPayment() {
     
     console.log(`[Billing] Found ${expiredTrials.rows.length} expired trials without valid payment`);
     
+    const FREE_PLAN_ID = '00000000-0000-0000-0000-000000000001';
+    
     for (const sub of expiredTrials.rows) {
       try {
-        // Mark subscription as expired
+        // Downgrade to free plan (instead of marking as expired)
         await db.query(`
           UPDATE user_subscriptions 
-          SET status = 'expired', updated_at = NOW()
-          WHERE id = $1
-        `, [sub.id]);
+          SET plan_id = $1,
+              status = 'active',
+              is_trial = false,
+              next_charge_date = NULL,
+              expires_at = NULL,
+              admin_notes = COALESCE(admin_notes, '') || E'\n' || $2,
+              updated_at = NOW()
+          WHERE id = $3
+        `, [FREE_PLAN_ID, `שודרג למנוי חינמי - ניסיון הסתיים ללא אמצעי תשלום (${new Date().toLocaleDateString('he-IL')})`, sub.id]);
         
-        // Note: The expiry.service.js will handle WhatsApp disconnection
-        
-        console.log(`[Billing] Marked trial as expired for user ${sub.user_email}`);
+        console.log(`[Billing] Downgraded trial to free plan for user ${sub.user_email}`);
       } catch (err) {
-        console.error(`[Billing] Error expiring trial ${sub.id}:`, err);
+        console.error(`[Billing] Error downgrading trial ${sub.id}:`, err);
       }
     }
     
