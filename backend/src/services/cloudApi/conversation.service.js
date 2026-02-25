@@ -378,6 +378,27 @@ function emitAdminUpdate(phone, state, stateData, connectionId) {
 }
 
 /**
+ * Emit socket event when message received (for admin real-time monitoring)
+ */
+async function emitMessageReceived(phone, messageType, connectionId = null, userName = null, userEmail = null) {
+  try {
+    const io = getIO();
+    if (io) {
+      io.to('admin').emit('statusbot:message_received', {
+        phone,
+        messageType,
+        connectionId,
+        userName,
+        userEmail,
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (e) {
+    // Socket not initialized yet, ignore
+  }
+}
+
+/**
  * Check if phone is authorized for any status bot connection
  * Returns array of connections with user info
  */
@@ -574,6 +595,18 @@ async function handleMessage(phone, message) {
   try {
     const state = await getState(phone);
     console.log(`[CloudAPI Conv] Current state for ${phone}: ${state.state}`);
+    
+    // Emit message received event for admin real-time monitoring
+    // Get user info from state if available
+    const authorizations = await checkAuthorization(phone);
+    const auth = authorizations[0];
+    emitMessageReceived(
+      phone, 
+      message.type, 
+      auth?.connection_id || state.connection_id,
+      auth?.user_name,
+      auth?.user_email
+    );
     
     // Check if blocked
     if (state.blocked_until && new Date(state.blocked_until) > new Date()) {

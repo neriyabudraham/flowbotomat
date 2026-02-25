@@ -2261,6 +2261,24 @@ async function adminGetActiveProcesses(req, res) {
         AND c.last_message_at > NOW() - INTERVAL '10 minutes'
       ORDER BY c.last_message_at DESC
     `);
+    
+    // Get ALL users who sent a message in the last 10 minutes (regardless of state)
+    const recentMessagesResult = await db.query(`
+      SELECT 
+        c.phone_number,
+        c.state,
+        c.last_message_at,
+        c.connection_id,
+        conn.display_name,
+        conn.phone_number as bot_phone,
+        u.name as user_name,
+        u.email as user_email
+      FROM cloud_api_conversation_states c
+      LEFT JOIN status_bot_connections conn ON conn.id = c.connection_id
+      LEFT JOIN users u ON conn.user_id = u.id
+      WHERE c.last_message_at > NOW() - INTERVAL '10 minutes'
+      ORDER BY c.last_message_at DESC
+    `);
 
     // Get currently processing queue items
     const processingResult = await db.query(`
@@ -2300,6 +2318,15 @@ async function adminGetActiveProcesses(req, res) {
         phone: c.phone_number,
         state: c.state,
         stateData: c.state_data,
+        lastMessageAt: c.last_message_at,
+        botPhone: c.bot_phone,
+        displayName: c.display_name,
+        userName: c.user_name,
+        userEmail: c.user_email
+      })),
+      recentMessages: recentMessagesResult.rows.map(c => ({
+        phone: c.phone_number,
+        state: c.state,
         lastMessageAt: c.last_message_at,
         botPhone: c.bot_phone,
         displayName: c.display_name,

@@ -40,6 +40,16 @@ function formatDate(date) {
   });
 }
 
+function formatTimeAgo(timestamp, now) {
+  const diff = now - new Date(timestamp).getTime();
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  
+  if (minutes >= 10) return null; // Expired
+  if (minutes > 0) return `לפני ${minutes} דקות`;
+  return `לפני ${seconds} שניות`;
+}
+
 export default function AdminStatusBot() {
   const [users, setUsers] = useState([]);
   const [stats, setStats] = useState(null);
@@ -61,6 +71,7 @@ export default function AdminStatusBot() {
   
   const [activeProcesses, setActiveProcesses] = useState({
     activeConversations: [],
+    recentMessages: [],
     processingUploads: [],
     queueLock: null,
     pendingCount: 0
@@ -90,6 +101,36 @@ export default function AdminStatusBot() {
     socket.on('statusbot:processing_end', () => {
       loadActiveProcesses();
       loadData();
+    });
+    
+    // Real-time message received - update recent messages list
+    socket.on('statusbot:message_received', (data) => {
+      console.log('Message received:', data);
+      setActiveProcesses(prev => {
+        // Update or add to recent messages
+        const existingIndex = prev.recentMessages.findIndex(m => m.phone === data.phone);
+        const newMessage = {
+          phone: data.phone,
+          lastMessageAt: data.timestamp,
+          userName: data.userName,
+          userEmail: data.userEmail,
+          connectionId: data.connectionId
+        };
+        
+        let updatedMessages;
+        if (existingIndex >= 0) {
+          // Update existing - move to top
+          updatedMessages = [
+            newMessage,
+            ...prev.recentMessages.filter((_, i) => i !== existingIndex)
+          ];
+        } else {
+          // Add new at top
+          updatedMessages = [newMessage, ...prev.recentMessages];
+        }
+        
+        return { ...prev, recentMessages: updatedMessages };
+      });
     });
     
     return () => {
@@ -391,6 +432,59 @@ export default function AdminStatusBot() {
           </div>
         ) : (
           <div className="space-y-4">
+            {/* Recent Messages (last 10 minutes) */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-2">
+                <Zap className="w-4 h-4 text-amber-500" />
+                הודעות אחרונות (10 דקות אחרונות)
+                <span className="text-xs text-gray-400">({activeProcesses.recentMessages?.filter(m => {
+                  const timeAgo = formatTimeAgo(m.lastMessageAt, now);
+                  return timeAgo !== null;
+                }).length || 0})</span>
+              </h4>
+              {(() => {
+                const validMessages = activeProcesses.recentMessages?.filter(m => {
+                  const timeAgo = formatTimeAgo(m.lastMessageAt, now);
+                  return timeAgo !== null;
+                }) || [];
+                
+                if (validMessages.length === 0) {
+                  return <p className="text-sm text-gray-400 py-2">אין הודעות ב-10 דקות האחרונות</p>;
+                }
+                
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {validMessages.map((msg, idx) => {
+                      const timeAgo = formatTimeAgo(msg.lastMessageAt, now);
+                      const diff = now - new Date(msg.lastMessageAt).getTime();
+                      const seconds = Math.floor(diff / 1000);
+                      const isRecent = seconds < 30; // Less than 30 seconds = very recent
+                      
+                      return (
+                        <div key={idx} className={`bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border ${
+                          isRecent ? 'border-amber-300 bg-amber-50 dark:bg-amber-900/20' : 'border-gray-100 dark:border-gray-700'
+                        }`}>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-2 h-2 rounded-full ${isRecent ? 'bg-amber-500 animate-pulse' : 'bg-gray-300'}`} />
+                              <Phone className="w-4 h-4 text-amber-600" />
+                              <span className="font-medium text-gray-800 dark:text-white" dir="ltr">+{msg.phone}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between mt-1">
+                            <p className="text-xs text-gray-500">{msg.userName || msg.userEmail || 'לא ידוע'}</p>
+                            <span className={`text-xs font-medium ${isRecent ? 'text-amber-600' : 'text-gray-400'}`}>
+                              {timeAgo}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+            
             {/* Active Conversations */}
             <div>
               <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-2">
