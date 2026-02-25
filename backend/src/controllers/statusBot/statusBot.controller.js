@@ -2263,7 +2263,7 @@ async function adminGetActiveProcesses(req, res) {
     `);
     
     // Get ALL users who sent a message in the last 10 minutes (regardless of state)
-    // Normalize phone numbers for matching (remove leading 0 or 972 and compare last 9 digits)
+    // Use subquery to find sender name from authorized numbers by matching phone (last 9 digits)
     const recentMessagesResult = await db.query(`
       SELECT 
         c.phone_number,
@@ -2274,13 +2274,16 @@ async function adminGetActiveProcesses(req, res) {
         conn.phone_number as bot_phone,
         u.name as owner_name,
         u.email as owner_email,
-        an.name as sender_name
+        (
+          SELECT an.name 
+          FROM status_bot_authorized_numbers an
+          WHERE an.is_active = true
+            AND RIGHT(REGEXP_REPLACE(an.phone_number, '[^0-9]', '', 'g'), 9) = RIGHT(REGEXP_REPLACE(c.phone_number, '[^0-9]', '', 'g'), 9)
+          LIMIT 1
+        ) as sender_name
       FROM cloud_api_conversation_states c
       LEFT JOIN status_bot_connections conn ON conn.id = c.connection_id
       LEFT JOIN users u ON conn.user_id = u.id
-      LEFT JOIN status_bot_authorized_numbers an ON an.connection_id = c.connection_id 
-        AND an.is_active = true
-        AND RIGHT(REGEXP_REPLACE(an.phone_number, '[^0-9]', '', 'g'), 9) = RIGHT(REGEXP_REPLACE(c.phone_number, '[^0-9]', '', 'g'), 9)
       WHERE c.last_message_at > NOW() - INTERVAL '10 minutes'
       ORDER BY c.last_message_at DESC
     `);
