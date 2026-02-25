@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { 
   CreditCard, Clock, AlertTriangle, CheckCircle, XCircle, 
   RefreshCw, Play, Calendar, Search, Filter, DollarSign,
-  ChevronLeft, ChevronRight, Loader2, History, Ban
+  ChevronLeft, ChevronRight, Loader2, History, Ban, FileText, Download
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -115,7 +115,7 @@ export default function AdminBilling() {
 function UpcomingCharges({ onRefresh }) {
   const [charges, setCharges] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [days, setDays] = useState(7);
+  const [days, setDays] = useState(30);
   const [actionLoading, setActionLoading] = useState(null);
   
   useEffect(() => {
@@ -184,6 +184,9 @@ function UpcomingCharges({ onRefresh }) {
           <option value={7}>7 ימים הקרובים</option>
           <option value={14}>14 ימים הקרובים</option>
           <option value={30}>30 ימים הקרובים</option>
+          <option value={60}>60 ימים הקרובים</option>
+          <option value={90}>90 ימים הקרובים</option>
+          <option value={9999}>כל התשלומים</option>
         </select>
         <span className="text-sm text-gray-500">
           {charges.length} חיובים מתוזמנים
@@ -426,14 +429,15 @@ function PaymentHistory() {
     status: '',
     startDate: '',
     endDate: '',
-    search: ''
+    search: '',
+    userEmail: ''
   });
   const [page, setPage] = useState(0);
   const limit = 20;
   
   useEffect(() => {
     loadPayments();
-  }, [page, filters.status]);
+  }, [page, filters.status, filters.userEmail]);
   
   const loadPayments = async () => {
     setLoading(true);
@@ -446,6 +450,8 @@ function PaymentHistory() {
       if (filters.status) params.append('status', filters.status);
       if (filters.startDate) params.append('startDate', filters.startDate);
       if (filters.endDate) params.append('endDate', filters.endDate);
+      if (filters.search) params.append('search', filters.search);
+      if (filters.userEmail) params.append('userEmail', filters.userEmail);
       
       const res = await api.get(`/admin/billing/history?${params}`);
       setPayments(res.data.payments || []);
@@ -457,12 +463,48 @@ function PaymentHistory() {
     }
   };
   
+  const filterByUser = (email) => {
+    setFilters(f => ({ ...f, userEmail: email }));
+    setPage(0);
+  };
+  
+  const clearUserFilter = () => {
+    setFilters(f => ({ ...f, userEmail: '' }));
+    setPage(0);
+  };
+  
   const totalPages = Math.ceil(total / limit);
   
   return (
     <div className="space-y-4">
+      {/* User Filter Badge */}
+      {filters.userEmail && (
+        <div className="flex items-center gap-2 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+          <span className="text-sm text-purple-700">מציג תשלומים של:</span>
+          <span className="font-medium text-purple-800">{filters.userEmail}</span>
+          <button
+            onClick={clearUserFilter}
+            className="mr-auto px-2 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+          >
+            הצג הכל
+          </button>
+        </div>
+      )}
+      
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-4">
+        <div className="relative">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="חיפוש לפי מייל..."
+            value={filters.search}
+            onChange={(e) => setFilters(f => ({ ...f, search: e.target.value }))}
+            onKeyDown={(e) => e.key === 'Enter' && loadPayments()}
+            className="pr-9 pl-3 py-2 border border-gray-200 rounded-lg text-sm w-48"
+          />
+        </div>
+        
         <select
           value={filters.status}
           onChange={(e) => {
@@ -524,36 +566,56 @@ function PaymentHistory() {
                   <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">סכום</th>
                   <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">סטטוס</th>
                   <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">תיאור</th>
-                  <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">מזהה עסקה</th>
+                <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">מזהה עסקה</th>
+                <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">קבלה</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {payments.map(payment => (
+                <tr key={payment.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-gray-600 text-sm">
+                    {new Date(payment.created_at).toLocaleString('he-IL')}
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => filterByUser(payment.email)}
+                      className="text-right hover:bg-gray-100 rounded p-1 -m-1 transition-colors"
+                      title="לחץ לסינון לפי משתמש"
+                    >
+                      <div className="font-medium text-gray-800 text-sm hover:text-purple-600">{payment.display_name || 'ללא שם'}</div>
+                      <div className="text-xs text-gray-500">{payment.email}</div>
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 font-medium text-gray-800">
+                    ₪{Number(payment.amount).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={payment.status} />
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-600 max-w-[200px] truncate">
+                    {payment.description || payment.plan_name_he || '-'}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-400 font-mono">
+                    {payment.sumit_transaction_id || '-'}
+                  </td>
+                  <td className="px-4 py-3">
+                    {payment.receipt_url ? (
+                      <a 
+                        href={payment.receipt_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="p-1.5 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors inline-flex"
+                        title="הורד קבלה"
+                      >
+                        <FileText className="w-4 h-4" />
+                      </a>
+                    ) : (
+                      <span className="text-gray-300">-</span>
+                    )}
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {payments.map(payment => (
-                  <tr key={payment.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-gray-600 text-sm">
-                      {new Date(payment.created_at).toLocaleString('he-IL')}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div>
-                        <div className="font-medium text-gray-800 text-sm">{payment.display_name || 'ללא שם'}</div>
-                        <div className="text-xs text-gray-500">{payment.email}</div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 font-medium text-gray-800">
-                      ₪{Number(payment.amount).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={payment.status} />
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 max-w-[200px] truncate">
-                      {payment.description || payment.plan_name_he || '-'}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-400 font-mono">
-                      {payment.sumit_transaction_id || '-'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+              ))}
+            </tbody>
             </table>
           </div>
           
@@ -615,9 +677,12 @@ function BillingTypeBadge({ type, className = '' }) {
   const types = {
     monthly: { label: 'חודשי', color: 'bg-blue-100 text-blue-700' },
     yearly: { label: 'שנתי', color: 'bg-purple-100 text-purple-700' },
-    manual: { label: 'ידני', color: 'bg-gray-100 text-gray-700' },
+    status_bot: { label: 'בוט סטטוסים', color: 'bg-amber-100 text-amber-700' },
     trial_conversion: { label: 'המרת ניסיון', color: 'bg-cyan-100 text-cyan-700' },
-    reactivation: { label: 'חידוש', color: 'bg-green-100 text-green-700' },
+    first_payment: { label: 'תשלום ראשון', color: 'bg-emerald-100 text-emerald-700' },
+    renewal: { label: 'חידוש מנוי', color: 'bg-teal-100 text-teal-700' },
+    reactivation: { label: 'הפעלה מחדש', color: 'bg-green-100 text-green-700' },
+    manual: { label: 'ידני', color: 'bg-gray-100 text-gray-700' },
   };
   
   const t = types[type] || { label: type || '-', color: 'bg-gray-100 text-gray-700' };

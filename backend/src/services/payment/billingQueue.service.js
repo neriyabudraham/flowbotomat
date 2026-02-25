@@ -103,7 +103,7 @@ async function getFailedCharges(limit = 100) {
 /**
  * Get payment history with optional filters
  */
-async function getPaymentHistory({ userId, status, startDate, endDate, limit = 100, offset = 0 }) {
+async function getPaymentHistory({ userId, status, startDate, endDate, search, userEmail, limit = 100, offset = 0 }) {
   let query = `
     SELECT ph.*, 
            u.email, u.name as display_name,
@@ -120,6 +120,15 @@ async function getPaymentHistory({ userId, status, startDate, endDate, limit = 1
   if (userId) {
     query += ` AND ph.user_id = $${paramIdx++}`;
     params.push(userId);
+  }
+  if (userEmail) {
+    query += ` AND u.email = $${paramIdx++}`;
+    params.push(userEmail);
+  }
+  if (search) {
+    query += ` AND (u.email ILIKE $${paramIdx} OR u.name ILIKE $${paramIdx})`;
+    params.push(`%${search}%`);
+    paramIdx++;
   }
   if (status) {
     query += ` AND ph.status = $${paramIdx++}`;
@@ -140,12 +149,21 @@ async function getPaymentHistory({ userId, status, startDate, endDate, limit = 1
   const result = await pool.query(query, params);
   
   // Get total count
-  let countQuery = `SELECT COUNT(*) FROM payment_history ph WHERE 1=1`;
+  let countQuery = `SELECT COUNT(*) FROM payment_history ph JOIN users u ON u.id = ph.user_id WHERE 1=1`;
   const countParams = [];
   paramIdx = 1;
   if (userId) {
     countQuery += ` AND ph.user_id = $${paramIdx++}`;
     countParams.push(userId);
+  }
+  if (userEmail) {
+    countQuery += ` AND u.email = $${paramIdx++}`;
+    countParams.push(userEmail);
+  }
+  if (search) {
+    countQuery += ` AND (u.email ILIKE $${paramIdx} OR u.name ILIKE $${paramIdx})`;
+    countParams.push(`%${search}%`);
+    paramIdx++;
   }
   if (status) {
     countQuery += ` AND ph.status = $${paramIdx++}`;
@@ -179,6 +197,7 @@ async function processQueue() {
     `SELECT bq.*, 
             u.email, u.name as display_name,
             us.sumit_customer_id,
+            us.invoice_name, us.receipt_email,
             upm.id as payment_method_id,
             sp.name as plan_name, sp.name_he as plan_name_he, sp.price as plan_price
      FROM billing_queue bq
@@ -255,6 +274,7 @@ async function retryFailedCharges() {
     `SELECT bq.*, 
             u.email, u.name as display_name,
             us.sumit_customer_id,
+            us.invoice_name, us.receipt_email,
             sp.name as plan_name, sp.name_he as plan_name_he
      FROM billing_queue bq
      JOIN users u ON u.id = bq.user_id
@@ -344,8 +364,8 @@ async function handleChargeSuccess(charge, chargeResult) {
     await client.query(
       `INSERT INTO payment_history 
        (user_id, subscription_id, payment_method_id, amount, currency, status, 
-        sumit_transaction_id, sumit_document_number, description, billing_queue_id, billing_type, plan_name)
-       VALUES ($1, $2, $3, $4, $5, 'success', $6, $7, $8, $9, $10, $11)`,
+        sumit_transaction_id, sumit_document_number, description, billing_queue_id, billing_type, plan_name, receipt_url)
+       VALUES ($1, $2, $3, $4, $5, 'success', $6, $7, $8, $9, $10, $11, $12)`,
       [
         charge.user_id,
         charge.subscription_id,
@@ -357,7 +377,8 @@ async function handleChargeSuccess(charge, chargeResult) {
         charge.description || charge.plan_name_he,
         charge.id,
         charge.billing_type,
-        charge.plan_name_he || charge.plan_name
+        charge.plan_name_he || charge.plan_name,
+        chargeResult.documentURL || null
       ]
     );
     
@@ -638,10 +659,11 @@ async function sendFailureNotifications(charge, errorCode, errorMessage, retryCo
       );
     }
     
-    // Send to user
-    if (charge.email) {
+    // Send to user (use receipt_email if set, otherwise user's email)
+    const userEmail = charge.receipt_email || charge.email;
+    if (userEmail) {
       await sendMail(
-        charge.email,
+        userEmail,
         'בעיה בחיוב החודשי שלך - נדרשת פעולה',
         `
           <div dir="rtl" style="font-family: Arial, sans-serif;">

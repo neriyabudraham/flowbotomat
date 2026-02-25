@@ -1395,10 +1395,12 @@ async function cancelSubscription(req, res) {
     }
     
     // Update subscription status - ALSO clear standing order ID since it's cancelled
+    // IMPORTANT: Set expires_at if not set - use next_charge_date or NOW() + 30 days
     const result = await db.query(`
       UPDATE user_subscriptions 
       SET status = 'cancelled', 
           cancelled_at = NOW(), 
+          expires_at = COALESCE(expires_at, next_charge_date, NOW() + INTERVAL '30 days'),
           sumit_standing_order_id = CASE WHEN $2 = true THEN NULL ELSE sumit_standing_order_id END,
           updated_at = NOW()
       WHERE user_id = $1 AND status IN ('active', 'trial')

@@ -77,6 +77,8 @@ async function getUsers(req, res) {
               us.referral_months_remaining as custom_discount_months,
               us.custom_discount_plan_id,
               us.skip_trial,
+              us.invoice_name,
+              us.receipt_email,
               sp.name as plan_name,
               sp.name_he as plan_name_he,
               sp.price as plan_price,
@@ -291,7 +293,9 @@ async function updateUserSubscription(req, res) {
       // Discount settings
       customDiscountMode, customDiscountPercent, customFixedPrice, customDiscountType, customDiscountMonths, customDiscountPlanId, skipTrial,
       // Referral settings
-      affiliateId
+      affiliateId,
+      // Invoice settings
+      invoiceName, receiptEmail
     } = req.body;
     
     // Verify user exists
@@ -312,8 +316,9 @@ async function updateUserSubscription(req, res) {
         INSERT INTO user_subscriptions (
           user_id, plan_id, status, expires_at, is_manual, admin_notes,
           custom_discount_mode, referral_discount_percent, custom_fixed_price, 
-          referral_discount_type, referral_months_remaining, custom_discount_plan_id, skip_trial
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          referral_discount_type, referral_months_remaining, custom_discount_plan_id, skip_trial,
+          invoice_name, receipt_email
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         RETURNING *
       `, [
         id, planId, status || 'active', expiresAt || null, isManual !== false, adminNotes || null,
@@ -325,7 +330,9 @@ async function updateUserSubscription(req, res) {
           customDiscountType === 'first_year' ? 12 :
           customDiscountType === 'forever' ? -1 : 0,
         customDiscountPlanId || null,
-        skipTrial || false
+        skipTrial || false,
+        invoiceName || null,
+        receiptEmail || null
       ]);
       
       // Handle affiliate assignment
@@ -448,6 +455,16 @@ async function updateUserSubscription(req, res) {
     if (skipTrial !== undefined) {
       updates.push(`skip_trial = $${paramIndex++}`);
       values.push(skipTrial || false);
+    }
+    
+    // Invoice settings
+    if (invoiceName !== undefined) {
+      updates.push(`invoice_name = $${paramIndex++}`);
+      values.push(invoiceName || null);
+    }
+    if (receiptEmail !== undefined) {
+      updates.push(`receipt_email = $${paramIndex++}`);
+      values.push(receiptEmail || null);
     }
     
     if (updates.length === 0 && !affiliateId) {

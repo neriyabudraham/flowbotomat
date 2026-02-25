@@ -34,13 +34,15 @@ async function getFailedCharges(req, res) {
  */
 async function getPaymentHistory(req, res) {
   try {
-    const { userId, status, startDate, endDate, limit = 100, offset = 0 } = req.query;
+    const { userId, status, startDate, endDate, search, userEmail, limit = 100, offset = 0 } = req.query;
     
     const result = await billingQueueService.getPaymentHistory({
       userId,
       status,
       startDate,
       endDate,
+      search,
+      userEmail,
       limit: parseInt(limit),
       offset: parseInt(offset)
     });
