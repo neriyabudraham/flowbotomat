@@ -979,7 +979,7 @@ async function handleIncomingMessage(userId, event) {
       if (isStatusReply) {
         // stanzaID is the hex portion that matches part of the full wa_message_id
         const statusStanzaId = contextInfo?.stanzaID || contextInfo?.stanzaId || '';
-        console.log(`[Webhook] Status reply detected from ${senderPhone} (remoteJID: ${quotedRemoteJid}, entryPoint: ${entryPoint}, stanzaID: ${statusStanzaId})`);
+        // Status reply detected
         await botEngine.processEvent(userId, senderPhone, 'status_reply', {
           message: messageData.content,
           messageType: messageData.type,
@@ -1014,7 +1014,7 @@ async function handleIncomingMessage(userId, event) {
                 WHERE id = $1
               `, [statusId]);
               
-              console.log(`[Webhook] ✓ Synced reply to status_bot: status ${statusId}, replier ${senderPhone}`);
+              // Reply synced to status_bot
             }
           } catch (replyErr) {
             console.error('[Webhook] Error syncing status reply:', replyErr.message);
@@ -1610,14 +1610,7 @@ async function handleSessionStatus(userId, event) {
   
   const ourStatus = statusMap[payload.status] || 'disconnected';
   
-  // Log session status changes with full details
-  console.log(`[Webhook] 📡 Session status change for user ${userId}:`, {
-    wahaStatus: payload.status,
-    ourStatus,
-    session,
-    reason: payload.reason || payload.error || 'unknown',
-    fullPayload: JSON.stringify(payload)
-  });
+  // Session status changed
   
   // Update main whatsapp_connections
   await pool.query(
@@ -1638,8 +1631,6 @@ async function handleSessionStatus(userId, event) {
           updated_at = NOW()
       WHERE session_name = $4
     `, [ourStatus, phoneNumber, displayName, session]);
-    
-    console.log(`[Webhook] Updated status_bot_connections for session ${session} to ${ourStatus}`);
   }
   
   // Emit status change to frontend
