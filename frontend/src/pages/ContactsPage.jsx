@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Menu, X, ArrowLeft, Users, Search, MessageSquare, Bot, 
   Settings, Phone, Sparkles, TrendingUp, Clock, UserCheck,
-  Activity, Send, Filter, Shield
+  Activity, Send, Filter, Shield, Crown, Lock, AlertTriangle
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import useContactsStore from '../store/contactsStore';
@@ -21,6 +21,7 @@ export default function ContactsPage() {
   const [showProfile, setShowProfile] = useState(true); // Open by default
   const [showMobileSidebar, setShowMobileSidebar] = useState(true);
   const [stats, setStats] = useState({ totalContacts: 0, activeChats: 0, messagesCount: 0 });
+  const [contactLimit, setContactLimit] = useState(null);
   const { user, logout, fetchMe } = useAuthStore();
   const {
     contacts, selectedContact, messages, isLoading, hasMore, loadingMore,
@@ -89,12 +90,22 @@ export default function ContactsPage() {
     
     fetchContacts();
     loadStats();
+    loadContactLimit();
     
     return () => {
       unsubscribeMessages();
       disconnectSocket();
     };
   }, []);
+
+  const loadContactLimit = async () => {
+    try {
+      const { data } = await api.get('/contacts/limit');
+      setContactLimit(data);
+    } catch (err) {
+      console.error('Failed to load contact limit:', err);
+    }
+  };
 
   const loadStats = async () => {
     try {
@@ -162,6 +173,138 @@ export default function ContactsPage() {
     const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
     return new Date(c.last_message_at) > hourAgo;
   }).length;
+
+  // Check if contact limit is exceeded - block Live Chat
+  const limitExceeded = contactLimit && !contactLimit.allowed && !contactLimit.statusBotUnlimited && contactLimit.limit !== -1;
+
+  // Show limit exceeded page
+  if (limitExceeded) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/30" dir="rtl">
+        {/* Header */}
+        <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
+          <div className="max-w-7xl mx-auto px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => navigate('/dashboard')}
+                  className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+                >
+                  <ArrowLeft className="w-5 h-5 text-gray-600" />
+                </button>
+                <div className="h-8 w-px bg-gray-200" />
+                <Logo />
+              </div>
+              
+              <div className="flex items-center gap-3">
+                {isAdmin && (
+                  <button
+                    onClick={() => navigate('/admin')}
+                    className="p-2 hover:bg-red-50 rounded-xl transition-colors group"
+                    title="ממשק ניהול"
+                  >
+                    <Shield className="w-5 h-5 text-red-500 group-hover:text-red-600" />
+                  </button>
+                )}
+                <NotificationsDropdown />
+                <div className="h-8 w-px bg-gray-200" />
+                <AccountSwitcher />
+                <button 
+                  onClick={handleLogout}
+                  className="hidden md:block px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl text-sm font-medium transition-colors"
+                >
+                  התנתק
+                </button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="max-w-4xl mx-auto px-6 py-16">
+          <div className="text-center">
+            {/* Icon */}
+            <div className="w-24 h-24 mx-auto mb-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-3xl flex items-center justify-center shadow-xl shadow-amber-500/30">
+              <Lock className="w-12 h-12 text-white" />
+            </div>
+            
+            {/* Title */}
+            <h1 className="text-4xl font-bold text-gray-900 mb-4">
+              הגעת למגבלת אנשי הקשר
+            </h1>
+            <p className="text-xl text-gray-600 mb-4 max-w-lg mx-auto">
+              הלייב צ'אט לא זמין כרגע כי הגעת למגבלת אנשי הקשר בתוכנית שלך.
+            </p>
+            
+            {/* Limit Info */}
+            <div className="inline-flex items-center gap-3 px-6 py-3 bg-amber-50 border border-amber-200 rounded-2xl mb-8">
+              <AlertTriangle className="w-5 h-5 text-amber-600" />
+              <span className="text-amber-800 font-medium">
+                {contactLimit.used} מתוך {contactLimit.limit} אנשי קשר בשימוש
+              </span>
+            </div>
+            
+            {/* Features List */}
+            <div className="bg-white rounded-3xl border border-gray-200 shadow-lg p-8 mb-8 text-right">
+              <h3 className="text-lg font-bold text-gray-900 mb-6 text-center">מה תקבל עם שדרוג?</h3>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-2xl">
+                  <div className="p-2 bg-blue-500 rounded-xl">
+                    <Users className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">יותר אנשי קשר</p>
+                    <p className="text-sm text-gray-500">הגדל את מגבלת אנשי הקשר</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-2xl">
+                  <div className="p-2 bg-blue-500 rounded-xl">
+                    <MessageSquare className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">שיחות ללא הגבלה</p>
+                    <p className="text-sm text-gray-500">נהל את כל השיחות שלך</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-2xl">
+                  <div className="p-2 bg-blue-500 rounded-xl">
+                    <Bot className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">בוטים נוספים</p>
+                    <p className="text-sm text-gray-500">צור יותר אוטומציות</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-2xl">
+                  <div className="p-2 bg-blue-500 rounded-xl">
+                    <Send className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">הרצות נוספות</p>
+                    <p className="text-sm text-gray-500">יותר הרצות בוט בחודש</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* CTA */}
+            <button
+              onClick={() => navigate('/pricing')}
+              className="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-2xl font-bold text-lg hover:shadow-xl hover:shadow-amber-500/30 transition-all hover:scale-105"
+            >
+              <Crown className="w-6 h-6" />
+              שדרג עכשיו
+            </button>
+            
+            <p className="text-sm text-gray-500 mt-4">
+              <button onClick={() => navigate('/dashboard')} className="text-amber-600 hover:underline">
+                חזרה לדשבורד
+              </button>
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 via-white to-blue-50" dir="rtl">

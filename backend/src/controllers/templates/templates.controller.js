@@ -110,6 +110,20 @@ async function useTemplate(req, res) {
     const userId = req.user.id;
     const { name } = req.body;
     
+    // Check bot limit BEFORE creating
+    const { checkBotLimit } = require('../../services/limits.service');
+    const limitCheck = await checkBotLimit(userId);
+    
+    if (!limitCheck.allowed) {
+      console.log(`[Templates] Bot creation from template blocked for user ${userId}: ${limitCheck.error}`);
+      return res.status(403).json({ 
+        error: limitCheck.error,
+        limit_exceeded: true,
+        limit: limitCheck.limit,
+        used: limitCheck.used
+      });
+    }
+    
     // Get template
     const templateResult = await db.query(
       'SELECT * FROM bot_templates WHERE id = $1 AND is_published = true',

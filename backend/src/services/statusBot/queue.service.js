@@ -389,6 +389,45 @@ async function sendStatus(queueItem) {
   } else {
     console.log(`[StatusBot Queue] 🆔 Using existing message ID: ${messageId} for queue item ${queueItem.id}`);
   }
+  
+  // Save to history BEFORE sending - this allows view tracking from the start
+  // even if the send times out or takes a long time
+  const historyMessageId = messageId || `pending_${queueItem.id}`;
+  console.log(`[StatusBot Queue] 💾 Pre-saving to history for view tracking with waha_message_id: ${historyMessageId}`);
+  
+  // Check if history record already exists for this queue item
+  let historyId = null;
+  const existingHistory = await db.query(
+    `SELECT id FROM status_bot_statuses WHERE queue_id = $1`,
+    [queueItem.id]
+  );
+  
+  if (existingHistory.rows.length > 0) {
+    historyId = existingHistory.rows[0].id;
+    // Update existing record with new message ID if we have one
+    await db.query(`
+      UPDATE status_bot_statuses 
+      SET waha_message_id = $1, updated_at = NOW()
+      WHERE id = $2
+    `, [historyMessageId, historyId]);
+  } else {
+    // Create new history record
+    const historyResult = await db.query(`
+      INSERT INTO status_bot_statuses 
+      (connection_id, queue_id, status_type, content, waha_message_id, expires_at, source, source_phone)
+      VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '24 hours', $6, $7)
+      RETURNING id
+    `, [
+      queueItem.connection_id,
+      queueItem.id,
+      queueItem.status_type,
+      JSON.stringify(content),
+      historyMessageId,
+      queueItem.source,
+      queueItem.source_phone
+    ]);
+    historyId = historyResult.rows[0]?.id;
+  }
 
   // Build request body based on status type
   // WAHA uses /api/{session}/status/... format
@@ -448,34 +487,33 @@ async function sendStatus(queueItem) {
   console.log(`[StatusBot Queue] Sending to ${endpoint}`, JSON.stringify(body, null, 2));
 
   // Send the status with timeout
-  const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('Timeout')), STATUS_TIMEOUT);
+  const timeoutPromise = new Promise((resolve) => {
+    setTimeout(() => resolve({ timeout: true, id: messageId }), STATUS_TIMEOUT);
   });
 
   const sendPromise = wahaSession.makeRequest(baseUrl, apiKey, 'POST', endpoint, body);
 
   const response = await Promise.race([sendPromise, timeoutPromise]);
   
+  // Handle timeout as success
+  if (response?.timeout) {
+    console.log(`[StatusBot Queue] ⏱️ Status ${queueItem.id} reached timeout - treating as successful upload`);
+    console.log(`[StatusBot Queue] 📊 Views will continue to be collected using message ID: ${messageId}`);
+    return { success: true, timeout: true, id: messageId };
+  }
+  
   console.log(`[StatusBot Queue] WAHA Response:`, JSON.stringify(response, null, 2));
 
-  // Determine the best message ID to save
-  const savedMessageId = messageId || response?.id || null;
-  console.log(`[StatusBot Queue] 💾 Saving to history with waha_message_id: ${savedMessageId} (from messageId=${messageId}, response.id=${response?.id})`);
-
-  // Save to history
-  await db.query(`
-    INSERT INTO status_bot_statuses 
-    (connection_id, queue_id, status_type, content, waha_message_id, expires_at, source, source_phone)
-    VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '24 hours', $6, $7)
-  `, [
-    queueItem.connection_id,
-    queueItem.id,
-    queueItem.status_type,
-    JSON.stringify(content),
-    savedMessageId,
-    queueItem.source,
-    queueItem.source_phone
-  ]);
+  // Update history with actual message ID if different
+  const actualMessageId = response?.id;
+  if (actualMessageId && actualMessageId !== historyMessageId && historyId) {
+    console.log(`[StatusBot Queue] 🔄 Updating history with actual message ID: ${actualMessageId}`);
+    await db.query(`
+      UPDATE status_bot_statuses 
+      SET waha_message_id = $1, updated_at = NOW()
+      WHERE id = $2
+    `, [actualMessageId, historyId]);
+  }
 
   return response;
 }

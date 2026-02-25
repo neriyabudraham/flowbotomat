@@ -25,6 +25,9 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
   const [delayMin, setDelayMin] = useState(forward.delay_min || 3);
   const [delayMax, setDelayMax] = useState(forward.delay_max || 10);
   const [requireConfirmation, setRequireConfirmation] = useState(forward.require_confirmation !== false);
+  const [messageSuffix, setMessageSuffix] = useState(forward.message_suffix || '');
+  const [suffixEnabled, setSuffixEnabled] = useState(forward.suffix_enabled || false);
+  const [showSuffixSettings, setShowSuffixSettings] = useState(false);
   
   // Targets
   const [targets, setTargets] = useState([]);
@@ -69,6 +72,8 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
       setDelayMin(f.delay_min);
       setDelayMax(f.delay_max);
       setRequireConfirmation(f.require_confirmation !== false);
+      setMessageSuffix(f.message_suffix || '');
+      setSuffixEnabled(f.suffix_enabled || false);
       setTargets(f.targets || []);
       setSenders(f.authorized_senders || []);
       
@@ -112,7 +117,9 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
         trigger_group_name: triggerGroupName,
         delay_min: delayMin,
         delay_max: delayMax,
-        require_confirmation: requireConfirmation
+        require_confirmation: requireConfirmation,
+        message_suffix: messageSuffix,
+        suffix_enabled: suffixEnabled
       });
       
       onSave?.(data.forward);
@@ -133,7 +140,8 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
           group_id: t.group_id,
           group_name: t.group_name,
           group_image_url: t.group_image_url,
-          sort_order: i
+          sort_order: i,
+          custom_suffix: t.custom_suffix
         }))
       });
       return true;
@@ -940,6 +948,89 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                   <div className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow-lg transition-all ${requireConfirmation ? 'left-7' : 'left-1'}`} />
                 </div>
               </label>
+
+              {/* Message Suffix Section */}
+              <div className="p-5 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-2xl border border-emerald-100">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl flex items-center justify-center shadow">
+                      <MessageSquare className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-gray-900">סיומת הודעה קבועה</h3>
+                      <p className="text-sm text-gray-500">טקסט שיתווסף בסוף כל הודעה</p>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={suffixEnabled} 
+                      onChange={(e) => setSuffixEnabled(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className={`w-12 h-7 rounded-full transition-colors peer-checked:bg-gradient-to-r peer-checked:from-emerald-500 peer-checked:to-teal-500 ${!suffixEnabled ? 'bg-gray-300' : ''}`}>
+                      <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-lg transition-all ${suffixEnabled ? 'right-0.5' : 'left-0.5'}`} />
+                    </div>
+                  </label>
+                </div>
+                
+                {suffixEnabled && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">סיומת ברירת מחדל</label>
+                      <textarea
+                        value={messageSuffix}
+                        onChange={(e) => setMessageSuffix(e.target.value)}
+                        placeholder="לדוגמא: הודעה זו נשלחה באמצעות Botomat"
+                        rows={2}
+                        className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 resize-none"
+                      />
+                    </div>
+                    
+                    <button
+                      onClick={() => setShowSuffixSettings(!showSuffixSettings)}
+                      className="flex items-center gap-2 text-sm text-emerald-700 hover:text-emerald-800 font-medium"
+                    >
+                      <Settings className="w-4 h-4" />
+                      {showSuffixSettings ? 'הסתר הגדרות מתקדמות' : 'הגדרות מתקדמות - סיומת לכל קבוצה'}
+                      {showSuffixSettings ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
+                    
+                    {showSuffixSettings && targets.length > 0 && (
+                      <div className="mt-4 p-4 bg-white rounded-xl border border-emerald-100 space-y-3 max-h-64 overflow-y-auto">
+                        <p className="text-xs text-gray-500 mb-2">הגדר סיומת ייחודית לכל קבוצה (השאר ריק לשימוש בסיומת ברירת המחדל)</p>
+                        {targets.map((target, index) => (
+                          <div key={target.group_id} className="flex items-start gap-3">
+                            <div className="flex-shrink-0 w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center text-xs font-bold text-gray-500">
+                              {index + 1}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-800 truncate mb-1">{target.group_name}</p>
+                              <input
+                                type="text"
+                                value={target.custom_suffix || ''}
+                                onChange={(e) => {
+                                  const newTargets = [...targets];
+                                  newTargets[index] = { ...newTargets[index], custom_suffix: e.target.value || null };
+                                  setTargets(newTargets);
+                                }}
+                                placeholder="סיומת מותאמת (ריק = ברירת מחדל)"
+                                className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:ring-1 focus:ring-emerald-500/20 focus:border-emerald-400"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {showSuffixSettings && targets.length === 0 && (
+                      <p className="text-sm text-gray-500 text-center py-4">
+                        הוסף קבוצות יעד כדי להגדיר סיומות מותאמות
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

@@ -117,7 +117,10 @@ export default function TemplatesPage() {
       });
       navigate(`/bots/${data.bot.id}`, { state: { fromTemplate: true, showSave: true } });
     } catch (err) {
-      if (err.response?.data?.upgrade_required) {
+      if (err.response?.data?.limit_exceeded) {
+        const { limit, used } = err.response.data;
+        alert(`הגעת למגבלת הבוטים (${used}/${limit}). מחק בוט קיים או שדרג את החשבון שלך כדי ליצור בוט נוסף.`);
+      } else if (err.response?.data?.upgrade_required) {
         alert('תבנית זו זמינה למנויים בלבד. שדרג את החשבון שלך כדי להשתמש בה.');
       } else {
         alert(err.response?.data?.error || 'שגיאה ביצירת בוט מתבנית');

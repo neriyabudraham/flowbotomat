@@ -73,7 +73,9 @@ async function updateGroupForward(req, res) {
       trigger_group_name,
       delay_min,
       delay_max,
-      require_confirmation
+      require_confirmation,
+      message_suffix,
+      suffix_enabled
     } = req.body;
     
     // Verify ownership
@@ -105,6 +107,8 @@ async function updateGroupForward(req, res) {
         delay_min = $7,
         delay_max = $8,
         require_confirmation = COALESCE($9, require_confirmation),
+        message_suffix = $11,
+        suffix_enabled = COALESCE($12, suffix_enabled),
         updated_at = NOW()
       WHERE id = $10
       RETURNING *
@@ -118,7 +122,9 @@ async function updateGroupForward(req, res) {
       validDelayMin,
       validDelayMax,
       require_confirmation,
-      forwardId
+      forwardId,
+      message_suffix || null,
+      suffix_enabled
     ]);
     
     res.json({
@@ -186,7 +192,7 @@ async function updateTargets(req, res) {
   try {
     const userId = req.user.id;
     const { forwardId } = req.params;
-    const { targets } = req.body; // Array of { group_id, group_name, group_image_url, sort_order }
+    const { targets } = req.body; // Array of { group_id, group_name, group_image_url, sort_order, custom_suffix }
     
     if (!Array.isArray(targets)) {
       return res.status(400).json({ error: 'נדרשת רשימת קבוצות יעד' });
@@ -229,14 +235,15 @@ async function updateTargets(req, res) {
         const target = targets[i];
         await client.query(`
           INSERT INTO group_forward_targets 
-          (forward_id, group_id, group_name, group_image_url, sort_order)
-          VALUES ($1, $2, $3, $4, $5)
+          (forward_id, group_id, group_name, group_image_url, sort_order, custom_suffix)
+          VALUES ($1, $2, $3, $4, $5, $6)
         `, [
           forwardId,
           target.group_id,
           target.group_name,
           target.group_image_url || null,
-          target.sort_order ?? i
+          target.sort_order ?? i,
+          target.custom_suffix !== undefined ? target.custom_suffix : null
         ]);
       }
       
@@ -421,27 +428,29 @@ async function duplicateGroupForward(req, res) {
     try {
       await client.query('BEGIN');
       
-      // Create copy
+      // Create copy (including suffix settings)
       const newForward = await client.query(`
         INSERT INTO group_forwards (
           user_id, name, description, trigger_type, trigger_group_id, 
-          trigger_group_name, delay_min, delay_max, require_confirmation, is_active
+          trigger_group_name, delay_min, delay_max, require_confirmation, is_active,
+          message_suffix, suffix_enabled
         )
         SELECT 
           user_id, name || ' (העתק)', description, trigger_type, trigger_group_id,
-          trigger_group_name, delay_min, delay_max, require_confirmation, false
+          trigger_group_name, delay_min, delay_max, require_confirmation, false,
+          message_suffix, suffix_enabled
         FROM group_forwards WHERE id = $1
         RETURNING *
       `, [forwardId]);
       
       const newId = newForward.rows[0].id;
       
-      // Copy targets
+      // Copy targets (including custom suffix)
       await client.query(`
         INSERT INTO group_forward_targets (
-          forward_id, group_id, group_name, group_image_url, sort_order
+          forward_id, group_id, group_name, group_image_url, sort_order, custom_suffix
         )
-        SELECT $1, group_id, group_name, group_image_url, sort_order
+        SELECT $1, group_id, group_name, group_image_url, sort_order, custom_suffix
         FROM group_forward_targets WHERE forward_id = $2
       `, [newId, forwardId]);
       

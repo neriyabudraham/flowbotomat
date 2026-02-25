@@ -1,4 +1,5 @@
 const pool = require('../../config/database');
+const { checkContactLimit } = require('../../services/limits.service');
 
 /**
  * Get all contacts for user
@@ -223,4 +224,18 @@ async function getLidMappings(req, res) {
   }
 }
 
-module.exports = { listContacts, getContact, getLidMappings };
+/**
+ * Get contact limit status for user
+ */
+async function getContactLimitStatus(req, res) {
+  try {
+    const userId = req.user.id;
+    const limitStatus = await checkContactLimit(userId);
+    res.json(limitStatus);
+  } catch (error) {
+    console.error('Get contact limit error:', error);
+    res.status(500).json({ error: 'שגיאה בבדיקת מגבלות' });
+  }
+}
+
+module.exports = { listContacts, getContact, getLidMappings, getContactLimitStatus };

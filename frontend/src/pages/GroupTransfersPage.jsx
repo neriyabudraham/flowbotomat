@@ -5,7 +5,7 @@ import {
   Search, MoreHorizontal, Copy, ChevronRight, MessageSquare, Send, Phone,
   CheckCircle, AlertCircle, Loader2, ChevronDown, Filter, RefreshCw,
   ArrowLeft, Zap, Target, Crown, UserCheck, Image, Video, Mic, FileText,
-  History, LayoutGrid, Sparkles, Shield
+  History, LayoutGrid, Sparkles, Shield, Lock, ArrowRightLeft
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Button from '../components/atoms/Button';
@@ -217,6 +217,128 @@ export default function GroupTransfersPage() {
   const activeTransfers = transfers.filter(f => f.is_active).length;
   const totalTargets = transfers.reduce((sum, f) => sum + (f.target_count || 0), 0);
   const totalSent = transfers.reduce((sum, f) => sum + (f.total_transfers || 0), 0);
+
+  // Show upgrade page if feature is disabled
+  if (limit?.featureDisabled) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50/30" dir="rtl">
+        {/* Header */}
+        <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
+          <div className="max-w-7xl mx-auto px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => navigate('/dashboard')}
+                  className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+                >
+                  <ArrowLeft className="w-5 h-5 text-gray-600" />
+                </button>
+                <div className="h-8 w-px bg-gray-200" />
+                <Logo />
+              </div>
+              
+              <div className="flex items-center gap-3">
+                {isAdmin && (
+                  <button
+                    onClick={() => navigate('/admin')}
+                    className="p-2 hover:bg-red-50 rounded-xl transition-colors group"
+                    title="ממשק ניהול"
+                  >
+                    <Shield className="w-5 h-5 text-red-500 group-hover:text-red-600" />
+                  </button>
+                )}
+                <NotificationsDropdown />
+                <div className="h-8 w-px bg-gray-200" />
+                <AccountSwitcher />
+                <button 
+                  onClick={() => { localStorage.removeItem('accessToken'); navigate('/login'); }}
+                  className="hidden md:block px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl text-sm font-medium transition-colors"
+                >
+                  התנתק
+                </button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="max-w-4xl mx-auto px-6 py-16">
+          <div className="text-center">
+            {/* Icon */}
+            <div className="w-24 h-24 mx-auto mb-8 bg-gradient-to-br from-teal-500 to-cyan-600 rounded-3xl flex items-center justify-center shadow-xl shadow-teal-500/30">
+              <ArrowRightLeft className="w-12 h-12 text-white" />
+            </div>
+            
+            {/* Title */}
+            <h1 className="text-4xl font-bold text-gray-900 mb-4">
+              העברת הודעות בין קבוצות
+            </h1>
+            <p className="text-xl text-gray-600 mb-8 max-w-lg mx-auto">
+              התכונה הזו לא כלולה בתוכנית הנוכחית שלך.
+              שדרג את החבילה כדי להעביר הודעות אוטומטית בין קבוצות.
+            </p>
+            
+            {/* Features List */}
+            <div className="bg-white rounded-3xl border border-gray-200 shadow-lg p-8 mb-8 text-right">
+              <h3 className="text-lg font-bold text-gray-900 mb-6 text-center">מה תקבל עם שדרוג?</h3>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="flex items-center gap-3 p-4 bg-teal-50 rounded-2xl">
+                  <div className="p-2 bg-teal-500 rounded-xl">
+                    <ArrowRightLeft className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">העברה אוטומטית</p>
+                    <p className="text-sm text-gray-500">הודעות עוברות בזמן אמת</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-teal-50 rounded-2xl">
+                  <div className="p-2 bg-teal-500 rounded-xl">
+                    <Users className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">זיהוי שולח</p>
+                    <p className="text-sm text-gray-500">הודעות כוללות מי שלח</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-teal-50 rounded-2xl">
+                  <div className="p-2 bg-teal-500 rounded-xl">
+                    <MessageSquare className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">כל סוגי ההודעות</p>
+                    <p className="text-sm text-gray-500">טקסט, תמונות, סרטונים והקלטות</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-teal-50 rounded-2xl">
+                  <div className="p-2 bg-teal-500 rounded-xl">
+                    <UserCheck className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">שולחים מורשים</p>
+                    <p className="text-sm text-gray-500">הגדר מי יכול לשלוח</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* CTA */}
+            <button
+              onClick={() => navigate('/pricing')}
+              className="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-teal-500 to-cyan-600 text-white rounded-2xl font-bold text-lg hover:shadow-xl hover:shadow-teal-500/30 transition-all hover:scale-105"
+            >
+              <Crown className="w-6 h-6" />
+              שדרג עכשיו
+            </button>
+            
+            <p className="text-sm text-gray-500 mt-4">
+              <button onClick={() => navigate('/dashboard')} className="text-teal-600 hover:underline">
+                חזרה לדשבורד
+              </button>
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50/30" dir="rtl">

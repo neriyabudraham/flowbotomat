@@ -527,6 +527,7 @@ async function startForwardJob(jobId) {
     const jobResult = await db.query(`
       SELECT fj.*, gf.delay_min, gf.delay_max, gf.user_id, gf.name as forward_name,
         gf.trigger_type, gf.trigger_group_id,
+        gf.message_suffix, gf.suffix_enabled,
         wc.session_name, wc.connection_type, wc.external_base_url, wc.external_api_key
       FROM forward_jobs fj
       JOIN group_forwards gf ON fj.forward_id = gf.id
@@ -591,9 +592,9 @@ async function startForwardJob(jobId) {
       WHERE id = $1
     `, [jobId]);
     
-    // Get all pending messages
+    // Get all pending messages with custom suffix per target
     const messagesResult = await db.query(`
-      SELECT fjm.*, gft.group_id, gft.group_name
+      SELECT fjm.*, gft.group_id, gft.group_name, gft.custom_suffix
       FROM forward_job_messages fjm
       JOIN group_forward_targets gft ON fjm.target_id = gft.id
       WHERE fjm.job_id = $1 AND fjm.status = 'pending'
@@ -677,18 +678,41 @@ async function startForwardJob(jobId) {
               await new Promise(resolve => setTimeout(resolve, delayMs));
             }
             
+            // Calculate suffix for this specific target
+            // Priority: custom_suffix (if not null) > default message_suffix (if enabled) > none
+            let suffixToUse = '';
+            if (message.custom_suffix !== null && message.custom_suffix !== undefined) {
+              // Custom suffix for this specific group (empty string = no suffix)
+              suffixToUse = message.custom_suffix;
+            } else if (job.suffix_enabled && job.message_suffix) {
+              // Use default suffix from forward settings
+              suffixToUse = job.message_suffix;
+            }
+            
+            // Apply suffix to text content
+            const textWithSuffix = suffixToUse && job.message_text 
+              ? `${job.message_text}\n\n${suffixToUse}`
+              : suffixToUse && !job.message_text
+              ? suffixToUse
+              : job.message_text;
+            
             if (job.message_type === 'text') {
-              const result = await wahaService.sendMessage(wahaConnection, message.group_id, job.message_text);
+              const result = await wahaService.sendMessage(wahaConnection, message.group_id, textWithSuffix);
               messageId = result?.id;
             } else if (job.message_type === 'image') {
-              const result = await wahaService.sendImage(wahaConnection, message.group_id, job.media_url, job.message_text);
+              const result = await wahaService.sendImage(wahaConnection, message.group_id, job.media_url, textWithSuffix);
               messageId = result?.id;
             } else if (job.message_type === 'video') {
-              const result = await wahaService.sendVideo(wahaConnection, message.group_id, job.media_url, job.message_text);
+              const result = await wahaService.sendVideo(wahaConnection, message.group_id, job.media_url, textWithSuffix);
               messageId = result?.id;
             } else if (job.message_type === 'audio') {
+              // Audio doesn't have caption, so send suffix as separate message if needed
               const result = await wahaService.sendVoice(wahaConnection, message.group_id, job.media_url);
               messageId = result?.id;
+              // Send suffix as follow-up text if exists
+              if (suffixToUse) {
+                await wahaService.sendMessage(wahaConnection, message.group_id, suffixToUse);
+              }
             }
             
             // Success - break out of retry loop
