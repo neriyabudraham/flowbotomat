@@ -96,8 +96,8 @@ export default function TemplateEditorPage() {
     setFlowData(data);
   }, []);
 
-  const handleNodeSelect = useCallback((nodeId) => {
-    setSelectedNodeId(nodeId);
+  const handleNodeSelect = useCallback((node) => {
+    setSelectedNodeId(node?.id || null);
   }, []);
 
   const handleUpdateNode = useCallback((nodeId, data) => {
