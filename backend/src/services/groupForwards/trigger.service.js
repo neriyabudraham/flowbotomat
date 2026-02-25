@@ -1161,7 +1161,7 @@ async function handleSchedulePrompt(userId, senderPhone, jobId) {
  * Handle day selection - ask for time (like Status Bot)
  */
 async function handleDaySelection(userId, senderPhone, jobId, dayOffset) {
-  console.log(`[GroupForwards] handleDaySelection - jobId: ${jobId}, dayOffset: ${dayOffset}`);
+  console.log(`[GroupForwards] handleDaySelection - userId: ${userId}, senderPhone: ${senderPhone}, jobId: ${jobId}, dayOffset: ${dayOffset}`);
   
   const offset = parseInt(dayOffset);
   
@@ -1175,20 +1175,18 @@ async function handleDaySelection(userId, senderPhone, jobId, dayOffset) {
   const month = String(scheduledDate.getMonth() + 1).padStart(2, '0');
   const day = String(scheduledDate.getDate()).padStart(2, '0');
   const dateStr = `${year}-${month}-${day}`;
-  await db.query(`
+  
+  // Update job status to pending_time and store scheduled date
+  const updateResult = await db.query(`
     UPDATE forward_jobs SET 
       status = 'pending_time',
+      scheduled_date = $1,
       updated_at = NOW()
-    WHERE id = $1
-  `, [jobId]);
-  
-  // Store the selected date in a temporary way (using the job's message_text temporarily)
-  // We'll need to add a proper field for this, but for now use a workaround
-  await db.query(`
-    UPDATE forward_jobs SET 
-      scheduled_date = $1
     WHERE id = $2
+    RETURNING id, status, sender_phone
   `, [dateStr, jobId]);
+  
+  console.log(`[GroupForwards] Updated job ${jobId} to pending_time:`, updateResult.rows[0]);
   
   // Get job details
   const jobResult = await db.query(`
@@ -1220,27 +1218,52 @@ async function handleDaySelection(userId, senderPhone, jobId, dayOffset) {
 async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
   console.log(`[GroupForwards] handleScheduleTimeInput - userId: ${userId}, senderPhone: ${senderPhone}, timeInput: ${timeInput}`);
   
-  // Find pending schedule job for this user
-  const jobResult = await db.query(`
+  // Normalize phone number for matching
+  const normalizedPhone = normalizePhoneNumber(senderPhone);
+  
+  // Find pending schedule job for this user - try both phone formats
+  let jobResult = await db.query(`
     SELECT fj.*, gf.name as forward_name, gf.id as forward_id
     FROM forward_jobs fj
     JOIN group_forwards gf ON fj.forward_id = gf.id
-    WHERE fj.user_id = $1 AND fj.sender_phone = $2 AND fj.status = 'pending_time'
+    WHERE fj.user_id = $1 AND fj.status = 'pending_time'
+      AND (fj.sender_phone = $2 OR fj.sender_phone = $3)
     ORDER BY fj.updated_at DESC
     LIMIT 1
-  `, [userId, senderPhone]);
+  `, [userId, senderPhone, normalizedPhone]);
   
-  console.log(`[GroupForwards] Found ${jobResult.rows.length} pending_time jobs for ${senderPhone}`);
+  console.log(`[GroupForwards] Found ${jobResult.rows.length} pending_time jobs for ${senderPhone}/${normalizedPhone}`);
   
   if (jobResult.rows.length === 0) {
-    // Debug: check what jobs exist for this user/phone
-    const debugResult = await db.query(`
+    // Also try to find any pending_time job for this user (in case phone mismatch)
+    const anyPendingTime = await db.query(`
       SELECT id, status, sender_phone FROM forward_jobs 
-      WHERE user_id = $1 AND sender_phone = $2 
-      ORDER BY updated_at DESC LIMIT 5
-    `, [userId, senderPhone]);
-    console.log(`[GroupForwards] Debug - Recent jobs for ${senderPhone}:`, debugResult.rows.map(r => `${r.id.substring(0,8)}: ${r.status}`).join(', '));
-    return false; // No pending schedule
+      WHERE user_id = $1 AND status = 'pending_time'
+      ORDER BY updated_at DESC LIMIT 1
+    `, [userId]);
+    
+    if (anyPendingTime.rows.length > 0) {
+      console.log(`[GroupForwards] Found pending_time job with different phone: ${anyPendingTime.rows[0].sender_phone} (looking for ${senderPhone})`);
+      // Use this job if found
+      const matchingJob = await db.query(`
+        SELECT fj.*, gf.name as forward_name, gf.id as forward_id
+        FROM forward_jobs fj
+        JOIN group_forwards gf ON fj.forward_id = gf.id
+        WHERE fj.id = $1
+      `, [anyPendingTime.rows[0].id]);
+      if (matchingJob.rows.length > 0) {
+        jobResult = matchingJob;
+      }
+    } else {
+      // Debug: check what jobs exist for this user
+      const debugResult = await db.query(`
+        SELECT id, status, sender_phone FROM forward_jobs 
+        WHERE user_id = $1 
+        ORDER BY updated_at DESC LIMIT 5
+      `, [userId]);
+      console.log(`[GroupForwards] Debug - Recent jobs for user:`, debugResult.rows.map(r => `${r.id.substring(0,8)}: ${r.status} (${r.sender_phone})`).join(', '));
+      return false; // No pending schedule
+    }
   }
   
   const job = jobResult.rows[0];

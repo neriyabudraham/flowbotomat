@@ -243,16 +243,30 @@ async function processScheduledForwards() {
           throw new Error('אין קבוצות יעד להעברה');
         }
         
+        // Get forward settings to apply suffix
+        const forwardResult = await db.query(`
+          SELECT suffix_enabled, message_suffix FROM group_forwards WHERE id = $1
+        `, [schedule.forward_id]);
+        
+        const forward = forwardResult.rows[0];
+        let messageContent = schedule.message_content || schedule.media_caption || '';
+        
+        // Apply suffix if enabled
+        if (forward?.suffix_enabled && forward?.message_suffix) {
+          messageContent = messageContent + '\n\n' + forward.message_suffix;
+        }
+        
         // Create job
         const jobResult = await db.query(`
           INSERT INTO forward_jobs 
-          (forward_id, message_type, message_text, media_url, media_filename, total_targets, status)
-          VALUES ($1, $2, $3, $4, $5, $6, 'confirmed')
+          (forward_id, user_id, message_type, message_text, media_url, media_filename, total_targets, status)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, 'confirmed')
           RETURNING *
         `, [
           schedule.forward_id,
+          schedule.user_id,
           schedule.message_type,
-          schedule.message_content || schedule.media_caption,
+          messageContent,
           schedule.media_url,
           schedule.media_filename,
           targetsResult.rows.length

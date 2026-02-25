@@ -207,11 +207,50 @@ function ScheduleModal({ item, forwards, onClose, onSave }) {
   const [forwardId, setForwardId] = useState(item?.forward_id || '');
   const [messageType, setMessageType] = useState(item?.message_type || 'text');
   const [messageContent, setMessageContent] = useState(item?.message_content || '');
+  const [mediaFile, setMediaFile] = useState(null);
+  const [mediaPreview, setMediaPreview] = useState(item?.media_url || null);
   const [scheduledDate, setScheduledDate] = useState(
     item?.scheduled_at ? new Date(item.scheduled_at).toISOString().slice(0, 16) : ''
   );
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Get selected forward's suffix settings
+  const selectedForward = forwards.find(f => f.id === forwardId);
+  const hasSuffix = selectedForward?.suffix_enabled && selectedForward?.message_suffix;
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Determine type from file
+    if (file.type.startsWith('image/')) {
+      setMessageType('image');
+    } else if (file.type.startsWith('video/')) {
+      setMessageType('video');
+    } else if (file.type.startsWith('audio/')) {
+      setMessageType('audio');
+    } else {
+      setMessageType('document');
+    }
+
+    setMediaFile(file);
+    
+    // Create preview
+    if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+      const url = URL.createObjectURL(file);
+      setMediaPreview(url);
+    } else {
+      setMediaPreview(null);
+    }
+  };
+
+  const clearMedia = () => {
+    setMediaFile(null);
+    setMediaPreview(null);
+    setMessageType('text');
+  };
 
   const handleSave = async () => {
     if (!forwardId || !scheduledDate) {
@@ -219,14 +258,39 @@ function ScheduleModal({ item, forwards, onClose, onSave }) {
       return;
     }
 
+    if (messageType === 'text' && !messageContent.trim()) {
+      setError('יש להזין תוכן הודעה');
+      return;
+    }
+
     try {
       setSaving(true);
       setError(null);
+
+      let mediaUrl = item?.media_url || null;
+      let mediaFilename = item?.media_filename || null;
+
+      // Upload media file if selected
+      if (mediaFile) {
+        setUploading(true);
+        const formData = new FormData();
+        formData.append('file', mediaFile);
+        
+        const uploadRes = await api.post('/upload/media', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        
+        mediaUrl = uploadRes.data.url;
+        mediaFilename = mediaFile.name;
+        setUploading(false);
+      }
 
       const payload = {
         forward_id: forwardId,
         message_type: messageType,
         message_content: messageContent,
+        media_url: mediaUrl,
+        media_filename: mediaFilename,
         scheduled_at: new Date(scheduledDate).toISOString()
       };
 
@@ -241,6 +305,7 @@ function ScheduleModal({ item, forwards, onClose, onSave }) {
       setError(err.response?.data?.error || 'שגיאה בשמירה');
     } finally {
       setSaving(false);
+      setUploading(false);
     }
   };
 
@@ -249,8 +314,8 @@ function ScheduleModal({ item, forwards, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="p-6 border-b border-gray-100">
+      <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="p-6 border-b border-gray-100 sticky top-0 bg-white rounded-t-3xl">
           <div className="flex items-center justify-between">
             <h3 className="text-xl font-bold text-gray-900">
               {item ? 'עריכת תזמון' : 'תזמון חדש'}
@@ -284,17 +349,74 @@ function ScheduleModal({ item, forwards, onClose, onSave }) {
             </select>
           </div>
 
-          {/* Message Content */}
+          {/* Media Upload */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">תוכן ההודעה</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">מדיה (אופציונלי)</label>
+            {mediaPreview ? (
+              <div className="relative">
+                {messageType === 'image' && (
+                  <img src={mediaPreview} alt="Preview" className="w-full h-48 object-cover rounded-xl" />
+                )}
+                {messageType === 'video' && (
+                  <video src={mediaPreview} className="w-full h-48 object-cover rounded-xl" controls />
+                )}
+                {(messageType === 'document' || messageType === 'audio') && (
+                  <div className="w-full h-24 bg-gray-100 rounded-xl flex items-center justify-center">
+                    <FileText className="w-8 h-8 text-gray-400" />
+                    <span className="mr-2 text-gray-600">{mediaFile?.name}</span>
+                  </div>
+                )}
+                <button
+                  onClick={clearMedia}
+                  className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <label className="flex flex-col items-center justify-center w-full h-32 bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-purple-400 hover:bg-purple-50/50 transition-colors">
+                <div className="flex flex-col items-center">
+                  <div className="flex gap-2 text-gray-400 mb-2">
+                    <Image className="w-6 h-6" />
+                    <Video className="w-6 h-6" />
+                    <FileText className="w-6 h-6" />
+                  </div>
+                  <span className="text-sm text-gray-500">לחץ להעלאת תמונה, סרטון או קובץ</span>
+                </div>
+                <input
+                  type="file"
+                  accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+              </label>
+            )}
+          </div>
+
+          {/* Message Content / Caption */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              {messageType !== 'text' ? 'כיתוב למדיה' : 'תוכן ההודעה'}
+            </label>
             <textarea
               value={messageContent}
               onChange={(e) => setMessageContent(e.target.value)}
-              placeholder="הקלד את תוכן ההודעה..."
+              placeholder={messageType !== 'text' ? 'הוסף כיתוב למדיה (אופציונלי)...' : 'הקלד את תוכן ההודעה...'}
               rows={4}
               className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 resize-none"
             />
           </div>
+
+          {/* Suffix Info */}
+          {hasSuffix && (
+            <div className="p-3 bg-blue-50 text-blue-700 rounded-xl text-sm">
+              <div className="flex items-center gap-2 font-medium mb-1">
+                <Check className="w-4 h-4" />
+                סיומת תתווסף אוטומטית
+              </div>
+              <p className="text-blue-600 text-xs">{selectedForward.message_suffix}</p>
+            </div>
+          )}
 
           {/* Schedule Date/Time */}
           <div>
@@ -309,7 +431,7 @@ function ScheduleModal({ item, forwards, onClose, onSave }) {
           </div>
         </div>
 
-        <div className="p-6 border-t border-gray-100 flex gap-3">
+        <div className="p-6 border-t border-gray-100 flex gap-3 sticky bottom-0 bg-white rounded-b-3xl">
           <button
             onClick={onClose}
             className="flex-1 px-4 py-3 border border-gray-200 rounded-xl font-medium hover:bg-gray-50 transition-colors"
@@ -322,7 +444,10 @@ function ScheduleModal({ item, forwards, onClose, onSave }) {
             className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-medium disabled:opacity-50 hover:shadow-lg transition-all flex items-center justify-center gap-2"
           >
             {saving ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                {uploading ? 'מעלה...' : 'שומר...'}
+              </>
             ) : (
               <>
                 <Calendar className="w-5 h-5" />

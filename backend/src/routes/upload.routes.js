@@ -5,5 +5,6 @@ const authMiddleware = require('../middlewares/auth.middleware');
 
 // Upload file (requires authentication)
 router.post('/', authMiddleware, uploadFile);
+router.post('/media', authMiddleware, uploadFile);
 
 module.exports = router;

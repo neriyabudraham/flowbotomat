@@ -446,9 +446,6 @@ async function saveUserStatus(userId, payload) {
 async function handleIncomingMessage(userId, event) {
   const { payload } = event;
   
-  // Debug: Log incoming message type for diagnosing list response issues
-  console.log(`[Webhook] handleIncomingMessage - payload.type: ${payload.type}, MediaType: ${payload._data?.Info?.MediaType}, hasListResponse: ${!!payload._data?.Message?.listResponseMessage}`);
-  
   // Extract message ID for deduplication
   let messageId = '';
   if (typeof payload.id === 'string') {
@@ -478,28 +475,6 @@ async function handleIncomingMessage(userId, event) {
     console.log(`[Webhook] Skipping message - user ${userId} not found (possibly deleted)`);
     // TODO: Consider cleaning up orphaned WhatsApp connections
     return;
-  }
-  
-  // Debug log - enable temporarily to diagnose linked device issues
-  console.log('[Webhook] 📨 Incoming message:', {
-    from: payload.from,
-    fromMe: payload.fromMe,
-    type: payload.type,
-    chatId: payload.chatId,
-    deviceType: payload._data?.Info?.DeviceType || payload.deviceType || 'unknown',
-    source: payload.source || payload._data?.Info?.Source || 'unknown',
-    participant: payload.participant,
-    id: typeof payload.id === 'string' ? payload.id : payload.id?._serialized || payload.id?.id
-  });
-  
-  // Extra debug for list responses - log full Message structure if present
-  if (payload._data?.Message) {
-    const msgKeys = Object.keys(payload._data.Message);
-    console.log('[Webhook] 📋 Message structure:', msgKeys.join(', '));
-    // If there's any response-like key, log more details
-    if (msgKeys.some(k => k.includes('response') || k.includes('Response') || k.includes('list') || k.includes('List'))) {
-      console.log('[Webhook] 📋 Full Message object:', JSON.stringify(payload._data.Message, null, 2));
-    }
   }
   
   // Handle status updates - skip here, statuses are saved via message.any event only
@@ -1142,30 +1117,6 @@ async function getOrCreateContact(userId, phone, payload) {
  */
 function parseMessage(payload) {
   const body = payload.body || '';
-  
-  // Debug: Log raw payload structure for diagnosing list response issues
-  if (payload._data?.Message) {
-    console.log('[Webhook] parseMessage - Message keys:', Object.keys(payload._data.Message).join(', '));
-    console.log('[Webhook] parseMessage - MediaType:', payload._data?.Info?.MediaType, ', type:', payload.type, ', body:', body?.substring(0, 50));
-  }
-  
-  // Check payload.type directly (WAHA sometimes sends type: 'list_response')
-  if (payload.type === 'list_response' || payload.type === 'interactive') {
-    console.log('[Webhook] Detected list_response via payload.type');
-    // Try to find the selectedRowId in various places
-    const rowId = payload._data?.Message?.listResponseMessage?.singleSelectReply?.selectedRowID ||
-                  payload.selectedRowId ||
-                  payload.rowId ||
-                  payload._data?.selectedRowId;
-    if (rowId) {
-      return {
-        type: 'list_response',
-        content: body,
-        selectedRowId: rowId,
-        quotedListTitle: null,
-      };
-    }
-  }
   
   // Check for list response (button click)
   const listResponse = payload._data?.Message?.listResponseMessage;
