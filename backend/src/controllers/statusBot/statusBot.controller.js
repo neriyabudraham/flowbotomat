@@ -2263,6 +2263,7 @@ async function adminGetActiveProcesses(req, res) {
     `);
     
     // Get ALL users who sent a message in the last 10 minutes (regardless of state)
+    // Normalize phone numbers for matching (remove leading 0 or 972 and compare last 9 digits)
     const recentMessagesResult = await db.query(`
       SELECT 
         c.phone_number,
@@ -2278,7 +2279,8 @@ async function adminGetActiveProcesses(req, res) {
       LEFT JOIN status_bot_connections conn ON conn.id = c.connection_id
       LEFT JOIN users u ON conn.user_id = u.id
       LEFT JOIN status_bot_authorized_numbers an ON an.connection_id = c.connection_id 
-        AND (an.phone_number = c.phone_number OR an.phone_number = REPLACE(c.phone_number, '972', '0'))
+        AND an.is_active = true
+        AND RIGHT(REGEXP_REPLACE(an.phone_number, '[^0-9]', '', 'g'), 9) = RIGHT(REGEXP_REPLACE(c.phone_number, '[^0-9]', '', 'g'), 9)
       WHERE c.last_message_at > NOW() - INTERVAL '10 minutes'
       ORDER BY c.last_message_at DESC
     `);
