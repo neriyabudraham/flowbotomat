@@ -1362,6 +1362,7 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
   
   const wahaConnection = await getWahaConnection(userId);
   if (wahaConnection) {
+    const wahaService = require('../waha/session.service');
     const chatId = `${senderPhone}@s.whatsapp.net`;
     const listData = {
       title: `✅ תוזמן בהצלחה`,
@@ -1569,6 +1570,7 @@ async function handleScheduledChangeTime(userId, senderPhone, scheduledId) {
   
   const wahaConnection = await getWahaConnection(userId);
   if (wahaConnection) {
+    const wahaService = require('../waha/session.service');
     const chatId = `${senderPhone}@s.whatsapp.net`;
     const listData = {
       title: `🕐 שינוי תזמון`,
@@ -1686,6 +1688,7 @@ async function handleRescheduleTimeInput(userId, senderPhone, timeInput, pending
   // Send list with action buttons
   const wahaConnection = await getWahaConnection(userId);
   if (wahaConnection) {
+    const wahaService = require('../waha/session.service');
     const chatId = `${senderPhone}@s.whatsapp.net`;
     const listData = {
       title: `✅ התזמון עודכן`,
