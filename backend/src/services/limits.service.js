@@ -1,5 +1,37 @@
 const db = require('../config/database');
 
+// Cache for free plan limits (refreshes every 5 minutes)
+let freePlanCache = null;
+let freePlanCacheTime = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Get the free plan limits from database
+ */
+async function getFreePlanLimits() {
+  const now = Date.now();
+  if (freePlanCache && (now - freePlanCacheTime) < CACHE_TTL) {
+    return freePlanCache;
+  }
+  
+  const result = await db.query(`
+    SELECT max_contacts, max_bots, max_bot_runs_per_month
+    FROM subscription_plans
+    WHERE price = 0 AND is_active = true
+    ORDER BY sort_order ASC
+    LIMIT 1
+  `);
+  
+  if (result.rows.length > 0) {
+    freePlanCache = result.rows[0];
+    freePlanCacheTime = now;
+    return freePlanCache;
+  }
+  
+  // Fallback if no free plan exists
+  return { max_contacts: 0, max_bots: 0, max_bot_runs_per_month: 0 };
+}
+
 /**
  * Check and enforce contact limit before creating a new contact
  * Returns: { allowed: boolean, limit: number, used: number, error?: string }
@@ -50,8 +82,9 @@ async function checkContactLimit(userId) {
     )
   `, [userId]);
   
-  // Default - unlimited contacts
-  let maxContacts = -1;
+  // Get free plan limits as fallback
+  const freePlan = await getFreePlanLimits();
+  let maxContacts = freePlan.max_contacts;
   
   // Check feature overrides first (highest priority)
   if (featureOverrides?.max_contacts !== null && featureOverrides?.max_contacts !== undefined) {
@@ -108,8 +141,9 @@ async function checkBotLimit(userId) {
     )
   `, [userId]);
   
-  // Default free plan limit
-  let maxBots = 1;
+  // Get free plan limits as fallback
+  const freePlan = await getFreePlanLimits();
+  let maxBots = freePlan.max_bots;
   
   // Check feature overrides first
   if (featureOverrides?.max_bots !== null && featureOverrides?.max_bots !== undefined) {
@@ -184,8 +218,9 @@ async function checkBotRunsLimit(userId) {
     )
   `, [userId]);
   
-  // Default free plan limit
-  let maxRuns = 500;
+  // Get free plan limits as fallback
+  const freePlan = await getFreePlanLimits();
+  let maxRuns = freePlan.max_bot_runs_per_month;
   
   if (featureOverrides?.max_bot_runs_per_month !== null && featureOverrides?.max_bot_runs_per_month !== undefined) {
     maxRuns = featureOverrides.max_bot_runs_per_month;
