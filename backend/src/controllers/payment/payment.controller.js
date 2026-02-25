@@ -1196,13 +1196,13 @@ async function subscribe(req, res) {
         promo_months_remaining = $10,
         promo_price = $11,
         regular_price_after_promo = $12,
-        referral_discount_type = COALESCE($13, referral_discount_type),
-        referral_discount_percent = COALESCE($14, referral_discount_percent),
+        referral_discount_type = COALESCE($13, user_subscriptions.referral_discount_type),
+        referral_discount_percent = COALESCE($14, user_subscriptions.referral_discount_percent),
         referral_months_remaining = CASE 
           WHEN $13 IS NOT NULL THEN $15 
-          ELSE GREATEST(0, COALESCE(referral_months_remaining, 0) - 1)
+          ELSE GREATEST(0, COALESCE(user_subscriptions.referral_months_remaining, 0) - 1)
         END,
-        referral_regular_price = COALESCE($16, referral_regular_price),
+        referral_regular_price = COALESCE($16, user_subscriptions.referral_regular_price),
         updated_at = NOW()
       RETURNING *
     `, [
