@@ -234,6 +234,12 @@ async function getWahaConnection(userId) {
  */
 async function processMessageForForwards(userId, senderPhone, messageData, chatId, payload) {
   try {
+    // Skip list responses - these should only be handled by handleConfirmationResponse
+    if (messageData.type === 'list_response' || messageData.selectedRowId) {
+      console.log(`[GroupForwards] Skipping list response message in processMessageForForwards`);
+      return false;
+    }
+    
     const isGroupMessage = chatId?.includes('@g.us');
     
     

@@ -824,18 +824,28 @@ async function handleIncomingMessage(userId, event) {
       console.log(`[Webhook] Message handled as forward confirmation - skipping bot engine`);
       handledByForwards = true;
     } else {
-      // Check if this triggers a group forward (from authorized sender)
-      const forwardTriggered = await groupForwardsTrigger.processMessageForForwards(
-        userId,
-        phoneForProcessing,
-        messageData,
-        chatId,
-        payload
-      );
+      // Skip forward triggering for list_response messages
+      // These should only be handled as confirmations, not as new triggers
+      const isListResponse = messageData.type === 'list_response' || 
+                             payload._data?.Info?.MediaType === 'list_response' ||
+                             payload._data?.Message?.listResponseMessage;
       
-      if (forwardTriggered) {
-        console.log(`[Webhook] Message handled as forward trigger - skipping bot engine`);
-        handledByForwards = true;
+      if (!isListResponse) {
+        // Check if this triggers a group forward (from authorized sender)
+        const forwardTriggered = await groupForwardsTrigger.processMessageForForwards(
+          userId,
+          phoneForProcessing,
+          messageData,
+          chatId,
+          payload
+        );
+        
+        if (forwardTriggered) {
+          console.log(`[Webhook] Message handled as forward trigger - skipping bot engine`);
+          handledByForwards = true;
+        }
+      } else {
+        console.log(`[Webhook] Skipping forward trigger check for list_response message`);
       }
     }
   } catch (forwardError) {
