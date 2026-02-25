@@ -380,7 +380,7 @@ function emitAdminUpdate(phone, state, stateData, connectionId) {
 /**
  * Emit socket event when message received (for admin real-time monitoring)
  */
-async function emitMessageReceived(phone, messageType, connectionId = null, userName = null, userEmail = null) {
+async function emitMessageReceived(phone, messageType, connectionId = null, senderName = null, ownerName = null, ownerEmail = null) {
   try {
     const io = getIO();
     if (io) {
@@ -388,8 +388,9 @@ async function emitMessageReceived(phone, messageType, connectionId = null, user
         phone,
         messageType,
         connectionId,
-        userName,
-        userEmail,
+        senderName,
+        ownerName,
+        ownerEmail,
         timestamp: new Date().toISOString()
       });
     }
@@ -604,6 +605,7 @@ async function handleMessage(phone, message) {
       phone, 
       message.type, 
       auth?.connection_id || state.connection_id,
+      auth?.authorized_name,
       auth?.user_name,
       auth?.user_email
     );

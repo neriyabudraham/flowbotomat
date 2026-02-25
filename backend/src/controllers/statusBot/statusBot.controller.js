@@ -2269,13 +2269,16 @@ async function adminGetActiveProcesses(req, res) {
         c.state,
         c.last_message_at,
         c.connection_id,
-        conn.display_name,
+        conn.display_name as bot_display_name,
         conn.phone_number as bot_phone,
-        u.name as user_name,
-        u.email as user_email
+        u.name as owner_name,
+        u.email as owner_email,
+        an.name as sender_name
       FROM cloud_api_conversation_states c
       LEFT JOIN status_bot_connections conn ON conn.id = c.connection_id
       LEFT JOIN users u ON conn.user_id = u.id
+      LEFT JOIN status_bot_authorized_numbers an ON an.connection_id = c.connection_id 
+        AND (an.phone_number = c.phone_number OR an.phone_number = REPLACE(c.phone_number, '972', '0'))
       WHERE c.last_message_at > NOW() - INTERVAL '10 minutes'
       ORDER BY c.last_message_at DESC
     `);
@@ -2329,9 +2332,10 @@ async function adminGetActiveProcesses(req, res) {
         state: c.state,
         lastMessageAt: c.last_message_at,
         botPhone: c.bot_phone,
-        displayName: c.display_name,
-        userName: c.user_name,
-        userEmail: c.user_email
+        botDisplayName: c.bot_display_name,
+        senderName: c.sender_name,
+        ownerName: c.owner_name,
+        ownerEmail: c.owner_email
       })),
       processingUploads: processingResult.rows.map(p => ({
         id: p.id,

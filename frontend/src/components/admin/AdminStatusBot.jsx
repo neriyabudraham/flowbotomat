@@ -112,8 +112,9 @@ export default function AdminStatusBot() {
         const newMessage = {
           phone: data.phone,
           lastMessageAt: data.timestamp,
-          userName: data.userName,
-          userEmail: data.userEmail,
+          senderName: data.senderName,
+          ownerName: data.ownerName,
+          ownerEmail: data.ownerEmail,
           connectionId: data.connectionId
         };
         
@@ -472,7 +473,7 @@ export default function AdminStatusBot() {
                             </div>
                           </div>
                           <div className="flex items-center justify-between mt-1">
-                            <p className="text-xs text-gray-500">{msg.userName || msg.userEmail || 'לא ידוע'}</p>
+                            <p className="text-xs text-gray-500">{msg.senderName || msg.ownerName || msg.ownerEmail || 'לא ידוע'}</p>
                             <span className={`text-xs font-medium ${isRecent ? 'text-amber-600' : 'text-gray-400'}`}>
                               {timeAgo}
                             </span>
