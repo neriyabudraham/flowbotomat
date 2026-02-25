@@ -200,9 +200,38 @@ async function sendTrialExpiryReminders() {
 }
 
 /**
+ * Calculate charge amount with discounts
+ */
+function calculateChargeAmount(sub) {
+  let chargeAmount = parseFloat(sub.plan_price);
+  let discountDescription = '';
+  
+  // Apply custom discount from admin
+  if (sub.custom_discount_mode === 'fixed_price' && sub.custom_fixed_price) {
+    chargeAmount = parseFloat(sub.custom_fixed_price);
+    discountDescription = ` (מחיר מותאם)`;
+  } else if (sub.custom_discount_mode === 'percent' && sub.referral_discount_percent) {
+    chargeAmount = Math.floor(chargeAmount * (1 - sub.referral_discount_percent / 100));
+    discountDescription = ` (${sub.referral_discount_percent}% הנחה)`;
+  }
+  // Apply referral discount if active
+  else if (sub.referral_discount_percent && sub.referral_months_remaining > 0) {
+    chargeAmount = Math.floor(chargeAmount * (1 - sub.referral_discount_percent / 100));
+    discountDescription = ` (${sub.referral_discount_percent}% הנחת הפניה)`;
+  }
+  // Apply yearly discount if billing period is yearly
+  else if (sub.billing_period === 'yearly') {
+    chargeAmount = chargeAmount * 12 * 0.8; // 20% yearly discount
+    discountDescription = ` (שנתי - 20% הנחה)`;
+  }
+  
+  return { chargeAmount, discountDescription };
+}
+
+/**
  * Handle manual subscriptions approaching expiry
  * - Sends notifications 5 days before expiry
- * - If user has payment method, schedules a charge
+ * - If user has payment method, schedules a charge (with discounts)
  * Called daily
  */
 async function handleExpiringManualSubscriptions() {
@@ -253,6 +282,9 @@ async function handleExpiringManualSubscriptions() {
           weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
         });
         
+        // Calculate charge amount with discounts
+        const { chargeAmount, discountDescription } = calculateChargeAmount(sub);
+        
         if (sub.has_payment_method) {
           // Schedule charge in billing queue
           await db.query(`
@@ -262,14 +294,14 @@ async function handleExpiringManualSubscriptions() {
           `, [
             sub.user_id, 
             sub.id, 
-            parseFloat(sub.plan_price), 
+            chargeAmount, 
             sub.expires_at,
             sub.plan_id,
-            `חידוש מנוי - ${sub.plan_name}`
+            `חידוש מנוי - ${sub.plan_name}${discountDescription}`
           ]);
           
           scheduled++;
-          console.log(`[Manual Expiry] Scheduled renewal charge for ${sub.user_email} on ${expiresAt.toISOString().split('T')[0]}`);
+          console.log(`[Manual Expiry] Scheduled renewal charge for ${sub.user_email}: ₪${chargeAmount}${discountDescription} on ${expiresAt.toISOString().split('T')[0]}`);
           
           // Send notification about upcoming charge
           await sendMail(
@@ -279,7 +311,7 @@ async function handleExpiringManualSubscriptions() {
               <div dir="rtl" style="font-family: Arial, sans-serif;">
                 <h2>שלום ${sub.user_name || ''},</h2>
                 <p>המנוי שלך לתכנית "${sub.plan_name}" יסתיים ב-${formattedDate}.</p>
-                <p>מכיוון שיש לך אמצעי תשלום שמור, המנוי יחודש אוטומטית ותחויב ב-₪${sub.plan_price}.</p>
+                <p>מכיוון שיש לך אמצעי תשלום שמור, המנוי יחודש אוטומטית ותחויב ב-₪${chargeAmount}${discountDescription}.</p>
                 <p>אם אינך מעוניין בחידוש, ניתן לבטל את המנוי עד למועד זה:</p>
                 <p><a href="${process.env.FRONTEND_URL}/settings/billing" style="background: #f59e0b; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">נהל מנוי</a></p>
               </div>
@@ -315,12 +347,13 @@ async function handleExpiringManualSubscriptions() {
         `, [
           sub.user_id,
           sub.has_payment_method 
-            ? `המנוי שלך יחודש אוטומטית ב-${formattedDate} ותחויב ב-₪${sub.plan_price}`
+            ? `המנוי שלך יחודש אוטומטית ב-${formattedDate} ותחויב ב-₪${chargeAmount}${discountDescription}`
             : `המנוי שלך מסתיים ב-${formattedDate}. הוסף אמצעי תשלום כדי להמשיך.`,
           JSON.stringify({ 
             expires_at: sub.expires_at, 
             has_payment: sub.has_payment_method,
-            plan_name: sub.plan_name
+            plan_name: sub.plan_name,
+            charge_amount: chargeAmount
           })
         ]);
         

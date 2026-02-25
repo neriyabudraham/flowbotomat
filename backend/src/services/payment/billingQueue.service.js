@@ -362,7 +362,7 @@ async function handleChargeSuccess(charge, chargeResult) {
     );
     
     // Update subscription next_charge_date
-    if (charge.billing_type === 'monthly') {
+    if (charge.billing_type === 'monthly' || charge.billing_type === 'renewal') {
       await client.query(
         `UPDATE user_subscriptions 
          SET next_charge_date = next_charge_date + INTERVAL '1 month',
@@ -370,6 +370,35 @@ async function handleChargeSuccess(charge, chargeResult) {
          WHERE user_id = $1`,
         [charge.user_id]
       );
+      
+      // Get current subscription with discount info to calculate next charge
+      const subResult = await client.query(
+        `SELECT us.*, sp.price as plan_price, sp.name_he as plan_name_he
+         FROM user_subscriptions us
+         JOIN subscription_plans sp ON sp.id = us.plan_id
+         WHERE us.user_id = $1`,
+        [charge.user_id]
+      );
+      
+      const sub = subResult.rows[0];
+      let nextAmount = parseFloat(sub?.plan_price || charge.amount);
+      let description = `מנוי חודשי - ${sub?.plan_name_he || charge.plan_name_he}`;
+      
+      if (sub) {
+        // Apply custom discount from admin
+        if (sub.custom_discount_mode === 'fixed_price' && sub.custom_fixed_price) {
+          nextAmount = parseFloat(sub.custom_fixed_price);
+          description += ' (מחיר מותאם)';
+        } else if (sub.custom_discount_mode === 'percent' && sub.referral_discount_percent) {
+          nextAmount = Math.floor(nextAmount * (1 - sub.referral_discount_percent / 100));
+          description += ` (${sub.referral_discount_percent}% הנחה)`;
+        }
+        // Apply referral discount if still active
+        else if (sub.referral_discount_percent && sub.referral_months_remaining > 0) {
+          nextAmount = Math.floor(nextAmount * (1 - sub.referral_discount_percent / 100));
+          description += ` (${sub.referral_discount_percent}% הנחת הפניה)`;
+        }
+      }
       
       // Schedule next month's charge
       const nextChargeDate = new Date();
@@ -382,10 +411,10 @@ async function handleChargeSuccess(charge, chargeResult) {
         [
           charge.user_id,
           charge.subscription_id,
-          charge.amount,
+          nextAmount,
           nextChargeDate.toISOString().split('T')[0],
           charge.plan_id,
-          charge.description,
+          description,
           charge.currency
         ]
       );
@@ -399,6 +428,31 @@ async function handleChargeSuccess(charge, chargeResult) {
         [charge.user_id]
       );
       
+      // Get current subscription with discount info
+      const subResult = await client.query(
+        `SELECT us.*, sp.price as plan_price, sp.name_he as plan_name_he
+         FROM user_subscriptions us
+         JOIN subscription_plans sp ON sp.id = us.plan_id
+         WHERE us.user_id = $1`,
+        [charge.user_id]
+      );
+      
+      const sub = subResult.rows[0];
+      let nextAmount = parseFloat(sub?.plan_price || charge.amount) * 12 * 0.8; // Yearly 20% discount
+      let description = `מנוי שנתי - ${sub?.plan_name_he || charge.plan_name_he}`;
+      
+      if (sub) {
+        // Apply custom discount from admin
+        if (sub.custom_discount_mode === 'fixed_price' && sub.custom_fixed_price) {
+          nextAmount = parseFloat(sub.custom_fixed_price) * 12;
+          description += ' (מחיר מותאם)';
+        } else if (sub.custom_discount_mode === 'percent' && sub.referral_discount_percent) {
+          const baseYearly = parseFloat(sub.plan_price) * 12 * 0.8;
+          nextAmount = Math.floor(baseYearly * (1 - sub.referral_discount_percent / 100));
+          description += ` (${sub.referral_discount_percent}% הנחה)`;
+        }
+      }
+      
       // Schedule next year's charge
       const nextChargeDate = new Date();
       nextChargeDate.setFullYear(nextChargeDate.getFullYear() + 1);
@@ -410,10 +464,10 @@ async function handleChargeSuccess(charge, chargeResult) {
         [
           charge.user_id,
           charge.subscription_id,
-          charge.amount,
+          nextAmount,
           nextChargeDate.toISOString().split('T')[0],
           charge.plan_id,
-          charge.description,
+          description,
           charge.currency
         ]
       );
