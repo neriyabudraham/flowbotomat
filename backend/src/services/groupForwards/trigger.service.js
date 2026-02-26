@@ -671,9 +671,16 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
       console.log(`[GroupForwards] Processing list response: ${selectedRowId}`);
     }
     
-    // For text messages (not button clicks), verify this sender has an active job
+    // For text messages (not button clicks), verify this sender has a RECENT active job
     // This prevents random people in groups from triggering scheduling responses
+    // Also prevents stale pending_time jobs from catching random numbers
     if (!selectedRowId || !selectedRowId.startsWith('fwd_')) {
+      // First: cancel stale pending/pending_time jobs (older than 1 hour)
+      await db.query(`
+        UPDATE forward_jobs SET status = 'cancelled', updated_at = NOW()
+        WHERE status IN ('pending', 'pending_time') AND updated_at < NOW() - INTERVAL '1 hour'
+      `).catch(() => {});
+      
       const normalizedPhone = normalizePhoneNumber(senderPhone);
       const withCountryCode = normalizedPhone ? '972' + normalizedPhone : '';
       const hasActiveJob = await db.query(`
@@ -683,6 +690,7 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
                OR REPLACE(sender_phone, '+', '') = $2
                OR REGEXP_REPLACE(sender_phone, '^(\\+?972|0+)', '') = $3)
           AND status IN ('pending', 'pending_time', 'sending')
+          AND updated_at > NOW() - INTERVAL '1 hour'
         LIMIT 1
       `, [userId, senderPhone, normalizedPhone, withCountryCode]);
       
@@ -692,6 +700,7 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
           AND (sender_phone = $2 OR sender_phone = $3 OR sender_phone = $4
                OR REPLACE(sender_phone, '+', '') = $2
                OR REGEXP_REPLACE(sender_phone, '^(\\+?972|0+)', '') = $3)
+          AND created_at > NOW() - INTERVAL '1 hour'
         LIMIT 1
       `, [userId, senderPhone, normalizedPhone, withCountryCode]);
       
@@ -1262,7 +1271,7 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
   // Clean up stale pending_reschedules (older than 1 hour)
   await db.query(`DELETE FROM pending_reschedules WHERE created_at < NOW() - INTERVAL '1 hour'`).catch(() => {});
   
-  // FIRST: Check for pending_time forward jobs (new schedule takes priority over reschedule)
+  // FIRST: Check for RECENT pending_time forward jobs (new schedule takes priority over reschedule)
   const jobResult = await db.query(`
     SELECT fj.*, gf.name as forward_name, gf.id as forward_id
     FROM forward_jobs fj
@@ -1270,6 +1279,7 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
     WHERE fj.user_id = $1 AND fj.status = 'pending_time'
       AND (fj.sender_phone = $2 OR fj.sender_phone = $3 OR fj.sender_phone = $4
            OR REGEXP_REPLACE(fj.sender_phone, '^(\\+?972|0+)', '') = $3)
+      AND fj.updated_at > NOW() - INTERVAL '1 hour'
     ORDER BY fj.updated_at DESC
     LIMIT 1
   `, [userId, senderPhone, normalizedPhone, withCountryCode]);
