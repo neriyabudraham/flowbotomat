@@ -675,20 +675,25 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
     // This prevents random people in groups from triggering scheduling responses
     if (!selectedRowId || !selectedRowId.startsWith('fwd_')) {
       const normalizedPhone = normalizePhoneNumber(senderPhone);
+      const withCountryCode = normalizedPhone ? '972' + normalizedPhone : '';
       const hasActiveJob = await db.query(`
         SELECT 1 FROM forward_jobs 
         WHERE user_id = $1 
-          AND (sender_phone = $2 OR sender_phone = $3)
+          AND (sender_phone = $2 OR sender_phone = $3 OR sender_phone = $4
+               OR REPLACE(sender_phone, '+', '') = $2
+               OR REGEXP_REPLACE(sender_phone, '^(\\+?972|0+)', '') = $3)
           AND status IN ('pending', 'pending_time', 'sending')
         LIMIT 1
-      `, [userId, senderPhone, normalizedPhone]);
+      `, [userId, senderPhone, normalizedPhone, withCountryCode]);
       
       const hasPendingReschedule = await db.query(`
         SELECT 1 FROM pending_reschedules 
         WHERE user_id = $1 
-          AND (sender_phone = $2 OR sender_phone = $3)
+          AND (sender_phone = $2 OR sender_phone = $3 OR sender_phone = $4
+               OR REPLACE(sender_phone, '+', '') = $2
+               OR REGEXP_REPLACE(sender_phone, '^(\\+?972|0+)', '') = $3)
         LIMIT 1
-      `, [userId, senderPhone, normalizedPhone]);
+      `, [userId, senderPhone, normalizedPhone, withCountryCode]);
       
       if (hasActiveJob.rows.length === 0 && hasPendingReschedule.rows.length === 0) {
         return false;
@@ -975,16 +980,19 @@ async function handleStop(userId, senderPhone, jobId, shouldDelete) {
  * Handle text-based confirm/cancel
  */
 async function handleTextConfirm(userId, senderPhone, action) {
+  const normalizedPhone = normalizePhoneNumber(senderPhone);
+  const withCountryCode = normalizedPhone ? '972' + normalizedPhone : '';
   const pendingJob = await db.query(`
     SELECT fj.*, gf.name as forward_name
     FROM forward_jobs fj
     JOIN group_forwards gf ON fj.forward_id = gf.id
     WHERE fj.user_id = $1 
-      AND fj.sender_phone = $2
+      AND (fj.sender_phone = $2 OR fj.sender_phone = $3 OR fj.sender_phone = $4
+           OR REGEXP_REPLACE(fj.sender_phone, '^(\\+?972|0+)', '') = $3)
       AND fj.status = 'pending'
     ORDER BY fj.created_at DESC
     LIMIT 1
-  `, [userId, senderPhone]);
+  `, [userId, senderPhone, normalizedPhone, withCountryCode]);
   
   if (pendingJob.rows.length === 0) {
     return false;
@@ -1003,14 +1011,17 @@ async function handleTextConfirm(userId, senderPhone, action) {
  * Handle text-based stop
  */
 async function handleTextStop(userId, senderPhone, shouldDelete) {
+  const normalizedPhone = normalizePhoneNumber(senderPhone);
+  const withCountryCode = normalizedPhone ? '972' + normalizedPhone : '';
   const activeJob = await db.query(`
     SELECT * FROM forward_jobs 
     WHERE user_id = $1 
-      AND sender_phone = $2
+      AND (sender_phone = $2 OR sender_phone = $3 OR sender_phone = $4
+           OR REGEXP_REPLACE(sender_phone, '^(\\+?972|0+)', '') = $3)
       AND status = 'sending'
     ORDER BY created_at DESC
     LIMIT 1
-  `, [userId, senderPhone]);
+  `, [userId, senderPhone, normalizedPhone, withCountryCode]);
   
   if (activeJob.rows.length === 0) {
     return false;
@@ -1246,6 +1257,7 @@ async function handleDaySelection(userId, senderPhone, jobId, dayOffset) {
 async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
   // Normalize phone number for matching
   const normalizedPhone = normalizePhoneNumber(senderPhone);
+  const withCountryCode = normalizedPhone ? '972' + normalizedPhone : '';
   
   // First check if there's a pending reschedule
   const reschedResult = await db.query(`
@@ -1253,9 +1265,10 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
     FROM pending_reschedules pr
     JOIN scheduled_forwards sf ON sf.id = pr.scheduled_id
     JOIN group_forwards gf ON gf.id = sf.forward_id
-    WHERE pr.user_id = $1 AND (pr.sender_phone = $2 OR pr.sender_phone = $3)
+    WHERE pr.user_id = $1 AND (pr.sender_phone = $2 OR pr.sender_phone = $3 OR pr.sender_phone = $4
+          OR REGEXP_REPLACE(pr.sender_phone, '^(\\+?972|0+)', '') = $3)
     ORDER BY pr.created_at DESC LIMIT 1
-  `, [userId, senderPhone, normalizedPhone]);
+  `, [userId, senderPhone, normalizedPhone, withCountryCode]);
   
   if (reschedResult.rows.length > 0) {
     return await handleRescheduleTimeInput(userId, senderPhone, timeInput, reschedResult.rows[0]);
@@ -1267,17 +1280,18 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
     FROM forward_jobs fj
     JOIN group_forwards gf ON fj.forward_id = gf.id
     WHERE fj.user_id = $1 AND fj.status = 'pending_time'
-      AND (fj.sender_phone = $2 OR fj.sender_phone = $3)
+      AND (fj.sender_phone = $2 OR fj.sender_phone = $3 OR fj.sender_phone = $4
+           OR REGEXP_REPLACE(fj.sender_phone, '^(\\+?972|0+)', '') = $3)
     ORDER BY fj.updated_at DESC
     LIMIT 1
-  `, [userId, senderPhone, normalizedPhone]);
-  
-  // Log removed
+  `, [userId, senderPhone, normalizedPhone, withCountryCode]);
   
   if (jobResult.rows.length === 0) {
+    console.log(`[GroupForwards] No pending_time job found for phone=${senderPhone} normalized=${normalizedPhone} with972=${withCountryCode}`);
     return false;
   }
   
+  console.log(`[GroupForwards] Found pending_time job ${jobResult.rows[0].id} for time input "${timeInput}"`);
   const job = jobResult.rows[0];
   const parsedTime = parseTimeInput(timeInput);
   
