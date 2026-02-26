@@ -508,8 +508,8 @@ function UserCard({ user, currentUser, onSelect, showToast }) {
     setCopying(true);
     try {
       const { data } = await api.post(`/admin/users/${user.id}/payment-link`);
-      if (data.url) {
-        await navigator.clipboard.writeText(data.url);
+      if (data.link || data.url) {
+        await navigator.clipboard.writeText(data.link || data.url);
         showToast('success', 'לינק תשלום הועתק!');
       }
     } catch (err) {
@@ -799,8 +799,8 @@ function UserTableRow({ user, currentUser, onSelect, showToast }) {
     setCopying(true);
     try {
       const { data } = await api.post(`/admin/users/${user.id}/payment-link`);
-      if (data.url) {
-        await navigator.clipboard.writeText(data.url);
+      if (data.link || data.url) {
+        await navigator.clipboard.writeText(data.link || data.url);
         showToast('success', 'לינק תשלום הועתק!');
       }
     } catch (err) {
@@ -932,8 +932,8 @@ function UserDetailDrawer({ user, onClose, onRefresh, currentUser, showToast }) 
     setCopying(true);
     try {
       const { data } = await api.post(`/admin/users/${user.id}/payment-link`);
-      if (data.url) {
-        await navigator.clipboard.writeText(data.url);
+      if (data.link || data.url) {
+        await navigator.clipboard.writeText(data.link || data.url);
         showToast('success', 'לינק תשלום הועתק!');
       }
     } catch (err) {
