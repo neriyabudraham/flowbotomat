@@ -1542,3 +1542,29 @@ function SettingsSection({ user, plans, onRefresh, showToast }) {
     </div>
   );
 }
+
+// Export for backwards compatibility with AdminBilling
+export function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUserId }) {
+  const [toast, setToast] = useState(null);
+  
+  const showToast = (type, message) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleSwitchAccount = async (userId, userName) => {
+    if (onSwitchAccount) {
+      onSwitchAccount(userId, userName);
+    }
+  };
+
+  return (
+    <UserDetailDrawer
+      user={user}
+      onClose={onClose}
+      onRefresh={onSuccess}
+      currentUser={{ id: currentUserId }}
+      showToast={showToast}
+    />
+  );
+}
