@@ -980,19 +980,18 @@ async function getUserBillingHistory(req, res) {
   try {
     const { id } = req.params;
     
-    // Get billing queue history (both pending and completed)
     const result = await db.query(`
       SELECT 
         bq.id,
-        bq.charge_type,
+        bq.billing_type as charge_type,
         bq.amount,
         bq.status,
-        bq.scheduled_for,
+        bq.charge_date,
         bq.processed_at,
         bq.created_at,
-        bq.error_message,
+        bq.last_error,
         bq.retry_count,
-        bq.notes,
+        bq.description,
         sp.name as plan_name,
         sp.name_he as plan_name_he
       FROM billing_queue bq

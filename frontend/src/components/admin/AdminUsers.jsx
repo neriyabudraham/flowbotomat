@@ -77,7 +77,15 @@ export default function AdminUsers() {
   const loadStats = async () => {
     try {
       const { data } = await api.get('/admin/stats');
-      setStats(data);
+      const s = data.stats || data;
+      setStats({
+        totalUsers: parseInt(s.total_users) || 0,
+        activeSubscriptions: parseInt(s.active_subscriptions) || 0,
+        trialUsers: parseInt(s.trial_users) || 0,
+        usersWithoutPayment: parseInt(s.users_without_payment) || 0,
+        connectedWhatsapp: parseInt(s.connected_whatsapp) || 0,
+        activeBots: parseInt(s.active_bots) || 0,
+      });
     } catch (err) {
       console.error('Failed to load stats:', err);
     }
