@@ -2576,21 +2576,27 @@ async function submitPaymentViaLink(req, res) {
       return res.status(400).json({ error: paymentMethodResult.error || 'שגיאה בשמירת כרטיס' });
     }
     
+    // Deactivate existing payment methods
+    await db.query(
+      'UPDATE user_payment_methods SET is_active = false, is_default = false, updated_at = NOW() WHERE user_id = $1',
+      [userId]
+    );
+    
     // Save to database
     await db.query(`
       INSERT INTO user_payment_methods (
-        user_id, sumit_customer_id, sumit_payment_method_id, 
-        card_last_four, card_expiry, is_active, is_default
+        user_id, sumit_customer_id, card_token, 
+        card_last_digits, card_expiry_month, card_expiry_year, 
+        is_active, is_default
       )
-      VALUES ($1, $2, $3, $4, $5, true, true)
-      ON CONFLICT (user_id, sumit_payment_method_id) 
-      DO UPDATE SET is_active = true, is_default = true, updated_at = NOW()
+      VALUES ($1, $2, $3, $4, $5, $6, true, true)
     `, [
       userId, 
       customerId, 
       paymentMethodResult.paymentMethodId,
       cardNumber.slice(-4),
-      `${expiryMonth}/${expiryYear}`
+      expiryMonth,
+      expiryYear
     ]);
     
     // Update user

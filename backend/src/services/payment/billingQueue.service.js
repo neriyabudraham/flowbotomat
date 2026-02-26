@@ -71,7 +71,7 @@ async function getUpcomingCharges(days = 7, limit = 100) {
             sp.name as plan_name, sp.name_he as plan_name_he,
             us.sumit_customer_id,
             EXISTS(SELECT 1 FROM user_payment_methods pm WHERE pm.user_id = bq.user_id AND pm.is_active = true) as has_payment_method,
-            (SELECT pm.card_last_four FROM user_payment_methods pm WHERE pm.user_id = bq.user_id AND pm.is_active = true LIMIT 1) as card_last_digits
+            (SELECT pm.card_last_digits FROM user_payment_methods pm WHERE pm.user_id = bq.user_id AND pm.is_active = true LIMIT 1) as card_last_digits
      FROM billing_queue bq
      JOIN users u ON u.id = bq.user_id
      LEFT JOIN user_subscriptions us ON us.user_id = bq.user_id

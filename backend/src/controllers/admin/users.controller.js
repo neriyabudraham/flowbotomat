@@ -87,9 +87,9 @@ async function getUsers(req, res) {
               ref_user.email as referred_by_email,
               ar.status as referral_status,
               aff.id as referred_by_affiliate_id,
-              u.credit_card_exempt,
+              COALESCE(u.credit_card_exempt, false) as credit_card_exempt,
               EXISTS(SELECT 1 FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_active = true) as has_payment_method,
-              (SELECT pm.card_last_four FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_active = true LIMIT 1) as card_last_digits,
+              (SELECT pm.card_last_digits FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_active = true LIMIT 1) as card_last_digits,
               wc.status as whatsapp_status,
               wc.phone_number as whatsapp_phone,
               -- Feature usage statistics
