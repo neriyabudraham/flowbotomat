@@ -14,6 +14,21 @@ import {
 import api from '../../services/api';
 import useAuthStore from '../../store/authStore';
 
+function copyToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+  return Promise.resolve();
+}
+
 export default function AdminUsers() {
   const { user: currentUser } = useAuthStore();
   const [users, setUsers] = useState([]);
@@ -509,11 +524,12 @@ function UserCard({ user, currentUser, onSelect, showToast }) {
     try {
       const { data } = await api.post(`/admin/users/${user.id}/payment-link`);
       if (data.link || data.url) {
-        await navigator.clipboard.writeText(data.link || data.url);
+        await copyToClipboard(data.link || data.url);
         showToast('success', 'לינק תשלום הועתק!');
       }
     } catch (err) {
-      showToast('error', 'שגיאה ביצירת לינק');
+      console.error('Payment link error:', err);
+      showToast('error', err?.response?.data?.error || 'שגיאה ביצירת לינק');
     } finally {
       setCopying(false);
     }
@@ -793,6 +809,7 @@ function SortableHeader({ label, column, current, order, onSort }) {
 
 function UserTableRow({ user, currentUser, onSelect, showToast }) {
   const [copying, setCopying] = useState(false);
+  const [switching, setSwitching] = useState(false);
 
   const handleCopyPaymentLink = async (e) => {
     e.stopPropagation();
@@ -800,13 +817,33 @@ function UserTableRow({ user, currentUser, onSelect, showToast }) {
     try {
       const { data } = await api.post(`/admin/users/${user.id}/payment-link`);
       if (data.link || data.url) {
-        await navigator.clipboard.writeText(data.link || data.url);
+        await copyToClipboard(data.link || data.url);
         showToast('success', 'לינק תשלום הועתק!');
       }
     } catch (err) {
-      showToast('error', 'שגיאה ביצירת לינק');
+      console.error('Payment link error:', err);
+      showToast('error', err?.response?.data?.error || 'שגיאה ביצירת לינק');
     } finally {
       setCopying(false);
+    }
+  };
+
+  const handleSwitchAccount = async (e) => {
+    e.stopPropagation();
+    setSwitching(true);
+    try {
+      const currentToken = localStorage.getItem('accessToken');
+      if (currentToken && !localStorage.getItem('originalAccessToken')) {
+        localStorage.setItem('originalAccessToken', currentToken);
+      }
+      const { data } = await api.post(`/experts/switch/${user.id}`);
+      if (data?.token) {
+        localStorage.setItem('accessToken', data.token);
+        window.location.href = '/dashboard';
+      }
+    } catch (err) {
+      showToast('error', 'שגיאה במעבר לחשבון');
+      setSwitching(false);
     }
   };
 
@@ -880,6 +917,16 @@ function UserTableRow({ user, currentUser, onSelect, showToast }) {
           >
             {copying ? <RefreshCw className="w-4 h-4 animate-spin text-violet-600" /> : <Link2 className="w-4 h-4 text-violet-600" />}
           </button>
+          {user.id !== currentUser?.id && (
+            <button
+              onClick={handleSwitchAccount}
+              disabled={switching}
+              className="p-2 bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 rounded-lg transition-colors"
+              title="כניסה לחשבון"
+            >
+              {switching ? <RefreshCw className="w-4 h-4 animate-spin text-amber-600" /> : <ExternalLink className="w-4 h-4 text-amber-600" />}
+            </button>
+          )}
           <button
             onClick={onSelect}
             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
@@ -933,11 +980,12 @@ function UserDetailDrawer({ user, onClose, onRefresh, currentUser, showToast }) 
     try {
       const { data } = await api.post(`/admin/users/${user.id}/payment-link`);
       if (data.link || data.url) {
-        await navigator.clipboard.writeText(data.link || data.url);
+        await copyToClipboard(data.link || data.url);
         showToast('success', 'לינק תשלום הועתק!');
       }
     } catch (err) {
-      showToast('error', 'שגיאה ביצירת לינק');
+      console.error('Payment link error:', err);
+      showToast('error', err?.response?.data?.error || 'שגיאה ביצירת לינק');
     } finally {
       setCopying(false);
     }
