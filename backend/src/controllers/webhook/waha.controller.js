@@ -971,10 +971,10 @@ async function handleIncomingMessage(userId, event) {
       const quotedRemoteJid = contextInfo?.remoteJID || contextInfo?.remoteJid || '';
       const entryPoint = contextInfo?.entryPointConversionSource || '';
       
-      // Status reply indicators:
-      // 1. contextInfo.remoteJID === 'status@broadcast'
-      // 2. entryPointConversionSource === 'status'
-      const isStatusReply = quotedRemoteJid === 'status@broadcast' || entryPoint === 'status';
+      // Status reply indicator: ONLY when the message directly quotes a status broadcast
+      // entryPointConversionSource === 'status' is NOT reliable - WhatsApp keeps it
+      // on ALL subsequent messages in a conversation initiated from status
+      const isStatusReply = quotedRemoteJid === 'status@broadcast';
       
       if (isStatusReply) {
         // stanzaID is the hex portion that matches part of the full wa_message_id
