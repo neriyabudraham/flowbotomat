@@ -785,8 +785,8 @@ async function handleIncomingMessage(userId, event) {
     [userId, contact.id, payload.id, messageData.type, messageData.content,
      messageData.mediaUrl, messageData.mimeType, messageData.filename,
      messageData.latitude, messageData.longitude, new Date(payload.timestamp * 1000),
-     isGroupMessage ? senderPhone : null,
-     isGroupMessage ? senderName : null]
+     isGroupMessage ? (senderPhone || '').substring(0, 50) || null : null,
+     isGroupMessage ? (senderName || '').substring(0, 50) || null : null]
   );
   
   // Update contact's last message time
