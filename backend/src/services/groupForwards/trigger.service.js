@@ -1665,9 +1665,21 @@ async function handleRescheduleTimeInput(userId, senderPhone, timeInput, pending
     return true;
   }
   
-  const dateStr = pendingReschedule.selected_date;
+  const rawDate = pendingReschedule.selected_date;
+  let dateStr;
+  if (rawDate instanceof Date) {
+    const year = rawDate.getFullYear();
+    const month = String(rawDate.getMonth() + 1).padStart(2, '0');
+    const day = String(rawDate.getDate()).padStart(2, '0');
+    dateStr = `${year}-${month}-${day}`;
+  } else if (typeof rawDate === 'string') {
+    dateStr = rawDate.split('T')[0];
+  } else {
+    await sendNotificationMessage(userId, senderPhone, 'שגיאה בעיבוד התאריך, אנא התחל מחדש');
+    return true;
+  }
   const timeStr = `${String(parsedTime.hours).padStart(2, '0')}:${String(parsedTime.minutes).padStart(2, '0')}`;
-  const scheduledAt = convertIsraelTimeToUTC(dateStr, timeStr);
+  const scheduledAt = convertIsraelTimeToUTC(`${dateStr}T${timeStr}:00`);
   
   if (!scheduledAt || isNaN(scheduledAt.getTime())) {
     await sendNotificationMessage(userId, senderPhone, 'שגיאה ביצירת התזמון, אנא נסה שוב');
