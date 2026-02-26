@@ -269,19 +269,30 @@ class BotEngine {
         let allMatch = true;
         let hasEventCondition = false;
         
+        const eventMessage = eventData.message || '';
         for (const condition of group.conditions) {
           if (this.isEventCondition(condition.type)) {
             hasEventCondition = true;
-            console.log(`[BotEngine] Checking event condition: type=${condition.type}, filterByStatus=${condition.filterByStatus}, specificStatusId=${condition.specificStatusId || 'none'}`);
             if (!this.checkEventCondition(condition, eventType, eventData)) {
-              console.log(`[BotEngine] Event condition did NOT match`);
               allMatch = false;
               break;
             }
-            console.log(`[BotEngine] Event condition matched!`);
+          } else if (condition.type === 'message_content') {
+            // Check message content conditions against the event's message text
+            const conditionMet = await this.checkSingleCondition(condition, eventMessage, contact);
+            if (!conditionMet) {
+              allMatch = false;
+              break;
+            }
           } else if (condition.type === 'has_tag' || condition.type === 'no_tag' || condition.type === 'contact_field') {
-            // Also check contact-based conditions
-            const conditionMet = await this.checkSingleCondition(condition, '', contact);
+            const conditionMet = await this.checkSingleCondition(condition, eventMessage, contact);
+            if (!conditionMet) {
+              allMatch = false;
+              break;
+            }
+          } else {
+            // Any other condition type - check it too
+            const conditionMet = await this.checkSingleCondition(condition, eventMessage, contact);
             if (!conditionMet) {
               allMatch = false;
               break;
