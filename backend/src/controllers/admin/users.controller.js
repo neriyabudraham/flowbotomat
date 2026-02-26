@@ -325,14 +325,22 @@ async function getStats(req, res) {
         (SELECT COUNT(*) FROM users WHERE is_active = true) as active_users,
         (SELECT COUNT(*) FROM users WHERE created_at > NOW() - INTERVAL '7 days') as new_users_week,
         (SELECT COUNT(*) FROM bots) as total_bots,
-        (SELECT COUNT(*) FROM bots WHERE is_active = true) as active_bots,
+        (SELECT COUNT(*) FROM bots WHERE is_active = true AND locked_reason IS NULL) as active_bots,
         (SELECT COUNT(*) FROM contacts) as total_contacts,
         (SELECT COUNT(*) FROM messages) as total_messages,
         (SELECT COUNT(*) FROM messages WHERE created_at > NOW() - INTERVAL '24 hours') as messages_today,
-        (SELECT COUNT(*) FROM whatsapp_connections WHERE status = 'connected') as connected_whatsapp
+        (SELECT COUNT(*) FROM whatsapp_connections WHERE status = 'connected') as connected_whatsapp,
+        -- Subscription stats
+        (SELECT COUNT(*) FROM user_subscriptions WHERE status = 'active' AND is_manual = false) as active_subscriptions,
+        (SELECT COUNT(*) FROM user_subscriptions WHERE status = 'trial' OR is_trial = true) as trial_users,
+        (SELECT COUNT(*) FROM user_subscriptions WHERE status = 'cancelled') as cancelled_users,
+        -- Payment stats
+        (SELECT COUNT(DISTINCT u.id) FROM users u WHERE NOT EXISTS(SELECT 1 FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_active = true)) as users_without_payment,
+        -- Module stats
+        (SELECT COUNT(DISTINCT user_id) FROM user_service_subscriptions WHERE status IN ('active', 'trial')) as users_with_modules
     `);
     
-    res.json({ stats: stats.rows[0] });
+    res.json(stats.rows[0]);
   } catch (error) {
     console.error('[Admin] Get stats error:', error);
     res.status(500).json({ error: 'שגיאה בטעינת סטטיסטיקות' });
