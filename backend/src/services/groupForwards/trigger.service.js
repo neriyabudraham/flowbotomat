@@ -1259,23 +1259,11 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
   const normalizedPhone = normalizePhoneNumber(senderPhone);
   const withCountryCode = normalizedPhone ? '972' + normalizedPhone : '';
   
-  // First check if there's a pending reschedule
-  const reschedResult = await db.query(`
-    SELECT pr.*, sf.forward_id, gf.name as forward_name
-    FROM pending_reschedules pr
-    JOIN scheduled_forwards sf ON sf.id = pr.scheduled_id
-    JOIN group_forwards gf ON gf.id = sf.forward_id
-    WHERE pr.user_id = $1 AND (pr.sender_phone = $2 OR pr.sender_phone = $3 OR pr.sender_phone = $4
-          OR REGEXP_REPLACE(pr.sender_phone, '^(\\+?972|0+)', '') = $3)
-    ORDER BY pr.created_at DESC LIMIT 1
-  `, [userId, senderPhone, normalizedPhone, withCountryCode]);
+  // Clean up stale pending_reschedules (older than 1 hour)
+  await db.query(`DELETE FROM pending_reschedules WHERE created_at < NOW() - INTERVAL '1 hour'`).catch(() => {});
   
-  if (reschedResult.rows.length > 0) {
-    return await handleRescheduleTimeInput(userId, senderPhone, timeInput, reschedResult.rows[0]);
-  }
-  
-  // Find pending schedule job for this user - try both phone formats
-  let jobResult = await db.query(`
+  // FIRST: Check for pending_time forward jobs (new schedule takes priority over reschedule)
+  const jobResult = await db.query(`
     SELECT fj.*, gf.name as forward_name, gf.id as forward_id
     FROM forward_jobs fj
     JOIN group_forwards gf ON fj.forward_id = gf.id
@@ -1286,13 +1274,37 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
     LIMIT 1
   `, [userId, senderPhone, normalizedPhone, withCountryCode]);
   
-  if (jobResult.rows.length === 0) {
-    console.log(`[GroupForwards] No pending_time job found for phone=${senderPhone} normalized=${normalizedPhone} with972=${withCountryCode}`);
-    return false;
+  if (jobResult.rows.length > 0) {
+    console.log(`[GroupForwards] Found pending_time job ${jobResult.rows[0].id} for time input "${timeInput}"`);
+    return await processNewScheduleTime(userId, senderPhone, timeInput, jobResult.rows[0]);
   }
   
-  console.log(`[GroupForwards] Found pending_time job ${jobResult.rows[0].id} for time input "${timeInput}"`);
-  const job = jobResult.rows[0];
+  // SECOND: Check for pending reschedule
+  const reschedResult = await db.query(`
+    SELECT pr.*, sf.forward_id, gf.name as forward_name
+    FROM pending_reschedules pr
+    JOIN scheduled_forwards sf ON sf.id = pr.scheduled_id
+    JOIN group_forwards gf ON gf.id = sf.forward_id
+    WHERE pr.user_id = $1 
+      AND (pr.sender_phone = $2 OR pr.sender_phone = $3 OR pr.sender_phone = $4
+           OR REGEXP_REPLACE(pr.sender_phone, '^(\\+?972|0+)', '') = $3)
+      AND sf.status = 'pending'
+    ORDER BY pr.created_at DESC LIMIT 1
+  `, [userId, senderPhone, normalizedPhone, withCountryCode]);
+  
+  if (reschedResult.rows.length > 0) {
+    console.log(`[GroupForwards] Found pending reschedule ${reschedResult.rows[0].id} for time input "${timeInput}"`);
+    return await handleRescheduleTimeInput(userId, senderPhone, timeInput, reschedResult.rows[0]);
+  }
+  
+  console.log(`[GroupForwards] No pending_time job or reschedule found for phone=${senderPhone} normalized=${normalizedPhone}`);
+  return false;
+}
+
+/**
+ * Process time input for a NEW schedule (from forward_jobs with pending_time status)
+ */
+async function processNewScheduleTime(userId, senderPhone, timeInput, job) {
   const parsedTime = parseTimeInput(timeInput);
   
   if (!parsedTime) {
@@ -1311,13 +1323,11 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
   // Format date properly - PostgreSQL DATE may come as Date object or string
   let dateStr;
   if (rawDate instanceof Date) {
-    // It's a Date object - format it
     const year = rawDate.getFullYear();
     const month = String(rawDate.getMonth() + 1).padStart(2, '0');
     const day = String(rawDate.getDate()).padStart(2, '0');
     dateStr = `${year}-${month}-${day}`;
   } else if (typeof rawDate === 'string') {
-    // It might be in format "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM:SS..."
     dateStr = rawDate.split('T')[0];
   } else {
     await sendNotificationMessage(userId, senderPhone, 'שגיאה בעיבוד התאריך, אנא התחל מחדש');
@@ -1328,14 +1338,12 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
   const timeStr = `${String(parsedTime.hours).padStart(2, '0')}:${String(parsedTime.minutes).padStart(2, '0')}`;
   const scheduledAt = convertIsraelTimeToUTC(`${dateStr}T${timeStr}:00`);
   
-  // Verify scheduledAt is valid
   if (!scheduledAt || isNaN(scheduledAt.getTime())) {
     console.error(`[GroupForwards] Invalid scheduledAt generated from dateStr=${dateStr}, timeStr=${timeStr}`);
     await sendNotificationMessage(userId, senderPhone, 'שגיאה ביצירת התזמון, אנא נסה שוב');
     return true;
   }
   
-  // Check if time is in the past
   if (scheduledAt <= new Date()) {
     await sendNotificationMessage(userId, senderPhone, 'לא ניתן לתזמן לזמן שעבר, אנא בחר שעה עתידית');
     return true;
