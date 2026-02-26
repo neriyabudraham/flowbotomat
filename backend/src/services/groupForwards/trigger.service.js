@@ -666,9 +666,33 @@ async function sendNotificationMessage(userId, phone, text) {
  */
 async function handleConfirmationResponse(userId, senderPhone, messageContent, selectedRowId) {
   try {
-    // Only log when actually processing a forward response
+    // Button clicks with fwd_ prefix are always allowed (they contain the job ID)
     if (selectedRowId?.startsWith('fwd_')) {
       console.log(`[GroupForwards] Processing list response: ${selectedRowId}`);
+    }
+    
+    // For text messages (not button clicks), verify this sender has an active job
+    // This prevents random people in groups from triggering scheduling responses
+    if (!selectedRowId || !selectedRowId.startsWith('fwd_')) {
+      const normalizedPhone = normalizePhoneNumber(senderPhone);
+      const hasActiveJob = await db.query(`
+        SELECT 1 FROM forward_jobs 
+        WHERE user_id = $1 
+          AND (sender_phone = $2 OR sender_phone = $3)
+          AND status IN ('pending', 'pending_time', 'sending')
+        LIMIT 1
+      `, [userId, senderPhone, normalizedPhone]);
+      
+      const hasPendingReschedule = await db.query(`
+        SELECT 1 FROM pending_reschedules 
+        WHERE user_id = $1 
+          AND (sender_phone = $2 OR sender_phone = $3)
+        LIMIT 1
+      `, [userId, senderPhone, normalizedPhone]);
+      
+      if (hasActiveJob.rows.length === 0 && hasPendingReschedule.rows.length === 0) {
+        return false;
+      }
     }
     
     // Check for list response (button click)
