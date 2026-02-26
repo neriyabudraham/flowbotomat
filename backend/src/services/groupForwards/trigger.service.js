@@ -764,7 +764,8 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
     }
     
     // Check for time input (when waiting for schedule time)
-    if (messageContent && /^\d{1,4}:?\d{0,2}$/.test(messageContent.trim())) {
+    // Only match patterns that look like actual time (must contain : or be 3-4 digits)
+    if (messageContent && /^\d{1,2}:\d{2}$/.test(messageContent.trim())) {
       const handled = await handleScheduleTimeInput(userId, senderPhone, messageContent.trim());
       if (handled) return true;
     }
