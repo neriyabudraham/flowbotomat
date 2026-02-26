@@ -1250,27 +1250,7 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
   // Log removed
   
   if (jobResult.rows.length === 0) {
-    // Also try to find any pending_time job for this user (in case phone mismatch)
-    const anyPendingTime = await db.query(`
-      SELECT id, status, sender_phone FROM forward_jobs 
-      WHERE user_id = $1 AND status = 'pending_time'
-      ORDER BY updated_at DESC LIMIT 1
-    `, [userId]);
-    
-    if (anyPendingTime.rows.length > 0) {
-      // Use this job if found
-      const matchingJob = await db.query(`
-        SELECT fj.*, gf.name as forward_name, gf.id as forward_id
-        FROM forward_jobs fj
-        JOIN group_forwards gf ON fj.forward_id = gf.id
-        WHERE fj.id = $1
-      `, [anyPendingTime.rows[0].id]);
-      if (matchingJob.rows.length > 0) {
-        jobResult = matchingJob;
-      }
-    } else {
-      return false; // No pending schedule
-    }
+    return false;
   }
   
   const job = jobResult.rows[0];
