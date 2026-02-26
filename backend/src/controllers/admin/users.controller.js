@@ -340,7 +340,7 @@ async function getStats(req, res) {
         (SELECT COUNT(DISTINCT user_id) FROM user_service_subscriptions WHERE status IN ('active', 'trial')) as users_with_modules
     `);
     
-    res.json(stats.rows[0]);
+    res.json({ stats: stats.rows[0] });
   } catch (error) {
     console.error('[Admin] Get stats error:', error);
     res.status(500).json({ error: 'שגיאה בטעינת סטטיסטיקות' });
