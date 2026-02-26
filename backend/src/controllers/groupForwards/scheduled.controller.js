@@ -212,6 +212,12 @@ async function processScheduledForwards() {
   console.log('[ScheduledForwards] Processing scheduled forwards...');
   
   try {
+    // Restore stale rescheduling records (stuck for over 1 hour) back to pending
+    await db.query(`
+      UPDATE scheduled_forwards SET status = 'pending', updated_at = NOW()
+      WHERE status = 'rescheduling' AND updated_at < NOW() - INTERVAL '1 hour'
+    `).catch(() => {});
+    
     // Get pending scheduled forwards that are due
     const pending = await db.query(`
       SELECT sf.*, gf.name as forward_name

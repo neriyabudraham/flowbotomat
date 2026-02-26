@@ -1562,12 +1562,11 @@ async function handleScheduledDelete(userId, senderPhone, scheduledId) {
  * Change scheduled time for a forward
  */
 async function handleScheduledChangeTime(userId, senderPhone, scheduledId) {
-  // Get scheduled forward
+  // Get and LOCK the scheduled forward to prevent cron from executing it during reschedule
   const schedResult = await db.query(`
-    SELECT sf.*, gf.name as forward_name
-    FROM scheduled_forwards sf
-    JOIN group_forwards gf ON gf.id = sf.forward_id
-    WHERE sf.id = $1 AND sf.user_id = $2 AND sf.status = 'pending'
+    UPDATE scheduled_forwards SET status = 'rescheduling', updated_at = NOW()
+    WHERE id = $1 AND user_id = $2 AND status IN ('pending', 'rescheduling')
+    RETURNING *, (SELECT name FROM group_forwards WHERE id = forward_id) as forward_name
   `, [scheduledId, userId]);
   
   if (schedResult.rows.length === 0) {
@@ -1624,12 +1623,12 @@ async function handleScheduledChangeTime(userId, senderPhone, scheduledId) {
  * Handle day selection for rescheduling
  */
 async function handleScheduledDaySelection(userId, senderPhone, scheduledId, dayOffset) {
-  // Get scheduled forward
+  // Get scheduled forward (accept both pending and rescheduling status)
   const schedResult = await db.query(`
     SELECT sf.*, gf.name as forward_name
     FROM scheduled_forwards sf
     JOIN group_forwards gf ON gf.id = sf.forward_id
-    WHERE sf.id = $1 AND sf.user_id = $2 AND sf.status = 'pending'
+    WHERE sf.id = $1 AND sf.user_id = $2 AND sf.status IN ('pending', 'rescheduling')
   `, [scheduledId, userId]);
   
   if (schedResult.rows.length === 0) {
@@ -1709,9 +1708,9 @@ async function handleRescheduleTimeInput(userId, senderPhone, timeInput, pending
     return true;
   }
   
-  // Update the scheduled forward with new time
+  // Update the scheduled forward with new time and restore to pending status
   await db.query(`
-    UPDATE scheduled_forwards SET scheduled_at = $1, updated_at = NOW()
+    UPDATE scheduled_forwards SET scheduled_at = $1, status = 'pending', updated_at = NOW()
     WHERE id = $2
   `, [scheduledAt, pendingReschedule.scheduled_id]);
   
