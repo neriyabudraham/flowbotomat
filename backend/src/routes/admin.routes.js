@@ -26,12 +26,13 @@ router.get('/users/:id/feature-overrides', usersController.getUserFeatureOverrid
 router.put('/users/:id/feature-overrides', superadminMiddleware, usersController.updateUserFeatureOverrides);
 router.get('/users/:id/services', usersController.getUserServices);
 router.get('/users/:id/bots', usersController.getUserBots);
+router.get('/users/:id/billing-history', usersController.getUserBillingHistory);
 router.post('/users/:id/payment-link', usersController.generatePaymentLink);
 router.put('/users/:id/credit-card-exempt', superadminMiddleware, usersController.toggleCreditCardExempt);
 router.delete('/users/:id', superadminMiddleware, usersController.deleteUser);
 
 // Bot locking management (admin can lock/unlock any bot)
-router.post('/bots/:botId/lock', superadminMiddleware, usersController.toggleBotLock);
+router.put('/bots/:botId/lock', usersController.toggleBotLock);
 
 // Plans for admin
 router.get('/plans', usersController.getPlans);

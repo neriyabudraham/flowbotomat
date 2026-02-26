@@ -5,7 +5,20 @@ const db = require('../../config/database');
  */
 async function getUsers(req, res) {
   try {
-    const { page = 1, limit = 20, search, role, status } = req.query;
+    const { 
+      page = 1, 
+      limit = 20, 
+      search, 
+      role, 
+      status,
+      sort = 'created_at',
+      order = 'desc',
+      // New filters
+      no_payment_method,
+      has_payment,
+      has_modules,
+      whatsapp_connected
+    } = req.query;
     const offset = (page - 1) * limit;
     
     let whereClause = '1=1';
@@ -13,7 +26,7 @@ async function getUsers(req, res) {
     let paramIndex = 1;
     
     if (search) {
-      whereClause += ` AND (u.email ILIKE $${paramIndex} OR u.name ILIKE $${paramIndex})`;
+      whereClause += ` AND (u.email ILIKE $${paramIndex} OR u.name ILIKE $${paramIndex} OR u.phone ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
       paramIndex++;
     }
@@ -34,7 +47,7 @@ async function getUsers(req, res) {
     }
     // Subscription status filters
     else if (status === 'active') {
-      whereClause += ` AND us.status = 'active' AND us.is_manual = false`;
+      whereClause += ` AND us.status = 'active'`;
     } else if (status === 'trial') {
       whereClause += ` AND (us.is_trial = true OR us.status = 'trial')`;
     } else if (status === 'manual') {
@@ -45,18 +58,63 @@ async function getUsers(req, res) {
       whereClause += ` AND (us.id IS NULL OR sp.price = 0 OR sp.name = 'Free')`;
     }
     
-    // Get total count
+    // Payment method filter
+    if (no_payment_method === 'true') {
+      whereClause += ` AND NOT EXISTS(SELECT 1 FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_active = true)`;
+    }
+    if (has_payment === 'true') {
+      whereClause += ` AND EXISTS(SELECT 1 FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_active = true)`;
+    }
+    
+    // Modules filter (has additional services)
+    if (has_modules === 'true') {
+      whereClause += ` AND (
+        EXISTS(SELECT 1 FROM user_service_subscriptions uss WHERE uss.user_id = u.id AND uss.status IN ('active', 'trial'))
+        OR EXISTS(SELECT 1 FROM group_forwards gf WHERE gf.user_id = u.id)
+        OR EXISTS(SELECT 1 FROM broadcast_campaigns bc WHERE bc.user_id = u.id)
+      )`;
+    }
+    
+    // WhatsApp connected filter
+    if (whatsapp_connected === 'true') {
+      whereClause += ` AND EXISTS(SELECT 1 FROM whatsapp_connections wc2 WHERE wc2.user_id = u.id AND wc2.status = 'connected')`;
+    }
+    
+    // Validate sort column
+    const allowedSortColumns = ['name', 'email', 'created_at', 'subscription_status', 'bots_count', 'contacts_count'];
+    const sortColumn = allowedSortColumns.includes(sort) ? sort : 'created_at';
+    const sortOrder = order === 'asc' ? 'ASC' : 'DESC';
+    
+    // Build ORDER BY clause
+    let orderByClause;
+    if (sortColumn === 'bots_count') {
+      orderByClause = `bots_count ${sortOrder}`;
+    } else if (sortColumn === 'contacts_count') {
+      orderByClause = `contacts_count ${sortOrder}`;
+    } else if (sortColumn === 'subscription_status') {
+      orderByClause = `us.status ${sortOrder}`;
+    } else {
+      orderByClause = `u.${sortColumn} ${sortOrder}`;
+    }
+    
+    // Get total count with joins for filtering
     const countResult = await db.query(
-      `SELECT COUNT(*) FROM users u WHERE ${whereClause}`,
+      `SELECT COUNT(DISTINCT u.id) 
+       FROM users u
+       LEFT JOIN user_subscriptions us ON us.user_id = u.id
+       LEFT JOIN subscription_plans sp ON sp.id = us.plan_id
+       LEFT JOIN whatsapp_connections wc ON wc.user_id = u.id
+       WHERE ${whereClause}`,
       params
     );
     const total = parseInt(countResult.rows[0].count);
     
     // Get users with subscription info, referrer, and feature usage
     const result = await db.query(
-      `SELECT u.id, u.email, u.name, u.role, u.plan, u.is_verified, u.is_active, 
+      `SELECT u.id, u.email, u.name, u.phone, u.role, u.plan, u.is_verified, u.is_active, 
               u.language, u.theme, u.created_at, u.last_login_at,
               (SELECT COUNT(*) FROM bots WHERE user_id = u.id) as bots_count,
+              (SELECT COUNT(*) FROM bots WHERE user_id = u.id AND is_active = true AND locked_reason IS NULL) as active_bots_count,
               (SELECT COUNT(*) FROM contacts WHERE user_id = u.id) as contacts_count,
               us.status as subscription_status,
               us.is_manual,
@@ -87,7 +145,7 @@ async function getUsers(req, res) {
               ref_user.email as referred_by_email,
               ar.status as referral_status,
               aff.id as referred_by_affiliate_id,
-              false as credit_card_exempt, -- TODO: change to u.credit_card_exempt after migration
+              false as credit_card_exempt,
               EXISTS(SELECT 1 FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_active = true) as has_payment_method,
               (SELECT pm.card_last_digits FROM user_payment_methods pm WHERE pm.user_id = u.id AND pm.is_active = true LIMIT 1) as card_last_digits,
               wc.status as whatsapp_status,
@@ -109,7 +167,7 @@ async function getUsers(req, res) {
        LEFT JOIN users ref_user ON ref_user.id = aff.user_id
        LEFT JOIN whatsapp_connections wc ON wc.user_id = u.id
        WHERE ${whereClause}
-       ORDER BY u.created_at DESC
+       ORDER BY ${orderByClause}
        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
       [...params, limit, offset]
     );
@@ -907,6 +965,42 @@ async function toggleCreditCardExempt(req, res) {
   }
 }
 
+/**
+ * Get user's billing history
+ */
+async function getUserBillingHistory(req, res) {
+  try {
+    const { id } = req.params;
+    
+    // Get billing queue history (both pending and completed)
+    const result = await db.query(`
+      SELECT 
+        bq.id,
+        bq.charge_type,
+        bq.amount,
+        bq.status,
+        bq.scheduled_for,
+        bq.processed_at,
+        bq.created_at,
+        bq.error_message,
+        bq.retry_count,
+        bq.notes,
+        sp.name as plan_name,
+        sp.name_he as plan_name_he
+      FROM billing_queue bq
+      LEFT JOIN subscription_plans sp ON sp.id = bq.plan_id
+      WHERE bq.user_id = $1
+      ORDER BY bq.created_at DESC
+      LIMIT 50
+    `, [id]);
+    
+    res.json({ history: result.rows });
+  } catch (error) {
+    console.error('[Admin] Get user billing history error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת היסטוריית חיובים' });
+  }
+}
+
 module.exports = { 
   getUsers, 
   getUser, 
@@ -922,5 +1016,6 @@ module.exports = {
   toggleBotLock,
   getUserBots,
   generatePaymentLink,
-  toggleCreditCardExempt
+  toggleCreditCardExempt,
+  getUserBillingHistory
 };

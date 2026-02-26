@@ -1,37 +1,85 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
-  Search, ChevronLeft, ChevronRight, Edit, Trash2,
+  Search, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Check, X, RefreshCw, Eye, CreditCard, Calendar, AlertCircle,
   ExternalLink, Users, Phone, BarChart3, Send, ArrowRightLeft, 
-  MessageSquare, Image, Bot
+  MessageSquare, Bot, Filter, Copy, Link, AlertTriangle,
+  Settings, Zap, Crown, Clock, DollarSign, Trash2, Edit,
+  SlidersHorizontal, Download, MoreVertical, UserCheck, UserX,
+  Package, Layers, CheckCircle, XCircle
 } from 'lucide-react';
 import api from '../../services/api';
 import useAuthStore from '../../store/authStore';
+
+// Quick filter chips
+const QUICK_FILTERS = [
+  { id: 'all', label: 'הכל', icon: Users },
+  { id: 'active_paid', label: 'משלמים פעילים', icon: Crown, color: 'green' },
+  { id: 'trial', label: 'בניסיון', icon: Clock, color: 'cyan' },
+  { id: 'no_credit_card', label: 'ללא אשראי', icon: AlertTriangle, color: 'red' },
+  { id: 'cancelled', label: 'מבוטלים', icon: XCircle, color: 'orange' },
+  { id: 'with_modules', label: 'עם מודולים', icon: Package, color: 'purple' },
+  { id: 'connected_whatsapp', label: 'וואטסאפ מחובר', icon: Phone, color: 'green' },
+];
+
+// Sortable columns
+const SORTABLE_COLUMNS = [
+  { id: 'name', label: 'שם' },
+  { id: 'created_at', label: 'תאריך הצטרפות' },
+  { id: 'subscription_status', label: 'סטטוס מנוי' },
+  { id: 'bots_count', label: 'בוטים' },
+  { id: 'contacts_count', label: 'אנשי קשר' },
+];
 
 export default function AdminUsers() {
   const { user: currentUser } = useAuthStore();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
+  
+  // Filters
   const [search, setSearch] = useState('');
+  const [quickFilter, setQuickFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('created_at');
+  const [sortOrder, setSortOrder] = useState('desc');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [roleFilter, setRoleFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [editingUser, setEditingUser] = useState(null);
+  
+  // UI State
   const [selectedUser, setSelectedUser] = useState(null);
   const [switching, setSwitching] = useState(null);
   const [toast, setToast] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
+  const [copiedLink, setCopiedLink] = useState(null);
 
-  const loadUsers = async (page = 1) => {
+  const loadUsers = useCallback(async (page = 1) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({
-        page: page,
-        limit: 20,
+        page,
+        limit: 25,
+        sort: sortBy,
+        order: sortOrder,
       });
+      
       if (search) params.append('search', search);
       if (roleFilter) params.append('role', roleFilter);
-      if (statusFilter) params.append('status', statusFilter);
+      
+      // Quick filter mappings
+      if (quickFilter === 'active_paid') {
+        params.append('status', 'active');
+        params.append('has_payment', 'true');
+      } else if (quickFilter === 'trial') {
+        params.append('status', 'trial');
+      } else if (quickFilter === 'no_credit_card') {
+        params.append('no_payment_method', 'true');
+      } else if (quickFilter === 'cancelled') {
+        params.append('status', 'cancelled');
+      } else if (quickFilter === 'with_modules') {
+        params.append('has_modules', 'true');
+      } else if (quickFilter === 'connected_whatsapp') {
+        params.append('whatsapp_connected', 'true');
+      }
       
       const { data } = await api.get(`/admin/users?${params}`);
       setUsers(data.users || []);
@@ -46,32 +94,58 @@ export default function AdminUsers() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [search, quickFilter, sortBy, sortOrder, roleFilter]);
 
   useEffect(() => {
     if (currentUser) {
       loadUsers(1);
     }
-  }, [search, roleFilter, statusFilter, currentUser]);
+  }, [loadUsers, currentUser]);
   
-  // Safety check - if no user, don't render
   if (!currentUser) {
-    return <div className="text-center py-8 text-gray-500">טוען...</div>;
+    return <div className="flex items-center justify-center h-64 text-gray-500">טוען...</div>;
   }
-
-  const handleUpdateUser = async (userId, updates) => {
-    try {
-      await api.put(`/admin/users/${userId}`, updates);
-      loadUsers();
-      setEditingUser(null);
-    } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בעדכון משתמש');
-    }
-  };
 
   const showToast = (type, message) => {
     setToast({ type, message });
     setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleSwitchToAccount = async (userId, userName) => {
+    setSwitching(userId);
+    try {
+      const currentToken = localStorage.getItem('accessToken');
+      if (currentToken && !localStorage.getItem('originalAccessToken')) {
+        localStorage.setItem('originalAccessToken', currentToken);
+      }
+      
+      const { data } = await api.post(`/experts/switch/${userId}`);
+      
+      if (data?.token) {
+        localStorage.setItem('accessToken', data.token);
+        window.location.href = '/dashboard';
+      } else {
+        showToast('error', 'לא התקבל טוקן מהשרת');
+        setSwitching(null);
+      }
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה במעבר לחשבון');
+      setSwitching(null);
+    }
+  };
+
+  const handleGeneratePaymentLink = async (userId, userName) => {
+    try {
+      const { data } = await api.post(`/admin/users/${userId}/payment-link`);
+      if (data.url) {
+        await navigator.clipboard.writeText(data.url);
+        setCopiedLink(userId);
+        setTimeout(() => setCopiedLink(null), 2000);
+        showToast('success', `לינק תשלום ל-${userName} הועתק!`);
+      }
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה ביצירת לינק');
+    }
   };
 
   const handleDeleteUser = async (userId, userName) => {
@@ -84,7 +158,7 @@ export default function AdminUsers() {
         try {
           await api.delete(`/admin/users/${userId}`);
           showToast('success', 'המשתמש נמחק בהצלחה');
-          loadUsers();
+          loadUsers(pagination.page);
         } catch (err) {
           showToast('error', err.response?.data?.error || 'שגיאה במחיקת משתמש');
         }
@@ -92,34 +166,28 @@ export default function AdminUsers() {
     });
   };
 
-  const handleSwitchToAccount = async (userId, userName) => {
-    setSwitching(userId);
+  const handleToggleActive = async (userId, currentActive) => {
     try {
-      // Only store original token if not already viewing as another user
-      const currentToken = localStorage.getItem('accessToken');
-      if (currentToken && !localStorage.getItem('originalAccessToken')) {
-        localStorage.setItem('originalAccessToken', currentToken);
-      }
-      
-      const { data } = await api.post(`/experts/switch/${userId}`);
-      
-      if (data && data.token) {
-        localStorage.setItem('accessToken', data.token);
-        window.location.href = '/dashboard';
-      } else {
-        showToast('error', 'לא התקבל טוקן מהשרת');
-        setSwitching(null);
-      }
+      await api.put(`/admin/users/${userId}`, { is_active: !currentActive });
+      showToast('success', currentActive ? 'המשתמש הושבת' : 'המשתמש הופעל');
+      loadUsers(pagination.page);
     } catch (err) {
-      console.error('Switch error:', err);
-      showToast('error', err.response?.data?.error || 'שגיאה במעבר לחשבון');
-      setSwitching(null);
+      showToast('error', err.response?.data?.error || 'שגיאה בעדכון');
+    }
+  };
+
+  const handleSort = (column) => {
+    if (sortBy === column) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(column);
+      setSortOrder('desc');
     }
   };
 
   return (
     <div className="space-y-4">
-      {/* Toast Notification */}
+      {/* Toast */}
       {toast && (
         <div className={`fixed top-4 left-1/2 -translate-x-1/2 px-4 py-3 rounded-xl shadow-lg z-[60] flex items-center gap-2 ${
           toast.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
@@ -131,256 +199,241 @@ export default function AdminUsers() {
 
       {/* Confirm Modal */}
       {confirmModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirmModal(null)}>
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-2">{confirmModal.title}</h3>
-            <p className="text-gray-600 dark:text-gray-300 mb-6">{confirmModal.message}</p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setConfirmModal(null)}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-xl hover:bg-gray-100 transition-colors"
-              >
-                ביטול
-              </button>
-              <button
-                onClick={confirmModal.onConfirm}
-                className={`flex-1 px-4 py-2 rounded-xl text-white transition-colors ${
-                  confirmModal.variant === 'danger' ? 'bg-red-500 hover:bg-red-600' : 'bg-purple-600 hover:bg-purple-700'
-                }`}
-              >
-                אישור
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal 
+          {...confirmModal}
+          onCancel={() => setConfirmModal(null)}
+        />
       )}
 
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Users className="w-6 h-6 text-purple-600" />
-          <h2 className="text-xl font-bold text-gray-800">ניהול משתמשים</h2>
-          <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-sm">
-            {pagination.total} משתמשים
-          </span>
+          <div className="p-2 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl">
+            <Users className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-gray-800 dark:text-white">ניהול משתמשים</h2>
+            <p className="text-sm text-gray-500">{pagination.total} משתמשים במערכת</p>
+          </div>
         </div>
         <button 
-          onClick={loadUsers} 
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          onClick={() => loadUsers(pagination.page)} 
+          className="p-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors"
           title="רענון"
         >
           <RefreshCw className={`w-5 h-5 text-gray-500 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-4">
-        <div className="flex-1 min-w-[200px] relative">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="חיפוש לפי שם או מייל..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pr-10 pl-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          />
+      {/* Search & Quick Filters */}
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4 space-y-4">
+        {/* Search Bar */}
+        <div className="flex gap-3">
+          <div className="flex-1 relative">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="חיפוש לפי שם, מייל או טלפון..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pr-10 pl-4 py-3 bg-gray-50 dark:bg-gray-700 border-0 rounded-xl focus:ring-2 focus:ring-purple-500 text-gray-800 dark:text-white placeholder-gray-400"
+            />
+          </div>
+          <button
+            onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+            className={`px-4 py-3 rounded-xl border transition-colors flex items-center gap-2 ${
+              showAdvancedFilters 
+                ? 'bg-purple-50 border-purple-200 text-purple-700' 
+                : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <SlidersHorizontal className="w-5 h-5" />
+            <span className="hidden sm:inline">סינון מתקדם</span>
+          </button>
         </div>
-        <select
-          value={roleFilter}
-          onChange={(e) => setRoleFilter(e.target.value)}
-          className="px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500"
-        >
-          <option value="">כל התפקידים</option>
-          <option value="user">משתמש</option>
-          <option value="expert">מומחה</option>
-          <option value="admin">אדמין</option>
-          <option value="superadmin">סופר-אדמין</option>
-        </select>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500"
-        >
-          <option value="">כל הסטטוסים</option>
-          <option value="active">מנוי פעיל</option>
-          <option value="trial">תקופת ניסיון</option>
-          <option value="manual">מנוי ידני</option>
-          <option value="cancelled">מנוי מבוטל</option>
-          <option value="free">חינם</option>
-        </select>
+
+        {/* Quick Filter Chips */}
+        <div className="flex flex-wrap gap-2">
+          {QUICK_FILTERS.map(filter => (
+            <button
+              key={filter.id}
+              onClick={() => setQuickFilter(filter.id)}
+              className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5 ${
+                quickFilter === filter.id
+                  ? filter.color 
+                    ? `bg-${filter.color}-100 text-${filter.color}-700 ring-2 ring-${filter.color}-500 ring-offset-1`
+                    : 'bg-purple-100 text-purple-700 ring-2 ring-purple-500 ring-offset-1'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              <filter.icon className="w-3.5 h-3.5" />
+              {filter.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Advanced Filters */}
+        {showAdvancedFilters && (
+          <div className="pt-4 border-t border-gray-200 dark:border-gray-600 grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">תפקיד</label>
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border-0 rounded-xl text-sm"
+              >
+                <option value="">הכל</option>
+                <option value="user">משתמש</option>
+                <option value="expert">מומחה</option>
+                <option value="admin">אדמין</option>
+                <option value="superadmin">סופר-אדמין</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">מיון לפי</label>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border-0 rounded-xl text-sm"
+              >
+                {SORTABLE_COLUMNS.map(col => (
+                  <option key={col.id} value={col.id}>{col.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">סדר</label>
+              <select
+                value={sortOrder}
+                onChange={(e) => setSortOrder(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border-0 rounded-xl text-sm"
+              >
+                <option value="desc">יורד</option>
+                <option value="asc">עולה</option>
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Users Table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">משתמש</th>
-              <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">תפקיד</th>
-              <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">סטטוס</th>
-              <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">תוכנית</th>
-              <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">WhatsApp</th>
-              <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">בוטים</th>
-              <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">אנשי קשר</th>
-              <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">נוצר</th>
-              <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">פעולות</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {loading ? (
-              <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-gray-500">טוען...</td>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-600">
+                <th className="px-4 py-3 text-right">
+                  <button 
+                    onClick={() => handleSort('name')}
+                    className="flex items-center gap-1 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:text-purple-600"
+                  >
+                    משתמש
+                    {sortBy === 'name' && (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />)}
+                  </button>
+                </th>
+                <th className="px-4 py-3 text-right text-sm font-semibold text-gray-600 dark:text-gray-300">מנוי</th>
+                <th className="px-4 py-3 text-right text-sm font-semibold text-gray-600 dark:text-gray-300">תשלום</th>
+                <th className="px-4 py-3 text-right text-sm font-semibold text-gray-600 dark:text-gray-300">WhatsApp</th>
+                <th className="px-4 py-3 text-right">
+                  <button 
+                    onClick={() => handleSort('bots_count')}
+                    className="flex items-center gap-1 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:text-purple-600"
+                  >
+                    בוטים
+                    {sortBy === 'bots_count' && (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />)}
+                  </button>
+                </th>
+                <th className="px-4 py-3 text-right text-sm font-semibold text-gray-600 dark:text-gray-300">מודולים</th>
+                <th className="px-4 py-3 text-right">
+                  <button 
+                    onClick={() => handleSort('created_at')}
+                    className="flex items-center gap-1 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:text-purple-600"
+                  >
+                    הצטרף
+                    {sortBy === 'created_at' && (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />)}
+                  </button>
+                </th>
+                <th className="px-4 py-3 text-center text-sm font-semibold text-gray-600 dark:text-gray-300">פעולות</th>
               </tr>
-            ) : users.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-gray-500">לא נמצאו משתמשים</td>
-              </tr>
-            ) : users.map(u => (
-              <tr 
-                key={u.id} 
-                className="hover:bg-purple-50 cursor-pointer transition-colors"
-                onClick={() => setSelectedUser(u)}
-              >
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold ${
-                      u.subscription_status === 'active' && !u.is_manual ? 'bg-green-500' :
-                      u.is_manual ? 'bg-purple-500' :
-                      u.subscription_status === 'trial' ? 'bg-cyan-500' :
-                      'bg-gray-400'
-                    }`}>
-                      {(u.name || u.email || '?')[0].toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="font-medium text-gray-800">{u.name || 'ללא שם'}</div>
-                      <div className="text-sm text-gray-500">{u.email}</div>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  {editingUser === u.id ? (
-                    <select
-                      defaultValue={u.role}
-                      onChange={(e) => handleUpdateUser(u.id, { role: e.target.value })}
-                      className="px-2 py-1 border rounded text-sm"
-                    >
-                      <option value="user">משתמש</option>
-                      <option value="expert">מומחה</option>
-                      <option value="admin">אדמין</option>
-                      {currentUser.role === 'superadmin' && <option value="superadmin">סופר-אדמין</option>}
-                    </select>
-                  ) : (
-                    <RoleBadge role={u.role} />
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-1">
-                    {u.is_verified ? (
-                      <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">מאומת</span>
-                    ) : (
-                      <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs">לא מאומת</span>
-                    )}
-                    {!u.is_active && (
-                      <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">מושבת</span>
-                    )}
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <SubscriptionBadge user={u} onClick={(e) => { e.stopPropagation(); setSelectedUser(u); }} />
-                </td>
-                <td className="px-4 py-3 text-sm">
-                  {u.whatsapp_status === 'connected' ? (
-                    <span className="flex items-center gap-1 text-green-600">
-                      <Phone className="w-3.5 h-3.5" />
-                      <span className="font-mono text-xs">{u.whatsapp_phone || '---'}</span>
-                    </span>
-                  ) : (
-                    <span className="text-gray-400 text-xs">לא מחובר</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-sm text-gray-600">{u.bots_count || 0}</td>
-                <td className="px-4 py-3 text-sm text-gray-600">{u.contacts_count || 0}</td>
-                <td className="px-4 py-3 text-sm text-gray-500">
-                  {new Date(u.created_at).toLocaleDateString('he-IL')}
-                </td>
-                <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleSwitchToAccount(u.id, u.name || u.email)}
-                      disabled={switching === u.id || u.id === currentUser.id}
-                      className={`p-1.5 rounded transition-colors ${
-                        u.id === currentUser.id 
-                          ? 'text-gray-300 cursor-not-allowed' 
-                          : 'hover:bg-purple-100 text-purple-600'
-                      }`}
-                      title="עבור לחשבון"
-                    >
-                      {switching === u.id ? (
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <ExternalLink className="w-4 h-4" />
-                      )}
-                    </button>
-                    <button
-                      onClick={() => setEditingUser(editingUser === u.id ? null : u.id)}
-                      className="p-1.5 hover:bg-blue-50 rounded text-blue-600"
-                      title="עריכה"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    {u.is_active ? (
-                      <button
-                        onClick={() => handleUpdateUser(u.id, { is_active: false })}
-                        className="p-1.5 hover:bg-yellow-50 rounded text-yellow-600"
-                        title="השבתה"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => handleUpdateUser(u.id, { is_active: true })}
-                        className="p-1.5 hover:bg-green-50 rounded text-green-600"
-                        title="הפעלה"
-                      >
-                        <Check className="w-4 h-4" />
-                      </button>
-                    )}
-                    {currentUser.role === 'superadmin' && u.id !== currentUser.id && (
-                      <button
-                        onClick={() => handleDeleteUser(u.id, u.name || u.email)}
-                        className="p-1.5 hover:bg-red-50 rounded text-red-600"
-                        title="מחיקה"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-12 text-center">
+                    <RefreshCw className="w-8 h-8 animate-spin mx-auto text-purple-500 mb-2" />
+                    <span className="text-gray-500">טוען משתמשים...</span>
+                  </td>
+                </tr>
+              ) : users.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
+                    <Users className="w-12 h-12 mx-auto mb-2 opacity-30" />
+                    לא נמצאו משתמשים
+                  </td>
+                </tr>
+              ) : users.map(u => (
+                <UserRow 
+                  key={u.id}
+                  user={u}
+                  currentUserId={currentUser.id}
+                  currentUserRole={currentUser.role}
+                  switching={switching}
+                  copiedLink={copiedLink}
+                  onSelect={() => setSelectedUser(u)}
+                  onSwitch={() => handleSwitchToAccount(u.id, u.name || u.email)}
+                  onGenerateLink={() => handleGeneratePaymentLink(u.id, u.name || u.email)}
+                  onToggleActive={() => handleToggleActive(u.id, u.is_active)}
+                  onDelete={() => handleDeleteUser(u.id, u.name || u.email)}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
 
         {/* Pagination */}
         {pagination.pages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
             <span className="text-sm text-gray-500">
-              {pagination.total} משתמשים
+              עמוד {pagination.page} מתוך {pagination.pages} ({pagination.total} משתמשים)
             </span>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <button
                 onClick={() => loadUsers(pagination.page - 1)}
                 disabled={pagination.page <= 1 || loading}
-                className="p-1.5 hover:bg-white rounded border border-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="p-2 hover:bg-white dark:hover:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
-              <span className="text-sm text-gray-600 px-2">
-                {pagination.page} / {pagination.pages}
-              </span>
+              {Array.from({ length: Math.min(5, pagination.pages) }, (_, i) => {
+                let pageNum;
+                if (pagination.pages <= 5) {
+                  pageNum = i + 1;
+                } else if (pagination.page <= 3) {
+                  pageNum = i + 1;
+                } else if (pagination.page >= pagination.pages - 2) {
+                  pageNum = pagination.pages - 4 + i;
+                } else {
+                  pageNum = pagination.page - 2 + i;
+                }
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => loadUsers(pageNum)}
+                    disabled={loading}
+                    className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
+                      pagination.page === pageNum
+                        ? 'bg-purple-600 text-white'
+                        : 'hover:bg-white dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300'
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
               <button
                 onClick={() => loadUsers(pagination.page + 1)}
                 disabled={pagination.page >= pagination.pages || loading}
-                className="p-1.5 hover:bg-white rounded border border-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="p-2 hover:bg-white dark:hover:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -389,411 +442,297 @@ export default function AdminUsers() {
         )}
       </div>
 
-      {/* Unified User Card Modal */}
+      {/* User Modal */}
       {selectedUser && (
-        <UnifiedUserModal 
+        <UserModal 
           user={selectedUser} 
           onClose={() => setSelectedUser(null)}
           onSuccess={() => {
-            loadUsers();
+            loadUsers(pagination.page);
             setSelectedUser(null);
           }}
-          onSwitchAccount={(userId, userName) => handleSwitchToAccount(userId, userName)}
-          currentUserId={currentUser?.id}
+          onSwitchAccount={handleSwitchToAccount}
+          onGeneratePaymentLink={handleGeneratePaymentLink}
+          currentUserId={currentUser.id}
+          currentUserRole={currentUser.role}
         />
       )}
     </div>
   );
 }
 
+// User Row Component
+function UserRow({ user, currentUserId, currentUserRole, switching, copiedLink, onSelect, onSwitch, onGenerateLink, onToggleActive, onDelete }) {
+  const u = user;
+  
+  // Determine subscription display
+  const getSubscriptionInfo = () => {
+    const status = u.subscription_status;
+    const planName = u.plan_name_he || u.plan_name || 'חינם';
+    
+    if (status === 'active') {
+      if (u.is_manual) {
+        return { label: planName, sub: 'ידני', color: 'purple' };
+      }
+      if (planName === 'Free' || !u.plan_name) {
+        return { label: 'חינם', sub: null, color: 'gray' };
+      }
+      return { label: planName, sub: null, color: 'green' };
+    }
+    if (status === 'trial') {
+      const daysLeft = u.trial_ends_at 
+        ? Math.max(0, Math.ceil((new Date(u.trial_ends_at) - new Date()) / (1000 * 60 * 60 * 24)))
+        : 0;
+      return { label: planName, sub: `ניסיון - ${daysLeft} ימים`, color: 'cyan' };
+    }
+    if (status === 'cancelled') {
+      const daysLeft = u.expires_at 
+        ? Math.max(0, Math.ceil((new Date(u.expires_at) - new Date()) / (1000 * 60 * 60 * 24)))
+        : 0;
+      return { label: planName, sub: daysLeft > 0 ? `מבוטל - ${daysLeft} ימים` : 'מבוטל', color: 'orange' };
+    }
+    return { label: 'חינם', sub: null, color: 'gray' };
+  };
+  
+  const subInfo = getSubscriptionInfo();
+  const hasPaymentMethod = u.has_payment_method;
+  const hasModules = (u.has_status_bot || u.group_forwards_count > 0 || u.broadcast_campaigns_count > 0);
+  
+  const colorClasses = {
+    green: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    cyan: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',
+    purple: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+    orange: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+    gray: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
+  };
+
+  return (
+    <tr 
+      className="hover:bg-purple-50 dark:hover:bg-purple-900/10 cursor-pointer transition-colors group"
+      onClick={onSelect}
+    >
+      {/* User Info */}
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 ${
+            subInfo.color === 'green' ? 'bg-gradient-to-br from-green-400 to-green-600' :
+            subInfo.color === 'cyan' ? 'bg-gradient-to-br from-cyan-400 to-cyan-600' :
+            subInfo.color === 'purple' ? 'bg-gradient-to-br from-purple-400 to-purple-600' :
+            subInfo.color === 'orange' ? 'bg-gradient-to-br from-orange-400 to-orange-600' :
+            'bg-gradient-to-br from-gray-400 to-gray-500'
+          }`}>
+            {(u.name || u.email || '?')[0].toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <div className="font-medium text-gray-800 dark:text-white truncate flex items-center gap-2">
+              {u.name || 'ללא שם'}
+              {!u.is_active && (
+                <span className="px-1.5 py-0.5 bg-red-100 text-red-600 text-[10px] rounded">מושבת</span>
+              )}
+              <RoleBadge role={u.role} />
+            </div>
+            <div className="text-sm text-gray-500 dark:text-gray-400 truncate">{u.email}</div>
+          </div>
+        </div>
+      </td>
+
+      {/* Subscription */}
+      <td className="px-4 py-3">
+        <div className={`inline-flex flex-col items-center px-2.5 py-1 rounded-lg text-xs font-medium ${colorClasses[subInfo.color]}`}>
+          <span>{subInfo.label}</span>
+          {subInfo.sub && <span className="text-[10px] opacity-75">{subInfo.sub}</span>}
+        </div>
+      </td>
+
+      {/* Payment Status */}
+      <td className="px-4 py-3">
+        {hasPaymentMethod ? (
+          <div className="flex items-center gap-1.5 text-green-600 dark:text-green-400">
+            <CreditCard className="w-4 h-4" />
+            <span className="text-xs">
+              {u.card_last_digits ? `•••• ${u.card_last_digits}` : 'יש אשראי'}
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 text-red-500">
+            <AlertTriangle className="w-4 h-4" />
+            <span className="text-xs">אין אשראי</span>
+          </div>
+        )}
+      </td>
+
+      {/* WhatsApp */}
+      <td className="px-4 py-3">
+        {u.whatsapp_status === 'connected' ? (
+          <div className="flex items-center gap-1.5 text-green-600 dark:text-green-400">
+            <Phone className="w-4 h-4" />
+            <span className="text-xs font-mono">{u.whatsapp_phone || 'מחובר'}</span>
+          </div>
+        ) : (
+          <span className="text-xs text-gray-400">לא מחובר</span>
+        )}
+      </td>
+
+      {/* Bots */}
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-1.5">
+          <Bot className="w-4 h-4 text-gray-400" />
+          <span className="text-sm text-gray-600 dark:text-gray-300">{u.bots_count || 0}</span>
+          {u.active_bots_count > 0 && (
+            <span className="text-xs text-green-500">({u.active_bots_count} פעילים)</span>
+          )}
+        </div>
+      </td>
+
+      {/* Modules */}
+      <td className="px-4 py-3">
+        {hasModules ? (
+          <div className="flex items-center gap-1 flex-wrap">
+            {u.has_status_bot && (
+              <span className="px-1.5 py-0.5 bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400 text-[10px] rounded">סטטוס בוט</span>
+            )}
+            {u.group_forwards_count > 0 && (
+              <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[10px] rounded">העברות ({u.group_forwards_count})</span>
+            )}
+            {u.broadcast_campaigns_count > 0 && (
+              <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 text-[10px] rounded">שידורים ({u.broadcast_campaigns_count})</span>
+            )}
+          </div>
+        ) : (
+          <span className="text-xs text-gray-400">—</span>
+        )}
+      </td>
+
+      {/* Created At */}
+      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+        {new Date(u.created_at).toLocaleDateString('he-IL')}
+      </td>
+
+      {/* Actions */}
+      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-center gap-1">
+          {/* Generate Payment Link */}
+          <button
+            onClick={onGenerateLink}
+            className={`p-1.5 rounded-lg transition-colors ${
+              copiedLink === u.id 
+                ? 'bg-green-100 text-green-600' 
+                : 'hover:bg-purple-100 text-purple-600 dark:hover:bg-purple-900/30'
+            }`}
+            title="העתק לינק תשלום"
+          >
+            {copiedLink === u.id ? <Check className="w-4 h-4" /> : <Link className="w-4 h-4" />}
+          </button>
+
+          {/* Switch to Account */}
+          <button
+            onClick={onSwitch}
+            disabled={switching === u.id || u.id === currentUserId}
+            className={`p-1.5 rounded-lg transition-colors ${
+              u.id === currentUserId 
+                ? 'text-gray-300 cursor-not-allowed' 
+                : 'hover:bg-blue-100 text-blue-600 dark:hover:bg-blue-900/30'
+            }`}
+            title="עבור לחשבון"
+          >
+            {switching === u.id ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : (
+              <ExternalLink className="w-4 h-4" />
+            )}
+          </button>
+
+          {/* Toggle Active */}
+          <button
+            onClick={onToggleActive}
+            className={`p-1.5 rounded-lg transition-colors ${
+              u.is_active
+                ? 'hover:bg-yellow-100 text-yellow-600 dark:hover:bg-yellow-900/30'
+                : 'hover:bg-green-100 text-green-600 dark:hover:bg-green-900/30'
+            }`}
+            title={u.is_active ? 'השבת משתמש' : 'הפעל משתמש'}
+          >
+            {u.is_active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+          </button>
+
+          {/* Delete (superadmin only) */}
+          {currentUserRole === 'superadmin' && u.id !== currentUserId && (
+            <button
+              onClick={onDelete}
+              className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg text-red-600 transition-colors"
+              title="מחק משתמש"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 function RoleBadge({ role }) {
   const styles = {
-    user: 'bg-gray-100 text-gray-700',
-    expert: 'bg-blue-100 text-blue-700',
-    admin: 'bg-orange-100 text-orange-700',
-    superadmin: 'bg-red-100 text-red-700',
+    user: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
+    expert: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+    admin: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+    superadmin: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
   };
   const labels = {
     user: 'משתמש',
     expert: 'מומחה',
     admin: 'אדמין',
-    superadmin: 'סופר-אדמין',
+    superadmin: 'סופר',
   };
 
+  if (role === 'user') return null;
+
   return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${styles[role] || styles.user}`}>
+    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${styles[role] || styles.user}`}>
       {labels[role] || role}
     </span>
   );
 }
 
-function SubscriptionBadge({ user, onClick }) {
-  // Determine display based on real subscription data
-  const status = user.subscription_status;
-  const planName = user.plan_name_he || user.plan_name;
-  const isFree = user.plan_name === 'Free' || !planName;
-  
-  let badgeClass = 'bg-gray-100 text-gray-600';
-  let label = 'חינמי';
-  let subLabel = null;
-  
-  if (status === 'active') {
-    if (isFree) {
-      badgeClass = 'bg-green-100 text-green-700';
-      label = 'חינם';
-    } else {
-      badgeClass = 'bg-blue-100 text-blue-700';
-      label = planName || 'בתשלום';
-    }
-    
-    if (user.is_manual) {
-      badgeClass = 'bg-purple-100 text-purple-700';
-      if (!user.expires_at) {
-        subLabel = 'ידני ∞';
-      } else {
-        subLabel = 'ידני';
-      }
-    }
-    
-    if (user.expires_at) {
-      const expiresAt = new Date(user.expires_at);
-      const daysLeft = Math.ceil((expiresAt - new Date()) / (1000 * 60 * 60 * 24));
-      if (daysLeft <= 7 && daysLeft > 0) {
-        badgeClass = 'bg-yellow-100 text-yellow-700';
-        subLabel = user.is_manual ? `ידני - ${daysLeft} ימים` : `${daysLeft} ימים נותרו`;
-      } else if (daysLeft <= 0) {
-        badgeClass = 'bg-red-100 text-red-700';
-        subLabel = 'פג תוקף';
-      }
-    }
-  } else if (status === 'cancelled') {
-    badgeClass = 'bg-orange-100 text-orange-700';
-    label = planName || 'מנוי';
-    
-    // Show remaining days until subscription ends
-    if (user.expires_at) {
-      const expiresAt = new Date(user.expires_at);
-      const daysLeft = Math.ceil((expiresAt - new Date()) / (1000 * 60 * 60 * 24));
-      if (daysLeft > 0) {
-        subLabel = `מבוטל - ${daysLeft} ימים נותרו`;
-      } else {
-        subLabel = 'מבוטל - הסתיים';
-        badgeClass = 'bg-red-100 text-red-700';
-      }
-    } else {
-      subLabel = 'מבוטל';
-    }
-  } else if (status === 'trial') {
-    badgeClass = 'bg-cyan-100 text-cyan-700';
-    label = planName || 'ניסיון';
-    
-    // Show remaining trial days
-    if (user.trial_ends_at) {
-      const trialEnds = new Date(user.trial_ends_at);
-      const daysLeft = Math.ceil((trialEnds - new Date()) / (1000 * 60 * 60 * 24));
-      if (daysLeft > 0) {
-        subLabel = `ניסיון - ${daysLeft} ימים`;
-      } else {
-        subLabel = 'ניסיון הסתיים';
-        badgeClass = 'bg-red-100 text-red-700';
-      }
-    } else {
-      subLabel = 'תקופת ניסיון';
-    }
-  } else if (status === 'expired') {
-    badgeClass = 'bg-red-100 text-red-700';
-    label = planName || 'מנוי';
-    subLabel = 'פג תוקף';
-  }
-  
+function ConfirmModal({ title, message, variant, onConfirm, onCancel }) {
   return (
-    <button 
-      onClick={onClick}
-      className={`px-2 py-0.5 rounded-full text-xs font-medium ${badgeClass} hover:opacity-80 transition-opacity cursor-pointer flex flex-col items-center`}
-      title="לחץ לעריכת מנוי"
-    >
-      <span>{label}</span>
-      {subLabel && <span className="text-[10px] opacity-75">{subLabel}</span>}
-    </button>
-  );
-}
-
-// Services Tab Component for managing additional services
-function ServicesTab({ userId, userName }) {
-  const [services, setServices] = useState([]);
-  const [userServices, setUserServices] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(null);
-  const [toast, setToast] = useState(null);
-  const [trialForm, setTrialForm] = useState({ serviceId: null, days: 14, reason: '' });
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    try {
-      const [servicesRes, userServicesRes] = await Promise.all([
-        api.get('/services/admin/all'),
-        api.get(`/admin/users/${userId}/services`).catch(() => ({ data: { subscriptions: [] } }))
-      ]);
-      setServices(servicesRes.data.services || []);
-      setUserServices(userServicesRes.data.subscriptions || []);
-    } catch (err) {
-      console.error('Failed to load services:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const showToast = (type, message) => {
-    setToast({ type, message });
-    setTimeout(() => setToast(null), 3000);
-  };
-
-  const handleGrantTrial = async (serviceId) => {
-    if (!trialForm.days || trialForm.days < 1) {
-      showToast('error', 'נדרש מספר ימים תקין');
-      return;
-    }
-    
-    setSaving(serviceId);
-    try {
-      await api.post(`/services/admin/${serviceId}/trial`, {
-        userId,
-        trialDays: trialForm.days,
-        reason: trialForm.reason || `הוקצה על ידי אדמין ל${userName}`
-      });
-      showToast('success', 'תקופת ניסיון הוקצתה בהצלחה');
-      setTrialForm({ serviceId: null, days: 14, reason: '' });
-      loadData();
-    } catch (err) {
-      showToast('error', err.response?.data?.error || 'שגיאה בהקצאת ניסיון');
-    } finally {
-      setSaving(null);
-    }
-  };
-
-  const handleAssignSubscription = async (serviceId, status = 'active', expiresAt = null) => {
-    setSaving(serviceId);
-    try {
-      await api.post(`/services/admin/${serviceId}/assign`, {
-        userId,
-        status,
-        expiresAt,
-        adminNotes: `הוקצה ידנית על ידי אדמין ל${userName}`
-      });
-      showToast('success', 'מנוי הוקצה בהצלחה');
-      loadData();
-    } catch (err) {
-      showToast('error', err.response?.data?.error || 'שגיאה בהקצאת מנוי');
-    } finally {
-      setSaving(null);
-    }
-  };
-
-  const handleCancelSubscription = async (serviceId) => {
-    if (!confirm('האם לבטל את המנוי לשירות זה?')) return;
-    
-    setSaving(serviceId);
-    try {
-      await api.post(`/services/admin/${serviceId}/cancel/${userId}`);
-      showToast('success', 'מנוי בוטל בהצלחה');
-      loadData();
-    } catch (err) {
-      showToast('error', err.response?.data?.error || 'שגיאה בביטול מנוי');
-    } finally {
-      setSaving(null);
-    }
-  };
-
-  const getUserServiceStatus = (serviceId) => {
-    return userServices.find(us => us.service_id === serviceId);
-  };
-
-  if (loading) {
-    return <div className="py-8 text-center text-gray-500">טוען שירותים...</div>;
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Toast */}
-      {toast && (
-        <div className={`p-3 rounded-xl text-sm ${
-          toast.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 
-          'bg-red-50 text-red-700 border border-red-200'
-        }`}>
-          {toast.message}
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onCancel}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-2">{title}</h3>
+        <p className="text-gray-600 dark:text-gray-300 mb-6">{message}</p>
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-300"
+          >
+            ביטול
+          </button>
+          <button
+            onClick={onConfirm}
+            className={`flex-1 px-4 py-2.5 rounded-xl text-white transition-colors ${
+              variant === 'danger' ? 'bg-red-500 hover:bg-red-600' : 'bg-purple-600 hover:bg-purple-700'
+            }`}
+          >
+            אישור
+          </button>
         </div>
-      )}
-
-      <div className="p-3 bg-green-50 border border-green-200 rounded-xl">
-        <p className="text-sm text-green-800">
-          <strong>שירותים נוספים</strong>
-          <br />
-          <span className="text-xs">כאן ניתן להקצות מנויים לשירותים נוספים כמו בוט העלאת סטטוסים</span>
-        </p>
       </div>
-
-      {services.length === 0 ? (
-        <div className="text-center py-6 text-gray-500">
-          אין שירותים נוספים מוגדרים במערכת
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {services.map(service => {
-            const userSub = getUserServiceStatus(service.id);
-            const isActive = userSub && (userSub.status === 'active' || userSub.status === 'trial');
-            const isTrial = userSub?.status === 'trial';
-            
-            return (
-              <div key={service.id} className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h4 className="font-medium text-gray-800 flex items-center gap-2">
-                      {service.icon && <span>{service.icon}</span>}
-                      {service.name_he || service.name}
-                      {isActive && (
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${
-                          isTrial ? 'bg-cyan-100 text-cyan-700' : 'bg-green-100 text-green-700'
-                        }`}>
-                          {isTrial ? 'ניסיון' : 'פעיל'}
-                        </span>
-                      )}
-                    </h4>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {service.description_he || `₪${service.price}/חודש`}
-                    </p>
-                  </div>
-                  
-                  <div className="text-right text-sm text-gray-500">
-                    ₪{service.price}/חודש
-                  </div>
-                </div>
-
-                {/* Current subscription info */}
-                {userSub && (
-                  <div className="mb-3 p-2 bg-white rounded-lg text-xs text-gray-600">
-                    <div className="flex justify-between">
-                      <span>סטטוס:</span>
-                      <span className={
-                        userSub.status === 'active' ? 'text-green-600 font-medium' :
-                        userSub.status === 'trial' ? 'text-cyan-600 font-medium' :
-                        userSub.status === 'cancelled' ? 'text-orange-600' : 'text-gray-600'
-                      }>
-                        {userSub.status === 'active' ? 'פעיל' :
-                         userSub.status === 'trial' ? 'ניסיון' :
-                         userSub.status === 'cancelled' ? 'מבוטל' : userSub.status}
-                      </span>
-                    </div>
-                    {userSub.trial_ends_at && (
-                      <div className="flex justify-between mt-1">
-                        <span>סיום ניסיון:</span>
-                        <span>{new Date(userSub.trial_ends_at).toLocaleDateString('he-IL')}</span>
-                      </div>
-                    )}
-                    {userSub.expires_at && (
-                      <div className="flex justify-between mt-1">
-                        <span>תפוגה:</span>
-                        <span>{new Date(userSub.expires_at).toLocaleDateString('he-IL')}</span>
-                      </div>
-                    )}
-                    {userSub.is_manual && (
-                      <div className="mt-1 text-purple-600">✓ מנוי ידני</div>
-                    )}
-                  </div>
-                )}
-
-                {/* Actions */}
-                <div className="flex flex-wrap gap-2">
-                  {!isActive ? (
-                    <>
-                      {/* Grant Trial */}
-                      {trialForm.serviceId === service.id ? (
-                        <div className="flex-1 flex items-center gap-2">
-                          <input
-                            type="number"
-                            min="1"
-                            value={trialForm.days}
-                            onChange={(e) => setTrialForm(f => ({ ...f, days: parseInt(e.target.value) || 0 }))}
-                            className="w-16 px-2 py-1 text-sm border rounded"
-                            placeholder="ימים"
-                          />
-                          <button
-                            onClick={() => handleGrantTrial(service.id)}
-                            disabled={saving === service.id}
-                            className="px-3 py-1 text-sm bg-cyan-600 text-white rounded hover:bg-cyan-700 disabled:opacity-50"
-                          >
-                            {saving === service.id ? '...' : 'אשר'}
-                          </button>
-                          <button
-                            onClick={() => setTrialForm({ serviceId: null, days: 14, reason: '' })}
-                            className="px-2 py-1 text-sm text-gray-600 hover:text-gray-800"
-                          >
-                            ביטול
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setTrialForm({ serviceId: service.id, days: 14, reason: '' })}
-                          className="px-3 py-1.5 text-sm bg-cyan-50 text-cyan-700 rounded-lg hover:bg-cyan-100 border border-cyan-200"
-                        >
-                          הקצה ניסיון
-                        </button>
-                      )}
-                      
-                      {/* Assign Active */}
-                      <button
-                        onClick={() => handleAssignSubscription(service.id, 'active')}
-                        disabled={saving === service.id}
-                        className="px-3 py-1.5 text-sm bg-green-50 text-green-700 rounded-lg hover:bg-green-100 border border-green-200 disabled:opacity-50"
-                      >
-                        {saving === service.id ? '...' : 'הפעל מנוי'}
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      {/* Cancel */}
-                      <button
-                        onClick={() => handleCancelSubscription(service.id)}
-                        disabled={saving === service.id}
-                        className="px-3 py-1.5 text-sm bg-red-50 text-red-700 rounded-lg hover:bg-red-100 border border-red-200 disabled:opacity-50"
-                      >
-                        {saving === service.id ? '...' : 'בטל מנוי'}
-                      </button>
-                      
-                      {/* Extend if trial */}
-                      {isTrial && (
-                        <button
-                          onClick={() => handleAssignSubscription(service.id, 'active')}
-                          disabled={saving === service.id}
-                          className="px-3 py-1.5 text-sm bg-green-50 text-green-700 rounded-lg hover:bg-green-100 border border-green-200 disabled:opacity-50"
-                        >
-                          {saving === service.id ? '...' : 'הפוך לפעיל'}
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }
 
-function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUserId }) {
-  const [plans, setPlans] = useState([]);
-  const [affiliates, setAffiliates] = useState([]);
+// User Modal Component - Full user management
+function UserModal({ user, onClose, onSuccess, onSwitchAccount, onGeneratePaymentLink, currentUserId, currentUserRole }) {
+  const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState('subscription'); // 'subscription' | 'discount' | 'referral' | 'features'
+  const [toast, setToast] = useState(null);
+  const [plans, setPlans] = useState([]);
+  const [affiliates, setAffiliates] = useState([]);
   const [featureOverrides, setFeatureOverrides] = useState(null);
-  const [savingFeatures, setSavingFeatures] = useState(false);
-  const [toast, setToast] = useState(null); // { type: 'success' | 'error', message: string }
-  const [confirmModal, setConfirmModal] = useState(null); // { message: string, onConfirm: function }
+  const [billingHistory, setBillingHistory] = useState([]);
+  const [userBots, setUserBots] = useState([]);
+  
   const [formData, setFormData] = useState({
     planId: '',
     status: user.subscription_status || 'active',
@@ -801,58 +740,38 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
     noExpiry: !user.expires_at && user.is_manual,
     isManual: user.is_manual || false,
     adminNotes: user.admin_notes || '',
-    // Payment settings
     nextChargeDate: user.next_charge_date ? new Date(user.next_charge_date).toISOString().split('T')[0] : '',
     trialEndsAt: user.trial_ends_at ? new Date(user.trial_ends_at).toISOString().split('T')[0] : '',
-    // Discount settings
-    discountMode: user.custom_discount_mode || 'percent', // 'percent' or 'fixed_price'
     customDiscount: user.custom_discount_percent || 0,
-    fixedPrice: user.custom_fixed_price || 0,
-    discountType: user.custom_discount_type || 'none', // 'none', 'first_payment', 'custom_months', 'first_year', 'forever'
-    discountMonths: user.custom_discount_months || 1,
-    discountPlanId: user.custom_discount_plan_id || '', // Which plan the discount applies to
-    skipTrial: user.skip_trial || false, // Skip free trial - immediate payment
-    // Referral settings
+    discountType: user.custom_discount_type || 'none',
     affiliateId: user.referred_by_affiliate_id || '',
-    // Invoice settings
-    invoiceName: user.invoice_name || '',
-    receiptEmail: user.receipt_email || '',
+    skipTrial: user.skip_trial || false,
   });
-  
-  // Calculate trial days used
-  const trialDaysTotal = 14;
-  const trialStartDate = user.started_at ? new Date(user.started_at) : null;
-  const trialEndDate = user.trial_ends_at ? new Date(user.trial_ends_at) : null;
-  const trialDaysUsed = trialStartDate && trialEndDate 
-    ? Math.max(0, Math.ceil((new Date() - trialStartDate) / (1000 * 60 * 60 * 24)))
-    : 0;
-  const trialDaysRemaining = trialEndDate 
-    ? Math.max(0, Math.ceil((trialEndDate - new Date()) / (1000 * 60 * 60 * 24)))
-    : 0;
 
   useEffect(() => {
-    loadData();
+    loadAllData();
   }, []);
 
-  const loadData = async () => {
+  const loadAllData = async () => {
     try {
-      const [plansRes, affiliatesRes, overridesRes] = await Promise.all([
+      const [plansRes, affiliatesRes, overridesRes, billingRes, botsRes] = await Promise.all([
         api.get('/admin/plans'),
-        api.get('/admin/affiliates/list'),
-        api.get(`/admin/users/${user.id}/feature-overrides`)
+        api.get('/admin/affiliates/list').catch(() => ({ data: { affiliates: [] } })),
+        api.get(`/admin/users/${user.id}/feature-overrides`).catch(() => ({ data: { feature_overrides: null } })),
+        api.get(`/admin/users/${user.id}/billing-history`).catch(() => ({ data: { history: [] } })),
+        api.get(`/admin/users/${user.id}/bots`).catch(() => ({ data: { bots: [] } })),
       ]);
       
       setPlans(plansRes.data.plans || []);
       setAffiliates(affiliatesRes.data.affiliates || []);
       setFeatureOverrides(overridesRes.data.feature_overrides || null);
+      setBillingHistory(billingRes.data.history || []);
+      setUserBots(botsRes.data.bots || []);
       
-      // Set current plan if exists
       if (plansRes.data.plans?.length > 0) {
         const currentPlan = plansRes.data.plans.find(p => p.name === user.plan_name || p.name_he === user.plan_name_he);
         if (currentPlan) {
           setFormData(f => ({ ...f, planId: currentPlan.id }));
-        } else {
-          setFormData(f => ({ ...f, planId: plansRes.data.plans[0].id }));
         }
       }
     } catch (err) {
@@ -867,62 +786,6 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handleSaveFeatures = async () => {
-    setSavingFeatures(true);
-    try {
-      console.log('[Admin] Saving feature overrides:', featureOverrides);
-      const response = await api.put(`/admin/users/${user.id}/feature-overrides`, {
-        feature_overrides: featureOverrides
-      });
-      console.log('[Admin] Save response:', response.data);
-      showToast('success', 'הגדרות הפיצ\'רים עודכנו בהצלחה');
-      // Reload to verify saved correctly
-      const overridesRes = await api.get(`/admin/users/${user.id}/feature-overrides`);
-      console.log('[Admin] Reloaded overrides:', overridesRes.data.feature_overrides);
-      setFeatureOverrides(overridesRes.data.feature_overrides || null);
-    } catch (err) {
-      showToast('error', err.response?.data?.error || 'שגיאה בעדכון הגדרות');
-    } finally {
-      setSavingFeatures(false);
-    }
-  };
-
-  const clearFeatureOverrides = async () => {
-    setConfirmModal({
-      message: 'האם למחוק את כל ההגדרות המותאמות? המשתמש יקבל את הגדרות התוכנית שלו',
-      onConfirm: async () => {
-        setConfirmModal(null);
-        setSavingFeatures(true);
-        try {
-          await api.put(`/admin/users/${user.id}/feature-overrides`, {
-            feature_overrides: null
-          });
-          setFeatureOverrides(null);
-          showToast('success', 'ההגדרות נמחקו');
-        } catch (err) {
-          showToast('error', err.response?.data?.error || 'שגיאה במחיקת הגדרות');
-        } finally {
-          setSavingFeatures(false);
-        }
-      }
-    });
-  };
-
-  const updateFeatureOverride = (key, value) => {
-    console.log('[Admin] updateFeatureOverride:', key, '=', value, 'type:', typeof value);
-    setFeatureOverrides(prev => {
-      const newOverrides = { ...(prev || {}) };
-      if (value === null || value === undefined || value === '') {
-        delete newOverrides[key];
-      } else {
-        newOverrides[key] = value;
-      }
-      console.log('[Admin] New overrides:', newOverrides);
-      // If object is empty, set to null
-      return Object.keys(newOverrides).length === 0 ? null : newOverrides;
-    });
-  };
-
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -932,1377 +795,676 @@ function UnifiedUserModal({ user, onClose, onSuccess, onSwitchAccount, currentUs
         expiresAt: formData.noExpiry ? null : (formData.expiresAt || null),
         isManual: formData.isManual,
         adminNotes: formData.adminNotes || null,
-        // Payment dates
         nextChargeDate: formData.isManual ? null : (formData.nextChargeDate || null),
         trialEndsAt: formData.trialEndsAt || null,
-        // Discount
-        customDiscountMode: formData.discountType !== 'none' ? formData.discountMode : null,
-        customDiscountPercent: formData.discountType !== 'none' && formData.discountMode === 'percent' ? formData.customDiscount : null,
-        customFixedPrice: formData.discountType !== 'none' && formData.discountMode === 'fixed_price' ? formData.fixedPrice : null,
+        customDiscountPercent: formData.discountType !== 'none' ? formData.customDiscount : null,
         customDiscountType: formData.discountType !== 'none' ? formData.discountType : null,
-        customDiscountMonths: formData.discountType === 'custom_months' ? formData.discountMonths : null,
-        customDiscountPlanId: formData.discountType !== 'none' && formData.discountPlanId ? formData.discountPlanId : null,
-        skipTrial: formData.skipTrial || false,
-        // Referral
         affiliateId: formData.affiliateId || null,
-        // Invoice
-        invoiceName: formData.invoiceName || null,
-        receiptEmail: formData.receiptEmail || null,
+        skipTrial: formData.skipTrial || false,
       });
+      showToast('success', 'המנוי עודכן בהצלחה');
       onSuccess();
     } catch (err) {
-      showToast('error', err.response?.data?.error || 'שגיאה בעדכון מנוי');
+      showToast('error', err.response?.data?.error || 'שגיאה בעדכון');
     } finally {
       setSaving(false);
     }
   };
 
+  const tabs = [
+    { id: 'overview', label: 'סקירה', icon: Eye },
+    { id: 'subscription', label: 'מנוי', icon: Crown },
+    { id: 'billing', label: 'חיובים', icon: DollarSign },
+    { id: 'bots', label: 'בוטים', icon: Bot },
+    { id: 'features', label: 'הגדרות', icon: Settings },
+  ];
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        
-        {/* Toast Notification */}
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div 
+        className="bg-white dark:bg-gray-800 rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Toast */}
         {toast && (
-          <div className={`fixed top-4 left-1/2 -translate-x-1/2 px-4 py-3 rounded-xl shadow-lg z-[60] flex items-center gap-2 ${
+          <div className={`absolute top-4 left-1/2 -translate-x-1/2 px-4 py-3 rounded-xl shadow-lg z-[60] flex items-center gap-2 ${
             toast.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
           }`}>
-            {toast.type === 'success' ? (
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            ) : (
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            )}
+            {toast.type === 'success' ? <Check className="w-5 h-5" /> : <X className="w-5 h-5" />}
             <span>{toast.message}</span>
           </div>
         )}
 
-        {/* Confirm Modal */}
-        {confirmModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]" onClick={() => setConfirmModal(null)}>
-            <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
-              <h3 className="text-lg font-semibold mb-4">אישור</h3>
-              <p className="text-gray-600 mb-6">{confirmModal.message}</p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setConfirmModal(null)}
-                  className="flex-1 px-4 py-2 border border-gray-200 rounded-xl hover:bg-gray-50"
-                >
-                  ביטול
-                </button>
-                <button
-                  onClick={confirmModal.onConfirm}
-                  className="flex-1 px-4 py-2 bg-red-500 text-white rounded-xl hover:bg-red-600"
-                >
-                  אישור
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* User Profile Header */}
-        <div className="relative mb-6">
-          {/* Close Button */}
-          <button 
-            onClick={onClose} 
-            className="absolute top-0 left-0 p-2 hover:bg-gray-100 rounded-full z-10"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-          
-          {/* Profile Card */}
-          <div className="bg-gradient-to-br from-purple-500 to-indigo-600 rounded-2xl p-6 text-white">
-            <div className="flex items-start gap-4">
-              {/* Avatar */}
-              <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold ${
-                user.subscription_status === 'active' && !user.is_manual ? 'bg-green-400' :
-                user.is_manual ? 'bg-purple-300' :
-                user.subscription_status === 'trial' ? 'bg-cyan-400' :
-                'bg-gray-300'
-              } text-white shadow-lg`}>
+        {/* Header */}
+        <div className="p-6 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-l from-purple-50 to-white dark:from-purple-900/20 dark:to-gray-800">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-4">
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white font-bold text-xl ${
+                user.subscription_status === 'active' && !user.is_manual ? 'bg-gradient-to-br from-green-400 to-green-600' :
+                user.is_manual ? 'bg-gradient-to-br from-purple-400 to-purple-600' :
+                user.subscription_status === 'trial' ? 'bg-gradient-to-br from-cyan-400 to-cyan-600' :
+                'bg-gradient-to-br from-gray-400 to-gray-500'
+              }`}>
                 {(user.name || user.email || '?')[0].toUpperCase()}
               </div>
-              
-              {/* Info */}
-              <div className="flex-1 min-w-0">
-                <h2 className="text-xl font-bold truncate">{user.name || 'ללא שם'}</h2>
-                <p className="text-purple-100 text-sm truncate">{user.email}</p>
-                
-                {/* Badges */}
-                <div className="flex flex-wrap gap-2 mt-2">
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                    user.is_manual ? 'bg-purple-300/30 text-white' :
-                    user.subscription_status === 'active' ? 'bg-green-400/30 text-white' :
-                    user.subscription_status === 'trial' ? 'bg-cyan-400/30 text-white' :
-                    user.subscription_status === 'cancelled' ? 'bg-orange-400/30 text-white' :
-                    'bg-white/20 text-white'
-                  }`}>
-                    {user.is_manual ? 'ידני' :
-                     user.subscription_status === 'active' ? 'פעיל' :
-                     user.subscription_status === 'trial' ? 'ניסיון' :
-                     user.subscription_status === 'cancelled' ? 'מבוטל' : 'חינם'}
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-white/20 text-white">
-                    {user.plan_name_he || user.plan_name || 'Free'}
-                  </span>
+              <div>
+                <h2 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                  {user.name || 'ללא שם'}
                   <RoleBadge role={user.role} />
-                </div>
+                </h2>
+                <p className="text-gray-500 dark:text-gray-400">{user.email}</p>
+                {user.phone && (
+                  <p className="text-sm text-gray-400 dark:text-gray-500 flex items-center gap-1 mt-1">
+                    <Phone className="w-3 h-3" /> {user.phone}
+                  </p>
+                )}
               </div>
-              
-              {/* Switch Account Button */}
-              {currentUserId !== user.id && (
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onGeneratePaymentLink(user.id, user.name || user.email)}
+                className="px-3 py-2 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded-xl hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors flex items-center gap-2 text-sm"
+              >
+                <Link className="w-4 h-4" />
+                לינק תשלום
+              </button>
+              {user.id !== currentUserId && (
                 <button
                   onClick={() => onSwitchAccount(user.id, user.name || user.email)}
-                  className="px-3 py-2 bg-white/20 hover:bg-white/30 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+                  className="px-3 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-xl hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors flex items-center gap-2 text-sm"
                 >
                   <ExternalLink className="w-4 h-4" />
-                  עבור לחשבון
+                  כניסה לחשבון
                 </button>
               )}
-            </div>
-          </div>
-          
-          {/* Quick Stats */}
-          <div className="grid grid-cols-4 gap-3 -mt-4 mx-4">
-            <div className="bg-white rounded-xl shadow-md p-3 text-center">
-              <div className="text-lg font-bold text-gray-800">{user.bots_count || 0}</div>
-              <div className="text-xs text-gray-500">בוטים</div>
-            </div>
-            <div className="bg-white rounded-xl shadow-md p-3 text-center">
-              <div className="text-lg font-bold text-gray-800">{user.contacts_count || 0}</div>
-              <div className="text-xs text-gray-500">אנשי קשר</div>
-            </div>
-            <div className="bg-white rounded-xl shadow-md p-3 text-center">
-              {user.has_payment_method ? (
-                <div className="text-lg font-bold text-green-600">✓</div>
-              ) : (
-                <div className="text-lg font-bold text-gray-400">✗</div>
-              )}
-              <div className="text-xs text-gray-500">כרטיס</div>
-            </div>
-            <div className="bg-white rounded-xl shadow-md p-3 text-center">
-              {user.sumit_standing_order_id ? (
-                <div className="text-lg font-bold text-green-600">✓</div>
-              ) : (
-                <div className="text-lg font-bold text-gray-400">✗</div>
-              )}
-              <div className="text-xs text-gray-500">הו״ק</div>
-            </div>
-          </div>
-        </div>
-
-        {/* User Details Grid */}
-        <div className="grid grid-cols-2 gap-3 mb-6 p-4 bg-gray-50 rounded-xl text-sm">
-          <div>
-            <span className="text-gray-500">נרשם:</span>
-            <span className="font-medium text-gray-800 mr-1">{new Date(user.created_at).toLocaleDateString('he-IL')}</span>
-          </div>
-          <div>
-            <span className="text-gray-500">סטטוס:</span>
-            <span className="mr-1">
-              {user.is_verified ? (
-                <span className="text-green-600">מאומת ✓</span>
-              ) : (
-                <span className="text-yellow-600">לא מאומת</span>
-              )}
-            </span>
-          </div>
-          <div>
-            <span className="text-gray-500">WhatsApp:</span>
-            <span className="mr-1">
-              {user.whatsapp_status === 'connected' ? (
-                <span className="text-green-600 font-mono">{user.whatsapp_phone || 'מחובר'}</span>
-              ) : (
-                <span className="text-gray-400">לא מחובר</span>
-              )}
-            </span>
-          </div>
-          <div>
-            <span className="text-gray-500">מחיר:</span>
-            <span className="font-medium text-gray-800 mr-1">
-              {user.is_manual ? 'ללא תשלום' :
-               user.custom_fixed_price ? `₪${user.custom_fixed_price}` :
-               user.plan_price ? `₪${user.plan_price}` : 'חינם'}
-            </span>
-          </div>
-          <div>
-            <span className="text-gray-500">
-              {user.is_manual ? 'תפוגה:' : 'חיוב הבא:'}
-            </span>
-            <span className={`font-medium mr-1 ${
-              (user.expires_at || user.next_charge_date) && 
-              new Date(user.expires_at || user.next_charge_date) < new Date()
-                ? 'text-red-600' : 'text-gray-800'
-            }`}>
-              {user.is_manual && !user.expires_at ? '∞' :
-               user.expires_at ? new Date(user.expires_at).toLocaleDateString('he-IL') :
-               user.next_charge_date ? new Date(user.next_charge_date).toLocaleDateString('he-IL') : 
-               '-'}
-            </span>
-          </div>
-          {user.referred_by_name && (
-            <div className="col-span-2">
-              <span className="text-gray-500">הגיע דרך שותף:</span>
-              <span className="font-medium text-purple-600 mr-1">{user.referred_by_name}</span>
-            </div>
-          )}
-          {user.admin_notes && (
-            <div className="col-span-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <span className="text-yellow-800 text-xs">
-                <strong>הערה:</strong> {user.admin_notes}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Edit Section */}
-        <div className="px-6 pb-6">
-          <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-            <Edit className="w-5 h-5 text-purple-600" />
-            עריכת הגדרות
-          </h3>
-          
-          {/* Tabs */}
-          <div className="flex gap-1 mb-4 p-1 bg-gray-100 rounded-xl flex-wrap">
-            <button
-              onClick={() => setActiveTab('subscription')}
-              className={`flex-1 min-w-[70px] px-2 py-2.5 text-xs rounded-lg transition-colors ${
-                activeTab === 'subscription' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-600 hover:text-gray-800'
-              }`}
-            >
-              מנוי
-            </button>
-            <button
-              onClick={() => setActiveTab('payments')}
-              className={`flex-1 min-w-[70px] px-2 py-2.5 text-xs rounded-lg transition-colors ${
-                activeTab === 'payments' ? 'bg-white shadow text-cyan-600 font-medium' : 'text-gray-600 hover:text-gray-800'
-              }`}
-            >
-              תשלומים
-            </button>
-            <button
-              onClick={() => setActiveTab('discount')}
-              className={`flex-1 min-w-[70px] px-2 py-2.5 text-xs rounded-lg transition-colors ${
-                activeTab === 'discount' ? 'bg-white shadow text-green-600 font-medium' : 'text-gray-600 hover:text-gray-800'
-              }`}
-            >
-              הנחה
-            </button>
-            <button
-              onClick={() => setActiveTab('referral')}
-              className={`flex-1 min-w-[70px] px-2 py-2.5 text-xs rounded-lg transition-colors ${
-                activeTab === 'referral' ? 'bg-white shadow text-purple-600 font-medium' : 'text-gray-600 hover:text-gray-800'
-              }`}
-            >
-              שותף
-            </button>
-            <button
-              onClick={() => setActiveTab('features')}
-              className={`flex-1 min-w-[70px] px-2 py-2.5 text-xs rounded-lg transition-colors ${
-                activeTab === 'features' ? 'bg-white shadow text-orange-600 font-medium' : 'text-gray-600 hover:text-gray-800'
-              }`}
-            >
-              פיצ׳רים
-            </button>
-            <button
-              onClick={() => setActiveTab('services')}
-              className={`flex-1 min-w-[70px] px-2 py-2.5 text-xs rounded-lg transition-colors ${
-                activeTab === 'services' ? 'bg-white shadow text-teal-600 font-medium' : 'text-gray-600 hover:text-gray-800'
-              }`}
-            >
-              שירותים
-            </button>
-            <button
-              onClick={() => setActiveTab('stats')}
-              className={`flex-1 min-w-[70px] px-2 py-2.5 text-xs rounded-lg transition-colors ${
-                activeTab === 'stats' ? 'bg-white shadow text-indigo-600 font-medium' : 'text-gray-600 hover:text-gray-800'
-              }`}
-            >
-              סטטיסטיקות
-            </button>
-          </div>
-
-        {loading ? (
-          <div className="py-8 text-center text-gray-500">טוען...</div>
-        ) : (
-          <div className="space-y-4">
-            {/* Subscription Tab */}
-            {activeTab === 'subscription' && (
-              <>
-                {/* Manual Subscription Toggle */}
-                <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.isManual}
-                      onChange={(e) => setFormData(f => ({ ...f, isManual: e.target.checked }))}
-                      className="w-5 h-5 rounded border-purple-300 text-purple-600 focus:ring-purple-500"
-                    />
-                    <div>
-                      <span className="font-medium text-purple-800">מנוי ידני (ללא תשלום)</span>
-                      <p className="text-xs text-purple-600">המשתמש יקבל גישה מלאה ללא צורך בהזנת כרטיס אשראי</p>
-                    </div>
-                  </label>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">תוכנית</label>
-                  <select
-                    value={formData.planId}
-                    onChange={(e) => setFormData(f => ({ ...f, planId: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
-                  >
-                    {plans.map(plan => (
-                      <option key={plan.id} value={plan.id}>
-                        {plan.name_he} {plan.price > 0 ? `- ₪${plan.price}/חודש` : '(חינם)'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">סטטוס</label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) => setFormData(f => ({ ...f, status: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="active">פעיל</option>
-                    <option value="trial">ניסיון</option>
-                    <option value="cancelled">בוטל</option>
-                    <option value="expired">פג תוקף</option>
-                  </select>
-                </div>
-
-                {/* No Expiry Toggle */}
-                <div className="p-3 bg-green-50 border border-green-200 rounded-xl">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.noExpiry}
-                      onChange={(e) => setFormData(f => ({ ...f, noExpiry: e.target.checked, expiresAt: '' }))}
-                      className="w-5 h-5 rounded border-green-300 text-green-600 focus:ring-green-500"
-                    />
-                    <div>
-                      <span className="font-medium text-green-800">ללא הגבלת זמן</span>
-                      <p className="text-xs text-green-600">המנוי יהיה פעיל לתמיד ללא תאריך תפוגה</p>
-                    </div>
-                  </label>
-                </div>
-
-                {!formData.noExpiry && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
-                      <Calendar className="w-4 h-4" />
-                      תאריך סיום
-                    </label>
-                    <input
-                      type="date"
-                      value={formData.expiresAt}
-                      onChange={(e) => setFormData(f => ({ ...f, expiresAt: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">הערות אדמין</label>
-                  <textarea
-                    value={formData.adminNotes}
-                    onChange={(e) => setFormData(f => ({ ...f, adminNotes: e.target.value }))}
-                    rows={2}
-                    placeholder="הערות פנימיות (לא יוצגו למשתמש)"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 resize-none"
-                  />
-                </div>
-
-                {/* Quick Actions */}
-                {formData.isManual && (
-                  <div className="pt-2 border-t border-gray-200">
-                    <p className="text-xs text-gray-500 mb-2">פעולות מהירות:</p>
-                    <div className="flex gap-2 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const plan = plans.find(p => p.name === 'Pro' || p.name_he?.includes('מקצוע'));
-                          if (plan) setFormData(f => ({ ...f, planId: plan.id, status: 'active', noExpiry: true }));
-                        }}
-                        className="px-3 py-1.5 text-xs bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200"
-                      >
-                        Pro לתמיד
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const plan = plans.find(p => p.name === 'Enterprise' || p.name_he?.includes('ארגונ'));
-                          if (plan) setFormData(f => ({ ...f, planId: plan.id, status: 'active', noExpiry: true }));
-                        }}
-                        className="px-3 py-1.5 text-xs bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200"
-                      >
-                        Enterprise לתמיד
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const nextMonth = new Date();
-                          nextMonth.setMonth(nextMonth.getMonth() + 1);
-                          setFormData(f => ({ ...f, noExpiry: false, expiresAt: nextMonth.toISOString().split('T')[0] }));
-                        }}
-                        className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-                      >
-                        חודש אחד
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const nextYear = new Date();
-                          nextYear.setFullYear(nextYear.getFullYear() + 1);
-                          setFormData(f => ({ ...f, noExpiry: false, expiresAt: nextYear.toISOString().split('T')[0] }));
-                        }}
-                        className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-                      >
-                        שנה אחת
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Payments Tab */}
-            {activeTab === 'payments' && (
-              <>
-                {/* Trial Info */}
-                {(user.is_trial || user.subscription_status === 'trial' || user.trial_ends_at) && (
-                  <div className="p-4 bg-cyan-50 border border-cyan-200 rounded-xl">
-                    <h4 className="text-sm font-semibold text-cyan-800 mb-3">🎁 תקופת ניסיון</h4>
-                    <div className="grid grid-cols-2 gap-3 text-sm mb-3">
-                      <div>
-                        <span className="text-cyan-600">נוצלו:</span>
-                        <span className="font-medium text-cyan-800 mr-1">{trialDaysUsed} ימים</span>
-                      </div>
-                      <div>
-                        <span className="text-cyan-600">נותרו:</span>
-                        <span className="font-medium text-cyan-800 mr-1">{trialDaysRemaining} ימים</span>
-                      </div>
-                    </div>
-                    <div className="w-full bg-cyan-200 rounded-full h-2 mb-3">
-                      <div 
-                        className="bg-cyan-600 h-2 rounded-full transition-all"
-                        style={{ width: `${Math.min(100, (trialDaysUsed / trialDaysTotal) * 100)}%` }}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-cyan-700 mb-1">תאריך סיום ניסיון</label>
-                      <input
-                        type="date"
-                        value={formData.trialEndsAt}
-                        onChange={(e) => setFormData(f => ({ ...f, trialEndsAt: e.target.value }))}
-                        className="w-full px-3 py-2 border border-cyan-300 rounded-lg focus:ring-2 focus:ring-cyan-500 text-sm"
-                      />
-                    </div>
-                    <div className="flex gap-2 mt-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const newDate = new Date();
-                          newDate.setDate(newDate.getDate() + 7);
-                          setFormData(f => ({ ...f, trialEndsAt: newDate.toISOString().split('T')[0] }));
-                        }}
-                        className="px-2 py-1 text-xs bg-cyan-100 text-cyan-700 rounded hover:bg-cyan-200"
-                      >
-                        +7 ימים
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const newDate = new Date();
-                          newDate.setDate(newDate.getDate() + 14);
-                          setFormData(f => ({ ...f, trialEndsAt: newDate.toISOString().split('T')[0] }));
-                        }}
-                        className="px-2 py-1 text-xs bg-cyan-100 text-cyan-700 rounded hover:bg-cyan-200"
-                      >
-                        +14 ימים
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFormData(f => ({ ...f, trialEndsAt: '' }))}
-                        className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
-                      >
-                        בטל ניסיון
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Payment Method Info */}
-                <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-3">💳 אמצעי תשלום</h4>
-                  {user.has_payment_method ? (
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-6 bg-gradient-to-r from-blue-600 to-blue-800 rounded flex items-center justify-center">
-                        <span className="text-white text-xs font-bold">VISA</span>
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-800">****{user.card_last_digits || '????'}</p>
-                        <p className="text-xs text-gray-500">כרטיס פעיל</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-3">
-                      <p className="text-gray-500 text-sm">אין כרטיס אשראי רשום</p>
-                      <p className="text-xs text-gray-400">המשתמש צריך להוסיף אמצעי תשלום</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Standing Order / Next Charge */}
-                <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                  <h4 className="text-sm font-semibold text-blue-800 mb-3">📅 מנוי ותשלומים</h4>
-                  {/* Show as active if: has standing order ID OR (active subscription with payment method) */}
-                  {(user.sumit_standing_order_id || (user.subscription_status === 'active' && user.has_payment_method && !user.is_manual)) ? (
-                    <>
-                      <div className="grid grid-cols-2 gap-3 text-sm mb-3">
-                        <div>
-                          <span className="text-blue-600">מצב מנוי:</span>
-                          <span className="text-green-600 font-medium mr-1">פעיל ✓</span>
-                        </div>
-                        {user.sumit_standing_order_id && (
-                          <div>
-                            <span className="text-blue-600">מזהה Sumit:</span>
-                            <span className="font-mono text-blue-800 mr-1 text-xs">{user.sumit_standing_order_id}</span>
-                          </div>
-                        )}
-                        {!user.sumit_standing_order_id && (
-                          <div>
-                            <span className="text-orange-600 text-xs">⚠️ חסר מזהה הוראת קבע</span>
-                          </div>
-                        )}
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-blue-700 mb-1">תאריך חיוב הבא</label>
-                        <input
-                          type="date"
-                          value={formData.nextChargeDate}
-                          onChange={(e) => setFormData(f => ({ ...f, nextChargeDate: e.target.value }))}
-                          disabled={formData.isManual}
-                          className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
-                        />
-                        {formData.isManual && (
-                          <p className="text-xs text-orange-600 mt-1">⚠️ מנוי ידני - אין חיובים אוטומטיים</p>
-                        )}
-                      </div>
-                      <div className="flex gap-2 mt-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newDate = new Date();
-                            newDate.setMonth(newDate.getMonth() + 1);
-                            setFormData(f => ({ ...f, nextChargeDate: newDate.toISOString().split('T')[0] }));
-                          }}
-                          disabled={formData.isManual}
-                          className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50"
-                        >
-                          עוד חודש
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newDate = new Date();
-                            newDate.setFullYear(newDate.getFullYear() + 1);
-                            setFormData(f => ({ ...f, nextChargeDate: newDate.toISOString().split('T')[0] }));
-                          }}
-                          disabled={formData.isManual}
-                          className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50"
-                        >
-                          עוד שנה
-                        </button>
-                      </div>
-                    </>
-                  ) : user.is_manual ? (
-                    <div className="text-center py-3">
-                      <p className="text-purple-600 text-sm font-medium">מנוי ידני - ללא תשלום</p>
-                      <p className="text-xs text-purple-500 mt-1">המנוי מנוהל ידנית על ידי מנהל</p>
-                    </div>
-                  ) : (
-                    <div className="text-center py-3">
-                      <p className="text-gray-500 text-sm">אין מנוי פעיל</p>
-                      {user.has_payment_method ? (
-                        <p className="text-xs text-blue-600 mt-1">יש כרטיס - ניתן ליצור מנוי</p>
-                      ) : (
-                        <p className="text-xs text-gray-400 mt-1">אין כרטיס אשראי רשום</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Cancellation Info */}
-                {user.subscription_status === 'cancelled' && (
-                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl">
-                    <h4 className="text-sm font-semibold text-orange-800 mb-2">⚠️ מנוי מבוטל</h4>
-                    <div className="text-sm text-orange-700 space-y-1">
-                      <p>
-                        <span className="text-orange-600">תוכנית:</span>
-                        <span className="font-medium mr-1">{user.plan_name_he || user.plan_name || 'לא ידוע'}</span>
-                      </p>
-                      {user.expires_at && (
-                        <p>
-                          <span className="text-orange-600">תפוגה:</span>
-                          <span className="font-medium mr-1">{new Date(user.expires_at).toLocaleDateString('he-IL')}</span>
-                        </p>
-                      )}
-                      <p className="text-xs text-orange-600 mt-2">
-                        המשתמש יכול להמשיך להשתמש בשירות עד תאריך התפוגה
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Price Summary */}
-                <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
-                  <h4 className="text-sm font-semibold text-green-800 mb-3">💰 סיכום מחיר</h4>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-green-600">מחיר תוכנית:</span>
-                      <span className="font-medium">{user.plan_price ? `₪${user.plan_price}` : 'חינם'}</span>
-                    </div>
-                    {user.custom_discount_percent > 0 && (
-                      <div className="flex justify-between text-green-700">
-                        <span>הנחה ({user.custom_discount_percent}%):</span>
-                        <span>-₪{Math.round(user.plan_price * user.custom_discount_percent / 100)}</span>
-                      </div>
-                    )}
-                    {user.custom_fixed_price > 0 && (
-                      <div className="flex justify-between text-green-700">
-                        <span>מחיר מותאם:</span>
-                        <span>₪{user.custom_fixed_price}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between pt-2 border-t border-green-300 font-bold text-green-800">
-                      <span>לתשלום:</span>
-                      <span>
-                        {user.is_manual 
-                          ? 'ללא תשלום (ידני)'
-                          : user.custom_fixed_price
-                            ? `₪${user.custom_fixed_price}`
-                            : user.custom_discount_percent
-                              ? `₪${Math.round(user.plan_price * (1 - user.custom_discount_percent / 100))}`
-                              : user.plan_price
-                                ? `₪${user.plan_price}`
-                                : 'חינם'
-                        }
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Invoice Settings */}
-                <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
-                  <h4 className="text-sm font-semibold text-purple-800 mb-3">📄 פרטי חשבונית</h4>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-medium text-purple-700 mb-1">שם לחשבונית</label>
-                      <input
-                        type="text"
-                        value={formData.invoiceName}
-                        onChange={(e) => setFormData(f => ({ ...f, invoiceName: e.target.value }))}
-                        placeholder={user.name || 'שם העסק / שם מלא'}
-                        className="w-full px-3 py-2 border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
-                      />
-                      <p className="text-xs text-purple-600 mt-1">יופיע בקבלה ובחשבונית</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-purple-700 mb-1">מייל לקבלה</label>
-                      <input
-                        type="email"
-                        value={formData.receiptEmail}
-                        onChange={(e) => setFormData(f => ({ ...f, receiptEmail: e.target.value }))}
-                        placeholder={user.email || 'email@example.com'}
-                        className="w-full px-3 py-2 border border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
-                      />
-                      <p className="text-xs text-purple-600 mt-1">הקבלה תישלח לכתובת זו (אם שונה מהמייל הראשי)</p>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* Discount Tab */}
-            {activeTab === 'discount' && (
-              <>
-                <div className="p-3 bg-green-50 border border-green-200 rounded-xl">
-                  <p className="text-sm text-green-800 font-medium mb-2">הנחה מותאמת אישית</p>
-                  <p className="text-xs text-green-600">הגדר הנחה קבועה או מחיר קבוע למשתמש זה</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">תקופת הנחה</label>
-                  <select
-                    value={formData.discountType}
-                    onChange={(e) => setFormData(f => ({ ...f, discountType: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500"
-                  >
-                    <option value="none">ללא הנחה</option>
-                    <option value="first_payment">תשלום ראשון בלבד</option>
-                    <option value="custom_months">מספר חודשים מותאם</option>
-                    <option value="first_year">שנה ראשונה (12 חודשים)</option>
-                    <option value="forever">לתמיד</option>
-                  </select>
-                </div>
-
-                {formData.discountType !== 'none' && (
-                  <>
-                    {/* Plan Selection for Discount */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">תוכנית עבור ההנחה</label>
-                      <select
-                        value={formData.discountPlanId}
-                        onChange={(e) => setFormData(f => ({ ...f, discountPlanId: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500"
-                      >
-                        <option value="">בחר תוכנית...</option>
-                        {plans.filter(p => parseFloat(p.price) > 0).map(p => (
-                          <option key={p.id} value={p.id}>
-                            {p.name_he} ({p.name}) - ₪{p.price}/חודש
-                          </option>
-                        ))}
-                      </select>
-                      <p className="text-xs text-gray-500 mt-1">בחר את התוכנית שהמשתמש יקבל במחיר המותאם</p>
-                    </div>
-
-                    {/* Discount Mode Toggle */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">סוג הנחה</label>
-                      <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
-                        <button
-                          type="button"
-                          onClick={() => setFormData(f => ({ ...f, discountMode: 'percent' }))}
-                          className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
-                            formData.discountMode === 'percent' ? 'bg-white shadow text-green-600 font-medium' : 'text-gray-600'
-                          }`}
-                        >
-                          אחוז הנחה (%)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setFormData(f => ({ ...f, discountMode: 'fixed_price' }))}
-                          className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
-                            formData.discountMode === 'fixed_price' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-600'
-                          }`}
-                        >
-                          מחיר קבוע (₪)
-                        </button>
-                      </div>
-                    </div>
-
-                    {formData.discountMode === 'percent' ? (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">אחוז הנחה</label>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            min="1"
-                            max="100"
-                            value={formData.customDiscount}
-                            onChange={(e) => setFormData(f => ({ ...f, customDiscount: parseInt(e.target.value) || 0 }))}
-                            className="w-24 px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500"
-                          />
-                          <span className="text-gray-500">%</span>
-                          <div className="flex gap-1 mr-2">
-                            {[10, 20, 30, 50].map(p => (
-                              <button
-                                key={p}
-                                type="button"
-                                onClick={() => setFormData(f => ({ ...f, customDiscount: p }))}
-                                className={`px-2 py-1 text-xs rounded ${formData.customDiscount === p ? 'bg-green-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
-                              >
-                                {p}%
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">מחיר קבוע לחודש</label>
-                        <div className="flex items-center gap-2">
-                          <span className="text-gray-500">₪</span>
-                          <input
-                            type="number"
-                            min="0"
-                            max="1000"
-                            value={formData.fixedPrice}
-                            onChange={(e) => setFormData(f => ({ ...f, fixedPrice: parseInt(e.target.value) || 0 }))}
-                            className="w-28 px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
-                          />
-                          <span className="text-gray-500">/חודש</span>
-                          <div className="flex gap-1 mr-2">
-                            {[0, 29, 49, 69].map(p => (
-                              <button
-                                key={p}
-                                type="button"
-                                onClick={() => setFormData(f => ({ ...f, fixedPrice: p }))}
-                                className={`px-2 py-1 text-xs rounded ${formData.fixedPrice === p ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
-                              >
-                                {p === 0 ? 'חינם' : `₪${p}`}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                        <p className="text-xs text-gray-500 mt-1">המשתמש ישלם מחיר זה במקום המחיר הרגיל של התוכנית</p>
-                      </div>
-                    )}
-
-                    {formData.discountType === 'custom_months' && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">מספר חודשים</label>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            min="1"
-                            max="36"
-                            value={formData.discountMonths}
-                            onChange={(e) => setFormData(f => ({ ...f, discountMonths: parseInt(e.target.value) || 1 }))}
-                            className="w-24 px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500"
-                          />
-                          <span className="text-gray-500">חודשים</span>
-                          <div className="flex gap-1 mr-2">
-                            {[3, 6, 12].map(m => (
-                              <button
-                                key={m}
-                                type="button"
-                                onClick={() => setFormData(f => ({ ...f, discountMonths: m }))}
-                                className={`px-2 py-1 text-xs rounded ${formData.discountMonths === m ? 'bg-green-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
-                              >
-                                {m}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Skip Trial Option */}
-                    <label className="flex items-center gap-3 cursor-pointer p-3 bg-red-50 border border-red-200 rounded-xl">
-                      <input
-                        type="checkbox"
-                        checked={formData.skipTrial}
-                        onChange={(e) => setFormData(f => ({ ...f, skipTrial: e.target.checked }))}
-                        className="w-5 h-5 rounded border-red-300 text-red-600 focus:ring-red-500"
-                      />
-                      <div>
-                        <div className="font-medium text-red-700">ללא ניסיון חינם</div>
-                        <div className="text-xs text-red-600">הסליקה תהיה מיידית עם הזנת פרטי אשראי</div>
-                      </div>
-                    </label>
-
-                    <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-xl">
-                      <p className="text-sm text-yellow-800">
-                        <strong>תצוגה מקדימה:</strong>{' '}
-                        {formData.discountPlanId && (
-                          <span className="text-purple-700">
-                            תוכנית {plans.find(p => p.id == formData.discountPlanId)?.name_he || ''} ב
-                          </span>
-                        )}
-                        {formData.discountMode === 'percent' 
-                          ? `${formData.customDiscount}% הנחה`
-                          : formData.fixedPrice === 0 
-                            ? 'חינם (₪0)'
-                            : `מחיר קבוע ₪${formData.fixedPrice}/חודש`
-                        }{' '}
-                        {formData.discountType === 'first_payment' && 'לתשלום הראשון'}
-                        {formData.discountType === 'custom_months' && `ל-${formData.discountMonths} חודשים`}
-                        {formData.discountType === 'first_year' && 'לשנה הראשונה (12 חודשים)'}
-                        {formData.discountType === 'forever' && 'לתמיד'}
-                        {formData.skipTrial && <span className="text-red-600 mr-2">• ללא ניסיון</span>}
-                      </p>
-                    </div>
-                  </>
-                )}
-              </>
-            )}
-
-            {/* Referral Tab */}
-            {activeTab === 'referral' && (
-              <>
-                <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl">
-                  <p className="text-sm text-purple-800 font-medium mb-2">שיוך לשותף</p>
-                  <p className="text-xs text-purple-600">הגדר שהמשתמש הגיע דרך שותף מסוים</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">שותף מפנה</label>
-                  <select
-                    value={formData.affiliateId}
-                    onChange={(e) => setFormData(f => ({ ...f, affiliateId: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500"
-                  >
-                    <option value="">ללא שותף</option>
-                    {affiliates.map(aff => (
-                      <option key={aff.id} value={aff.id}>
-                        {aff.user_name || aff.user_email} ({aff.ref_code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {formData.affiliateId && (
-                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
-                    <p className="text-sm text-blue-800">
-                      המשתמש יסומן כהגיע דרך השותף שנבחר.
-                      <br />
-                      <span className="text-xs text-blue-600">השותף יקבל נקודות בהתאם להגדרותיו.</span>
-                    </p>
-                  </div>
-                )}
-
-                {user.referred_by_name && (
-                  <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl">
-                    <p className="text-sm text-gray-700">
-                      <strong>שותף נוכחי:</strong> {user.referred_by_name}
-                      <br />
-                      <span className="text-xs text-gray-500">{user.referred_by_email}</span>
-                    </p>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Features Tab */}
-            {activeTab === 'features' && (
-              <>
-                <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl mb-4">
-                  <p className="text-sm text-orange-800">
-                    <strong>הגדרות מותאמות אישית</strong>
-                    <br />
-                    <span className="text-xs">הגדרות אלו ידרסו את הגדרות התוכנית. השאר ריק לשימוש בברירת המחדל של התוכנית.</span>
-                    <br />
-                    <span className="text-xs text-orange-600">⚠️ בעת שינוי תוכנית, ההגדרות המותאמות יימחקו אוטומטית.</span>
-                  </p>
-                </div>
-
-                {featureOverrides && (
-                  <button
-                    onClick={clearFeatureOverrides}
-                    className="w-full mb-4 px-3 py-2 text-sm text-red-600 border border-red-200 rounded-xl hover:bg-red-50"
-                  >
-                    נקה את כל ההגדרות המותאמות
-                  </button>
-                )}
-
-                <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg mb-3">
-                  <p className="text-xs text-blue-700 text-center">💡 לחץ על <strong>∞</strong> או הזן <strong>-1</strong> לכמות ללא הגבלה</p>
-                </div>
-
-                <div className="space-y-3">
-                  {/* Bots */}
-                  <div className="p-3 bg-gray-50 rounded-xl">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">מכסת בוטים</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        min="-1"
-                        placeholder="ברירת מחדל מהתוכנית"
-                        value={featureOverrides?.max_bots ?? ''}
-                        onChange={(e) => updateFeatureOverride('max_bots', e.target.value !== '' ? parseInt(e.target.value) : null)}
-                        className={`flex-1 px-3 py-2 border rounded-lg text-sm ${featureOverrides?.max_bots === -1 ? 'border-green-400 bg-green-50' : 'border-gray-200'}`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => updateFeatureOverride('max_bots', featureOverrides?.max_bots === -1 ? null : -1)}
-                        className={`px-3 py-2 text-sm rounded-lg font-bold ${featureOverrides?.max_bots === -1 ? 'bg-green-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}
-                        title="ללא הגבלה"
-                      >
-                        ∞
-                      </button>
-                    </div>
-                    {featureOverrides?.max_bots === -1 && (
-                      <span className="text-xs text-green-600 mt-1 block">✓ ללא הגבלה</span>
-                    )}
-                  </div>
-
-                  {/* Bot runs */}
-                  <div className="p-3 bg-gray-50 rounded-xl">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">הרצות בוט בחודש</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        min="-1"
-                        placeholder="ברירת מחדל מהתוכנית"
-                        value={featureOverrides?.max_bot_runs_per_month ?? ''}
-                        onChange={(e) => updateFeatureOverride('max_bot_runs_per_month', e.target.value !== '' ? parseInt(e.target.value) : null)}
-                        className={`flex-1 px-3 py-2 border rounded-lg text-sm ${featureOverrides?.max_bot_runs_per_month === -1 ? 'border-green-400 bg-green-50' : 'border-gray-200'}`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => updateFeatureOverride('max_bot_runs_per_month', featureOverrides?.max_bot_runs_per_month === -1 ? null : -1)}
-                        className={`px-3 py-2 text-sm rounded-lg font-bold ${featureOverrides?.max_bot_runs_per_month === -1 ? 'bg-green-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}
-                        title="ללא הגבלה"
-                      >
-                        ∞
-                      </button>
-                    </div>
-                    {featureOverrides?.max_bot_runs_per_month === -1 && (
-                      <span className="text-xs text-green-600 mt-1 block">✓ ללא הגבלה</span>
-                    )}
-                  </div>
-
-                  {/* Contacts */}
-                  <div className="p-3 bg-gray-50 rounded-xl">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">מכסת אנשי קשר</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        min="-1"
-                        placeholder="ברירת מחדל מהתוכנית"
-                        value={featureOverrides?.max_contacts ?? ''}
-                        onChange={(e) => updateFeatureOverride('max_contacts', e.target.value !== '' ? parseInt(e.target.value) : null)}
-                        className={`flex-1 px-3 py-2 border rounded-lg text-sm ${featureOverrides?.max_contacts === -1 ? 'border-green-400 bg-green-50' : 'border-gray-200'}`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => updateFeatureOverride('max_contacts', featureOverrides?.max_contacts === -1 ? null : -1)}
-                        className={`px-3 py-2 text-sm rounded-lg font-bold ${featureOverrides?.max_contacts === -1 ? 'bg-green-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}
-                        title="ללא הגבלה"
-                      >
-                        ∞
-                      </button>
-                    </div>
-                    {featureOverrides?.max_contacts === -1 && (
-                      <span className="text-xs text-green-600 mt-1 block">✓ ללא הגבלה</span>
-                    )}
-                  </div>
-
-                  {/* Group Forwards */}
-                  <div className="p-3 bg-gray-50 rounded-xl">
-                    <label className="flex items-center gap-2 cursor-pointer mb-2">
-                      <input
-                        type="checkbox"
-                        checked={featureOverrides?.allow_group_forwards ?? false}
-                        onChange={(e) => updateFeatureOverride('allow_group_forwards', e.target.checked ? true : null)}
-                        className="w-4 h-4 rounded border-gray-300 text-orange-600"
-                      />
-                      <span className="text-sm font-medium text-gray-700">העברת הודעות לקבוצות</span>
-                    </label>
-                    <div className="grid grid-cols-2 gap-2 mt-2">
-                      <div>
-                        <label className="text-xs text-gray-500">מקסימום העברות</label>
-                        <div className="flex gap-1">
-                          <input
-                            type="number"
-                            min="-1"
-                            placeholder="ברירת מחדל"
-                            value={featureOverrides?.max_group_forwards ?? ''}
-                            onChange={(e) => updateFeatureOverride('max_group_forwards', e.target.value !== '' ? parseInt(e.target.value) : null)}
-                            className={`flex-1 px-2 py-1 border rounded text-sm ${featureOverrides?.max_group_forwards === -1 ? 'border-green-400 bg-green-50' : 'border-gray-200'}`}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => updateFeatureOverride('max_group_forwards', featureOverrides?.max_group_forwards === -1 ? null : -1)}
-                            className={`px-2 py-1 text-xs rounded ${featureOverrides?.max_group_forwards === -1 ? 'bg-green-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}
-                            title="ללא הגבלה"
-                          >
-                            ∞
-                          </button>
-                        </div>
-                        {featureOverrides?.max_group_forwards === -1 && (
-                          <span className="text-xs text-green-600">ללא הגבלה</span>
-                        )}
-                      </div>
-                      <div>
-                        <label className="text-xs text-gray-500">מקסימום יעדים</label>
-                        <div className="flex gap-1">
-                          <input
-                            type="number"
-                            min="-1"
-                            placeholder="ברירת מחדל"
-                            value={featureOverrides?.max_forward_targets ?? ''}
-                            onChange={(e) => updateFeatureOverride('max_forward_targets', e.target.value !== '' ? parseInt(e.target.value) : null)}
-                            className={`flex-1 px-2 py-1 border rounded text-sm ${featureOverrides?.max_forward_targets === -1 ? 'border-green-400 bg-green-50' : 'border-gray-200'}`}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => updateFeatureOverride('max_forward_targets', featureOverrides?.max_forward_targets === -1 ? null : -1)}
-                            className={`px-2 py-1 text-xs rounded ${featureOverrides?.max_forward_targets === -1 ? 'bg-green-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}
-                            title="ללא הגבלה"
-                          >
-                            ∞
-                          </button>
-                        </div>
-                        {featureOverrides?.max_forward_targets === -1 && (
-                          <span className="text-xs text-green-600">ללא הגבלה</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Boolean Features */}
-                  <div className="p-3 bg-gray-50 rounded-xl space-y-2">
-                    <label className="text-sm font-medium text-gray-700">פיצ׳רים נוספים</label>
-                    
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={featureOverrides?.allow_statistics ?? false}
-                        onChange={(e) => updateFeatureOverride('allow_statistics', e.target.checked ? true : null)}
-                        className="w-4 h-4 rounded border-gray-300 text-orange-600"
-                      />
-                      <span className="text-sm text-gray-600">סטטיסטיקות</span>
-                    </label>
-                    
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={featureOverrides?.allow_waha_creation ?? false}
-                        onChange={(e) => updateFeatureOverride('allow_waha_creation', e.target.checked ? true : null)}
-                        className="w-4 h-4 rounded border-gray-300 text-orange-600"
-                      />
-                      <span className="text-sm text-gray-600">יצירת חיבור WAHA</span>
-                    </label>
-                    
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={featureOverrides?.allow_export ?? false}
-                        onChange={(e) => updateFeatureOverride('allow_export', e.target.checked ? true : null)}
-                        className="w-4 h-4 rounded border-gray-300 text-orange-600"
-                      />
-                      <span className="text-sm text-gray-600">ייצוא נתונים</span>
-                    </label>
-                    
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={featureOverrides?.allow_api_access ?? false}
-                        onChange={(e) => updateFeatureOverride('allow_api_access', e.target.checked ? true : null)}
-                        className="w-4 h-4 rounded border-gray-300 text-orange-600"
-                      />
-                      <span className="text-sm text-gray-600">גישת API</span>
-                    </label>
-                    
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={featureOverrides?.priority_support ?? false}
-                        onChange={(e) => updateFeatureOverride('priority_support', e.target.checked ? true : null)}
-                        className="w-4 h-4 rounded border-gray-300 text-orange-600"
-                      />
-                      <span className="text-sm text-gray-600">תמיכה מועדפת</span>
-                    </label>
-                    
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={featureOverrides?.allow_broadcasts ?? false}
-                        onChange={(e) => updateFeatureOverride('allow_broadcasts', e.target.checked ? true : null)}
-                        className="w-4 h-4 rounded border-gray-300 text-orange-600"
-                      />
-                      <span className="text-sm text-gray-600">הודעות תפוצה</span>
-                    </label>
-                  </div>
-
-                  {/* Save Features Button */}
-                  <button
-                    onClick={handleSaveFeatures}
-                    disabled={savingFeatures}
-                    className="w-full px-4 py-2 bg-orange-600 text-white rounded-xl hover:bg-orange-700 disabled:opacity-50"
-                  >
-                    {savingFeatures ? 'שומר...' : 'שמור הגדרות פיצ׳רים'}
-                  </button>
-                </div>
-              </>
-            )}
-
-            {/* Services Tab - Status Bot and other additional services */}
-            {activeTab === 'services' && (
-              <ServicesTab userId={user.id} userName={user.name || user.email} />
-            )}
-
-            {/* Statistics Tab - Feature usage stats */}
-            {activeTab === 'stats' && (
-              <div className="space-y-4">
-                <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl">
-                  <p className="text-sm text-indigo-800">
-                    <strong>שימוש בפיצ׳רים</strong>
-                    <br />
-                    <span className="text-xs">סטטיסטיקות על השימוש של המשתמש במודולים השונים</span>
-                  </p>
-                </div>
-
-                {/* Feature Usage Grid */}
-                <div className="grid grid-cols-2 gap-3">
-                  {/* Bots */}
-                  <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Bot className="w-5 h-5 text-purple-600" />
-                      <span className="font-medium text-purple-800">בוטים</span>
-                    </div>
-                    <div className="text-2xl font-bold text-purple-700">{user.bots_count || 0}</div>
-                    <p className="text-xs text-purple-600 mt-1">בוטים פעילים</p>
-                  </div>
-
-                  {/* Contacts */}
-                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Users className="w-5 h-5 text-blue-600" />
-                      <span className="font-medium text-blue-800">אנשי קשר</span>
-                    </div>
-                    <div className="text-2xl font-bold text-blue-700">{user.contacts_count || 0}</div>
-                    <p className="text-xs text-blue-600 mt-1">אנשי קשר שמורים</p>
-                  </div>
-
-                  {/* Group Forwards */}
-                  <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Send className="w-5 h-5 text-green-600" />
-                      <span className="font-medium text-green-800">העברת הודעות</span>
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <div className="text-2xl font-bold text-green-700">{user.group_forwards_count || 0}</div>
-                      <span className="text-sm text-green-600">כללי העברה</span>
-                    </div>
-                    <p className="text-xs text-green-600 mt-1">
-                      {user.forward_jobs_count || 0} הרצות בוצעו
-                    </p>
-                    {parseInt(user.group_forwards_count) > 0 && (
-                      <span className="inline-block mt-2 px-2 py-0.5 bg-green-200 text-green-800 rounded-full text-xs">
-                        משתמש פעיל
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Group Transfers */}
-                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl">
-                    <div className="flex items-center gap-2 mb-2">
-                      <ArrowRightLeft className="w-5 h-5 text-orange-600" />
-                      <span className="font-medium text-orange-800">העברה בין קבוצות</span>
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <div className="text-2xl font-bold text-orange-700">{user.group_transfers_count || 0}</div>
-                      <span className="text-sm text-orange-600">חבילות</span>
-                    </div>
-                    <p className="text-xs text-orange-600 mt-1">
-                      {user.transfer_jobs_count || 0} העברות בוצעו
-                    </p>
-                    {parseInt(user.group_transfers_count) > 0 && (
-                      <span className="inline-block mt-2 px-2 py-0.5 bg-orange-200 text-orange-800 rounded-full text-xs">
-                        משתמש פעיל
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Broadcasts */}
-                  <div className="p-4 bg-cyan-50 border border-cyan-200 rounded-xl">
-                    <div className="flex items-center gap-2 mb-2">
-                      <MessageSquare className="w-5 h-5 text-cyan-600" />
-                      <span className="font-medium text-cyan-800">הודעות תפוצה</span>
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <div className="text-2xl font-bold text-cyan-700">{user.broadcast_campaigns_count || 0}</div>
-                      <span className="text-sm text-cyan-600">קמפיינים</span>
-                    </div>
-                    <p className="text-xs text-cyan-600 mt-1">
-                      {user.broadcast_recipients_total || 0} נמענים בסה״כ
-                    </p>
-                    {parseInt(user.broadcast_campaigns_count) > 0 && (
-                      <span className="inline-block mt-2 px-2 py-0.5 bg-cyan-200 text-cyan-800 rounded-full text-xs">
-                        משתמש פעיל
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Status Bot */}
-                  <div className="p-4 bg-pink-50 border border-pink-200 rounded-xl">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Image className="w-5 h-5 text-pink-600" />
-                      <span className="font-medium text-pink-800">בוט סטטוסים</span>
-                    </div>
-                    {user.has_status_bot ? (
-                      <>
-                        <div className="text-lg font-bold text-green-600 flex items-center gap-1">
-                          <Check className="w-4 h-4" />
-                          פעיל
-                        </div>
-                        <p className="text-xs text-pink-600 mt-1">
-                          סטטוס: {user.status_bot_status === 'active' ? 'פעיל' : 
-                                  user.status_bot_status === 'trial' ? 'ניסיון' : 
-                                  user.status_bot_status || 'לא ידוע'}
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <div className="text-lg font-bold text-gray-400 flex items-center gap-1">
-                          <X className="w-4 h-4" />
-                          לא פעיל
-                        </div>
-                        <p className="text-xs text-gray-500 mt-1">לא רשום לשירות</p>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Usage Summary */}
-                <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                    <BarChart3 className="w-4 h-4" />
-                    סיכום שימוש
-                  </h4>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">העברת הודעות לקבוצות:</span>
-                      <span className={parseInt(user.group_forwards_count) > 0 ? 'text-green-600 font-medium' : 'text-gray-400'}>
-                        {parseInt(user.group_forwards_count) > 0 ? 'משתמש' : 'לא משתמש'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">העברה בין קבוצות:</span>
-                      <span className={parseInt(user.group_transfers_count) > 0 ? 'text-green-600 font-medium' : 'text-gray-400'}>
-                        {parseInt(user.group_transfers_count) > 0 ? 'משתמש' : 'לא משתמש'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">הודעות תפוצה:</span>
-                      <span className={parseInt(user.broadcast_campaigns_count) > 0 ? 'text-green-600 font-medium' : 'text-gray-400'}>
-                        {parseInt(user.broadcast_campaigns_count) > 0 ? 'משתמש' : 'לא משתמש'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">בוט סטטוסים:</span>
-                      <span className={user.has_status_bot ? 'text-green-600 font-medium' : 'text-gray-400'}>
-                        {user.has_status_bot ? 'רשום' : 'לא רשום'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Save Button - Always visible */}
-            <div className="flex gap-3 pt-4 border-t border-gray-200">
               <button
                 onClick={onClose}
-                className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 font-medium"
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors"
               >
-                סגור
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving || !formData.planId}
-                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 font-medium"
-              >
-                {saving ? 'שומר...' : 'שמור שינויים'}
+                <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
           </div>
-        )}
+        </div>
+
+        {/* Tabs */}
+        <div className="px-6 pt-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+          <div className="flex gap-1 overflow-x-auto pb-px">
+            {tabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-4 py-2.5 rounded-t-xl text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? 'bg-white dark:bg-gray-800 text-purple-600 dark:text-purple-400 border-t border-x border-gray-200 dark:border-gray-700 -mb-px'
+                    : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                <tab.icon className="w-4 h-4" />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <RefreshCw className="w-8 h-8 animate-spin text-purple-500" />
+            </div>
+          ) : (
+            <>
+              {/* Overview Tab */}
+              {activeTab === 'overview' && (
+                <OverviewTab user={user} userBots={userBots} billingHistory={billingHistory} />
+              )}
+
+              {/* Subscription Tab */}
+              {activeTab === 'subscription' && (
+                <SubscriptionTab 
+                  user={user}
+                  formData={formData}
+                  setFormData={setFormData}
+                  plans={plans}
+                  affiliates={affiliates}
+                  saving={saving}
+                  onSave={handleSave}
+                />
+              )}
+
+              {/* Billing Tab */}
+              {activeTab === 'billing' && (
+                <BillingTab user={user} billingHistory={billingHistory} />
+              )}
+
+              {/* Bots Tab */}
+              {activeTab === 'bots' && (
+                <BotsTab user={user} userBots={userBots} onRefresh={loadAllData} />
+              )}
+
+              {/* Features Tab */}
+              {activeTab === 'features' && (
+                <FeaturesTab 
+                  user={user}
+                  featureOverrides={featureOverrides}
+                  setFeatureOverrides={setFeatureOverrides}
+                  plans={plans}
+                  showToast={showToast}
+                />
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// Export UnifiedUserModal for use in other admin components
-export { UnifiedUserModal };
+// Overview Tab
+function OverviewTab({ user, userBots, billingHistory }) {
+  const stats = [
+    { label: 'בוטים', value: user.bots_count || 0, icon: Bot, color: 'purple' },
+    { label: 'בוטים פעילים', value: user.active_bots_count || 0, icon: Zap, color: 'green' },
+    { label: 'אנשי קשר', value: user.contacts_count || 0, icon: Users, color: 'blue' },
+    { label: 'העברות קבוצות', value: user.group_forwards_count || 0, icon: ArrowRightLeft, color: 'cyan' },
+    { label: 'קמפייני שידור', value: user.broadcast_campaigns_count || 0, icon: Send, color: 'orange' },
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Quick Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        {stats.map(stat => (
+          <div key={stat.label} className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 text-center">
+            <stat.icon className={`w-6 h-6 mx-auto mb-2 text-${stat.color}-500`} />
+            <div className="text-2xl font-bold text-gray-800 dark:text-white">{stat.value}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">{stat.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Subscription Status */}
+      <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
+        <h3 className="font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
+          <Crown className="w-5 h-5 text-yellow-500" />
+          סטטוס מנוי
+        </h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div>
+            <span className="text-gray-500 dark:text-gray-400">תוכנית:</span>
+            <div className="font-medium text-gray-800 dark:text-white">{user.plan_name_he || user.plan_name || 'חינם'}</div>
+          </div>
+          <div>
+            <span className="text-gray-500 dark:text-gray-400">סטטוס:</span>
+            <div className="font-medium text-gray-800 dark:text-white">
+              {user.subscription_status === 'active' ? 'פעיל' :
+               user.subscription_status === 'trial' ? 'ניסיון' :
+               user.subscription_status === 'cancelled' ? 'מבוטל' : 'לא פעיל'}
+            </div>
+          </div>
+          <div>
+            <span className="text-gray-500 dark:text-gray-400">אשראי:</span>
+            <div className={`font-medium ${user.has_payment_method ? 'text-green-600' : 'text-red-500'}`}>
+              {user.has_payment_method ? 'קיים' : 'חסר'}
+            </div>
+          </div>
+          <div>
+            <span className="text-gray-500 dark:text-gray-400">WhatsApp:</span>
+            <div className={`font-medium ${user.whatsapp_status === 'connected' ? 'text-green-600' : 'text-gray-400'}`}>
+              {user.whatsapp_status === 'connected' ? 'מחובר' : 'לא מחובר'}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Bots */}
+      {userBots.length > 0 && (
+        <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
+          <h3 className="font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
+            <Bot className="w-5 h-5 text-purple-500" />
+            בוטים אחרונים
+          </h3>
+          <div className="space-y-2">
+            {userBots.slice(0, 3).map(bot => (
+              <div key={bot.id} className="flex items-center justify-between py-2 border-b border-gray-200 dark:border-gray-600 last:border-0">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${bot.is_active ? 'bg-green-500' : 'bg-gray-300'}`} />
+                  <span className="text-gray-800 dark:text-white">{bot.name}</span>
+                  {bot.locked_reason && (
+                    <span className="px-1.5 py-0.5 bg-red-100 text-red-600 text-[10px] rounded">נעול</span>
+                  )}
+                </div>
+                <span className="text-xs text-gray-500">{new Date(bot.updated_at).toLocaleDateString('he-IL')}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent Payments */}
+      {billingHistory.length > 0 && (
+        <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
+          <h3 className="font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
+            <DollarSign className="w-5 h-5 text-green-500" />
+            תשלומים אחרונים
+          </h3>
+          <div className="space-y-2">
+            {billingHistory.slice(0, 3).map(payment => (
+              <div key={payment.id} className="flex items-center justify-between py-2 border-b border-gray-200 dark:border-gray-600 last:border-0">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${
+                    payment.status === 'completed' ? 'bg-green-500' :
+                    payment.status === 'failed' ? 'bg-red-500' : 'bg-yellow-500'
+                  }`} />
+                  <span className="text-gray-800 dark:text-white">₪{payment.amount}</span>
+                </div>
+                <span className="text-xs text-gray-500">{new Date(payment.created_at).toLocaleDateString('he-IL')}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Subscription Tab
+function SubscriptionTab({ user, formData, setFormData, plans, affiliates, saving, onSave }) {
+  return (
+    <div className="space-y-6">
+      {/* Plan Selection */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">תוכנית</label>
+        <select
+          value={formData.planId}
+          onChange={(e) => setFormData(f => ({ ...f, planId: e.target.value }))}
+          className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border-0 rounded-xl text-gray-800 dark:text-white"
+        >
+          {plans.map(plan => (
+            <option key={plan.id} value={plan.id}>
+              {plan.name_he || plan.name} - ₪{plan.price}/{plan.billing_period === 'monthly' ? 'חודש' : 'שנה'}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Status */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">סטטוס מנוי</label>
+        <select
+          value={formData.status}
+          onChange={(e) => setFormData(f => ({ ...f, status: e.target.value }))}
+          className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border-0 rounded-xl text-gray-800 dark:text-white"
+        >
+          <option value="active">פעיל</option>
+          <option value="trial">תקופת ניסיון</option>
+          <option value="cancelled">מבוטל</option>
+          <option value="expired">פג תוקף</option>
+        </select>
+      </div>
+
+      {/* Manual Subscription */}
+      <div className="flex items-center gap-3 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
+        <input
+          type="checkbox"
+          id="isManual"
+          checked={formData.isManual}
+          onChange={(e) => setFormData(f => ({ ...f, isManual: e.target.checked }))}
+          className="w-5 h-5 rounded text-purple-600"
+        />
+        <label htmlFor="isManual" className="text-gray-700 dark:text-gray-300">
+          מנוי ידני (ללא תשלום אוטומטי)
+        </label>
+      </div>
+
+      {/* Expiry Date */}
+      {!formData.isManual && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">תאריך תפוגה</label>
+          <input
+            type="date"
+            value={formData.expiresAt}
+            onChange={(e) => setFormData(f => ({ ...f, expiresAt: e.target.value }))}
+            className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border-0 rounded-xl text-gray-800 dark:text-white"
+          />
+        </div>
+      )}
+
+      {formData.isManual && (
+        <div className="flex items-center gap-3">
+          <input
+            type="checkbox"
+            id="noExpiry"
+            checked={formData.noExpiry}
+            onChange={(e) => setFormData(f => ({ ...f, noExpiry: e.target.checked }))}
+            className="w-5 h-5 rounded text-purple-600"
+          />
+          <label htmlFor="noExpiry" className="text-gray-700 dark:text-gray-300">
+            ללא תאריך תפוגה (אינסופי)
+          </label>
+        </div>
+      )}
+
+      {/* Trial End Date */}
+      {formData.status === 'trial' && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">סיום ניסיון</label>
+          <input
+            type="date"
+            value={formData.trialEndsAt}
+            onChange={(e) => setFormData(f => ({ ...f, trialEndsAt: e.target.value }))}
+            className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border-0 rounded-xl text-gray-800 dark:text-white"
+          />
+        </div>
+      )}
+
+      {/* Discount */}
+      <div className="space-y-3">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">הנחה</label>
+        <select
+          value={formData.discountType}
+          onChange={(e) => setFormData(f => ({ ...f, discountType: e.target.value }))}
+          className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border-0 rounded-xl text-gray-800 dark:text-white"
+        >
+          <option value="none">ללא הנחה</option>
+          <option value="first_payment">תשלום ראשון בלבד</option>
+          <option value="first_year">שנה ראשונה</option>
+          <option value="forever">לצמיתות</option>
+        </select>
+        
+        {formData.discountType !== 'none' && (
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              value={formData.customDiscount}
+              onChange={(e) => setFormData(f => ({ ...f, customDiscount: parseInt(e.target.value) || 0 }))}
+              min="0"
+              max="100"
+              className="w-24 px-4 py-3 bg-gray-50 dark:bg-gray-700 border-0 rounded-xl text-gray-800 dark:text-white"
+            />
+            <span className="text-gray-500">% הנחה</span>
+          </div>
+        )}
+      </div>
+
+      {/* Admin Notes */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">הערות אדמין</label>
+        <textarea
+          value={formData.adminNotes}
+          onChange={(e) => setFormData(f => ({ ...f, adminNotes: e.target.value }))}
+          rows={3}
+          className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border-0 rounded-xl text-gray-800 dark:text-white resize-none"
+          placeholder="הערות פנימיות..."
+        />
+      </div>
+
+      {/* Save Button */}
+      <button
+        onClick={onSave}
+        disabled={saving}
+        className="w-full px-4 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+      >
+        {saving ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
+        שמור שינויים
+      </button>
+    </div>
+  );
+}
+
+// Billing Tab
+function BillingTab({ user, billingHistory }) {
+  return (
+    <div className="space-y-6">
+      {/* Payment Method Status */}
+      <div className={`p-4 rounded-xl flex items-center gap-3 ${
+        user.has_payment_method 
+          ? 'bg-green-50 dark:bg-green-900/20' 
+          : 'bg-red-50 dark:bg-red-900/20'
+      }`}>
+        {user.has_payment_method ? (
+          <>
+            <CreditCard className="w-6 h-6 text-green-600" />
+            <div>
+              <div className="font-medium text-green-700 dark:text-green-400">אשראי קיים במערכת</div>
+              {user.card_last_digits && (
+                <div className="text-sm text-green-600 dark:text-green-500">•••• {user.card_last_digits}</div>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <AlertTriangle className="w-6 h-6 text-red-600" />
+            <div>
+              <div className="font-medium text-red-700 dark:text-red-400">אין אשראי במערכת</div>
+              <div className="text-sm text-red-600 dark:text-red-500">יש לשלוח למשתמש לינק להוספת אשראי</div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Billing History */}
+      <div>
+        <h3 className="font-semibold text-gray-800 dark:text-white mb-3">היסטוריית חיובים</h3>
+        {billingHistory.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <DollarSign className="w-12 h-12 mx-auto mb-2 opacity-30" />
+            אין היסטוריית חיובים
+          </div>
+        ) : (
+          <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-gray-100 dark:bg-gray-600">
+                <tr>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-600 dark:text-gray-300">תאריך</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-600 dark:text-gray-300">סכום</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-600 dark:text-gray-300">סטטוס</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-600 dark:text-gray-300">סוג</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
+                {billingHistory.map(payment => (
+                  <tr key={payment.id}>
+                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                      {new Date(payment.created_at).toLocaleDateString('he-IL')}
+                    </td>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-800 dark:text-white">
+                      ₪{payment.amount}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded-full text-xs ${
+                        payment.status === 'completed' ? 'bg-green-100 text-green-700' :
+                        payment.status === 'failed' ? 'bg-red-100 text-red-700' :
+                        'bg-yellow-100 text-yellow-700'
+                      }`}>
+                        {payment.status === 'completed' ? 'הושלם' :
+                         payment.status === 'failed' ? 'נכשל' : 'ממתין'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                      {payment.charge_type || 'חיוב'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Bots Tab
+function BotsTab({ user, userBots, onRefresh }) {
+  const [toggling, setToggling] = useState(null);
+
+  const handleToggleLock = async (botId, currentLocked) => {
+    setToggling(botId);
+    try {
+      await api.put(`/admin/bots/${botId}/lock`, { locked: !currentLocked });
+      onRefresh();
+    } catch (err) {
+      console.error('Failed to toggle lock:', err);
+    } finally {
+      setToggling(null);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {userBots.length === 0 ? (
+        <div className="text-center py-8 text-gray-500">
+          <Bot className="w-12 h-12 mx-auto mb-2 opacity-30" />
+          אין בוטים
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {userBots.map(bot => (
+            <div 
+              key={bot.id} 
+              className={`p-4 rounded-xl border ${
+                bot.locked_reason 
+                  ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800' 
+                  : 'bg-gray-50 border-gray-200 dark:bg-gray-700/50 dark:border-gray-600'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`w-3 h-3 rounded-full ${
+                    bot.locked_reason ? 'bg-red-500' :
+                    bot.is_active ? 'bg-green-500' : 'bg-gray-300'
+                  }`} />
+                  <div>
+                    <div className="font-medium text-gray-800 dark:text-white flex items-center gap-2">
+                      {bot.name}
+                      {bot.locked_reason && (
+                        <span className="px-1.5 py-0.5 bg-red-100 text-red-600 text-[10px] rounded">
+                          נעול: {bot.locked_reason}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      עודכן: {new Date(bot.updated_at).toLocaleDateString('he-IL')}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleToggleLock(bot.id, !!bot.locked_reason)}
+                  disabled={toggling === bot.id}
+                  className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                    bot.locked_reason
+                      ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                      : 'bg-red-100 text-red-700 hover:bg-red-200'
+                  }`}
+                >
+                  {toggling === bot.id ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    bot.locked_reason ? 'בטל נעילה' : 'נעל'
+                  )}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Features Tab
+function FeaturesTab({ user, featureOverrides, setFeatureOverrides, plans, showToast }) {
+  const [saving, setSaving] = useState(false);
+  
+  const currentPlan = plans.find(p => p.name === user.plan_name || p.name_he === user.plan_name_he);
+  const planLimits = currentPlan?.features || {};
+
+  const features = [
+    { key: 'max_bots', label: 'מקסימום בוטים', type: 'number' },
+    { key: 'max_contacts', label: 'מקסימום אנשי קשר', type: 'number' },
+    { key: 'max_active_bots', label: 'מקסימום בוטים פעילים', type: 'number' },
+    { key: 'max_messages_per_day', label: 'הודעות ליום', type: 'number' },
+    { key: 'allow_broadcasts', label: 'שידורים', type: 'boolean' },
+    { key: 'allow_image_generation', label: 'יצירת תמונות', type: 'boolean' },
+    { key: 'allow_ai', label: 'בינה מלאכותית', type: 'boolean' },
+  ];
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.put(`/admin/users/${user.id}/feature-overrides`, {
+        feature_overrides: featureOverrides
+      });
+      showToast('success', 'ההגדרות נשמרו');
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה בשמירה');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateOverride = (key, value) => {
+    setFeatureOverrides(prev => {
+      const newOverrides = { ...(prev || {}) };
+      if (value === null || value === undefined || value === '') {
+        delete newOverrides[key];
+      } else {
+        newOverrides[key] = value;
+      }
+      return Object.keys(newOverrides).length === 0 ? null : newOverrides;
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl">
+        <p className="text-sm text-yellow-700 dark:text-yellow-400">
+          הגדרות אלו דורסות את הגדרות התוכנית. השאר ריק לשימוש בברירת המחדל של התוכנית.
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        {features.map(feature => (
+          <div key={feature.key} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+            <div>
+              <div className="font-medium text-gray-800 dark:text-white">{feature.label}</div>
+              <div className="text-xs text-gray-500">
+                ברירת מחדל: {planLimits[feature.key] ?? 'לא מוגדר'}
+              </div>
+            </div>
+            {feature.type === 'number' ? (
+              <input
+                type="number"
+                value={featureOverrides?.[feature.key] ?? ''}
+                onChange={(e) => updateOverride(feature.key, e.target.value ? parseInt(e.target.value) : null)}
+                placeholder="ברירת מחדל"
+                className="w-32 px-3 py-2 bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 rounded-lg text-gray-800 dark:text-white text-center"
+              />
+            ) : (
+              <select
+                value={featureOverrides?.[feature.key] === true ? 'true' : featureOverrides?.[feature.key] === false ? 'false' : ''}
+                onChange={(e) => updateOverride(feature.key, e.target.value === '' ? null : e.target.value === 'true')}
+                className="w-32 px-3 py-2 bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 rounded-lg text-gray-800 dark:text-white"
+              >
+                <option value="">ברירת מחדל</option>
+                <option value="true">מופעל</option>
+                <option value="false">מושבת</option>
+              </select>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        className="w-full px-4 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+      >
+        {saving ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
+        שמור הגדרות
+      </button>
+    </div>
+  );
+}
