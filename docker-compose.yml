@@ -28,6 +28,7 @@ services:
     container_name: flowbotomat_backend
     restart: unless-stopped
     environment:
+      NODE_OPTIONS: "--max-old-space-size=1024"
       NODE_ENV: ${NODE_ENV}
       DB_HOST: db
       DB_PORT: 5432
