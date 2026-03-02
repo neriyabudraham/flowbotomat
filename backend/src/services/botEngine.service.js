@@ -1517,7 +1517,19 @@ class BotEngine {
   }
   
   // Execute a node
-  async executeNode(nodeId, flowData, contact, message, userId, botId, botName = '') {
+  async executeNode(nodeId, flowData, contact, message, userId, botId, botName = '', _visitedNodes = new Set()) {
+    // Infinite loop protection: track visited nodes in this execution chain
+    const MAX_NODE_EXECUTIONS = 50;
+    if (_visitedNodes.has(nodeId)) {
+      console.warn(`[BotEngine] ⚠️ Loop detected! Node ${nodeId} already visited. Stopping.`);
+      return;
+    }
+    if (_visitedNodes.size >= MAX_NODE_EXECUTIONS) {
+      console.warn(`[BotEngine] ⚠️ Max node limit (${MAX_NODE_EXECUTIONS}) reached. Stopping to prevent infinite loop.`);
+      return;
+    }
+    _visitedNodes.add(nodeId);
+    
     const node = flowData.nodes.find(n => n.id === nodeId);
     if (!node) {
       console.log('[BotEngine] Node not found:', nodeId);
@@ -1606,7 +1618,7 @@ class BotEngine {
       
       // Execute all branches sequentially (top to bottom)
       for (const edge of sortedEdges) {
-        await this.executeNode(edge.target, flowData, contact, message, userId, botId, botName);
+        await this.executeNode(edge.target, flowData, contact, message, userId, botId, botName, _visitedNodes);
       }
     }
   }
