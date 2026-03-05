@@ -709,15 +709,18 @@ async function sendNotificationMessage(userId, phone, text) {
  */
 async function handleConfirmationResponse(userId, senderPhone, messageContent, selectedRowId) {
   try {
-    // Button clicks with fwd_ prefix are always allowed (they contain the job ID)
-    if (selectedRowId?.startsWith('fwd_')) {
+    // Button clicks with fwd_ or admin_ prefix are always allowed (they contain the job ID)
+    const isKnownRowId = selectedRowId?.startsWith('fwd_') ||
+                         selectedRowId?.startsWith('admin_approve_') ||
+                         selectedRowId?.startsWith('admin_reject_');
+    if (isKnownRowId) {
       console.log(`[GroupForwards] Processing list response: ${selectedRowId}`);
     }
-    
+
     // For text messages (not button clicks), verify this sender has a RECENT active job
     // This prevents random people in groups from triggering scheduling responses
     // Also prevents stale pending_time jobs from catching random numbers
-    if (!selectedRowId || !selectedRowId.startsWith('fwd_')) {
+    if (!selectedRowId || !isKnownRowId) {
       // First: cancel stale pending/pending_time jobs (older than 1 hour)
       await db.query(`
         UPDATE forward_jobs SET status = 'cancelled', updated_at = NOW()
