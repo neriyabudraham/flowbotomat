@@ -7,6 +7,9 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 
+// In-memory state for pending edit operations: "userId:normalizedPhone" -> jobId
+const pendingEdits = new Map();
+
 /**
  * Download media from URL and save locally to uploads folder
  * Returns the local URL or the original URL if download fails
@@ -544,22 +547,53 @@ async function sendProgressList(userId, senderPhone, jobId, sent, total) {
 }
 
 /**
- * Send completion message
+ * Send completion message with post-send action options
  */
 async function sendCompletionMessage(userId, senderPhone, jobId, sent, failed, total) {
   try {
-    let message;
-    
+    let statusText;
+
     if (failed === 0 && sent === total) {
-      message = `✅ *השליחה הושלמה בהצלחה!*\n\nההודעה נשלחה ל-*${sent}* קבוצות.`;
+      statusText = `✅ *השליחה הושלמה בהצלחה!*\n\nההודעה נשלחה ל-*${sent}* קבוצות.`;
     } else if (sent === 0) {
-      message = `❌ *השליחה נכשלה*\n\nלא הצלחתי לשלוח לאף קבוצה.`;
+      statusText = `❌ *השליחה נכשלה*\n\nלא הצלחתי לשלוח לאף קבוצה.`;
     } else {
-      message = `⚠️ *השליחה הסתיימה*\n\n✅ נשלח: *${sent}* קבוצות\n❌ נכשל: *${failed}* קבוצות`;
+      statusText = `⚠️ *השליחה הסתיימה*\n\n✅ נשלח: *${sent}* קבוצות\n❌ נכשל: *${failed}* קבוצות`;
     }
-    
-    await sendNotificationMessage(userId, senderPhone, message);
-    
+
+    // If messages were sent, offer post-send actions via list
+    if (sent > 0) {
+      try {
+        const wahaConnection = await getWahaConnection(userId);
+        if (wahaConnection) {
+          const chatId = `${senderPhone}@s.whatsapp.net`;
+          const wahaService = require('../waha/session.service');
+
+          const listData = {
+            title: `📤 ${sent}/${total} נשלחו`,
+            body: `${statusText}\n\nמה לעשות עם ההודעות?`,
+            buttonText: 'פעולות',
+            buttons: [
+              { title: '📌 הצמד הודעות (24 שעות)', rowId: `fwd_pin_${jobId}` },
+              { title: '✏️ ערוך הודעות', rowId: `fwd_edit_${jobId}` },
+              { title: '🗑️ מחק הודעות', rowId: `fwd_delete_${jobId}` }
+            ]
+          };
+
+          await wahaService.sendList(wahaConnection, chatId, listData);
+          await saveOutgoingMessage(userId, chatId, 'list', listData.body, null, null, null,
+            { title: listData.title, buttonText: listData.buttonText, buttons: listData.buttons }
+          );
+          return;
+        }
+      } catch (listErr) {
+        console.error('[GroupForwards] Send completion list error:', listErr.message);
+      }
+    }
+
+    // Fallback: plain text
+    await sendNotificationMessage(userId, senderPhone, statusText);
+
   } catch (error) {
     console.error('[GroupForwards] Send completion error:', error.message);
   }
@@ -704,7 +738,8 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
         LIMIT 1
       `, [userId, senderPhone, normalizedPhone, withCountryCode]);
       
-      if (hasActiveJob.rows.length === 0 && hasPendingReschedule.rows.length === 0) {
+      const pendingEditKey = `${userId}:${normalizedPhone}`;
+      if (hasActiveJob.rows.length === 0 && hasPendingReschedule.rows.length === 0 && !pendingEdits.has(pendingEditKey)) {
         return false;
       }
     }
@@ -740,10 +775,28 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
         await handleStop(userId, senderPhone, jobId, false);
         return true;
       }
-      
+
       if (selectedRowId.startsWith('fwd_stopdelete_')) {
         const jobId = selectedRowId.replace('fwd_stopdelete_', '');
         await handleStop(userId, senderPhone, jobId, true);
+        return true;
+      }
+
+      if (selectedRowId.startsWith('fwd_delete_')) {
+        const jobId = selectedRowId.replace('fwd_delete_', '');
+        await handleStop(userId, senderPhone, jobId, true);
+        return true;
+      }
+
+      if (selectedRowId.startsWith('fwd_pin_')) {
+        const jobId = selectedRowId.replace('fwd_pin_', '');
+        await handlePin(userId, senderPhone, jobId);
+        return true;
+      }
+
+      if (selectedRowId.startsWith('fwd_edit_')) {
+        const jobId = selectedRowId.replace('fwd_edit_', '');
+        await handleEditPrompt(userId, senderPhone, jobId);
         return true;
       }
       
@@ -801,13 +854,20 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
       }
     }
     
+    // Check for pending edit text input
+    const pendingEditKey2 = `${userId}:${normalizePhoneNumber(senderPhone)}`;
+    if (pendingEdits.has(pendingEditKey2) && messageContent && !selectedRowId) {
+      const handled = await handleEditTextInput(userId, senderPhone, messageContent.trim(), pendingEditKey2);
+      if (handled) return true;
+    }
+
     // Check for time input (when waiting for schedule time)
     // Gate check above already verified this sender has an active job
     if (messageContent && /^\d{1,4}:?\d{0,2}$/.test(messageContent.trim())) {
       const handled = await handleScheduleTimeInput(userId, senderPhone, messageContent.trim());
       if (handled) return true;
     }
-    
+
     // Check for text response
     const lowerContent = messageContent?.toLowerCase()?.trim();
     
@@ -982,6 +1042,103 @@ async function handleStop(userId, senderPhone, jobId, shouldDelete) {
     await sendNotificationMessage(userId, senderPhone, '❌ לא ניתן למחוק - המשימה בסטטוס לא מתאים.');
   }
   
+  return true;
+}
+
+/**
+ * Handle pin action - pin all sent messages for a completed job
+ */
+async function handlePin(userId, senderPhone, jobId) {
+  // Verify job exists and belongs to user
+  const jobResult = await db.query(
+    'SELECT id, status, user_id FROM forward_jobs WHERE id = $1 AND user_id = $2',
+    [jobId, userId]
+  );
+
+  if (jobResult.rows.length === 0) {
+    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה.');
+    return true;
+  }
+
+  await sendNotificationMessage(userId, senderPhone, '📌 מצמיד הודעות בכל הקבוצות...');
+
+  const { pinJobMessages } = require('../../controllers/groupForwards/jobs.controller');
+  pinJobMessages(jobId, senderPhone).catch(err => {
+    console.error(`[GroupForwards] Error pinning messages for job ${jobId}:`, err);
+  });
+
+  return true;
+}
+
+/**
+ * Handle edit prompt - ask user for new text
+ */
+async function handleEditPrompt(userId, senderPhone, jobId) {
+  // Verify job exists and belongs to user and has sent messages
+  const jobResult = await db.query(`
+    SELECT fj.id, fj.status, fj.user_id
+    FROM forward_jobs fj
+    WHERE fj.id = $1 AND fj.user_id = $2
+  `, [jobId, userId]);
+
+  if (jobResult.rows.length === 0) {
+    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה.');
+    return true;
+  }
+
+  // Check there are sent messages to edit
+  const sentCheck = await db.query(`
+    SELECT COUNT(*) as cnt FROM forward_job_messages
+    WHERE job_id = $1 AND status = 'sent' AND whatsapp_message_id IS NOT NULL
+  `, [jobId]);
+
+  if (parseInt(sentCheck.rows[0]?.cnt || 0) === 0) {
+    await sendNotificationMessage(userId, senderPhone, '❌ אין הודעות לעריכה.');
+    return true;
+  }
+
+  // Store pending edit state
+  const pendingKey = `${userId}:${normalizePhoneNumber(senderPhone)}`;
+  pendingEdits.set(pendingKey, jobId);
+
+  // Clear after 10 minutes to avoid stale state
+  setTimeout(() => {
+    if (pendingEdits.get(pendingKey) === jobId) {
+      pendingEdits.delete(pendingKey);
+    }
+  }, 10 * 60 * 1000);
+
+  await sendNotificationMessage(userId, senderPhone,
+    `✏️ *עריכת הודעות*\n\nשלח את הטקסט החדש ואני אעדכן אותו בכל הקבוצות.\n\n(שלח "בטל" לביטול)`
+  );
+
+  return true;
+}
+
+/**
+ * Handle edit text input - user sent new text for editing
+ */
+async function handleEditTextInput(userId, senderPhone, newText, pendingKey) {
+  // Handle cancel
+  if (newText.toLowerCase() === 'בטל' || newText.toLowerCase() === 'cancel') {
+    pendingEdits.delete(pendingKey);
+    await sendNotificationMessage(userId, senderPhone, '❌ העריכה בוטלה.');
+    return true;
+  }
+
+  const jobId = pendingEdits.get(pendingKey);
+  if (!jobId) return false;
+
+  // Clear the pending state before async operation
+  pendingEdits.delete(pendingKey);
+
+  await sendNotificationMessage(userId, senderPhone, `✏️ עורך הודעות בכל הקבוצות...`);
+
+  const { editJobMessages } = require('../../controllers/groupForwards/jobs.controller');
+  editJobMessages(jobId, newText, senderPhone).catch(err => {
+    console.error(`[GroupForwards] Error editing messages for job ${jobId}:`, err);
+  });
+
   return true;
 }
 

@@ -1099,16 +1099,94 @@ async function deleteMessage(connectionOrUserId, chatId, messageId) {
   }
   
   const client = createClient(connection.base_url, connection.api_key);
-  
+
   // DELETE /api/{session}/chats/{chatId}/messages/{messageId}
   const encodedChatId = encodeURIComponent(chatId);
   const encodedMessageId = encodeURIComponent(messageId);
-  
+
   const response = await client.delete(
     `/api/${connection.session_name}/chats/${encodedChatId}/messages/${encodedMessageId}`
   );
-  
+
   console.log(`[WAHA] Deleted message ${messageId} from ${chatId}`);
+  return response.data;
+}
+
+/**
+ * Resolve a connection object from either a connection object or a userId string
+ */
+async function resolveConnection(connectionOrUserId) {
+  if (typeof connectionOrUserId !== 'string') {
+    return connectionOrUserId;
+  }
+  const db = require('../../config/database');
+  const { decrypt } = require('../crypto/encrypt.service');
+  const { getWahaCredentials } = require('../settings/system.service');
+
+  const result = await db.query(`
+    SELECT * FROM whatsapp_connections
+    WHERE (user_id::text = $1 OR session_name = $1) AND status = 'connected'
+    ORDER BY connected_at DESC LIMIT 1
+  `, [connectionOrUserId]);
+
+  if (result.rows.length === 0) {
+    throw new Error(`Connection not found for ${connectionOrUserId}`);
+  }
+
+  const conn = result.rows[0];
+  let baseUrl, apiKey;
+  if (conn.connection_type === 'external') {
+    baseUrl = decrypt(conn.external_base_url);
+    apiKey = decrypt(conn.external_api_key);
+  } else {
+    const systemCreds = getWahaCredentials();
+    baseUrl = systemCreds.baseUrl;
+    apiKey = systemCreds.apiKey;
+  }
+  return { base_url: baseUrl, api_key: apiKey, session_name: conn.session_name };
+}
+
+/**
+ * Pin a message in a chat
+ * @param {object|string} connectionOrUserId - WAHA connection object or userId string
+ * @param {string} chatId - Group or chat ID (e.g. 12345@g.us)
+ * @param {string} messageId - WhatsApp message ID
+ * @param {number} duration - Pin duration in seconds (default 86400 = 24h)
+ */
+async function pinMessage(connectionOrUserId, chatId, messageId, duration = 86400) {
+  const connection = await resolveConnection(connectionOrUserId);
+  const client = createClient(connection.base_url, connection.api_key);
+  const encodedChatId = encodeURIComponent(chatId);
+  const encodedMessageId = encodeURIComponent(messageId);
+
+  const response = await client.post(
+    `/api/${connection.session_name}/chats/${encodedChatId}/messages/${encodedMessageId}/pin`,
+    { duration }
+  );
+
+  console.log(`[WAHA] Pinned message ${messageId} in ${chatId} for ${duration}s`);
+  return response.data;
+}
+
+/**
+ * Edit a sent text message
+ * @param {object|string} connectionOrUserId - WAHA connection object or userId string
+ * @param {string} chatId - Group or chat ID
+ * @param {string} messageId - WhatsApp message ID
+ * @param {string} newText - New text content
+ */
+async function editMessage(connectionOrUserId, chatId, messageId, newText) {
+  const connection = await resolveConnection(connectionOrUserId);
+  const client = createClient(connection.base_url, connection.api_key);
+  const encodedChatId = encodeURIComponent(chatId);
+  const encodedMessageId = encodeURIComponent(messageId);
+
+  const response = await client.put(
+    `/api/${connection.session_name}/chats/${encodedChatId}/messages/${encodedMessageId}`,
+    { text: newText }
+  );
+
+  console.log(`[WAHA] Edited message ${messageId} in ${chatId}`);
   return response.data;
 }
 
@@ -1236,6 +1314,8 @@ module.exports = {
   getGroupInfo,
   getChannels,
   deleteMessage,
+  pinMessage,
+  editMessage,
   // Labels (WhatsApp Business)
   getLabels,
   setChatLabels,

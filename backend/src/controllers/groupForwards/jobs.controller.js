@@ -1123,6 +1123,162 @@ async function deleteJobMessages(jobId, senderPhone = null) {
 }
 
 /**
+ * Pin all sent messages for a job across all target groups
+ * @param {string} jobId - The job ID
+ * @param {string} senderPhone - Phone to send notification to (optional)
+ * @param {number} duration - Pin duration in seconds (default 86400 = 24h)
+ */
+async function pinJobMessages(jobId, senderPhone = null, duration = 86400) {
+  const wahaService = require('../../services/waha/session.service');
+  const triggerService = require('../../services/groupForwards/trigger.service');
+
+  try {
+    const jobResult = await db.query(`
+      SELECT fj.*, gf.user_id, gf.name as forward_name
+      FROM forward_jobs fj
+      JOIN group_forwards gf ON fj.forward_id = gf.id
+      WHERE fj.id = $1
+    `, [jobId]);
+
+    if (jobResult.rows.length === 0) {
+      return { success: false, pinned: 0, failed: 0 };
+    }
+
+    const job = jobResult.rows[0];
+    const userId = job.user_id;
+
+    const messagesResult = await db.query(`
+      SELECT fjm.*, gft.group_id, gft.group_name
+      FROM forward_job_messages fjm
+      JOIN group_forward_targets gft ON fjm.target_id = gft.id
+      WHERE fjm.job_id = $1
+        AND fjm.status IN ('sent', 'pinned')
+        AND fjm.whatsapp_message_id IS NOT NULL
+    `, [jobId]);
+
+    if (messagesResult.rows.length === 0) {
+      if (senderPhone) {
+        await triggerService.sendNotificationMessage(userId, senderPhone, '❌ אין הודעות שנשלחו להצמדה.');
+      }
+      return { success: false, pinned: 0, failed: 0 };
+    }
+
+    let pinnedCount = 0;
+    const failedGroups = [];
+
+    for (const message of messagesResult.rows) {
+      try {
+        await wahaService.pinMessage(userId, message.group_id, message.whatsapp_message_id, duration);
+        pinnedCount++;
+        await new Promise(resolve => setTimeout(resolve, 300));
+      } catch (pinError) {
+        console.error(`[GroupForwards] Error pinning message in ${message.group_id}:`, pinError.message);
+        failedGroups.push(message.group_name || message.group_id);
+      }
+    }
+
+    console.log(`[GroupForwards] Pinned ${pinnedCount}/${messagesResult.rows.length} messages for job ${jobId}`);
+
+    if (senderPhone) {
+      let msg;
+      if (failedGroups.length === 0) {
+        msg = `📌 *ההצמדה הושלמה!*\n\nהוצמדו ${pinnedCount} הודעות ל-${Math.floor(duration / 3600)} שעות.`;
+      } else {
+        msg = `⚠️ *ההצמדה הסתיימה*\n\n✅ הוצמדו: ${pinnedCount}\n❌ נכשלו: ${failedGroups.length}`;
+      }
+      await triggerService.sendNotificationMessage(userId, senderPhone, msg);
+    }
+
+    const io = getIO();
+    io.to(`user:${userId}`).emit('forward_job_messages_pinned', { jobId, pinned: pinnedCount });
+
+    return { success: true, pinned: pinnedCount, failed: failedGroups.length };
+
+  } catch (error) {
+    console.error(`[GroupForwards] Error pinning messages for job ${jobId}:`, error);
+    return { success: false, pinned: 0, failed: 0 };
+  }
+}
+
+/**
+ * Edit all sent text messages for a job across all target groups
+ * @param {string} jobId - The job ID
+ * @param {string} newText - New text content to replace original message
+ * @param {string} senderPhone - Phone to send notification to (optional)
+ */
+async function editJobMessages(jobId, newText, senderPhone = null) {
+  const wahaService = require('../../services/waha/session.service');
+  const triggerService = require('../../services/groupForwards/trigger.service');
+
+  try {
+    const jobResult = await db.query(`
+      SELECT fj.*, gf.user_id, gf.name as forward_name
+      FROM forward_jobs fj
+      JOIN group_forwards gf ON fj.forward_id = gf.id
+      WHERE fj.id = $1
+    `, [jobId]);
+
+    if (jobResult.rows.length === 0) {
+      return { success: false, edited: 0, failed: 0 };
+    }
+
+    const job = jobResult.rows[0];
+    const userId = job.user_id;
+
+    const messagesResult = await db.query(`
+      SELECT fjm.*, gft.group_id, gft.group_name
+      FROM forward_job_messages fjm
+      JOIN group_forward_targets gft ON fjm.target_id = gft.id
+      WHERE fjm.job_id = $1
+        AND fjm.status = 'sent'
+        AND fjm.whatsapp_message_id IS NOT NULL
+    `, [jobId]);
+
+    if (messagesResult.rows.length === 0) {
+      if (senderPhone) {
+        await triggerService.sendNotificationMessage(userId, senderPhone, '❌ אין הודעות שנשלחו לעריכה.');
+      }
+      return { success: false, edited: 0, failed: 0 };
+    }
+
+    let editedCount = 0;
+    const failedGroups = [];
+
+    for (const message of messagesResult.rows) {
+      try {
+        await wahaService.editMessage(userId, message.group_id, message.whatsapp_message_id, newText);
+        editedCount++;
+        await new Promise(resolve => setTimeout(resolve, 300));
+      } catch (editError) {
+        console.error(`[GroupForwards] Error editing message in ${message.group_id}:`, editError.message);
+        failedGroups.push(message.group_name || message.group_id);
+      }
+    }
+
+    console.log(`[GroupForwards] Edited ${editedCount}/${messagesResult.rows.length} messages for job ${jobId}`);
+
+    if (senderPhone) {
+      let msg;
+      if (failedGroups.length === 0) {
+        msg = `✏️ *העריכה הושלמה!*\n\nנערכו ${editedCount} הודעות.`;
+      } else {
+        msg = `⚠️ *העריכה הסתיימה*\n\n✅ נערכו: ${editedCount}\n❌ נכשלו: ${failedGroups.length}`;
+      }
+      await triggerService.sendNotificationMessage(userId, senderPhone, msg);
+    }
+
+    const io = getIO();
+    io.to(`user:${userId}`).emit('forward_job_messages_edited', { jobId, edited: editedCount });
+
+    return { success: true, edited: editedCount, failed: failedGroups.length };
+
+  } catch (error) {
+    console.error(`[GroupForwards] Error editing messages for job ${jobId}:`, error);
+    return { success: false, edited: 0, failed: 0 };
+  }
+}
+
+/**
  * Delete a job from history
  */
 async function deleteJob(req, res) {
@@ -1439,6 +1595,8 @@ module.exports = {
   // Export for internal use
   startForwardJob,
   deleteJobMessages,
+  pinJobMessages,
+  editJobMessages,
   cleanupOldPendingJobs,
   resumeStuckForwardJobs
 };
