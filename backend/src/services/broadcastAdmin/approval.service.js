@@ -264,8 +264,11 @@ async function handleApproval(userId, jobId) {
       WHERE id = $1
     `, [jobId]);
 
+    // Inject stored total_targets since forward SELECT * doesn't include the computed column
+    const forwardWithCount = { ...forward, target_count: job.total_targets };
+
     const triggerService = require('../groupForwards/trigger.service');
-    await triggerService.sendConfirmationListForJob(userId, job, forward);
+    await triggerService.sendConfirmationListForJob(userId, job, forwardWithCount);
 
     console.log(`[BroadcastAdmin] Job ${jobId} approved, confirmation sent to sender`);
   } catch (error) {
