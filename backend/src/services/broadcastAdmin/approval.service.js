@@ -369,16 +369,49 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
 
     console.log(`[BroadcastAdmin] cascadeDelete lookup: fullId=${deletedMessageId} shortId=${shortMessageId} forwardFound=${forwardMsgResult.rows.length} transferFound=${transferMsgResult.rows.length}`);
 
+    // If message not found by ID — fall back to most recent broadcast job sent to this group
+    if (!jobType && sourceGroupId) {
+      const recentForwardJob = await db.query(`
+        SELECT fjm.job_id, fj.forward_id
+        FROM forward_job_messages fjm
+        JOIN group_forward_targets gft ON gft.id = fjm.target_id
+        JOIN forward_jobs fj ON fj.id = fjm.job_id
+        WHERE fj.user_id = $1
+          AND gft.group_id = $2
+          AND fjm.status = 'sent'
+          AND fjm.whatsapp_message_id IS NOT NULL
+        ORDER BY fjm.sent_at DESC
+        LIMIT 1
+      `, [userId, sourceGroupId]);
+
+      if (recentForwardJob.rows.length > 0) {
+        jobType = 'forward';
+        jobId = recentForwardJob.rows[0].job_id;
+        forwardId = recentForwardJob.rows[0].forward_id;
+        console.log(`[BroadcastAdmin] Fallback: found recent forward job ${jobId} for group ${sourceGroupId}`);
+      } else {
+        const recentTransferJob = await db.query(`
+          SELECT tjm.job_id
+          FROM transfer_job_messages tjm
+          JOIN transfer_jobs tj ON tj.id = tjm.job_id
+          WHERE tj.user_id = $1
+            AND tjm.group_id = $2
+            AND tjm.status = 'sent'
+            AND tjm.message_id IS NOT NULL
+          ORDER BY tjm.sent_at DESC
+          LIMIT 1
+        `, [userId, sourceGroupId]);
+
+        if (recentTransferJob.rows.length > 0) {
+          jobType = 'transfer';
+          jobId = recentTransferJob.rows[0].job_id;
+          console.log(`[BroadcastAdmin] Fallback: found recent transfer job ${jobId} for group ${sourceGroupId}`);
+        }
+      }
+    }
+
     if (!jobType) {
-      // Debug: print a sample of stored message IDs for this user
-      const sample = await db.query(
-        `SELECT fjm.whatsapp_message_id FROM forward_job_messages fjm
-         JOIN forward_jobs fj ON fj.id = fjm.job_id
-         WHERE fj.user_id = $1 AND fjm.whatsapp_message_id IS NOT NULL
-         ORDER BY fjm.sent_at DESC LIMIT 5`,
-        [userId]
-      );
-      console.log('[BroadcastAdmin] Sample stored message IDs:', sample.rows.map(r => r.whatsapp_message_id));
+      console.log(`[BroadcastAdmin] No broadcast job found for group ${sourceGroupId}`);
       return false;
     }
 
