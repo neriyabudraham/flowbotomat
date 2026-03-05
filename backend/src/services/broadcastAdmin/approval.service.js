@@ -290,31 +290,36 @@ async function handleRejection(userId, jobId) {
 }
 
 /**
- * Check if a phone number is the admin for any forward belonging to a user
+ * Check if a phone number is the admin for any forward OR transfer belonging to a user
  * (used by message.revoked handler to verify cascade delete authority)
  */
 async function isAdminForAnyForward(userId, phone) {
   try {
     await ensureAdminTables();
     const normalized = normalizePhone(phone);
-    const result = await db.query(`
-      SELECT fas.forward_id FROM forward_authorized_senders fas
-      JOIN group_forwards gf ON gf.id = fas.forward_id
-      WHERE gf.user_id = $1 AND fas.is_admin = true
-    `, [userId]);
 
-    for (const row of result.rows) {
-      const adminPhone = normalizePhone(row.forward_admin_phone || '');
-    }
-
-    // Check if any admin phone matches
-    const allAdmins = await db.query(`
+    // Check forward admins
+    const forwardAdmins = await db.query(`
       SELECT fas.phone_number FROM forward_authorized_senders fas
       JOIN group_forwards gf ON gf.id = fas.forward_id
       WHERE gf.user_id = $1 AND fas.is_admin = true
     `, [userId]);
 
-    return allAdmins.rows.some(r => normalizePhone(r.phone_number) === normalized);
+    if (forwardAdmins.rows.some(r => normalizePhone(r.phone_number) === normalized)) {
+      return true;
+    }
+
+    // Check transfer admins (lazy — column may not exist yet)
+    try {
+      const transferAdmins = await db.query(`
+        SELECT tas.phone_number FROM transfer_authorized_senders tas
+        JOIN group_transfers gt ON gt.id = tas.transfer_id
+        WHERE gt.user_id = $1 AND tas.is_admin = true
+      `, [userId]);
+      return transferAdmins.rows.some(r => normalizePhone(r.phone_number) === normalized);
+    } catch (e) {
+      return false;
+    }
   } catch (err) {
     return false;
   }
@@ -393,9 +398,10 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
         const recentTransferJob = await db.query(`
           SELECT tjm.job_id
           FROM transfer_job_messages tjm
+          JOIN group_transfer_targets gtt ON gtt.id = tjm.target_id
           JOIN transfer_jobs tj ON tj.id = tjm.job_id
           WHERE tj.user_id = $1
-            AND tjm.group_id = $2
+            AND gtt.group_id = $2
             AND tjm.status = 'sent'
             AND tjm.message_id IS NOT NULL
           ORDER BY tjm.sent_at DESC
@@ -472,18 +478,22 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
       }
 
       const msgs = await db.query(`
-        SELECT message_id, group_id, group_name
-        FROM transfer_job_messages
-        WHERE job_id = $1
-          AND status = 'sent'
-          AND message_id IS NOT NULL
-          AND message_id != $2
-      `, [jobId, deletedMessageId]);
+        SELECT tjm.message_id, gtt.group_id, gtt.group_name
+        FROM transfer_job_messages tjm
+        JOIN group_transfer_targets gtt ON gtt.id = tjm.target_id
+        WHERE tjm.job_id = $1
+          AND tjm.status = 'sent'
+          AND tjm.message_id IS NOT NULL
+      `, [jobId]);
 
       for (const msg of msgs.rows) {
         await new Promise(r => setTimeout(r, delayMs));
         try {
           await wahaService.deleteMessage(wahaConnection, msg.group_id, msg.message_id);
+          await db.query(`
+            UPDATE transfer_job_messages SET status = 'deleted', deleted_at = NOW()
+            WHERE job_id = $1 AND message_id = $2
+          `, [jobId, msg.message_id]);
           console.log(`[BroadcastAdmin] Deleted transfer msg from ${msg.group_name || msg.group_id}`);
         } catch (e) {
           console.error(`[BroadcastAdmin] Transfer delete failed for ${msg.group_id}:`, e.message);

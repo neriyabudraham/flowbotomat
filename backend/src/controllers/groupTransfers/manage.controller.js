@@ -275,6 +275,11 @@ async function updateAuthorizedSenders(req, res) {
     if (!Array.isArray(senders)) {
       return res.status(400).json({ error: 'נדרשת רשימת שולחים מורשים' });
     }
+
+    const adminSenders = senders.filter(s => s.is_admin);
+    if (adminSenders.length > 1) {
+      return res.status(400).json({ error: 'ניתן להגדיר מנהל מחיקה אחד בלבד' });
+    }
     
     const ownerCheck = await db.query(
       'SELECT id FROM group_transfers WHERE id = $1 AND user_id = $2',
@@ -305,10 +310,10 @@ async function updateAuthorizedSenders(req, res) {
           }
           
           await client.query(`
-            INSERT INTO transfer_authorized_senders (transfer_id, phone_number, name)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (transfer_id, phone_number) DO UPDATE SET name = $3
-          `, [transferId, phone, sender.name || null]);
+            INSERT INTO transfer_authorized_senders (transfer_id, phone_number, name, is_admin)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (transfer_id, phone_number) DO UPDATE SET name = $3, is_admin = $4
+          `, [transferId, phone, sender.name || null, sender.is_admin || false]);
         }
       }
       
@@ -437,8 +442,8 @@ async function duplicateGroupTransfer(req, res) {
       `, [newId, transferId]);
       
       await client.query(`
-        INSERT INTO transfer_authorized_senders (transfer_id, phone_number, name)
-        SELECT $1, phone_number, name
+        INSERT INTO transfer_authorized_senders (transfer_id, phone_number, name, is_admin)
+        SELECT $1, phone_number, name, false
         FROM transfer_authorized_senders WHERE transfer_id = $2
       `, [newId, transferId]);
       
