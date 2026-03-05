@@ -367,7 +367,20 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
       jobId = transferMsgResult.rows[0].job_id;
     }
 
-    if (!jobType) return false;
+    console.log(`[BroadcastAdmin] cascadeDelete lookup: fullId=${deletedMessageId} shortId=${shortMessageId} forwardFound=${forwardMsgResult.rows.length} transferFound=${transferMsgResult.rows.length}`);
+
+    if (!jobType) {
+      // Debug: print a sample of stored message IDs for this user
+      const sample = await db.query(
+        `SELECT fjm.whatsapp_message_id FROM forward_job_messages fjm
+         JOIN forward_jobs fj ON fj.id = fjm.job_id
+         WHERE fj.user_id = $1 AND fjm.whatsapp_message_id IS NOT NULL
+         ORDER BY fjm.sent_at DESC LIMIT 5`,
+        [userId]
+      );
+      console.log('[BroadcastAdmin] Sample stored message IDs:', sample.rows.map(r => r.whatsapp_message_id));
+      return false;
+    }
 
     // Get delay from forward settings (delay_min) or default to 2s
     let delayMs = 2000;
