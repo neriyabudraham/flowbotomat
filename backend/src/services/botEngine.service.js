@@ -3104,15 +3104,35 @@ class BotEngine {
         // Also replace variables in case user entered {{group_id}} directly
         groupId = this.replaceVariables(groupId, contact, '', '');
       }
-      
+
       // Normalize group ID - add @g.us if not present
       if (groupId && !groupId.includes('@')) {
         targetChatId = `${groupId}@g.us`;
       } else {
         targetChatId = groupId;
       }
-      
+
       console.log('[BotEngine] Target group:', targetChatId);
+    } else if (recipient.type === 'channel') {
+      // WhatsApp channel recipient
+      let channelId;
+      if (recipient.useVariable && recipient.variableName) {
+        let varName = recipient.variableName;
+        varName = varName.replace(/^\{\{/, '').replace(/\}\}$/, '');
+        channelId = this.replaceVariables(`{{${varName}}}`, contact, '', '');
+      } else {
+        channelId = recipient.channelId || '';
+        channelId = this.replaceVariables(channelId, contact, '', '');
+      }
+
+      // Normalize channel ID - add @newsletter if not present
+      if (channelId && !channelId.includes('@')) {
+        targetChatId = `${channelId}@newsletter`;
+      } else {
+        targetChatId = channelId;
+      }
+
+      console.log('[BotEngine] Target channel:', targetChatId);
     } else {
       // Phone recipient
       let phone;

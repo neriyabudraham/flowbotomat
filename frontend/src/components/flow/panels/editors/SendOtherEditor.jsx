@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Upload, Mic, User, MapPin, Link, Phone, Users, ChevronDown } from 'lucide-react';
+import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Upload, Mic, User, MapPin, Link, Phone, Users, ChevronDown, Radio } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 import api from '../../../../services/api';
 
@@ -131,6 +131,18 @@ export default function SendOtherEditor({ data, onUpdate }) {
             <Users className="w-4 h-4" />
             קבוצה
           </button>
+          <button
+            type="button"
+            onClick={() => updateRecipient({ type: 'channel' })}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+              recipient.type === 'channel'
+                ? 'bg-violet-500 text-white shadow'
+                : 'text-gray-600 hover:text-gray-800'
+            }`}
+          >
+            <Radio className="w-4 h-4" />
+            ערוץ
+          </button>
         </div>
 
         {/* Phone Input */}
@@ -177,7 +189,7 @@ export default function SendOtherEditor({ data, onUpdate }) {
               />
               השתמש במשתנה
             </label>
-            
+
             {recipient.useVariable ? (
               <TextInputWithVariables
                 value={recipient.variableName || ''}
@@ -192,9 +204,9 @@ export default function SendOtherEditor({ data, onUpdate }) {
                     value={recipient.groupId || ''}
                     onChange={(e) => {
                       const selectedGroup = groups.find(g => g.id === e.target.value);
-                      updateRecipient({ 
-                        groupId: e.target.value, 
-                        groupName: selectedGroup?.name || '' 
+                      updateRecipient({
+                        groupId: e.target.value,
+                        groupName: selectedGroup?.name || ''
                       });
                     }}
                     className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm appearance-none pr-8"
@@ -210,7 +222,7 @@ export default function SendOtherEditor({ data, onUpdate }) {
                   </select>
                   <ChevronDown className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                 </div>
-                
+
                 {/* Manual Group ID Input */}
                 <div className="text-center text-xs text-gray-400 py-1">או</div>
                 <TextInputWithVariables
@@ -220,6 +232,38 @@ export default function SendOtherEditor({ data, onUpdate }) {
                 />
               </div>
             )}
+          </div>
+        )}
+
+        {/* Channel Input */}
+        {recipient.type === 'channel' && (
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-600">
+              <input
+                type="checkbox"
+                checked={recipient.useVariable || false}
+                onChange={(e) => updateRecipient({ useVariable: e.target.checked })}
+                className="w-4 h-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+              />
+              השתמש במשתנה
+            </label>
+
+            {recipient.useVariable ? (
+              <TextInputWithVariables
+                value={recipient.variableName || ''}
+                onChange={(v) => updateRecipient({ variableName: v })}
+                placeholder="שם המשתנה (לדוגמה: channel_id)"
+              />
+            ) : (
+              <TextInputWithVariables
+                value={recipient.channelId || ''}
+                onChange={(v) => updateRecipient({ channelId: v })}
+                placeholder="מזהה ערוץ (ניתן להזין עם או בלי @newsletter)"
+              />
+            )}
+            <p className="text-xs text-gray-500">
+              מזהה ערוץ WhatsApp — ניתן להזין עם או בלי @newsletter
+            </p>
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Send, MessageSquare, Image, FileText, Video, Mic, User, MapPin, Edit2, Copy, Trash2, Users, Phone } from 'lucide-react';
+import { Send, MessageSquare, Image, FileText, Video, Mic, User, MapPin, Edit2, Copy, Trash2, Users, Phone, Radio } from 'lucide-react';
 
 const actionIcons = {
   text: MessageSquare,
@@ -43,6 +43,12 @@ function SendOtherNode({ data, selected }) {
         return `{{${varName}}}`;
       }
       return recipient.groupName || recipient.groupId || '(לא הוגדר)';
+    } else if (recipient.type === 'channel') {
+      if (recipient.useVariable) {
+        const varName = cleanVarName(recipient.variableName) || 'channel';
+        return `{{${varName}}}`;
+      }
+      return recipient.channelId || '(לא הוגדר)';
     }
     return '(לא הוגדר)';
   };
@@ -105,11 +111,13 @@ function SendOtherNode({ data, selected }) {
         <div className="flex items-center gap-2 text-sm">
           {recipient.type === 'group' ? (
             <Users className="w-4 h-4 text-violet-600" />
+          ) : recipient.type === 'channel' ? (
+            <Radio className="w-4 h-4 text-violet-600" />
           ) : (
             <Phone className="w-4 h-4 text-violet-600" />
           )}
           <span className="font-medium text-violet-700">
-            {recipient.type === 'group' ? 'קבוצה:' : 'מספר:'}
+            {recipient.type === 'group' ? 'קבוצה:' : recipient.type === 'channel' ? 'ערוץ:' : 'מספר:'}
           </span>
           <span className="text-violet-600 truncate flex-1">
             {getRecipientDisplay()}
