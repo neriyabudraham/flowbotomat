@@ -574,7 +574,6 @@ async function sendCompletionMessage(userId, senderPhone, jobId, sent, failed, t
             body: `${statusText}\n\nמה לעשות עם ההודעות?`,
             buttonText: 'פעולות',
             buttons: [
-              { title: '📌 הצמד הודעות (24 שעות)', rowId: `fwd_pin_${jobId}` },
               { title: '✏️ ערוך הודעות', rowId: `fwd_edit_${jobId}` },
               { title: '🗑️ מחק הודעות', rowId: `fwd_delete_${jobId}` }
             ]
@@ -788,11 +787,6 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
         return true;
       }
 
-      if (selectedRowId.startsWith('fwd_pin_')) {
-        const jobId = selectedRowId.replace('fwd_pin_', '');
-        await handlePin(userId, senderPhone, jobId);
-        return true;
-      }
 
       if (selectedRowId.startsWith('fwd_edit_')) {
         const jobId = selectedRowId.replace('fwd_edit_', '');
@@ -1045,30 +1039,6 @@ async function handleStop(userId, senderPhone, jobId, shouldDelete) {
   return true;
 }
 
-/**
- * Handle pin action - pin all sent messages for a completed job
- */
-async function handlePin(userId, senderPhone, jobId) {
-  // Verify job exists and belongs to user
-  const jobResult = await db.query(
-    'SELECT id, status, user_id FROM forward_jobs WHERE id = $1 AND user_id = $2',
-    [jobId, userId]
-  );
-
-  if (jobResult.rows.length === 0) {
-    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה.');
-    return true;
-  }
-
-  await sendNotificationMessage(userId, senderPhone, '📌 מצמיד הודעות בכל הקבוצות...');
-
-  const { pinJobMessages } = require('../../controllers/groupForwards/jobs.controller');
-  pinJobMessages(jobId, senderPhone).catch(err => {
-    console.error(`[GroupForwards] Error pinning messages for job ${jobId}:`, err);
-  });
-
-  return true;
-}
 
 /**
  * Handle edit prompt - ask user for new text
