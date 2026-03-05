@@ -275,6 +275,9 @@ async function handleWebhook(req, res) {
       case 'message.reaction':
         await handleMessageReaction(userId, event);
         break;
+      case 'message.revoked':
+        await handleMessageRevoked(userId, event);
+        break;
       case 'session.status':
         await handleSessionStatus(userId, event);
         break;
@@ -299,7 +302,7 @@ async function handleWebhook(req, res) {
         break;
       default:
         // Log unknown events to help debug
-        if (event.event && !['presence.update', 'chat.archive', 'message.waiting', 'message.revoked', 'message.edited', 'message.ack.group'].includes(event.event)) {
+        if (event.event && !['presence.update', 'chat.archive', 'message.waiting', 'message.edited', 'message.ack.group'].includes(event.event)) {
           console.log('[Webhook] Unhandled event type:', event.event);
         }
         break;
@@ -1967,5 +1970,88 @@ async function handlePollVote(userId, event) {
  */
 // Note: Status views come through message.ack when ack=3 (read) and from=status@broadcast
 // This is already handled in handleMessageAck but we add special processing for bot triggers
+
+/**
+ * Handle message.revoked events
+ * Detects when a broadcast admin deletes a message from a group
+ * and cascades the deletion to all other groups where the same broadcast was sent
+ */
+async function handleMessageRevoked(userId, event) {
+  try {
+    const payload = event.payload || {};
+
+    // Extract the revoked message ID - WAHA can send different payload shapes
+    // Shape 1: payload.id (string or object)
+    // Shape 2: payload.before / payload.after (before = original, after = revoked)
+    // Shape 3: payload.revokedMsg
+    let revokedMessageId = null;
+    let revokedChatId = null;
+    let revokerPhone = null;
+
+    // Try to get the message ID
+    if (typeof payload.id === 'string') {
+      revokedMessageId = payload.id;
+    } else if (payload.id?._serialized) {
+      revokedMessageId = payload.id._serialized;
+    } else if (payload.id?.id) {
+      revokedMessageId = payload.id.id;
+    } else if (payload.before?.id?._serialized) {
+      revokedMessageId = payload.before.id._serialized;
+    } else if (payload.before?.id) {
+      revokedMessageId = typeof payload.before.id === 'string' ? payload.before.id : payload.before.id._serialized;
+    }
+
+    // Get the chat (group) ID
+    revokedChatId = payload.chatId || payload.chat?.id || payload.from || payload.before?.chatId || null;
+
+    // Get who revoked it (the admin's phone)
+    revokerPhone = payload.revokedBy || payload.from || payload.before?.from || null;
+    if (revokerPhone && revokerPhone.includes('@')) {
+      revokerPhone = revokerPhone.split('@')[0];
+    }
+
+    if (!revokedMessageId) {
+      console.log('[Webhook] message.revoked: could not extract message ID from payload');
+      return;
+    }
+
+    // Only cascade if the revoked message is from a group
+    const isGroupMessage = revokedChatId?.includes('@g.us');
+
+    if (!isGroupMessage) {
+      return; // Only handle group messages
+    }
+
+    // Check if the revoker is the configured broadcast admin
+    const broadcastAdminService = require('../../services/broadcastAdmin/approval.service');
+
+    if (revokerPhone) {
+      const revokerIsAdmin = await broadcastAdminService.isAdmin(userId, revokerPhone);
+      if (!revokerIsAdmin) {
+        return; // Not the admin - do nothing
+      }
+    } else {
+      // Can't determine who revoked - check if the message was fromMe (bot deleted it)
+      // If fromMe and from a broadcast, cascade. Otherwise skip.
+      const fromMe = payload.fromMe || payload.before?.fromMe || false;
+      if (!fromMe) {
+        return; // Can't verify - skip
+      }
+      // If fromMe=true, the bot's own message was revoked - still check admin
+      // since we can't verify the revoker without their phone
+      const adminConfig = await broadcastAdminService.getAdminConfig(userId);
+      if (!adminConfig) return; // No admin configured
+    }
+
+    console.log(`[Webhook] message.revoked by admin in group ${revokedChatId}, cascading deletion of message ${revokedMessageId}`);
+
+    // Cascade delete to all other groups (runs in background)
+    broadcastAdminService.cascadeDeleteBroadcastMessage(userId, revokedMessageId, revokedChatId)
+      .catch(err => console.error('[Webhook] Cascade delete error:', err.message));
+
+  } catch (error) {
+    console.error('[Webhook] handleMessageRevoked error:', error.message);
+  }
+}
 
 module.exports = { handleWebhook };

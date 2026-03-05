@@ -401,12 +401,19 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
     
     // Job created
     
-    // Send confirmation or start sending
-    if (forward.require_confirmation) {
+    // Check if admin approval is required before proceeding
+    const broadcastAdminService = require('../broadcastAdmin/approval.service');
+    const adminConfig = await broadcastAdminService.getAdminConfig(userId);
+
+    if (adminConfig && adminConfig.require_approval) {
+      // Route to admin for approval first — sender gets no notification yet
+      await broadcastAdminService.requestAdminApproval(userId, job, forward);
+    } else if (forward.require_confirmation) {
+      // No admin configured — send confirmation directly to the sender
       await sendConfirmationList(userId, senderPhone, forward, job);
     } else {
       await sendStartList(userId, senderPhone, job.id, forward.target_count);
-      
+
       const { startForwardJob } = require('../../controllers/groupForwards/jobs.controller');
       startForwardJob(job.id).catch(err => {
         console.error(`[GroupForwards] Error starting job ${job.id}:`, err);
@@ -743,10 +750,17 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
       }
     }
     
+    // Check for admin approval responses (admin_approve_ / admin_reject_)
+    if (selectedRowId?.startsWith('admin_approve_') || selectedRowId?.startsWith('admin_reject_')) {
+      const broadcastAdminService = require('../broadcastAdmin/approval.service');
+      const handled = await broadcastAdminService.processAdminResponse(userId, senderPhone, selectedRowId);
+      if (handled) return true;
+    }
+
     // Check for list response (button click)
     if (selectedRowId) {
       // Log already printed above
-      
+
       // If it's a forward-related response, always return true to prevent creating new jobs
       const isForwardResponse = selectedRowId.startsWith('fwd_');
       
@@ -1883,6 +1897,18 @@ async function handleRescheduleTimeInput(userId, senderPhone, timeInput, pending
 }
 
 /**
+ * Send confirmation list to the original sender for a specific job
+ * Used by the admin approval service after the admin approves
+ */
+async function sendConfirmationListForJob(userId, job, forward) {
+  try {
+    await sendConfirmationList(userId, job.sender_phone, forward, job);
+  } catch (error) {
+    console.error('[GroupForwards] sendConfirmationListForJob error:', error.message);
+  }
+}
+
+/**
  * Get message type label in Hebrew
  */
 function getMessageTypeLabel(type) {
@@ -1905,5 +1931,7 @@ module.exports = {
   sendGroupCompletionSummary,
   sendNotificationMessage,
   normalizePhoneNumber,
-  downloadAndSaveMedia
+  downloadAndSaveMedia,
+  sendConfirmationList,
+  sendConfirmationListForJob
 };
