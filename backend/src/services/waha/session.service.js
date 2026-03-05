@@ -1159,13 +1159,18 @@ async function pinMessage(connectionOrUserId, chatId, messageId, duration = 8640
   const encodedChatId = encodeURIComponent(chatId);
   const encodedMessageId = encodeURIComponent(messageId);
 
-  const response = await client.post(
-    `/api/${connection.session_name}/chats/${encodedChatId}/messages/${encodedMessageId}/pin`,
-    { duration }
-  );
-
-  console.log(`[WAHA] Pinned message ${messageId} in ${chatId} for ${duration}s`);
-  return response.data;
+  try {
+    const response = await client.post(
+      `/api/${connection.session_name}/chats/${encodedChatId}/messages/${encodedMessageId}/pin`,
+      { duration }
+    );
+    console.log(`[WAHA] Pinned message ${messageId} in ${chatId} for ${duration}s`);
+    return response.data;
+  } catch (err) {
+    const detail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+    console.error(`[WAHA] Pin failed for ${messageId} in ${chatId}: ${detail}`);
+    throw err;
+  }
 }
 
 /**

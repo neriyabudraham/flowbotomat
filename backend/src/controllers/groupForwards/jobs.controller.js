@@ -990,14 +990,23 @@ const activeUserDeletions = new Map();
  * @param {string} senderPhone - Phone to send notification to (optional)
  * @returns {Promise<{success: boolean, deleted: number, failed: number, alreadyDeleted: boolean}>}
  */
+/**
+ * Calculate a randomized delay in seconds between min and max with ±10% variation
+ */
+function calculateDelay(min = 3, max = 5) {
+  const baseDelay = Math.random() * (max - min) + min;
+  const variation = baseDelay * 0.1;
+  return Math.max(3, Math.floor(baseDelay + (Math.random() * variation * 2 - variation)));
+}
+
 async function deleteJobMessages(jobId, senderPhone = null) {
   const wahaService = require('../../services/waha/session.service');
   const triggerService = require('../../services/groupForwards/trigger.service');
-  
+
   try {
     // Get job details with user_id for connection lookup
     const jobResult = await db.query(`
-      SELECT fj.*, gf.user_id, gf.name as forward_name
+      SELECT fj.*, gf.user_id, gf.name as forward_name, gf.delay_min, gf.delay_max
       FROM forward_jobs fj
       JOIN group_forwards gf ON fj.forward_id = gf.id
       WHERE fj.id = $1
@@ -1071,9 +1080,9 @@ async function deleteJobMessages(jobId, senderPhone = null) {
           
           deletedCount++;
           deletedGroups.push(message.group_name || message.group_id);
-          
-          // Small delay between deletions to avoid rate limiting
-          await new Promise(resolve => setTimeout(resolve, 500));
+
+          // Delay between deletions according to configured delay settings
+          await new Promise(resolve => setTimeout(resolve, calculateDelay(job.delay_min, job.delay_max) * 1000));
           
         } catch (deleteError) {
           console.error(`[GroupForwards] Error deleting message ${message.whatsapp_message_id}:`, deleteError.message);
@@ -1134,7 +1143,7 @@ async function pinJobMessages(jobId, senderPhone = null, duration = 86400) {
 
   try {
     const jobResult = await db.query(`
-      SELECT fj.*, gf.user_id, gf.name as forward_name
+      SELECT fj.*, gf.user_id, gf.name as forward_name, gf.delay_min, gf.delay_max
       FROM forward_jobs fj
       JOIN group_forwards gf ON fj.forward_id = gf.id
       WHERE fj.id = $1
@@ -1170,9 +1179,11 @@ async function pinJobMessages(jobId, senderPhone = null, duration = 86400) {
       try {
         await wahaService.pinMessage(userId, message.group_id, message.whatsapp_message_id, duration);
         pinnedCount++;
-        await new Promise(resolve => setTimeout(resolve, 300));
+        // Delay between pins according to configured delay settings
+        await new Promise(resolve => setTimeout(resolve, calculateDelay(job.delay_min, job.delay_max) * 1000));
       } catch (pinError) {
-        console.error(`[GroupForwards] Error pinning message in ${message.group_id}:`, pinError.message);
+        const errDetail = pinError.response?.data ? JSON.stringify(pinError.response.data) : pinError.message;
+        console.error(`[GroupForwards] Error pinning message in ${message.group_id}: ${errDetail}`);
         failedGroups.push(message.group_name || message.group_id);
       }
     }
@@ -1185,6 +1196,9 @@ async function pinJobMessages(jobId, senderPhone = null, duration = 86400) {
         msg = `📌 *ההצמדה הושלמה!*\n\nהוצמדו ${pinnedCount} הודעות ל-${Math.floor(duration / 3600)} שעות.`;
       } else {
         msg = `⚠️ *ההצמדה הסתיימה*\n\n✅ הוצמדו: ${pinnedCount}\n❌ נכשלו: ${failedGroups.length}`;
+        if (failedGroups.length <= 5) {
+          msg += `\n\n*קבוצות שנכשלו:*\n${failedGroups.map(g => `• ${g}`).join('\n')}`;
+        }
       }
       await triggerService.sendNotificationMessage(userId, senderPhone, msg);
     }
@@ -1212,7 +1226,8 @@ async function editJobMessages(jobId, newText, senderPhone = null) {
 
   try {
     const jobResult = await db.query(`
-      SELECT fj.*, gf.user_id, gf.name as forward_name
+      SELECT fj.*, gf.user_id, gf.name as forward_name,
+        gf.delay_min, gf.delay_max, gf.message_suffix, gf.suffix_enabled
       FROM forward_jobs fj
       JOIN group_forwards gf ON fj.forward_id = gf.id
       WHERE fj.id = $1
@@ -1226,7 +1241,7 @@ async function editJobMessages(jobId, newText, senderPhone = null) {
     const userId = job.user_id;
 
     const messagesResult = await db.query(`
-      SELECT fjm.*, gft.group_id, gft.group_name
+      SELECT fjm.*, gft.group_id, gft.group_name, gft.custom_suffix, gft.no_suffix
       FROM forward_job_messages fjm
       JOIN group_forward_targets gft ON fjm.target_id = gft.id
       WHERE fjm.job_id = $1
@@ -1246,9 +1261,24 @@ async function editJobMessages(jobId, newText, senderPhone = null) {
 
     for (const message of messagesResult.rows) {
       try {
-        await wahaService.editMessage(userId, message.group_id, message.whatsapp_message_id, newText);
+        // Apply suffix per target (same priority rules as original send)
+        let suffixToUse = '';
+        if (message.no_suffix === true) {
+          suffixToUse = '';
+        } else if (message.custom_suffix !== null && message.custom_suffix !== undefined && message.custom_suffix !== '') {
+          suffixToUse = message.custom_suffix;
+        } else if (job.suffix_enabled && job.message_suffix) {
+          suffixToUse = job.message_suffix;
+        }
+
+        const textWithSuffix = suffixToUse
+          ? `${newText}\n\n${suffixToUse}`
+          : newText;
+
+        await wahaService.editMessage(userId, message.group_id, message.whatsapp_message_id, textWithSuffix);
         editedCount++;
-        await new Promise(resolve => setTimeout(resolve, 300));
+        // Delay between edits according to configured delay settings
+        await new Promise(resolve => setTimeout(resolve, calculateDelay(job.delay_min, job.delay_max) * 1000));
       } catch (editError) {
         console.error(`[GroupForwards] Error editing message in ${message.group_id}:`, editError.message);
         failedGroups.push(message.group_name || message.group_id);
