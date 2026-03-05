@@ -2038,7 +2038,7 @@ async function handleMessageRevoked(userId, event) {
     console.log(`[Webhook] message.revoked by admin in group ${revokedChatId}, cascading deletion of message ${revokedMessageId}`);
 
     // Cascade delete to all other groups (runs in background)
-    broadcastAdminService.cascadeDeleteBroadcastMessage(userId, revokedMessageId, revokedChatId)
+    broadcastAdminService.cascadeDeleteBroadcastMessage(userId, revokedMessageId, revokedChatId, revokerPhone)
       .catch(err => console.error('[Webhook] Cascade delete error:', err.message));
 
   } catch (error) {

@@ -328,7 +328,7 @@ async function isAdminForAnyForward(userId, phone) {
  * @param {string} deletedMessageId - WAHA message ID that was revoked
  * @param {string} sourceGroupId - Group where the deletion originated
  */
-async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGroupId) {
+async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGroupId, adminPhone) {
   await ensureAdminTables();
 
   try {
@@ -384,6 +384,8 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
 
     console.log(`[BroadcastAdmin] Cascade delete for job ${jobId} (${jobType}), delay ${delayMs}ms`);
 
+    const failedGroups = [];
+
     if (jobType === 'forward') {
       const msgs = await db.query(`
         SELECT fjm.whatsapp_message_id, gft.group_id, gft.group_name
@@ -406,6 +408,7 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
           console.log(`[BroadcastAdmin] Deleted from ${msg.group_name || msg.group_id}`);
         } catch (e) {
           console.error(`[BroadcastAdmin] Delete failed for ${msg.group_id}:`, e.message);
+          failedGroups.push(msg.group_name || msg.group_id);
         }
       }
     } else if (jobType === 'transfer') {
@@ -434,7 +437,21 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
           console.log(`[BroadcastAdmin] Deleted transfer msg from ${msg.group_name || msg.group_id}`);
         } catch (e) {
           console.error(`[BroadcastAdmin] Transfer delete failed for ${msg.group_id}:`, e.message);
+          failedGroups.push(msg.group_name || msg.group_id);
         }
+      }
+    }
+
+    // Notify admin about groups where deletion failed (bot is probably not a group admin)
+    if (failedGroups.length > 0 && adminPhone) {
+      try {
+        const adminChatId = adminPhone.includes('@') ? adminPhone : `${adminPhone.replace(/\D/g, '')}@s.whatsapp.net`;
+        const groupList = failedGroups.map(g => `• ${g}`).join('\n');
+        const notifyText = `⚠️ *מחיקה נכשלה בקבוצות הבאות:*\n${groupList}\n\n_ייתכן שהבוט אינו מנהל בקבוצות אלו._`;
+        await wahaService.sendMessage(wahaConnection, adminChatId, notifyText);
+        console.log(`[BroadcastAdmin] Notified admin about ${failedGroups.length} failed deletions`);
+      } catch (notifyErr) {
+        console.error('[BroadcastAdmin] Failed to notify admin:', notifyErr.message);
       }
     }
 
