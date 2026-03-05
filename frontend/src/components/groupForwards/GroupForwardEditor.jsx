@@ -160,7 +160,8 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
       await api.put(`/group-forwards/${forward.id}/senders`, {
         senders: senders.map(s => ({
           phone_number: s.phone_number,
-          name: s.name
+          name: s.name,
+          is_admin: s.is_admin || false
         }))
       });
       return true;
@@ -284,6 +285,14 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
 
   const removeSender = (phone) => {
     setSenders(senders.filter(s => s.phone_number !== phone));
+  };
+
+  const toggleAdmin = (phone) => {
+    setSenders(senders.map(s => {
+      if (s.phone_number === phone) return { ...s, is_admin: !s.is_admin };
+      // Only one admin allowed — clear others
+      return { ...s, is_admin: false };
+    }));
   };
 
   // Format delay for display
@@ -731,18 +740,30 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                     const formattedPhone = formatPhoneDisplay(sender.phone_number);
                     
                     return (
-                      <div key={sender.phone_number} className="group flex items-center gap-4 p-4 bg-gradient-to-r from-gray-50 to-white rounded-xl border border-gray-100 hover:border-green-200 hover:shadow-md transition-all">
-                        <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl flex items-center justify-center shadow">
-                          <Phone className="w-6 h-6 text-white" />
+                      <div key={sender.phone_number} className={`group flex items-center gap-4 p-4 bg-gradient-to-r rounded-xl border transition-all hover:shadow-md ${sender.is_admin ? 'from-amber-50 to-orange-50 border-amber-200 hover:border-amber-300' : 'from-gray-50 to-white border-gray-100 hover:border-green-200'}`}>
+                        <div className={`w-12 h-12 bg-gradient-to-br rounded-xl flex items-center justify-center shadow ${sender.is_admin ? 'from-amber-400 to-orange-500' : 'from-green-500 to-emerald-500'}`}>
+                          {sender.is_admin ? <Crown className="w-6 h-6 text-white" /> : <Phone className="w-6 h-6 text-white" />}
                         </div>
                         <div className="flex-1 min-w-0 text-right">
-                          {sender.name && (
-                            <p className="font-semibold text-gray-900 text-lg">{sender.name}</p>
-                          )}
+                          <div className="flex items-center gap-2 justify-end flex-wrap">
+                            {sender.name && (
+                              <p className="font-semibold text-gray-900 text-lg">{sender.name}</p>
+                            )}
+                            {sender.is_admin && (
+                              <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">מנהל שליחות</span>
+                            )}
+                          </div>
                           <p className={`${sender.name ? 'text-sm text-gray-500' : 'font-semibold text-gray-900 text-lg'}`} dir="ltr" style={{ textAlign: 'right' }}>
                             {formattedPhone}
                           </p>
                         </div>
+                        <button
+                          onClick={() => toggleAdmin(sender.phone_number)}
+                          title={sender.is_admin ? 'הסר הרשאת מנהל' : 'הגדר כמנהל שליחות'}
+                          className={`p-2 rounded-xl transition-all opacity-0 group-hover:opacity-100 ${sender.is_admin ? 'text-amber-500 hover:bg-amber-100' : 'text-gray-400 hover:bg-amber-50 hover:text-amber-500'}`}
+                        >
+                          <Crown className="w-5 h-5" />
+                        </button>
                         <button
                           onClick={() => removeSender(sender.phone_number)}
                           className="p-2 hover:bg-red-100 rounded-xl text-gray-400 hover:text-red-600 transition-all opacity-0 group-hover:opacity-100"

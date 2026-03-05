@@ -281,33 +281,39 @@ async function updateAuthorizedSenders(req, res) {
   try {
     const userId = req.user.id;
     const { forwardId } = req.params;
-    const { senders } = req.body; // Array of { phone_number, name }
-    
+    const { senders } = req.body; // Array of { phone_number, name, is_admin }
+
     if (!Array.isArray(senders)) {
       return res.status(400).json({ error: 'נדרשת רשימת שולחים מורשים' });
     }
-    
+
+    // Ensure only one admin across all senders
+    const adminSenders = senders.filter(s => s.is_admin);
+    if (adminSenders.length > 1) {
+      return res.status(400).json({ error: 'ניתן להגדיר מנהל אחד בלבד' });
+    }
+
     // Verify ownership
     const ownerCheck = await db.query(
       'SELECT id FROM group_forwards WHERE id = $1 AND user_id = $2',
       [forwardId, userId]
     );
-    
+
     if (ownerCheck.rows.length === 0) {
       return res.status(404).json({ error: 'העברה לא נמצאה' });
     }
-    
+
     // Start transaction
     const client = await db.pool.connect();
     try {
       await client.query('BEGIN');
-      
+
       // Delete existing senders
       await client.query(
         'DELETE FROM forward_authorized_senders WHERE forward_id = $1',
         [forwardId]
       );
-      
+
       // Insert new senders
       for (const sender of senders) {
         if (sender.phone_number?.trim()) {
@@ -319,15 +325,17 @@ async function updateAuthorizedSenders(req, res) {
           if (!phone.includes('@')) {
             phone = phone + '@s.whatsapp.net';
           }
-          
+
+          const isAdmin = sender.is_admin === true;
+
           await client.query(`
-            INSERT INTO forward_authorized_senders (forward_id, phone_number, name)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (forward_id, phone_number) DO UPDATE SET name = $3
-          `, [forwardId, phone, sender.name || null]);
+            INSERT INTO forward_authorized_senders (forward_id, phone_number, name, is_admin)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (forward_id, phone_number) DO UPDATE SET name = $3, is_admin = $4
+          `, [forwardId, phone, sender.name || null, isAdmin]);
         }
       }
-      
+
       await client.query('COMMIT');
       
       // Get updated senders
@@ -455,10 +463,10 @@ async function duplicateGroupForward(req, res) {
         FROM group_forward_targets WHERE forward_id = $2
       `, [newId, forwardId]);
       
-      // Copy authorized senders
+      // Copy authorized senders (do not copy is_admin — let the user set it fresh)
       await client.query(`
-        INSERT INTO forward_authorized_senders (forward_id, phone_number, name)
-        SELECT $1, phone_number, name
+        INSERT INTO forward_authorized_senders (forward_id, phone_number, name, is_admin)
+        SELECT $1, phone_number, name, false
         FROM forward_authorized_senders WHERE forward_id = $2
       `, [newId, forwardId]);
       

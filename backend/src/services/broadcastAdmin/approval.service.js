@@ -3,30 +3,24 @@ const { getWahaCredentials } = require('../settings/system.service');
 const { decrypt } = require('../crypto/encrypt.service');
 
 /**
- * Broadcast Admin Approval Service
+ * Broadcast Admin Approval Service (per-forward)
  *
- * Handles admin approval flow for group forward broadcasts:
- * 1. When an authorized sender triggers a broadcast, if an admin is configured,
- *    the admin receives a WhatsApp list message with approve/reject options.
- * 2. If approved, the original sender continues the normal confirmation flow.
- * 3. If rejected, the job is cancelled with no notification to the sender.
+ * Each group_forward can have one sender marked as is_admin = true.
+ * When a broadcast is triggered:
+ *   1. If the forward has an admin sender, that admin receives a WhatsApp
+ *      approval request (list message with Yes/No + sender info + message content).
+ *   2. If admin approves → the original sender gets the normal confirmation list.
+ *   3. If admin rejects → job is silently cancelled (sender not notified).
  *
- * Also handles cascade message deletion:
- * When the admin deletes a broadcast message from one group,
- * the same message is deleted from all groups it was sent to.
+ * When the admin deletes a broadcast message from any group,
+ * the deletion cascades to all other groups with the forward's delay settings.
  */
 
-/**
- * Normalize a phone number to digits only, no country code prefix issues
- */
 function normalizePhone(phone) {
   if (!phone) return '';
   return phone.replace(/\D/g, '').replace(/^0+/, '');
 }
 
-/**
- * Get WAHA connection for a user
- */
 async function getWahaConnection(userId) {
   const result = await db.query(`
     SELECT * FROM whatsapp_connections
@@ -52,47 +46,34 @@ async function getWahaConnection(userId) {
 }
 
 /**
- * Get broadcast admin config for a user
- * Returns null if no admin is configured
+ * Get the admin sender for a specific forward (is_admin = true)
+ * Returns { phone_number, name } or null
  */
-async function getAdminConfig(userId) {
+async function getForwardAdmin(forwardId) {
   try {
     const result = await db.query(
-      'SELECT * FROM broadcast_admin_config WHERE user_id = $1',
-      [userId]
+      `SELECT phone_number, name FROM forward_authorized_senders
+       WHERE forward_id = $1 AND is_admin = true
+       LIMIT 1`,
+      [forwardId]
     );
     return result.rows[0] || null;
   } catch (err) {
-    // Table might not exist yet
-    if (err.message?.includes('does not exist')) return null;
+    if (err.message?.includes('column') && err.message?.includes('is_admin')) {
+      // Column not yet migrated
+      return null;
+    }
     throw err;
   }
 }
 
 /**
- * Ensure admin tables exist (lazy migration)
+ * Ensure approval tracking table exists (lazy migration)
  */
-let adminTablesEnsured = false;
+let tablesEnsured = false;
 async function ensureAdminTables() {
-  if (adminTablesEnsured) return;
+  if (tablesEnsured) return;
   try {
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS broadcast_admin_config (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        admin_phone VARCHAR(30) NOT NULL,
-        admin_name VARCHAR(255),
-        require_approval BOOLEAN DEFAULT true,
-        delete_delay_seconds INT DEFAULT 2,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        UNIQUE(user_id)
-      )
-    `);
-    await db.query(`
-      CREATE INDEX IF NOT EXISTS idx_broadcast_admin_config_user
-      ON broadcast_admin_config(user_id)
-    `);
     await db.query(`
       CREATE TABLE IF NOT EXISTS broadcast_admin_approvals (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -114,29 +95,36 @@ async function ensureAdminTables() {
       ALTER TABLE forward_jobs
       ADD COLUMN IF NOT EXISTS awaiting_admin_approval BOOLEAN DEFAULT false
     `);
-    adminTablesEnsured = true;
+    // Ensure is_admin column exists on forward_authorized_senders
+    await db.query(`
+      ALTER TABLE forward_authorized_senders
+      ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false
+    `);
+    await db.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_forward_senders_one_admin
+      ON forward_authorized_senders (forward_id)
+      WHERE is_admin = true
+    `);
+    tablesEnsured = true;
   } catch (err) {
-    console.log('[BroadcastAdmin] Table creation note:', err.message);
-    adminTablesEnsured = true;
+    console.log('[BroadcastAdmin] Table migration note:', err.message);
+    tablesEnsured = true;
   }
 }
 
 /**
- * Send an approval request WhatsApp list message to the admin
- * The admin receives: sender info, message preview, and Yes/No options
+ * Send the approval request to the admin via WhatsApp list message
  */
-async function sendApprovalRequestToAdmin(userId, job, forward, adminConfig) {
+async function sendApprovalRequestToAdmin(userId, job, forward, adminPhone, adminName) {
   try {
     const wahaConnection = await getWahaConnection(userId);
-    if (!wahaConnection) {
-      console.log('[BroadcastAdmin] No WhatsApp connection for approval request');
-      return false;
-    }
+    if (!wahaConnection) return false;
 
     const wahaService = require('../waha/session.service');
-    const adminChatId = `${adminConfig.admin_phone.replace(/\D/g, '')}@s.whatsapp.net`;
 
-    // Build message preview (truncated)
+    // admin_phone is stored as "972501234567@s.whatsapp.net" in DB
+    const chatId = adminPhone.includes('@') ? adminPhone : `${adminPhone.replace(/\D/g, '')}@s.whatsapp.net`;
+
     const messagePreview = job.message_text
       ? job.message_text.substring(0, 100) + (job.message_text.length > 100 ? '...' : '')
       : `[${job.message_type}]`;
@@ -145,7 +133,7 @@ async function sendApprovalRequestToAdmin(userId, job, forward, adminConfig) {
       ? `${job.sender_name} (${job.sender_phone})`
       : job.sender_phone;
 
-    const bodyText = `📤 *בקשת שליחה לקבוצות*\n\n👤 *שולח:* ${senderDisplay}\n📋 *מסלול:* ${forward.name}\n📢 *קבוצות:* ${job.total_targets}\n\n💬 *תוכן ההודעה:*\n${messagePreview}`;
+    const bodyText = `📤 *בקשת שליחה לקבוצות*\n\n👤 *שולח:* ${senderDisplay}\n📋 *מסלול:* ${forward.name}\n📢 *קבוצות:* ${job.total_targets}\n\n💬 *תוכן:*\n${messagePreview}`;
 
     const listData = {
       title: '📤 אישור שליחת הודעה לקבוצות',
@@ -157,8 +145,8 @@ async function sendApprovalRequestToAdmin(userId, job, forward, adminConfig) {
       ]
     };
 
-    await wahaService.sendList(wahaConnection, adminChatId, listData);
-    console.log(`[BroadcastAdmin] Approval request sent to admin ${adminConfig.admin_phone} for job ${job.id}`);
+    await wahaService.sendList(wahaConnection, chatId, listData);
+    console.log(`[BroadcastAdmin] Approval request sent to admin ${adminPhone} for job ${job.id}`);
     return true;
   } catch (error) {
     console.error('[BroadcastAdmin] Failed to send approval request:', error.message);
@@ -167,16 +155,15 @@ async function sendApprovalRequestToAdmin(userId, job, forward, adminConfig) {
 }
 
 /**
- * Create an approval request record and send WhatsApp message to admin
- * Marks the job as awaiting admin approval
+ * Request admin approval for a job.
+ * Checks if the forward has an admin sender configured.
+ * Returns true if routed to admin, false if no admin (caller should proceed normally).
  */
 async function requestAdminApproval(userId, job, forward) {
   await ensureAdminTables();
 
-  const adminConfig = await getAdminConfig(userId);
-  if (!adminConfig || !adminConfig.require_approval) {
-    return false; // No admin configured or approval not required
-  }
+  const admin = await getForwardAdmin(forward.id);
+  if (!admin) return false; // No admin configured for this forward
 
   try {
     // Mark job as awaiting admin approval
@@ -186,16 +173,14 @@ async function requestAdminApproval(userId, job, forward) {
       WHERE id = $1
     `, [job.id]);
 
-    // Create approval record
+    // Record approval request
     await db.query(`
       INSERT INTO broadcast_admin_approvals (user_id, job_id, sender_phone, sender_name, status)
       VALUES ($1, $2, $3, $4, 'pending')
       ON CONFLICT (job_id) DO UPDATE SET status = 'pending', resolved_at = NULL
     `, [userId, job.id, job.sender_phone, job.sender_name]);
 
-    // Send WhatsApp message to admin
-    await sendApprovalRequestToAdmin(userId, job, forward, adminConfig);
-
+    await sendApprovalRequestToAdmin(userId, job, forward, admin.phone_number, admin.name);
     return true;
   } catch (error) {
     console.error('[BroadcastAdmin] Error creating approval request:', error.message);
@@ -204,25 +189,14 @@ async function requestAdminApproval(userId, job, forward) {
 }
 
 /**
- * Process admin's response (approve or reject) to a broadcast request
- * Returns true if the response was handled
+ * Process admin's response (approve/reject).
+ * Verifies the responder is the configured admin for the forward in question.
+ * Returns true if handled.
  */
 async function processAdminResponse(userId, adminPhone, rowId) {
   await ensureAdminTables();
 
   try {
-    // Verify this is from the configured admin
-    const adminConfig = await getAdminConfig(userId);
-    if (!adminConfig) return false;
-
-    const normalizedIncoming = normalizePhone(adminPhone);
-    const normalizedAdmin = normalizePhone(adminConfig.admin_phone);
-
-    if (normalizedIncoming !== normalizedAdmin) {
-      return false; // Not from the admin
-    }
-
-    // Parse the action and job ID from rowId
     let action, jobId;
     if (rowId?.startsWith('admin_approve_')) {
       action = 'approve';
@@ -236,26 +210,33 @@ async function processAdminResponse(userId, adminPhone, rowId) {
 
     // Find the approval record
     const approvalResult = await db.query(
-      `SELECT * FROM broadcast_admin_approvals WHERE job_id = $1 AND user_id = $2 AND status = 'pending'`,
+      `SELECT baa.*, fj.forward_id FROM broadcast_admin_approvals baa
+       JOIN forward_jobs fj ON fj.id = baa.job_id
+       WHERE baa.job_id = $1 AND baa.user_id = $2 AND baa.status = 'pending'`,
       [jobId, userId]
     );
 
-    if (approvalResult.rows.length === 0) {
-      console.log(`[BroadcastAdmin] No pending approval found for job ${jobId}`);
-      return false;
-    }
+    if (approvalResult.rows.length === 0) return false;
 
     const approval = approvalResult.rows[0];
 
+    // Verify the responder is actually the admin for this forward
+    const forwardAdmin = await getForwardAdmin(approval.forward_id);
+    if (!forwardAdmin) return false;
+
+    const normalizedIncoming = normalizePhone(adminPhone);
+    const normalizedAdmin = normalizePhone(forwardAdmin.phone_number);
+
+    if (normalizedIncoming !== normalizedAdmin) return false;
+
     // Update approval status
-    await db.query(`
-      UPDATE broadcast_admin_approvals
-      SET status = $1, resolved_at = NOW()
-      WHERE id = $2
-    `, [action === 'approve' ? 'approved' : 'rejected', approval.id]);
+    await db.query(
+      `UPDATE broadcast_admin_approvals SET status = $1, resolved_at = NOW() WHERE id = $2`,
+      [action === 'approve' ? 'approved' : 'rejected', approval.id]
+    );
 
     if (action === 'approve') {
-      await handleApproval(userId, jobId, approval);
+      await handleApproval(userId, jobId);
     } else {
       await handleRejection(userId, jobId);
     }
@@ -267,51 +248,31 @@ async function processAdminResponse(userId, adminPhone, rowId) {
   }
 }
 
-/**
- * Handle approval: mark job as pending_confirmation and send confirmation list to original sender
- */
-async function handleApproval(userId, jobId, approval) {
+async function handleApproval(userId, jobId) {
   try {
-    // Get the job details
-    const jobResult = await db.query(
-      'SELECT * FROM forward_jobs WHERE id = $1',
-      [jobId]
-    );
-
+    const jobResult = await db.query('SELECT * FROM forward_jobs WHERE id = $1', [jobId]);
     if (jobResult.rows.length === 0) return;
-
     const job = jobResult.rows[0];
 
-    // Get the forward details
-    const forwardResult = await db.query(
-      'SELECT * FROM group_forwards WHERE id = $1',
-      [job.forward_id]
-    );
-
+    const forwardResult = await db.query('SELECT * FROM group_forwards WHERE id = $1', [job.forward_id]);
     if (forwardResult.rows.length === 0) return;
-
     const forward = forwardResult.rows[0];
 
-    // Mark job as pending (ready for sender confirmation) and clear admin flag
     await db.query(`
       UPDATE forward_jobs
       SET status = 'pending', awaiting_admin_approval = false, updated_at = NOW()
       WHERE id = $1
     `, [jobId]);
 
-    // Send confirmation list to the original sender
     const triggerService = require('../groupForwards/trigger.service');
     await triggerService.sendConfirmationListForJob(userId, job, forward);
 
-    console.log(`[BroadcastAdmin] Job ${jobId} approved, confirmation sent to sender ${job.sender_phone}`);
+    console.log(`[BroadcastAdmin] Job ${jobId} approved, confirmation sent to sender`);
   } catch (error) {
     console.error('[BroadcastAdmin] Error handling approval:', error.message);
   }
 }
 
-/**
- * Handle rejection: cancel the job silently (no notification to sender)
- */
 async function handleRejection(userId, jobId) {
   try {
     await db.query(`
@@ -319,7 +280,6 @@ async function handleRejection(userId, jobId) {
       SET status = 'cancelled', awaiting_admin_approval = false, updated_at = NOW()
       WHERE id = $1
     `, [jobId]);
-
     console.log(`[BroadcastAdmin] Job ${jobId} rejected by admin`);
   } catch (error) {
     console.error('[BroadcastAdmin] Error handling rejection:', error.message);
@@ -327,33 +287,49 @@ async function handleRejection(userId, jobId) {
 }
 
 /**
- * Check if a given phone is the configured admin for a user
+ * Check if a phone number is the admin for any forward belonging to a user
+ * (used by message.revoked handler to verify cascade delete authority)
  */
-async function isAdmin(userId, phone) {
-  const adminConfig = await getAdminConfig(userId);
-  if (!adminConfig) return false;
+async function isAdminForAnyForward(userId, phone) {
+  try {
+    await ensureAdminTables();
+    const normalized = normalizePhone(phone);
+    const result = await db.query(`
+      SELECT fas.forward_id FROM forward_authorized_senders fas
+      JOIN group_forwards gf ON gf.id = fas.forward_id
+      WHERE gf.user_id = $1 AND fas.is_admin = true
+    `, [userId]);
 
-  const normalizedIncoming = normalizePhone(phone);
-  const normalizedAdmin = normalizePhone(adminConfig.admin_phone);
-  return normalizedIncoming === normalizedAdmin;
+    for (const row of result.rows) {
+      const adminPhone = normalizePhone(row.forward_admin_phone || '');
+    }
+
+    // Check if any admin phone matches
+    const allAdmins = await db.query(`
+      SELECT fas.phone_number FROM forward_authorized_senders fas
+      JOIN group_forwards gf ON gf.id = fas.forward_id
+      WHERE gf.user_id = $1 AND fas.is_admin = true
+    `, [userId]);
+
+    return allAdmins.rows.some(r => normalizePhone(r.phone_number) === normalized);
+  } catch (err) {
+    return false;
+  }
 }
 
 /**
- * Cascade-delete a broadcast message from all groups where it was sent
- * Called when the admin deletes a message from one of the groups
+ * Cascade-delete broadcast messages from all groups where a job sent messages.
+ * Uses the forward's delay_min as the inter-delete delay.
  *
- * @param {string} userId - User ID
- * @param {string} deletedMessageId - WAHA message ID that was deleted
- * @param {string} sourceGroupId - Group where it was deleted
+ * @param {string} userId
+ * @param {string} deletedMessageId - WAHA message ID that was revoked
+ * @param {string} sourceGroupId - Group where the deletion originated
  */
 async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGroupId) {
   await ensureAdminTables();
 
   try {
-    const adminConfig = await getAdminConfig(userId);
-    const delayMs = ((adminConfig?.delete_delay_seconds) || 2) * 1000;
-
-    // Find the job this message belongs to (check forward_job_messages)
+    // Find forward job message
     const forwardMsgResult = await db.query(`
       SELECT fjm.*, fj.id as job_id, fj.forward_id
       FROM forward_job_messages fjm
@@ -362,7 +338,7 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
       LIMIT 1
     `, [userId, deletedMessageId]);
 
-    // Also check transfer_job_messages
+    // Also check transfer job messages
     const transferMsgResult = await db.query(`
       SELECT tjm.*, tj.id as job_id, tj.transfer_id
       FROM transfer_job_messages tjm
@@ -373,37 +349,40 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
 
     let jobType = null;
     let jobId = null;
-    let sourceMessageRow = null;
+    let forwardId = null;
 
     if (forwardMsgResult.rows.length > 0) {
       jobType = 'forward';
-      sourceMessageRow = forwardMsgResult.rows[0];
-      jobId = sourceMessageRow.job_id;
+      jobId = forwardMsgResult.rows[0].job_id;
+      forwardId = forwardMsgResult.rows[0].forward_id;
     } else if (transferMsgResult.rows.length > 0) {
       jobType = 'transfer';
-      sourceMessageRow = transferMsgResult.rows[0];
-      jobId = sourceMessageRow.job_id;
+      jobId = transferMsgResult.rows[0].job_id;
     }
 
-    if (!jobType) {
-      // Message not found in any broadcast job - not a broadcast message
-      return false;
+    if (!jobType) return false;
+
+    // Get delay from forward settings (delay_min) or default to 2s
+    let delayMs = 2000;
+    if (forwardId) {
+      const fwdResult = await db.query(
+        'SELECT delay_min FROM group_forwards WHERE id = $1',
+        [forwardId]
+      );
+      if (fwdResult.rows.length > 0) {
+        delayMs = (fwdResult.rows[0].delay_min || 2) * 1000;
+      }
     }
 
-    console.log(`[BroadcastAdmin] Cascade delete triggered for job ${jobId} (${jobType}), deleted message: ${deletedMessageId} from group ${sourceGroupId}`);
-
-    // Get WAHA connection
     const wahaConnection = await getWahaConnection(userId);
-    if (!wahaConnection) {
-      console.log('[BroadcastAdmin] No WhatsApp connection for cascade delete');
-      return false;
-    }
+    if (!wahaConnection) return false;
 
     const wahaService = require('../waha/session.service');
 
+    console.log(`[BroadcastAdmin] Cascade delete for job ${jobId} (${jobType}), delay ${delayMs}ms`);
+
     if (jobType === 'forward') {
-      // Get all OTHER messages from the same forward job (except the one already deleted)
-      const allMsgsResult = await db.query(`
+      const msgs = await db.query(`
         SELECT fjm.whatsapp_message_id, gft.group_id, gft.group_name
         FROM forward_job_messages fjm
         JOIN group_forward_targets gft ON gft.id = fjm.target_id
@@ -413,31 +392,30 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
           AND fjm.whatsapp_message_id != $2
       `, [jobId, deletedMessageId]);
 
-      if (allMsgsResult.rows.length === 0) {
-        console.log('[BroadcastAdmin] No other messages to delete in forward job');
-        return true;
-      }
-
-      console.log(`[BroadcastAdmin] Deleting ${allMsgsResult.rows.length} messages from other groups with ${delayMs}ms delay`);
-
-      // Delete each message with delay
-      for (const msg of allMsgsResult.rows) {
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+      for (const msg of msgs.rows) {
+        await new Promise(r => setTimeout(r, delayMs));
         try {
           await wahaService.deleteMessage(wahaConnection, msg.group_id, msg.whatsapp_message_id);
           await db.query(`
-            UPDATE forward_job_messages
-            SET status = 'deleted', deleted_at = NOW()
+            UPDATE forward_job_messages SET status = 'deleted', deleted_at = NOW()
             WHERE job_id = $1 AND whatsapp_message_id = $2
           `, [jobId, msg.whatsapp_message_id]);
-          console.log(`[BroadcastAdmin] Deleted message from group ${msg.group_name || msg.group_id}`);
-        } catch (deleteErr) {
-          console.error(`[BroadcastAdmin] Failed to delete from ${msg.group_id}:`, deleteErr.message);
+          console.log(`[BroadcastAdmin] Deleted from ${msg.group_name || msg.group_id}`);
+        } catch (e) {
+          console.error(`[BroadcastAdmin] Delete failed for ${msg.group_id}:`, e.message);
         }
       }
     } else if (jobType === 'transfer') {
-      // Get all OTHER messages from the same transfer job
-      const allMsgsResult = await db.query(`
+      // For transfers, get delay from transfer settings
+      const transferResult = await db.query(
+        'SELECT delay_min FROM group_transfers WHERE id = (SELECT transfer_id FROM transfer_jobs WHERE id = $1)',
+        [jobId]
+      );
+      if (transferResult.rows.length > 0) {
+        delayMs = (transferResult.rows[0].delay_min || 2) * 1000;
+      }
+
+      const msgs = await db.query(`
         SELECT message_id, group_id, group_name
         FROM transfer_job_messages
         WHERE job_id = $1
@@ -446,20 +424,13 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
           AND message_id != $2
       `, [jobId, deletedMessageId]);
 
-      if (allMsgsResult.rows.length === 0) {
-        console.log('[BroadcastAdmin] No other messages to delete in transfer job');
-        return true;
-      }
-
-      console.log(`[BroadcastAdmin] Deleting ${allMsgsResult.rows.length} messages from other groups (transfer) with ${delayMs}ms delay`);
-
-      for (const msg of allMsgsResult.rows) {
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+      for (const msg of msgs.rows) {
+        await new Promise(r => setTimeout(r, delayMs));
         try {
           await wahaService.deleteMessage(wahaConnection, msg.group_id, msg.message_id);
-          console.log(`[BroadcastAdmin] Deleted transfer message from group ${msg.group_name || msg.group_id}`);
-        } catch (deleteErr) {
-          console.error(`[BroadcastAdmin] Failed to delete transfer msg from ${msg.group_id}:`, deleteErr.message);
+          console.log(`[BroadcastAdmin] Deleted transfer msg from ${msg.group_name || msg.group_id}`);
+        } catch (e) {
+          console.error(`[BroadcastAdmin] Transfer delete failed for ${msg.group_id}:`, e.message);
         }
       }
     }
@@ -471,12 +442,18 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
   }
 }
 
+// Keep getAdminConfig stub for backward compat (returns null — no global admin)
+async function getAdminConfig(userId) {
+  return null;
+}
+
 module.exports = {
   getAdminConfig,
+  getForwardAdmin,
   ensureAdminTables,
   requestAdminApproval,
   processAdminResponse,
-  isAdmin,
+  isAdminForAnyForward,
   cascadeDeleteBroadcastMessage,
   normalizePhone
 };

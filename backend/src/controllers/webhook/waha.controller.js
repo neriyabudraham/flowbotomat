@@ -2026,21 +2026,13 @@ async function handleMessageRevoked(userId, event) {
     const broadcastAdminService = require('../../services/broadcastAdmin/approval.service');
 
     if (revokerPhone) {
-      const revokerIsAdmin = await broadcastAdminService.isAdmin(userId, revokerPhone);
+      const revokerIsAdmin = await broadcastAdminService.isAdminForAnyForward(userId, revokerPhone);
       if (!revokerIsAdmin) {
-        return; // Not the admin - do nothing
+        return; // Not an admin for any forward - do nothing
       }
     } else {
-      // Can't determine who revoked - check if the message was fromMe (bot deleted it)
-      // If fromMe and from a broadcast, cascade. Otherwise skip.
-      const fromMe = payload.fromMe || payload.before?.fromMe || false;
-      if (!fromMe) {
-        return; // Can't verify - skip
-      }
-      // If fromMe=true, the bot's own message was revoked - still check admin
-      // since we can't verify the revoker without their phone
-      const adminConfig = await broadcastAdminService.getAdminConfig(userId);
-      if (!adminConfig) return; // No admin configured
+      // Can't determine who revoked - skip (can't verify admin authority)
+      return;
     }
 
     console.log(`[Webhook] message.revoked by admin in group ${revokedChatId}, cascading deletion of message ${revokedMessageId}`);

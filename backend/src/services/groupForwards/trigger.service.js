@@ -401,11 +401,11 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
     
     // Job created
     
-    // Check if admin approval is required before proceeding
+    // Check if admin approval is required before proceeding (per-forward admin)
     const broadcastAdminService = require('../broadcastAdmin/approval.service');
-    const adminConfig = await broadcastAdminService.getAdminConfig(userId);
+    const forwardAdmin = await broadcastAdminService.getForwardAdmin(forward.id);
 
-    if (adminConfig && adminConfig.require_approval) {
+    if (forwardAdmin) {
       // Route to admin for approval first — sender gets no notification yet
       await broadcastAdminService.requestAdminApproval(userId, job, forward);
     } else if (forward.require_confirmation) {
