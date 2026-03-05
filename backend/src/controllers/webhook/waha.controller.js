@@ -1980,15 +1980,13 @@ async function handleMessageRevoked(userId, event) {
   try {
     const payload = event.payload || {};
 
-    // Extract the revoked message ID - WAHA can send different payload shapes
-    // Shape 1: payload.id (string or object)
-    // Shape 2: payload.before / payload.after (before = original, after = revoked)
-    // Shape 3: payload.revokedMsg
+    console.log('[Webhook] message.revoked raw payload:', JSON.stringify(payload, null, 2).substring(0, 1000));
+
     let revokedMessageId = null;
     let revokedChatId = null;
     let revokerPhone = null;
 
-    // Try to get the message ID
+    // Try to get the message ID from various WAHA payload shapes
     if (typeof payload.id === 'string') {
       revokedMessageId = payload.id;
     } else if (payload.id?._serialized) {
@@ -1999,16 +1997,22 @@ async function handleMessageRevoked(userId, event) {
       revokedMessageId = payload.before.id._serialized;
     } else if (payload.before?.id) {
       revokedMessageId = typeof payload.before.id === 'string' ? payload.before.id : payload.before.id._serialized;
+    } else if (payload.revokedMsg?.id?._serialized) {
+      revokedMessageId = payload.revokedMsg.id._serialized;
+    } else if (typeof payload.revokedMsg?.id === 'string') {
+      revokedMessageId = payload.revokedMsg.id;
     }
 
     // Get the chat (group) ID
-    revokedChatId = payload.chatId || payload.chat?.id || payload.from || payload.before?.chatId || null;
+    revokedChatId = payload.chatId || payload.chat?.id || payload.from || payload.before?.chatId || payload.revokedMsg?.chatId || null;
 
-    // Get who revoked it (the admin's phone)
-    revokerPhone = payload.revokedBy || payload.from || payload.before?.from || null;
+    // Get who revoked it
+    revokerPhone = payload.revokedBy || payload.author || payload.from || payload.before?.from || null;
     if (revokerPhone && revokerPhone.includes('@')) {
       revokerPhone = revokerPhone.split('@')[0];
     }
+
+    console.log(`[Webhook] message.revoked parsed: id=${revokedMessageId} chatId=${revokedChatId} revoker=${revokerPhone}`);
 
     if (!revokedMessageId) {
       console.log('[Webhook] message.revoked: could not extract message ID from payload');
@@ -2019,7 +2023,8 @@ async function handleMessageRevoked(userId, event) {
     const isGroupMessage = revokedChatId?.includes('@g.us');
 
     if (!isGroupMessage) {
-      return; // Only handle group messages
+      console.log(`[Webhook] message.revoked: not a group message (chatId=${revokedChatId}), skipping`);
+      return;
     }
 
     // Check if the revoker is the configured broadcast admin
@@ -2027,11 +2032,12 @@ async function handleMessageRevoked(userId, event) {
 
     if (revokerPhone) {
       const revokerIsAdmin = await broadcastAdminService.isAdminForAnyForward(userId, revokerPhone);
+      console.log(`[Webhook] message.revoked: revoker ${revokerPhone} isAdmin=${revokerIsAdmin}`);
       if (!revokerIsAdmin) {
         return; // Not an admin for any forward - do nothing
       }
     } else {
-      // Can't determine who revoked - skip (can't verify admin authority)
+      console.log('[Webhook] message.revoked: could not determine revoker phone, skipping');
       return;
     }
 
