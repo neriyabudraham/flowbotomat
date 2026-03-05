@@ -184,7 +184,14 @@ export default function DashboardPage() {
       const token = localStorage.getItem('accessToken');
       if (token) {
         const payload = JSON.parse(atob(token.split('.')[1]));
-        if (payload.viewingAs) return true;
+        if (payload.viewingAs && payload.accessType === 'admin') return true;
+      }
+    } catch (e) {}
+    try {
+      const originalToken = localStorage.getItem('originalAccessToken');
+      if (originalToken) {
+        const originalPayload = JSON.parse(atob(originalToken.split('.')[1]));
+        if (['admin', 'superadmin'].includes(originalPayload.role)) return true;
       }
     } catch (e) {}
     return false;

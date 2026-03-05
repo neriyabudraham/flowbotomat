@@ -50,12 +50,21 @@ export default function AdminPage() {
     // Direct admin check
     if (user && ['admin', 'superadmin'].includes(user.role)) return true;
     
-    // Check if viewing as another user (means original user is admin)
+    // Check if viewing as another user AND original user is admin
     try {
       const token = localStorage.getItem('accessToken');
       if (token) {
         const payload = JSON.parse(atob(token.split('.')[1]));
-        if (payload.viewingAs) return true; // Only admins can view as others
+        if (payload.viewingAs && ['admin', 'superadmin'].includes(payload.accessType)) return true;
+      }
+    } catch (e) {}
+    
+    // Check original token if stored
+    try {
+      const originalToken = localStorage.getItem('originalAccessToken');
+      if (originalToken) {
+        const originalPayload = JSON.parse(atob(originalToken.split('.')[1]));
+        if (['admin', 'superadmin'].includes(originalPayload.role)) return true;
       }
     } catch (e) {}
     

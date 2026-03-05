@@ -38,7 +38,7 @@ export default function ContactsPage() {
       const token = localStorage.getItem('accessToken');
       if (token) {
         const payload = JSON.parse(atob(token.split('.')[1]));
-        if (payload.viewingAs) return true;
+        if (payload.viewingAs && payload.accessType === 'admin') return true;
       }
     } catch (e) {}
     return false;
