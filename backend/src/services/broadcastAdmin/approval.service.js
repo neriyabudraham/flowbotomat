@@ -328,27 +328,31 @@ async function isAdminForAnyForward(userId, phone) {
  * @param {string} deletedMessageId - WAHA message ID that was revoked
  * @param {string} sourceGroupId - Group where the deletion originated
  */
-async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGroupId, adminPhone) {
+async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGroupId, adminPhone, shortMessageId) {
   await ensureAdminTables();
 
   try {
-    // Find forward job message
+    // Find forward job message — exact match first, fallback to short ID (handles LID format differences)
     const forwardMsgResult = await db.query(`
       SELECT fjm.*, fj.id as job_id, fj.forward_id
       FROM forward_job_messages fjm
       JOIN forward_jobs fj ON fj.id = fjm.job_id
-      WHERE fj.user_id = $1 AND fjm.whatsapp_message_id = $2
+      WHERE fj.user_id = $1
+        AND (fjm.whatsapp_message_id = $2
+             OR ($3::text IS NOT NULL AND fjm.whatsapp_message_id LIKE '%' || $3 || '%'))
       LIMIT 1
-    `, [userId, deletedMessageId]);
+    `, [userId, deletedMessageId, shortMessageId || null]);
 
     // Also check transfer job messages
     const transferMsgResult = await db.query(`
       SELECT tjm.*, tj.id as job_id, tj.transfer_id
       FROM transfer_job_messages tjm
       JOIN transfer_jobs tj ON tj.id = tjm.job_id
-      WHERE tj.user_id = $1 AND tjm.message_id = $2
+      WHERE tj.user_id = $1
+        AND (tjm.message_id = $2
+             OR ($3::text IS NOT NULL AND tjm.message_id LIKE '%' || $3 || '%'))
       LIMIT 1
-    `, [userId, deletedMessageId]);
+    `, [userId, deletedMessageId, shortMessageId || null]);
 
     let jobType = null;
     let jobId = null;

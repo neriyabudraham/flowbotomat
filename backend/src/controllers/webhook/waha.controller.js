@@ -1983,36 +1983,40 @@ async function handleMessageRevoked(userId, event) {
     console.log('[Webhook] message.revoked raw payload:', JSON.stringify(payload, null, 2).substring(0, 1000));
 
     let revokedMessageId = null;
+    let shortMessageId = null;
     let revokedChatId = null;
     let revokerPhone = null;
 
-    // Try to get the message ID from various WAHA payload shapes
-    if (typeof payload.id === 'string') {
-      revokedMessageId = payload.id;
-    } else if (payload.id?._serialized) {
-      revokedMessageId = payload.id._serialized;
-    } else if (payload.id?.id) {
-      revokedMessageId = payload.id.id;
-    } else if (payload.before?.id?._serialized) {
-      revokedMessageId = payload.before.id._serialized;
-    } else if (payload.before?.id) {
-      revokedMessageId = typeof payload.before.id === 'string' ? payload.before.id : payload.before.id._serialized;
-    } else if (payload.revokedMsg?.id?._serialized) {
-      revokedMessageId = payload.revokedMsg.id._serialized;
-    } else if (typeof payload.revokedMsg?.id === 'string') {
-      revokedMessageId = payload.revokedMsg.id;
+    // WAHA fires two events per deletion; payload arrives as { after: {...}, before: {...} }
+    const after  = payload.after  || {};
+    const before = payload.before || {};
+
+    // Full serialized message ID — strip LID suffix if present (_DIGITS@lid)
+    const rawId = after.id || before.id || payload.id;
+    if (typeof rawId === 'string') {
+      revokedMessageId = rawId.replace(/_\d+@lid$/, '');
+    } else if (rawId?._serialized) {
+      revokedMessageId = rawId._serialized.replace(/_\d+@lid$/, '');
     }
 
-    // Get the chat (group) ID
-    revokedChatId = payload.chatId || payload.chat?.id || payload.from || payload.before?.chatId || payload.revokedMsg?.chatId || null;
+    // Short message ID for broader DB matching
+    shortMessageId = after._data?.Info?.ID || before._data?.Info?.ID || null;
 
-    // Get who revoked it
-    revokerPhone = payload.revokedBy || payload.author || payload.from || payload.before?.from || null;
-    if (revokerPhone && revokerPhone.includes('@')) {
-      revokerPhone = revokerPhone.split('@')[0];
+    // Chat (group) ID
+    revokedChatId = after.from || after._data?.Info?.Chat ||
+                    before.from || before._data?.Info?.Chat ||
+                    payload.chatId || payload.from || null;
+
+    // Revoker phone — SenderAlt is populated on the fromMe=false event
+    const senderAlt = after._data?.Info?.SenderAlt || before._data?.Info?.SenderAlt || '';
+    if (senderAlt) {
+      revokerPhone = senderAlt.includes('@') ? senderAlt.split('@')[0] : senderAlt;
+    } else {
+      const raw = payload.revokedBy || payload.author || null;
+      if (raw) revokerPhone = raw.includes('@') ? raw.split('@')[0] : raw;
     }
 
-    console.log(`[Webhook] message.revoked parsed: id=${revokedMessageId} chatId=${revokedChatId} revoker=${revokerPhone}`);
+    console.log(`[Webhook] message.revoked parsed: id=${revokedMessageId} shortId=${shortMessageId} chatId=${revokedChatId} revoker=${revokerPhone}`);
 
     if (!revokedMessageId) {
       console.log('[Webhook] message.revoked: could not extract message ID from payload');
@@ -2044,7 +2048,7 @@ async function handleMessageRevoked(userId, event) {
     console.log(`[Webhook] message.revoked by admin in group ${revokedChatId}, cascading deletion of message ${revokedMessageId}`);
 
     // Cascade delete to all other groups (runs in background)
-    broadcastAdminService.cascadeDeleteBroadcastMessage(userId, revokedMessageId, revokedChatId, revokerPhone)
+    broadcastAdminService.cascadeDeleteBroadcastMessage(userId, revokedMessageId, revokedChatId, revokerPhone, shortMessageId)
       .catch(err => console.error('[Webhook] Cascade delete error:', err.message));
 
   } catch (error) {
