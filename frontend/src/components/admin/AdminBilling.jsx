@@ -310,22 +310,22 @@ function UpcomingCharges({ onRefresh, onViewUser, loadingUser }) {
                       <button
                         onClick={() => handleChargeNow(charge.id)}
                         disabled={actionLoading === charge.id}
-                        className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
-                        title="חייב עכשיו"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
                       >
                         {actionLoading === charge.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <Loader2 className="w-3 h-3 animate-spin" />
                         ) : (
-                          <Play className="w-4 h-4" />
+                          <Play className="w-3 h-3" />
                         )}
+                        חייב עכשיו
                       </button>
                       <button
                         onClick={() => handleCancel(charge.id)}
                         disabled={actionLoading === charge.id}
-                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                        title="בטל חיוב"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:bg-red-100 hover:text-red-700 transition-colors disabled:opacity-50"
                       >
-                        <Ban className="w-4 h-4" />
+                        <Ban className="w-3 h-3" />
+                        בטל חיוב
                       </button>
                     </div>
                   </td>
@@ -698,17 +698,17 @@ function PaymentHistory({ onViewUser, loadingUser }) {
                   </td>
                   <td className="px-4 py-3">
                     {payment.receipt_url ? (
-                      <a 
-                        href={payment.receipt_url} 
-                        target="_blank" 
+                      <a
+                        href={payment.receipt_url}
+                        target="_blank"
                         rel="noopener noreferrer"
-                        className="p-1.5 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors inline-flex"
-                        title="הורד קבלה"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-100 text-purple-700 rounded-lg text-xs font-medium hover:bg-purple-200 transition-colors"
                       >
-                        <FileText className="w-4 h-4" />
+                        <FileText className="w-3 h-3" />
+                        קבלה
                       </a>
                     ) : (
-                      <span className="text-gray-300">-</span>
+                      <span className="text-gray-300 text-xs">אין</span>
                     )}
                   </td>
                 </tr>
