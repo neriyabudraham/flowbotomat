@@ -958,14 +958,19 @@ function UserDetailDrawer({ user, onClose, onRefresh, currentUser, showToast }) 
         api.get('/admin/plans'),
         api.get('/admin/affiliates/list').catch(() => ({ data: { affiliates: [] } })),
         api.get(`/admin/users/${user.id}/bots`).catch(() => ({ data: { bots: [] } })),
-        api.get(`/admin/users/${user.id}/billing-history`).catch(() => ({ data: { history: [] } })),
+        api.get(`/admin/users/${user.id}/billing-history`).catch(() => ({ data: { history: [], transactions: [], paymentMethod: null, legacySumit: null } })),
         api.get(`/admin/users/${user.id}/feature-overrides`).catch(() => ({ data: { feature_overrides: null } })),
       ]);
       setData({
         plans: plansRes.data.plans || [],
         affiliates: affiliatesRes.data.affiliates || [],
         bots: botsRes.data.bots || [],
-        billing: billingRes.data.history || [],
+        billing: {
+          history: billingRes.data.history || [],
+          transactions: billingRes.data.transactions || [],
+          paymentMethod: billingRes.data.paymentMethod || null,
+          legacySumit: billingRes.data.legacySumit || null,
+        },
         featureOverrides: overridesRes.data.feature_overrides || null,
       });
     } catch (err) {
@@ -1127,7 +1132,7 @@ function UserDetailDrawer({ user, onClose, onRefresh, currentUser, showToast }) 
                 <SubscriptionSection user={user} plans={data.plans} affiliates={data.affiliates} onRefresh={onRefresh} showToast={showToast} />
               )}
               {activeSection === 'billing' && (
-                <BillingSection user={user} billing={data.billing} showToast={showToast} />
+                <BillingSection user={user} billing={data.billing} showToast={showToast} onRefresh={loadData} />
               )}
               {activeSection === 'bots' && (
                 <BotsSection user={user} bots={data.bots} onRefresh={loadData} showToast={showToast} />
@@ -1230,7 +1235,7 @@ function OverviewSection({ user, bots, billing }) {
           חיובים אחרונים
         </h3>
         <div className="space-y-3">
-          {billing.slice(0, 3).map(payment => (
+          {(billing.history || []).slice(0, 3).map(payment => (
             <div key={payment.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
               <div className="flex items-center gap-3">
                 <div className={`w-2 h-2 rounded-full ${
@@ -1243,7 +1248,7 @@ function OverviewSection({ user, bots, billing }) {
               <span className="text-xs text-gray-500">{new Date(payment.created_at).toLocaleDateString('he-IL')}</span>
             </div>
           ))}
-          {billing.length === 0 && (
+          {(billing.history || []).length === 0 && (
             <div className="text-center py-6 text-gray-500">אין היסטוריית חיובים</div>
           )}
         </div>
@@ -1587,88 +1592,478 @@ function SubscriptionSection({ user, plans, affiliates, onRefresh, showToast }) 
 }
 
 // Billing Section
-function BillingSection({ user, billing, showToast }) {
+function BillingSection({ user, billing, showToast, onRefresh }) {
+  const [actionLoading, setActionLoading] = useState(null);
+  const [showRegisterForm, setShowRegisterForm] = useState(false);
+  const [registerForm, setRegisterForm] = useState({ sumitCustomerId: '', paymentMethodId: '', cardLastDigits: '', cardHolderName: '', expiryMonth: '', expiryYear: '' });
+  const [registering, setRegistering] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  const queueHistory = billing.history || [];
+  const transactions = billing.transactions || [];
+  const paymentMethod = billing.paymentMethod || null;
+  const legacySumit = billing.legacySumit || null;
+
+  const pendingCharges = queueHistory.filter(c => c.status === 'pending' || c.status === 'processing');
+  const failedCharges = queueHistory.filter(c => c.status === 'failed');
+  const completedCharges = queueHistory.filter(c => c.status === 'completed' || c.status === 'cancelled');
+
+  const billingTypeLabel = {
+    monthly: 'חודשי', yearly: 'שנתי', status_bot: 'בוט סטטוסים',
+    trial_conversion: 'המרת ניסיון', first_payment: 'תשלום ראשון',
+    renewal: 'חידוש', reactivation: 'הפעלה מחדש', manual: 'ידני',
+  };
+
+  const handleSyncFromSumit = async () => {
+    setSyncing(true);
+    try {
+      const res = await api.post(`/admin/users/${user.id}/sync-payment-from-sumit`);
+      if (res.data.success) {
+        const pm = res.data.sumitData;
+        showToast('success', `סונכרן בהצלחה! כרטיס •••• ${pm.last4}${pm.expiryMonth ? `, תוקף ${pm.expiryMonth}/${String(pm.expiryYear).slice(-2)}` : ''}`);
+        onRefresh?.();
+      }
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה בסנכרון מסאמיט');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleChargeNow = async (chargeId) => {
+    if (!confirm('לחייב עכשיו?')) return;
+    setActionLoading(chargeId);
+    try {
+      const res = await api.post(`/admin/billing/charge/${chargeId}`);
+      if (res.data.success) {
+        showToast('success', `חויב בהצלחה! עסקה: ${res.data.transactionId}`);
+        onRefresh?.();
+      }
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה בחיוב');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRetry = async (chargeId) => {
+    if (!confirm('לנסות שוב?')) return;
+    setActionLoading(chargeId);
+    try {
+      const res = await api.post(`/admin/billing/retry/${chargeId}`);
+      if (res.data.success) {
+        showToast('success', 'החיוב הצליח!');
+        onRefresh?.();
+      } else {
+        showToast('error', res.data.error || 'החיוב נכשל שוב');
+      }
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleCancel = async (chargeId) => {
+    if (!confirm('לבטל את החיוב?')) return;
+    setActionLoading(chargeId);
+    try {
+      await api.post(`/admin/billing/cancel/${chargeId}`);
+      showToast('success', 'החיוב בוטל');
+      onRefresh?.();
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה בביטול');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRegisterPaymentMethod = async () => {
+    if (!registerForm.sumitCustomerId.trim()) {
+      showToast('error', 'נדרש Sumit Customer ID');
+      return;
+    }
+    setRegistering(true);
+    try {
+      await api.post(`/admin/users/${user.id}/register-payment-method`, registerForm);
+      showToast('success', 'אמצעי תשלום נרשם בהצלחה');
+      setShowRegisterForm(false);
+      onRefresh?.();
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה ברישום');
+    } finally {
+      setRegistering(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/* Payment Method Status */}
-      <div className={`p-6 rounded-2xl ${
-        user.has_payment_method 
-          ? 'bg-gradient-to-br from-emerald-50 to-green-50 dark:from-emerald-900/20 dark:to-green-900/20 border border-emerald-200 dark:border-emerald-800'
-          : 'bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-900/20 dark:to-rose-900/20 border border-red-200 dark:border-red-800'
-      }`}>
-        <div className="flex items-center gap-4">
-          {user.has_payment_method ? (
-            <>
-              <div className="w-12 h-12 bg-emerald-500 rounded-xl flex items-center justify-center">
-                <CreditCard className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <div className="font-bold text-emerald-700 dark:text-emerald-400 text-lg">כרטיס אשראי פעיל</div>
-                {user.card_last_digits && (
-                  <div className="text-emerald-600 dark:text-emerald-500">•••• {user.card_last_digits}</div>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="w-12 h-12 bg-red-500 rounded-xl flex items-center justify-center">
-                <AlertTriangle className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <div className="font-bold text-red-700 dark:text-red-400 text-lg">אין כרטיס אשראי!</div>
-                <div className="text-red-600 dark:text-red-500">יש לשלוח למשתמש לינק להוספת אשראי</div>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
 
-      {/* Billing History */}
-      <div>
-        <h3 className="font-semibold text-gray-900 dark:text-white mb-4">היסטוריית חיובים</h3>
-        {billing.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <Receipt className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            אין היסטוריית חיובים
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {billing.map(payment => (
-              <div key={payment.id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                <div className="flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                    payment.status === 'completed' ? 'bg-emerald-100 dark:bg-emerald-900/30' :
-                    payment.status === 'failed' ? 'bg-red-100 dark:bg-red-900/30' :
-                    'bg-yellow-100 dark:bg-yellow-900/30'
-                  }`}>
-                    {payment.status === 'completed' ? (
-                      <Check className="w-5 h-5 text-emerald-600" />
-                    ) : payment.status === 'failed' ? (
-                      <X className="w-5 h-5 text-red-600" />
-                    ) : (
-                      <Clock className="w-5 h-5 text-yellow-600" />
+      {/* Payment Method Card */}
+      <div className={`p-5 rounded-2xl border ${
+        paymentMethod
+          ? 'bg-gradient-to-br from-emerald-50 to-green-50 dark:from-emerald-900/20 dark:to-green-900/20 border-emerald-200 dark:border-emerald-800'
+          : 'bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-900/20 dark:to-rose-900/20 border-red-200 dark:border-red-800'
+      }`}>
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-4">
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${paymentMethod ? 'bg-emerald-500' : 'bg-red-500'}`}>
+              <CreditCard className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              {paymentMethod ? (
+                <>
+                  <div className="font-bold text-emerald-700 dark:text-emerald-400 text-base">כרטיס אשראי פעיל</div>
+                  <div className="text-emerald-600 dark:text-emerald-500 text-sm">
+                    •••• {paymentMethod.card_last_digits || '****'}
+                    {paymentMethod.card_expiry_month && paymentMethod.card_expiry_year && (
+                      <span className="mr-3 text-emerald-500">תוקף: {paymentMethod.card_expiry_month}/{String(paymentMethod.card_expiry_year).slice(-2)}</span>
                     )}
                   </div>
-                  <div>
-                    <div className="font-bold text-gray-900 dark:text-white">₪{payment.amount}</div>
-                    <div className="text-sm text-gray-500">{payment.charge_type || 'חיוב'}</div>
+                  {paymentMethod.card_holder_name && (
+                    <div className="text-xs text-emerald-500 mt-0.5">{paymentMethod.card_holder_name}</div>
+                  )}
+                  <div className="text-xs text-gray-400 mt-1 font-mono">Sumit ID: {paymentMethod.sumit_customer_id || '—'}</div>
+                </>
+              ) : (
+                <>
+                  <div className="font-bold text-red-700 dark:text-red-400 text-base">אין כרטיס אשראי!</div>
+                  {legacySumit?.sumit_customer_id ? (
+                    <div className="text-sm text-amber-600 mt-1">
+                      יש Sumit Customer ID: <span className="font-mono">{legacySumit.sumit_customer_id}</span> — לא מקושר
+                    </div>
+                  ) : (
+                    <div className="text-red-600 dark:text-red-500 text-sm">יש לשלוח לינק תשלום למשתמש</div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+          {!paymentMethod && (
+            <div className="flex flex-col gap-2 items-end">
+              {/* Primary: auto-sync from Sumit */}
+              <button
+                onClick={handleSyncFromSumit}
+                disabled={syncing}
+                className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5 transition-colors"
+                title="שלוף אוטומטית את פרטי האשראי מסאמיט לפי Customer ID"
+              >
+                {syncing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                סנכרן מסאמיט
+              </button>
+              {/* Fallback: manual registration */}
+              <button
+                onClick={() => setShowRegisterForm(v => !v)}
+                className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-xs hover:bg-gray-200 transition-colors"
+              >
+                רשום ידנית
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Manual registration form */}
+        {showRegisterForm && (
+          <div className="mt-4 pt-4 border-t border-red-200 dark:border-red-700 space-y-3">
+            <div className="text-sm font-medium text-gray-700 dark:text-gray-300">רישום ידני של אמצעי תשלום מסאמיט</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Sumit Customer ID *</label>
+                <input
+                  type="text"
+                  value={registerForm.sumitCustomerId}
+                  onChange={e => setRegisterForm(f => ({ ...f, sumitCustomerId: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono"
+                  placeholder="מזהה לקוח בסאמיט"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Payment Method ID</label>
+                <input
+                  type="text"
+                  value={registerForm.paymentMethodId}
+                  onChange={e => setRegisterForm(f => ({ ...f, paymentMethodId: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono"
+                  placeholder="מזהה אמצעי תשלום (אופציונלי)"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">4 ספרות אחרונות</label>
+                <input
+                  type="text"
+                  maxLength={4}
+                  value={registerForm.cardLastDigits}
+                  onChange={e => setRegisterForm(f => ({ ...f, cardLastDigits: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  placeholder="1234"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">שם בעל הכרטיס</label>
+                <input
+                  type="text"
+                  value={registerForm.cardHolderName}
+                  onChange={e => setRegisterForm(f => ({ ...f, cardHolderName: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  placeholder="ישראל ישראלי"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">חודש תוקף</label>
+                <input type="number" min="1" max="12" value={registerForm.expiryMonth} onChange={e => setRegisterForm(f => ({ ...f, expiryMonth: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="12" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">שנת תוקף</label>
+                <input type="number" min="2024" max="2040" value={registerForm.expiryYear} onChange={e => setRegisterForm(f => ({ ...f, expiryYear: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="2027" />
+              </div>
+            </div>
+            {legacySumit?.sumit_customer_id && (
+              <button
+                type="button"
+                onClick={() => setRegisterForm(f => ({ ...f, sumitCustomerId: legacySumit.sumit_customer_id }))}
+                className="text-xs text-amber-600 hover:underline"
+              >
+                מלא אוטומטית: {legacySumit.sumit_customer_id}
+              </button>
+            )}
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowRegisterForm(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">ביטול</button>
+              <button
+                onClick={handleRegisterPaymentMethod}
+                disabled={registering}
+                className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {registering ? <RefreshCw className="w-4 h-4 animate-spin" /> : null}
+                רשום
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Legacy standing order warning */}
+      {legacySumit?.sumit_standing_order_id && (
+        <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+          <div>
+            <div className="font-medium text-amber-800 dark:text-amber-400">הוראת קבע פעילה בסאמיט!</div>
+            <div className="text-sm text-amber-700 dark:text-amber-500 mt-1">
+              Standing Order ID: <span className="font-mono">{legacySumit.sumit_standing_order_id}</span>
+            </div>
+            <div className="text-xs text-amber-600 mt-1">לקוח זה עלול להיות מחויב גם דרך הוראת הקבע הישנה בסאמיט וגם דרך מערכת החיובים שלנו. יש לבטל את הוראת הקבע בסאמיט!</div>
+          </div>
+        </div>
+      )}
+
+      {/* Pending Charges */}
+      {pendingCharges.length > 0 && (
+        <div>
+          <h3 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+            <Clock className="w-4 h-4 text-blue-500" />
+            חיובים מתוזמנים ({pendingCharges.length})
+          </h3>
+          <div className="space-y-2">
+            {pendingCharges.map(charge => (
+              <div key={charge.id} className="flex items-center justify-between p-4 bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded-xl">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3">
+                    <span className="font-bold text-gray-900 dark:text-white">₪{Number(charge.amount).toLocaleString()}</span>
+                    <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-xs rounded-full">
+                      {billingTypeLabel[charge.charge_type] || charge.charge_type}
+                    </span>
+                    {charge.status === 'processing' && (
+                      <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded-full flex items-center gap-1">
+                        <RefreshCw className="w-3 h-3 animate-spin" /> מעבד...
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm text-gray-500 mt-1">
+                    {charge.description || charge.plan_name_he || '—'}
+                    {charge.charge_date && (
+                      <span className="mr-3">תאריך: {new Date(charge.charge_date).toLocaleDateString('he-IL')}</span>
+                    )}
                   </div>
                 </div>
-                <div className="text-left">
-                  <div className={`text-sm font-medium ${
-                    payment.status === 'completed' ? 'text-emerald-600' :
-                    payment.status === 'failed' ? 'text-red-600' : 'text-yellow-600'
-                  }`}>
-                    {payment.status === 'completed' ? 'הושלם' :
-                     payment.status === 'failed' ? 'נכשל' : 'ממתין'}
-                  </div>
-                  <div className="text-xs text-gray-500">{new Date(payment.created_at).toLocaleDateString('he-IL')}</div>
+                <div className="flex items-center gap-2 mr-3">
+                  <button
+                    onClick={() => handleChargeNow(charge.id)}
+                    disabled={actionLoading === charge.id}
+                    className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
+                    title="חייב עכשיו"
+                  >
+                    {actionLoading === charge.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
+                    חייב עכשיו
+                  </button>
+                  <button
+                    onClick={() => handleCancel(charge.id)}
+                    disabled={actionLoading === charge.id}
+                    className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-medium hover:bg-gray-300 disabled:opacity-50"
+                    title="בטל חיוב"
+                  >
+                    בטל
+                  </button>
                 </div>
               </div>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Failed Charges */}
+      {failedCharges.length > 0 && (
+        <div>
+          <h3 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-500" />
+            חיובים שנכשלו ({failedCharges.length})
+          </h3>
+          <div className="space-y-3">
+            {failedCharges.map(charge => (
+              <div key={charge.id} className="p-4 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-xl">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="font-bold text-red-700 dark:text-red-400 text-base">₪{Number(charge.amount).toLocaleString()}</span>
+                      <span className="px-2 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 text-xs rounded-full">
+                        {billingTypeLabel[charge.charge_type] || charge.charge_type}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm mb-2">
+                      <div><span className="text-gray-500">ניסיונות:</span> <span className="font-medium">{charge.retry_count || 0}/{charge.max_retries || 2}</span></div>
+                      <div><span className="text-gray-500">תאריך חיוב:</span> <span>{charge.charge_date ? new Date(charge.charge_date).toLocaleDateString('he-IL') : '—'}</span></div>
+                      {charge.last_attempt_at && (
+                        <div><span className="text-gray-500">ניסיון אחרון:</span> <span>{new Date(charge.last_attempt_at).toLocaleDateString('he-IL')}</span></div>
+                      )}
+                      {charge.next_retry_at && (
+                        <div><span className="text-gray-500">ניסיון הבא:</span> <span>{new Date(charge.next_retry_at).toLocaleDateString('he-IL')}</span></div>
+                      )}
+                    </div>
+                    {charge.last_error && (
+                      <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg text-xs text-red-700 dark:text-red-400">
+                        <span className="font-medium">שגיאה: </span>
+                        {charge.last_error_code && <span className="font-mono mr-1">[{charge.last_error_code}]</span>}
+                        {charge.last_error}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-2 mr-4">
+                    <button
+                      onClick={() => handleRetry(charge.id)}
+                      disabled={actionLoading === charge.id}
+                      className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
+                    >
+                      {actionLoading === charge.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                      נסה שוב
+                    </button>
+                    <button
+                      onClick={() => handleCancel(charge.id)}
+                      disabled={actionLoading === charge.id}
+                      className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-xs font-medium hover:bg-gray-300 disabled:opacity-50"
+                    >
+                      בטל
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Transaction History (actual Sumit records) */}
+      {transactions.length > 0 && (
+        <div>
+          <h3 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+            <History className="w-4 h-4 text-violet-500" />
+            ניסיונות חיוב בפועל ({transactions.length})
+          </h3>
+          <div className="space-y-2">
+            {transactions.map(tx => (
+              <div key={tx.id} className={`p-4 rounded-xl border ${
+                tx.status === 'success'
+                  ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800'
+                  : 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800'
+              }`}>
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-1">
+                      {tx.status === 'success' ? (
+                        <CheckCircle className="w-4 h-4 text-emerald-600" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-red-600" />
+                      )}
+                      <span className="font-bold text-gray-900 dark:text-white">₪{Number(tx.amount).toLocaleString()}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        tx.status === 'success' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                      }`}>
+                        {tx.status === 'success' ? 'הצליח' : 'נכשל'}
+                      </span>
+                      <span className="text-xs text-gray-400">{new Date(tx.created_at).toLocaleString('he-IL')}</span>
+                    </div>
+                    {tx.description && (
+                      <div className="text-xs text-gray-500 mb-1">{tx.description}</div>
+                    )}
+                    {tx.sumit_transaction_id && (
+                      <div className="text-xs text-gray-400 font-mono">עסקה: {tx.sumit_transaction_id}</div>
+                    )}
+                    {tx.error_message && (
+                      <div className="mt-1 text-xs text-red-600 dark:text-red-400">
+                        {tx.failure_code && <span className="font-mono mr-1">[{tx.failure_code}]</span>}
+                        {tx.error_message}
+                      </div>
+                    )}
+                  </div>
+                  {tx.receipt_url && (
+                    <a
+                      href={tx.receipt_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-2 text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
+                      title="הורד קבלה"
+                    >
+                      <Receipt className="w-4 h-4" />
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Completed/Cancelled queue history */}
+      {completedCharges.length > 0 && (
+        <div>
+          <h3 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-gray-400" />
+            היסטוריית תזמונים
+          </h3>
+          <div className="space-y-2">
+            {completedCharges.map(charge => (
+              <div key={charge.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <div className={`w-2 h-2 rounded-full ${charge.status === 'completed' ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+                  <span className="font-medium text-gray-900 dark:text-white">₪{Number(charge.amount).toLocaleString()}</span>
+                  <span className="text-sm text-gray-500">{billingTypeLabel[charge.charge_type] || charge.charge_type}</span>
+                  {charge.description && <span className="text-xs text-gray-400">{charge.description}</span>}
+                </div>
+                <div className="text-right">
+                  <div className={`text-xs font-medium ${charge.status === 'completed' ? 'text-emerald-600' : 'text-gray-400'}`}>
+                    {charge.status === 'completed' ? 'הושלם' : 'בוטל'}
+                  </div>
+                  <div className="text-xs text-gray-400">{new Date(charge.created_at).toLocaleDateString('he-IL')}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {queueHistory.length === 0 && transactions.length === 0 && (
+        <div className="text-center py-12 text-gray-500">
+          <Receipt className="w-12 h-12 mx-auto mb-3 opacity-30" />
+          אין היסטוריית חיובים
+        </div>
+      )}
     </div>
   );
 }

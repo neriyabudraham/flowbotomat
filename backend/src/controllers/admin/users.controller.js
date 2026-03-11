@@ -1,4 +1,5 @@
 const db = require('../../config/database');
+const sumitService = require('../../services/payment/sumit.service');
 
 /**
  * Get all users with pagination and filters
@@ -974,14 +975,15 @@ async function toggleCreditCardExempt(req, res) {
 }
 
 /**
- * Get user's billing history
+ * Get user's billing history - billing_queue + payment_history + payment method details
  */
 async function getUserBillingHistory(req, res) {
   try {
     const { id } = req.params;
-    
-    const result = await db.query(`
-      SELECT 
+
+    // billing_queue items (scheduled/pending/failed/completed charges)
+    const queueResult = await db.query(`
+      SELECT
         bq.id,
         bq.billing_type as charge_type,
         bq.amount,
@@ -990,7 +992,11 @@ async function getUserBillingHistory(req, res) {
         bq.processed_at,
         bq.created_at,
         bq.last_error,
+        bq.last_error_code,
         bq.retry_count,
+        bq.max_retries,
+        bq.next_retry_at,
+        bq.last_attempt_at,
         bq.description,
         sp.name as plan_name,
         sp.name_he as plan_name_he
@@ -1000,21 +1006,224 @@ async function getUserBillingHistory(req, res) {
       ORDER BY bq.created_at DESC
       LIMIT 50
     `, [id]);
-    
-    res.json({ history: result.rows });
+
+    // payment_history items (actual Sumit transaction records)
+    const historyResult = await db.query(`
+      SELECT
+        ph.id,
+        ph.billing_type as charge_type,
+        ph.amount,
+        ph.currency,
+        ph.status,
+        ph.created_at,
+        ph.description,
+        ph.error_message,
+        ph.failure_code,
+        ph.sumit_transaction_id,
+        ph.sumit_document_number,
+        ph.receipt_url,
+        ph.billing_queue_id
+      FROM payment_history ph
+      WHERE ph.user_id = $1
+      ORDER BY ph.created_at DESC
+      LIMIT 50
+    `, [id]);
+
+    // Active payment method details
+    const paymentMethodResult = await db.query(`
+      SELECT
+        pm.id,
+        pm.card_last_digits,
+        pm.card_expiry_month,
+        pm.card_expiry_year,
+        pm.card_holder_name,
+        pm.sumit_customer_id,
+        pm.is_active,
+        pm.created_at
+      FROM user_payment_methods pm
+      WHERE pm.user_id = $1 AND pm.is_active = true
+      LIMIT 1
+    `, [id]);
+
+    // Also check if there's a sumit_customer_id in user_subscriptions (legacy)
+    const legacySumitResult = await db.query(`
+      SELECT sumit_customer_id, sumit_standing_order_id
+      FROM user_subscriptions
+      WHERE user_id = $1
+    `, [id]);
+
+    res.json({
+      history: queueResult.rows,
+      transactions: historyResult.rows,
+      paymentMethod: paymentMethodResult.rows[0] || null,
+      legacySumit: legacySumitResult.rows[0] || null
+    });
   } catch (error) {
     console.error('[Admin] Get user billing history error:', error);
     res.status(500).json({ error: 'שגיאה בטעינת היסטוריית חיובים' });
   }
 }
 
-module.exports = { 
-  getUsers, 
-  getUser, 
-  updateUser, 
-  deleteUser, 
-  getStats, 
-  updateUserSubscription, 
+/**
+ * Sync payment method from Sumit - pull card details automatically using sumit_customer_id
+ * Works when user has a Sumit customer ID but it's not linked in user_payment_methods
+ */
+async function syncPaymentMethodFromSumit(req, res) {
+  try {
+    const { id } = req.params;
+    const adminId = req.user.id;
+
+    // Find a sumit_customer_id - check both user_payment_methods and user_subscriptions
+    let sumitCustomerId = null;
+
+    const existingMethodResult = await db.query(
+      `SELECT sumit_customer_id FROM user_payment_methods WHERE user_id = $1 AND sumit_customer_id IS NOT NULL ORDER BY created_at DESC LIMIT 1`,
+      [id]
+    );
+    if (existingMethodResult.rows[0]?.sumit_customer_id) {
+      sumitCustomerId = existingMethodResult.rows[0].sumit_customer_id;
+    }
+
+    if (!sumitCustomerId) {
+      const subResult = await db.query(
+        `SELECT sumit_customer_id FROM user_subscriptions WHERE user_id = $1 AND sumit_customer_id IS NOT NULL LIMIT 1`,
+        [id]
+      );
+      sumitCustomerId = subResult.rows[0]?.sumit_customer_id;
+    }
+
+    if (!sumitCustomerId) {
+      return res.status(400).json({ error: 'לא נמצא Sumit Customer ID עבור משתמש זה' });
+    }
+
+    // Pull payment methods from Sumit
+    const sumitResult = await sumitService.getCustomerPaymentMethods(sumitCustomerId);
+
+    if (!sumitResult.success) {
+      return res.status(400).json({ error: sumitResult.error || 'שגיאה בשליפת אמצעי תשלום מסאמיט' });
+    }
+
+    const methods = sumitResult.paymentMethods;
+    if (!methods || methods.length === 0) {
+      return res.status(404).json({ error: 'לא נמצאו אמצעי תשלום בסאמיט עבור לקוח זה' });
+    }
+
+    // Use the first (default) payment method
+    const pm = methods[0];
+    const paymentMethodId = pm.PaymentMethodID || pm.ID;
+    const last4 = pm.Last4Digits || pm.CreditCard_LastDigits || pm.CardLastDigits || '****';
+    const expiryMonth = pm.CreditCard_ExpirationMonth || pm.ExpirationMonth || null;
+    const expiryYear = pm.CreditCard_ExpirationYear || pm.ExpirationYear || null;
+    const holderName = pm.CardHolderName || pm.Name || null;
+
+    // Deactivate existing payment methods
+    await db.query(
+      'UPDATE user_payment_methods SET is_active = false, is_default = false, updated_at = NOW() WHERE user_id = $1',
+      [id]
+    );
+
+    // Insert synced payment method
+    const result = await db.query(`
+      INSERT INTO user_payment_methods (
+        user_id, card_token, card_last_digits, card_expiry_month, card_expiry_year,
+        card_holder_name, sumit_customer_id, is_active, is_default
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, true, true)
+      RETURNING id, card_last_digits, card_expiry_month, card_expiry_year, sumit_customer_id, created_at
+    `, [
+      id,
+      paymentMethodId?.toString() || 'synced',
+      last4,
+      expiryMonth,
+      expiryYear,
+      holderName,
+      sumitCustomerId
+    ]);
+
+    // Update user has_payment_method flag
+    await db.query(
+      'UPDATE users SET has_payment_method = true, updated_at = NOW() WHERE id = $1',
+      [id]
+    );
+
+    // Log admin action
+    await db.query(`
+      INSERT INTO admin_audit_log (admin_id, action, entity_type, entity_id, details)
+      VALUES ($1, 'sync_payment_from_sumit', 'user', $2, $3)
+    `, [adminId, id, JSON.stringify({ sumitCustomerId, last4, paymentMethodId })]);
+
+    res.json({
+      success: true,
+      paymentMethod: result.rows[0],
+      sumitData: { paymentMethodId, last4, expiryMonth, expiryYear, holderName, methodsFound: methods.length }
+    });
+  } catch (error) {
+    console.error('[Admin] Sync payment from Sumit error:', error);
+    res.status(500).json({ error: 'שגיאה בסנכרון מסאמיט' });
+  }
+}
+
+/**
+ * Manually register a payment method for a user (when Sumit customer exists but not in our DB)
+ */
+async function adminRegisterPaymentMethod(req, res) {
+  try {
+    const { id } = req.params;
+    const { sumitCustomerId, paymentMethodId, cardLastDigits, cardHolderName, expiryMonth, expiryYear } = req.body;
+    const adminId = req.user.id;
+
+    if (!sumitCustomerId) {
+      return res.status(400).json({ error: 'נדרש Sumit Customer ID' });
+    }
+
+    // Deactivate existing payment methods
+    await db.query(
+      'UPDATE user_payment_methods SET is_active = false, is_default = false, updated_at = NOW() WHERE user_id = $1',
+      [id]
+    );
+
+    // Insert new payment method record
+    const result = await db.query(`
+      INSERT INTO user_payment_methods (
+        user_id, card_token, card_last_digits, card_expiry_month, card_expiry_year,
+        card_holder_name, sumit_customer_id, is_active, is_default
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, true, true)
+      RETURNING id, card_last_digits, sumit_customer_id, created_at
+    `, [
+      id,
+      paymentMethodId || 'manual',
+      cardLastDigits || '****',
+      expiryMonth || null,
+      expiryYear || null,
+      cardHolderName || null,
+      sumitCustomerId
+    ]);
+
+    // Update user has_payment_method flag
+    await db.query(
+      'UPDATE users SET has_payment_method = true, updated_at = NOW() WHERE id = $1',
+      [id]
+    );
+
+    // Log admin action
+    await db.query(`
+      INSERT INTO admin_audit_log (admin_id, action, entity_type, entity_id, details)
+      VALUES ($1, 'manual_register_payment_method', 'user', $2, $3)
+    `, [adminId, id, JSON.stringify({ sumitCustomerId, cardLastDigits })]);
+
+    res.json({ success: true, paymentMethod: result.rows[0] });
+  } catch (error) {
+    console.error('[Admin] Register payment method error:', error);
+    res.status(500).json({ error: 'שגיאה ברישום אמצעי תשלום' });
+  }
+}
+
+module.exports = {
+  getUsers,
+  getUser,
+  updateUser,
+  deleteUser,
+  getStats,
+  updateUserSubscription,
   getPlans,
   getUserFeatureOverrides,
   updateUserFeatureOverrides,
@@ -1024,5 +1233,7 @@ module.exports = {
   getUserBots,
   generatePaymentLink,
   toggleCreditCardExempt,
-  getUserBillingHistory
+  getUserBillingHistory,
+  syncPaymentMethodFromSumit,
+  adminRegisterPaymentMethod
 };

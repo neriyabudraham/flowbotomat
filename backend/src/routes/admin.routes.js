@@ -27,6 +27,8 @@ router.put('/users/:id/feature-overrides', superadminMiddleware, usersController
 router.get('/users/:id/services', usersController.getUserServices);
 router.get('/users/:id/bots', usersController.getUserBots);
 router.get('/users/:id/billing-history', usersController.getUserBillingHistory);
+router.post('/users/:id/sync-payment-from-sumit', superadminMiddleware, usersController.syncPaymentMethodFromSumit);
+router.post('/users/:id/register-payment-method', superadminMiddleware, usersController.adminRegisterPaymentMethod);
 router.post('/users/:id/payment-link', usersController.generatePaymentLink);
 router.put('/users/:id/credit-card-exempt', superadminMiddleware, usersController.toggleCreditCardExempt);
 router.delete('/users/:id', superadminMiddleware, usersController.deleteUser);
