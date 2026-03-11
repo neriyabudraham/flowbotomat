@@ -268,6 +268,124 @@ async function processBillingQueue(req, res) {
   }
 }
 
+/**
+ * Skip the next charge - push charge_date forward by 1 month
+ */
+async function skipCharge(req, res) {
+  try {
+    const { id } = req.params;
+    const adminId = req.user.id;
+
+    const result = await pool.query(`
+      UPDATE billing_queue
+      SET charge_date = charge_date + INTERVAL '1 month',
+          notes = COALESCE(notes || ' | ', '') || 'דולג על ידי אדמין ' || NOW()::date,
+          updated_at = NOW()
+      WHERE id = $1 AND status = 'pending'
+      RETURNING *
+    `, [id]);
+
+    if (!result.rows[0]) {
+      return res.status(404).json({ error: 'חיוב לא נמצא או לא ממתין' });
+    }
+
+    await pool.query(`
+      INSERT INTO admin_audit_log (admin_id, action, entity_type, entity_id, details)
+      VALUES ($1, 'skip_charge', 'billing_queue', $2, $3)
+    `, [adminId, id, JSON.stringify({ newDate: result.rows[0].charge_date })]);
+
+    res.json({ success: true, charge: result.rows[0] });
+  } catch (error) {
+    console.error('[AdminBilling] Skip charge error:', error);
+    res.status(500).json({ error: 'שגיאה בדילוג על החיוב' });
+  }
+}
+
+/**
+ * Update charge amount - for this charge and optionally future ones
+ * applyToNext: 0 = only this, N = next N charges, -1 = all future
+ */
+async function updateChargeAmount(req, res) {
+  try {
+    const { id } = req.params;
+    const { amount, applyToNext = 0 } = req.body;
+    const adminId = req.user.id;
+
+    if (!amount || parseFloat(amount) < 0) {
+      return res.status(400).json({ error: 'סכום לא תקין' });
+    }
+
+    const chargeResult = await pool.query(
+      `SELECT * FROM billing_queue WHERE id = $1`,
+      [id]
+    );
+    const charge = chargeResult.rows[0];
+    if (!charge) {
+      return res.status(404).json({ error: 'חיוב לא נמצא' });
+    }
+
+    const newAmount = parseFloat(amount);
+
+    // Update this charge
+    await pool.query(
+      `UPDATE billing_queue SET amount = $1, updated_at = NOW() WHERE id = $2`,
+      [newAmount, id]
+    );
+
+    let updatedCount = 1;
+
+    // Apply to future pending charges for this user
+    if (applyToNext !== 0) {
+      const limitClause = applyToNext === -1 ? '' : `LIMIT ${parseInt(applyToNext)}`;
+      const futureResult = await pool.query(`
+        UPDATE billing_queue SET amount = $1, updated_at = NOW()
+        WHERE id IN (
+          SELECT id FROM billing_queue
+          WHERE user_id = $2 AND status = 'pending' AND id != $3
+          ORDER BY charge_date ASC
+          ${limitClause}
+        )
+        RETURNING id
+      `, [newAmount, charge.user_id, id]);
+      updatedCount += futureResult.rowCount;
+    }
+
+    await pool.query(`
+      INSERT INTO admin_audit_log (admin_id, action, entity_type, entity_id, details)
+      VALUES ($1, 'update_charge_amount', 'billing_queue', $2, $3)
+    `, [adminId, id, JSON.stringify({ newAmount, applyToNext, updatedCount })]);
+
+    res.json({ success: true, updatedCount });
+  } catch (error) {
+    console.error('[AdminBilling] Update charge amount error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון סכום' });
+  }
+}
+
+/**
+ * Get payment history for a specific user (for the actions modal)
+ */
+async function getUserPaymentHistory(req, res) {
+  try {
+    const { userId } = req.params;
+
+    const result = await pool.query(`
+      SELECT ph.id, ph.amount, ph.status, ph.created_at,
+             ph.sumit_transaction_id, ph.description, ph.error_message,
+             ph.failure_code, ph.receipt_url, ph.billing_type
+      FROM payment_history ph
+      WHERE ph.user_id = $1
+      ORDER BY ph.created_at DESC
+      LIMIT 30
+    `, [userId]);
+
+    res.json({ payments: result.rows });
+  } catch (error) {
+    console.error('[AdminBilling] Get user payment history error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת היסטוריה' });
+  }
+}
+
 module.exports = {
   getUpcomingCharges,
   getFailedCharges,
@@ -276,6 +394,9 @@ module.exports = {
   chargeNow,
   cancelCharge,
   retryCharge,
+  skipCharge,
+  updateChargeAmount,
+  getUserPaymentHistory,
   scheduleManualCharge,
   getChargeDetails,
   processBillingQueue

@@ -90,12 +90,18 @@ async function getUpcomingCharges(days = 7, limit = 100) {
  */
 async function getFailedCharges(limit = 100) {
   const result = await pool.query(
-    `SELECT bq.*, 
+    `SELECT bq.*,
             u.email, u.name as display_name,
-            sp.name as plan_name, sp.name_he as plan_name_he
+            sp.name as plan_name, sp.name_he as plan_name_he,
+            us.status as subscription_status,
+            us.plan_id as current_plan_id,
+            cur_sp.name_he as current_plan_name_he,
+            cur_sp.price as current_plan_price
      FROM billing_queue bq
      JOIN users u ON u.id = bq.user_id
      LEFT JOIN subscription_plans sp ON sp.id = bq.plan_id
+     LEFT JOIN user_subscriptions us ON us.user_id = bq.user_id
+     LEFT JOIN subscription_plans cur_sp ON cur_sp.id = us.plan_id
      WHERE bq.status = 'failed'
      ORDER BY bq.last_attempt_at DESC
      LIMIT $1`,

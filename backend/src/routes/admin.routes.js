@@ -196,6 +196,9 @@ router.get('/billing/charge/:id', billingController.getChargeDetails);
 router.post('/billing/charge/:id', superadminMiddleware, billingController.chargeNow);
 router.post('/billing/retry/:id', superadminMiddleware, billingController.retryCharge);
 router.post('/billing/cancel/:id', superadminMiddleware, billingController.cancelCharge);
+router.post('/billing/skip/:id', superadminMiddleware, billingController.skipCharge);
+router.put('/billing/amount/:id', superadminMiddleware, billingController.updateChargeAmount);
+router.get('/billing/user-history/:userId', billingController.getUserPaymentHistory);
 router.post('/billing/schedule', superadminMiddleware, billingController.scheduleManualCharge);
 router.post('/billing/process-queue', superadminMiddleware, billingController.processBillingQueue);
 
