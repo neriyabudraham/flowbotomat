@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Upload, CheckCircle, Play, Mic, User, MapPin, Keyboard, CheckCheck, SmilePlus, Link, Square, Clock, ChevronDown, ChevronUp, RefreshCw, Users, Building2 } from 'lucide-react';
+import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Upload, CheckCircle, Play, Mic, User, MapPin, Keyboard, CheckCheck, SmilePlus, Link, Square, Clock, ChevronDown, ChevronUp, RefreshCw, Users, Building2, BarChart2 } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 import { COMMON_REACTIONS, EMOJI_CATEGORIES } from './emojis';
 import api from '../../../../services/api';
@@ -13,6 +13,7 @@ const contentTypes = [
   { id: 'video', label: 'סרטון', icon: Video, color: 'purple' },
   { id: 'audio', label: 'הודעה קולית', icon: Mic, color: 'pink' },
   { id: 'file', label: 'קובץ', icon: FileText, color: 'gray' },
+  { id: 'poll', label: 'סקר', icon: BarChart2, color: 'blue' },
   { id: 'contact', label: 'איש קשר', icon: User, color: 'indigo' },
   { id: 'location', label: 'מיקום', icon: MapPin, color: 'red' },
 ];
@@ -60,6 +61,9 @@ export default function MessageEditor({ data, onUpdate }) {
         break;
       case 'file':
         newAction = { type, url: '', filename: '', inputMode: 'upload' };
+        break;
+      case 'poll':
+        newAction = { type, pollName: '', pollOptions: ['', ''], pollMultipleAnswers: false };
         break;
       case 'contact':
         newAction = { type, contactName: '', contactPhone: '', contactOrg: '' };
@@ -527,6 +531,17 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
               )}
             </div>
           )}
+
+          {/* Mention All toggle (for groups) */}
+          <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-500 hover:text-gray-700">
+            <input
+              type="checkbox"
+              checked={action.mentionAll || false}
+              onChange={(e) => onUpdate({ mentionAll: e.target.checked })}
+              className="w-3.5 h-3.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+            />
+            <span>תייג כולם בקבוצה (@כולם)</span>
+          </label>
         </div>
       )}
 
@@ -807,6 +822,68 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
               <p className="text-xs text-gray-400">הזן שם חדש לקובץ (ללא סיומת)</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Poll */}
+      {action.type === 'poll' && (
+        <div className="space-y-3">
+          <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+            <p className="text-xs text-blue-600 mb-1 font-medium">שליחת סקר לקבוצה</p>
+            <p className="text-xs text-blue-500">סקרים נשלחים לקבוצות בלבד</p>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">שאלת הסקר *</label>
+            <TextInputWithVariables
+              value={action.pollName || ''}
+              onChange={(v) => onUpdate({ pollName: v })}
+              placeholder='למשל: "כיצד שמעת עלינו?"'
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">אפשרויות (לפחות 2)</label>
+            <div className="space-y-2">
+              {(action.pollOptions || ['', '']).map((opt, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 w-5 text-center">{i + 1}.</span>
+                  <TextInputWithVariables
+                    value={opt}
+                    onChange={(v) => {
+                      const opts = [...(action.pollOptions || [])];
+                      opts[i] = v;
+                      onUpdate({ pollOptions: opts });
+                    }}
+                    placeholder={`אפשרות ${i + 1}`}
+                  />
+                  {(action.pollOptions || []).length > 2 && (
+                    <button type="button" onClick={() => {
+                      onUpdate({ pollOptions: (action.pollOptions || []).filter((_, idx) => idx !== i) });
+                    }} className="p-1 text-red-400 hover:text-red-600 flex-shrink-0">
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            {(action.pollOptions || []).length < 12 && (
+              <button
+                type="button"
+                onClick={() => onUpdate({ pollOptions: [...(action.pollOptions || []), ''] })}
+                className="mt-2 text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
+              >
+                <Plus className="w-3 h-3" /> הוסף אפשרות
+              </button>
+            )}
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-600">
+            <input
+              type="checkbox"
+              checked={action.pollMultipleAnswers || false}
+              onChange={(e) => onUpdate({ pollMultipleAnswers: e.target.checked })}
+              className="w-3.5 h-3.5 rounded border-gray-300 text-teal-600"
+            />
+            <span>אפשר בחירה מרובה</span>
+          </label>
         </div>
       )}
 

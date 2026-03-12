@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { 
+import {
   Plus, MessageSquare, Trash2, Edit2, Search, RefreshCw,
   Loader2, X, Image, Video, Mic, FileText, Type, Clock,
   ChevronUp, ChevronDown, Copy, Send, AlertCircle, Upload,
-  GripVertical, Sparkles, Hash
+  GripVertical, Sparkles, Hash, BarChart2
 } from 'lucide-react';
 import api from '../../services/api';
 import TextInputWithVariables from '../flow/panels/editors/TextInputWithVariables';
@@ -237,17 +237,20 @@ export function TemplateEditorModal({ template, onClose, onSave }) {
   const [name, setName] = useState(template?.name || '');
   const [description, setDescription] = useState(template?.description || '');
   const [messages, setMessages] = useState(
-    template?.messages?.length > 0 
+    template?.messages?.length > 0
       ? template.messages.map(m => ({
           id: m.id || Math.random().toString(36).substr(2, 9),
           message_type: m.message_type || 'text',
           content: m.content || '',
           media_url: m.media_url || '',
           delay_seconds: m.delay_seconds || 0,
+          poll_name: m.poll_name || '',
+          poll_options: m.poll_options || ['', ''],
+          poll_multiple_answers: m.poll_multiple_answers || false,
           mediaFile: null,
           mediaPreview: null
         }))
-      : [{ id: '1', message_type: 'text', content: '', media_url: '', delay_seconds: 0, mediaFile: null, mediaPreview: null }]
+      : [{ id: '1', message_type: 'text', content: '', media_url: '', delay_seconds: 0, poll_name: '', poll_options: ['', ''], poll_multiple_answers: false, mediaFile: null, mediaPreview: null }]
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -259,6 +262,9 @@ export function TemplateEditorModal({ template, onClose, onSave }) {
       content: '',
       media_url: '',
       delay_seconds: 2,
+      poll_name: '',
+      poll_options: ['', ''],
+      poll_multiple_answers: false,
       mediaFile: null,
       mediaPreview: null
     }]);
@@ -324,7 +330,7 @@ export function TemplateEditorModal({ template, onClose, onSave }) {
       return;
     }
 
-    if (messages.every(m => !m.content.trim() && !m.mediaFile && !m.media_url)) {
+    if (messages.every(m => !m.content?.trim() && !m.mediaFile && !m.media_url && !m.poll_name?.trim())) {
       setError('יש להזין לפחות הודעה אחת');
       return;
     }
@@ -356,9 +362,14 @@ export function TemplateEditorModal({ template, onClose, onSave }) {
 
         processedMessages.push({
           message_type: msg.message_type,
-          content: msg.content,
+          content: msg.message_type === 'poll' ? null : msg.content,
           media_url: mediaUrl || null,
-          delay_seconds: msg.delay_seconds || 0
+          delay_seconds: msg.delay_seconds || 0,
+          ...(msg.message_type === 'poll' && {
+            poll_name: msg.poll_name || '',
+            poll_options: msg.poll_options || [],
+            poll_multiple_answers: msg.poll_multiple_answers || false,
+          }),
         });
       }
 
@@ -521,14 +532,37 @@ function MessageEditor({ message, index, total, onUpdate, onRemove, onMove, onFi
   const fileInputRef = useRef(null);
 
   const getTypeIcon = () => {
-    const icons = { text: Type, image: Image, video: Video, audio: Mic, document: FileText };
+    const icons = { text: Type, image: Image, video: Video, audio: Mic, document: FileText, poll: BarChart2 };
     const Icon = icons[message.message_type] || Type;
     return <Icon className="w-4 h-4" />;
   };
 
   const getTypeLabel = () => {
-    const labels = { text: 'טקסט', image: 'תמונה', video: 'סרטון', audio: 'הקלטה', document: 'מסמך' };
+    const labels = { text: 'טקסט', image: 'תמונה', video: 'סרטון', audio: 'הקלטה', document: 'מסמך', poll: 'סקר' };
     return labels[message.message_type] || 'טקסט';
+  };
+
+  const switchToPoll = () => {
+    onUpdate({ message_type: 'poll', content: '', mediaFile: null, mediaPreview: null, media_url: '' });
+  };
+
+  const switchFromPoll = () => {
+    onUpdate({ message_type: 'text', poll_name: '', poll_options: ['', ''], poll_multiple_answers: false });
+  };
+
+  const updatePollOption = (i, val) => {
+    const opts = [...(message.poll_options || ['', ''])];
+    opts[i] = val;
+    onUpdate({ poll_options: opts });
+  };
+
+  const addPollOption = () => {
+    onUpdate({ poll_options: [...(message.poll_options || []), ''] });
+  };
+
+  const removePollOption = (i) => {
+    const opts = (message.poll_options || []).filter((_, idx) => idx !== i);
+    onUpdate({ poll_options: opts });
   };
 
   return (
@@ -595,84 +629,165 @@ function MessageEditor({ message, index, total, onUpdate, onRemove, onMove, onFi
 
       {/* Message Content */}
       <div className="p-4 space-y-4">
-        {/* Text Input with Variables */}
-        <div>
-          <TextInputWithVariables
-            value={message.content}
-            onChange={(newContent) => onUpdate({ content: newContent })}
-            placeholder={message.message_type !== 'text' ? 'כיתוב (אופציונלי)...' : 'הקלד את ההודעה כאן...'}
-            multiline={true}
-            rows={3}
-            className="bg-gray-50 border-gray-200 rounded-xl focus:ring-orange-500/20 focus:border-orange-400 focus:bg-white"
-          />
+
+        {/* Poll type toggle */}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={message.message_type === 'poll' ? switchFromPoll : null}
+            disabled={message.message_type !== 'poll'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${message.message_type !== 'poll' ? 'bg-orange-50 border-orange-300 text-orange-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+          >
+            <Type className="w-3 h-3" />
+            הודעה / מדיה
+          </button>
+          <button
+            type="button"
+            onClick={message.message_type !== 'poll' ? switchToPoll : null}
+            disabled={message.message_type === 'poll'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${message.message_type === 'poll' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+          >
+            <BarChart2 className="w-3 h-3" />
+            סקר
+          </button>
         </div>
 
-        {/* Media Section */}
-        <div>
-          {!message.mediaFile && !message.media_url ? (
-            <div className="relative">
+        {message.message_type === 'poll' ? (
+          /* Poll Editor */
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">שאלת הסקר *</label>
               <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"
-                onChange={(e) => onFileChange(e.target.files[0])}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                type="text"
+                value={message.poll_name || ''}
+                onChange={(e) => onUpdate({ poll_name: e.target.value })}
+                placeholder='למשל: "כיצד שמעת עלינו?"'
+                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
               />
-              <div className="border-2 border-dashed border-gray-200 hover:border-orange-400 rounded-xl p-4 text-center transition-colors cursor-pointer">
-                <div className="flex items-center justify-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
-                      <Upload className="w-5 h-5 text-orange-600" />
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-medium text-gray-700">צירוף קובץ</p>
-                      <p className="text-xs text-gray-400">תמונה, סרטון, הקלטה או מסמך</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
-          ) : (
-            <div className="bg-gray-50 rounded-xl p-3">
-              <div className="flex items-center gap-3">
-                {message.mediaPreview ? (
-                  <img src={message.mediaPreview} alt="Preview" className="w-16 h-16 object-cover rounded-lg" />
-                ) : (
-                  <div className={`w-16 h-16 rounded-lg flex items-center justify-center ${
-                    message.message_type === 'video' ? 'bg-purple-100' : 
-                    message.message_type === 'audio' ? 'bg-green-100' : 'bg-blue-100'
-                  }`}>
-                    {message.message_type === 'video' && <Video className="w-7 h-7 text-purple-600" />}
-                    {message.message_type === 'audio' && <Mic className="w-7 h-7 text-green-600" />}
-                    {message.message_type === 'document' && <FileText className="w-7 h-7 text-blue-600" />}
-                    {message.message_type === 'image' && <Image className="w-7 h-7 text-orange-600" />}
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">אפשרויות (לפחות 2)</label>
+              <div className="space-y-2">
+                {(message.poll_options || ['', '']).map((opt, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400 w-5 text-center">{i + 1}.</span>
+                    <input
+                      type="text"
+                      value={opt}
+                      onChange={(e) => updatePollOption(i, e.target.value)}
+                      placeholder={`אפשרות ${i + 1}`}
+                      className="flex-1 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    />
+                    {(message.poll_options || []).length > 2 && (
+                      <button type="button" onClick={() => removePollOption(i)} className="p-1 text-red-400 hover:text-red-600">
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  {message.mediaFile ? (
-                    <>
-                      <p className="font-medium text-gray-900 truncate text-sm">{message.mediaFile.name}</p>
-                      <p className="text-xs text-gray-500">
-                        {getTypeLabel()} • {(message.mediaFile.size / 1024 / 1024).toFixed(2)} MB
-                      </p>
-                    </>
-                  ) : message.media_url ? (
-                    <>
-                      <p className="font-medium text-gray-900 truncate text-sm">קובץ מדיה</p>
-                      <p className="text-xs text-gray-500 truncate">{message.media_url}</p>
-                    </>
-                  ) : null}
-                </div>
+                ))}
+              </div>
+              {(message.poll_options || []).length < 12 && (
                 <button
-                  onClick={onRemoveMedia}
-                  className="p-2 hover:bg-red-100 rounded-lg text-red-500 transition-colors"
+                  type="button"
+                  onClick={addPollOption}
+                  className="mt-2 text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
                 >
-                  <Trash2 className="w-5 h-5" />
+                  <Plus className="w-3 h-3" /> הוסף אפשרות
                 </button>
-              </div>
+              )}
             </div>
-          )}
-        </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={message.poll_multiple_answers || false}
+                onChange={(e) => onUpdate({ poll_multiple_answers: e.target.checked })}
+                className="rounded accent-blue-600"
+              />
+              <span className="text-sm text-gray-700">אפשר בחירה מרובה</span>
+            </label>
+          </div>
+        ) : (
+          <>
+            {/* Text Input with Variables */}
+            <div>
+              <TextInputWithVariables
+                value={message.content}
+                onChange={(newContent) => onUpdate({ content: newContent })}
+                placeholder={message.message_type !== 'text' ? 'כיתוב (אופציונלי)...' : 'הקלד את ההודעה כאן...'}
+                multiline={true}
+                rows={3}
+                className="bg-gray-50 border-gray-200 rounded-xl focus:ring-orange-500/20 focus:border-orange-400 focus:bg-white"
+              />
+            </div>
+
+            {/* Media Section */}
+            <div>
+              {!message.mediaFile && !message.media_url ? (
+                <div className="relative">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"
+                    onChange={(e) => onFileChange(e.target.files[0])}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                  />
+                  <div className="border-2 border-dashed border-gray-200 hover:border-orange-400 rounded-xl p-4 text-center transition-colors cursor-pointer">
+                    <div className="flex items-center justify-center gap-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
+                          <Upload className="w-5 h-5 text-orange-600" />
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-medium text-gray-700">צירוף קובץ</p>
+                          <p className="text-xs text-gray-400">תמונה, סרטון, הקלטה או מסמך</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <div className="flex items-center gap-3">
+                    {message.mediaPreview ? (
+                      <img src={message.mediaPreview} alt="Preview" className="w-16 h-16 object-cover rounded-lg" />
+                    ) : (
+                      <div className={`w-16 h-16 rounded-lg flex items-center justify-center ${
+                        message.message_type === 'video' ? 'bg-purple-100' :
+                        message.message_type === 'audio' ? 'bg-green-100' : 'bg-blue-100'
+                      }`}>
+                        {message.message_type === 'video' && <Video className="w-7 h-7 text-purple-600" />}
+                        {message.message_type === 'audio' && <Mic className="w-7 h-7 text-green-600" />}
+                        {message.message_type === 'document' && <FileText className="w-7 h-7 text-blue-600" />}
+                        {message.message_type === 'image' && <Image className="w-7 h-7 text-orange-600" />}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      {message.mediaFile ? (
+                        <>
+                          <p className="font-medium text-gray-900 truncate text-sm">{message.mediaFile.name}</p>
+                          <p className="text-xs text-gray-500">
+                            {getTypeLabel()} • {(message.mediaFile.size / 1024 / 1024).toFixed(2)} MB
+                          </p>
+                        </>
+                      ) : message.media_url ? (
+                        <>
+                          <p className="font-medium text-gray-900 truncate text-sm">קובץ מדיה</p>
+                          <p className="text-xs text-gray-500 truncate">{message.media_url}</p>
+                        </>
+                      ) : null}
+                    </div>
+                    <button
+                      onClick={onRemoveMedia}
+                      className="p-2 hover:bg-red-100 rounded-lg text-red-500 transition-colors"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

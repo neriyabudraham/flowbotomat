@@ -1691,19 +1691,31 @@ class BotEngine {
           case 'text':
             if (action.content) {
               const text = await this.replaceAllVariables(action.content, contact, originalMessage, botName, userId);
-              
+
               // Skip empty messages - don't send but continue flow
               if (!text || !text.trim()) {
                 console.log('[BotEngine] ⏭️ Skipping empty text message (after variable replacement)');
                 break;
               }
-              
+
               console.log('[BotEngine] Sending text:', text.substring(0, 50) + '...');
-              
+
+              // Build mentions list for mentionAll in groups
+              let mentions = null;
+              if (action.mentionAll && contact.phone.includes('@g.us')) {
+                try {
+                  const participants = await wahaService.getGroupParticipants(connection, contact.phone);
+                  mentions = (participants || []).map(p => p.id || p).filter(Boolean);
+                  console.log(`[BotEngine] mentionAll: tagging ${mentions.length} participants`);
+                } catch (e) {
+                  console.warn('[BotEngine] mentionAll: failed to get participants:', e.message);
+                }
+              }
+
               let result;
               // Check if custom link preview is configured
               if (action.customLinkPreview && action.linkPreviewUrl) {
-                const previewImage = action.linkPreviewImage 
+                const previewImage = action.linkPreviewImage
                   ? await this.replaceAllVariables(action.linkPreviewImage, contact, originalMessage, botName, userId)
                   : null;
                 const preview = {
@@ -1717,14 +1729,28 @@ class BotEngine {
                 result = await wahaService.sendLinkPreview(connection, contact.phone, text, preview);
                 console.log('[BotEngine] ✅ Text with custom link preview sent');
               } else {
-                result = await wahaService.sendMessage(connection, contact.phone, text);
+                result = await wahaService.sendMessage(connection, contact.phone, text, mentions);
               }
               // Save outgoing message to DB
               await this.saveOutgoingMessage(userId, contact.id, text, 'text', null, result?.id?.id);
               console.log('[BotEngine] ✅ Text sent and saved');
             }
             break;
-            
+
+          case 'poll':
+            if (action.pollName && action.pollOptions?.length >= 2) {
+              const pollName = await this.replaceAllVariables(action.pollName, contact, originalMessage, botName, userId);
+              const pollOptions = await Promise.all(
+                action.pollOptions.map(opt => this.replaceAllVariables(opt, contact, originalMessage, botName, userId))
+              );
+              const pollResult = await wahaService.sendPoll(connection, contact.phone, pollName, pollOptions, action.pollMultipleAnswers || false);
+              await this.saveOutgoingMessage(userId, contact.id, `📊 ${pollName}`, 'text', null, pollResult?.id?.id);
+              console.log('[BotEngine] ✅ Poll sent:', pollName);
+            } else {
+              console.log('[BotEngine] ⚠️ Poll action missing name or options (need at least 2)');
+            }
+            break;
+
           case 'image':
             if (action.url || action.fileData) {
               const imageUrl = action.fileData || action.url;

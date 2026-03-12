@@ -901,6 +901,28 @@ async function removeGroupParticipants(connection, groupId, participantIds) {
 }
 
 /**
+ * Send poll to a group
+ */
+async function sendPoll(connection, chatId, pollName, options, multipleAnswers = false) {
+  const client = createClient(connection.base_url, connection.api_key);
+  const normalizedChatId = chatId.includes('@') ? chatId : `${chatId}@g.us`;
+
+  const payload = {
+    session: connection.session_name,
+    chatId: normalizedChatId,
+    poll: {
+      name: pollName,
+      options: options.map(o => String(o)),
+      multipleAnswers: Boolean(multipleAnswers),
+    },
+  };
+
+  const response = await client.post('/api/sendPoll', payload);
+  console.log(`[WAHA] Sent poll "${pollName}" to ${normalizedChatId} (${options.length} options)`);
+  return response.data;
+}
+
+/**
  * Get group participants
  */
 async function getGroupParticipants(connection, groupId) {
@@ -1278,6 +1300,7 @@ module.exports = {
   sendRawVcard,
   sendLinkPreview,
   forwardMessage,
+  sendPoll,
   // Group functions
   addGroupParticipants,
   removeGroupParticipants,

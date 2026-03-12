@@ -490,6 +490,11 @@ async function startCampaignSending(campaignId, userId) {
                   result = await wahaService.sendFile(connection, chatId, msg.media_url, documentFilename, mimetype, content);
                 }
                 break;
+              case 'poll':
+                if (msg.poll_name && msg.poll_options?.length >= 2) {
+                  result = await wahaService.sendPoll(connection, chatId, msg.poll_name, msg.poll_options, msg.poll_multiple_answers || false);
+                }
+                break;
               default: // text
                 if (content) {
                   result = await wahaService.sendMessage(connection, chatId, content);
