@@ -7,6 +7,23 @@ const { checkLimit, incrementBotRuns } = require('../controllers/subscriptions/s
 const { getSocketManager } = require('./socket/manager.service');
 const { checkContactLimit } = require('./limits.service');
 
+// Concurrency limiter: max 5 simultaneous processEvent calls to avoid DB pool exhaustion
+let _activeEvents = 0;
+const MAX_CONCURRENT_EVENTS = 5;
+const _eventQueue = [];
+function _runNext() {
+  if (_eventQueue.length === 0 || _activeEvents >= MAX_CONCURRENT_EVENTS) return;
+  const { fn, resolve, reject } = _eventQueue.shift();
+  _activeEvents++;
+  fn().then(resolve, reject).finally(() => { _activeEvents--; _runNext(); });
+}
+function withConcurrencyLimit(fn) {
+  return new Promise((resolve, reject) => {
+    _eventQueue.push({ fn, resolve, reject });
+    _runNext();
+  });
+}
+
 // Ensure metadata column exists
 (async () => {
   try {
@@ -141,6 +158,10 @@ class BotEngine {
   
   // Process special events (status view, status reaction, group join/leave, calls, poll vote)
   async processEvent(userId, contactPhone, eventType, eventData = {}) {
+    return withConcurrencyLimit(() => this._processEventImpl(userId, contactPhone, eventType, eventData));
+  }
+
+  async _processEventImpl(userId, contactPhone, eventType, eventData = {}) {
     try {
       // For webhook events: only run the specific bot identified by botId
       // For other events: run all active bots
