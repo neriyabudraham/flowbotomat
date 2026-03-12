@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { 
-  MessageCircle, ArrowLeft, Smartphone, Server, QrCode, 
+import {
+  MessageCircle, ArrowLeft, Smartphone, Server, QrCode,
   CheckCircle, XCircle, RefreshCw, Trash2, Wifi, WifiOff,
   Shield, Zap, Clock, AlertCircle, Phone, Settings,
-  ChevronLeft, Loader2, ExternalLink, Copy, Check, ChevronDown, 
-  Mail, HelpCircle, Hash
+  ChevronLeft, Loader2, ExternalLink, Copy, Check, ChevronDown,
+  Mail, HelpCircle, Hash, CreditCard
 } from 'lucide-react';
 import useWhatsappStore from '../store/whatsappStore';
 import useAuthStore from '../store/authStore';
@@ -88,20 +88,34 @@ export default function WhatsappSetupPage() {
       } else {
         setStep('select');
         setIsCheckingExisting(true);
-        await checkExisting();
+        const existingData = await checkExisting();
         setIsCheckingExisting(false);
+        if (existingData?.requiresPayment) {
+          setPendingConnectionType('managed');
+          setShowPaymentModal(true);
+        }
       }
     } catch {
       setStep('select');
       setIsCheckingExisting(true);
-      await checkExisting();
+      const existingData = await checkExisting();
       setIsCheckingExisting(false);
+      if (existingData?.requiresPayment) {
+        setPendingConnectionType('managed');
+        setShowPaymentModal(true);
+      }
     }
   };
 
   const handleSelectType = async (type) => {
     clearError();
     if (type === 'managed') {
+      // If we already know payment is required, open modal directly
+      if (existingSession?.requiresPayment) {
+        setPendingConnectionType('managed');
+        setShowPaymentModal(true);
+        return;
+      }
       try {
         const data = await connectManaged();
         if (data.connection?.status === 'connected') {
@@ -272,6 +286,29 @@ export default function WhatsappSetupPage() {
               <h2 className="text-xl font-bold text-gray-900 mb-2 text-center">התחברות ל-WhatsApp</h2>
               <p className="text-gray-500 text-center mb-8">סרוק קוד QR וחבר את WhatsApp שלך בשניות</p>
               
+              {/* Credit card required banner */}
+              {existingSession?.requiresPayment && (
+                <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                  <div className="flex items-start gap-3 text-amber-800">
+                    <CreditCard className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-medium">נדרש כרטיס אשראי לחיבור WhatsApp</p>
+                      <p className="text-sm text-amber-700 mt-1">
+                        לא יבוצע חיוב — הכרטיס נשמר לצורך אימות בלבד.
+                        לאחר הזנת הכרטיס תוכל לחבר את ה-WhatsApp שלך.
+                      </p>
+                      <button
+                        onClick={() => { setPendingConnectionType('managed'); setShowPaymentModal(true); }}
+                        className="mt-3 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-xl transition-colors flex items-center gap-2"
+                      >
+                        <CreditCard className="w-4 h-4" />
+                        הוסף כרטיס אשראי
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Existing Session Alert - only show if exists AND connected */}
               {existingSession?.exists && existingSession?.isConnected && (
                 <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-2xl">
@@ -747,11 +784,11 @@ export default function WhatsappSetupPage() {
           setPendingConnectionType(null);
         }}
         onSuccess={handlePaymentSuccess}
-        title="14 ימי ניסיון חינם"
+        title="נדרש אמצעי תשלום"
         features={[
-          '14 ימי ניסיון חינם',
-          'לא תחויב עכשיו',
+          'ללא חיוב מיידי',
           'ביטול בכל עת',
+          'מאובטח ומוגן',
         ]}
       />
     </div>

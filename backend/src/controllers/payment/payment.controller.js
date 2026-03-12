@@ -234,139 +234,124 @@ async function savePaymentMethod(req, res) {
       console.log(`[Payment] Auto-creating trial subscription for user ${userId} (current: ${existingSub?.status || 'none'}, plan: ${existingSub?.plan_id || 'none'})`);
 
       // Check for custom discount plan first
-      let planId = null;
+      let trialPlanId = null;
       const customDiscountCheck = await db.query(
         `SELECT custom_discount_plan_id FROM user_subscriptions WHERE user_id = $1`,
         [userId]
       );
-
       if (customDiscountCheck.rows.length > 0 && customDiscountCheck.rows[0].custom_discount_plan_id) {
-        planId = customDiscountCheck.rows[0].custom_discount_plan_id;
-        console.log(`[Payment] Using custom discount plan: ${planId}`);
+        trialPlanId = customDiscountCheck.rows[0].custom_discount_plan_id;
+        console.log(`[Payment] Using custom discount plan: ${trialPlanId}`);
       }
 
       // Otherwise get the cheapest paid plan with trial_days > 0
-      if (!planId) {
+      if (!trialPlanId) {
         const planResult = await db.query(
           `SELECT id FROM subscription_plans
            WHERE is_active = true AND price > 0 AND trial_days > 0
            ORDER BY price ASC LIMIT 1`
         );
         if (planResult.rows.length > 0) {
-          planId = planResult.rows[0].id;
+          trialPlanId = planResult.rows[0].id;
         }
       }
 
-      if (!planId) {
+      if (!trialPlanId) {
         console.log(`[Payment] No plan with trial_days > 0 found, skipping auto-trial for user ${userId}`);
-        subscriptionCreated = false;
-      }
-
-      if (planId) {
-        const paymentMethodId = result.rows[0].id;
-
-        // Get plan details including trial_days
+      } else {
+        // Get plan details
         const planPriceResult = await db.query(
           `SELECT price, name_he, trial_days FROM subscription_plans WHERE id = $1`,
-          [planId]
+          [trialPlanId]
         );
-
         const planTrialDays = parseInt(planPriceResult.rows[0]?.trial_days || 0);
 
         if (planTrialDays === 0) {
-          console.log(`[Payment] Plan ${planId} has trial_days=0, skipping auto-trial for user ${userId}`);
-          subscriptionCreated = false;
+          console.log(`[Payment] Plan ${trialPlanId} has trial_days=0, skipping auto-trial for user ${userId}`);
         } else {
-        const trialEndsAt = new Date();
-        trialEndsAt.setDate(trialEndsAt.getDate() + planTrialDays);
+          const paymentMethodId = result.rows[0].id;
+          const trialEndsAt = new Date();
+          trialEndsAt.setDate(trialEndsAt.getDate() + planTrialDays);
 
-        let standingOrderId = null;
-        let chargeAmount = parseFloat(planPriceResult.rows[0]?.price || 0);
-        const planNameHe = planPriceResult.rows[0]?.name_he || 'מנוי';
-        
-        // Check for custom discount from admin
-        const existingCustomDiscount = await db.query(
-          `SELECT custom_discount_mode, 
-                  referral_discount_percent as custom_discount_percent, 
-                  custom_fixed_price, 
-                  custom_discount_plan_id, 
-                  referral_discount_type as custom_discount_type
-           FROM user_subscriptions WHERE user_id = $1`,
-          [userId]
-        );
-        
-        if (existingCustomDiscount.rows.length > 0) {
-          const cd = existingCustomDiscount.rows[0];
-          console.log(`[Payment] Custom discount check:`, cd);
-          
-          if (cd.custom_discount_mode === 'fixed_price' && cd.custom_fixed_price) {
-            chargeAmount = parseFloat(cd.custom_fixed_price);
-            console.log(`[Payment] Using fixed price: ${chargeAmount}`);
-          } else if (cd.custom_discount_mode === 'percent' && cd.custom_discount_percent) {
-            chargeAmount = chargeAmount * (1 - cd.custom_discount_percent / 100);
-            console.log(`[Payment] Using percent discount (${cd.custom_discount_percent}%): ${chargeAmount}`);
-          }
-          
-          // Use custom discount plan if set
-          if (cd.custom_discount_plan_id) {
-            planId = cd.custom_discount_plan_id;
-            // Re-fetch plan name
-            const customPlanResult = await db.query(
-              `SELECT name_he FROM subscription_plans WHERE id = $1`,
-              [planId]
-            );
-            if (customPlanResult.rows.length > 0) {
-              planNameHe = customPlanResult.rows[0].name_he;
+          let chargeAmount = parseFloat(planPriceResult.rows[0]?.price || 0);
+          let planNameHe = planPriceResult.rows[0]?.name_he || 'מנוי';
+
+          // Check for custom discount from admin
+          const existingCustomDiscount = await db.query(
+            `SELECT custom_discount_mode,
+                    referral_discount_percent as custom_discount_percent,
+                    custom_fixed_price,
+                    custom_discount_plan_id,
+                    referral_discount_type as custom_discount_type
+             FROM user_subscriptions WHERE user_id = $1`,
+            [userId]
+          );
+
+          if (existingCustomDiscount.rows.length > 0) {
+            const cd = existingCustomDiscount.rows[0];
+            console.log(`[Payment] Custom discount check:`, cd);
+            if (cd.custom_discount_mode === 'fixed_price' && cd.custom_fixed_price) {
+              chargeAmount = parseFloat(cd.custom_fixed_price);
+              console.log(`[Payment] Using fixed price: ${chargeAmount}`);
+            } else if (cd.custom_discount_mode === 'percent' && cd.custom_discount_percent) {
+              chargeAmount = chargeAmount * (1 - cd.custom_discount_percent / 100);
+              console.log(`[Payment] Using percent discount (${cd.custom_discount_percent}%): ${chargeAmount}`);
             }
-            console.log(`[Payment] Using custom discount plan: ${planId} (${planNameHe})`);
+            if (cd.custom_discount_plan_id) {
+              trialPlanId = cd.custom_discount_plan_id;
+              const customPlanResult = await db.query(
+                `SELECT name_he FROM subscription_plans WHERE id = $1`,
+                [trialPlanId]
+              );
+              if (customPlanResult.rows.length > 0) {
+                planNameHe = customPlanResult.rows[0].name_he;
+              }
+              console.log(`[Payment] Using custom discount plan: ${trialPlanId} (${planNameHe})`);
+            }
           }
-        }
-        
-        // Schedule charge in billing queue for trial end (self-managed billing)
-        if (chargeAmount > 0) {
-          try {
-            console.log(`[Payment] Scheduling charge in billing queue for trial - amount: ${chargeAmount}, date: ${trialEndsAt.toISOString()}`);
-            
-            await billingQueueService.scheduleCharge({
-              userId,
-              subscriptionId: null, // Will be set after subscription created
-              amount: chargeAmount,
-              chargeDate: trialEndsAt.toISOString().split('T')[0],
-              billingType: 'trial_conversion',
-              planId: planId,
-              description: `מנוי חודשי - ${planNameHe}`,
-            });
-            
-            console.log(`[Payment] ✅ Charge scheduled in billing queue for ${trialEndsAt.toISOString().split('T')[0]}`);
-          } catch (queueErr) {
-            console.error(`[Payment] Error scheduling charge in queue:`, queueErr.message);
-            // Continue anyway - we can manually handle this later
+
+          // Schedule charge in billing queue for trial end
+          if (chargeAmount > 0) {
+            try {
+              console.log(`[Payment] Scheduling charge in billing queue for trial - amount: ${chargeAmount}, date: ${trialEndsAt.toISOString()}`);
+              await billingQueueService.scheduleCharge({
+                userId,
+                subscriptionId: null,
+                amount: chargeAmount,
+                chargeDate: trialEndsAt.toISOString().split('T')[0],
+                billingType: 'trial_conversion',
+                planId: trialPlanId,
+                description: `מנוי חודשי - ${planNameHe}`,
+              });
+              console.log(`[Payment] ✅ Charge scheduled in billing queue for ${trialEndsAt.toISOString().split('T')[0]}`);
+            } catch (queueErr) {
+              console.error(`[Payment] Error scheduling charge in queue:`, queueErr.message);
+            }
           }
+
+          await db.query(`
+            INSERT INTO user_subscriptions (
+              user_id, plan_id, status, is_trial, trial_ends_at,
+              payment_method_id, next_charge_date, started_at, sumit_customer_id,
+              trial_used_at
+            ) VALUES ($1, $2, 'trial', true, $3, $4, $3, NOW(), $5, NOW())
+            ON CONFLICT (user_id)
+            DO UPDATE SET
+              plan_id = COALESCE(user_subscriptions.custom_discount_plan_id, $2),
+              status = 'trial',
+              is_trial = true,
+              trial_ends_at = $3,
+              payment_method_id = $4,
+              next_charge_date = $3,
+              started_at = COALESCE(user_subscriptions.started_at, NOW()),
+              sumit_customer_id = $5,
+              trial_used_at = COALESCE(user_subscriptions.trial_used_at, NOW()),
+              updated_at = NOW()
+          `, [userId, trialPlanId, trialEndsAt, paymentMethodId, sumitResult.customerId]);
+
+          subscriptionCreated = true;
+          console.log(`[Payment] ✅ Trial subscription created, ends at: ${trialEndsAt.toISOString()}`);
         }
-        
-        await db.query(`
-          INSERT INTO user_subscriptions (
-            user_id, plan_id, status, is_trial, trial_ends_at, 
-            payment_method_id, next_charge_date, started_at, sumit_customer_id,
-            trial_used_at
-          ) VALUES ($1, $2, 'trial', true, $3, $4, $3, NOW(), $5, NOW())
-          ON CONFLICT (user_id) 
-          DO UPDATE SET 
-            plan_id = COALESCE(user_subscriptions.custom_discount_plan_id, $2), 
-            status = 'trial',
-            is_trial = true,
-            trial_ends_at = $3,
-            payment_method_id = $4,
-            next_charge_date = $3,
-            started_at = COALESCE(user_subscriptions.started_at, NOW()),
-            sumit_customer_id = $5,
-            trial_used_at = COALESCE(user_subscriptions.trial_used_at, NOW()),
-            updated_at = NOW()
-        `, [userId, planId, trialEndsAt, paymentMethodId, sumitResult.customerId]);
-        
-        subscriptionCreated = true;
-        console.log(`[Payment] ✅ Trial subscription created, ends at: ${trialEndsAt.toISOString()}, charge scheduled in billing queue`);
-        } // close else (planTrialDays > 0)
       }
     } else {
       // User already has a subscription, just update the payment method
