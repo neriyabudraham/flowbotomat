@@ -2,36 +2,18 @@ const db = require('../../config/database');
 const sumitService = require('../../services/payment/sumit.service');
 const billingQueueService = require('../../services/payment/billingQueue.service');
 const { sendNewSubscriptionEmail, sendRenewalEmail, sendCancellationEmail } = require('../../services/subscription/notification.service');
-const { getWahaCredentials } = require('../../services/settings/system.service');
-const wahaSession = require('../../services/waha/session.service');
-
 /**
- * Fully disconnect a user's WhatsApp: logout + stop + delete session from WAHA,
- * delete the connection row from DB, and disable all bots.
- * This forces the user to scan QR again when reconnecting.
+ * Disconnect a user's WhatsApp from our system — marks connection as disconnected in DB
+ * and disables bots, but leaves the WAHA session alive.
+ * The user must re-add a payment method before reconnecting.
  */
 async function fullDisconnectWhatsApp(userId) {
-  const sessions = await db.query(
-    `SELECT id, connection_type, session_name FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected'`,
+  await db.query(
+    `UPDATE whatsapp_connections SET status = 'disconnected', updated_at = NOW() WHERE user_id = $1 AND status = 'connected'`,
     [userId]
   );
-
-  for (const session of sessions.rows) {
-    if (session.connection_type === 'managed') {
-      try {
-        const { baseUrl, apiKey } = getWahaCredentials();
-        await wahaSession.logoutSession(baseUrl, apiKey, session.session_name);
-        await wahaSession.stopSession(baseUrl, apiKey, session.session_name);
-        await wahaSession.deleteSession(baseUrl, apiKey, session.session_name);
-      } catch (err) {
-        console.error(`[Payment] WAHA disconnect failed for session ${session.session_name}:`, err.message);
-      }
-    }
-    await db.query('DELETE FROM whatsapp_connections WHERE id = $1', [session.id]);
-    console.log(`[Payment] Fully disconnected WhatsApp session ${session.session_name} for user ${userId}`);
-  }
-
   await db.query(`UPDATE bots SET is_active = false, updated_at = NOW() WHERE user_id = $1`, [userId]);
+  console.log(`[Payment] Disconnected WhatsApp (DB only, WAHA session kept alive) for user ${userId}`);
 }
 
 /**
