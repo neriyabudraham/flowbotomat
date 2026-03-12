@@ -158,44 +158,49 @@ async function processTrialEndings() {
         
         console.log(`[Billing] Converting trial for user ${sub.user_email} - Plan: ${sub.name_he}, Period: ${sub.billing_period}`);
         
-        if (sub.billing_period === 'yearly') {
-          // Yearly: charge full year with discount, recurring every 12 months
+        const isYearly = sub.billing_period === 'yearly';
+        if (isYearly) {
           chargeAmount = parseFloat(sub.price) * 12 * 0.8;
           nextChargeDate.setFullYear(nextChargeDate.getFullYear() + 1);
-          expiresAt = new Date(nextChargeDate);
-          
-          chargeResult = await sumitService.chargeRecurring({
-            customerId: sub.sumit_customer_id,
-            amount: chargeAmount,
-            description: `מנוי שנתי - ${sub.name_he}`,
-            durationMonths: 12,
-            recurrence: null, // unlimited
-          });
         } else {
-          // Monthly: set up recurring charge
           nextChargeDate.setMonth(nextChargeDate.getMonth() + 1);
-          expiresAt = new Date(nextChargeDate);
-          
-          chargeResult = await sumitService.chargeRecurring({
-            customerId: sub.sumit_customer_id,
-            amount: chargeAmount,
-            description: `מנוי חודשי - ${sub.name_he}`,
-            durationMonths: 1,
-          });
         }
-        
+        expiresAt = new Date(nextChargeDate);
+
+        // One-time charge - billing queue manages renewals, NOT Sumit standing orders
+        chargeResult = await sumitService.chargeOneTime({
+          customerId: sub.sumit_customer_id,
+          amount: chargeAmount,
+          description: `המרת ניסיון - מנוי ${isYearly ? 'שנתי' : 'חודשי'} - ${sub.name_he}`,
+        });
+
         if (chargeResult.success) {
-          // Update subscription to active
+          // Update subscription to active (no standing order ID)
           await db.query(`
-            UPDATE user_subscriptions 
-            SET status = 'active', 
-                is_trial = false, 
+            UPDATE user_subscriptions
+            SET status = 'active',
+                is_trial = false,
+                trial_ends_at = NULL,
                 next_charge_date = $1,
                 expires_at = $2,
-                sumit_standing_order_id = $3,
+                sumit_standing_order_id = NULL,
                 updated_at = NOW()
-            WHERE id = $4
-          `, [nextChargeDate, expiresAt, chargeResult.standingOrderId || null, sub.id]);
+            WHERE id = $3
+          `, [nextChargeDate, expiresAt, sub.id]);
+
+          // Schedule next charge in billing queue
+          const { pool } = require('../../config/database');
+          await pool.query(`
+            INSERT INTO billing_queue (user_id, subscription_id, amount, charge_date, billing_type, plan_id, description, currency)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'ILS')
+            ON CONFLICT DO NOTHING
+          `, [
+            sub.user_id, sub.id, chargeAmount,
+            nextChargeDate.toISOString().split('T')[0],
+            isYearly ? 'yearly' : 'monthly',
+            sub.plan_id,
+            `מנוי ${isYearly ? 'שנתי' : 'חודשי'} - ${sub.name_he}`
+          ]);
           
           // Log payment
           await db.query(`

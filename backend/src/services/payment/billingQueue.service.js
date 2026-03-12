@@ -221,13 +221,13 @@ async function detectMissingBillingEntries() {
   // 2. Find active paid subscriptions with overdue next_charge_date but no billing queue entry
   const missingResult = await pool.query(`
     SELECT us.user_id, us.id as subscription_id, us.plan_id, us.next_charge_date,
-           sp.price as plan_price, sp.name_he as plan_name_he
+           us.billing_period, sp.price as plan_price, sp.name_he as plan_name_he
     FROM user_subscriptions us
     JOIN subscription_plans sp ON sp.id = us.plan_id
-    WHERE us.status = 'active'
+    WHERE us.status IN ('active', 'trial')
       AND sp.price > 0
-      AND us.next_charge_date IS NOT NULL
-      AND us.next_charge_date <= CURRENT_DATE
+      AND COALESCE(us.next_charge_date, us.trial_ends_at) IS NOT NULL
+      AND COALESCE(us.next_charge_date, us.trial_ends_at) <= CURRENT_DATE
       AND NOT EXISTS (
         SELECT 1 FROM billing_queue bq
         WHERE bq.user_id = us.user_id
@@ -237,17 +237,19 @@ async function detectMissingBillingEntries() {
 
   let created = 0;
   for (const sub of missingResult.rows) {
+    const billingType = sub.billing_period === 'yearly' ? 'yearly' : 'monthly';
     await pool.query(
       `INSERT INTO billing_queue
        (user_id, subscription_id, amount, charge_date, billing_type, plan_id, description, currency)
-       VALUES ($1, $2, $3, $4, 'monthly', $5, $6, 'ILS')`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'ILS')`,
       [
         sub.user_id,
         sub.subscription_id,
         sub.plan_price,
         sub.next_charge_date,
+        billingType,
         sub.plan_id,
-        `מנוי חודשי - ${sub.plan_name_he}`
+        `מנוי ${billingType === 'yearly' ? 'שנתי' : 'חודשי'} - ${sub.plan_name_he}`
       ]
     );
     created++;

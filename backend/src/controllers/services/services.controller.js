@@ -179,79 +179,79 @@ async function subscribeToService(req, res) {
       }
     }
     
-    // Create standing order in Sumit (for both trial and immediate)
-    // For trial: startDate = trialEndsAt (first charge at trial end)
-    // For renewal with remaining time: startDate = expires_at (first charge when period ends)
-    // For immediate: startDate = null (charge now)
-    if (price > 0 && user.sumit_customer_id) {
+    // Charge via one-time payment (billing queue manages renewals, NOT standing orders)
+    let chargeTransactionId = null;
+    let chargeDocumentURL = null;
+    if (price > 0 && user.sumit_customer_id && !isTrial && !futureStartDate) {
+      // Immediate charge - not a trial and not a future-scheduled renewal
       try {
-        const durationMonths = billingPeriod === 'yearly' ? 12 : 1;
-        const startDate = futureStartDate || (isTrial ? trialEndsAt : null);
-        
-        console.log(`[Services] Creating standing order - Trial: ${isTrial}, FutureRenewal: ${!!futureStartDate}, StartDate: ${startDate?.toISOString() || 'immediate'}, Amount: ${price}`);
-        
-        const standingOrderResponse = await sumitService.chargeRecurring({
+        console.log(`[Services] Charging one-time - Amount: ${price}, Customer: ${user.sumit_customer_id}`);
+        const chargeResponse = await sumitService.chargeOneTime({
           customerId: user.sumit_customer_id,
           amount: price,
           description: `מנוי ${service.name_he} - ${billingPeriod === 'yearly' ? 'שנתי' : 'חודשי'}`,
-          durationMonths: durationMonths,
-          recurrence: null, // unlimited
-          startDate: startDate, // null = immediate, future date = scheduled
         });
-        
-        if (!standingOrderResponse.success) {
-          console.error('[Services] Sumit standing order failed:', standingOrderResponse.error);
-          return res.status(400).json({ 
-            error: standingOrderResponse.error || 'שגיאה ביצירת הוראת קבע'
-          });
+
+        if (!chargeResponse.success) {
+          console.error('[Services] Sumit charge failed:', chargeResponse.error);
+          return res.status(400).json({ error: chargeResponse.error || 'שגיאה בתשלום' });
         }
-        
-        sumitStandingOrderId = standingOrderResponse.standingOrderId;
-        console.log(`[Services] ✅ Standing order created: ${sumitStandingOrderId}`);
-        
+
+        chargeTransactionId = chargeResponse.transactionId;
+        chargeDocumentURL = chargeResponse.documentURL;
+        console.log(`[Services] ✅ One-time charge succeeded: ${chargeTransactionId}`);
       } catch (err) {
         console.error('[Services] Sumit error:', err);
         return res.status(400).json({ error: 'שגיאה בתשלום' });
       }
     }
-    
-    // Create or update subscription
+
+    // Create or update subscription (no standing order ID - billing queue handles renewals)
     let subscription;
     if (existingResult.rows.length > 0) {
       // Reactivate existing subscription
-      // If renewing with remaining time, keep expires_at and don't reset started_at
       const updateResult = await db.query(`
         UPDATE user_service_subscriptions
-        SET status = $1, is_trial = $2, trial_ends_at = $3, 
+        SET status = $1, is_trial = $2, trial_ends_at = $3,
             next_charge_date = $4, billing_period = $5,
-            started_at = CASE WHEN $9 THEN started_at ELSE NOW() END, 
+            started_at = CASE WHEN $9 THEN started_at ELSE NOW() END,
             cancelled_at = NULL,
             expires_at = CASE WHEN $9 THEN expires_at ELSE NULL END,
-            sumit_standing_order_id = $6, updated_at = NOW()
-        WHERE user_id = $7 AND service_id = $8
+            sumit_standing_order_id = NULL, updated_at = NOW()
+        WHERE user_id = $6 AND service_id = $7
         RETURNING *
-      `, [status, isTrial, trialEndsAt, nextChargeDate, billingPeriod, 
-          sumitStandingOrderId, userId, serviceId, !!futureStartDate]);
+      `, [status, isTrial, trialEndsAt, nextChargeDate, billingPeriod,
+          userId, serviceId, !!futureStartDate]);
       subscription = updateResult.rows[0];
     } else {
       // Create new subscription
       const insertResult = await db.query(`
-        INSERT INTO user_service_subscriptions 
-        (user_id, service_id, status, is_trial, trial_ends_at, 
+        INSERT INTO user_service_subscriptions
+        (user_id, service_id, status, is_trial, trial_ends_at,
          next_charge_date, billing_period, sumit_standing_order_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)
         RETURNING *
-      `, [userId, serviceId, status, isTrial, trialEndsAt, 
-          nextChargeDate, billingPeriod, sumitStandingOrderId]);
+      `, [userId, serviceId, status, isTrial, trialEndsAt,
+          nextChargeDate, billingPeriod]);
       subscription = insertResult.rows[0];
     }
-    
-    // If immediate payment was made (not trial), log it
-    if (!isTrial && price > 0 && sumitStandingOrderId) {
+
+    // Schedule next charge in billing queue
+    if (price > 0 && nextChargeDate) {
+      const { pool } = require('../../config/database');
+      await pool.query(`
+        INSERT INTO billing_queue (user_id, subscription_id, amount, charge_date, billing_type, description, currency)
+        VALUES ($1, $2, $3, $4, 'status_bot', $5, 'ILS')
+      `, [userId, subscription.id, price, nextChargeDate.toISOString().split('T')[0],
+          `מנוי ${service.name_he} - ${billingPeriod === 'yearly' ? 'שנתי' : 'חודשי'}`]);
+    }
+
+    // Log immediate payment if it happened
+    if (!isTrial && !futureStartDate && price > 0 && chargeTransactionId) {
       await db.query(`
-        INSERT INTO service_payment_history 
+        INSERT INTO service_payment_history
         (user_id, service_id, subscription_id, amount, status, payment_type, description)
-        VALUES ($1, $2, $3, $4, 'success', 'recurring', $5)
+        VALUES ($1, $2, $3, $4, 'success', 'one_time', $5)
       `, [userId, serviceId, subscription.id, price, `הרשמה ל${service.name_he}`]);
     }
     
