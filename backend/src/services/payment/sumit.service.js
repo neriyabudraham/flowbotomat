@@ -415,6 +415,7 @@ async function chargeOneTime({ customerId, amount, description, sendEmail = true
         Currency: 'ILS',
       }],
       VATIncluded: true,
+      PreventStandingOrder: true, // One-time charge - do NOT create a standing order
       SendDocumentByEmail: sendEmail,
       SendDocumentByEmail_Language: 0, // 0 = Hebrew
       DocumentLanguage: 0, // 0 = Hebrew, 1 = English
