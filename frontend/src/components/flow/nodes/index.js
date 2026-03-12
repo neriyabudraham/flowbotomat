@@ -9,4 +9,5 @@ export { default as IntegrationNode } from './IntegrationNode';
 export { default as SendOtherNode } from './SendOtherNode';
 export { default as GoogleSheetsNode } from './GoogleSheetsNode';
 export { default as GoogleContactsNode } from './GoogleContactsNode';
+export { default as FormulaNode } from './FormulaNode';
 export { default as BaseNode } from './BaseNode';

@@ -26,6 +26,7 @@ function BaseNode({
     cyan: { bg: 'from-cyan-500 to-cyan-600', border: 'border-cyan-400', shadow: 'shadow-cyan-200', handle: 'bg-cyan-500' },
     yellow: { bg: 'from-yellow-400 to-yellow-500', border: 'border-yellow-400', shadow: 'shadow-yellow-200', handle: 'bg-yellow-500' },
     green: { bg: 'from-green-400 to-green-500', border: 'border-green-400', shadow: 'shadow-green-200', handle: 'bg-green-500' },
+    emerald: { bg: 'from-emerald-500 to-emerald-600', border: 'border-emerald-400', shadow: 'shadow-emerald-200', handle: 'bg-emerald-500' },
   };
 
   const colors = colorClasses[color] || colorClasses.purple;

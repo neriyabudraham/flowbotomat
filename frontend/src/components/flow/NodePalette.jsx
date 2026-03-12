@@ -1,4 +1,4 @@
-import { MessageSquare, GitBranch, Clock, Cog, List, ClipboardList, ChevronLeft, StickyNote, Globe, Send } from 'lucide-react';
+import { MessageSquare, GitBranch, Clock, Cog, List, ClipboardList, ChevronLeft, StickyNote, Globe, Send, Calculator } from 'lucide-react';
 
 // Google Sheets and Google Contacts are now part of the Integration node
 const nodeTypes = [
@@ -8,6 +8,7 @@ const nodeTypes = [
   { type: 'condition', label: 'תנאי', icon: GitBranch, color: 'bg-orange-500', description: 'הסתעפות לפי תנאים' },
   { type: 'delay', label: 'השהייה', icon: Clock, color: 'bg-blue-500', description: 'המתנה לפני המשך' },
   { type: 'action', label: 'פעולה', icon: Cog, color: 'bg-pink-500', description: 'תגיות ובקרת בוטים' },
+  { type: 'formula', label: 'חישוב / נוסחה', icon: Calculator, color: 'bg-emerald-500', description: 'ביטויים מתמטיים ועיבוד טקסט' },
   { type: 'integration', label: 'אינטגרציה', icon: Globe, color: 'bg-amber-500', description: 'API, Google Sheets, Contacts' },
   { type: 'note', label: 'הערה', icon: StickyNote, color: 'bg-yellow-500', description: 'הערות ותזכורות' },
   { type: 'send_other', label: 'שליחה אחרת', icon: Send, color: 'bg-violet-500', description: 'שלח למספר או קבוצה אחרת' },

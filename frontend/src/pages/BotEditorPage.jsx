@@ -573,6 +573,7 @@ function getDefaultData(type) {
       sendSummary: false 
     };
     case 'note': return { note: '', color: 'yellow' };
+    case 'formula': return { steps: [] };
     case 'integration': return { actions: [] };
     case 'google_sheets': return { actions: [] };
     case 'send_other': return { 

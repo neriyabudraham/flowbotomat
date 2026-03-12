@@ -40,7 +40,7 @@ async function handleBotWebhook(req, res) {
     await db.query(`ALTER TABLE bots ADD COLUMN IF NOT EXISTS webhook_secret VARCHAR(64)`).catch(() => {});
 
     const botResult = await db.query(
-      `SELECT id, user_id, name, is_active, locked_reason FROM bots WHERE webhook_secret = $1`,
+      `SELECT id, user_id, name, is_active, locked_reason, flow_data FROM bots WHERE webhook_secret = $1`,
       [secret]
     );
 
@@ -50,6 +50,20 @@ async function handleBotWebhook(req, res) {
 
     const bot = botResult.rows[0];
     const payload = { ...req.query, ...(req.body || {}) };
+
+    // Check allowed HTTP method from trigger condition
+    const flowData = bot.flow_data || {};
+    const nodes = flowData.nodes || [];
+    const triggerNode = nodes.find(n => n.type === 'trigger');
+    const webhookCondition = triggerNode?.data?.triggerGroups
+      ?.flatMap(g => g.conditions || [])
+      ?.find(c => c.type === 'webhook');
+    const allowedMethod = webhookCondition?.webhookMethod || 'POST';
+    const reqMethod = req.method.toUpperCase();
+    const methodAllowed = allowedMethod === 'POST+GET' || allowedMethod === reqMethod;
+    if (!methodAllowed) {
+      return res.status(405).json({ error: `method not allowed, this webhook accepts ${allowedMethod}` });
+    }
 
     // If bot is in listen mode, capture the payload (even if bot is inactive)
     const listenSession = listeningSessions.get(String(bot.id));

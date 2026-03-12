@@ -11,6 +11,7 @@ import IntegrationEditor from './editors/IntegrationEditor';
 import SendOtherEditor from './editors/SendOtherEditor';
 import GoogleSheetsEditor from './editors/GoogleSheetsEditor';
 import GoogleContactsEditor from './editors/GoogleContactsEditor';
+import FormulaEditor from './editors/FormulaEditor';
 
 const editors = {
   trigger: TriggerEditor,
@@ -25,6 +26,7 @@ const editors = {
   send_other: SendOtherEditor,
   google_sheets: GoogleSheetsEditor,
   google_contacts: GoogleContactsEditor,
+  formula: FormulaEditor,
 };
 
 const titles = {
@@ -40,6 +42,7 @@ const titles = {
   send_other: 'שליחה אחרת',
   google_sheets: 'Google Sheets',
   google_contacts: 'Google Contacts',
+  formula: 'חישוב / נוסחה',
 };
 
 const colors = {
@@ -55,6 +58,7 @@ const colors = {
   send_other: 'bg-violet-50 border-violet-200',
   google_sheets: 'bg-green-50 border-green-200',
   google_contacts: 'bg-blue-50 border-blue-200',
+  formula: 'bg-emerald-50 border-emerald-200',
 };
 
 export default function NodeEditor({ node, onUpdate, onClose, onDelete, isNodeConnected, botId }) {

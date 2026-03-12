@@ -22,6 +22,10 @@ const triggerLabels = {
   call_accepted: '✅ שיחה נענתה',
   poll_vote: '📊 מענה על סקר',
   webhook: '🔗 Webhook חיצוני',
+  image_received: '🖼️ תמונה נכנסת',
+  video_received: '🎥 סרטון נכנס',
+  audio_received: '🎵 הודעה קולית',
+  file_received: '📎 קובץ נכנס',
 };
 
 const operatorLabels = {
@@ -49,7 +53,8 @@ function TriggerNode({ data, selected }) {
     
     // For simple triggers - no operator/value needed
     if (['any_message', 'first_message', 'contact_added', 'status_viewed', 'status_reaction', 'status_reply',
-         'group_join', 'group_leave', 'call_received', 'call_rejected', 'call_accepted', 'webhook'].includes(condition.type)) {
+         'group_join', 'group_leave', 'call_received', 'call_rejected', 'call_accepted', 'webhook',
+         'image_received', 'video_received', 'audio_received', 'file_received'].includes(condition.type)) {
       // Show specific status indicator if filtering by status
       if (condition.filterByStatus && condition.specificStatusId) {
         return `${label} (ספציפי)`;

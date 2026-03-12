@@ -14,7 +14,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { TriggerNode, MessageNode, ConditionNode, DelayNode, ActionNode, ListNode, NoteNode, IntegrationNode, SendOtherNode, GoogleSheetsNode, GoogleContactsNode } from './nodes';
+import { TriggerNode, MessageNode, ConditionNode, DelayNode, ActionNode, ListNode, NoteNode, IntegrationNode, SendOtherNode, GoogleSheetsNode, GoogleContactsNode, FormulaNode } from './nodes';
 import RegistrationNode from './nodes/RegistrationNode';
 import QuickAddMenu from './panels/QuickAddMenu';
 import EdgeWithDelete from './EdgeWithDelete';
@@ -32,6 +32,7 @@ const nodeTypes = {
   send_other: SendOtherNode,
   google_sheets: GoogleSheetsNode,
   google_contacts: GoogleContactsNode,
+  formula: FormulaNode,
 };
 
 const edgeTypes = {

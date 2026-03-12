@@ -1445,6 +1445,12 @@ class BotEngine {
       return true; // Any channel message matches
     }
     
+    // media type triggers
+    if (type === 'image_received') return message.type === 'image';
+    if (type === 'video_received') return message.type === 'video';
+    if (type === 'audio_received') return message.type === 'audio' || message.type === 'ptt';
+    if (type === 'file_received') return message.type === 'document';
+
     // facebook_campaign - check if this message came from a Facebook ad/campaign
     if (type === 'facebook_campaign') {
       const entryPointSource = contact._entryPointSource || '';
@@ -1621,6 +1627,10 @@ class BotEngine {
         
       case 'send_other':
         await this.executeSendOtherNode(node, contact, userId, message);
+        break;
+
+      case 'formula':
+        await this.executeFormulaNode(node, contact, userId, message);
         break;
     }
     
@@ -4083,6 +4093,69 @@ class BotEngine {
     }
   }
   
+  // Execute formula/calculate node
+  async executeFormulaNode(node, contact, userId, message = '') {
+    const steps = node.data?.steps || [];
+    if (steps.length === 0) return;
+    console.log(`[BotEngine] Formula node: ${steps.length} step(s)`);
+
+    for (const step of steps) {
+      const { expression, outputVar } = step;
+      if (!expression || !outputVar) continue;
+
+      try {
+        // Replace {{variables}} in the expression
+        const resolvedExpr = this.replaceVariables(expression, contact, message, '', userId);
+
+        // Evaluate the expression safely
+        const result = this._evalFormula(resolvedExpr);
+        const resultStr = result === null || result === undefined ? '' : String(result);
+
+        await this.setContactVariable(contact.id, outputVar, resultStr);
+        // Update in-memory contact variables for subsequent steps
+        if (!contact.variables) contact.variables = {};
+        contact.variables[outputVar] = resultStr;
+        console.log(`[BotEngine] Formula: {{${outputVar}}} = ${resultStr.substring(0, 100)}`);
+      } catch (err) {
+        console.error(`[BotEngine] Formula step error for {{${outputVar}}}: ${err.message}`);
+      }
+    }
+  }
+
+  // Safe formula evaluator supporting basic math and string functions
+  _evalFormula(expr) {
+    // String helper functions
+    const UPPER = (s) => String(s).toUpperCase();
+    const LOWER = (s) => String(s).toLowerCase();
+    const TRIM = (s) => String(s).trim();
+    const LENGTH = (s) => String(s).length;
+    const REPLACE = (s, from, to) => String(s).split(String(from)).join(String(to));
+    const SUBSTRING = (s, start, len) => String(s).substring(Number(start), Number(start) + Number(len));
+    const CONCAT = (...args) => args.map(a => String(a)).join('');
+    const ROUND = (n, d = 0) => Number(Number(n).toFixed(Number(d)));
+    const ABS = (n) => Math.abs(Number(n));
+    const MIN = (a, b) => Math.min(Number(a), Number(b));
+    const MAX = (a, b) => Math.max(Number(a), Number(b));
+    const IF = (cond, yes, no) => (cond ? yes : no);
+    const NOW = () => new Date().toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' });
+    const DATE_FORMAT = (d, fmt) => {
+      try {
+        const date = d ? new Date(d) : new Date();
+        return date.toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem' });
+      } catch { return String(d); }
+    };
+
+    // Allowed globals only — no access to require, process, etc.
+    // eslint-disable-next-line no-new-func
+    const fn = new Function(
+      'UPPER','LOWER','TRIM','LENGTH','REPLACE','SUBSTRING','CONCAT',
+      'ROUND','ABS','MIN','MAX','IF','NOW','DATE_FORMAT',
+      `"use strict"; return (${expr});`
+    );
+    return fn(UPPER, LOWER, TRIM, LENGTH, REPLACE, SUBSTRING, CONCAT,
+      ROUND, ABS, MIN, MAX, IF, NOW, DATE_FORMAT);
+  }
+
   // Helper: Set contact variable
   async setContactVariable(contactId, key, value, label = null) {
     // Reserved system variable names - never add these to user_variable_definitions

@@ -7,6 +7,10 @@ const triggerTypes = [
   { id: 'message_content', label: 'תוכן ההודעה', icon: '🔍', hasValue: true, hasOperator: true, category: 'message' },
   { id: 'first_message', label: 'הודעה ראשונה מאיש קשר', icon: '👋', category: 'message' },
   { id: 'no_message_in', label: 'לא שלח הודעה ב-X זמן', icon: '🔕', hasTimeValue: true, category: 'message' },
+  { id: 'image_received', label: 'תמונה נכנסת', icon: '🖼️', category: 'media' },
+  { id: 'video_received', label: 'סרטון נכנס', icon: '🎥', category: 'media' },
+  { id: 'audio_received', label: 'הודעה קולית / שמע', icon: '🎵', category: 'media' },
+  { id: 'file_received', label: 'קובץ נכנס', icon: '📎', category: 'media' },
   { id: 'contact_field', label: 'שדה באיש קשר', icon: '👤', hasValue: true, hasOperator: true, hasField: true, category: 'contact' },
   { id: 'has_tag', label: 'יש תגית', icon: '🏷️', hasValue: true, category: 'contact' },
   { id: 'no_tag', label: 'אין תגית', icon: '🏷️', hasValue: true, category: 'contact' },
@@ -142,6 +146,25 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
     navigator.clipboard.writeText(`{{webhook.${fieldName}}}`);
     setCopiedField(fieldName);
     setTimeout(() => setCopiedField(null), 1500);
+  };
+
+  const createWebhookVariable = async (fieldName, sampleValue) => {
+    const varName = `webhook_${fieldName.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+    try {
+      await api.post('/variables', {
+        name: varName,
+        label: `Webhook: ${fieldName}`,
+        description: `שדה webhook - {{webhook.${fieldName}}}`,
+        default_value: String(sampleValue ?? ''),
+        var_type: 'text',
+      });
+      setCopiedField(fieldName);
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch (e) {
+      // Variable might already exist — still show feedback
+      setCopiedField(fieldName);
+      setTimeout(() => setCopiedField(null), 2000);
+    }
   };
 
   // Load available tags
@@ -428,6 +451,11 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                                 <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
                               ))}
                             </optgroup>
+                            <optgroup label="מדיה">
+                              {triggerTypes.filter(t => t.category === 'media').map(t => (
+                                <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
+                              ))}
+                            </optgroup>
                             <optgroup label="איש קשר">
                               {triggerTypes.filter(t => t.category === 'contact').map(t => (
                                 <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
@@ -481,6 +509,23 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                               <p className="text-xs text-indigo-700 font-medium">
                                 🔗 הבוט יופעל כאשר מישהו קורא ל-URL הבא:
                               </p>
+                              {/* HTTP Method selection */}
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs text-indigo-600">שיטה:</span>
+                                {['POST', 'GET', 'POST+GET'].map(method => (
+                                  <button
+                                    key={method}
+                                    onClick={() => updateCondition(group.id, conditionIndex, 'webhookMethod', method)}
+                                    className={`text-xs px-2 py-0.5 rounded-md border transition-colors ${
+                                      (condition.webhookMethod || 'POST') === method
+                                        ? 'bg-indigo-600 text-white border-indigo-600'
+                                        : 'bg-white text-indigo-600 border-indigo-300 hover:bg-indigo-50'
+                                    }`}
+                                  >
+                                    {method}
+                                  </button>
+                                ))}
+                              </div>
                               {webhookSecret ? (
                                 <div className="flex items-center gap-2">
                                   <input
@@ -535,23 +580,32 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                                   {capturedPayload && (
                                     <div className="space-y-1.5">
                                       <div className="flex items-center justify-between">
-                                        <p className="text-xs text-green-700 font-medium">✅ קריאה נקלטה! לחץ על שדה להעתקה:</p>
+                                        <p className="text-xs text-green-700 font-medium">✅ קריאה נקלטה — בחר שדות:</p>
                                         <button onClick={() => setCapturedPayload(null)} className="text-xs text-indigo-400 hover:text-indigo-600">נקה</button>
                                       </div>
                                       <div className="bg-white border border-indigo-200 rounded-lg overflow-hidden">
                                         {Object.entries(capturedPayload).map(([key, val]) => (
-                                          <button
-                                            key={key}
-                                            onClick={() => copyField(key)}
-                                            className="flex items-center gap-2 px-2 py-1.5 border-b border-indigo-50 last:border-0 hover:bg-indigo-50 w-full text-left transition-colors"
-                                            title={`העתק {{webhook.${key}}}`}
-                                          >
-                                            <span className="text-xs font-mono text-indigo-800 flex-1 truncate">{`{{webhook.${key}}}`}</span>
-                                            <span className="text-xs text-gray-400 truncate max-w-[80px]">{String(val).slice(0, 20)}</span>
-                                            <span className="text-xs text-indigo-500 flex-shrink-0">{copiedField === key ? '✓' : 'העתק'}</span>
-                                          </button>
+                                          <div key={key} className="flex items-center gap-1.5 px-2 py-1.5 border-b border-indigo-50 last:border-0 hover:bg-indigo-50 group">
+                                            <span className="text-xs font-mono text-indigo-800 flex-1 truncate">{key}</span>
+                                            <span className="text-xs text-gray-400 truncate max-w-[60px]">{String(val).slice(0, 15)}</span>
+                                            <button
+                                              onClick={() => copyField(key)}
+                                              className="text-xs px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
+                                              title="העתק {{webhook.field}}"
+                                            >
+                                              {'{{}}'}
+                                            </button>
+                                            <button
+                                              onClick={() => createWebhookVariable(key, val)}
+                                              className="text-xs px-1.5 py-0.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded transition-colors flex-shrink-0"
+                                              title="יצור משתנה במערכת"
+                                            >
+                                              {copiedField === key ? '✓ נוצר' : '+ משתנה'}
+                                            </button>
+                                          </div>
                                         ))}
                                       </div>
+                                      <p className="text-[10px] text-indigo-400">לחיצה על "+ משתנה" תוסיף את השדה לרשימת המשתנים שלך</p>
                                     </div>
                                   )}
                                 </div>
