@@ -1,4 +1,4 @@
-import { Plus, X, ChevronDown, ChevronUp, Trash2, RefreshCw, Clock, Copy } from 'lucide-react';
+import { Plus, X, ChevronDown, ChevronUp, Trash2, RefreshCw, Clock, Copy, Wifi } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import api from '../../../../services/api';
 
@@ -66,6 +66,10 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
   const [webhookSecret, setWebhookSecret] = useState(null);
   const [generatingWebhook, setGeneratingWebhook] = useState(false);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
+  const [listeningWebhook, setListeningWebhook] = useState(false);
+  const [listenCountdown, setListenCountdown] = useState(0);
+  const [capturedPayload, setCapturedPayload] = useState(null);
+  const [copiedField, setCopiedField] = useState(null);
 
   const hasWebhookTrigger = groups.some(g => g.conditions?.some(c => c.type === 'webhook'));
 
@@ -100,6 +104,44 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
     navigator.clipboard.writeText(getWebhookUrl());
     setCopiedWebhook(true);
     setTimeout(() => setCopiedWebhook(false), 2000);
+  };
+
+  const listenWebhook = async () => {
+    if (!botId || !webhookSecret) return;
+    setListeningWebhook(true);
+    setCapturedPayload(null);
+    setListenCountdown(60);
+    try {
+      await api.post(`/bots/${botId}/webhook/listen`);
+    } catch (e) {
+      setListeningWebhook(false);
+      return;
+    }
+    let elapsed = 0;
+    const interval = setInterval(async () => {
+      elapsed += 1.5;
+      setListenCountdown(Math.max(0, 60 - elapsed));
+      try {
+        const { data } = await api.get(`/bots/${botId}/webhook/listen`);
+        if (data.status === 'captured') {
+          clearInterval(interval);
+          setListeningWebhook(false);
+          setCapturedPayload(data.payload);
+        } else if (data.status === 'timeout' || data.status === 'not_listening' || elapsed >= 62) {
+          clearInterval(interval);
+          setListeningWebhook(false);
+        }
+      } catch (e) {
+        clearInterval(interval);
+        setListeningWebhook(false);
+      }
+    }, 1500);
+  };
+
+  const copyField = (fieldName) => {
+    navigator.clipboard.writeText(`{{webhook.${fieldName}}}`);
+    setCopiedField(fieldName);
+    setTimeout(() => setCopiedField(null), 1500);
   };
 
   // Load available tags
@@ -469,6 +511,51 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                                 </button>
                               </div>
                               <p className="text-[10px] text-indigo-400">תמיכה ב-GET ו-POST. שלח `phone` בפרמטרים (מספר הטלפון של הקשר). שדות נוספים זמינים כ-{'{{webhook.שם_שדה}}'}.</p>
+                              {/* Listen for incoming webhook */}
+                              {webhookSecret && (
+                                <div className="pt-2 border-t border-indigo-100 space-y-2">
+                                  {!listeningWebhook && !capturedPayload && (
+                                    <button
+                                      onClick={listenWebhook}
+                                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-white border border-indigo-300 text-indigo-700 rounded-lg hover:bg-indigo-50 transition-colors w-full justify-center"
+                                    >
+                                      <Wifi className="w-3.5 h-3.5" />
+                                      האזן לקריאה
+                                    </button>
+                                  )}
+                                  {listeningWebhook && (
+                                    <div className="flex items-center justify-between gap-2 text-xs text-indigo-600 bg-indigo-100 rounded-lg px-3 py-2">
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                                        <span>ממתין לקריאה... ({Math.ceil(listenCountdown)}ש)</span>
+                                      </div>
+                                      <button onClick={() => setListeningWebhook(false)} className="text-indigo-400 hover:text-indigo-600 text-xs">ביטול</button>
+                                    </div>
+                                  )}
+                                  {capturedPayload && (
+                                    <div className="space-y-1.5">
+                                      <div className="flex items-center justify-between">
+                                        <p className="text-xs text-green-700 font-medium">✅ קריאה נקלטה! לחץ על שדה להעתקה:</p>
+                                        <button onClick={() => setCapturedPayload(null)} className="text-xs text-indigo-400 hover:text-indigo-600">נקה</button>
+                                      </div>
+                                      <div className="bg-white border border-indigo-200 rounded-lg overflow-hidden">
+                                        {Object.entries(capturedPayload).map(([key, val]) => (
+                                          <button
+                                            key={key}
+                                            onClick={() => copyField(key)}
+                                            className="flex items-center gap-2 px-2 py-1.5 border-b border-indigo-50 last:border-0 hover:bg-indigo-50 w-full text-left transition-colors"
+                                            title={`העתק {{webhook.${key}}}`}
+                                          >
+                                            <span className="text-xs font-mono text-indigo-800 flex-1 truncate">{`{{webhook.${key}}}`}</span>
+                                            <span className="text-xs text-gray-400 truncate max-w-[80px]">{String(val).slice(0, 20)}</span>
+                                            <span className="text-xs text-indigo-500 flex-shrink-0">{copiedField === key ? '✓' : 'העתק'}</span>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
 

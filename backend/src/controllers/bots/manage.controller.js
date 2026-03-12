@@ -2,6 +2,7 @@ const db = require('../../config/database');
 const { checkBotAccess } = require('./list.controller');
 const { checkLimit } = require('../subscriptions/subscriptions.controller');
 const crypto = require('crypto');
+const { startListening, getListenStatus } = require('../webhook/botWebhook.controller');
 
 /**
  * Check if bot is locked and return error response if so
@@ -540,4 +541,29 @@ async function deleteWebhookSecret(req, res) {
   }
 }
 
-module.exports = { createBot, updateBot, saveFlow, deleteBot, selectBotToKeep, getPendingDeletionStatus, checkBotLocked, generateWebhookSecret, deleteWebhookSecret };
+async function startWebhookListen(req, res) {
+  try {
+    const { botId } = req.params;
+    const userId = req.user.id;
+    const result = await db.query('SELECT id FROM bots WHERE id = $1 AND user_id = $2', [botId, userId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'bot not found' });
+    startListening(botId);
+    res.json({ ok: true, expiresIn: 60 });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+async function checkWebhookListen(req, res) {
+  try {
+    const { botId } = req.params;
+    const userId = req.user.id;
+    const result = await db.query('SELECT id FROM bots WHERE id = $1 AND user_id = $2', [botId, userId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'bot not found' });
+    res.json(getListenStatus(botId));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+module.exports = { createBot, updateBot, saveFlow, deleteBot, selectBotToKeep, getPendingDeletionStatus, checkBotLocked, generateWebhookSecret, deleteWebhookSecret, startWebhookListen, checkWebhookListen };

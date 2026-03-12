@@ -1,27 +1,44 @@
 const db = require('../../config/database');
 const botEngine = require('../../services/botEngine.service');
 
-/**
- * Public webhook endpoint for bot webhook triggers.
- * Supports both GET and POST.
- * URL: GET|POST /api/webhook/bot/:secret
- *
- * The caller can pass data via:
- *   - POST body (JSON)
- *   - Query string params (?name=John&phone=050...)
- *
- * One query param is special: `phone` (or `contact`) — used as the contact's
- * phone number so the bot knows who to send responses to.
- * If omitted, the bot runs in "webhook-only" mode with no outgoing messages.
- */
+// Listening sessions: botId -> { payload: null | object, expiresAt: number }
+const listeningSessions = new Map();
+
+function startListening(botId, timeoutMs = 60000) {
+  listeningSessions.set(String(botId), { payload: null, expiresAt: Date.now() + timeoutMs });
+}
+
+function getListenStatus(botId) {
+  const key = String(botId);
+  const session = listeningSessions.get(key);
+  if (!session) return { status: 'not_listening' };
+  if (Date.now() > session.expiresAt) {
+    listeningSessions.delete(key);
+    return { status: 'timeout' };
+  }
+  if (session.payload) {
+    const payload = session.payload;
+    listeningSessions.delete(key);
+    return { status: 'captured', payload };
+  }
+  return { status: 'waiting', remainingMs: session.expiresAt - Date.now() };
+}
+
+function normalizePhone(phone) {
+  let p = String(phone).replace(/[\s\-\(\)\.]/g, '');
+  if (p.startsWith('+')) p = p.substring(1);
+  if (p.startsWith('00')) p = p.substring(2);
+  if (p.startsWith('0') && p.replace(/\D/g, '').length === 10) p = '972' + p.substring(1);
+  p = p.replace(/\D/g, '');
+  return p + '@c.us';
+}
+
 async function handleBotWebhook(req, res) {
   const { secret } = req.params;
 
   try {
-    // Ensure column exists (lazy migration)
     await db.query(`ALTER TABLE bots ADD COLUMN IF NOT EXISTS webhook_secret VARCHAR(64)`).catch(() => {});
 
-    // Find bot by secret
     const botResult = await db.query(
       `SELECT id, user_id, name, is_active, locked_reason FROM bots WHERE webhook_secret = $1`,
       [secret]
@@ -32,30 +49,27 @@ async function handleBotWebhook(req, res) {
     }
 
     const bot = botResult.rows[0];
+    const payload = { ...req.query, ...(req.body || {}) };
+
+    // If bot is in listen mode, capture the payload (even if bot is inactive)
+    const listenSession = listeningSessions.get(String(bot.id));
+    if (listenSession && Date.now() < listenSession.expiresAt && !listenSession.payload) {
+      listenSession.payload = payload;
+      return res.json({ ok: true, captured: true });
+    }
 
     if (!bot.is_active || bot.locked_reason) {
       return res.status(403).json({ error: 'bot is inactive' });
     }
 
-    // Merge query params + body into payload
-    const payload = { ...req.query, ...(req.body || {}) };
-
-    // Phone for the contact (required)
     const phone = payload.phone || payload.contact || payload.from;
     if (!phone) {
       return res.status(400).json({ error: 'missing phone parameter', hint: 'Pass ?phone=972501234567 or include "phone" in POST body' });
     }
 
-    // Normalize phone — strip leading zeros, add 972 for Israeli numbers
-    let normalizedPhone = String(phone).replace(/\D/g, '');
-    if (normalizedPhone.startsWith('0') && normalizedPhone.length === 10) {
-      normalizedPhone = '972' + normalizedPhone.substring(1);
-    }
-    normalizedPhone = normalizedPhone + '@c.us';
-
+    const normalizedPhone = normalizePhone(phone);
     console.log(`[BotWebhook] Triggered bot ${bot.id} (${bot.name}) for user ${bot.user_id}, phone=${normalizedPhone}`);
 
-    // Process via bot engine's event system
     await botEngine.processEvent(bot.user_id, normalizedPhone, 'webhook', {
       payload,
       botId: bot.id,
@@ -68,4 +82,4 @@ async function handleBotWebhook(req, res) {
   }
 }
 
-module.exports = { handleBotWebhook };
+module.exports = { handleBotWebhook, startListening, getListenStatus };
