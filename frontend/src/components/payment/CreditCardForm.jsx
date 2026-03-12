@@ -438,25 +438,6 @@ export default function CreditCardForm({
         />
       </div>
 
-      {/* Company Number (optional) */}
-      {showCompanyNumber && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            עוסק מורשה <span className="text-gray-400 font-normal">(אופציונלי)</span>
-          </label>
-          <input
-            type="text"
-            value={form.companyNumber}
-            onChange={(e) => setForm({ ...form, companyNumber: e.target.value.replace(/\D/g, '').slice(0, 9) })}
-            placeholder="514000123"
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white text-left"
-            dir="ltr"
-            inputMode="numeric"
-            maxLength={9}
-            disabled={loading}
-          />
-        </div>
-      )}
 
       {/* Error */}
       {error && (
