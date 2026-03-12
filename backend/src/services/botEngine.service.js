@@ -1700,9 +1700,10 @@ class BotEngine {
 
               console.log('[BotEngine] Sending text:', text.substring(0, 50) + '...');
 
-              // Build mentions list for mentionAll in groups
+              // Build mentions list — triggered by @כולם in text or explicit mentionAll flag
               let mentions = null;
-              if (action.mentionAll && contact.phone.includes('@g.us')) {
+              const hasMentionAll = action.mentionAll || /(?:^|\s)@כולם(?:\s|$)/.test(text);
+              if (hasMentionAll && contact.phone.includes('@g.us')) {
                 try {
                   const participants = await wahaService.getGroupParticipants(connection, contact.phone);
                   mentions = (participants || []).map(p => p.id || p).filter(Boolean);
@@ -3879,9 +3880,14 @@ class BotEngine {
     const mediaUrl = contact._mediaUrl || '';
     const mediaType = contact._mediaType || '';
     
-    // Webhook payload variables: {{webhook.fieldName}}
+    // Webhook payload variables: {{webhook.fieldName}} and {{webhook_fieldName}} (both work)
     const webhookPayload = contact._webhookPayload || {};
     let result = text.replace(/\{\{webhook\.([^}]+)\}\}/gi, (_, key) => {
+      const val = webhookPayload[key];
+      return val !== undefined ? String(val) : '';
+    });
+    // Also support underscore syntax: {{webhook_fieldName}} → payload[fieldName]
+    result = result.replace(/\{\{webhook_([^}]+)\}\}/gi, (_, key) => {
       const val = webhookPayload[key];
       return val !== undefined ? String(val) : '';
     });

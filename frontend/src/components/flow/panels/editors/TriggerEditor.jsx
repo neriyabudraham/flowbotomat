@@ -148,14 +148,13 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
     setTimeout(() => setCopiedField(null), 1500);
   };
 
-  const createWebhookVariable = async (fieldName, sampleValue) => {
+  const createWebhookVariable = async (fieldName) => {
     const varName = `webhook_${fieldName.replace(/[^a-zA-Z0-9_]/g, '_')}`;
     try {
       await api.post('/variables', {
         name: varName,
         label: `Webhook: ${fieldName}`,
         description: `שדה webhook - {{webhook.${fieldName}}}`,
-        default_value: String(sampleValue ?? ''),
         var_type: 'text',
       });
       setCopiedField(fieldName);

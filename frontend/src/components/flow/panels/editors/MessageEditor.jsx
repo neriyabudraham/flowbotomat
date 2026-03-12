@@ -532,16 +532,6 @@ function ActionItem({ action, index, canRemove, onUpdate, onRemove }) {
             </div>
           )}
 
-          {/* Mention All toggle (for groups) */}
-          <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-500 hover:text-gray-700">
-            <input
-              type="checkbox"
-              checked={action.mentionAll || false}
-              onChange={(e) => onUpdate({ mentionAll: e.target.checked })}
-              className="w-3.5 h-3.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
-            />
-            <span>תייג כולם בקבוצה (@כולם)</span>
-          </label>
         </div>
       )}
 
