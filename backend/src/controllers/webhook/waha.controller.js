@@ -13,6 +13,23 @@ const { checkContactLimit } = require('../../services/limits.service');
 // (only call.received has the real phone number)
 const callCache = new Map();
 
+// Global concurrency limiter for webhook event processing
+// Limits simultaneous DB-heavy event handlers to avoid pool exhaustion
+let _activeWebhooks = 0;
+const MAX_CONCURRENT_WEBHOOKS = 10;
+const _webhookQueue = [];
+function _drainWebhookQueue() {
+  while (_webhookQueue.length > 0 && _activeWebhooks < MAX_CONCURRENT_WEBHOOKS) {
+    const fn = _webhookQueue.shift();
+    _activeWebhooks++;
+    fn().finally(() => { _activeWebhooks--; _drainWebhookQueue(); });
+  }
+}
+function enqueueWebhookEvent(fn) {
+  _webhookQueue.push(fn);
+  _drainWebhookQueue();
+}
+
 // In-memory cache for message deduplication: messageId -> timestamp
 // Prevents processing the same message twice (common with media messages)
 const processedMessagesCache = new Map();
@@ -240,79 +257,74 @@ async function autoUpdateWebhookEvents(userId) {
 
 /**
  * Handle incoming WAHA webhooks
+ * Responds immediately and processes events asynchronously to avoid DB pool exhaustion
  */
 async function handleWebhook(req, res) {
-  try {
-    const { userId } = req.params;
-    const event = req.body;
-    
-    // Webhook event logging disabled to reduce noise - all events are processed silently
-    
-    // Auto-update webhook events for existing connections (runs once per user)
-    if (event.event === 'session.status' && event.payload?.status === 'WORKING') {
-      autoUpdateWebhookEvents(userId).catch(err => 
-        console.log('[Webhook] Auto-update events skipped:', err.message)
-      );
-    }
-    
-    // Handle different event types
-    switch (event.event) {
-      case 'message':
-        await handleIncomingMessage(userId, event);
-        break;
-      case 'message.any':
-        // message.any fires for BOTH incoming and outgoing messages
-        // We only use it to capture outgoing status posts (fromMe on status@broadcast)
-        // Incoming messages are already handled by 'message' event - don't double-process
-        if (event.payload?.fromMe && event.payload?.from === 'status@broadcast') {
-          await ensureMigrations();
-          await saveUserStatus(userId, event.payload);
-        }
-        break;
-      case 'message.ack':
-        await handleMessageAck(userId, event);
-        break;
-      case 'message.reaction':
-        await handleMessageReaction(userId, event);
-        break;
-      case 'message.revoked':
-        await handleMessageRevoked(userId, event);
-        break;
-      case 'session.status':
-        await handleSessionStatus(userId, event);
-        break;
-      case 'group.v2.participants':
-        await handleGroupParticipants(userId, event);
-        break;
-      case 'call.received':
-      case 'call.rejected':
-      case 'call.accepted':
-        await handleCallEvent(userId, event);
-        break;
-      case 'poll.vote':
-        await handlePollVote(userId, event);
-        break;
-      case 'event.response':
-        // WAHA sends list/button responses through this event
-        console.log('[Webhook] 📋 event.response received:', JSON.stringify(event, null, 2));
-        // Try to handle it as a message
-        if (event.payload) {
-          await handleIncomingMessage(userId, event);
-        }
-        break;
-      default:
-        // Log unknown events to help debug
-        if (event.event && !['presence.update', 'chat.archive', 'message.waiting', 'message.edited', 'message.ack.group'].includes(event.event)) {
-          console.log('[Webhook] Unhandled event type:', event.event);
-        }
-        break;
-    }
-    
-    res.json({ success: true });
-  } catch (error) {
-    console.error('[Webhook] Error:', error);
-    res.status(500).json({ error: 'Webhook error' });
+  const { userId } = req.params;
+  const event = req.body;
+
+  // Respond to WAHA immediately — never block on DB work
+  res.json({ success: true });
+
+  // Auto-update webhook events for existing connections (runs once per user)
+  if (event.event === 'session.status' && event.payload?.status === 'WORKING') {
+    autoUpdateWebhookEvents(userId).catch(err =>
+      console.log('[Webhook] Auto-update events skipped:', err.message)
+    );
   }
+
+  // Enqueue event processing with concurrency limit
+  enqueueWebhookEvent(async () => {
+    try {
+      switch (event.event) {
+        case 'message':
+          await handleIncomingMessage(userId, event);
+          break;
+        case 'message.any':
+          if (event.payload?.fromMe && event.payload?.from === 'status@broadcast') {
+            await ensureMigrations();
+            await saveUserStatus(userId, event.payload);
+          }
+          break;
+        case 'message.ack':
+          await handleMessageAck(userId, event);
+          break;
+        case 'message.reaction':
+          await handleMessageReaction(userId, event);
+          break;
+        case 'message.revoked':
+          await handleMessageRevoked(userId, event);
+          break;
+        case 'session.status':
+          await handleSessionStatus(userId, event);
+          break;
+        case 'group.v2.participants':
+          await handleGroupParticipants(userId, event);
+          break;
+        case 'call.received':
+        case 'call.rejected':
+        case 'call.accepted':
+          await handleCallEvent(userId, event);
+          break;
+        case 'poll.vote':
+          await handlePollVote(userId, event);
+          break;
+        case 'event.response':
+          console.log('[Webhook] 📋 event.response received:', JSON.stringify(event, null, 2));
+          if (event.payload) {
+            await handleIncomingMessage(userId, event);
+          }
+          break;
+        default:
+          if (event.event && !['presence.update', 'chat.archive', 'message.waiting', 'message.edited', 'message.ack.group'].includes(event.event)) {
+            console.log('[Webhook] Unhandled event type:', event.event);
+          }
+          break;
+      }
+    } catch (error) {
+      console.error('[Webhook] Error:', error);
+    }
+  });
 }
 
 // Ensure columns have correct sizes (migration)
