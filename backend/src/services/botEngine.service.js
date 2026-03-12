@@ -1445,11 +1445,11 @@ class BotEngine {
       return true; // Any channel message matches
     }
     
-    // media type triggers
-    if (type === 'image_received') return message.type === 'image';
-    if (type === 'video_received') return message.type === 'video';
-    if (type === 'audio_received') return message.type === 'audio' || message.type === 'ptt';
-    if (type === 'file_received') return message.type === 'document';
+    // media type triggers — use contact._mediaType (set from extraContext in processMessage)
+    if (type === 'image_received') return contact._mediaType === 'image';
+    if (type === 'video_received') return contact._mediaType === 'video';
+    if (type === 'audio_received') return contact._mediaType === 'audio' || contact._mediaType === 'ptt';
+    if (type === 'file_received') return contact._mediaType === 'document';
 
     // facebook_campaign - check if this message came from a Facebook ad/campaign
     if (type === 'facebook_campaign') {

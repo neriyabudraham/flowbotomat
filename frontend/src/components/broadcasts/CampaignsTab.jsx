@@ -920,7 +920,8 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
       delay_between_batches: campaign?.settings?.delay_between_batches ?? 30,
       batch_size: campaign?.settings?.batch_size ?? 50,
       success_tags: campaign?.settings?.success_tags || [],
-      variable_mappings: campaign?.settings?.variable_mappings || {}
+      variable_mappings: campaign?.settings?.variable_mappings || {},
+      mention_all_groups: campaign?.settings?.mention_all_groups || false,
     }
   });
   const [saving, setSaving] = useState(false);
@@ -1341,9 +1342,27 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
                   />
                 </div>
               </div>
+
+              {/* Mention All Groups */}
+              <div className="mt-3 flex items-center gap-3 p-3 bg-violet-50 border border-violet-200 rounded-xl">
+                <input
+                  type="checkbox"
+                  id="mention_all_groups"
+                  checked={formData.settings.mention_all_groups || false}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    settings: { ...formData.settings, mention_all_groups: e.target.checked }
+                  })}
+                  className="w-4 h-4 accent-violet-600"
+                />
+                <label htmlFor="mention_all_groups" className="text-sm text-violet-900 cursor-pointer">
+                  <span className="font-medium">תייג כולם בקבוצות</span>
+                  <span className="text-violet-600 mr-1 text-xs">(mention all — לקבוצות בלבד)</span>
+                </label>
+              </div>
             )}
           </div>
-          
+
           {/* Post-Send Actions */}
           <div className="border-t border-gray-200 pt-4">
             <button

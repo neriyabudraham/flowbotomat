@@ -312,6 +312,7 @@ async function startCampaignSending(campaignId, userId) {
   // Support both old single tag and new array format
   const successTags = settings.success_tags || (settings.success_tag ? [settings.success_tag] : []);
   const variableMappings = settings.variable_mappings || {};
+  const mentionAllGroups = settings.mention_all_groups || false;
   
   // Mark as active with initial progress
   updateProgress(campaignId, {
@@ -497,11 +498,20 @@ async function startCampaignSending(campaignId, userId) {
                 break;
               default: // text
                 if (content) {
-                  result = await wahaService.sendMessage(connection, chatId, content);
+                  let mentions = [];
+                  if (mentionAllGroups && chatId.includes('@g.us')) {
+                    try {
+                      const participants = await wahaService.getGroupParticipants(connection, chatId);
+                      mentions = participants.map(p => p.id || p);
+                    } catch (e) {
+                      console.warn('[Broadcast Sender] Could not fetch group participants:', e.message);
+                    }
+                  }
+                  result = await wahaService.sendMessage(connection, chatId, content, mentions.length ? mentions : undefined);
                 }
                 break;
             }
-            
+
             if (result?.id) {
               sentMessageIds.push(result.id);
               
