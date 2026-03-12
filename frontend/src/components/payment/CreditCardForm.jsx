@@ -26,6 +26,8 @@ export default function CreditCardForm({
     companyNumber: '',
     phone: '',
   });
+  const [taxIdDifferent, setTaxIdDifferent] = useState(false);
+  const [taxId, setTaxId] = useState('');
   const [loading, setLoading] = useState(false);
   const [sdkLoaded, setSdkLoaded] = useState(false);
   const [error, setError] = useState('');
@@ -210,8 +212,16 @@ export default function CreditCardForm({
       setError('תעודת זהות לא תקינה');
       return;
     }
-    
-    // Phone is optional - no validation needed
+
+    if (!form.phone.trim()) {
+      setError('נדרש מספר טלפון');
+      return;
+    }
+
+    if (taxIdDifferent && taxId.length < 8) {
+      setError('מזהה עסק לצרכי מס לא תקין');
+      return;
+    }
     
     setLoading(true);
     
@@ -234,7 +244,7 @@ export default function CreditCardForm({
       const requestData = {
         cardHolderName: form.cardHolderName.trim(),
         citizenId: form.citizenId || null,
-        companyNumber: form.companyNumber || null,
+        companyNumber: taxIdDifferent ? (taxId || null) : null,
         phone: form.phone || null,
         expiryMonth: parseInt(form.expiryMonth),
         expiryYear: parseInt(form.expiryYear),
@@ -404,7 +414,7 @@ export default function CreditCardForm({
       {showCitizenId && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            ת.ז. / ח.פ. <span className="text-red-500">*</span>
+            ת.ז. של בעל הכרטיס <span className="text-red-500">*</span>
           </label>
           <input
             type="text"
@@ -420,10 +430,10 @@ export default function CreditCardForm({
         </div>
       )}
 
-      {/* Phone (optional) */}
+      {/* Phone (required) */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          טלפון <span className="text-gray-400 font-normal">(אופציונלי)</span>
+          טלפון <span className="text-red-500">*</span>
         </label>
         <input
           type="tel"
@@ -436,6 +446,39 @@ export default function CreditCardForm({
           maxLength={15}
           disabled={loading}
         />
+      </div>
+
+      {/* Tax ID (different from card holder ID) */}
+      <div className="border border-gray-200 rounded-xl p-4 space-y-3">
+        <label className="flex items-center gap-3 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={taxIdDifferent}
+            onChange={(e) => setTaxIdDifferent(e.target.checked)}
+            disabled={loading}
+            className="w-4 h-4 accent-purple-600"
+          />
+          <span className="text-sm text-gray-700">מזהה שונה לצרכי מס / חשבונית <span className="text-gray-400 text-xs">(ח.פ. / ת.ז. עסק)</span></span>
+        </label>
+        {taxIdDifferent && (
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              מספר ח.פ. / ת.ז. לחשבונית <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={taxId}
+              onChange={(e) => setTaxId(e.target.value.replace(/\D/g, '').slice(0, 9))}
+              placeholder="514000123"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white text-left"
+              dir="ltr"
+              inputMode="numeric"
+              maxLength={9}
+              disabled={loading}
+            />
+            <p className="text-xs text-gray-500 mt-1">יופיע על החשבונית במקום ת.ז. של בעל הכרטיס</p>
+          </div>
+        )}
       </div>
 
 
