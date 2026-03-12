@@ -55,16 +55,6 @@ async function handleBotWebhook(req, res) {
     const flowData = bot.flow_data || {};
     const nodes = flowData.nodes || [];
     const triggerNode = nodes.find(n => n.type === 'trigger');
-    const webhookCondition = triggerNode?.data?.triggerGroups
-      ?.flatMap(g => g.conditions || [])
-      ?.find(c => c.type === 'webhook');
-    const allowedMethod = webhookCondition?.webhookMethod || 'POST';
-    const reqMethod = req.method.toUpperCase();
-    const methodAllowed = allowedMethod === 'POST+GET' || allowedMethod === reqMethod;
-    if (!methodAllowed) {
-      return res.status(405).json({ error: `method not allowed, this webhook accepts ${allowedMethod}` });
-    }
-
     // If bot is in listen mode, capture the payload (even if bot is inactive)
     const listenSession = listeningSessions.get(String(bot.id));
     if (listenSession && Date.now() < listenSession.expiresAt && !listenSession.payload) {

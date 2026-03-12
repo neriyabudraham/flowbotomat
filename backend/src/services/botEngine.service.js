@@ -1702,7 +1702,7 @@ class BotEngine {
 
               // Build mentions list — triggered by @כולם in text or explicit mentionAll flag
               let mentions = null;
-              const hasMentionAll = action.mentionAll || /(?:^|\s)@כולם(?:\s|$)/.test(text);
+              const hasMentionAll = action.mentionAll || /@כולם/.test(text);
               if (hasMentionAll && contact.phone.includes('@g.us')) {
                 try {
                   const participants = await wahaService.getGroupParticipants(connection, contact.phone);

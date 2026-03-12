@@ -508,23 +508,6 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                               <p className="text-xs text-indigo-700 font-medium">
                                 🔗 הבוט יופעל כאשר מישהו קורא ל-URL הבא:
                               </p>
-                              {/* HTTP Method selection */}
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-xs text-indigo-600">שיטה:</span>
-                                {['POST', 'GET', 'POST+GET'].map(method => (
-                                  <button
-                                    key={method}
-                                    onClick={() => updateCondition(group.id, conditionIndex, 'webhookMethod', method)}
-                                    className={`text-xs px-2 py-0.5 rounded-md border transition-colors ${
-                                      (condition.webhookMethod || 'POST') === method
-                                        ? 'bg-indigo-600 text-white border-indigo-600'
-                                        : 'bg-white text-indigo-600 border-indigo-300 hover:bg-indigo-50'
-                                    }`}
-                                  >
-                                    {method}
-                                  </button>
-                                ))}
-                              </div>
                               {webhookSecret ? (
                                 <div className="flex items-center gap-2">
                                   <input
