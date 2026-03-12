@@ -97,33 +97,53 @@ async function createManaged(req, res) {
     
     const hasPaymentMethod = paymentCheck.rows.length > 0;
     
-    // Check if there's a FREE plan that allows WAHA creation (admin can enable this)
-    const freePlanWithWaha = await pool.query(
-      `SELECT id, name FROM subscription_plans 
-       WHERE is_active = true AND price = 0 AND allow_waha_creation = true 
+    // Check if there's a FREE plan that allows WAHA creation, and evaluate credit condition
+    const freePlanResult = await pool.query(
+      `SELECT id, name, waha_credit_requirement FROM subscription_plans
+       WHERE is_active = true AND price = 0 AND waha_credit_requirement != 'none'
        LIMIT 1`
     );
-    
-    const hasFreePlanWithWaha = freePlanWithWaha.rows.length > 0;
-    
+    const freePlan = freePlanResult.rows[0] || null;
+    const wahaCreditReq = freePlan?.waha_credit_requirement || 'none';
+
+    // Evaluate if user meets the credit condition for free plan WAHA
+    let userMeetsWahaCreditReq = false;
+    if (wahaCreditReq === 'no_credit') {
+      userMeetsWahaCreditReq = true;
+    } else if (wahaCreditReq === 'after_credit') {
+      // User must have had a payment method at some point (even if now removed)
+      const everHadPayment = await pool.query(
+        'SELECT id FROM user_payment_methods WHERE user_id = $1 LIMIT 1', [userId]
+      );
+      userMeetsWahaCreditReq = everHadPayment.rows.length > 0;
+    } else if (wahaCreditReq === 'while_credit') {
+      userMeetsWahaCreditReq = hasPaymentMethod;
+    }
+
+    const hasFreePlanWithWaha = freePlan !== null && userMeetsWahaCreditReq;
+
     // Credit card requirement check:
     // Required if: global setting is ON AND user is NOT exempt AND doesn't have manual subscription AND no free plan with WAHA
     const needsCreditCard = creditCardRequired && !isExempt && !hasManualSubscription && !hasFreePlanWithWaha;
-    
+
     if (needsCreditCard && !hasPaymentMethod) {
-      return res.status(402).json({ 
-        error: 'נדרש להזין פרטי כרטיס אשראי לפני חיבור WhatsApp. לא יבוצע חיוב בתקופת הניסיון.',
+      const creditMsg = wahaCreditReq === 'after_credit'
+        ? 'נדרש להזין פרטי כרטיס אשראי לפחות פעם אחת לפני חיבור WhatsApp.'
+        : wahaCreditReq === 'while_credit'
+          ? 'נדרש כרטיס אשראי פעיל במערכת לחיבור WhatsApp.'
+          : 'נדרש להזין פרטי כרטיס אשראי לפני חיבור WhatsApp. לא יבוצע חיוב בתקופת הניסיון.';
+      return res.status(402).json({
+        error: creditMsg,
         code: 'PAYMENT_REQUIRED',
-        trialDays: TRIAL_DAYS
       });
     }
-    
+
     // Check if user already has an active subscription
     const subCheck = await pool.query(
       `SELECT * FROM user_subscriptions WHERE user_id = $1 AND status IN ('active', 'trial')`,
       [userId]
     );
-    
+
     // If no active subscription, create one
     let justCreatedSubscription = false;
     if (subCheck.rows.length === 0) {
@@ -132,21 +152,21 @@ async function createManaged(req, res) {
         `SELECT custom_discount_plan_id, plan_id FROM user_subscriptions WHERE user_id = $1`,
         [userId]
       );
-      
+
       let planId = null;
       let isFreeSubscription = false;
-      
+
       // Priority 1: Custom discount plan from admin
       if (customDiscountCheck.rows.length > 0 && customDiscountCheck.rows[0].custom_discount_plan_id) {
         planId = customDiscountCheck.rows[0].custom_discount_plan_id;
         console.log(`[WhatsApp] Using custom discount plan: ${planId}`);
       }
-      
-      // Priority 2: If no payment method but free plan allows WAHA, use free plan
-      if (!planId && !hasPaymentMethod && hasFreePlanWithWaha) {
-        planId = freePlanWithWaha.rows[0].id;
+
+      // Priority 2: If user meets free plan WAHA condition, use free plan
+      if (!planId && hasFreePlanWithWaha && !hasPaymentMethod) {
+        planId = freePlan.id;
         isFreeSubscription = true;
-        console.log(`[WhatsApp] Using free plan with WAHA access: ${freePlanWithWaha.rows[0].name}`);
+        console.log(`[WhatsApp] Using free plan (${wahaCreditReq}) with WAHA access: ${freePlan.name}`);
       }
       
       // Priority 3: Get the cheapest paid plan with allow_waha_creation (for trial)
@@ -418,24 +438,37 @@ async function createExternal(req, res) {
     
     const hasManualSubscription = manualSubCheck.rows.length > 0;
     
-    // Check if there's a free plan that allows WAHA creation (bypasses payment requirement)
-    const freePlanWithWaha = await pool.query(
-      `SELECT id, name FROM subscription_plans 
-       WHERE is_active = true AND price = 0 AND allow_waha_creation = true 
+    // Check free plan WAHA credit requirement
+    const freePlanResult2 = await pool.query(
+      `SELECT id, name, waha_credit_requirement FROM subscription_plans
+       WHERE is_active = true AND price = 0 AND waha_credit_requirement != 'none'
        LIMIT 1`
     );
-    const hasFreePlanWithWaha = freePlanWithWaha.rows.length > 0;
-    
+    const freePlan2 = freePlanResult2.rows[0] || null;
+    const wahaCreditReq2 = freePlan2?.waha_credit_requirement || 'none';
+
     // Check if user has a payment method
     const paymentCheck = await pool.query(
       'SELECT id FROM user_payment_methods WHERE user_id = $1 AND is_active = true LIMIT 1',
       [userId]
     );
     const hasPaymentMethod = paymentCheck.rows.length > 0;
-    
+
+    // Evaluate credit condition
+    let userMeetsWahaCreditReq2 = false;
+    if (wahaCreditReq2 === 'no_credit') {
+      userMeetsWahaCreditReq2 = true;
+    } else if (wahaCreditReq2 === 'after_credit') {
+      const everHad = await pool.query('SELECT id FROM user_payment_methods WHERE user_id = $1 LIMIT 1', [userId]);
+      userMeetsWahaCreditReq2 = everHad.rows.length > 0;
+    } else if (wahaCreditReq2 === 'while_credit') {
+      userMeetsWahaCreditReq2 = hasPaymentMethod;
+    }
+    const hasFreePlanWithWaha = freePlan2 !== null && userMeetsWahaCreditReq2;
+
     // Payment is required UNLESS: manual subscription OR free plan with WAHA enabled
     if (!hasPaymentMethod && !hasManualSubscription && !hasFreePlanWithWaha) {
-      return res.status(402).json({ 
+      return res.status(402).json({
         error: 'נדרש להזין פרטי כרטיס אשראי גם לחיבור WAHA חיצוני. ניתן להשתמש בתוכנית החינמית.',
         code: 'PAYMENT_REQUIRED'
       });
@@ -572,23 +605,29 @@ async function checkExisting(req, res) {
     
     const hasPaymentMethod = paymentCheck.rows.length > 0;
     
-    // Check if there's a FREE plan that allows WAHA creation
-    const freePlanWithWaha = await pool.query(
-      `SELECT id FROM subscription_plans 
-       WHERE is_active = true AND price = 0 AND allow_waha_creation = true 
-       LIMIT 1`
+    // Check free plan WAHA credit requirement
+    const freePlanResult3 = await pool.query(
+      `SELECT id, waha_credit_requirement FROM subscription_plans
+       WHERE is_active = true AND price = 0 AND waha_credit_requirement != 'none' LIMIT 1`
     );
-    
-    const hasFreePlanWithWaha = freePlanWithWaha.rows.length > 0;
-    
+    const freePlan3 = freePlanResult3.rows[0] || null;
+    const wahaCreditReq3 = freePlan3?.waha_credit_requirement || 'none';
+    let userMeetsReq3 = false;
+    if (wahaCreditReq3 === 'no_credit') userMeetsReq3 = true;
+    else if (wahaCreditReq3 === 'after_credit') {
+      const everHad = await pool.query('SELECT id FROM user_payment_methods WHERE user_id = $1 LIMIT 1', [userId]);
+      userMeetsReq3 = everHad.rows.length > 0;
+    } else if (wahaCreditReq3 === 'while_credit') userMeetsReq3 = hasPaymentMethod;
+    const hasFreePlanWithWaha = freePlan3 !== null && userMeetsReq3;
+
     // Check if user has manual subscription
     const manualSubCheck = await pool.query(
       `SELECT id FROM user_subscriptions WHERE user_id = $1 AND is_manual = true AND status = 'active'`,
       [userId]
     );
-    
+
     const hasManualSubscription = manualSubCheck.rows.length > 0;
-    
+
     // Allow if: has payment method, OR free plan allows WAHA, OR has manual subscription
     if (!hasPaymentMethod && !hasFreePlanWithWaha && !hasManualSubscription) {
       return res.json({ exists: false, requiresPayment: true });

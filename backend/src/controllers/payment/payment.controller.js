@@ -590,11 +590,11 @@ async function deletePaymentMethod(req, res) {
     }
     
     let message = 'אמצעי התשלום הוסר בהצלחה';
-    
+
     // If there was an active subscription and no remaining payment methods
     if (subCheck.rows.length > 0 && !hasRemainingMethods) {
       const sub = subCheck.rows[0];
-      
+
       // Cancel future renewals in Sumit
       if (sub.sumit_standing_order_id) {
         try {
@@ -604,15 +604,15 @@ async function deletePaymentMethod(req, res) {
           console.error('[Payment] Failed to cancel Sumit recurring:', err.message);
         }
       }
-      
+
       // Mark subscription as cancelled (service continues until period ends)
       await db.query(
-        `UPDATE user_subscriptions 
+        `UPDATE user_subscriptions
          SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
          WHERE user_id = $1 AND status IN ('active', 'trial')`,
         [userId]
       );
-      
+
       const endDate = sub.status === 'trial' ? sub.trial_ends_at : sub.expires_at;
       if (endDate) {
         const formattedDate = new Date(endDate).toLocaleDateString('he-IL');
@@ -621,7 +621,55 @@ async function deletePaymentMethod(req, res) {
         message = 'המנוי בוטל';
       }
     }
-    
+
+    // If free plan is 'while_credit' mode and user has no remaining payment methods,
+    // disconnect their managed WAHA sessions
+    if (!hasRemainingMethods) {
+      try {
+        const freePlanCheck = await db.query(
+          `SELECT sp.waha_credit_requirement
+           FROM user_subscriptions us
+           JOIN subscription_plans sp ON sp.id = us.plan_id
+           WHERE us.user_id = $1 AND sp.waha_credit_requirement = 'while_credit'
+           LIMIT 1`,
+          [userId]
+        );
+
+        if (freePlanCheck.rows.length > 0) {
+          // Disconnect all managed WAHA sessions for this user
+          const sessions = await db.query(
+            `SELECT id, waha_instance_name FROM whatsapp_connections
+             WHERE user_id = $1 AND connection_type = 'managed' AND status = 'connected'`,
+            [userId]
+          );
+
+          if (sessions.rows.length > 0) {
+            const { getWahaCredentials } = require('../../services/settings/system.service');
+            const wahaSession = require('../../services/waha/session.service');
+            const { baseUrl, apiKey } = getWahaCredentials();
+
+            for (const session of sessions.rows) {
+              try {
+                if (baseUrl && apiKey && session.waha_instance_name) {
+                  await wahaSession.deleteSession(baseUrl, apiKey, session.waha_instance_name);
+                }
+                await db.query(
+                  `UPDATE whatsapp_connections SET status = 'disconnected', updated_at = NOW() WHERE id = $1`,
+                  [session.id]
+                );
+                console.log(`[Payment] Disconnected WAHA session ${session.waha_instance_name} (while_credit mode, no payment method)`);
+              } catch (err) {
+                console.error(`[Payment] Failed to disconnect WAHA session ${session.waha_instance_name}:`, err.message);
+              }
+            }
+            message += ' | חיבורי WhatsApp נותקו (דורש אשראי פעיל)';
+          }
+        }
+      } catch (err) {
+        console.error('[Payment] Error checking while_credit WAHA disconnect:', err.message);
+      }
+    }
+
     res.json({ success: true, message });
   } catch (error) {
     console.error('[Payment] Delete payment method error:', error);

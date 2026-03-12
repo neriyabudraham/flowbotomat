@@ -451,7 +451,17 @@ export default function AdminSubscriptions() {
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-gray-500">WAHA מנוהל</span>
-                      {plan.allow_waha_creation ? <Check className="w-4 h-4 text-green-500" /> : <X className="w-4 h-4 text-gray-300" />}
+                      {plan.waha_credit_requirement === 'no_credit' ? (
+                        <span className="text-xs text-green-600 font-medium">ללא אשראי</span>
+                      ) : plan.waha_credit_requirement === 'after_credit' ? (
+                        <span className="text-xs text-blue-600 font-medium">לאחר אשראי</span>
+                      ) : plan.waha_credit_requirement === 'while_credit' ? (
+                        <span className="text-xs text-orange-600 font-medium">עם אשראי פעיל</span>
+                      ) : plan.allow_waha_creation ? (
+                        <Check className="w-4 h-4 text-green-500" />
+                      ) : (
+                        <X className="w-4 h-4 text-gray-300" />
+                      )}
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-gray-500">גישת API</span>
@@ -563,6 +573,7 @@ function PlanEditModal({ plan, onSave, onClose }) {
     max_contacts: plan.max_contacts ?? 100,
     allow_statistics: plan.allow_statistics || false,
     allow_waha_creation: plan.allow_waha_creation || false,
+    waha_credit_requirement: plan.waha_credit_requirement || 'none',
     allow_export: plan.allow_export || false,
     allow_api_access: plan.allow_api_access || false,
     allow_group_forwards: plan.allow_group_forwards || false,
@@ -693,15 +704,23 @@ function PlanEditModal({ plan, onSave, onClose }) {
               />
               <span className="text-sm text-gray-700 dark:text-gray-300">גישה לסטטיסטיקות</span>
             </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.allow_waha_creation}
-                onChange={e => setForm({...form, allow_waha_creation: e.target.checked})}
-                className="w-4 h-4 rounded"
-              />
-              <span className="text-sm text-gray-700 dark:text-gray-300">יצירת WAHA מנוהל</span>
-            </label>
+            <div className="flex flex-col gap-1 col-span-2">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">יצירת WAHA מנוהל</span>
+              <select
+                value={form.waha_credit_requirement}
+                onChange={e => setForm({
+                  ...form,
+                  waha_credit_requirement: e.target.value,
+                  allow_waha_creation: e.target.value !== 'none'
+                })}
+                className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              >
+                <option value="none">לא מאופשר</option>
+                <option value="no_credit">מאופשר ללא אשראי</option>
+                <option value="after_credit">מאופשר רק לאחר רישום אשראי פעם אחת</option>
+                <option value="while_credit">מאופשר רק בזמן קיום אשראי פעיל (מתנתק אם מוסר)</option>
+              </select>
+            </div>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
