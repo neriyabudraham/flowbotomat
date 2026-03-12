@@ -623,19 +623,34 @@ async function deletePaymentMethod(req, res) {
     }
 
     // If free plan is 'while_credit' mode and user has no remaining payment methods,
-    // disconnect their managed WAHA sessions
+    // disconnect their managed WAHA sessions — but ONLY if they have no active paid subscription
     if (!hasRemainingMethods) {
       try {
         const freePlanCheck = await db.query(
-          `SELECT sp.waha_credit_requirement
+          `SELECT sp.waha_credit_requirement, sp.price
            FROM user_subscriptions us
            JOIN subscription_plans sp ON sp.id = us.plan_id
-           WHERE us.user_id = $1 AND sp.waha_credit_requirement = 'while_credit'
+           WHERE us.user_id = $1
+             AND us.status IN ('active', 'trial')
+             AND sp.waha_credit_requirement = 'while_credit'
            LIMIT 1`,
           [userId]
         );
 
-        if (freePlanCheck.rows.length > 0) {
+        // Only disconnect if the user is on a free/while_credit plan (price = 0 or free plan)
+        // If they have an active paid plan, don't disconnect — they paid until end of period
+        const hasPaidActivePlan = await db.query(
+          `SELECT 1 FROM user_subscriptions us
+           JOIN subscription_plans sp ON sp.id = us.plan_id
+           WHERE us.user_id = $1
+             AND us.status IN ('active', 'trial')
+             AND sp.price > 0
+             AND (us.current_period_end IS NULL OR us.current_period_end > NOW())
+           LIMIT 1`,
+          [userId]
+        );
+
+        if (freePlanCheck.rows.length > 0 && hasPaidActivePlan.rows.length === 0) {
           // Disconnect all managed WAHA sessions for this user
           const sessions = await db.query(
             `SELECT id, waha_instance_name FROM whatsapp_connections
