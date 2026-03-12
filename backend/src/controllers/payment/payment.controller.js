@@ -30,6 +30,7 @@ async function savePaymentMethod(req, res) {
       expiryMonth,         // Expiry month
       expiryYear,          // Expiry year
       phone,               // Phone number for payment
+      planId,              // Optional: explicitly selected plan ID (null = free/no subscription)
     } = req.body;
     
     // Need either token or card details
@@ -202,6 +203,7 @@ async function savePaymentMethod(req, res) {
     );
     
     let subscriptionCreated = false;
+    let wasChargedImmediately = false;
     
     // Check if admin set skip_trial for this user, or if trial was already used
     const skipTrialCheck = await db.query(
@@ -230,7 +232,122 @@ async function savePaymentMethod(req, res) {
       console.log(`[Payment] Skipping auto-trial for user ${userId} - trial already used at ${skipTrialCheck.rows[0]?.trial_used_at}`);
     }
     
-    if (shouldCreateTrial) {
+    const requestedPlanId = planId || null;
+
+    if (requestedPlanId) {
+      // User explicitly selected a plan from the payment modal
+      console.log(`[Payment] User ${userId} explicitly selected plan ${requestedPlanId}`);
+      const planResult = await db.query(
+        'SELECT * FROM subscription_plans WHERE id = $1 AND is_active = true',
+        [requestedPlanId]
+      );
+      const plan = planResult.rows[0];
+
+      if (plan && parseFloat(plan.price) > 0) {
+        const planPrice = parseFloat(plan.price);
+        const planTrialDays = parseInt(plan.trial_days || 0);
+        const paymentMethodId = result.rows[0].id;
+
+        if (planTrialDays > 0 && !trialAlreadyUsed) {
+          // Create trial subscription
+          const trialEndsAt = new Date();
+          trialEndsAt.setDate(trialEndsAt.getDate() + planTrialDays);
+
+          try {
+            await billingQueueService.scheduleCharge({
+              userId,
+              subscriptionId: null,
+              amount: planPrice,
+              chargeDate: trialEndsAt.toISOString().split('T')[0],
+              billingType: 'trial_conversion',
+              planId: requestedPlanId,
+              description: `מנוי חודשי - ${plan.name_he}`,
+            });
+          } catch (queueErr) {
+            console.error(`[Payment] Error scheduling trial charge:`, queueErr.message);
+          }
+
+          await db.query(`
+            INSERT INTO user_subscriptions (
+              user_id, plan_id, status, is_trial, trial_ends_at,
+              payment_method_id, next_charge_date, started_at, sumit_customer_id, trial_used_at
+            ) VALUES ($1, $2, 'trial', true, $3, $4, $3, NOW(), $5, NOW())
+            ON CONFLICT (user_id) DO UPDATE SET
+              plan_id = $2, status = 'trial', is_trial = true, trial_ends_at = $3,
+              payment_method_id = $4, next_charge_date = $3,
+              started_at = COALESCE(user_subscriptions.started_at, NOW()),
+              sumit_customer_id = $5,
+              trial_used_at = COALESCE(user_subscriptions.trial_used_at, NOW()),
+              updated_at = NOW()
+          `, [userId, requestedPlanId, trialEndsAt, paymentMethodId, sumitResult.customerId]);
+
+          subscriptionCreated = true;
+          console.log(`[Payment] ✅ Trial subscription created for plan ${requestedPlanId}, ends ${trialEndsAt.toISOString().split('T')[0]}`);
+        } else {
+          // Charge immediately
+          console.log(`[Payment] Charging immediately for plan ${requestedPlanId}: ₪${planPrice}`);
+          const chargeResult = await sumitService.chargeOneTime({
+            customerId: sumitResult.customerId,
+            amount: planPrice,
+            description: `מנוי חודשי - ${plan.name_he}`,
+            sendEmail: true,
+          });
+
+          if (!chargeResult.success) {
+            return res.status(400).json({
+              error: chargeResult.error || 'החיוב נכשל. אנא בדוק את פרטי האשראי.',
+              code: 'CHARGE_FAILED',
+            });
+          }
+
+          const nextChargeDate = new Date();
+          nextChargeDate.setMonth(nextChargeDate.getMonth() + 1);
+
+          await db.query(`
+            INSERT INTO user_subscriptions (
+              user_id, plan_id, status, is_trial,
+              payment_method_id, next_charge_date, expires_at, started_at, sumit_customer_id
+            ) VALUES ($1, $2, 'active', false, $3, $4, $4, NOW(), $5)
+            ON CONFLICT (user_id) DO UPDATE SET
+              plan_id = $2, status = 'active', is_trial = false, cancelled_at = NULL,
+              payment_method_id = $3, next_charge_date = $4, expires_at = $4,
+              started_at = COALESCE(user_subscriptions.started_at, NOW()),
+              sumit_customer_id = $5, updated_at = NOW()
+          `, [userId, requestedPlanId, paymentMethodId, nextChargeDate, sumitResult.customerId]);
+
+          const subIdResult = await db.query('SELECT id FROM user_subscriptions WHERE user_id = $1', [userId]);
+          const subscriptionId = subIdResult.rows[0]?.id;
+
+          try {
+            await billingQueueService.scheduleCharge({
+              userId, subscriptionId, amount: planPrice,
+              chargeDate: nextChargeDate.toISOString().split('T')[0],
+              billingType: 'monthly', planId: requestedPlanId,
+              description: `מנוי חודשי - ${plan.name_he}`,
+            });
+          } catch (queueErr) {
+            console.error(`[Payment] Error scheduling next charge:`, queueErr.message);
+          }
+
+          await db.query(
+            `INSERT INTO payment_history (user_id, subscription_id, amount, status, sumit_transaction_id, sumit_document_number, description)
+             VALUES ($1, $2, $3, 'success', $4, $5, $6)`,
+            [userId, subscriptionId, planPrice, chargeResult.transactionId, chargeResult.documentNumber, `מנוי חודשי - ${plan.name_he}`]
+          );
+
+          subscriptionCreated = true;
+          wasChargedImmediately = true;
+          console.log(`[Payment] ✅ Active subscription created with immediate charge for plan ${requestedPlanId}`);
+        }
+      } else {
+        // Free plan selected or plan not found - just update payment method on existing subscription
+        await db.query(
+          `UPDATE user_subscriptions SET payment_method_id = $1, sumit_customer_id = $2, updated_at = NOW() WHERE user_id = $3`,
+          [result.rows[0].id, sumitResult.customerId, userId]
+        );
+        console.log(`[Payment] Card saved, user ${userId} staying on free plan`);
+      }
+    } else if (shouldCreateTrial) {
       console.log(`[Payment] Auto-creating trial subscription for user ${userId} (current: ${existingSub?.status || 'none'}, plan: ${existingSub?.plan_id || 'none'})`);
 
       // Check for custom discount plan first
@@ -484,11 +601,11 @@ async function savePaymentMethod(req, res) {
     
     // Determine the appropriate message
     let responseMessage = 'הכרטיס נשמר בהצלחה!';
-    let wasChargedImmediately = false;
-    
+
     if (subscriptionCreated) {
-      // Check if this was a trial or immediate charge (trial already used)
-      if (trialAlreadyUsed) {
+      if (wasChargedImmediately) {
+        responseMessage = 'מעולה! הכרטיס נשמר והמנוי הופעל. בוצע חיוב מיידי.';
+      } else if (trialAlreadyUsed) {
         responseMessage = 'מעולה! הכרטיס נשמר והמנוי הופעל. בוצע חיוב מיידי (תקופת הניסיון כבר נוצלה).';
         wasChargedImmediately = true;
       } else {

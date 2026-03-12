@@ -7,13 +7,14 @@ import Button from '../atoms/Button';
 const SUMIT_PUBLIC_KEY = import.meta.env.VITE_SUMIT_PUBLIC_KEY;
 const SUMIT_SDK_URL = 'https://api.sumit.co.il/scripts/tokenize.js';
 
-export default function CreditCardForm({ 
-  onSuccess, 
-  onCancel, 
+export default function CreditCardForm({
+  onSuccess,
+  onCancel,
   showCitizenId = true,
   showCompanyNumber = true,
   submitText = 'שמור כרטיס',
-  description = 'פרטי הכרטיס מאובטחים ומוצפנים. לא נחייב אותך ללא הסכמתך.'
+  description = 'פרטי הכרטיס מאובטחים ומוצפנים. לא נחייב אותך ללא הסכמתך.',
+  planId = null,
 }) {
   const [form, setForm] = useState({
     cardNumber: '',
@@ -238,6 +239,7 @@ export default function CreditCardForm({
         expiryMonth: parseInt(form.expiryMonth),
         expiryYear: parseInt(form.expiryYear),
         lastDigits: cardNum.slice(-4),
+        planId: planId || null,
       };
 
       if (tokenData?.token) {
