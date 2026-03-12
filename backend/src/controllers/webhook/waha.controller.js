@@ -459,6 +459,11 @@ async function handleIncomingMessage(userId, event) {
     messageId = `${payload.id.fromMe ? 'true' : 'false'}_${payload.id.remote || ''}_${payload.id.id}`;
   }
   
+  // Skip status@broadcast early - no DB needed (handled by message.any event only)
+  if (payload.from === 'status@broadcast' || payload.chatId === 'status@broadcast') {
+    return;
+  }
+
   // Deduplication check - prevent processing same message twice (common with media)
   if (messageId) {
     const dedupKey = `${userId}_${messageId}`;
@@ -468,23 +473,17 @@ async function handleIncomingMessage(userId, event) {
     }
     processedMessagesCache.set(dedupKey, Date.now());
   }
-  
+
   // Ensure migrations are applied
   await ensureMigrations();
-  
+
   // Verify user exists before processing
   const userCheck = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
   if (userCheck.rows.length === 0) {
     console.log(`[Webhook] Skipping message - user ${userId} not found (possibly deleted)`);
-    // TODO: Consider cleaning up orphaned WhatsApp connections
     return;
   }
-  
-  // Handle status updates - skip here, statuses are saved via message.any event only
-  if (payload.from === 'status@broadcast') {
-    return;
-  }
-  
+
   // Handle outgoing messages (sent from device, not from bot)
   if (payload.fromMe) {
     await handleOutgoingDeviceMessage(userId, payload);
@@ -1358,13 +1357,14 @@ async function handleMessageAck(userId, event) {
   if (ackLevel === 2) updateField = 'delivered_at';
   if (ackLevel >= 3) updateField = 'read_at';
   
-  if (updateField && payload.id) {
+  // status@broadcast acks are not in the messages table - skip DB update
+  if (updateField && payload.id && payload.from !== 'status@broadcast') {
     await pool.query(
       `UPDATE messages SET ${updateField} = NOW(), status = $1 WHERE wa_message_id = $2`,
       [ackLevel === 2 ? 'delivered' : 'read', payload.id._serialized || payload.id]
     );
   }
-  
+
   // Detect status events (ack on status@broadcast with fromMe: true)
   if (payload.from === 'status@broadcast' && payload.fromMe === true) {
     const statusMsgId = payload.id?._serialized || payload.id;
