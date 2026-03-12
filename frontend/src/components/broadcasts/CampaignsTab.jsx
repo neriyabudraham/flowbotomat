@@ -1301,65 +1301,67 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
             </button>
             
             {showSettings && (
-              <div className="grid md:grid-cols-3 gap-4 mt-4">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">דיליי בין הודעות (שניות)</label>
-                  <input
-                    type="number"
-                    value={formData.settings.delay_between_messages}
-                    onChange={(e) => setFormData({
-                      ...formData,
-                      settings: { ...formData.settings, delay_between_messages: parseInt(e.target.value) || 2 }
-                    })}
-                    min="0"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                  />
+              <>
+                <div className="grid md:grid-cols-3 gap-4 mt-4">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">דיליי בין הודעות (שניות)</label>
+                    <input
+                      type="number"
+                      value={formData.settings.delay_between_messages}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        settings: { ...formData.settings, delay_between_messages: parseInt(e.target.value) || 2 }
+                      })}
+                      min="0"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">דיליי בין קבוצות (שניות)</label>
+                    <input
+                      type="number"
+                      value={formData.settings.delay_between_batches}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        settings: { ...formData.settings, delay_between_batches: parseInt(e.target.value) || 30 }
+                      })}
+                      min="0"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">גודל קבוצה</label>
+                    <input
+                      type="number"
+                      value={formData.settings.batch_size}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        settings: { ...formData.settings, batch_size: parseInt(e.target.value) || 50 }
+                      })}
+                      min="1"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">דיליי בין קבוצות (שניות)</label>
-                  <input
-                    type="number"
-                    value={formData.settings.delay_between_batches}
-                    onChange={(e) => setFormData({
-                      ...formData,
-                      settings: { ...formData.settings, delay_between_batches: parseInt(e.target.value) || 30 }
-                    })}
-                    min="0"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">גודל קבוצה</label>
-                  <input
-                    type="number"
-                    value={formData.settings.batch_size}
-                    onChange={(e) => setFormData({
-                      ...formData,
-                      settings: { ...formData.settings, batch_size: parseInt(e.target.value) || 50 }
-                    })}
-                    min="1"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                  />
-                </div>
-              </div>
 
-              {/* Mention All Groups */}
-              <div className="mt-3 flex items-center gap-3 p-3 bg-violet-50 border border-violet-200 rounded-xl">
-                <input
-                  type="checkbox"
-                  id="mention_all_groups"
-                  checked={formData.settings.mention_all_groups || false}
-                  onChange={(e) => setFormData({
-                    ...formData,
-                    settings: { ...formData.settings, mention_all_groups: e.target.checked }
-                  })}
-                  className="w-4 h-4 accent-violet-600"
-                />
-                <label htmlFor="mention_all_groups" className="text-sm text-violet-900 cursor-pointer">
-                  <span className="font-medium">תייג כולם בקבוצות</span>
-                  <span className="text-violet-600 mr-1 text-xs">(mention all — לקבוצות בלבד)</span>
-                </label>
-              </div>
+                {/* Mention All Groups */}
+                <div className="mt-3 flex items-center gap-3 p-3 bg-violet-50 border border-violet-200 rounded-xl">
+                  <input
+                    type="checkbox"
+                    id="mention_all_groups"
+                    checked={formData.settings.mention_all_groups || false}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      settings: { ...formData.settings, mention_all_groups: e.target.checked }
+                    })}
+                    className="w-4 h-4 accent-violet-600"
+                  />
+                  <label htmlFor="mention_all_groups" className="text-sm text-violet-900 cursor-pointer">
+                    <span className="font-medium">תייג כולם בקבוצות</span>
+                    <span className="text-violet-600 mr-1 text-xs">(mention all — לקבוצות בלבד)</span>
+                  </label>
+                </div>
+              </>
             )}
           </div>
 
