@@ -9,7 +9,7 @@ const { sendNewSubscriptionEmail, sendRenewalEmail, sendCancellationEmail } = re
  */
 async function fullDisconnectWhatsApp(userId) {
   await db.query(
-    `UPDATE whatsapp_connections SET status = 'disconnected', updated_at = NOW() WHERE user_id = $1 AND status = 'connected'`,
+    `UPDATE whatsapp_connections SET status = 'disconnected', updated_at = NOW() WHERE user_id = $1`,
     [userId]
   );
   await db.query(`UPDATE bots SET is_active = false, updated_at = NOW() WHERE user_id = $1`, [userId]);

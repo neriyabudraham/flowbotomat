@@ -256,11 +256,10 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
   // Remove only stale/old versions of OUR webhooks (botomat.co.il/api/webhook/waha/...)
   // Keep all third-party webhooks untouched
   const OUR_WEBHOOK_PATTERN = 'botomat.co.il/api/webhook/waha/';
+  // Keep only true third-party webhooks — exclude ALL botomat webhooks (current + old) and intelligence
   const thirdPartyWebhooks = currentWebhooks.filter(wh => {
     const url = wh.url || '';
-    const isOurOldWebhook = url.includes(OUR_WEBHOOK_PATTERN) && url !== mainWebhookUrl;
-    const isIntelligenceWebhook = url === intelligenceWebhookUrl;
-    return !isOurOldWebhook && !isIntelligenceWebhook;
+    return !url.includes(OUR_WEBHOOK_PATTERN) && url !== intelligenceWebhookUrl;
   });
 
   const removedCount = currentWebhooks.length - thirdPartyWebhooks.length;
