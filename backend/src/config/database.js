@@ -6,6 +6,9 @@ const pool = new Pool({
   database: process.env.DB_NAME,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
+  max: 30,
+  connectionTimeoutMillis: 3000,
+  idleTimeoutMillis: 30000,
 });
 
 // Connection events - only log once at startup, not per connection

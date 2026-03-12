@@ -70,19 +70,22 @@ router.get('/public/config', settingsController.getPublicConfig);
 // Health check endpoint for deployment monitoring
 router.get('/health', async (req, res) => {
   try {
-    // Quick DB check
-    const pool = require('../config/database');
-    await pool.query('SELECT 1');
-    
-    res.json({ 
+    const db = require('../config/database');
+    // Use a short timeout so health check never hangs when pool is exhausted
+    await Promise.race([
+      db.query('SELECT 1'),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('DB timeout')), 2000)),
+    ]);
+
+    res.json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
       uptime: process.uptime()
     });
   } catch (error) {
-    res.status(503).json({ 
+    res.status(503).json({
       status: 'unhealthy',
-      error: error.message 
+      error: error.message
     });
   }
 });
