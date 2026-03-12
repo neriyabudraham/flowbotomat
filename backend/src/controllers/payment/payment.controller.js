@@ -195,24 +195,20 @@ async function savePaymentMethod(req, res) {
     const FREE_PLAN_ID = '00000000-0000-0000-0000-000000000001';
     
     const subCheck = await db.query(
-      `SELECT us.id, us.status, us.plan_id, sp.price, us.sumit_standing_order_id, us.sumit_customer_id 
+      `SELECT us.id, us.status, us.plan_id, us.skip_trial, us.is_manual, us.trial_used_at,
+              sp.price, us.sumit_standing_order_id, us.sumit_customer_id
        FROM user_subscriptions us
        LEFT JOIN subscription_plans sp ON us.plan_id = sp.id
        WHERE us.user_id = $1`,
       [userId]
     );
-    
+
     let subscriptionCreated = false;
     let wasChargedImmediately = false;
-    
-    // Check if admin set skip_trial for this user, or if trial was already used
-    const skipTrialCheck = await db.query(
-      `SELECT skip_trial, is_manual, trial_used_at FROM user_subscriptions WHERE user_id = $1`,
-      [userId]
-    );
-    const adminSetSkipTrial = skipTrialCheck.rows[0]?.skip_trial === true;
-    const isManualSubscription = skipTrialCheck.rows[0]?.is_manual === true;
-    const trialAlreadyUsed = skipTrialCheck.rows[0]?.trial_used_at !== null;
+
+    const adminSetSkipTrial = subCheck.rows[0]?.skip_trial === true;
+    const isManualSubscription = subCheck.rows[0]?.is_manual === true;
+    const trialAlreadyUsed = subCheck.rows[0]?.trial_used_at !== null;
     
     // Create trial if: no subscription, cancelled, or on Free plan
     // BUT NOT if admin explicitly set skip_trial, is_manual, or trial already used
@@ -229,7 +225,7 @@ async function savePaymentMethod(req, res) {
     } else if (isManualSubscription) {
       console.log(`[Payment] Skipping auto-trial for user ${userId} - has manual subscription`);
     } else if (trialAlreadyUsed) {
-      console.log(`[Payment] Skipping auto-trial for user ${userId} - trial already used at ${skipTrialCheck.rows[0]?.trial_used_at}`);
+      console.log(`[Payment] Skipping auto-trial for user ${userId} - trial already used at ${subCheck.rows[0]?.trial_used_at}`);
     }
     
     const requestedPlanId = planId || null;
@@ -303,7 +299,7 @@ async function savePaymentMethod(req, res) {
           const nextChargeDate = new Date();
           nextChargeDate.setMonth(nextChargeDate.getMonth() + 1);
 
-          await db.query(`
+          const insertedSub = await db.query(`
             INSERT INTO user_subscriptions (
               user_id, plan_id, status, is_trial,
               payment_method_id, next_charge_date, expires_at, started_at, sumit_customer_id
@@ -313,10 +309,10 @@ async function savePaymentMethod(req, res) {
               payment_method_id = $3, next_charge_date = $4, expires_at = $4,
               started_at = COALESCE(user_subscriptions.started_at, NOW()),
               sumit_customer_id = $5, updated_at = NOW()
+            RETURNING id
           `, [userId, requestedPlanId, paymentMethodId, nextChargeDate, sumitResult.customerId]);
 
-          const subIdResult = await db.query('SELECT id FROM user_subscriptions WHERE user_id = $1', [userId]);
-          const subscriptionId = subIdResult.rows[0]?.id;
+          const subscriptionId = insertedSub.rows[0]?.id;
 
           try {
             await billingQueueService.scheduleCharge({

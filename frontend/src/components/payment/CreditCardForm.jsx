@@ -11,7 +11,6 @@ export default function CreditCardForm({
   onSuccess,
   onCancel,
   showCitizenId = true,
-  showCompanyNumber = true,
   submitText = 'שמור כרטיס',
   description = 'פרטי הכרטיס מאובטחים ומוצפנים. לא נחייב אותך ללא הסכמתך.',
   planId = null,

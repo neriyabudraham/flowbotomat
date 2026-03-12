@@ -5,15 +5,13 @@ const { decrypt } = require('../crypto/encrypt.service');
 /**
  * Broadcast Admin Approval Service (per-forward)
  *
- * Each group_forward can have one sender marked as is_admin = true.
- * When a broadcast is triggered:
- *   1. If the forward has an admin sender, that admin receives a WhatsApp
- *      approval request (list message with Yes/No + sender info + message content).
- *   2. If admin approves → the original sender gets the normal confirmation list.
- *   3. If admin rejects → job is silently cancelled (sender not notified).
- *
- * When the admin deletes a broadcast message from any group,
- * the deletion cascades to all other groups with the forward's delay settings.
+ * Sender capabilities on forward_authorized_senders:
+ *   is_admin (ONE per forward) — super admin who approves/rejects broadcast messages.
+ *     When triggered by another sender, they receive a WhatsApp approval list.
+ *     If they approve → sender gets confirmation. If rejected → job cancelled silently.
+ *   can_send_without_approval — sender bypasses admin approval even when an admin exists.
+ *   can_delete_from_all_groups — sender's message deletion cascades to all target groups.
+ *     Also granted automatically to senders with is_admin = true.
  */
 
 function normalizePhone(phone) {
@@ -95,10 +93,12 @@ async function ensureAdminTables() {
       ALTER TABLE forward_jobs
       ADD COLUMN IF NOT EXISTS awaiting_admin_approval BOOLEAN DEFAULT false
     `);
-    // Ensure is_admin column exists on forward_authorized_senders
+    // Ensure capability columns exist on forward_authorized_senders
     await db.query(`
       ALTER TABLE forward_authorized_senders
-      ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false
+      ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false,
+      ADD COLUMN IF NOT EXISTS can_send_without_approval BOOLEAN DEFAULT false,
+      ADD COLUMN IF NOT EXISTS can_delete_from_all_groups BOOLEAN DEFAULT false
     `);
     await db.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_forward_senders_one_admin
@@ -298,11 +298,11 @@ async function isAdminForAnyForward(userId, phone) {
     await ensureAdminTables();
     const normalized = normalizePhone(phone);
 
-    // Check forward admins
+    // Check forward admins (is_admin = approver-admin, can_delete_from_all_groups = deletor capability)
     const forwardAdmins = await db.query(`
       SELECT fas.phone_number FROM forward_authorized_senders fas
       JOIN group_forwards gf ON gf.id = fas.forward_id
-      WHERE gf.user_id = $1 AND fas.is_admin = true
+      WHERE gf.user_id = $1 AND (fas.is_admin = true OR fas.can_delete_from_all_groups = true)
     `, [userId]);
 
     if (forwardAdmins.rows.some(r => normalizePhone(r.phone_number) === normalized)) {
@@ -314,7 +314,7 @@ async function isAdminForAnyForward(userId, phone) {
       const transferAdmins = await db.query(`
         SELECT tas.phone_number FROM transfer_authorized_senders tas
         JOIN group_transfers gt ON gt.id = tas.transfer_id
-        WHERE gt.user_id = $1 AND tas.is_admin = true
+        WHERE gt.user_id = $1 AND (tas.is_admin = true OR tas.can_delete_from_all_groups = true)
       `, [userId]);
       return transferAdmins.rows.some(r => normalizePhone(r.phone_number) === normalized);
     } catch (e) {

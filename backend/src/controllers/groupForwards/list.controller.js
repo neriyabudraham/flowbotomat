@@ -120,50 +120,59 @@ async function getAvailableGroups(req, res) {
       sessionName = connection.session_name;
     }
     
-    // Fetch groups from WAHA
-    console.log('[GroupForwards] Fetching groups from:', `${baseUrl}/api/${sessionName}/groups`);
-    
-    const response = await axios.get(
-      `${baseUrl}/api/${sessionName}/groups`,
-      {
-        headers: {
-          'accept': 'application/json',
-          'X-Api-Key': apiKey
-        },
-        timeout: 10000
-      }
-    );
-    
-    // Format groups - handle WAHA response format
-    const rawGroups = Array.isArray(response.data) ? response.data : (response.data?.groups || response.data?.data || []);
-    
+    // Fetch groups and channels from WAHA in parallel
+    const headers = { 'accept': 'application/json', 'X-Api-Key': apiKey };
+    const [groupsResponse, channelsResponse] = await Promise.allSettled([
+      axios.get(`${baseUrl}/api/${sessionName}/groups`, { headers, timeout: 10000 }),
+      axios.get(`${baseUrl}/api/${sessionName}/channels`, { headers, timeout: 10000 }),
+    ]);
+
+    // Format groups
+    const rawGroups = groupsResponse.status === 'fulfilled'
+      ? (Array.isArray(groupsResponse.value.data) ? groupsResponse.value.data : (groupsResponse.value.data?.groups || groupsResponse.value.data?.data || []))
+      : [];
+
     let groups = rawGroups.map(group => {
       const groupId = group.JID || group.id || group.chatId || group.jid;
       return {
         id: groupId,
         name: group.Name || group.name || group.subject || group.groupName || groupId?.replace('@g.us', '') || groupId,
         participants_count: group.Participants?.length || group.participants?.length || group.ParticipantCount || 0,
-        image_url: group.profilePicture || group.picture || null
+        image_url: group.profilePicture || group.picture || null,
+        type: 'group',
       };
     });
-    
+
+    // Format channels
+    const rawChannels = channelsResponse.status === 'fulfilled'
+      ? (Array.isArray(channelsResponse.value.data) ? channelsResponse.value.data : (channelsResponse.value.data?.channels || channelsResponse.value.data?.data || []))
+      : [];
+
+    let channels = rawChannels.map(ch => ({
+      id: ch.id || '',
+      name: ch.name || ch.id?.replace('@newsletter', '') || ch.id || '',
+      participants_count: ch.subscribersCount || 0,
+      image_url: ch.picture || ch.preview || null,
+      type: 'channel',
+    }));
+
     // Filter by search if provided
     if (search) {
       const searchLower = search.toLowerCase();
-      groups = groups.filter(g => 
-        g.name?.toLowerCase().includes(searchLower) ||
-        g.id?.includes(search)
-      );
+      groups = groups.filter(g => g.name?.toLowerCase().includes(searchLower) || g.id?.includes(search));
+      channels = channels.filter(c => c.name?.toLowerCase().includes(searchLower) || c.id?.includes(search));
     }
-    
+
     // Sort alphabetically by name in Hebrew
     groups.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'he'));
-    
-    console.log('[GroupForwards] Found', groups.length, 'groups');
-    
+    channels.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'he'));
+
+    console.log('[GroupForwards] Found', groups.length, 'groups,', channels.length, 'channels');
+
     res.json({
       success: true,
-      groups
+      groups,
+      channels,
     });
   } catch (error) {
     console.error('[GroupForwards] Get groups error:', error.message);

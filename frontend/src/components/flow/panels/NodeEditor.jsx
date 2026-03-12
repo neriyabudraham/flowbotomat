@@ -57,7 +57,7 @@ const colors = {
   google_contacts: 'bg-blue-50 border-blue-200',
 };
 
-export default function NodeEditor({ node, onUpdate, onClose, onDelete, isNodeConnected }) {
+export default function NodeEditor({ node, onUpdate, onClose, onDelete, isNodeConnected, botId }) {
   if (!node) return null;
   
   const Editor = editors[node.type];
@@ -94,7 +94,7 @@ export default function NodeEditor({ node, onUpdate, onClose, onDelete, isNodeCo
       
       {/* Editor Content */}
       <div className="flex-1 overflow-y-auto p-4">
-        <Editor data={node.data || {}} onUpdate={handleUpdate} />
+        <Editor data={node.data || {}} onUpdate={handleUpdate} botId={botId} />
       </div>
       
       {/* Footer - Delete button (not for trigger) */}

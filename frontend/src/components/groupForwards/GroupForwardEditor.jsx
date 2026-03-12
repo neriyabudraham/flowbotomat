@@ -32,6 +32,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
   // Targets
   const [targets, setTargets] = useState([]);
   const [availableGroups, setAvailableGroups] = useState([]);
+  const [availableChannels, setAvailableChannels] = useState([]);
   const [groupSearch, setGroupSearch] = useState('');
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [showGroupSelector, setShowGroupSelector] = useState(false);
@@ -94,6 +95,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
         params: { search: groupSearch }
       });
       setAvailableGroups(data.groups || []);
+      setAvailableChannels(data.channels || []);
     } catch (e) {
       console.error('Error loading groups:', e);
       if (e.response?.data?.code === 'NO_WHATSAPP_CONNECTION') {
@@ -161,7 +163,9 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
         senders: senders.map(s => ({
           phone_number: s.phone_number,
           name: s.name,
-          is_admin: s.is_admin || false
+          is_admin: s.is_admin || false,
+          can_send_without_approval: s.can_send_without_approval || false,
+          can_delete_from_all_groups: s.can_delete_from_all_groups || false,
         }))
       });
       return true;
@@ -290,9 +294,15 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
   const toggleAdmin = (phone) => {
     setSenders(senders.map(s => {
       if (s.phone_number === phone) return { ...s, is_admin: !s.is_admin };
-      // Only one admin allowed — clear others
+      // Only one approver-admin allowed — clear others
       return { ...s, is_admin: false };
     }));
+  };
+
+  const toggleCapability = (phone, capKey) => {
+    setSenders(senders.map(s =>
+      s.phone_number === phone ? { ...s, [capKey]: !s[capKey] } : s
+    ));
   };
 
   // Format delay for display
@@ -739,37 +749,62 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                     
                     const formattedPhone = formatPhoneDisplay(sender.phone_number);
                     
+                    const hasAnyCapability = sender.is_admin || sender.can_send_without_approval || sender.can_delete_from_all_groups;
+
                     return (
-                      <div key={sender.phone_number} className={`group flex items-center gap-4 p-4 bg-gradient-to-r rounded-xl border transition-all hover:shadow-md ${sender.is_admin ? 'from-amber-50 to-orange-50 border-amber-200 hover:border-amber-300' : 'from-gray-50 to-white border-gray-100 hover:border-green-200'}`}>
-                        <div className={`w-12 h-12 bg-gradient-to-br rounded-xl flex items-center justify-center shadow ${sender.is_admin ? 'from-amber-400 to-orange-500' : 'from-green-500 to-emerald-500'}`}>
-                          {sender.is_admin ? <Crown className="w-6 h-6 text-white" /> : <Phone className="w-6 h-6 text-white" />}
+                      <div key={sender.phone_number} className={`group flex items-center gap-3 p-4 bg-gradient-to-r rounded-xl border transition-all hover:shadow-md ${sender.is_admin ? 'from-amber-50 to-orange-50 border-amber-200 hover:border-amber-300' : 'from-gray-50 to-white border-gray-100 hover:border-green-200'}`}>
+                        <div className={`w-11 h-11 bg-gradient-to-br rounded-xl flex items-center justify-center shadow flex-shrink-0 ${sender.is_admin ? 'from-amber-400 to-orange-500' : 'from-green-500 to-emerald-500'}`}>
+                          {sender.is_admin ? <Crown className="w-5 h-5 text-white" /> : <Phone className="w-5 h-5 text-white" />}
                         </div>
                         <div className="flex-1 min-w-0 text-right">
-                          <div className="flex items-center gap-2 justify-end flex-wrap">
+                          <div className="flex items-center gap-1.5 justify-end flex-wrap">
                             {sender.name && (
-                              <p className="font-semibold text-gray-900 text-lg">{sender.name}</p>
+                              <p className="font-semibold text-gray-900">{sender.name}</p>
                             )}
                             {sender.is_admin && (
-                              <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">מנהל שליחות</span>
+                              <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">מנהל ראשי</span>
+                            )}
+                            {sender.can_send_without_approval && (
+                              <span className="text-xs bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-medium">שליחה חופשית</span>
+                            )}
+                            {sender.can_delete_from_all_groups && (
+                              <span className="text-xs bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full font-medium">מחיקה מכל הקבוצות</span>
                             )}
                           </div>
-                          <p className={`${sender.name ? 'text-sm text-gray-500' : 'font-semibold text-gray-900 text-lg'}`} dir="ltr" style={{ textAlign: 'right' }}>
+                          <p className={`${sender.name ? 'text-sm text-gray-500' : 'font-semibold text-gray-900'}`} dir="ltr" style={{ textAlign: 'right' }}>
                             {formattedPhone}
                           </p>
                         </div>
-                        <button
-                          onClick={() => toggleAdmin(sender.phone_number)}
-                          title={sender.is_admin ? 'הסר הרשאת מנהל' : 'הגדר כמנהל שליחות'}
-                          className={`p-2 rounded-xl transition-all opacity-0 group-hover:opacity-100 ${sender.is_admin ? 'text-amber-500 hover:bg-amber-100' : 'text-gray-400 hover:bg-amber-50 hover:text-amber-500'}`}
-                        >
-                          <Crown className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={() => removeSender(sender.phone_number)}
-                          className="p-2 hover:bg-red-100 rounded-xl text-gray-400 hover:text-red-600 transition-all opacity-0 group-hover:opacity-100"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
+                        {/* Capability toggles — visible on hover */}
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                          <button
+                            onClick={() => toggleAdmin(sender.phone_number)}
+                            title={sender.is_admin ? 'הסר מנהל ראשי' : 'הגדר כמנהל ראשי (מאשר הודעות)'}
+                            className={`p-2 rounded-xl transition-all ${sender.is_admin ? 'text-amber-500 bg-amber-100' : 'text-gray-400 hover:bg-amber-50 hover:text-amber-500'}`}
+                          >
+                            <Crown className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => toggleCapability(sender.phone_number, 'can_send_without_approval')}
+                            title={sender.can_send_without_approval ? 'הסר שליחה חופשית' : 'הרשה שליחה ללא אישור'}
+                            className={`p-2 rounded-xl transition-all ${sender.can_send_without_approval ? 'text-blue-500 bg-blue-100' : 'text-gray-400 hover:bg-blue-50 hover:text-blue-500'}`}
+                          >
+                            <Zap className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => toggleCapability(sender.phone_number, 'can_delete_from_all_groups')}
+                            title={sender.can_delete_from_all_groups ? 'הסר הרשאת מחיקה' : 'הרשה מחיקה מכל הקבוצות'}
+                            className={`p-2 rounded-xl transition-all ${sender.can_delete_from_all_groups ? 'text-red-500 bg-red-100' : 'text-gray-400 hover:bg-red-50 hover:text-red-500'}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => removeSender(sender.phone_number)}
+                            className="p-2 hover:bg-red-100 rounded-xl text-gray-400 hover:text-red-600 transition-all"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -1087,7 +1122,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
           <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[80vh] flex flex-col">
             <div className="p-6 border-b border-gray-100">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">בחירת קבוצות</h3>
+                <h3 className="text-lg font-semibold text-gray-900">בחירת קבוצות וערוצים</h3>
                 <button onClick={() => setShowGroupSelector(false)} className="p-1.5 hover:bg-gray-100 rounded-lg">
                   <X className="w-5 h-5 text-gray-500" />
                 </button>
@@ -1146,48 +1181,94 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-6 h-6 text-purple-600 animate-spin" />
                 </div>
-              ) : availableGroups.length === 0 ? (
+              ) : availableGroups.length === 0 && availableChannels.length === 0 ? (
                 <div className="text-center py-12">
                   <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                   <p className="text-gray-500">לא נמצאו קבוצות</p>
                 </div>
               ) : (
-                <div className="grid gap-2">
-                  {availableGroups
-                    .filter(g => !groupSearch || g.name?.toLowerCase().includes(groupSearch.toLowerCase()))
-                    .map(group => {
-                      const isSelected = targets.some(t => t.group_id === group.id);
-                      return (
-                        <button
-                          key={group.id}
-                          onClick={() => toggleGroup(group)}
-                          className={`flex items-center gap-3 p-3 rounded-xl border-2 text-right transition-all ${
-                            isSelected
-                              ? 'border-purple-500 bg-purple-50'
-                              : 'border-gray-200 hover:border-gray-300'
-                          }`}
-                        >
-                          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
-                            isSelected ? 'border-purple-500 bg-purple-500' : 'border-gray-300'
-                          }`}>
-                            {isSelected && <Check className="w-4 h-4 text-white" />}
-                          </div>
-                          {group.image_url ? (
-                            <img src={group.image_url} alt="" className="w-10 h-10 rounded-full object-cover" />
-                          ) : (
-                            <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
-                              <Users className="w-5 h-5 text-gray-400" />
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-gray-900 truncate">{group.name}</p>
-                            {group.participants_count > 0 && (
-                              <p className="text-xs text-gray-500">{group.participants_count} משתתפים</p>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })}
+                <div className="space-y-4">
+                  {/* Groups section */}
+                  {availableGroups.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1">קבוצות ({availableGroups.length})</p>
+                      <div className="grid gap-2">
+                        {availableGroups
+                          .filter(g => !groupSearch || g.name?.toLowerCase().includes(groupSearch.toLowerCase()))
+                          .map(group => {
+                            const isSelected = targets.some(t => t.group_id === group.id);
+                            return (
+                              <button
+                                key={group.id}
+                                onClick={() => toggleGroup(group)}
+                                className={`flex items-center gap-3 p-3 rounded-xl border-2 text-right transition-all ${
+                                  isSelected ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-gray-300'
+                                }`}
+                              >
+                                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isSelected ? 'border-purple-500 bg-purple-500' : 'border-gray-300'}`}>
+                                  {isSelected && <Check className="w-4 h-4 text-white" />}
+                                </div>
+                                {group.image_url ? (
+                                  <img src={group.image_url} alt="" className="w-10 h-10 rounded-full object-cover" />
+                                ) : (
+                                  <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                                    <Users className="w-5 h-5 text-gray-400" />
+                                  </div>
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium text-gray-900 truncate">{group.name}</p>
+                                  {group.participants_count > 0 && (
+                                    <p className="text-xs text-gray-500">{group.participants_count} משתתפים</p>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
+                  {/* Channels section */}
+                  {availableChannels.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1">ערוצים ({availableChannels.length})</p>
+                      <div className="grid gap-2">
+                        {availableChannels
+                          .filter(c => !groupSearch || c.name?.toLowerCase().includes(groupSearch.toLowerCase()))
+                          .map(channel => {
+                            const isSelected = targets.some(t => t.group_id === channel.id);
+                            return (
+                              <button
+                                key={channel.id}
+                                onClick={() => toggleGroup(channel)}
+                                className={`flex items-center gap-3 p-3 rounded-xl border-2 text-right transition-all ${
+                                  isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-200'
+                                }`}
+                              >
+                                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isSelected ? 'border-blue-500 bg-blue-500' : 'border-gray-300'}`}>
+                                  {isSelected && <Check className="w-4 h-4 text-white" />}
+                                </div>
+                                {channel.image_url ? (
+                                  <img src={channel.image_url} alt="" className="w-10 h-10 rounded-full object-cover" />
+                                ) : (
+                                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                                    <MessageSquare className="w-5 h-5 text-blue-500" />
+                                  </div>
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-medium text-gray-900 truncate">{channel.name}</p>
+                                    <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full flex-shrink-0">ערוץ</span>
+                                  </div>
+                                  {channel.participants_count > 0 && (
+                                    <p className="text-xs text-gray-500">{channel.participants_count.toLocaleString()} עוקבים</p>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

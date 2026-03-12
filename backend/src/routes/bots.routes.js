@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middlewares/auth.middleware');
 const { listBots, getBot } = require('../controllers/bots/list.controller');
-const { createBot, updateBot, saveFlow, deleteBot, selectBotToKeep, getPendingDeletionStatus } = require('../controllers/bots/manage.controller');
+const { createBot, updateBot, saveFlow, deleteBot, selectBotToKeep, getPendingDeletionStatus, generateWebhookSecret, deleteWebhookSecret } = require('../controllers/bots/manage.controller');
 const { getBotStats, getBotUsers, getBotLogs, getBotStatsTimeline, exportBotStats } = require('../controllers/bots/stats.controller');
 const { exportBot, importBot, duplicateBot } = require('../controllers/bots/export.controller');
 
@@ -25,6 +25,10 @@ router.get('/:botId/stats/timeline', getBotStatsTimeline);
 router.get('/:botId/stats/export', exportBotStats);
 router.get('/:botId/users', getBotUsers);
 router.get('/:botId/logs', getBotLogs);
+
+// Webhook trigger secret management
+router.post('/:botId/webhook', generateWebhookSecret);
+router.delete('/:botId/webhook', deleteWebhookSecret);
 
 // Export/Import
 router.get('/:id/export', exportBot);

@@ -1,6 +1,7 @@
 const db = require('../../config/database');
 const { checkBotAccess } = require('./list.controller');
 const { checkLimit } = require('../subscriptions/subscriptions.controller');
+const crypto = require('crypto');
 
 /**
  * Check if bot is locked and return error response if so
@@ -487,4 +488,56 @@ async function getPendingDeletionStatus(req, res) {
   }
 }
 
-module.exports = { createBot, updateBot, saveFlow, deleteBot, selectBotToKeep, getPendingDeletionStatus, checkBotLocked };
+/**
+ * Generate (or regenerate) a webhook secret for a bot.
+ * The resulting URL is: POST /api/webhook/bot/:secret
+ */
+async function generateWebhookSecret(req, res) {
+  try {
+    const userId = req.user.id;
+    const { botId } = req.params;
+
+    // Ensure column exists (lazy migration)
+    await db.query(`ALTER TABLE bots ADD COLUMN IF NOT EXISTS webhook_secret VARCHAR(64)`).catch(() => {});
+
+    const secret = crypto.randomBytes(24).toString('hex'); // 48-char hex string
+
+    const result = await db.query(
+      `UPDATE bots SET webhook_secret = $1, updated_at = NOW()
+       WHERE id = $2 AND user_id = $3
+       RETURNING id, webhook_secret`,
+      [secret, botId, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'בוט לא נמצא' });
+    }
+
+    res.json({ webhook_secret: result.rows[0].webhook_secret });
+  } catch (error) {
+    console.error('Generate webhook secret error:', error);
+    res.status(500).json({ error: 'שגיאה ביצירת webhook' });
+  }
+}
+
+/**
+ * Delete the webhook secret for a bot (disable webhook trigger).
+ */
+async function deleteWebhookSecret(req, res) {
+  try {
+    const userId = req.user.id;
+    const { botId } = req.params;
+
+    await db.query(
+      `UPDATE bots SET webhook_secret = NULL, updated_at = NOW() WHERE id = $1 AND user_id = $2`,
+      [botId, userId]
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete webhook secret error:', error);
+    res.status(500).json({ error: 'שגיאה במחיקת webhook' });
+  }
+}
+
+module.exports = { createBot, updateBot, saveFlow, deleteBot, selectBotToKeep, getPendingDeletionStatus, checkBotLocked, generateWebhookSecret, deleteWebhookSecret };

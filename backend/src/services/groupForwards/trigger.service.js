@@ -281,36 +281,38 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
       const normalizedPhone = normalizePhoneNumber(senderPhone);
       
       const authSendersResult = await db.query(`
-        SELECT phone_number FROM forward_authorized_senders WHERE forward_id = $1
+        SELECT phone_number, can_send_without_approval FROM forward_authorized_senders WHERE forward_id = $1
       `, [forward.id]);
-      
+
       const totalAuthSenders = authSendersResult.rows.length;
-      
+
       // Only authorized if explicitly in the list - if no senders defined, no one can trigger
       if (totalAuthSenders === 0) {
         console.log(`[GroupForwards] Forward ${forward.id} has no authorized senders defined - skipping`);
         continue;
       }
-      
+
       let isAuthorized = false;
+      let senderCanSendWithoutApproval = false;
       for (const auth of authSendersResult.rows) {
         const normalizedAuth = normalizePhoneNumber(auth.phone_number);
         if (normalizedPhone === normalizedAuth) {
           isAuthorized = true;
+          senderCanSendWithoutApproval = auth.can_send_without_approval === true;
           break;
         }
       }
-      
+
       if (!isAuthorized) {
         continue;
       }
-      
+
       if (forward.target_count === 0) {
         console.log(`[GroupForwards] Forward ${forward.id} has no target groups`);
         continue;
       }
-      
-      await createTriggerJob(userId, forward, senderPhone, messageData, payload);
+
+      await createTriggerJob(userId, forward, senderPhone, messageData, payload, senderCanSendWithoutApproval);
       anyForwardTriggered = true;
     }
     
@@ -325,7 +327,7 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
 /**
  * Create a forward job from webhook trigger
  */
-async function createTriggerJob(userId, forward, senderPhone, messageData, payload) {
+async function createTriggerJob(userId, forward, senderPhone, messageData, payload, senderCanSendWithoutApproval = false) {
   // Log reduced
   
   try {
@@ -408,7 +410,9 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
     const senderIsAdmin = forwardAdmin &&
       broadcastAdminService.normalizePhone(senderPhone) === broadcastAdminService.normalizePhone(forwardAdmin.phone_number);
 
-    if (forwardAdmin && !senderIsAdmin) {
+    const needsApproval = forwardAdmin && !senderIsAdmin && !senderCanSendWithoutApproval;
+
+    if (needsApproval) {
       // Route to admin for approval first — sender gets no notification yet
       await broadcastAdminService.requestAdminApproval(userId, job, forward);
     } else if (forward.require_confirmation) {

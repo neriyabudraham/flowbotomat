@@ -500,6 +500,7 @@ export default function BotEditorPage() {
               onUpdate={handleNodeUpdate}
               onClose={() => setSelectedNodeId(null)}
               onDelete={handleNodeDelete}
+              botId={botId}
               isNodeConnected={(nodeId) => {
                 if (!flowData?.edges) return true;
                 return flowData.edges.some(e => e.source === nodeId || e.target === nodeId);

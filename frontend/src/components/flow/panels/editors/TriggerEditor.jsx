@@ -1,4 +1,4 @@
-import { Plus, X, ChevronDown, ChevronUp, Trash2, RefreshCw, Clock } from 'lucide-react';
+import { Plus, X, ChevronDown, ChevronUp, Trash2, RefreshCw, Clock, Copy } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import api from '../../../../services/api';
 
@@ -25,6 +25,7 @@ const triggerTypes = [
   { id: 'call_rejected', label: 'שיחה שנדחתה / לא נענתה', icon: '📵', hasCallType: true, category: 'call' },
   { id: 'call_accepted', label: 'שיחה שנענתה', icon: '✅', hasCallType: true, category: 'call' },
   { id: 'poll_vote', label: 'מענה על סקר', icon: '📊', hasValue: true, hasOperator: true, category: 'group' },
+  { id: 'webhook', label: 'Webhook חיצוני', icon: '🔗', category: 'webhook' },
 ];
 
 const operators = [
@@ -47,7 +48,7 @@ const contactFields = [
   { id: 'custom', label: 'שדה מותאם...' },
 ];
 
-export default function TriggerEditor({ data, onUpdate }) {
+export default function TriggerEditor({ data, onUpdate, botId }) {
   // Groups of conditions - each group is OR, conditions within group are AND
   const groups = data.triggerGroups || [];
   const [expandedGroups, setExpandedGroups] = useState(new Set(groups[0]?.id ? [groups[0].id] : []));
@@ -62,6 +63,44 @@ export default function TriggerEditor({ data, onUpdate }) {
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [whatsappChannels, setWhatsappChannels] = useState([]);
   const [loadingChannels, setLoadingChannels] = useState(false);
+  const [webhookSecret, setWebhookSecret] = useState(null);
+  const [generatingWebhook, setGeneratingWebhook] = useState(false);
+  const [copiedWebhook, setCopiedWebhook] = useState(false);
+
+  const hasWebhookTrigger = groups.some(g => g.conditions?.some(c => c.type === 'webhook'));
+
+  // Load webhook secret when webhook trigger is selected
+  useEffect(() => {
+    if (hasWebhookTrigger && botId && !webhookSecret) {
+      api.get(`/bots/${botId}`).then(({ data }) => {
+        if (data.bot?.webhook_secret) setWebhookSecret(data.bot.webhook_secret);
+      }).catch(() => {});
+    }
+  }, [hasWebhookTrigger, botId]);
+
+  const generateWebhookSecret = async () => {
+    if (!botId) return;
+    setGeneratingWebhook(true);
+    try {
+      const { data } = await api.post(`/bots/${botId}/webhook`);
+      setWebhookSecret(data.webhook_secret);
+    } catch (e) {
+      console.error('Failed to generate webhook:', e);
+    } finally {
+      setGeneratingWebhook(false);
+    }
+  };
+
+  const getWebhookUrl = () => {
+    const base = window.location.origin.replace(/:\d+$/, '') + (window.location.port === '5173' ? ':5001' : '');
+    return `${base}/api/webhook/bot/${webhookSecret}`;
+  };
+
+  const copyWebhookUrl = () => {
+    navigator.clipboard.writeText(getWebhookUrl());
+    setCopiedWebhook(true);
+    setTimeout(() => setCopiedWebhook(false), 2000);
+  };
 
   // Load available tags
   useEffect(() => {
@@ -387,8 +426,52 @@ export default function TriggerEditor({ data, onUpdate }) {
                                 <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
                               ))}
                             </optgroup>
+                            <optgroup label="חיצוני">
+                              {triggerTypes.filter(t => t.category === 'webhook').map(t => (
+                                <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
+                              ))}
+                            </optgroup>
                           </select>
                           
+                          {/* Webhook trigger — show URL management */}
+                          {condition.type === 'webhook' && (
+                            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 space-y-2">
+                              <p className="text-xs text-indigo-700 font-medium">
+                                🔗 הבוט יופעל כאשר מישהו קורא ל-URL הבא:
+                              </p>
+                              {webhookSecret ? (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    readOnly
+                                    value={getWebhookUrl()}
+                                    className="flex-1 text-xs px-2 py-1.5 bg-white border border-indigo-200 rounded-lg font-mono truncate"
+                                    dir="ltr"
+                                  />
+                                  <button
+                                    onClick={copyWebhookUrl}
+                                    className="p-1.5 bg-indigo-100 hover:bg-indigo-200 rounded-lg transition-colors"
+                                    title="העתק URL"
+                                  >
+                                    <Copy className="w-3.5 h-3.5 text-indigo-600" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <p className="text-xs text-indigo-500">לחץ "צור URL" כדי לקבל כתובת webhook</p>
+                              )}
+                              {copiedWebhook && <p className="text-xs text-green-600">הועתק!</p>}
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={generateWebhookSecret}
+                                  disabled={generatingWebhook}
+                                  className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                                >
+                                  {generatingWebhook ? 'יוצר...' : webhookSecret ? 'צור URL חדש' : 'צור URL'}
+                                </button>
+                              </div>
+                              <p className="text-[10px] text-indigo-400">תמיכה ב-GET ו-POST. שלח `phone` בפרמטרים (מספר הטלפון של הקשר). שדות נוספים זמינים כ-{'{{webhook.שם_שדה}}'}.</p>
+                            </div>
+                          )}
+
                           {/* Time value for inactivity conditions */}
                           {triggerInfo.hasTimeValue && (
                             <div className="flex items-center gap-2">

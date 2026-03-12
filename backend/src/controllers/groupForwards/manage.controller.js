@@ -281,16 +281,16 @@ async function updateAuthorizedSenders(req, res) {
   try {
     const userId = req.user.id;
     const { forwardId } = req.params;
-    const { senders } = req.body; // Array of { phone_number, name, is_admin }
+    const { senders } = req.body; // Array of { phone_number, name, is_admin, can_send_without_approval, can_delete_from_all_groups }
 
     if (!Array.isArray(senders)) {
       return res.status(400).json({ error: 'נדרשת רשימת שולחים מורשים' });
     }
 
-    // Ensure only one admin across all senders
+    // Ensure only one approver-admin across all senders
     const adminSenders = senders.filter(s => s.is_admin);
     if (adminSenders.length > 1) {
-      return res.status(400).json({ error: 'ניתן להגדיר מנהל אחד בלבד' });
+      return res.status(400).json({ error: 'ניתן להגדיר מנהל ראשי אחד בלבד' });
     }
 
     // Verify ownership
@@ -327,12 +327,16 @@ async function updateAuthorizedSenders(req, res) {
           }
 
           const isAdmin = sender.is_admin === true;
+          const canSendWithoutApproval = sender.can_send_without_approval === true;
+          const canDeleteFromAllGroups = sender.can_delete_from_all_groups === true;
 
           await client.query(`
-            INSERT INTO forward_authorized_senders (forward_id, phone_number, name, is_admin)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (forward_id, phone_number) DO UPDATE SET name = $3, is_admin = $4
-          `, [forwardId, phone, sender.name || null, isAdmin]);
+            INSERT INTO forward_authorized_senders (forward_id, phone_number, name, is_admin, can_send_without_approval, can_delete_from_all_groups)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (forward_id, phone_number) DO UPDATE SET
+              name = $3, is_admin = $4,
+              can_send_without_approval = $5, can_delete_from_all_groups = $6
+          `, [forwardId, phone, sender.name || null, isAdmin, canSendWithoutApproval, canDeleteFromAllGroups]);
         }
       }
 

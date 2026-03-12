@@ -142,12 +142,21 @@ class BotEngine {
   // Process special events (status view, status reaction, group join/leave, calls, poll vote)
   async processEvent(userId, contactPhone, eventType, eventData = {}) {
     try {
-      // Get all active AND unlocked bots for this user
-      const botsResult = await db.query(
-        'SELECT * FROM bots WHERE user_id = $1 AND is_active = true AND locked_reason IS NULL',
-        [userId]
-      );
-      
+      // For webhook events: only run the specific bot identified by botId
+      // For other events: run all active bots
+      let botsResult;
+      if (eventType === 'webhook' && eventData.botId) {
+        botsResult = await db.query(
+          'SELECT * FROM bots WHERE user_id = $1 AND id = $2 AND is_active = true AND locked_reason IS NULL',
+          [userId, eventData.botId]
+        );
+      } else {
+        botsResult = await db.query(
+          'SELECT * FROM bots WHERE user_id = $1 AND is_active = true AND locked_reason IS NULL',
+          [userId]
+        );
+      }
+
       if (botsResult.rows.length === 0) {
         return;
       }
@@ -209,6 +218,10 @@ class BotEngine {
       contact._eventData = eventData;
       contact._isGroupMessage = !!eventData.groupId;
       contact._groupId = eventData.groupId || null;
+      // Webhook payload — available as {{webhook.fieldName}} in messages
+      if (eventType === 'webhook' && eventData.payload) {
+        contact._webhookPayload = eventData.payload;
+      }
       
       // Process each active bot
       for (const bot of botsResult.rows) {
@@ -394,8 +407,8 @@ class BotEngine {
   
   // Check if condition type is an event-based condition
   isEventCondition(type) {
-    return ['status_viewed', 'status_reaction', 'status_reply', 'group_join', 'group_leave', 
-            'call_received', 'call_rejected', 'call_accepted', 'poll_vote'].includes(type);
+    return ['status_viewed', 'status_reaction', 'status_reply', 'group_join', 'group_leave',
+            'call_received', 'call_rejected', 'call_accepted', 'poll_vote', 'webhook'].includes(type);
   }
   
   // Check if event matches condition
@@ -3809,8 +3822,15 @@ class BotEngine {
     const mediaUrl = contact._mediaUrl || '';
     const mediaType = contact._mediaType || '';
     
+    // Webhook payload variables: {{webhook.fieldName}}
+    const webhookPayload = contact._webhookPayload || {};
+    let result = text.replace(/\{\{webhook\.([^}]+)\}\}/gi, (_, key) => {
+      const val = webhookPayload[key];
+      return val !== undefined ? String(val) : '';
+    });
+
     // Basic replacements (system variables)
-    let result = text
+    result = result
       .replace(/\{\{name\}\}/gi, contact.display_name || '')
       .replace(/\{\{contact_phone\}\}/gi, contact.phone || '')
       .replace(/\{\{sender_phone\}\}/gi, senderPhone)
