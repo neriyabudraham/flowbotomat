@@ -201,6 +201,7 @@ router.put('/billing/amount/:id', superadminMiddleware, billingController.update
 router.get('/billing/user-history/:userId', billingController.getUserPaymentHistory);
 router.post('/billing/schedule', superadminMiddleware, billingController.scheduleManualCharge);
 router.post('/billing/process-queue', superadminMiddleware, billingController.processBillingQueue);
+router.post('/billing/cancel-subscription/:userId', superadminMiddleware, billingController.cancelSubscription);
 
 // System update notification - can be called without auth (for deploy script)
 // Uses a secret key for authentication

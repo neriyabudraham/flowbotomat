@@ -197,10 +197,78 @@ async function getPaymentHistory({ userId, status, startDate, endDate, search, u
 }
 
 /**
+ * Detect active subscriptions with no billing queue entry and create pending charges for them.
+ * Also resets charges stuck in 'processing' state for more than 10 minutes back to 'failed'.
+ */
+async function detectMissingBillingEntries() {
+  // 1. Fix stuck 'processing' charges (cron crashed mid-run)
+  const stuckResult = await pool.query(`
+    UPDATE billing_queue
+    SET status = 'failed',
+        last_error = 'חיוב נתקע במצב עיבוד - אופס אוטומטי',
+        last_error_code = 'STUCK_PROCESSING',
+        last_attempt_at = NOW(),
+        next_retry_at = CURRENT_DATE,
+        updated_at = NOW()
+    WHERE status = 'processing'
+      AND updated_at < NOW() - INTERVAL '10 minutes'
+    RETURNING id, user_id
+  `);
+  if (stuckResult.rows.length > 0) {
+    console.log(`[BillingQueue] Reset ${stuckResult.rows.length} stuck processing charges to failed`);
+  }
+
+  // 2. Find active paid subscriptions with overdue next_charge_date but no billing queue entry
+  const missingResult = await pool.query(`
+    SELECT us.user_id, us.id as subscription_id, us.plan_id, us.next_charge_date,
+           sp.price as plan_price, sp.name_he as plan_name_he
+    FROM user_subscriptions us
+    JOIN subscription_plans sp ON sp.id = us.plan_id
+    WHERE us.status = 'active'
+      AND sp.price > 0
+      AND us.next_charge_date IS NOT NULL
+      AND us.next_charge_date <= CURRENT_DATE
+      AND NOT EXISTS (
+        SELECT 1 FROM billing_queue bq
+        WHERE bq.user_id = us.user_id
+          AND bq.status IN ('pending', 'processing', 'failed')
+      )
+  `);
+
+  let created = 0;
+  for (const sub of missingResult.rows) {
+    await pool.query(
+      `INSERT INTO billing_queue
+       (user_id, subscription_id, amount, charge_date, billing_type, plan_id, description, currency)
+       VALUES ($1, $2, $3, $4, 'monthly', $5, $6, 'ILS')`,
+      [
+        sub.user_id,
+        sub.subscription_id,
+        sub.plan_price,
+        sub.next_charge_date,
+        sub.plan_id,
+        `מנוי חודשי - ${sub.plan_name_he}`
+      ]
+    );
+    created++;
+    console.log(`[BillingQueue] Created missing billing entry for user ${sub.user_id} (was due ${sub.next_charge_date})`);
+  }
+
+  if (created > 0) {
+    console.log(`[BillingQueue] Created ${created} missing billing queue entries`);
+  }
+
+  return { stuckFixed: stuckResult.rows.length, missingCreated: created };
+}
+
+/**
  * Process all pending charges for today
  */
 async function processQueue() {
   console.log('[BillingQueue] Starting daily queue processing...');
+
+  // First, detect and fix any missing entries or stuck charges
+  await detectMissingBillingEntries();
   
   // Get all pending charges due today or earlier
   const pendingResult = await pool.query(
@@ -536,29 +604,38 @@ async function handleChargeSuccess(charge, chargeResult) {
         }
       }
       
-      // Schedule next charge
+      // Schedule next charge (only if no future pending charge already exists for this user)
       const nextChargeDate = new Date();
       if (isYearly) {
         nextChargeDate.setFullYear(nextChargeDate.getFullYear() + 1);
       } else {
         nextChargeDate.setMonth(nextChargeDate.getMonth() + 1);
       }
-      
-      await client.query(
-        `INSERT INTO billing_queue 
-         (user_id, subscription_id, amount, charge_date, billing_type, plan_id, description, currency)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-          charge.user_id,
-          charge.subscription_id,
-          nextAmount,
-          nextChargeDate.toISOString().split('T')[0],
-          isYearly ? 'yearly' : 'monthly',
-          charge.plan_id,
-          description,
-          charge.currency
-        ]
+
+      const existingNext = await client.query(
+        `SELECT id FROM billing_queue WHERE user_id = $1 AND status = 'pending' AND id != $2 LIMIT 1`,
+        [charge.user_id, charge.id]
       );
+
+      if (existingNext.rows.length === 0) {
+        await client.query(
+          `INSERT INTO billing_queue
+           (user_id, subscription_id, amount, charge_date, billing_type, plan_id, description, currency)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            charge.user_id,
+            charge.subscription_id,
+            nextAmount,
+            nextChargeDate.toISOString().split('T')[0],
+            isYearly ? 'yearly' : 'monthly',
+            charge.plan_id,
+            description,
+            charge.currency
+          ]
+        );
+      } else {
+        console.log(`[BillingQueue] Skipping next charge creation for user ${charge.user_id} - pending charge already exists`);
+      }
     } else if (charge.billing_type === 'status_bot') {
       // Status Bot charge - update service subscription
       await client.query(
@@ -1090,5 +1167,6 @@ module.exports = {
   chargeNow,
   getBillingStats,
   handleChargeSuccess,
-  handleChargeFailure
+  handleChargeFailure,
+  detectMissingBillingEntries
 };

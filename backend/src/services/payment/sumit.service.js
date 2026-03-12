@@ -442,7 +442,7 @@ async function chargeOneTime({ customerId, amount, description, sendEmail = true
         success: true,
         transactionId: response.data.Data?.TransactionID,
         documentNumber: response.data.Data?.DocumentNumber,
-        documentURL: response.data.Data?.DocumentURL,
+        documentURL: response.data.Data?.DocumentDownloadURL || response.data.Data?.DocumentURL,
         data: response.data.Data,
       };
     } else {

@@ -4,7 +4,7 @@ import {
   RefreshCw, Calendar, Search, Filter, DollarSign,
   ChevronLeft, ChevronRight, Loader2, History, Ban, FileText,
   User, MoreVertical, Play, SkipForward, Edit3, Receipt,
-  AlertCircle, TrendingDown, ChevronDown
+  AlertCircle, TrendingDown, ChevronDown, UserX
 } from 'lucide-react';
 import api from '../../services/api';
 import { UnifiedUserModal } from './AdminUsers';
@@ -191,6 +191,14 @@ function ChargeActionsMenu({ charge, onRefresh, onViewUser, loadingUser, onViewH
     onRefresh?.();
   });
 
+  const handleCancelSubscription = () => run(async () => {
+    const reason = prompt(`ביטול מנוי עבור ${charge.display_name || charge.email}\n\nהמשתמש יועבר לתוכנית חינמית והבוטים שלו יינעלו.\n\nסיבה לביטול (אופציונלי):`);
+    if (reason === null) return; // user pressed cancel
+    await api.post(`/admin/billing/cancel-subscription/${charge.user_id}`, { reason });
+    alert('✅ המנוי בוטל בהצלחה');
+    onRefresh?.();
+  });
+
   const menuItems = [
     {
       icon: Play, label: 'חייב עכשיו', color: 'text-green-600 hover:bg-green-50',
@@ -212,6 +220,10 @@ function ChargeActionsMenu({ charge, onRefresh, onViewUser, loadingUser, onViewH
     {
       icon: Ban, label: 'בטל חיוב', color: 'text-red-600 hover:bg-red-50',
       onClick: handleCancel,
+    },
+    {
+      icon: UserX, label: 'בטל מנוי (→ חינמי)', color: 'text-red-700 hover:bg-red-50 font-semibold',
+      onClick: handleCancelSubscription,
     },
   ];
 

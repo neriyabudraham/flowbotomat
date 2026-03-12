@@ -279,7 +279,6 @@ async function skipCharge(req, res) {
     const result = await pool.query(`
       UPDATE billing_queue
       SET charge_date = charge_date + INTERVAL '1 month',
-          notes = COALESCE(notes || ' | ', '') || 'דולג על ידי אדמין ' || NOW()::date,
           updated_at = NOW()
       WHERE id = $1 AND status = 'pending'
       RETURNING *
@@ -386,6 +385,120 @@ async function getUserPaymentHistory(req, res) {
   }
 }
 
+/**
+ * Cancel a user's subscription - downgrade to free plan immediately (admin action)
+ */
+async function cancelSubscription(req, res) {
+  try {
+    const { userId } = req.params;
+    const adminId = req.user.id;
+    const { reason = '' } = req.body;
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Get free plan
+      const freePlanResult = await client.query(
+        `SELECT id, max_bots FROM subscription_plans WHERE price = 0 AND is_active = true ORDER BY max_bots DESC LIMIT 1`
+      );
+      if (!freePlanResult.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'לא נמצאה תוכנית חינמית במערכת' });
+      }
+      const freePlan = freePlanResult.rows[0];
+
+      // Downgrade subscription
+      const subResult = await client.query(
+        `UPDATE user_subscriptions
+         SET plan_id = $1,
+             status = 'cancelled',
+             is_manual = false,
+             expires_at = NULL,
+             next_charge_date = NULL,
+             admin_notes = COALESCE(admin_notes, '') || E'\n[' || NOW()::text || '] בוטל ידנית על ידי אדמין. סיבה: ' || $3,
+             updated_at = NOW()
+         WHERE user_id = $2
+         RETURNING id`,
+        [freePlan.id, userId, reason || 'לא צוינה סיבה']
+      );
+
+      if (!subResult.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'לא נמצא מנוי למשתמש זה' });
+      }
+
+      // Cancel all pending billing queue entries
+      await client.query(
+        `UPDATE billing_queue SET status = 'cancelled', updated_at = NOW()
+         WHERE user_id = $1 AND status IN ('pending', 'failed')`,
+        [userId]
+      );
+
+      // Lock bots exceeding free plan limit
+      const freeBotLimit = freePlan.max_bots || 1;
+      if (freeBotLimit > 0 && freeBotLimit !== -1) {
+        const botsToKeep = await client.query(
+          `SELECT id FROM bots WHERE user_id = $1 AND pending_deletion = false
+           ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST LIMIT $2`,
+          [userId, freeBotLimit]
+        );
+        const keepIds = botsToKeep.rows.map(b => b.id);
+        if (keepIds.length > 0) {
+          await client.query(
+            `UPDATE bots SET is_active = false, locked_reason = 'subscription_cancelled', locked_at = NOW(), updated_at = NOW()
+             WHERE user_id = $1 AND id != ALL($2::uuid[])`,
+            [userId, keepIds]
+          );
+          await client.query(
+            `UPDATE bots SET locked_reason = NULL, locked_at = NULL, updated_at = NOW()
+             WHERE id = ANY($1::uuid[])`,
+            [keepIds]
+          );
+        } else {
+          await client.query(
+            `UPDATE bots SET is_active = false, locked_reason = 'subscription_cancelled', locked_at = NOW(), updated_at = NOW()
+             WHERE user_id = $1`,
+            [userId]
+          );
+        }
+      } else if (freeBotLimit === 0) {
+        await client.query(
+          `UPDATE bots SET is_active = false, locked_reason = 'subscription_cancelled', locked_at = NOW(), updated_at = NOW()
+           WHERE user_id = $1`,
+          [userId]
+        );
+      }
+
+      // Create in-app notification for user
+      await client.query(
+        `INSERT INTO notifications (user_id, notification_type, title, message, metadata)
+         VALUES ($1, 'subscription_cancelled', 'המנוי שלך בוטל', 'המנוי שלך בוטל על ידי מנהל המערכת. החשבון עבר לתוכנית החינמית.', $2)`,
+        [userId, JSON.stringify({ reason, cancelled_by: adminId })]
+      );
+
+      await client.query('COMMIT');
+
+      await pool.query(
+        `INSERT INTO admin_audit_log (admin_id, action, entity_type, entity_id, details)
+         VALUES ($1, 'cancel_subscription', 'user_subscriptions', $2, $3)`,
+        [adminId, subResult.rows[0].id, JSON.stringify({ userId, reason })]
+      );
+
+      console.log(`[AdminBilling] Admin ${adminId} cancelled subscription for user ${userId}`);
+      res.json({ success: true });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('[AdminBilling] Cancel subscription error:', error);
+    res.status(500).json({ error: 'שגיאה בביטול המנוי' });
+  }
+}
+
 module.exports = {
   getUpcomingCharges,
   getFailedCharges,
@@ -399,5 +512,6 @@ module.exports = {
   getUserPaymentHistory,
   scheduleManualCharge,
   getChargeDetails,
-  processBillingQueue
+  processBillingQueue,
+  cancelSubscription
 };
