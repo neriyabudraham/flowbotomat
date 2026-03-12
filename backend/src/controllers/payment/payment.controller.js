@@ -776,16 +776,19 @@ async function deletePaymentMethod(req, res) {
 
           for (const session of sessions.rows) {
             try {
-              if (baseUrl && apiKey && session.waha_instance_name) {
-                await wahaSession.deleteSession(baseUrl, apiKey, session.waha_instance_name);
-              }
+              // Only disconnect the link in DB — do NOT delete or stop the WAHA session
               await db.query(
                 `UPDATE whatsapp_connections SET status = 'disconnected', updated_at = NOW() WHERE id = $1`,
                 [session.id]
               );
-              console.log(`[Payment] Disconnected WAHA session ${session.waha_instance_name} (while_credit mode, no payment method)`);
+              // Disable bots for this user
+              await db.query(
+                `UPDATE bots SET is_active = false, updated_at = NOW() WHERE user_id = $1`,
+                [userId]
+              );
+              console.log(`[Payment] Marked WhatsApp as disconnected in DB for session ${session.waha_instance_name} (while_credit, no payment method)`);
             } catch (err) {
-              console.error(`[Payment] Failed to disconnect WAHA session ${session.waha_instance_name}:`, err.message);
+              console.error(`[Payment] Failed to update DB for session ${session.waha_instance_name}:`, err.message);
             }
           }
           message += ' | חיבורי WhatsApp נותקו (דורש אשראי פעיל)';
