@@ -253,66 +253,37 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
   const mainWebhookUrl = webhookUrl; // e.g., https://botomat.co.il/api/webhook/waha/{userId}
   const intelligenceWebhookUrl = getIntelligenceWebhookUrl(sessionName);
   
-  // Filter out any webhooks that are not the main or intelligence webhook
-  // This removes duplicates and any old/incorrect webhooks
-  const filteredWebhooks = currentWebhooks.filter(wh => {
+  // Remove only stale/old versions of OUR webhooks (botomat.co.il/api/webhook/waha/...)
+  // Keep all third-party webhooks untouched
+  const OUR_WEBHOOK_PATTERN = 'botomat.co.il/api/webhook/waha/';
+  const thirdPartyWebhooks = currentWebhooks.filter(wh => {
     const url = wh.url || '';
-    // Keep only webhooks that match our expected patterns
-    const isMainWebhook = url === mainWebhookUrl;
+    const isOurOldWebhook = url.includes(OUR_WEBHOOK_PATTERN) && url !== mainWebhookUrl;
     const isIntelligenceWebhook = url === intelligenceWebhookUrl;
-    return isMainWebhook || isIntelligenceWebhook;
+    return !isOurOldWebhook && !isIntelligenceWebhook;
   });
-  
-  // Build the final webhooks array with exactly 2 webhooks
-  const finalWebhooks = [];
-  
-  // 1. Main system webhook
-  const existingMain = filteredWebhooks.find(wh => wh.url === mainWebhookUrl);
-  if (existingMain) {
-    // Update events if needed
-    finalWebhooks.push({
-      ...existingMain,
-      events: events,
-    });
-  } else {
-    // Create new main webhook
-    finalWebhooks.push({
-      url: mainWebhookUrl,
-      events: events,
-      retries: {
-        delaySeconds: 2,
-        attempts: 2,
-        policy: 'constant',
-      },
-    });
-  }
-  
-  // 2. Intelligence webhook
-  const existingIntelligence = filteredWebhooks.find(wh => wh.url === intelligenceWebhookUrl);
-  if (existingIntelligence) {
-    // Update events if needed
-    finalWebhooks.push({
-      ...existingIntelligence,
-      events: INTELLIGENCE_WEBHOOK_EVENTS,
-    });
-  } else {
-    // Create new intelligence webhook
-    finalWebhooks.push({
-      url: intelligenceWebhookUrl,
-      events: INTELLIGENCE_WEBHOOK_EVENTS,
-      retries: {
-        delaySeconds: 2,
-        attempts: 2,
-        policy: 'constant',
-      },
-    });
-  }
-  
-  // Log cleanup if we removed webhooks
-  const removedCount = currentWebhooks.length - filteredWebhooks.length;
+
+  const removedCount = currentWebhooks.length - thirdPartyWebhooks.length;
   if (removedCount > 0) {
-    console.log(`[WAHA] 🧹 Cleaned up ${removedCount} duplicate/invalid webhooks`);
+    console.log(`[WAHA] 🧹 Removed ${removedCount} stale botomat webhooks (kept third-party)`);
   }
+
+  // Build final webhooks: third-party first, then our main, then intelligence
+  const finalWebhooks = [...thirdPartyWebhooks];
+
+  // 1. Main system webhook
+  const existingMain = currentWebhooks.find(wh => wh.url === mainWebhookUrl);
+  finalWebhooks.push(existingMain
+    ? { ...existingMain, events }
+    : { url: mainWebhookUrl, events, retries: { delaySeconds: 2, attempts: 2, policy: 'constant' } }
+  );
+
+  // 2. Intelligence webhook
+  const existingIntelligence = currentWebhooks.find(wh => wh.url === intelligenceWebhookUrl);
+  finalWebhooks.push(existingIntelligence
+    ? { ...existingIntelligence, events: INTELLIGENCE_WEBHOOK_EVENTS }
+    : { url: intelligenceWebhookUrl, events: INTELLIGENCE_WEBHOOK_EVENTS, retries: { delaySeconds: 2, attempts: 2, policy: 'constant' } }
+  );
   
   // Update session - keep ALL existing config, update webhooks, ensure status/groups/channels/broadcast enabled
   const response = await client.put(`/api/sessions/${sessionName}`, {
