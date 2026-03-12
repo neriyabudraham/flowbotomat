@@ -191,7 +191,6 @@ async function savePaymentMethod(req, res) {
     console.log(`[Payment] Successfully saved payment method for user ${userId}`);
     
     // Auto-create trial subscription if user doesn't have a paid subscription
-    const TRIAL_DAYS = 14;
     const FREE_PLAN_ID = '00000000-0000-0000-0000-000000000001';
     
     const subCheck = await db.query(
@@ -233,44 +232,54 @@ async function savePaymentMethod(req, res) {
     
     if (shouldCreateTrial) {
       console.log(`[Payment] Auto-creating trial subscription for user ${userId} (current: ${existingSub?.status || 'none'}, plan: ${existingSub?.plan_id || 'none'})`);
-      
-      const trialEndsAt = new Date();
-      trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
-      
+
       // Check for custom discount plan first
       let planId = null;
       const customDiscountCheck = await db.query(
         `SELECT custom_discount_plan_id FROM user_subscriptions WHERE user_id = $1`,
         [userId]
       );
-      
+
       if (customDiscountCheck.rows.length > 0 && customDiscountCheck.rows[0].custom_discount_plan_id) {
         planId = customDiscountCheck.rows[0].custom_discount_plan_id;
         console.log(`[Payment] Using custom discount plan: ${planId}`);
       }
-      
-      // Otherwise get the cheapest paid plan with allow_waha_creation
+
+      // Otherwise get the cheapest paid plan with trial_days > 0
       if (!planId) {
         const planResult = await db.query(
-          `SELECT id FROM subscription_plans 
-           WHERE is_active = true AND price > 0 AND allow_waha_creation = true 
+          `SELECT id FROM subscription_plans
+           WHERE is_active = true AND price > 0 AND trial_days > 0
            ORDER BY price ASC LIMIT 1`
         );
-        
         if (planResult.rows.length > 0) {
           planId = planResult.rows[0].id;
         }
       }
-      
+
+      if (!planId) {
+        console.log(`[Payment] No plan with trial_days > 0 found, skipping auto-trial for user ${userId}`);
+        subscriptionCreated = false;
+      }
+
       if (planId) {
         const paymentMethodId = result.rows[0].id;
-        
-        // Get plan price for standing order
+
+        // Get plan details including trial_days
         const planPriceResult = await db.query(
-          `SELECT price, name_he FROM subscription_plans WHERE id = $1`,
+          `SELECT price, name_he, trial_days FROM subscription_plans WHERE id = $1`,
           [planId]
         );
-        
+
+        const planTrialDays = parseInt(planPriceResult.rows[0]?.trial_days || 0);
+
+        if (planTrialDays === 0) {
+          console.log(`[Payment] Plan ${planId} has trial_days=0, skipping auto-trial for user ${userId}`);
+          subscriptionCreated = false;
+        } else {
+        const trialEndsAt = new Date();
+        trialEndsAt.setDate(trialEndsAt.getDate() + planTrialDays);
+
         let standingOrderId = null;
         let chargeAmount = parseFloat(planPriceResult.rows[0]?.price || 0);
         const planNameHe = planPriceResult.rows[0]?.name_he || 'מנוי';
@@ -357,6 +366,7 @@ async function savePaymentMethod(req, res) {
         
         subscriptionCreated = true;
         console.log(`[Payment] ✅ Trial subscription created, ends at: ${trialEndsAt.toISOString()}, charge scheduled in billing queue`);
+        } // close else (planTrialDays > 0)
       }
     } else {
       // User already has a subscription, just update the payment method

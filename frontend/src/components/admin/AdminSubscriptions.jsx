@@ -580,6 +580,7 @@ function PlanEditModal({ plan, onSave, onClose }) {
     max_group_forwards: plan.max_group_forwards ?? 0,
     max_forward_targets: plan.max_forward_targets ?? 0,
     allow_broadcasts: plan.allow_broadcasts || false,
+    trial_days: plan.trial_days ?? 0,
     is_active: plan.is_active ?? true,
     sort_order: plan.sort_order || 0,
   });
@@ -811,6 +812,24 @@ function PlanEditModal({ plan, onSave, onClose }) {
               />
               <span className="text-sm text-gray-700 dark:text-gray-300">אפשר שליחת הודעות תפוצה</span>
             </label>
+          </div>
+
+          {/* Trial Period */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                ימי ניסיון (0 = ללא ניסיון)
+              </label>
+              <input
+                type="number"
+                value={form.trial_days}
+                onChange={e => setForm({...form, trial_days: parseInt(e.target.value) || 0})}
+                className="w-24 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                min="0"
+                max="90"
+              />
+              <p className="text-xs text-gray-500 mt-1">מספר ימי ניסיון חינם לתוכנית זו. 0 = אין תקופת ניסיון</p>
+            </div>
           </div>
 
           {/* Display Order */}

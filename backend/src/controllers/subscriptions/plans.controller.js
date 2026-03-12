@@ -57,7 +57,7 @@ async function createPlan(req, res) {
       allow_statistics, allow_waha_creation, allow_export,
       allow_api_access, priority_support, sort_order,
       allow_group_forwards, max_group_forwards, max_forward_targets, allow_broadcasts,
-      waha_credit_requirement
+      waha_credit_requirement, trial_days
     } = req.body;
 
     // Derive allow_waha_creation from waha_credit_requirement if provided
@@ -72,8 +72,8 @@ async function createPlan(req, res) {
         allow_statistics, allow_waha_creation, allow_export,
         allow_api_access, priority_support, sort_order,
         allow_group_forwards, max_group_forwards, max_forward_targets, allow_broadcasts,
-        waha_credit_requirement
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+        waha_credit_requirement, trial_days
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
       RETURNING *
     `, [
       name, name_he, description, description_he,
@@ -82,7 +82,7 @@ async function createPlan(req, res) {
       allow_statistics || false, wahaAllowed, allow_export || false,
       allow_api_access || false, priority_support || false, sort_order || 0,
       allow_group_forwards || false, max_group_forwards || 0, max_forward_targets || 0, allow_broadcasts || false,
-      wahaReq
+      wahaReq, trial_days || 0
     ]);
     
     res.json({ plan: result.rows[0] });
@@ -116,7 +116,7 @@ async function updatePlan(req, res) {
       'allow_statistics', 'allow_waha_creation', 'allow_export',
       'allow_api_access', 'priority_support', 'is_active', 'sort_order',
       'allow_group_forwards', 'max_group_forwards', 'max_forward_targets', 'allow_broadcasts',
-      'waha_credit_requirement'
+      'waha_credit_requirement', 'trial_days'
     ];
 
     // Auto-derive allow_waha_creation from waha_credit_requirement
