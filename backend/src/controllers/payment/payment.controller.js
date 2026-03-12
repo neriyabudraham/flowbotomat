@@ -742,9 +742,26 @@ async function deletePaymentMethod(req, res) {
     }
 
     // If user is on a free plan with while_credit and removed last payment method,
-    // disconnect WAHA — but only if there's no active paid plan still running
-    const whileCreditFreePlan = freeSubs.find(s => s.waha_credit_requirement === 'while_credit');
-    if (!hasRemainingMethods && whileCreditFreePlan && paidSubs.length === 0) {
+    // disconnect WAHA — but only if there's no active paid plan still running.
+    // Also covers users with no subscription row (default free plan).
+    let shouldDisconnectWaha = false;
+    if (!hasRemainingMethods && paidSubs.length === 0) {
+      // Check subscription row first
+      const whileCreditFreePlan = freeSubs.find(s => s.waha_credit_requirement === 'while_credit');
+      if (whileCreditFreePlan) {
+        shouldDisconnectWaha = true;
+      } else if (subCheck.rows.length === 0) {
+        // No subscription row at all — check the free plan directly
+        const freePlanResult = await db.query(
+          `SELECT waha_credit_requirement FROM subscription_plans
+           WHERE price = 0 AND is_active = true LIMIT 1`
+        );
+        if (freePlanResult.rows[0]?.waha_credit_requirement === 'while_credit') {
+          shouldDisconnectWaha = true;
+        }
+      }
+    }
+    if (shouldDisconnectWaha) {
       try {
         const sessions = await db.query(
           `SELECT id, waha_instance_name FROM whatsapp_connections
