@@ -805,7 +805,17 @@ async function sendToRecipient(userId, connection, recipient, messages, campaign
           break;
         default: // text
           if (content) {
-            result = await wahaService.sendMessage(connection, chatId, content);
+            let mentions = [];
+            if (/@כולם/.test(content) && chatId.includes('@g.us')) {
+              try {
+                const participants = await wahaService.getGroupParticipants(connection, chatId);
+                mentions = (participants || []).map(p => p.PhoneNumber || p.id || p).filter(Boolean);
+                console.log(`[Broadcast Sender] sendToRecipient mentionAll: ${mentions.length} participants in ${chatId}`);
+              } catch (e) {
+                console.warn('[Broadcast Sender] sendToRecipient: Could not fetch participants:', e.message);
+              }
+            }
+            result = await wahaService.sendMessage(connection, chatId, content, mentions.length ? mentions : undefined);
           }
           break;
       }
