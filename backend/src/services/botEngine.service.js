@@ -3035,14 +3035,14 @@ class BotEngine {
       if (action.headers && Array.isArray(action.headers)) {
         for (const h of action.headers) {
           if (h.key) {
-            headers[h.key] = this.replaceVariables(h.value || '', contact, message, '');
+            headers[h.key] = await this.replaceAllVariables(h.value || '', contact, message, '');
           }
         }
       }
       if (!headers['Content-Type'] && ['POST', 'PUT', 'PATCH'].includes(action.method)) {
         headers['Content-Type'] = 'application/json';
       }
-      
+
       // Build body with variable replacement
       let body = undefined;
       if (['POST', 'PUT', 'PATCH'].includes(action.method)) {
@@ -3051,19 +3051,19 @@ class BotEngine {
           body = {};
           for (const param of action.bodyParams) {
             if (param.key) {
-              body[param.key] = this.replaceVariables(param.value || '', contact, message, '');
+              body[param.key] = await this.replaceAllVariables(param.value || '', contact, message, '');
             }
           }
         } else if (action.body) {
           // Replace variables in the body string
-          const bodyStr = this.replaceVariables(action.body, contact, message, '');
+          const bodyStr = await this.replaceAllVariables(action.body, contact, message, '');
           try {
             body = JSON.parse(bodyStr);
           } catch (parseErr) {
             // JSON parse failed - might be because replaced content has special chars
             // Try to fix by properly escaping the replaced values
             console.log('[BotEngine] JSON parse failed, trying with escaped values');
-            
+
             // Alternative approach: replace variables directly in parsed JSON
             try {
               const originalBody = JSON.parse(action.body);
@@ -3076,8 +3076,8 @@ class BotEngine {
           }
         }
       }
-      
-      const url = this.replaceVariables(action.apiUrl, contact, message, '');
+
+      const url = await this.replaceAllVariables(action.apiUrl, contact, message, '');
       console.log('[BotEngine] HTTP Request:', action.method, url);
       if (body) {
         console.log('[BotEngine] HTTP Body:', JSON.stringify(body, null, 2));
