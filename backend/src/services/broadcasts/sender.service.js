@@ -500,15 +500,18 @@ async function startCampaignSending(campaignId, userId) {
                 if (content) {
                   let mentions = [];
                   const hasMentionAll = mentionAllGroups || /@כולם/.test(content);
+                  console.log(`[Broadcast Sender] text msg to ${chatId} | hasMentionAll=${hasMentionAll} | mentionAllGroups=${mentionAllGroups} | @כולם in text=${/@כולם/.test(content)} | isGroup=${chatId.includes('@g.us')}`);
                   if (hasMentionAll && chatId.includes('@g.us')) {
                     try {
                       const participants = await wahaService.getGroupParticipants(connection, chatId);
+                      console.log(`[Broadcast Sender] raw participants:`, JSON.stringify(participants).substring(0, 300));
                       mentions = (participants || []).map(p => p.PhoneNumber || p.id || p).filter(Boolean);
-                      console.log(`[Broadcast Sender] mentionAll: tagging ${mentions.length} participants in ${chatId}`);
+                      console.log(`[Broadcast Sender] mentionAll: tagging ${mentions.length} participants:`, mentions);
                     } catch (e) {
                       console.warn('[Broadcast Sender] Could not fetch group participants:', e.message);
                     }
                   }
+                  console.log(`[Broadcast Sender] sending with mentions=${mentions.length > 0 ? JSON.stringify(mentions) : 'none'}`);
                   result = await wahaService.sendMessage(connection, chatId, content, mentions.length ? mentions : undefined);
                 }
                 break;
