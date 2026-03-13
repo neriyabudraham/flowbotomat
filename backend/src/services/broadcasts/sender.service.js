@@ -503,7 +503,7 @@ async function startCampaignSending(campaignId, userId) {
                   if (hasMentionAll && chatId.includes('@g.us')) {
                     try {
                       const participants = await wahaService.getGroupParticipants(connection, chatId);
-                      mentions = (participants || []).map(p => p.id || p).filter(Boolean);
+                      mentions = (participants || []).map(p => p.PhoneNumber || p.id || p).filter(Boolean);
                       console.log(`[Broadcast Sender] mentionAll: tagging ${mentions.length} participants in ${chatId}`);
                     } catch (e) {
                       console.warn('[Broadcast Sender] Could not fetch group participants:', e.message);

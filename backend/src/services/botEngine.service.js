@@ -1706,7 +1706,7 @@ class BotEngine {
               if (hasMentionAll && contact.phone.includes('@g.us')) {
                 try {
                   const participants = await wahaService.getGroupParticipants(connection, contact.phone);
-                  mentions = (participants || []).map(p => p.id || p).filter(Boolean);
+                  mentions = (participants || []).map(p => p.PhoneNumber || p.id || p).filter(Boolean);
                   console.log(`[BotEngine] mentionAll: tagging ${mentions.length} participants`);
                 } catch (e) {
                   console.warn('[BotEngine] mentionAll: failed to get participants:', e.message);
