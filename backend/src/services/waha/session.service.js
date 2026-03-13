@@ -927,14 +927,18 @@ async function sendPoll(connection, chatId, pollName, options, multipleAnswers =
  */
 async function getGroupParticipants(connection, groupId) {
   const client = createClient(connection.base_url, connection.api_key);
-  
+
   try {
     const response = await client.get(`/api/${connection.session_name}/groups/${groupId}/participants`);
-    return response.data;
+    const data = response.data;
+    console.log(`[WAHA] getGroupParticipants(${groupId}) raw:`, JSON.stringify(data).substring(0, 200));
+    return data;
   } catch (error) {
     // Try v2 endpoint
     const response = await client.get(`/api/${connection.session_name}/groups/${groupId}/participants/v2`);
-    return response.data;
+    const data = response.data;
+    console.log(`[WAHA] getGroupParticipants v2(${groupId}) raw:`, JSON.stringify(data).substring(0, 200));
+    return data;
   }
 }
 

@@ -499,10 +499,12 @@ async function startCampaignSending(campaignId, userId) {
               default: // text
                 if (content) {
                   let mentions = [];
-                  if (mentionAllGroups && chatId.includes('@g.us')) {
+                  const hasMentionAll = mentionAllGroups || /@כולם/.test(content);
+                  if (hasMentionAll && chatId.includes('@g.us')) {
                     try {
                       const participants = await wahaService.getGroupParticipants(connection, chatId);
-                      mentions = participants.map(p => p.id || p);
+                      mentions = (participants || []).map(p => p.id || p).filter(Boolean);
+                      console.log(`[Broadcast Sender] mentionAll: tagging ${mentions.length} participants in ${chatId}`);
                     } catch (e) {
                       console.warn('[Broadcast Sender] Could not fetch group participants:', e.message);
                     }
