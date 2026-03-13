@@ -700,7 +700,17 @@ async function startForwardJob(jobId) {
               : job.message_text;
             
             if (job.message_type === 'text') {
-              const result = await wahaService.sendMessage(wahaConnection, message.group_id, textWithSuffix);
+              let mentions;
+              if (/@כולם/.test(textWithSuffix) && message.group_id.includes('@g.us')) {
+                try {
+                  const participants = await wahaService.getGroupParticipants(wahaConnection, message.group_id);
+                  mentions = (participants || []).map(p => p.PhoneNumber || p.id || p).filter(Boolean);
+                  console.log(`[GroupForwards] mentionAll: tagging ${mentions.length} participants in ${message.group_id}`);
+                } catch (e) {
+                  console.warn('[GroupForwards] mentionAll: Could not fetch participants:', e.message);
+                }
+              }
+              const result = await wahaService.sendMessage(wahaConnection, message.group_id, textWithSuffix, mentions);
               messageId = result?.id;
             } else if (job.message_type === 'image') {
               const result = await wahaService.sendImage(wahaConnection, message.group_id, job.media_url, textWithSuffix);
