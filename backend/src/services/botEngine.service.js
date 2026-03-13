@@ -4136,8 +4136,12 @@ class BotEngine {
       if (!expression || !outputVar) continue;
 
       try {
-        // Replace {{variables}} in the expression
-        const resolvedExpr = this.replaceVariables(expression, contact, message, '', userId);
+        // Replace {{variables}} with JSON.stringify'd values so they're valid JS string literals
+        // (raw substitution breaks when values contain newlines, quotes, etc.)
+        const resolvedExpr = expression.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
+          const raw = this.replaceVariables(match, contact, message, '', userId);
+          return JSON.stringify(raw);
+        });
 
         // Evaluate the expression safely
         const result = this._evalFormula(resolvedExpr);
