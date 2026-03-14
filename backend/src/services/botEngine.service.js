@@ -429,7 +429,7 @@ class BotEngine {
   // Check if condition type is an event-based condition
   isEventCondition(type) {
     return ['status_viewed', 'status_reaction', 'status_reply', 'group_join', 'group_leave',
-            'call_received', 'call_rejected', 'call_accepted', 'poll_vote', 'webhook'].includes(type);
+            'call_received', 'call_rejected', 'call_accepted', 'poll_vote', 'webhook', 'message_revoked'].includes(type);
   }
   
   // Check if event matches condition
@@ -528,7 +528,8 @@ class BotEngine {
       'call_received': eventData.isVideo ? 'שיחת וידאו נכנסת' : 'שיחה נכנסת',
       'call_rejected': 'שיחה שנדחתה',
       'call_accepted': 'שיחה שנענתה',
-      'poll_vote': `ענה על סקר: ${(eventData.selectedOptions || []).join(', ')}`
+      'poll_vote': `ענה על סקר: ${(eventData.selectedOptions || []).join(', ')}`,
+      'message_revoked': eventData.originalMessage || 'הודעה נמחקה'
     };
     return descriptions[eventType] || eventType;
   }

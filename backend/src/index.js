@@ -166,7 +166,6 @@ cron.schedule('*/30 * * * * *', async () => {
     
     if (result.rows.length === 0) return;
     
-    console.log(`[SessionTimeout] Found ${result.rows.length} expired session(s)`);
     const botEngine = new BotEngine();
     
     for (const session of result.rows) {

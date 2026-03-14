@@ -1811,7 +1811,6 @@ async function handleGroupParticipants(userId, event) {
       
       // Last resort: skip if still no phone
       if (!phone) {
-        console.log(`[Webhook] Group ${eventType}: could not resolve phone for participant ${participant.id}, skipping`);
         continue;
       }
       
@@ -1964,7 +1963,6 @@ async function handlePollVote(userId, event) {
     const selectedOptions = payload._data?.Votes || payload.vote?.selectedOptions || [];
     const groupId = payload._data?.Info?.Chat || payload.poll?.to;
     
-    console.log(`[Webhook] Poll vote from ${voterPhone} in ${groupId}: ${selectedOptions.join(', ')}`);
     
     await botEngine.processEvent(userId, voterPhone, 'poll_vote', {
       groupId,
@@ -1992,7 +1990,6 @@ async function handleMessageRevoked(userId, event) {
   try {
     const payload = event.payload || {};
 
-    console.log('[Webhook] message.revoked raw payload:', JSON.stringify(payload, null, 2).substring(0, 1000));
 
     let revokedMessageId = null;
     let shortMessageId = null;
@@ -2028,18 +2025,37 @@ async function handleMessageRevoked(userId, event) {
       if (raw) revokerPhone = raw.includes('@') ? raw.split('@')[0] : raw;
     }
 
-    console.log(`[Webhook] message.revoked parsed: id=${revokedMessageId} shortId=${shortMessageId} chatId=${revokedChatId} revoker=${revokerPhone}`);
 
     if (!revokedMessageId) {
       console.log('[Webhook] message.revoked: could not extract message ID from payload');
       return;
     }
 
+    // Fire message_revoked bot trigger — look up original message content from DB
+    const revokerOrSender = revokerPhone || (after._data?.Info?.Sender || '').split('@')[0] || null;
+    if (revokerOrSender) {
+      try {
+        const msgRes = await db.query(
+          `SELECT content FROM messages WHERE wa_message_id LIKE $1 OR wa_message_id = $2 LIMIT 1`,
+          [`%${shortMessageId}%`, revokedMessageId]
+        );
+        const originalContent = msgRes.rows[0]?.content || null;
+        if (originalContent) {
+          await botEngine.processEvent(userId, revokerOrSender, 'message_revoked', {
+            groupId: revokedChatId,
+            revokedMessageId,
+            originalMessage: originalContent,
+          });
+        }
+      } catch (e) {
+        // non-critical
+      }
+    }
+
     // Only cascade if the revoked message is from a group
     const isGroupMessage = revokedChatId?.includes('@g.us');
 
     if (!isGroupMessage) {
-      console.log(`[Webhook] message.revoked: not a group message (chatId=${revokedChatId}), skipping`);
       return;
     }
 
@@ -2048,12 +2064,10 @@ async function handleMessageRevoked(userId, event) {
 
     if (revokerPhone) {
       const revokerIsAdmin = await broadcastAdminService.isAdminForAnyForward(userId, revokerPhone);
-      console.log(`[Webhook] message.revoked: revoker ${revokerPhone} isAdmin=${revokerIsAdmin}`);
       if (!revokerIsAdmin) {
-        return; // Not an admin for any forward - do nothing
+        return;
       }
     } else {
-      console.log('[Webhook] message.revoked: could not determine revoker phone, skipping');
       return;
     }
 

@@ -29,6 +29,7 @@ const triggerTypes = [
   { id: 'call_rejected', label: 'שיחה שנדחתה / לא נענתה', icon: '📵', hasCallType: true, category: 'call' },
   { id: 'call_accepted', label: 'שיחה שנענתה', icon: '✅', hasCallType: true, category: 'call' },
   { id: 'poll_vote', label: 'מענה על סקר', icon: '📊', hasValue: true, hasOperator: true, category: 'group' },
+  { id: 'message_revoked', label: 'הודעה נמחקה', icon: '🗑️', category: 'message' },
   { id: 'webhook', label: 'Webhook חיצוני', icon: '🔗', category: 'webhook' },
 ];
 

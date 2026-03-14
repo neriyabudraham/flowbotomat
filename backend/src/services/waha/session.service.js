@@ -1451,7 +1451,6 @@ async function resolveLid(connection, lid) {
       return data.phone.replace('@s.whatsapp.net', '').replace('@c.us', '');
     }
     
-    console.log(`[WAHA] LID ${lid} resolved but no phone in response:`, JSON.stringify(data));
     return null;
   } catch (error) {
     console.log(`[WAHA] Failed to resolve LID ${lid}:`, error.message);
