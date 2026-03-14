@@ -82,12 +82,13 @@ async function changePassword(req, res) {
     const hasPassword = !!userRes.rows[0].password_hash;
     const isGoogleUser = !!userRes.rows[0].google_id;
     
-    // If user has a password, they must provide the current one
-    if (hasPassword) {
+    // If user has a password, they must provide the current one (unless admin is changing it)
+    const isAdminOverride = req.user.viewingAs && req.user.accessType === 'admin';
+    if (hasPassword && !isAdminOverride) {
       if (!currentPassword) {
         return res.status(400).json({ error: 'נדרשת סיסמה נוכחית' });
       }
-      
+
       const isValid = await comparePassword(currentPassword, userRes.rows[0].password_hash);
       if (!isValid) {
         return res.status(400).json({ error: 'סיסמה נוכחית שגויה' });

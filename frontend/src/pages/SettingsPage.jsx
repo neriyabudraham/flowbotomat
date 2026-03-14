@@ -1177,7 +1177,7 @@ export default function SettingsPage() {
 
             {/* Security Tab */}
             {activeTab === 'security' && (
-              viewingAs ? (
+              (viewingAs && !isAdmin) ? (
                 <div className="bg-orange-50 border border-orange-200 rounded-2xl p-6 text-center">
                   <div className="w-14 h-14 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
                     <Shield className="w-7 h-7 text-orange-600" />
@@ -1204,6 +1204,7 @@ export default function SettingsPage() {
                     </p>
                   </div>
                   
+                  {!(isAdmin && viewingAs) && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       סיסמה נוכחית
@@ -1225,6 +1226,7 @@ export default function SettingsPage() {
                       </button>
                     </div>
                   </div>
+                  )}
                   
                   <div className="grid md:grid-cols-2 gap-5">
                     <div>
@@ -1293,7 +1295,7 @@ export default function SettingsPage() {
                   <div className="pt-4">
                     <button
                       type="submit"
-                      disabled={isLoading || !passwords.current || !passwords.new || !passwords.confirm}
+                      disabled={isLoading || (!(isAdmin && viewingAs) && !passwords.current) || !passwords.new || !passwords.confirm}
                       className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Lock className="w-5 h-5" />
@@ -1308,7 +1310,7 @@ export default function SettingsPage() {
             {/* Experts Tab */}
             {activeTab === 'experts' && (
               <div className="space-y-6">
-                {viewingAs ? (
+                {(viewingAs && !isAdmin) ? (
                   <div className="bg-orange-50 border border-orange-200 rounded-2xl p-6 text-center">
                     <div className="w-14 h-14 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
                       <Shield className="w-7 h-7 text-orange-600" />
