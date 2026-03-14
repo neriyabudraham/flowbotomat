@@ -5,9 +5,6 @@ WORKDIR /app
 # Install PostgreSQL client for pg_dump backups and ffmpeg for video processing
 RUN apk add --no-cache postgresql-client ffmpeg
 
-# Install nodemon globally
-RUN npm install -g nodemon
-
 # Install dependencies
 COPY package*.json ./
 RUN npm install && npm install googleapis
@@ -19,4 +16,4 @@ COPY . .
 EXPOSE 4000
 
 # Start command
-CMD ["npm", "run", "dev"]
+CMD ["npm", "run", "start"]
