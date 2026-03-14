@@ -3055,22 +3055,18 @@ class BotEngine {
             }
           }
         } else if (action.body) {
-          // Replace variables in the body string
-          const bodyStr = await this.replaceAllVariables(action.body, contact, message, '');
+          // Best approach: parse JSON first, then replace variables in each string value
+          // This avoids issues where variable values contain quotes/newlines that break JSON
           try {
-            body = JSON.parse(bodyStr);
-          } catch (parseErr) {
-            // JSON parse failed - might be because replaced content has special chars
-            // Try to fix by properly escaping the replaced values
-            console.log('[BotEngine] JSON parse failed, trying with escaped values');
-
-            // Alternative approach: replace variables directly in parsed JSON
+            const originalBody = JSON.parse(action.body);
+            body = await this.replaceAllVariablesInObject(originalBody, contact, message, '');
+          } catch {
+            // Fallback: replace variables in raw string then parse
+            const bodyStr = await this.replaceAllVariables(action.body, contact, message, '');
             try {
-              const originalBody = JSON.parse(action.body);
-              body = this.replaceVariablesInObject(originalBody, contact, message, '');
+              body = JSON.parse(bodyStr);
             } catch {
-              // Last resort: send as string
-              console.log('[BotEngine] ⚠️ Could not parse body as JSON, sending replaced string as-is');
+              console.log('[BotEngine] ⚠️ Could not parse body as JSON, sending as-is');
               body = bodyStr;
             }
           }
@@ -3957,6 +3953,21 @@ class BotEngine {
     return obj;
   }
   
+  // Async version of replaceVariablesInObject — replaces variables in all string values
+  async replaceAllVariablesInObject(obj, contact, message, botName = '', userId = null) {
+    if (obj === null || obj === undefined) return obj;
+    if (typeof obj === 'string') return this.replaceAllVariables(obj, contact, message, botName, userId);
+    if (Array.isArray(obj)) return Promise.all(obj.map(item => this.replaceAllVariablesInObject(item, contact, message, botName, userId)));
+    if (typeof obj === 'object') {
+      const result = {};
+      for (const key of Object.keys(obj)) {
+        result[key] = await this.replaceAllVariablesInObject(obj[key], contact, message, botName, userId);
+      }
+      return result;
+    }
+    return obj;
+  }
+
   // Replace variables including user-defined and custom system variables
   async replaceAllVariables(text, contact, message, botName = '', userId = null) {
     if (!text) return '';
