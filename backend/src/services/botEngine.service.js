@@ -3964,7 +3964,15 @@ class BotEngine {
     // First do basic replacements
     let result = this.replaceVariables(text, contact, message, botName, userId);
     
-    // Get contact variables
+    // Apply in-memory contact variables first (set by formula/set_variable nodes in this run)
+    if (contact.variables && typeof contact.variables === 'object') {
+      for (const [key, value] of Object.entries(contact.variables)) {
+        const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'gi');
+        result = result.replace(regex, value ?? '');
+      }
+    }
+
+    // Get contact variables from DB (covers variables set in previous runs)
     if (contact.id) {
       try {
         const contactVarsRes = await db.query(
