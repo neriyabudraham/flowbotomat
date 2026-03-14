@@ -3926,7 +3926,16 @@ class BotEngine {
       d.setDate(d.getDate() + parseInt(offset));
       return days[d.getDay()];
     });
-    
+
+    // Apply in-memory contact variables (set by formula/set_variable nodes in this flow run)
+    // This ensures user-defined variables work everywhere, not just in replaceAllVariables
+    if (contact.variables && typeof contact.variables === 'object') {
+      for (const [key, value] of Object.entries(contact.variables)) {
+        const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'gi');
+        result = result.replace(regex, value ?? '');
+      }
+    }
+
     return result;
   }
   
