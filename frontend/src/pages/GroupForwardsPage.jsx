@@ -220,8 +220,8 @@ export default function GroupForwardsPage() {
   }
 
   const activeForwards = forwards.filter(f => f.is_active).length;
-  const totalTargets = forwards.reduce((sum, f) => sum + (f.target_count || 0), 0);
-  const totalSent = forwards.reduce((sum, f) => sum + (f.total_forwards || 0), 0);
+  const totalTargets = forwards.reduce((sum, f) => sum + (parseInt(f.target_count) || 0), 0);
+  const totalSent = forwards.reduce((sum, f) => sum + (parseInt(f.total_forwards) || 0), 0);
 
   // Show loading while checking feature access
   if (limitLoading) {
