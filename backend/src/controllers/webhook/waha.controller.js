@@ -813,10 +813,10 @@ async function handleIncomingMessage(userId, event) {
      VALUES ($1, $2, $3, 'incoming', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      RETURNING *`,
     [userId, contact.id, payload.id, messageData.type, messageData.content,
-     messageData.mediaUrl, messageData.mimeType, messageData.filename,
+     messageData.mediaUrl, messageData.mimeType?.substring(0, 200) || null, messageData.filename?.substring(0, 500) || null,
      messageData.latitude, messageData.longitude, new Date(payload.timestamp * 1000),
      isGroupMessage ? (senderPhone || '').substring(0, 50) || null : null,
-     isGroupMessage ? (senderName || '').substring(0, 50) || null : null,
+     isGroupMessage ? (senderName || '').substring(0, 255) || null : null,
      msgMetadata]
   );
   

@@ -319,6 +319,8 @@ server.listen(PORT, () => {
       await dbQuery(`ALTER TABLE status_bot_statuses ADD COLUMN IF NOT EXISTS uncertain_upload BOOLEAN DEFAULT false`);
       // Chat archive sync
       await dbQuery(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false`);
+      // Expand media_mime_type from VARCHAR(50) to VARCHAR(200) to support long MIME strings
+      await dbQuery(`ALTER TABLE messages ALTER COLUMN media_mime_type TYPE VARCHAR(200)`);
       console.log('[Startup] ✅ Migrations applied successfully');
     } catch (err) {
       console.error('[Startup] Migration error:', err.message);
