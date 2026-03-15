@@ -41,21 +41,18 @@ async function listContacts(req, res) {
     }
     
     let query = `
-      SELECT c.*, 
-             (SELECT COUNT(*) FROM messages m WHERE m.contact_id = c.id) as message_count,
-             (SELECT content FROM messages m WHERE m.contact_id = c.id ORDER BY sent_at DESC LIMIT 1) as last_message,
+      SELECT c.*,
+             c.last_message_at as actual_last_message_at,
              COALESCE(
-               (SELECT MAX(sent_at) FROM messages m WHERE m.contact_id = c.id),
-               c.last_message_at
-             ) as actual_last_message_at,
-             COALESCE(
-               (SELECT array_agg(t.name) FROM contact_tags t 
-                JOIN contact_tag_assignments cta ON t.id = cta.tag_id 
-                WHERE cta.contact_id = c.id), 
-               ARRAY[]::text[]
-             ) as tags,
-             (SELECT value FROM contact_variables cv WHERE cv.contact_id = c.id AND cv.key = 'full_name' LIMIT 1) as full_name
+               c.last_message,
+               (SELECT content FROM messages m WHERE m.contact_id = c.id ORDER BY sent_at DESC LIMIT 1)
+             ) as last_message,
+             fn.value as full_name
       FROM contacts c
+      LEFT JOIN LATERAL (
+        SELECT value FROM contact_variables cv
+        WHERE cv.contact_id = c.id AND cv.key = 'full_name' LIMIT 1
+      ) fn ON true
       WHERE c.user_id = $1
     `;
     const params = [userId];
@@ -111,7 +108,7 @@ async function listContacts(req, res) {
       countParams.push(tag);
     }
     
-    query += ` ORDER BY COALESCE((SELECT MAX(sent_at) FROM messages m WHERE m.contact_id = c.id), c.last_message_at) DESC NULLS LAST LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    query += ` ORDER BY c.last_message_at DESC NULLS LAST LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     params.push(parseInt(limit), offset);
     
     const [result, countResult] = await Promise.all([

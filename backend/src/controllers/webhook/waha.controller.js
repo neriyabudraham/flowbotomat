@@ -803,12 +803,12 @@ async function handleIncomingMessage(userId, event) {
      isGroupMessage ? (senderName || '').substring(0, 50) || null : null]
   );
   
-  // Update contact's last message time
+  // Update contact's last message time and preview
   await pool.query(
-    `UPDATE contacts SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1`,
-    [contact.id]
+    `UPDATE contacts SET last_message_at = NOW(), last_message = $1, updated_at = NOW() WHERE id = $2`,
+    [messageData.content?.substring(0, 100) || '', contact.id]
   );
-  
+
   // Emit to frontend via Socket.io
   const socketManager = getSocketManager();
   socketManager.emitToUser(userId, 'new_message', {

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import { Search, Users, MessageSquare, Bot, Activity, Trash2, Download, X, CheckSquare, Square, MoreHorizontal, Loader2, UsersRound, UserX, MessageCircle } from 'lucide-react';
 import ContactItem from '../molecules/ContactItem';
 import DeleteContactModal from '../contacts/DeleteContactModal';
@@ -52,24 +52,18 @@ export default function ContactsList({
     }
   }, [hasMoreContacts, loadingMoreContacts, onLoadMore]);
 
-  const filteredContacts = contacts.filter(c => {
-    // First apply type filter (groups/chats)
-    if (filter === 'groups') {
-      if (!isGroupContact(c)) return false;
-    }
-    if (filter === 'chats') {
-      if (isGroupContact(c)) return false;
-    }
+  const filteredContacts = useMemo(() => contacts.filter(c => {
+    if (filter === 'groups') return isGroupContact(c);
+    if (filter === 'chats') return !isGroupContact(c);
     if (filter === 'active') {
       const activityTime = c.actual_last_message_at || c.last_message_at;
       if (!activityTime) return false;
-      const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
-      return new Date(activityTime) > hourAgo;
+      return new Date(activityTime) > new Date(Date.now() - 60 * 60 * 1000);
     }
     if (filter === 'bot') return c.is_bot_active;
-    if (filter === 'rep') return !c.is_bot_active; // Representative mode - bot disabled
+    if (filter === 'rep') return !c.is_bot_active;
     return true;
-  });
+  }), [contacts, filter]);
 
   const toggleSelectContact = (contactId) => {
     if (selectAllMode) {

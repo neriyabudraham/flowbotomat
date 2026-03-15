@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { User, Bot, XCircle, Clock, Check, CheckCheck, Users, Radio } from 'lucide-react';
 
 /**
@@ -17,7 +18,7 @@ function isChannelContact(contact) {
          contact?.wa_id?.includes('@newsletter');
 }
 
-export default function ContactItem({ contact, isSelected, onClick }) {
+function ContactItem({ contact, isSelected, onClick }) {
   const isGroup = isGroupContact(contact);
   const isChannel = isChannelContact(contact);
   
@@ -167,3 +168,5 @@ export default function ContactItem({ contact, isSelected, onClick }) {
     </button>
   );
 }
+
+export default memo(ContactItem);
