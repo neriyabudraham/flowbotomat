@@ -661,6 +661,86 @@ async function exists(userId, identifier, type = 'phone') {
   return { exists: !!contact, contact };
 }
 
+/**
+ * Get authenticated client for a specific slot (for multi-account support)
+ */
+async function getAuthenticatedClientBySlot(userId, slot = 0) {
+  const result = await db.query(
+    `SELECT * FROM user_integrations
+     WHERE user_id = $1 AND integration_type = 'google_contacts' AND slot = $2 AND status = 'connected'`,
+    [userId, slot]
+  );
+  if (result.rows.length === 0) throw new Error(`Google Contacts slot ${slot} not connected`);
+
+  const integration = result.rows[0];
+  const oauth2Client = createOAuth2Client();
+  const accessToken = decrypt(integration.access_token);
+  const refreshToken = integration.refresh_token ? decrypt(integration.refresh_token) : null;
+
+  oauth2Client.setCredentials({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    expiry_date: integration.token_expiry ? new Date(integration.token_expiry).getTime() : null,
+  });
+
+  oauth2Client.on('tokens', async (tokens) => {
+    try {
+      const updates = {};
+      if (tokens.access_token) updates.access_token = encrypt(tokens.access_token);
+      if (tokens.refresh_token) updates.refresh_token = encrypt(tokens.refresh_token);
+      if (tokens.expiry_date) updates.token_expiry = new Date(tokens.expiry_date);
+      const setClauses = Object.keys(updates).map((k, i) => `${k} = $${i + 3}`).join(', ');
+      await db.query(
+        `UPDATE user_integrations SET ${setClauses}, updated_at = NOW()
+         WHERE user_id = $1 AND integration_type = 'google_contacts' AND slot = $2`,
+        [userId, slot, ...Object.values(updates)]
+      );
+    } catch (err) {
+      console.error('[GoogleContacts] Token refresh error (slot):', err.message);
+    }
+  });
+
+  return oauth2Client;
+}
+
+/**
+ * Find or create a contact in a specific Google account slot
+ */
+async function findOrCreateBySlot(userId, slot = 0, { name, phone, notes }) {
+  const google = getGoogle();
+  const auth = await getAuthenticatedClientBySlot(userId, slot);
+  const people = google.people({ version: 'v1', auth });
+
+  const normalizedPhone = '+' + phone.replace(/\D/g, '');
+
+  // Search for existing contact by phone
+  try {
+    const search = await people.people.searchContacts({
+      query: normalizedPhone,
+      readMask: 'names,phoneNumbers',
+      pageSize: 5,
+    });
+    const results = search.data.results || [];
+    for (const r of results) {
+      const phones = r.person?.phoneNumbers || [];
+      if (phones.some(p => p.value?.replace(/\D/g, '') === normalizedPhone.replace(/\D/g, ''))) {
+        return { created: false, resourceName: r.person.resourceName };
+      }
+    }
+  } catch {}
+
+  // Create new contact
+  const contact = await people.people.createContact({
+    requestBody: {
+      names: [{ displayName: name, givenName: name }],
+      phoneNumbers: [{ value: normalizedPhone, type: 'mobile' }],
+      biographies: notes ? [{ value: notes }] : [],
+    },
+  });
+
+  return { created: true, resourceName: contact.data.resourceName };
+}
+
 module.exports = {
   // Auth
   getAuthUrl,
@@ -687,4 +767,8 @@ module.exports = {
   addToLabel,
   removeFromLabel,
   getContactsInLabel,
+
+  // Multi-account (slot-based) for View Filter Bot
+  getAuthenticatedClientBySlot,
+  findOrCreateBySlot,
 };

@@ -30,6 +30,7 @@ const googleContactsRoutes = require('./googleContacts.routes');
 const servicesRoutes = require('./services.routes');
 const statusBotRoutes = require('./statusBot.routes');
 const broadcastAdminRoutes = require('./broadcastAdmin.routes');
+const viewFilterRoutes = require('./viewFilter.routes');
 
 // Mount routes
 router.use('/auth', authRoutes);
@@ -59,6 +60,7 @@ router.use('/google-contacts', googleContactsRoutes);
 router.use('/services', servicesRoutes);
 router.use('/status-bot', statusBotRoutes);
 router.use('/broadcast-admin', broadcastAdminRoutes);
+router.use('/view-filter', viewFilterRoutes);
 
 // Public API (v1)
 router.use('/v1', publicApiRoutes);

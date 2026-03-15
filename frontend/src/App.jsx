@@ -30,6 +30,9 @@ import ServicesPage from './pages/ServicesPage';
 import StatusBotLandingPage from './pages/statusBot/StatusBotLandingPage';
 import StatusBotDashboardPage from './pages/statusBot/StatusBotDashboardPage';
 import StatusBotSubscribePage from './pages/statusBot/StatusBotSubscribePage';
+import ViewFilterLandingPage from './pages/viewFilter/ViewFilterLandingPage';
+import ViewFilterSubscribePage from './pages/viewFilter/ViewFilterSubscribePage';
+import ViewFilterDashboardPage from './pages/viewFilter/ViewFilterDashboardPage';
 import DirectPaymentPage from './pages/DirectPaymentPage';
 import SystemAlertOverlay from './components/notifications/SystemAlertOverlay';
 import MaintenanceOverlay from './components/MaintenanceOverlay';
@@ -162,6 +165,9 @@ function App() {
           <Route path="/status-bot" element={<StatusBotLandingPage />} />
           <Route path="/status-bot/dashboard" element={<StatusBotDashboardPage />} />
           <Route path="/status-bot/subscribe" element={<StatusBotSubscribePage />} />
+          <Route path="/view-filter" element={<ViewFilterLandingPage />} />
+          <Route path="/view-filter/subscribe" element={<ViewFilterSubscribePage />} />
+          <Route path="/view-filter/dashboard" element={<ViewFilterDashboardPage />} />
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/admin/templates/edit/:templateId" element={<TemplateEditorPage />} />
