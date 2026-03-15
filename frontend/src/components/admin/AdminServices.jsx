@@ -283,6 +283,7 @@ function ServiceEditModal({ service, onSave, onClose }) {
     description_he: service.description_he || '',
     price: service.price || 0,
     yearly_price: service.yearly_price || '',
+    renewal_price: service.renewal_price || '',
     billing_period: service.billing_period || 'monthly',
     trial_days: service.trial_days || 0,
     allow_custom_trial: service.allow_custom_trial !== false,
@@ -401,9 +402,24 @@ function ServiceEditModal({ service, onSave, onClose }) {
               <DollarSign className="w-4 h-4" />
               תמחור
             </h4>
+            {/* Billing period selector */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">סוג חיוב</label>
+              <select
+                value={form.billing_period}
+                onChange={e => setForm({...form, billing_period: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+              >
+                <option value="monthly">חודשי</option>
+                <option value="yearly">שנתי</option>
+                <option value="one_time">חד-פעמי (קמפיין)</option>
+              </select>
+            </div>
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מחיר חודשי (₪)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  {form.billing_period === 'one_time' ? 'מחיר לקמפיין (₪)' : 'מחיר חודשי (₪)'}
+                </label>
                 <input
                   type="number"
                   value={form.price}
@@ -413,18 +429,33 @@ function ServiceEditModal({ service, onSave, onClose }) {
                   step="0.01"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מחיר שנתי (₪)</label>
-                <input
-                  type="number"
-                  value={form.yearly_price}
-                  onChange={e => setForm({...form, yearly_price: e.target.value ? parseFloat(e.target.value) : ''})}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
-                  min="0"
-                  step="0.01"
-                  placeholder={`${form.price * 10} (20% off)`}
-                />
-              </div>
+              {form.billing_period === 'one_time' ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מחיר חידוש (₪)</label>
+                  <input
+                    type="number"
+                    value={form.renewal_price}
+                    onChange={e => setForm({...form, renewal_price: e.target.value ? parseFloat(e.target.value) : ''})}
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                    min="0"
+                    step="0.01"
+                    placeholder="ריק = כמו מחיר רגיל"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">מחיר שנתי (₪)</label>
+                  <input
+                    type="number"
+                    value={form.yearly_price}
+                    onChange={e => setForm({...form, yearly_price: e.target.value ? parseFloat(e.target.value) : ''})}
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
+                    min="0"
+                    step="0.01"
+                    placeholder={`${form.price * 10} (20% off)`}
+                  />
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">ימי ניסיון</label>
                 <input

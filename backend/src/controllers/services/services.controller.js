@@ -535,7 +535,7 @@ async function adminUpdateService(req, res) {
     const { serviceId } = req.params;
     const {
       slug, name, name_he, description, description_he,
-      price, yearly_price, billing_period,
+      price, yearly_price, renewal_price, billing_period,
       trial_days, allow_custom_trial,
       icon, color, external_url, features,
       is_active, is_coming_soon, sort_order
@@ -571,22 +571,23 @@ async function adminUpdateService(req, res) {
         description_he = COALESCE($5, description_he),
         price = COALESCE($6, price),
         yearly_price = $7,
-        billing_period = COALESCE($8, billing_period),
-        trial_days = COALESCE($9, trial_days),
-        allow_custom_trial = COALESCE($10, allow_custom_trial),
-        icon = $11,
-        color = $12,
-        external_url = $13,
-        features = COALESCE($14, features),
-        is_active = COALESCE($15, is_active),
-        is_coming_soon = COALESCE($16, is_coming_soon),
-        sort_order = COALESCE($17, sort_order),
+        renewal_price = $8,
+        billing_period = COALESCE($9, billing_period),
+        trial_days = COALESCE($10, trial_days),
+        allow_custom_trial = COALESCE($11, allow_custom_trial),
+        icon = $12,
+        color = $13,
+        external_url = $14,
+        features = COALESCE($15, features),
+        is_active = COALESCE($16, is_active),
+        is_coming_soon = COALESCE($17, is_coming_soon),
+        sort_order = COALESCE($18, sort_order),
         updated_at = NOW()
-      WHERE id = $18
+      WHERE id = $19
       RETURNING *
     `, [
       slug, name, name_he, description, description_he,
-      price, yearly_price, billing_period,
+      price, yearly_price ?? null, renewal_price ?? null, billing_period,
       trial_days, allow_custom_trial,
       icon, color, external_url,
       features ? JSON.stringify(features) : null,

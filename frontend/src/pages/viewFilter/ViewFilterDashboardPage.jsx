@@ -4,14 +4,31 @@ import {
   Eye, Users, TrendingUp, Download, Smartphone, Search,
   ChevronDown, ChevronUp, Filter, RefreshCw, Play,
   AlertCircle, CheckCircle, Clock, BarChart2, FileText,
-  ArrowUpRight, User, Heart
+  ArrowUpRight, User, Heart, ArrowLeft, Shield
 } from 'lucide-react';
 import Logo from '../../components/atoms/Logo';
+import NotificationsDropdown from '../../components/notifications/NotificationsDropdown';
+import AccountSwitcher from '../../components/AccountSwitcher';
+import useAuthStore from '../../store/authStore';
 import api from '../../services/api';
 import ViewerProfileModal from '../../components/viewFilter/ViewerProfileModal';
 
 export default function ViewFilterDashboardPage() {
   const navigate = useNavigate();
+  const { user, logout } = useAuthStore();
+
+  const isAdmin = (() => {
+    if (user && ['admin', 'superadmin'].includes(user.role)) return true;
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.viewingAs && payload.accessType === 'admin') return true;
+      }
+    } catch (e) {}
+    return false;
+  })();
+
   const [loading, setLoading] = useState(true);
   const [campaign, setCampaign] = useState(null);
   const [stats, setStats] = useState(null);
@@ -198,19 +215,41 @@ export default function ViewFilterDashboardPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-violet-50" dir="rtl">
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-xl border-b border-purple-100 sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Logo />
-            <div className="h-8 w-px bg-gray-200" />
-            <span className="text-lg font-bold text-gray-800">בוט סינון צפיות</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate('/view-filter')}
-              className="text-sm text-gray-500 hover:text-gray-700"
-            >
-              דף הבית
-            </button>
+        <div className="max-w-6xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => navigate('/dashboard')}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+                title="חזרה לדשבורד"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+              </button>
+              <div className="h-8 w-px bg-gray-200" />
+              <Logo />
+              <div className="h-8 w-px bg-gray-200" />
+              <span className="text-lg font-bold text-gray-800">בוט סינון צפיות</span>
+            </div>
+            <div className="flex items-center gap-3">
+              {isAdmin && (
+                <button
+                  onClick={() => navigate('/admin')}
+                  className="p-2 hover:bg-red-50 rounded-xl transition-colors group"
+                  title="ממשק ניהול"
+                >
+                  <Shield className="w-5 h-5 text-red-500 group-hover:text-red-600" />
+                </button>
+              )}
+              <NotificationsDropdown />
+              <div className="h-8 w-px bg-gray-200" />
+              <AccountSwitcher />
+              <button
+                onClick={() => { logout(); navigate('/login'); }}
+                className="hidden md:block px-4 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors"
+              >
+                התנתק
+              </button>
+            </div>
           </div>
         </div>
       </header>

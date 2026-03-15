@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, Users, TrendingUp, Download, Smartphone, Shield, ChevronRight, CheckCircle, Star } from 'lucide-react';
+import { Eye, Users, TrendingUp, Download, Smartphone, Shield, ChevronRight, CheckCircle, Star, ArrowLeft } from 'lucide-react';
 import Logo from '../../components/atoms/Logo';
+import NotificationsDropdown from '../../components/notifications/NotificationsDropdown';
+import AccountSwitcher from '../../components/AccountSwitcher';
+import useAuthStore from '../../store/authStore';
 import api from '../../services/api';
 
 export default function ViewFilterLandingPage() {
   const navigate = useNavigate();
+  const { logout } = useAuthStore();
   const [service, setService] = useState(null);
   const [loading, setLoading] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
@@ -62,26 +66,47 @@ export default function ViewFilterLandingPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-violet-50" dir="rtl">
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-xl border-b border-purple-100 sticky top-0 z-40">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Logo />
-          <div className="flex items-center gap-3">
-            {hasAccess ? (
+        <div className="max-w-5xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
               <button
-                onClick={() => navigate('/view-filter/dashboard')}
-                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-500 to-violet-600 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+                onClick={() => navigate('/dashboard')}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+                title="חזרה לדשבורד"
               >
-                <Eye className="w-4 h-4" />
-                כניסה לשירות
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
               </button>
-            ) : (
+              <div className="h-8 w-px bg-gray-200" />
+              <Logo />
+            </div>
+            <div className="flex items-center gap-3">
+              {hasAccess ? (
+                <button
+                  onClick={() => navigate('/view-filter/dashboard')}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-500 to-violet-600 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+                >
+                  <Eye className="w-4 h-4" />
+                  כניסה לשירות
+                </button>
+              ) : (
+                <button
+                  onClick={() => navigate('/view-filter/subscribe')}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-500 to-violet-600 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+                >
+                  התחל עכשיו
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              )}
+              <NotificationsDropdown />
+              <div className="h-8 w-px bg-gray-200" />
+              <AccountSwitcher />
               <button
-                onClick={() => navigate('/view-filter/subscribe')}
-                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-500 to-violet-600 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+                onClick={() => { logout(); navigate('/login'); }}
+                className="hidden md:block px-4 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors"
               >
-                התחל עכשיו
-                <ChevronRight className="w-4 h-4" />
+                התנתק
               </button>
-            )}
+            </div>
           </div>
         </div>
       </header>

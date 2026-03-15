@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
 import Logo from '../../components/atoms/Logo';
+import NotificationsDropdown from '../../components/notifications/NotificationsDropdown';
+import AccountSwitcher from '../../components/AccountSwitcher';
 import api from '../../services/api';
 
 const FEATURES = [
@@ -19,7 +21,7 @@ const FEATURES = [
 
 export default function ViewFilterSubscribePage() {
   const navigate = useNavigate();
-  const { user, fetchMe } = useAuthStore();
+  const { user, fetchMe, logout } = useAuthStore();
   const [loading, setLoading] = useState(true);
   const [subscribing, setSubscribing] = useState(false);
   const [service, setService] = useState(null);
@@ -187,21 +189,35 @@ export default function ViewFilterSubscribePage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-violet-50" dir="rtl">
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-xl border-b border-purple-100 sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Logo />
-            <div className="h-8 w-px bg-gray-200" />
-            <span className="text-lg font-bold text-gray-800">
-              {isRenewal ? 'חידוש מנוי — בוט סינון צפיות' : 'הרשמה — בוט סינון צפיות'}
-            </span>
+        <div className="max-w-6xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => navigate('/view-filter')}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+                title="חזרה"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+              </button>
+              <div className="h-8 w-px bg-gray-200" />
+              <Logo />
+              <div className="h-8 w-px bg-gray-200" />
+              <span className="text-lg font-bold text-gray-800">
+                {isRenewal ? 'חידוש מנוי — בוט סינון צפיות' : 'הרשמה — בוט סינון צפיות'}
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <NotificationsDropdown />
+              <div className="h-8 w-px bg-gray-200" />
+              <AccountSwitcher />
+              <button
+                onClick={() => { logout(); navigate('/login'); }}
+                className="hidden md:block px-4 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors"
+              >
+                התנתק
+              </button>
+            </div>
           </div>
-          <Link
-            to="/view-filter"
-            className="flex items-center gap-2 text-gray-500 hover:text-gray-700 transition-colors"
-          >
-            <span>חזרה</span>
-            <ArrowLeft className="w-4 h-4" />
-          </Link>
         </div>
       </header>
 
