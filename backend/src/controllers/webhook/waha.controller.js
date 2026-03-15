@@ -1249,11 +1249,25 @@ function parseMessage(payload) {
     };
   }
   
+  // Poll creation
+  if (payload.type === 'poll_creation' || payload._data?.Message?.pollCreationMessage) {
+    const pollMsg = payload._data?.Message?.pollCreationMessage;
+    const pollName = pollMsg?.name || body;
+    const pollOptions = (pollMsg?.options || []).map(o => o.optionName || o.name || o).filter(Boolean);
+    const multipleAnswers = pollMsg?.selectableOptionsCount !== 1;
+    return {
+      type: 'poll',
+      content: pollName,
+      pollOptions,
+      multipleAnswers,
+    };
+  }
+
   // Text message (default)
   if (payload.type === 'chat' || !payload.type) {
     return { type: 'text', content: body };
   }
-  
+
   // Sticker
   if (payload.type === 'sticker') {
     return {

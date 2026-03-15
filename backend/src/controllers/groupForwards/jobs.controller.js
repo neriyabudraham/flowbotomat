@@ -726,6 +726,16 @@ async function startForwardJob(jobId) {
               if (suffixToUse) {
                 await wahaService.sendMessage(wahaConnection, message.group_id, suffixToUse);
               }
+            } else if (job.message_type === 'poll') {
+              const pollOptions = job.poll_options
+                ? (typeof job.poll_options === 'string' ? JSON.parse(job.poll_options) : job.poll_options)
+                : [];
+              const result = await wahaService.sendPoll(wahaConnection, message.group_id, job.message_text, pollOptions, false);
+              messageId = result?.id;
+              // Send suffix as follow-up text if exists
+              if (suffixToUse) {
+                await wahaService.sendMessage(wahaConnection, message.group_id, suffixToUse);
+              }
             }
             
             // Success - break out of retry loop

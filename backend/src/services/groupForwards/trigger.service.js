@@ -341,34 +341,38 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
     // Logs removed
     
     // Handle different message types
+    let pollOptions = null;
     if (messageType === 'image' || messageType === 'video' || messageType === 'audio') {
       // Get media URL from payload or messageData
       mediaUrl = payload.mediaUrl || messageData.mediaUrl;
       mediaMimeType = payload.mimetype || messageData.mimeType;
       mediaFilename = payload.filename || messageData.filename;
-      
+
       // Log removed
-      
+
       if (!mediaUrl) {
         console.log(`[GroupForwards] No media URL found, skipping`);
         await sendNotificationMessage(userId, senderPhone, '❌ לא הצלחתי לקבל את המדיה. אנא נסה שוב.');
         return;
       }
-      
+
       // Download and save media locally so it persists after WAHA restart
       mediaUrl = await downloadAndSaveMedia(mediaUrl, mediaMimeType, mediaFilename);
     } else if (messageType === 'list_response') {
       messageType = 'text';
+    } else if (messageType === 'poll') {
+      pollOptions = messageData.pollOptions || [];
     }
-    
+
     // Create job - save forward_name so it persists even if forward is deleted
     const jobResult = await db.query(`
       INSERT INTO forward_jobs (
-        forward_id, user_id, message_type, message_text, 
+        forward_id, user_id, message_type, message_text,
         media_url, media_mime_type, media_filename,
-        sender_phone, sender_name, total_targets, status, forward_name
+        sender_phone, sender_name, total_targets, status, forward_name,
+        poll_options
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `, [
       forward.id,
@@ -382,7 +386,8 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
       payload._data?.Info?.PushName || senderPhone,
       forward.target_count,
       forward.require_confirmation ? 'pending' : 'confirmed',
-      forward.name
+      forward.name,
+      pollOptions ? JSON.stringify(pollOptions) : null
     ]);
     
     const job = jobResult.rows[0];
