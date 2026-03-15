@@ -223,21 +223,21 @@ server.listen(PORT, () => {
 
   // Run pending migrations on startup
   setTimeout(async () => {
-    const pool = require('./config/database');
+    const { query: dbQuery } = require('./config/database');
     try {
       // Contacts optimization: last_message column + indexes
-      await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_message TEXT`);
-      await pool.query(`CREATE INDEX IF NOT EXISTS idx_messages_contact_sent ON messages(contact_id, sent_at DESC)`);
-      await pool.query(`CREATE INDEX IF NOT EXISTS idx_contacts_user_last_msg ON contacts(user_id, last_message_at DESC NULLS LAST)`);
+      await dbQuery(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_message TEXT`);
+      await dbQuery(`CREATE INDEX IF NOT EXISTS idx_messages_contact_sent ON messages(contact_id, sent_at DESC)`);
+      await dbQuery(`CREATE INDEX IF NOT EXISTS idx_contacts_user_last_msg ON contacts(user_id, last_message_at DESC NULLS LAST)`);
       // Backfill last_message for contacts that don't have it yet
-      await pool.query(`
+      await dbQuery(`
         UPDATE contacts c SET last_message = (
           SELECT content FROM messages m WHERE m.contact_id = c.id ORDER BY sent_at DESC LIMIT 1
         ) WHERE c.last_message IS NULL AND EXISTS (SELECT 1 FROM messages m WHERE m.contact_id = c.id)
       `);
 
       // View Filter Bot migration
-      await pool.query(`
+      await dbQuery(`
         CREATE TABLE IF NOT EXISTS status_viewer_campaigns (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -249,12 +249,12 @@ server.listen(PORT, () => {
           UNIQUE(user_id)
         )
       `);
-      await pool.query(`CREATE INDEX IF NOT EXISTS idx_svc_user ON status_viewer_campaigns(user_id)`);
-      await pool.query(`ALTER TABLE additional_services ADD COLUMN IF NOT EXISTS renewal_price DECIMAL(10,2) DEFAULT NULL`);
-      await pool.query(`ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS slot INTEGER DEFAULT 0`);
-      await pool.query(`UPDATE user_integrations SET slot = 0 WHERE slot IS NULL`);
-      await pool.query(`ALTER TABLE user_integrations DROP CONSTRAINT IF EXISTS user_integrations_user_id_integration_type_key`);
-      await pool.query(`
+      await dbQuery(`CREATE INDEX IF NOT EXISTS idx_svc_user ON status_viewer_campaigns(user_id)`);
+      await dbQuery(`ALTER TABLE additional_services ADD COLUMN IF NOT EXISTS renewal_price DECIMAL(10,2) DEFAULT NULL`);
+      await dbQuery(`ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS slot INTEGER DEFAULT 0`);
+      await dbQuery(`UPDATE user_integrations SET slot = 0 WHERE slot IS NULL`);
+      await dbQuery(`ALTER TABLE user_integrations DROP CONSTRAINT IF EXISTS user_integrations_user_id_integration_type_key`);
+      await dbQuery(`
         DO $$ BEGIN
           IF NOT EXISTS (
             SELECT 1 FROM pg_constraint WHERE conname = 'user_integrations_user_integration_slot_unique'
@@ -264,7 +264,7 @@ server.listen(PORT, () => {
         END $$
       `);
       // Seed view-filter-bot service
-      await pool.query(`
+      await dbQuery(`
         INSERT INTO additional_services (
           slug, name, name_he, description, description_he,
           price, yearly_price, renewal_price, trial_days, allow_custom_trial,
