@@ -1290,38 +1290,35 @@ function parseMessage(payload) {
     };
   }
 
-  // Text message (default)
-  if (payload.type === 'chat' || !payload.type) {
-    return { type: 'text', content: body };
-  }
-
-  // Sticker
-  if (payload.type === 'sticker') {
+  // Sticker — also check GOWS mediaType
+  if (payload.type === 'sticker' || mediaType === 'sticker' || payload._data?.Message?.stickerMessage) {
     return {
       type: 'sticker',
-      mediaUrl: payload.mediaUrl,
+      mediaUrl: payload.mediaUrl || payload.media?.url,
     };
   }
-  
-  // Location
-  if (payload.type === 'location') {
+
+  // Location — also check GOWS mediaType and payload.location object
+  if (payload.type === 'location' || mediaType === 'location' || payload._data?.Message?.locationMessage || payload.location) {
+    const loc = payload._data?.Message?.locationMessage || payload.location || {};
     return {
       type: 'location',
       content: payload.loc || '',
-      latitude: payload.lat,
-      longitude: payload.lng,
+      latitude: payload.lat ?? loc.degreesLatitude ?? payload.location?.latitude,
+      longitude: payload.lng ?? loc.degreesLongitude ?? payload.location?.longitude,
     };
   }
-  
-  // Contact card
-  if (payload.type === 'vcard') {
+
+  // Contact card — also check GOWS mediaType
+  if (payload.type === 'vcard' || mediaType === 'vcard' || payload._data?.Message?.contactMessage || (payload.vCards && payload.vCards.length > 0)) {
+    const vcard = payload.vCards?.[0] || payload._data?.Message?.contactMessage?.vcard || payload.body || payload.vcard || '';
     return {
       type: 'contact',
-      content: payload.body || payload.vcard,
+      content: vcard,
     };
   }
-  
-  // Default: treat as text
+
+  // Text message (default)
   return { type: 'text', content: body };
 }
 
