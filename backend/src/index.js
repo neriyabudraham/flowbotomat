@@ -315,6 +315,10 @@ server.listen(PORT, () => {
       await dbQuery(`CREATE INDEX IF NOT EXISTS idx_sbs_conn_sent_at ON status_bot_statuses(connection_id, sent_at) WHERE deleted_at IS NULL`);
       await dbQuery(`CREATE INDEX IF NOT EXISTS idx_sbr_status_reactor ON status_bot_reactions(status_id, reactor_phone)`);
       await dbQuery(`CREATE INDEX IF NOT EXISTS idx_sbrep_status_replier ON status_bot_replies(status_id, replier_phone)`);
+      // Uncertain upload: 500 from WAHA treated like timeout, shown only when views arrive
+      await dbQuery(`ALTER TABLE status_bot_statuses ADD COLUMN IF NOT EXISTS uncertain_upload BOOLEAN DEFAULT false`);
+      // Chat archive sync
+      await dbQuery(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false`);
       console.log('[Startup] ✅ Migrations applied successfully');
     } catch (err) {
       console.error('[Startup] Migration error:', err.message);

@@ -323,8 +323,11 @@ async function handleWebhook(req, res) {
             await handleIncomingMessage(userId, event);
           }
           break;
+        case 'chat.archive':
+          await handleChatArchive(userId, event);
+          break;
         default:
-          if (event.event && !['presence.update', 'chat.archive', 'message.waiting', 'message.edited', 'message.ack.group'].includes(event.event)) {
+          if (event.event && !['presence.update', 'message.waiting', 'message.edited', 'message.ack.group'].includes(event.event)) {
             console.log('[Webhook] Unhandled event type:', event.event);
           }
           break;
@@ -1405,6 +1408,33 @@ async function handleOutgoingDeviceMessage(userId, payload) {
   });
   
   // Outgoing message saved
+}
+
+/**
+ * Handle chat archive/unarchive event
+ */
+async function handleChatArchive(userId, event) {
+  try {
+    const { payload } = event;
+    const chatId = payload?.id || payload?.chatId;
+    // WAHA payload: { id: "972...", archived: true/false }
+    const archived = payload?.archived ?? payload?.isArchived ?? false;
+
+    if (!chatId) return;
+
+    const phone = chatId.split('@')[0];
+    if (!phone || !phone.match(/^\d+$/)) return;
+
+    await pool.query(
+      'UPDATE contacts SET is_archived = $1 WHERE user_id = $2 AND phone = $3',
+      [archived, userId, phone]
+    );
+
+    const socketManager = getSocketManager();
+    socketManager.emitToUser(userId, 'chat_archived', { phone, archived });
+  } catch (err) {
+    console.log('[Webhook] handleChatArchive error:', err.message);
+  }
 }
 
 /**

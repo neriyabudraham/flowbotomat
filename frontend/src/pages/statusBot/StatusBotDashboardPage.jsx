@@ -4,9 +4,9 @@ import {
   Smartphone, Upload, Clock, Users, ArrowLeft, RefreshCw,
   Check, Plus, Trash2, Eye, Heart, MessageCircle, Image,
   Video, Mic, Type, Palette, Send, AlertCircle, X, Loader,
-  QrCode, Wifi, WifiOff, Phone, ChevronDown, List, ChevronLeft,
+  QrCode, Wifi, WifiOff, Phone, ChevronDown, List, ChevronLeft, ChevronRight,
   Loader2, Shield, Zap, HelpCircle, Mail, Home, Settings, Crown,
-  CheckCircle, BarChart, Play, Pause, Volume2, History
+  CheckCircle, BarChart, Play, Pause, Volume2, History, Calendar
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
 import useWhatsappStore from '../../store/whatsappStore';
@@ -127,6 +127,7 @@ function StatusBotDashboardContent() {
   const [pendingStatuses, setPendingStatuses] = useState([]); // Pending statuses from WhatsApp bot
   const [failedStatuses, setFailedStatuses] = useState([]); // Failed/cancelled statuses
   const [inProgressStatuses, setInProgressStatuses] = useState([]); // Statuses in queue (pending/processing)
+  const [scheduledViewMode, setScheduledViewMode] = useState('list'); // 'list' | 'calendar'
   const [qrCode, setQrCode] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -271,6 +272,17 @@ function StatusBotDashboardContent() {
       }
     });
     
+    // Uncertain status revealed (first view after 500 error)
+    socket.on('statusbot:status_revealed', (data) => {
+      if (data.status) {
+        setStatuses(prev => {
+          const exists = prev.some(s => s.id === data.status.id);
+          if (exists) return prev;
+          return [data.status, ...prev];
+        });
+      }
+    });
+
     // Real-time pending status updates
     socket.on('statusbot:pending_update', (data) => {
       console.log('[StatusBot] Pending status update:', data);
@@ -2158,13 +2170,44 @@ function StatusBotDashboardContent() {
             <div className="space-y-6">
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="p-4 border-b border-gray-100 bg-blue-50">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-blue-500" />
-                    <h3 className="font-bold text-gray-800">סטטוסים מתוזמנים</h3>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-blue-500" />
+                      <h3 className="font-bold text-gray-800">סטטוסים מתוזמנים</h3>
+                    </div>
+                    <div className="flex items-center gap-1 bg-white rounded-xl border border-gray-200 p-0.5">
+                      <button
+                        onClick={() => setScheduledViewMode('list')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                          scheduledViewMode === 'list' ? 'bg-blue-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        <List className="w-3.5 h-3.5" />
+                        רשימה
+                      </button>
+                      <button
+                        onClick={() => setScheduledViewMode('calendar')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                          scheduledViewMode === 'calendar' ? 'bg-blue-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        <Calendar className="w-3.5 h-3.5" />
+                        לוח שנה
+                      </button>
+                    </div>
                   </div>
                 </div>
-                
-                {scheduled.length === 0 ? (
+
+                {scheduledViewMode === 'calendar' ? (
+                  <div className="p-4">
+                    <ScheduledCalendar
+                      scheduled={scheduled}
+                      onItemClick={(item) => setScheduledDetailsModal({ show: true, item })}
+                      onSendNow={handleSendScheduledNow}
+                      onCancel={handleCancelScheduled}
+                    />
+                  </div>
+                ) : scheduled.length === 0 ? (
                   <div className="text-center py-8 text-gray-500">
                     <Clock className="w-10 h-10 mx-auto mb-2 opacity-50" />
                     <p className="text-sm">אין סטטוסים מתוזמנים</p>
@@ -3049,6 +3092,168 @@ function TypeButton({ active, onClick, icon: Icon, label }) {
       <Icon className="w-5 h-5" />
       <span className="text-sm">{label}</span>
     </button>
+  );
+}
+
+// ─── Shabbat exit time calculator (Jerusalem, sunset + 42 min) ───
+function getShabbatEndTime(date) {
+  const lat = 31.7683 * Math.PI / 180;
+  const lon = 35.2137;
+  const year = date.getFullYear();
+  const dayOfYear = Math.floor((date - new Date(year, 0, 0)) / 86400000);
+  const D = (2 * Math.PI / 365) * (dayOfYear - 80);
+  const decl = Math.asin(0.397748 * Math.sin(D));
+  const cosHA = -Math.tan(lat) * Math.tan(decl);
+  const HA = Math.acos(Math.max(-1, Math.min(1, cosHA)));
+  const sunsetUTC = 12 + (HA * 12 / Math.PI) - lon / 15;
+  const month = date.getMonth() + 1;
+  const isDST = month >= 3 && month <= 10;
+  const shabbatEnd = sunsetUTC + (isDST ? 3 : 2) + 42 / 60;
+  const h = Math.floor(shabbatEnd);
+  const m = Math.round((shabbatEnd - h) * 60);
+  return `${String(h).padStart(2, '0')}:${String(m === 60 ? 0 : m).padStart(2, '0')}`;
+}
+
+function getHebrewDay(date) {
+  try {
+    return new Intl.DateTimeFormat('he-IL-u-ca-hebrew', { day: 'numeric' }).format(date);
+  } catch { return ''; }
+}
+
+function getHebrewMonth(date) {
+  try {
+    return new Intl.DateTimeFormat('he-IL-u-ca-hebrew', { month: 'long' }).format(date);
+  } catch { return ''; }
+}
+
+// ─── Calendar component for scheduled statuses ───
+function ScheduledCalendar({ scheduled, onItemClick }) {
+  const [currentMonth, setCurrentMonth] = useState(() => new Date());
+
+  const DAY_LABELS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
+
+  function getCalendarDays(month) {
+    const year = month.getFullYear();
+    const m = month.getMonth();
+    const firstDow = new Date(year, m, 1).getDay();
+    const daysInMonth = new Date(year, m + 1, 0).getDate();
+    const days = Array(firstDow).fill(null);
+    for (let d = 1; d <= daysInMonth; d++) days.push(new Date(year, m, d));
+    return days;
+  }
+
+  const days = getCalendarDays(currentMonth);
+  const today = new Date();
+
+  // Group scheduled items by date key
+  const byDate = {};
+  scheduled.forEach(item => {
+    if (!item.scheduled_for) return;
+    const d = new Date(item.scheduled_for);
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    if (!byDate[key]) byDate[key] = [];
+    byDate[key].push(item);
+  });
+
+  const TYPE_COLORS = {
+    text: 'bg-purple-100 text-purple-700',
+    image: 'bg-blue-100 text-blue-700',
+    video: 'bg-pink-100 text-pink-700',
+    voice: 'bg-green-100 text-green-700',
+  };
+  const TYPE_EMOJI = { text: 'T', image: '🖼', video: '🎬', voice: '🎤' };
+
+  const prevMonth = () => setCurrentMonth(p => new Date(p.getFullYear(), p.getMonth() - 1, 1));
+  const nextMonth = () => setCurrentMonth(p => new Date(p.getFullYear(), p.getMonth() + 1, 1));
+
+  const gregTitle = currentMonth.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' });
+  const hebrewTitle = getHebrewMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 15));
+
+  return (
+    <div dir="rtl">
+      {/* Month navigation */}
+      <div className="flex items-center justify-between mb-4">
+        <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-gray-100">
+          <ChevronRight className="w-5 h-5 text-gray-600" />
+        </button>
+        <div className="text-center">
+          <div className="font-bold text-gray-800">{gregTitle}</div>
+          <div className="text-xs text-gray-400">{hebrewTitle}</div>
+        </div>
+        <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-gray-100">
+          <ChevronLeft className="w-5 h-5 text-gray-600" />
+        </button>
+      </div>
+
+      {/* Day headers: א-ש (RTL: Sun on right, Sat on left) */}
+      <div className="grid grid-cols-7 mb-1">
+        {DAY_LABELS.map((label, i) => (
+          <div key={i} className={`text-center text-xs font-semibold py-2 ${i === 6 ? 'text-blue-600' : 'text-gray-500'}`}>
+            {label}
+          </div>
+        ))}
+      </div>
+
+      {/* Calendar grid */}
+      <div className="grid grid-cols-7 gap-1">
+        {days.map((day, i) => {
+          if (!day) return <div key={i} />;
+          const key = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
+          const items = byDate[key] || [];
+          const isToday = day.toDateString() === today.toDateString();
+          const isSat = day.getDay() === 6;
+          const isPast = day < today && !isToday;
+
+          return (
+            <div
+              key={i}
+              className={`min-h-[76px] rounded-xl p-1.5 border text-right transition-colors ${
+                isToday ? 'border-blue-400 bg-blue-50' :
+                isSat ? 'border-purple-200 bg-purple-50' :
+                'border-gray-100 bg-white hover:bg-gray-50'
+              } ${isPast ? 'opacity-55' : ''}`}
+            >
+              {/* Gregorian day + Hebrew day */}
+              <div className="flex flex-col gap-0 mb-1">
+                <span className={`text-sm font-bold leading-tight ${isToday ? 'text-blue-600' : isSat ? 'text-purple-700' : 'text-gray-700'}`}>
+                  {day.getDate()}
+                </span>
+                <span className="text-[10px] text-gray-400 leading-tight">{getHebrewDay(day)}</span>
+                {isSat && (
+                  <span className="text-[9px] text-purple-500 leading-tight mt-0.5">
+                    צאת: {getShabbatEndTime(day)}
+                  </span>
+                )}
+              </div>
+
+              {/* Scheduled items */}
+              {items.slice(0, 3).map((item, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => onItemClick(item)}
+                  className={`text-[10px] truncate px-1 py-0.5 rounded mb-0.5 cursor-pointer ${TYPE_COLORS[item.status_type] || 'bg-gray-100 text-gray-600'}`}
+                >
+                  {new Date(item.scheduled_for).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+                  {' '}{TYPE_EMOJI[item.status_type] || ''}
+                </div>
+              ))}
+              {items.length > 3 && (
+                <div className="text-[9px] text-gray-400 text-center">+{items.length - 3}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Legend */}
+      <div className="mt-4 flex flex-wrap gap-2 justify-center text-xs text-gray-500">
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-purple-100 inline-block" />טקסט</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-100 inline-block" />תמונה</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-pink-100 inline-block" />סרטון</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-100 inline-block" />הקלטה</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-purple-50 border border-purple-200 inline-block" />שבת</span>
+      </div>
+    </div>
   );
 }
 

@@ -491,15 +491,28 @@ async function sendStatus(queueItem) {
     setTimeout(() => resolve({ timeout: true, id: messageId }), STATUS_TIMEOUT);
   });
 
-  const sendPromise = wahaSession.makeRequest(baseUrl, apiKey, 'POST', endpoint, body);
+  const sendPromise = wahaSession.makeRequest(baseUrl, apiKey, 'POST', endpoint, body)
+    .catch(err => {
+      // Treat 500 errors like timeout: WhatsApp may have processed the status despite the error
+      if (err.response?.status === 500) {
+        console.log(`[StatusBot Queue] ⚠️ WAHA returned 500 for status ${queueItem.id} - treating as uncertain upload`);
+        return { uncertain: true, id: messageId };
+      }
+      throw err;
+    });
 
   const response = await Promise.race([sendPromise, timeoutPromise]);
-  
-  // Handle timeout as success
-  if (response?.timeout) {
-    console.log(`[StatusBot Queue] ⏱️ Status ${queueItem.id} reached timeout - treating as successful upload`);
-    console.log(`[StatusBot Queue] 📊 Views will continue to be collected using message ID: ${messageId}`);
-    return { success: true, timeout: true, id: messageId };
+
+  // Handle timeout or uncertain (500) as success
+  if (response?.timeout || response?.uncertain) {
+    if (response.uncertain && historyId) {
+      await db.query(`UPDATE status_bot_statuses SET uncertain_upload = true WHERE id = $1`, [historyId]);
+      console.log(`[StatusBot Queue] ⚠️ Status ${historyId} marked as uncertain - will appear in list when first view arrives`);
+    } else {
+      console.log(`[StatusBot Queue] ⏱️ Status ${queueItem.id} reached timeout - treating as successful upload`);
+      console.log(`[StatusBot Queue] 📊 Views will continue to be collected using message ID: ${messageId}`);
+    }
+    return { success: true, timeout: !!response.timeout, uncertain: !!response.uncertain, id: messageId };
   }
   
   console.log(`[StatusBot Queue] WAHA Response:`, JSON.stringify(response, null, 2));

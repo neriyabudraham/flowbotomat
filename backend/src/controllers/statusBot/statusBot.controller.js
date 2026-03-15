@@ -1561,6 +1561,7 @@ async function getStatusHistory(req, res) {
       FROM status_bot_statuses s
       LEFT JOIN status_bot_queue q ON q.id = s.queue_id
       WHERE s.connection_id = $1
+        AND NOT (s.uncertain_upload = true AND s.view_count = 0)
       ORDER BY COALESCE(s.sent_at, s.created_at) DESC
       LIMIT $2 OFFSET $3
     `, [connResult.rows[0].id, limit, offset]);
@@ -3074,12 +3075,35 @@ async function handleStatusView(connection, payload) {
       ON CONFLICT (status_id, viewer_phone) DO NOTHING
     `, [statusId, viewerPhone]);
 
-    // Update view count
-    await db.query(`
-      UPDATE status_bot_statuses 
+    // Update view count and check for first view on uncertain status
+    const updateResult = await db.query(`
+      UPDATE status_bot_statuses
       SET view_count = (SELECT COUNT(*) FROM status_bot_views WHERE status_id = $1)
       WHERE id = $1
+      RETURNING view_count, uncertain_upload
     `, [statusId]);
+
+    const { view_count, uncertain_upload } = updateResult.rows[0] || {};
+
+    // If this is the first view on an uncertain (500-error) status → reveal it in frontend
+    if (uncertain_upload && view_count === 1) {
+      try {
+        const fullStatus = await db.query(`
+          SELECT s.*, s.deleted_at IS NOT NULL as is_deleted, q.queue_status
+          FROM status_bot_statuses s
+          LEFT JOIN status_bot_queue q ON q.id = s.queue_id
+          WHERE s.id = $1
+        `, [statusId]);
+        const socketManager = require('../../services/socket/manager.service').getSocketManager();
+        if (socketManager && fullStatus.rows.length > 0) {
+          socketManager.emitToUser(connection.user_id, 'statusbot:status_revealed', {
+            status: fullStatus.rows[0]
+          });
+        }
+      } catch (e) {
+        // Socket not initialized
+      }
+    }
 
   } catch (error) {
     console.error('[StatusBot] Handle status view error:', error);
