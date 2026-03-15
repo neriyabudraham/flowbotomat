@@ -439,7 +439,7 @@ export default function ChatView({
                   if (text.trim() && !sending) handleSend(e);
                 }
               }}
-              placeholder="כתוב הודעה... (Shift+Enter לירידת שורה)"
+              placeholder="כתוב הודעה..."
               rows={1}
               className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 text-sm transition-all placeholder:text-gray-400 resize-none overflow-hidden"
               dir="auto"
