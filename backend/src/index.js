@@ -321,6 +321,8 @@ server.listen(PORT, () => {
       await dbQuery(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false`);
       // Expand media_mime_type from VARCHAR(50) to VARCHAR(200) to support long MIME strings
       await dbQuery(`ALTER TABLE messages ALTER COLUMN media_mime_type TYPE VARCHAR(200)`);
+      // Add is_admin_notification column to notifications table
+      await dbQuery(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS is_admin_notification BOOLEAN DEFAULT false`);
       console.log('[Startup] ✅ Migrations applied successfully');
     } catch (err) {
       console.error('[Startup] Migration error:', err.message);
