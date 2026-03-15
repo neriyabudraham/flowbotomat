@@ -16,7 +16,7 @@ import api from '../services/api';
 import GroupForwardEditor from '../components/groupForwards/GroupForwardEditor';
 import JobHistoryTab from '../components/groupForwards/JobHistoryTab';
 import ScheduledTab from '../components/groupForwards/ScheduledTab';
-import BroadcastAdminPanel from '../components/groupForwards/BroadcastAdminPanel';
+
 
 export default function GroupForwardsPage() {
   const navigate = useNavigate();
@@ -529,17 +529,6 @@ export default function GroupForwardsPage() {
               <Calendar className="w-4 h-4" />
               מתוזמנות
             </button>
-            <button
-              onClick={() => setActiveTab('admin')}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all ${
-                activeTab === 'admin'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <Shield className="w-4 h-4" />
-              מנהל שליחות
-            </button>
           </div>
 
           {/* Search - only on forwards tab */}
@@ -687,12 +676,6 @@ export default function GroupForwardsPage() {
         {/* Scheduled Tab */}
         {activeTab === 'scheduled' && <ScheduledTab forwards={forwards} />}
 
-        {/* Broadcast Admin Tab */}
-        {activeTab === 'admin' && (
-          <div className="max-w-2xl">
-            <BroadcastAdminPanel />
-          </div>
-        )}
 
 
         {/* Forwards Tab Content */}
