@@ -273,6 +273,11 @@ async function handleWebhook(req, res) {
     );
   }
 
+  // Also auto-update webhook events on first message (in case session.status was missed)
+  if (event.event === 'message' || event.event === 'message.any') {
+    autoUpdateWebhookEvents(userId).catch(() => {});
+  }
+
   // Enqueue event processing with concurrency limit
   enqueueWebhookEvent(async () => {
     try {
@@ -792,18 +797,24 @@ async function handleIncomingMessage(userId, event) {
   // Parse message content
   const messageData = parseMessage(payload);
   
+  // Build metadata for poll messages
+  const msgMetadata = messageData.type === 'poll'
+    ? JSON.stringify({ options: messageData.pollOptions || [], multipleAnswers: messageData.multipleAnswers || false })
+    : null;
+
   // Save message with sender_phone and sender_name for group messages
   const result = await pool.query(
-    `INSERT INTO messages 
-     (user_id, contact_id, wa_message_id, direction, message_type, 
-      content, media_url, media_mime_type, media_filename, latitude, longitude, sent_at, sender_phone, sender_name)
-     VALUES ($1, $2, $3, 'incoming', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    `INSERT INTO messages
+     (user_id, contact_id, wa_message_id, direction, message_type,
+      content, media_url, media_mime_type, media_filename, latitude, longitude, sent_at, sender_phone, sender_name, metadata)
+     VALUES ($1, $2, $3, 'incoming', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      RETURNING *`,
     [userId, contact.id, payload.id, messageData.type, messageData.content,
      messageData.mediaUrl, messageData.mimeType, messageData.filename,
      messageData.latitude, messageData.longitude, new Date(payload.timestamp * 1000),
      isGroupMessage ? (senderPhone || '').substring(0, 50) || null : null,
-     isGroupMessage ? (senderName || '').substring(0, 50) || null : null]
+     isGroupMessage ? (senderName || '').substring(0, 50) || null : null,
+     msgMetadata]
   );
   
   // Update contact's last message time and preview
@@ -1361,17 +1372,23 @@ async function handleOutgoingDeviceMessage(userId, payload) {
   // Parse message content
   const messageData = parseMessage(payload);
 
+  // Build metadata for poll messages
+  const outgoingMetadata = messageData.type === 'poll'
+    ? JSON.stringify({ options: messageData.pollOptions || [], multipleAnswers: messageData.multipleAnswers || false })
+    : null;
+
   // Save outgoing message
   const result = await pool.query(
     `INSERT INTO messages
      (user_id, contact_id, wa_message_id, direction, message_type,
-      content, media_url, media_mime_type, media_filename, latitude, longitude, sent_at, status)
-     VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, $9, $10, $11, 'sent')
+      content, media_url, media_mime_type, media_filename, latitude, longitude, sent_at, status, metadata)
+     VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, $9, $10, $11, 'sent', $12)
      RETURNING *`,
     [userId, contact.id, waMessageId, messageData.type, messageData.content,
      messageData.mediaUrl, messageData.mimeType, messageData.filename,
-     messageData.latitude, messageData.longitude, 
-     payload.timestamp ? new Date(payload.timestamp * 1000) : new Date()]
+     messageData.latitude, messageData.longitude,
+     payload.timestamp ? new Date(payload.timestamp * 1000) : new Date(),
+     outgoingMetadata]
   );
   
   // Update contact's last message time

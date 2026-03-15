@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, CheckCheck, Image, FileText, Mic, MapPin, Video, Play, Download, ExternalLink, Bot, User, List, MousePointer, ChevronDown, UserCircle, Phone, Building2, Eye, ThumbsUp, UserRound, FileImage, AtSign } from 'lucide-react';
+import { Check, CheckCheck, Image, FileText, Mic, MapPin, Video, Play, Download, ExternalLink, Bot, User, List, MousePointer, ChevronDown, UserCircle, Phone, Building2, Eye, ThumbsUp, UserRound, FileImage, AtSign, BarChart2 } from 'lucide-react';
 
 // Format phone for display in group messages
 function formatSenderPhone(phone) {
@@ -462,6 +462,36 @@ export default function MessageBubble({ message, isGroupChat = false, lidMapping
         );
       }
       
+      // Poll message
+      case 'poll': {
+        const pollOptions = metadata.options || [];
+        return (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 mb-1">
+              <BarChart2 className={`w-4 h-4 ${isOutgoing ? 'text-white/80' : 'text-gray-500'}`} />
+              <span className={`text-xs font-medium ${isOutgoing ? 'text-white/70' : 'text-gray-500'}`}>
+                סקר{metadata.multipleAnswers ? ' (ריבוי תשובות)' : ''}
+              </span>
+            </div>
+            <p className={`font-semibold text-sm ${isOutgoing ? 'text-white' : 'text-gray-900'}`}>
+              {message.content}
+            </p>
+            {pollOptions.map((opt, i) => (
+              <div
+                key={i}
+                className={`px-3 py-1.5 rounded-lg text-sm border ${
+                  isOutgoing
+                    ? 'border-white/30 text-white/90'
+                    : 'border-gray-200 text-gray-700'
+                }`}
+              >
+                {opt}
+              </div>
+            ))}
+          </div>
+        );
+      }
+
       // Reaction message
       case 'reaction':
         return (

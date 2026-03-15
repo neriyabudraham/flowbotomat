@@ -77,9 +77,9 @@ async function handleCallback(code, userId) {
   
   // Store in database
   await db.query(`
-    INSERT INTO user_integrations (user_id, integration_type, access_token, refresh_token, token_expiry, account_email, account_name, status)
-    VALUES ($1, 'google_sheets', $2, $3, $4, $5, $6, 'connected')
-    ON CONFLICT (user_id, integration_type) DO UPDATE SET
+    INSERT INTO user_integrations (user_id, integration_type, slot, access_token, refresh_token, token_expiry, account_email, account_name, status)
+    VALUES ($1, 'google_sheets', 0, $2, $3, $4, $5, $6, 'connected')
+    ON CONFLICT (user_id, integration_type, slot) DO UPDATE SET
       access_token = EXCLUDED.access_token,
       refresh_token = COALESCE(EXCLUDED.refresh_token, user_integrations.refresh_token),
       token_expiry = EXCLUDED.token_expiry,
