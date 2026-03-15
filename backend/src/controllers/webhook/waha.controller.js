@@ -1333,7 +1333,8 @@ async function handleOutgoingDeviceMessage(userId, payload) {
   // Try to extract phone from id string "true_PHONE@c.us_MSGID" as last resort
   let idStringPhone;
   if (typeof payload.id === 'string') {
-    const m = payload.id.match(/^(?:true|false)_(\d+)@/);
+    // Only match @c.us / @g.us — NOT @lid (linked-device ID, not a real phone)
+    const m = payload.id.match(/^(?:true|false)_(\d+)@(?:c\.us|g\.us)/);
     if (m) idStringPhone = m[1];
   }
 
