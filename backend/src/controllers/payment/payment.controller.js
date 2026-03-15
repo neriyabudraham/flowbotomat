@@ -2,6 +2,12 @@ const db = require('../../config/database');
 const sumitService = require('../../services/payment/sumit.service');
 const billingQueueService = require('../../services/payment/billingQueue.service');
 const { sendNewSubscriptionEmail, sendRenewalEmail, sendCancellationEmail } = require('../../services/subscription/notification.service');
+
+/** Detects Sumit temporary lockout due to repeated credential failures */
+function isSumitLockoutError(errorMsg) {
+  if (!errorMsg) return false;
+  return errorMsg.includes('Repeated incorrect credentials') || errorMsg.includes('אינו מחובר');
+}
 /**
  * Disconnect a user's WhatsApp from our system — marks connection as disconnected in DB
  * and disables bots, but leaves the WAHA session alive.
@@ -110,7 +116,14 @@ async function savePaymentMethod(req, res) {
         console.log(`[Payment] Created Sumit customer: ${existingSumitCustomerId}`);
       } else {
         console.error('[Payment] Failed to create Sumit customer:', customerResult.error);
-        // Continue anyway - setPaymentMethodForCustomer can create customer
+        // If Sumit locked us out due to repeated attempts, abort immediately
+        if (isSumitLockoutError(customerResult.error)) {
+          return res.status(503).json({
+            error: 'שירות התשלומים זמנית חסום עקב ניסיונות מרובים. אנא המתן מספר דקות ונסה שנית.',
+            code: 'SUMIT_LOCKOUT',
+          });
+        }
+        // Otherwise continue — setPaymentMethod can create the customer on its own
       }
     }
     
@@ -155,9 +168,12 @@ async function savePaymentMethod(req, res) {
     
     if (!sumitResult.success) {
       console.error('[Payment] Sumit setPaymentMethod failed:', sumitResult.error);
-      return res.status(400).json({ 
-        error: sumitResult.error || 'שגיאה בשמירת כרטיס אשראי. אנא נסה שנית.',
-        code: 'SUMIT_ERROR',
+      const friendlyError = isSumitLockoutError(sumitResult.error)
+        ? 'שירות התשלומים זמנית חסום עקב ניסיונות מרובים. אנא המתן מספר דקות ונסה שנית.'
+        : (sumitResult.error || 'שגיאה בשמירת כרטיס אשראי. אנא נסה שנית.');
+      return res.status(400).json({
+        error: friendlyError,
+        code: isSumitLockoutError(sumitResult.error) ? 'SUMIT_LOCKOUT' : 'SUMIT_ERROR',
         technicalError: sumitResult.technicalError
       });
     }
