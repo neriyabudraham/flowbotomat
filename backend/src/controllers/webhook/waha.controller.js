@@ -1338,17 +1338,22 @@ async function handleOutgoingDeviceMessage(userId, payload) {
     if (m) idStringPhone = m[1];
   }
 
+  // GOWS engine: when from=@lid and to=null, the real recipient is in _data.Info.RecipientAlt
+  // e.g. "972535405090@s.whatsapp.net" — extract the numeric part
+  const recipientAltPhone = payload._data?.Info?.RecipientAlt?.split('@')[0];
+
   const rawPhone = payload.to?.split('@')[0]
     || payload.chatId?.split('@')[0]
     || payload.id?.remote?.split('@')[0]
     || payload.key?.remoteJid?.split('@')[0]
-    || idStringPhone;
+    || idStringPhone
+    || recipientAltPhone;
   const toPhone = rawPhone?.replace(/^\+/, ''); // strip leading + if present
 
   console.log(`[Webhook] handleOutgoingDeviceMessage: toPhone=${toPhone} type=${payload.type} body=${String(payload.body || '').substring(0, 50)} rawFields={to:${payload.to},chatId:${payload.chatId},idRemote:${payload.id?.remote}}`);
 
   if (!toPhone || !toPhone.match(/^\d+$/)) {
-    console.log(`[Webhook] Skipping outgoing message — invalid toPhone: "${toPhone}" FULL_PAYLOAD=${JSON.stringify(payload)}`);
+    console.log(`[Webhook] Skipping outgoing message — invalid toPhone: "${toPhone}" (to=${payload.to} chatId=${payload.chatId} recipientAlt=${payload._data?.Info?.RecipientAlt})`);
     return;
   }
 
