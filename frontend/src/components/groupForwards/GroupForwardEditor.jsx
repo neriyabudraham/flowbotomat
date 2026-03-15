@@ -867,12 +867,12 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                     <button
                       type="button"
                       onClick={() => setNotifySenderOnPending(!notifySenderOnPending)}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors overflow-hidden flex-shrink-0 ${
+                      className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer flex-shrink-0 ${
                         notifySenderOnPending ? 'bg-purple-500' : 'bg-gray-300'
                       }`}
                     >
-                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                        notifySenderOnPending ? 'translate-x-6' : 'translate-x-1'
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${
+                        notifySenderOnPending ? 'right-1' : 'left-1'
                       }`} />
                     </button>
                   </div>
