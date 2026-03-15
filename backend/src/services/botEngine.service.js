@@ -1918,7 +1918,8 @@ class BotEngine {
                 [contact.id, 'incoming']
               );
               if (lastReactMsg.rows.length > 0 && lastReactMsg.rows[0].wa_message_id) {
-                const msgId = lastReactMsg.rows[0].wa_message_id;
+                const rawMsgId = lastReactMsg.rows[0].wa_message_id;
+                const msgId = await this.resolveMsgIdLid(connection, rawMsgId);
                 const dbMsgId = lastReactMsg.rows[0].id;
                 console.log('[BotEngine] Sending reaction to message:', msgId);
                 try {
@@ -2433,7 +2434,9 @@ class BotEngine {
                 [contact.id, 'incoming']
               );
               if (lastMsg.rows.length > 0 && lastMsg.rows[0].wa_message_id) {
-                await wahaService.sendReaction(connection, lastMsg.rows[0].wa_message_id, action.reaction);
+                const rawId = lastMsg.rows[0].wa_message_id;
+                const resolvedId = await this.resolveMsgIdLid(connection, rawId);
+                await wahaService.sendReaction(connection, resolvedId, action.reaction);
                 console.log('[BotEngine] ✅ Reaction sent:', action.reaction);
               }
             }
@@ -4082,6 +4085,25 @@ class BotEngine {
     };
   }
   
+  // Helper: resolve @lid inside a WhatsApp message ID string.
+  // Format: "[true|false]_CHATID@lid_MSGID" → "[true|false]_PHONE@c.us_MSGID"
+  async resolveMsgIdLid(connection, msgId) {
+    if (!msgId || !msgId.includes('@lid')) return msgId;
+    const m = msgId.match(/^((?:true|false)_)(\d+@lid)(_[A-Za-z0-9]+(?:_[^_]+)*)$/);
+    if (!m) return msgId;
+    try {
+      const phone = await wahaService.resolveLid(connection, m[2]);
+      if (phone) {
+        const resolved = `${m[1]}${phone}@c.us${m[3]}`;
+        console.log(`[BotEngine] Resolved @lid in msgId: ${msgId.substring(0, 40)} → ${resolved.substring(0, 40)}`);
+        return resolved;
+      }
+    } catch (e) {
+      console.warn('[BotEngine] LID resolution in msgId failed:', e.message);
+    }
+    return msgId;
+  }
+
   // Helper: Sleep
   sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
