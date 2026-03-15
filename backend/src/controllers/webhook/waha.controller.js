@@ -206,15 +206,17 @@ function extractRealPhone(payload) {
 }
 
 // Track which users already had their webhook events updated (per process lifetime)
-const webhookUpdatedUsers = new Set();
+const webhookUpdatedAt = new Map(); // userId -> timestamp of last webhook update
+const WEBHOOK_UPDATE_INTERVAL_MS = 60 * 60 * 1000; // Re-register at most once per hour
 
 /**
  * Auto-update webhook events for existing connections
  * Runs once per user when session.status WORKING is received
  */
 async function autoUpdateWebhookEvents(userId) {
-  if (webhookUpdatedUsers.has(userId)) return;
-  webhookUpdatedUsers.add(userId);
+  const lastUpdate = webhookUpdatedAt.get(userId);
+  if (lastUpdate && Date.now() - lastUpdate < WEBHOOK_UPDATE_INTERVAL_MS) return;
+  webhookUpdatedAt.set(userId, Date.now());
   
   try {
     const connResult = await pool.query(
@@ -1314,13 +1316,17 @@ function parseMessage(payload) {
  * Handle outgoing messages sent from the actual device (not from bot)
  */
 async function handleOutgoingDeviceMessage(userId, payload) {
-  // Extract the recipient's phone number
-  const toPhone = payload.to?.split('@')[0] || payload.chatId?.split('@')[0];
+  // Extract the recipient's phone number — try all possible fields
+  const rawPhone = payload.to?.split('@')[0]
+    || payload.chatId?.split('@')[0]
+    || payload.id?.remote?.split('@')[0]
+    || payload.key?.remoteJid?.split('@')[0];
+  const toPhone = rawPhone?.replace(/^\+/, ''); // strip leading + if present
 
-  console.log(`[Webhook] handleOutgoingDeviceMessage: toPhone=${toPhone} type=${payload.type} body=${String(payload.body || '').substring(0, 50)}`);
+  console.log(`[Webhook] handleOutgoingDeviceMessage: toPhone=${toPhone} type=${payload.type} body=${String(payload.body || '').substring(0, 50)} rawFields={to:${payload.to},chatId:${payload.chatId},idRemote:${payload.id?.remote}}`);
 
   if (!toPhone || !toPhone.match(/^\d+$/)) {
-    console.log(`[Webhook] Skipping outgoing message — invalid toPhone: "${toPhone}" (to=${payload.to} chatId=${payload.chatId})`);
+    console.log(`[Webhook] Skipping outgoing message — invalid toPhone: "${toPhone}" (to=${payload.to} chatId=${payload.chatId} id.remote=${payload.id?.remote})`);
     return;
   }
 
@@ -1802,7 +1808,36 @@ async function handleMessageReaction(userId, event) {
       // Sync reaction to status_bot_reactions table
       await syncStatusBotReaction(userId, reactionMsgId, reactorPhone, reactionText);
     }
-    // Non-status reactions can be handled here in the future
+    // Non-status reactions: sync to message and emit to live chat
+    const reactionText = payload.reaction?.text ?? '';
+    const reactionMsgId = payload.reaction?.messageId
+      || payload.reaction?.id?._serialized
+      || payload.reaction?.msgId?._serialized
+      || '';
+
+    if (!reactionMsgId) return;
+
+    const msgResult = await pool.query(
+      `SELECT id, contact_id FROM messages WHERE wa_message_id = $1 AND user_id = $2`,
+      [reactionMsgId, userId]
+    );
+    if (msgResult.rows.length === 0) return;
+
+    const dbMsg = msgResult.rows[0];
+
+    // Update reaction in message metadata (empty string = reaction removed)
+    await pool.query(
+      `UPDATE messages SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb WHERE id = $2`,
+      [JSON.stringify({ reaction: reactionText }), dbMsg.id]
+    );
+
+    const socketManager = getSocketManager();
+    socketManager.emitToUser(userId, 'message_reaction', {
+      messageId: dbMsg.id,
+      reaction: reactionText,
+    });
+
+    console.log(`[Webhook] 💬 Reaction "${reactionText}" on message ${dbMsg.id}`);
   } catch (error) {
     console.error('[Webhook] Reaction handler error:', error.message);
   }

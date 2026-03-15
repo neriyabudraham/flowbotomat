@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Check, CheckCheck, Image, FileText, Mic, MapPin, Video, Play, Download, ExternalLink, Bot, User, List, MousePointer, ChevronDown, UserCircle, Phone, Building2, Eye, ThumbsUp, UserRound, FileImage, AtSign, BarChart2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Check, CheckCheck, Image, FileText, Mic, MapPin, Video, Play, Download, ExternalLink, Bot, User, List, MousePointer, ChevronDown, UserCircle, Phone, Building2, Eye, ThumbsUp, UserRound, FileImage, AtSign, BarChart2, ZoomIn, X } from 'lucide-react';
 
 // Format phone for display in group messages
 function formatSenderPhone(phone) {
@@ -68,6 +69,7 @@ function parseMentions(text, isOutgoing, lidMappings = {}) {
 }
 
 export default function MessageBubble({ message, isGroupChat = false, lidMappings = {} }) {
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const isOutgoing = message.direction === 'outgoing';
   const time = new Date(message.sent_at).toLocaleTimeString('he-IL', { 
     hour: '2-digit', 
@@ -226,15 +228,17 @@ export default function MessageBubble({ message, isGroupChat = false, lidMapping
         return (
           <div className="space-y-2">
             {message.media_url && (
-              <div className="relative group">
-                <img 
-                  src={message.media_url} 
-                  alt="" 
-                  className="max-w-[280px] rounded-xl cursor-pointer hover:opacity-90 transition-opacity" 
-                  onClick={() => window.open(message.media_url, '_blank')}
+              <div
+                className="relative group cursor-pointer"
+                onClick={() => setLightboxOpen(true)}
+              >
+                <img
+                  src={message.media_url}
+                  alt=""
+                  className="max-w-[280px] rounded-xl hover:opacity-90 transition-opacity"
                 />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 rounded-xl transition-colors flex items-center justify-center">
-                  <ExternalLink className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 rounded-xl transition-colors flex items-center justify-center">
+                  <ZoomIn className="w-7 h-7 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
                 </div>
               </div>
             )}
@@ -557,13 +561,14 @@ export default function MessageBubble({ message, isGroupChat = false, lidMapping
   }
 
   return (
+    <>
     <div className={`flex ${isOutgoing ? 'justify-start' : 'justify-end'} mb-3 group`}>
       <div className={`relative max-w-[75%] ${isOutgoing ? 'order-2' : 'order-1'}`}>
         {/* Message Bubble */}
         <div className={`
           rounded-2xl px-4 py-2.5 shadow-sm
-          ${isOutgoing 
-            ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-bl-md' 
+          ${isOutgoing
+            ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-bl-md'
             : 'bg-white text-gray-800 rounded-br-md border border-gray-100'
           }
         `}>
@@ -605,12 +610,43 @@ export default function MessageBubble({ message, isGroupChat = false, lidMapping
         
         {/* Reaction badge - appears on the side of the message */}
         {reaction && (
-          <div className={`absolute top-1/2 -translate-y-1/2 ${isOutgoing ? '-left-8' : '-right-8'} 
+          <div className={`absolute top-1/2 -translate-y-1/2 ${isOutgoing ? '-left-8' : '-right-8'}
             bg-white rounded-full p-1 shadow-md border border-gray-100 text-base leading-none`}>
             {reaction}
           </div>
         )}
       </div>
     </div>
+
+    {/* Image Lightbox */}
+    {lightboxOpen && message.message_type === 'image' && message.media_url && createPortal(
+      <div
+        className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center cursor-pointer"
+        onClick={() => setLightboxOpen(false)}
+      >
+        <button
+          className="absolute top-4 right-4 text-white p-2 rounded-full bg-white/10 hover:bg-white/25 transition-colors"
+          onClick={(e) => { e.stopPropagation(); setLightboxOpen(false); }}
+        >
+          <X className="w-6 h-6" />
+        </button>
+        <a
+          href={message.media_url}
+          download
+          className="absolute top-4 left-4 text-white p-2 rounded-full bg-white/10 hover:bg-white/25 transition-colors"
+          onClick={e => e.stopPropagation()}
+        >
+          <Download className="w-6 h-6" />
+        </a>
+        <img
+          src={message.media_url}
+          alt=""
+          className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg select-none"
+          onClick={e => e.stopPropagation()}
+        />
+      </div>,
+      document.body
+    )}
+    </>
   );
 }
