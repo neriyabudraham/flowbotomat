@@ -3,7 +3,7 @@ import {
   ArrowRight, Save, Target, Zap, Clock, UserCheck, Settings, Search,
   X, Plus, Trash2, Check, AlertCircle, Loader2, RefreshCw,
   MessageSquare, Users, ChevronDown, ChevronUp, Phone, Image as ImageIcon,
-  Crown, AlertTriangle
+  Crown, AlertTriangle, Eraser
 } from 'lucide-react';
 // Using simple arrow buttons instead of drag-drop to avoid dependency issues
 import Button from '../atoms/Button';
@@ -664,7 +664,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-gray-900">שולחים מורשים</h2>
-                  <p className="text-gray-500 mt-1">רק הודעות ממספרים אלו יופעלו להעברה. השאר ריק לאפשר לכולם.</p>
+                  <p className="text-gray-500 mt-1">רק הודעות ממספרים אלו יופעלו להעברה לקבוצות. אם הרשימה ריקה — כל מספר שישלח הודעה לבוט יכול להפעיל שליחה. מומלץ להגביל לשולחים מורשים בלבד.</p>
                 </div>
               </div>
 
@@ -796,7 +796,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                             title={sender.can_delete_from_all_groups ? 'הסר הרשאת מחיקה' : 'הרשה מחיקה מכל הקבוצות'}
                             className={`p-2 rounded-xl transition-all ${sender.can_delete_from_all_groups ? 'text-red-500 bg-red-100' : 'text-gray-400 hover:bg-red-50 hover:text-red-500'}`}
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Eraser className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => removeSender(sender.phone_number)}
@@ -811,7 +811,41 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                 </div>
               )}
 
-              <div className="mt-6 p-5 bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl border border-green-100">
+              {/* Capabilities Legend */}
+              <div className="mt-6 p-5 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-100">
+                <h4 className="font-bold text-blue-900 mb-3 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4" />
+                  הסבר על הרשאות שולח
+                </h4>
+                <div className="space-y-2 text-sm text-blue-800">
+                  <div className="flex items-start gap-2">
+                    <Crown className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-semibold">מנהל ראשי</span>
+                      <span className="text-blue-700"> — מקבל הודעות בקשת אישור בווצאפ לפני ביצוע שליחה. רק מנהל אחד יכול להיות פעיל. מחליף את הסרטיבוט לאישור.</span>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <Zap className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-semibold">שליחה חופשית</span>
+                      <span className="text-blue-700"> — השולח יכול לשלוח הודעות ישירות לכל הקבוצות ללא צורך באישור מנהל (עוקף את דרישת האישור).</span>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <Eraser className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-semibold">מחיקה מכל הקבוצות</span>
+                      <span className="text-blue-700"> — כאשר השולח מוחק הודעה שנשלחה ממסלול זה, היא תימחק אוטומטית מכל קבוצות היעד בבת אחת.</span>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-blue-600 mt-3 border-t border-blue-200 pt-2">
+                  לחץ על שולח ברשימה כדי לראות את לחצני ההרשאה. ניתן לשנות הרשאות ולשמור.
+                </p>
+              </div>
+
+              <div className="mt-4 p-5 bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl border border-green-100">
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl flex items-center justify-center shadow">
                     <Check className="w-5 h-5 text-white" />
@@ -883,7 +917,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                   </div>
                   השהייה בין הודעות
                 </h3>
-                <p className="text-sm text-gray-500 mb-4">הגדר את הזמן בין שליחת הודעה לקבוצה אחת לבאה</p>
+                <p className="text-sm text-gray-500 mb-4">הגדר את הזמן בין שליחת הודעה לקבוצה אחת לבאה. השהייה אקראית בטווח שהוגדר מגינה על החשבון מחסימה ומדמה התנהגות אנושית.</p>
                 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -998,7 +1032,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                   </div>
                   <div>
                     <p className="font-bold text-gray-900">בקש אישור לפני שליחה</p>
-                    <p className="text-sm text-gray-500">תקבל הודעה לאישור עם כפתורי שליחה/ביטול</p>
+                    <p className="text-sm text-gray-500">לפני ביצוע ההפצה, השולח יקבל הודעת ווצאפ עם פרטי ההודעה וכפתורי אישור/ביטול. כאשר כבוי — ההפצה מתחילה מיידית ללא אישור.</p>
                   </div>
                 </div>
                 <div className={`w-14 h-8 rounded-full relative transition-colors ${requireConfirmation ? 'bg-gradient-to-r from-purple-500 to-pink-500' : 'bg-gray-300'}`}>
@@ -1015,7 +1049,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                     </div>
                     <div>
                       <h3 className="font-bold text-gray-900">סיומת הודעה קבועה</h3>
-                      <p className="text-sm text-gray-500">טקסט שיתווסף בסוף כל הודעה</p>
+                      <p className="text-sm text-gray-500">טקסט שיתווסף אוטומטית בסוף כל הודעה שנשלחת. ניתן להגדיר סיומת שונה לכל קבוצה בנפרד, או לסמן "ללא סיומת" לקבוצה ספציפית.</p>
                     </div>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">

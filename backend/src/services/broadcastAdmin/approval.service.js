@@ -155,6 +155,37 @@ async function sendApprovalRequestToAdmin(userId, job, forward, adminPhone, admi
 }
 
 /**
+ * Get the notify_sender_on_pending setting for a user
+ */
+async function getSenderNotifySetting(userId) {
+  try {
+    const result = await db.query(
+      `SELECT notify_sender_on_pending FROM broadcast_admin_config WHERE user_id = $1`,
+      [userId]
+    );
+    // Default true if no config or column missing
+    return result.rows[0]?.notify_sender_on_pending !== false;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Send a plain WhatsApp text message to the original sender to notify them of status
+ */
+async function notifySender(userId, senderPhone, text) {
+  try {
+    const wahaConnection = await getWahaConnection(userId);
+    if (!wahaConnection) return;
+    const wahaService = require('../waha/session.service');
+    const chatId = senderPhone.includes('@') ? senderPhone : `${senderPhone.replace(/\D/g, '')}@s.whatsapp.net`;
+    await wahaService.sendMessage(wahaConnection, chatId, text);
+  } catch (err) {
+    console.log('[BroadcastAdmin] Could not notify sender:', err.message);
+  }
+}
+
+/**
  * Request admin approval for a job.
  * Checks if the forward has an admin sender configured.
  * Returns true if routed to admin, false if no admin (caller should proceed normally).
@@ -181,6 +212,17 @@ async function requestAdminApproval(userId, job, forward) {
     `, [userId, job.id, job.sender_phone, job.sender_name]);
 
     await sendApprovalRequestToAdmin(userId, job, forward, admin.phone_number, admin.name);
+
+    // Notify sender immediately that their message is pending approval
+    const shouldNotify = await getSenderNotifySetting(userId);
+    if (shouldNotify && job.sender_phone) {
+      const senderDisplay = job.sender_name && job.sender_name !== job.sender_phone ? job.sender_name : null;
+      const greeting = senderDisplay ? `שלום ${senderDisplay}! ` : '';
+      await notifySender(userId, job.sender_phone,
+        `${greeting}⏳ *ההודעה שלך נשלחה לאישור המנהל*\n\n📋 *מסלול:* ${forward.name}\n📢 *קבוצות:* ${job.total_targets}\n\nברגע שהמנהל יאשר תקבל/י הודעה להמשיך.`
+      );
+    }
+
     return true;
   } catch (error) {
     console.error('[BroadcastAdmin] Error creating approval request:', error.message);
@@ -270,6 +312,14 @@ async function handleApproval(userId, jobId) {
     const triggerService = require('../groupForwards/trigger.service');
     await triggerService.sendConfirmationListForJob(userId, job, forwardWithCount);
 
+    // Notify sender that their message was approved
+    const shouldNotify = await getSenderNotifySetting(userId);
+    if (shouldNotify && job.sender_phone) {
+      await notifySender(userId, job.sender_phone,
+        `✅ *ההודעה שלך אושרה!*\n\n📋 *מסלול:* ${forward.name}\n📢 *קבוצות:* ${job.total_targets}\n\nתכף תקבל/י אפשרות לאשר את השליחה.`
+      );
+    }
+
     console.log(`[BroadcastAdmin] Job ${jobId} approved, confirmation sent to sender`);
   } catch (error) {
     console.error('[BroadcastAdmin] Error handling approval:', error.message);
@@ -278,11 +328,27 @@ async function handleApproval(userId, jobId) {
 
 async function handleRejection(userId, jobId) {
   try {
+    const jobResult = await db.query('SELECT * FROM forward_jobs WHERE id = $1', [jobId]);
+    const job = jobResult.rows[0];
+
     await db.query(`
       UPDATE forward_jobs
       SET status = 'cancelled', awaiting_admin_approval = false, updated_at = NOW()
       WHERE id = $1
     `, [jobId]);
+
+    // Notify sender that their message was rejected
+    if (job) {
+      const shouldNotify = await getSenderNotifySetting(userId);
+      if (shouldNotify && job.sender_phone) {
+        const forwardResult = await db.query('SELECT name FROM group_forwards WHERE id = $1', [job.forward_id]);
+        const forwardName = forwardResult.rows[0]?.name || '';
+        await notifySender(userId, job.sender_phone,
+          `❌ *ההודעה שלך נדחתה על ידי המנהל*\n\n📋 *מסלול:* ${forwardName}\n\nצור/י קשר עם המנהל לפרטים נוספים.`
+        );
+      }
+    }
+
     console.log(`[BroadcastAdmin] Job ${jobId} rejected by admin`);
   } catch (error) {
     console.error('[BroadcastAdmin] Error handling rejection:', error.message);
@@ -535,5 +601,6 @@ module.exports = {
   processAdminResponse,
   isAdminForAnyForward,
   cascadeDeleteBroadcastMessage,
-  normalizePhone
+  normalizePhone,
+  getSenderNotifySetting,
 };

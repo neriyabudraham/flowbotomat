@@ -24,7 +24,7 @@ async function getAdminConfig(req, res) {
 async function setAdminConfig(req, res) {
   try {
     const userId = req.user.id;
-    const { admin_phone, admin_name, require_approval, delete_delay_seconds } = req.body;
+    const { admin_phone, admin_name, require_approval, delete_delay_seconds, notify_sender_on_pending } = req.body;
 
     if (!admin_phone) {
       return res.status(400).json({ error: 'מספר טלפון המנהל נדרש' });
@@ -39,13 +39,14 @@ async function setAdminConfig(req, res) {
     await broadcastAdminService.ensureAdminTables();
 
     const result = await db.query(`
-      INSERT INTO broadcast_admin_config (user_id, admin_phone, admin_name, require_approval, delete_delay_seconds)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO broadcast_admin_config (user_id, admin_phone, admin_name, require_approval, delete_delay_seconds, notify_sender_on_pending)
+      VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (user_id) DO UPDATE SET
         admin_phone = EXCLUDED.admin_phone,
         admin_name = EXCLUDED.admin_name,
         require_approval = EXCLUDED.require_approval,
         delete_delay_seconds = EXCLUDED.delete_delay_seconds,
+        notify_sender_on_pending = EXCLUDED.notify_sender_on_pending,
         updated_at = NOW()
       RETURNING *
     `, [
@@ -53,7 +54,8 @@ async function setAdminConfig(req, res) {
       normalizedPhone,
       admin_name || null,
       require_approval !== false,
-      delete_delay_seconds || 2
+      delete_delay_seconds || 2,
+      notify_sender_on_pending !== false,
     ]);
 
     res.json({ config: result.rows[0] });
