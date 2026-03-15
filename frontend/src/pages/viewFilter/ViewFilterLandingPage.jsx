@@ -26,7 +26,7 @@ export default function ViewFilterLandingPage() {
 
       // Load service details
       const servicesRes = await api.get('/services');
-      const svc = servicesRes.data.find(s => s.slug === 'view-filter-bot');
+      const svc = (servicesRes.data.services || servicesRes.data)?.find?.(s => s.slug === 'view-filter-bot');
       setService(svc);
 
       if (token) {
