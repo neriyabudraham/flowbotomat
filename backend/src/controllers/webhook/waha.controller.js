@@ -1330,10 +1330,18 @@ function parseMessage(payload) {
  */
 async function handleOutgoingDeviceMessage(userId, payload) {
   // Extract the recipient's phone number — try all possible fields
+  // Try to extract phone from id string "true_PHONE@c.us_MSGID" as last resort
+  let idStringPhone;
+  if (typeof payload.id === 'string') {
+    const m = payload.id.match(/^(?:true|false)_(\d+)@/);
+    if (m) idStringPhone = m[1];
+  }
+
   const rawPhone = payload.to?.split('@')[0]
     || payload.chatId?.split('@')[0]
     || payload.id?.remote?.split('@')[0]
-    || payload.key?.remoteJid?.split('@')[0];
+    || payload.key?.remoteJid?.split('@')[0]
+    || idStringPhone;
   const toPhone = rawPhone?.replace(/^\+/, ''); // strip leading + if present
 
   console.log(`[Webhook] handleOutgoingDeviceMessage: toPhone=${toPhone} type=${payload.type} body=${String(payload.body || '').substring(0, 50)} rawFields={to:${payload.to},chatId:${payload.chatId},idRemote:${payload.id?.remote}}`);
