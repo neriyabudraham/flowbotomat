@@ -1136,7 +1136,14 @@ async function getOrCreateContact(userId, phone, payload) {
  */
 function parseMessage(payload) {
   const body = payload.body || '';
-  
+
+  // Debug: log poll-related fields to diagnose poll detection
+  if (payload.type === 'poll_creation' || payload._data?.Message?.pollCreationMessage ||
+      payload._data?.Info?.MediaType === 'poll_creation' || body?.includes('poll') ||
+      payload._data?.Message && Object.keys(payload._data.Message).some(k => k.toLowerCase().includes('poll'))) {
+    console.log('[Webhook] POLL DEBUG - type:', payload.type, '| MediaType:', payload._data?.Info?.MediaType, '| MessageKeys:', JSON.stringify(Object.keys(payload._data?.Message || {})), '| body:', body?.substring(0, 100));
+  }
+
   // Check for list response (button click)
   const listResponse = payload._data?.Message?.listResponseMessage;
   if (listResponse) {
