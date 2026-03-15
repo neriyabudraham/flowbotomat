@@ -287,8 +287,6 @@ async function handleWebhook(req, res) {
           } else if (event.payload?.fromMe) {
             console.log(`[Webhook] 📤 Outgoing message detected: from=${event.payload?.from} to=${event.payload?.to || event.payload?.chatId} type=${event.payload?.type} id=${JSON.stringify(event.payload?.id)}`);
             await handleOutgoingDeviceMessage(userId, event.payload);
-          } else if (!event.payload?.fromMe) {
-            console.log(`[Webhook] ℹ️ message.any (incoming): from=${event.payload?.from} type=${event.payload?.type}`);
           }
           break;
         case 'message.ack':
