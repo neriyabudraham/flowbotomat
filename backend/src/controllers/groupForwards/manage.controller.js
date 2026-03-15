@@ -64,9 +64,9 @@ async function updateGroupForward(req, res) {
   try {
     const userId = req.user.id;
     const { forwardId } = req.params;
-    const { 
-      name, 
-      description, 
+    const {
+      name,
+      description,
       is_active,
       trigger_type,
       trigger_group_id,
@@ -75,7 +75,8 @@ async function updateGroupForward(req, res) {
       delay_max,
       require_confirmation,
       message_suffix,
-      suffix_enabled
+      suffix_enabled,
+      notify_sender_on_pending
     } = req.body;
     
     // Verify ownership
@@ -109,6 +110,7 @@ async function updateGroupForward(req, res) {
         require_confirmation = COALESCE($9, require_confirmation),
         message_suffix = $11,
         suffix_enabled = COALESCE($12, suffix_enabled),
+        notify_sender_on_pending = COALESCE($13, notify_sender_on_pending),
         updated_at = NOW()
       WHERE id = $10
       RETURNING *
@@ -124,7 +126,8 @@ async function updateGroupForward(req, res) {
       require_confirmation,
       forwardId,
       message_suffix || null,
-      suffix_enabled
+      suffix_enabled,
+      notify_sender_on_pending !== undefined ? notify_sender_on_pending : null
     ]);
     
     res.json({

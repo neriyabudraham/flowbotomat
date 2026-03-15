@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Shield, Phone, User, Save, Trash2, CheckCircle, AlertCircle, Loader2, Info, Clock, Bell } from 'lucide-react';
+import { Shield, Phone, User, Save, Trash2, CheckCircle, AlertCircle, Loader2, Info, Clock } from 'lucide-react';
 import Button from '../atoms/Button';
 import api from '../../services/api';
 
@@ -23,7 +23,6 @@ export default function BroadcastAdminPanel() {
   const [adminPhone, setAdminPhone] = useState('');
   const [adminName, setAdminName] = useState('');
   const [requireApproval, setRequireApproval] = useState(true);
-  const [notifySenderOnPending, setNotifySenderOnPending] = useState(true);
   const [deleteDelay, setDeleteDelay] = useState(2);
 
   const [successMsg, setSuccessMsg] = useState('');
@@ -42,7 +41,6 @@ export default function BroadcastAdminPanel() {
         setAdminPhone(data.config.admin_phone || '');
         setAdminName(data.config.admin_name || '');
         setRequireApproval(data.config.require_approval !== false);
-        setNotifySenderOnPending(data.config.notify_sender_on_pending !== false);
         setDeleteDelay(data.config.delete_delay_seconds || 2);
       }
     } catch (err) {
@@ -68,7 +66,6 @@ export default function BroadcastAdminPanel() {
         admin_phone: cleanPhone,
         admin_name: adminName.trim() || null,
         require_approval: requireApproval,
-        notify_sender_on_pending: notifySenderOnPending,
         delete_delay_seconds: parseInt(deleteDelay) || 2
       });
       setConfig(data.config);
@@ -131,9 +128,9 @@ export default function BroadcastAdminPanel() {
           <ul className="list-disc list-inside space-y-0.5 mr-2">
             <li>כאשר מורשה שליחה מפעיל שליחת הודעה לקבוצות, המנהל מקבל הודעת ווצאפ עם פרטי הבקשה</li>
             <li>המנהל יכול לאשר או לדחות את השליחה</li>
-            <li>אם הופעלה "הודעת המתנה" — השולח יקבל עדכון מיידי שההודעה ממתינה לאישור</li>
             <li>אם אושר — השולח מקבל הודעה ואז ממשיך בתהליך הרגיל</li>
-            <li>אם נדחה — השולח יקבל הודעה על הדחייה (ניתן לכבות)</li>
+            <li>אם נדחה — השולח יקבל הודעה על הדחייה</li>
+            <li>ניתן להגדיר עדכוני ווצאפ לשולח בנפרד עבור כל קמפיין בטאב "שולחים"</li>
             <li>כאשר המנהל מוחק הודעה שהופצה מקבוצה — היא נמחקת מכלל הקבוצות</li>
           </ul>
           <p className="mt-2 text-xs text-blue-600 dark:text-blue-400">
@@ -211,32 +208,6 @@ export default function BroadcastAdminPanel() {
             <span
               className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                 requireApproval ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
-        </div>
-
-        {/* Notify sender on pending */}
-        <div className="flex items-center justify-between py-1">
-          <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-              <Bell className="w-4 h-4" />
-              הודעות עדכון לשולח
-            </label>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              שלח הודעת ווצאפ לשולח כאשר ההודעה ממתינה לאישור, אושרה, או נדחתה
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setNotifySenderOnPending(!notifySenderOnPending)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              notifySenderOnPending ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                notifySenderOnPending ? 'translate-x-6' : 'translate-x-1'
               }`}
             />
           </button>

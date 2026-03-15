@@ -3,7 +3,7 @@ import {
   ArrowRight, Save, Target, Zap, Clock, UserCheck, Settings, Search,
   X, Plus, Trash2, Check, AlertCircle, Loader2, RefreshCw,
   MessageSquare, Users, ChevronDown, ChevronUp, Phone, Image as ImageIcon,
-  Crown, AlertTriangle, Eraser
+  Crown, AlertTriangle, Eraser, Bell
 } from 'lucide-react';
 // Using simple arrow buttons instead of drag-drop to avoid dependency issues
 import Button from '../atoms/Button';
@@ -25,6 +25,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
   const [delayMin, setDelayMin] = useState(forward.delay_min || 3);
   const [delayMax, setDelayMax] = useState(forward.delay_max || 10);
   const [requireConfirmation, setRequireConfirmation] = useState(forward.require_confirmation !== false);
+  const [notifySenderOnPending, setNotifySenderOnPending] = useState(forward.notify_sender_on_pending !== false);
   const [messageSuffix, setMessageSuffix] = useState(forward.message_suffix || '');
   const [suffixEnabled, setSuffixEnabled] = useState(forward.suffix_enabled || false);
   const [showSuffixSettings, setShowSuffixSettings] = useState(false);
@@ -121,7 +122,8 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
         delay_max: delayMax,
         require_confirmation: requireConfirmation,
         message_suffix: messageSuffix,
-        suffix_enabled: suffixEnabled
+        suffix_enabled: suffixEnabled,
+        notify_sender_on_pending: notifySenderOnPending
       });
       
       onSave?.(data.forward);
@@ -843,6 +845,28 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                 <p className="text-xs text-blue-600 mt-3 border-t border-blue-200 pt-2">
                   לחץ על שולח ברשימה כדי לראות את לחצני ההרשאה. ניתן לשנות הרשאות ולשמור.
                 </p>
+
+                {/* Notify sender toggle */}
+                <div className="flex items-center justify-between mt-3 pt-3 border-t border-blue-200">
+                  <div className="flex items-center gap-2">
+                    <Bell className="w-4 h-4 text-blue-500" />
+                    <div>
+                      <p className="text-sm font-semibold text-blue-900">עדכון ווצאפ לשולח</p>
+                      <p className="text-xs text-blue-700">שלח הודעה לשולח כשהבקשה ממתינה / אושרה / נדחתה</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setNotifySenderOnPending(!notifySenderOnPending)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
+                      notifySenderOnPending ? 'bg-blue-500' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      notifySenderOnPending ? 'translate-x-6' : 'translate-x-1'
+                    }`} />
+                  </button>
+                </div>
               </div>
 
               <div className="mt-4 p-5 bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl border border-green-100">

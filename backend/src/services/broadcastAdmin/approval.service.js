@@ -214,7 +214,7 @@ async function requestAdminApproval(userId, job, forward) {
     await sendApprovalRequestToAdmin(userId, job, forward, admin.phone_number, admin.name);
 
     // Notify sender immediately that their message is pending approval
-    const shouldNotify = await getSenderNotifySetting(userId);
+    const shouldNotify = forward.notify_sender_on_pending !== false;
     if (shouldNotify && job.sender_phone) {
       const senderDisplay = job.sender_name && job.sender_name !== job.sender_phone ? job.sender_name : null;
       const greeting = senderDisplay ? `שלום ${senderDisplay}! ` : '';
@@ -313,7 +313,7 @@ async function handleApproval(userId, jobId) {
     await triggerService.sendConfirmationListForJob(userId, job, forwardWithCount);
 
     // Notify sender that their message was approved
-    const shouldNotify = await getSenderNotifySetting(userId);
+    const shouldNotify = forward.notify_sender_on_pending !== false;
     if (shouldNotify && job.sender_phone) {
       await notifySender(userId, job.sender_phone,
         `✅ *ההודעה שלך אושרה!*\n\n📋 *מסלול:* ${forward.name}\n📢 *קבוצות:* ${job.total_targets}\n\nתכף תקבל/י אפשרות לאשר את השליחה.`
@@ -339,12 +339,12 @@ async function handleRejection(userId, jobId) {
 
     // Notify sender that their message was rejected
     if (job) {
-      const shouldNotify = await getSenderNotifySetting(userId);
+      const forwardResult = await db.query('SELECT name, notify_sender_on_pending FROM group_forwards WHERE id = $1', [job.forward_id]);
+      const fwd = forwardResult.rows[0];
+      const shouldNotify = fwd?.notify_sender_on_pending !== false;
       if (shouldNotify && job.sender_phone) {
-        const forwardResult = await db.query('SELECT name FROM group_forwards WHERE id = $1', [job.forward_id]);
-        const forwardName = forwardResult.rows[0]?.name || '';
         await notifySender(userId, job.sender_phone,
-          `❌ *ההודעה שלך נדחתה על ידי המנהל*\n\n📋 *מסלול:* ${forwardName}\n\nצור/י קשר עם המנהל לפרטים נוספים.`
+          `❌ *ההודעה שלך נדחתה על ידי המנהל*\n\n📋 *מסלול:* ${fwd?.name || ''}\n\nצור/י קשר עם המנהל לפרטים נוספים.`
         );
       }
     }

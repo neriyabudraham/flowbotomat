@@ -302,8 +302,9 @@ server.listen(PORT, () => {
           'one_time'
         ) ON CONFLICT (slug) DO UPDATE SET billing_period = 'one_time'
       `);
-      // Broadcast admin: notify sender setting
+      // Broadcast admin: notify sender setting (per-forward)
       await dbQuery(`ALTER TABLE broadcast_admin_config ADD COLUMN IF NOT EXISTS notify_sender_on_pending BOOLEAN DEFAULT true`);
+      await dbQuery(`ALTER TABLE group_forwards ADD COLUMN IF NOT EXISTS notify_sender_on_pending BOOLEAN DEFAULT true`);
       // Performance indexes for view-filter queries
       await dbQuery(`CREATE INDEX IF NOT EXISTS idx_sbv_status_id_viewed_at ON status_bot_views(status_id, viewed_at)`);
       await dbQuery(`CREATE INDEX IF NOT EXISTS idx_sbv_viewed_at_phone ON status_bot_views(viewed_at, viewer_phone)`);
