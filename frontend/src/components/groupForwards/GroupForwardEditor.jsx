@@ -775,8 +775,8 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                             {formattedPhone}
                           </p>
                         </div>
-                        {/* Capability toggles — visible on hover */}
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                        {/* Capability toggles */}
+                        <div className="flex items-center gap-1">
                           <button
                             onClick={() => toggleAdmin(sender.phone_number)}
                             title={sender.is_admin ? 'הסר מנהל ראשי' : 'הגדר כמנהל ראשי (מאשר הודעות)'}
