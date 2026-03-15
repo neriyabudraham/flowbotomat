@@ -220,13 +220,77 @@ if (enableQueueProcessor) {
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
   console.log(`🚀 Botomat Backend running on port ${PORT}`);
-  
+
+  // Run pending migrations on startup
+  setTimeout(async () => {
+    const pool = require('./config/database');
+    try {
+      // Contacts optimization: last_message column + indexes
+      await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_message TEXT`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_messages_contact_sent ON messages(contact_id, sent_at DESC)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_contacts_user_last_msg ON contacts(user_id, last_message_at DESC NULLS LAST)`);
+      // Backfill last_message for contacts that don't have it yet
+      await pool.query(`
+        UPDATE contacts c SET last_message = (
+          SELECT content FROM messages m WHERE m.contact_id = c.id ORDER BY sent_at DESC LIMIT 1
+        ) WHERE c.last_message IS NULL AND EXISTS (SELECT 1 FROM messages m WHERE m.contact_id = c.id)
+      `);
+
+      // View Filter Bot migration
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS status_viewer_campaigns (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          connection_id UUID NOT NULL REFERENCES status_bot_connections(id) ON DELETE CASCADE,
+          started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          ends_at TIMESTAMP NOT NULL,
+          status VARCHAR(20) DEFAULT 'active',
+          created_at TIMESTAMP DEFAULT NOW(),
+          UNIQUE(user_id)
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_svc_user ON status_viewer_campaigns(user_id)`);
+      await pool.query(`ALTER TABLE additional_services ADD COLUMN IF NOT EXISTS renewal_price DECIMAL(10,2) DEFAULT NULL`);
+      await pool.query(`ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS slot INTEGER DEFAULT 0`);
+      await pool.query(`UPDATE user_integrations SET slot = 0 WHERE slot IS NULL`);
+      await pool.query(`ALTER TABLE user_integrations DROP CONSTRAINT IF EXISTS user_integrations_user_id_integration_type_key`);
+      await pool.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'user_integrations_user_integration_slot_unique'
+          ) THEN
+            ALTER TABLE user_integrations ADD CONSTRAINT user_integrations_user_integration_slot_unique UNIQUE (user_id, integration_type, slot);
+          END IF;
+        END $$
+      `);
+      // Seed view-filter-bot service
+      await pool.query(`
+        INSERT INTO additional_services (
+          slug, name, name_he, description, description_he,
+          price, yearly_price, renewal_price, trial_days, allow_custom_trial,
+          icon, color, external_url, features, is_active, is_coming_soon, sort_order
+        ) VALUES (
+          'view-filter-bot', 'Status Viewers Filter', 'בוט סינון צפיות',
+          'Track who views your WhatsApp statuses over 90 days',
+          'גלה מי באמת צופה בסטטוסים שלך לאורך 90 יום',
+          199, 1990, 99, 0, true,
+          'eye', 'from-purple-500 to-violet-600', '/view-filter/dashboard',
+          '{"viewer_tracking":true,"gray_checkmark":true,"90_day_period":true,"google_sync":true}',
+          true, false, 2
+        ) ON CONFLICT (slug) DO NOTHING
+      `);
+      console.log('[Startup] ✅ Migrations applied successfully');
+    } catch (err) {
+      console.error('[Startup] Migration error:', err.message);
+    }
+  }, 3000);
+
   // Resume stuck jobs after server starts (wait for DB connections to stabilize)
   setTimeout(async () => {
     try {
       const { resumeStuckForwardJobs } = require('./controllers/groupForwards/jobs.controller');
       const { resumeStuckBroadcastCampaigns } = require('./services/broadcasts/sender.service');
-      
+
       await resumeStuckForwardJobs();
       await resumeStuckBroadcastCampaigns();
     } catch (err) {
