@@ -411,10 +411,10 @@ export default function ChatView({
       <form onSubmit={handleSend} className="p-4 border-t border-gray-100 bg-white">
         <div className="flex items-end gap-2">
           {/* Send Button */}
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={!text.trim() || isLoading || sending}
-            className={`p-3 rounded-xl transition-all shadow-sm ${
+            className={`p-3 rounded-xl transition-all shadow-sm flex-shrink-0 ${
               text.trim() && !sending
                 ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:shadow-lg hover:scale-105'
                 : 'bg-gray-100 text-gray-400 cursor-not-allowed'
@@ -426,17 +426,28 @@ export default function ChatView({
               <Send className="w-5 h-5" />
             )}
           </button>
-          
+
           {/* Input */}
           <div className="flex-1 relative">
-            <input
+            <textarea
               ref={inputRef}
-              type="text"
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="כתוב הודעה..."
-              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 text-sm transition-all placeholder:text-gray-400"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (text.trim() && !sending) handleSend(e);
+                }
+              }}
+              placeholder="כתוב הודעה... (Shift+Enter לירידת שורה)"
+              rows={1}
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 text-sm transition-all placeholder:text-gray-400 resize-none overflow-hidden"
               dir="auto"
+              style={{ minHeight: '44px', maxHeight: '160px' }}
+              onInput={(e) => {
+                e.target.style.height = 'auto';
+                e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
+              }}
             />
           </div>
         </div>

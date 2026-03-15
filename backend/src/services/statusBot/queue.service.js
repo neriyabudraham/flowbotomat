@@ -23,7 +23,39 @@ function emitToAdmin(event, data) {
 
 const QUEUE_INTERVAL = 5000; // Check queue every 5 seconds
 const STATUS_DELAY = 30000; // 30 seconds between statuses
-const STATUS_TIMEOUT = 600000; // 10 minutes timeout per status
+const DEFAULT_STATUS_TIMEOUT = 600000; // 10 minutes timeout per status (default)
+
+// Cached timeout value (refreshed every 60 seconds from DB)
+let _cachedTimeout = DEFAULT_STATUS_TIMEOUT;
+let _cacheTime = 0;
+
+async function getStatusTimeout() {
+  const now = Date.now();
+  if (now - _cacheTime < 60000) return _cachedTimeout;
+  try {
+    const result = await db.query(
+      `SELECT value FROM system_settings WHERE key = 'statusbot_upload_timeout_minutes'`
+    );
+    if (result.rows.length > 0) {
+      const minutes = parseFloat(JSON.parse(result.rows[0].value));
+      if (!isNaN(minutes) && minutes > 0) {
+        _cachedTimeout = minutes * 60000;
+      } else {
+        _cachedTimeout = DEFAULT_STATUS_TIMEOUT;
+      }
+    } else {
+      _cachedTimeout = DEFAULT_STATUS_TIMEOUT;
+    }
+  } catch (e) {
+    _cachedTimeout = DEFAULT_STATUS_TIMEOUT;
+  }
+  _cacheTime = now;
+  return _cachedTimeout;
+}
+
+function invalidateTimeoutCache() {
+  _cacheTime = 0;
+}
 
 /**
  * Extract file URL from various content formats
@@ -185,7 +217,7 @@ async function processQueue() {
       // Check for stuck processing (timeout)
       if (lock.processing_started_at) {
         const processingTime = Date.now() - new Date(lock.processing_started_at).getTime();
-        if (processingTime > STATUS_TIMEOUT) {
+        if (processingTime > await getStatusTimeout()) {
           console.log('[StatusBot Queue] Stuck processing detected, resetting...');
           await db.query(`
             UPDATE status_bot_queue_lock 
@@ -487,8 +519,9 @@ async function sendStatus(queueItem) {
   console.log(`[StatusBot Queue] Sending to ${endpoint}`, JSON.stringify(body, null, 2));
 
   // Send the status with timeout
+  const timeoutMs = await getStatusTimeout();
   const timeoutPromise = new Promise((resolve) => {
-    setTimeout(() => resolve({ timeout: true, id: messageId }), STATUS_TIMEOUT);
+    setTimeout(() => resolve({ timeout: true, id: messageId }), timeoutMs);
   });
 
   const sendPromise = wahaSession.makeRequest(baseUrl, apiKey, 'POST', endpoint, body)
@@ -657,4 +690,6 @@ module.exports = {
   setProcessingPromiseCallback,
   setGracefulShutdown,
   isGracefulShutdownRequested,
+  getStatusTimeout,
+  invalidateTimeoutCache,
 };

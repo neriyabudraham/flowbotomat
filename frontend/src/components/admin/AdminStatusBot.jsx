@@ -82,9 +82,18 @@ export default function AdminStatusBot() {
   const [now, setNow] = useState(Date.now());
   const socketRef = useRef(null);
 
+  // Queue settings
+  const [queueSettings, setQueueSettings] = useState({ timeoutMinutes: 10 });
+  const [editingTimeout, setEditingTimeout] = useState('');
+  const [savingSettings, setSavingSettings] = useState(false);
+
   useEffect(() => {
     loadData();
     loadActiveProcesses();
+    api.get('/status-bot/admin/queue-settings').then(({ data }) => {
+      setQueueSettings(data);
+      setEditingTimeout(String(data.timeoutMinutes));
+    }).catch(() => {});
     
     const timer = setInterval(() => setNow(Date.now()), 1000);
     
@@ -360,6 +369,37 @@ export default function AdminStatusBot() {
             אפס תור
           </button>
           
+          {/* Timeout setting */}
+          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5">
+            <Timer className="w-4 h-4 text-gray-500 flex-shrink-0" />
+            <span className="text-sm text-gray-600 whitespace-nowrap">טיימאאוט:</span>
+            <input
+              type="number"
+              min="0.5"
+              max="60"
+              step="0.5"
+              value={editingTimeout}
+              onChange={e => setEditingTimeout(e.target.value)}
+              className="w-16 text-sm text-center border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:border-blue-400"
+            />
+            <span className="text-sm text-gray-500">דקות</span>
+            <button
+              onClick={async () => {
+                setSavingSettings(true);
+                try {
+                  const { data } = await api.patch('/status-bot/admin/queue-settings', { timeoutMinutes: editingTimeout });
+                  setQueueSettings(data);
+                } catch { }
+                setSavingSettings(false);
+              }}
+              disabled={savingSettings || editingTimeout === String(queueSettings.timeoutMinutes)}
+              className="flex items-center gap-1 px-2 py-0.5 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {savingSettings ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+              שמור
+            </button>
+          </div>
+
           <Button variant="ghost" onClick={loadData} className="!p-2">
             <RefreshCw className="w-4 h-4" />
           </Button>

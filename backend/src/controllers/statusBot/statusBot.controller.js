@@ -3686,6 +3686,49 @@ async function updateSettings(req, res) {
   }
 }
 
+const queueService = require('../../services/statusBot/queue.service');
+
+/**
+ * Admin: get queue global settings (timeout etc.)
+ */
+async function adminGetQueueSettings(req, res) {
+  try {
+    const result = await db.query(
+      `SELECT value FROM system_settings WHERE key = 'statusbot_upload_timeout_minutes'`
+    );
+    const timeoutMinutes = result.rows.length > 0
+      ? parseFloat(JSON.parse(result.rows[0].value))
+      : 10;
+    res.json({ timeoutMinutes });
+  } catch (error) {
+    console.error('[StatusBot] adminGetQueueSettings error:', error);
+    res.status(500).json({ error: 'שגיאה' });
+  }
+}
+
+/**
+ * Admin: update queue global settings
+ */
+async function adminUpdateQueueSettings(req, res) {
+  try {
+    const { timeoutMinutes } = req.body;
+    if (!timeoutMinutes || isNaN(timeoutMinutes) || timeoutMinutes <= 0) {
+      return res.status(400).json({ error: 'ערך לא תקין' });
+    }
+    await db.query(
+      `INSERT INTO system_settings (key, value, updated_at, updated_by)
+       VALUES ('statusbot_upload_timeout_minutes', $1, NOW(), $2)
+       ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify(parseFloat(timeoutMinutes)), req.user.id]
+    );
+    queueService.invalidateTimeoutCache();
+    res.json({ success: true, timeoutMinutes: parseFloat(timeoutMinutes) });
+  } catch (error) {
+    console.error('[StatusBot] adminUpdateQueueSettings error:', error);
+    res.status(500).json({ error: 'שגיאה' });
+  }
+}
+
 module.exports = {
   // Connection
   getConnection,
@@ -3749,7 +3792,11 @@ module.exports = {
   
   // Queue management
   forceCancelProcessing,
-  
+
+  // Admin settings (exported below after function definitions)
+  adminGetQueueSettings,
+  adminUpdateQueueSettings,
+
   // Webhook
   handleWebhook,
 };
