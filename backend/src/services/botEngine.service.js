@@ -1912,7 +1912,7 @@ class BotEngine {
             if (action.reaction) {
               // Get the last incoming message ID from database
               const lastReactMsg = await db.query(
-                `SELECT id, wa_message_id FROM messages 
+                `SELECT id, wa_message_id FROM messages
                  WHERE contact_id = $1 AND direction = $2 AND wa_message_id IS NOT NULL
                  ORDER BY created_at DESC LIMIT 1`,
                 [contact.id, 'incoming']
@@ -1921,22 +1921,26 @@ class BotEngine {
                 const msgId = lastReactMsg.rows[0].wa_message_id;
                 const dbMsgId = lastReactMsg.rows[0].id;
                 console.log('[BotEngine] Sending reaction to message:', msgId);
-                await wahaService.sendReaction(connection, msgId, action.reaction);
-                
-                // Update the original message with the reaction (don't create new message)
-                await db.query(
-                  `UPDATE messages SET metadata = COALESCE(metadata, '{}'::jsonb) || $1 WHERE id = $2`,
-                  [JSON.stringify({ reaction: action.reaction }), dbMsgId]
-                );
-                
-                // Emit reaction update via socket
-                const socketManager = getSocketManager();
-                socketManager.emitToUser(userId, 'message_reaction', {
-                  messageId: dbMsgId,
-                  reaction: action.reaction
-                });
-                
-                console.log('[BotEngine] ✅ Reaction sent:', action.reaction);
+                try {
+                  await wahaService.sendReaction(connection, msgId, action.reaction);
+
+                  // Update the original message with the reaction (don't create new message)
+                  await db.query(
+                    `UPDATE messages SET metadata = COALESCE(metadata, '{}'::jsonb) || $1 WHERE id = $2`,
+                    [JSON.stringify({ reaction: action.reaction }), dbMsgId]
+                  );
+
+                  // Emit reaction update via socket
+                  const socketManager = getSocketManager();
+                  socketManager.emitToUser(userId, 'message_reaction', {
+                    messageId: dbMsgId,
+                    reaction: action.reaction
+                  });
+
+                  console.log('[BotEngine] ✅ Reaction sent:', action.reaction);
+                } catch (reactionErr) {
+                  console.warn('[BotEngine] ⚠️ Reaction failed (continuing flow):', reactionErr.response?.data || reactionErr.message);
+                }
               } else {
                 console.log('[BotEngine] ⚠️ Cannot send reaction - no message ID found');
               }
