@@ -92,10 +92,26 @@ export default function MessageBubble({ message, isGroupChat = false, lidMapping
     const lines = vcardString.split(/\r?\n/);
     const contact = {};
     for (const line of lines) {
-      if (line.startsWith('FN:')) contact.name = line.substring(3).trim();
+      if (line.startsWith('FN:')) {
+        contact.name = line.substring(3).trim();
+      } else if (line.startsWith('N:') && !contact.name) {
+        // N:FAMILY;GIVEN;ADDITIONAL;PREFIX;SUFFIX
+        const parts = line.substring(2).split(';');
+        const family = parts[0]?.trim();
+        const given = parts[1]?.trim();
+        const additional = parts[2]?.trim();
+        contact.name = [given, additional, family].filter(Boolean).join(' ');
+      }
       if (line.startsWith('TEL')) {
-        const match = line.match(/:([+\d]+)/);
-        if (match) contact.phone = match[1];
+        // Prefer waid= (guaranteed numeric, no formatting)
+        const waidMatch = line.match(/waid=(\d+)/);
+        if (waidMatch) {
+          contact.phone = '+' + waidMatch[1];
+        } else {
+          // Fallback: everything after last colon
+          const colonIdx = line.lastIndexOf(':');
+          if (colonIdx !== -1) contact.phone = line.substring(colonIdx + 1).trim();
+        }
       }
       if (line.startsWith('ORG:')) contact.org = line.substring(4).replace(';', '').trim();
     }
