@@ -6,7 +6,7 @@ import {
   Plus, ArrowUpRight, CheckCircle, Crown, Bell,
   Sparkles, ArrowRight, BarChart3, Calendar, Phone, Star,
   Target, Rocket, Gift, AlertCircle, X, ExternalLink, Lightbulb,
-  Gauge, HardDrive, Code, Forward, Send, Upload, HelpCircle
+  Gauge, HardDrive, Code, Forward, Send, Upload, HelpCircle, Eye
 } from 'lucide-react';
 
 // Icon mapping for community links
@@ -647,6 +647,15 @@ export default function DashboardPage() {
               gradient="from-green-500 to-emerald-600"
               badge="פרימיום"
               badgeColor="teal"
+            />
+            <QuickActionCard
+              to="/view-filter"
+              icon={Eye}
+              title="סינון צפיות"
+              description="מי צופה בסטטוסים שלך"
+              gradient="from-purple-500 to-violet-600"
+              badge="פרימיום"
+              badgeColor="purple"
             />
             <QuickActionCard
               to="/contacts"

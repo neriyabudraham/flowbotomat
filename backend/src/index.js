@@ -268,7 +268,8 @@ server.listen(PORT, () => {
         INSERT INTO additional_services (
           slug, name, name_he, description, description_he,
           price, yearly_price, renewal_price, trial_days, allow_custom_trial,
-          icon, color, external_url, features, is_active, is_coming_soon, sort_order
+          icon, color, external_url, features, is_active, is_coming_soon, sort_order,
+          billing_period
         ) VALUES (
           'view-filter-bot', 'Status Viewers Filter', 'בוט סינון צפיות',
           'Track who views your WhatsApp statuses over 90 days',
@@ -276,8 +277,9 @@ server.listen(PORT, () => {
           199, 1990, 99, 0, true,
           'eye', 'from-purple-500 to-violet-600', '/view-filter/dashboard',
           '{"viewer_tracking":true,"gray_checkmark":true,"90_day_period":true,"google_sync":true}',
-          true, false, 2
-        ) ON CONFLICT (slug) DO NOTHING
+          true, false, 2,
+          'one_time'
+        ) ON CONFLICT (slug) DO UPDATE SET billing_period = 'one_time'
       `);
       console.log('[Startup] ✅ Migrations applied successfully');
     } catch (err) {

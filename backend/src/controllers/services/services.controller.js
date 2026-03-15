@@ -71,19 +71,21 @@ async function subscribeToService(req, res) {
   try {
     const userId = req.user.id;
     const { serviceId } = req.params;
-    const { billingPeriod = 'monthly' } = req.body;
-    
+    const { billingPeriod: requestedPeriod = 'monthly' } = req.body;
+
     // Get service details
     const serviceResult = await db.query(
       'SELECT * FROM additional_services WHERE id = $1 AND is_active = true',
       [serviceId]
     );
-    
+
     if (serviceResult.rows.length === 0) {
       return res.status(404).json({ error: 'שירות לא נמצא' });
     }
-    
+
     const service = serviceResult.rows[0];
+    // Use service's billing_period if set to one_time, otherwise use request body
+    const billingPeriod = service.billing_period === 'one_time' ? 'one_time' : requestedPeriod;
     
     // Check if already subscribed
     const existingResult = await db.query(
@@ -133,10 +135,13 @@ async function subscribeToService(req, res) {
       : service.trial_days;
     
     // Determine price
-    const price = billingPeriod === 'yearly' 
-      ? (service.yearly_price || service.price * 10) 
-      : service.price;
-    
+    const isOneTime = billingPeriod === 'one_time';
+    const price = billingPeriod === 'yearly'
+      ? (service.yearly_price || service.price * 10)
+      : (isOneTime && service.renewal_price && existingWithRemainingTime === null && existingResult.rows.length > 0)
+        ? service.renewal_price
+        : service.price;
+
     // Calculate dates
     const now = new Date();
     let status = 'active';
@@ -145,20 +150,22 @@ async function subscribeToService(req, res) {
     let nextChargeDate = null;
     let sumitStandingOrderId = null;
     let futureStartDate = null; // For renewals with remaining time
-    
-    // Check if renewing a cancelled subscription with remaining time
-    if (existingWithRemainingTime) {
+    let expiresAt = null;
+
+    if (isOneTime) {
+      // One-time payment: expires 90 days from now, no recurring charge
+      expiresAt = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+      nextChargeDate = null;
+    } else if (existingWithRemainingTime) {
       // Renewal - schedule payment for when current period expires
-      const expiresAt = new Date(existingWithRemainingTime.expires_at);
-      const daysRemaining = Math.ceil((expiresAt - now) / (1000 * 60 * 60 * 24));
-      
+      const existingExpiry = new Date(existingWithRemainingTime.expires_at);
+      const daysRemaining = Math.ceil((existingExpiry - now) / (1000 * 60 * 60 * 24));
+
       if (daysRemaining > 1) {
-        // More than 1 day remaining - schedule future payment
-        futureStartDate = expiresAt;
-        nextChargeDate = expiresAt;
-        console.log(`[Services] Renewal with ${daysRemaining} days remaining - scheduling payment for ${expiresAt.toISOString()}`);
+        futureStartDate = existingExpiry;
+        nextChargeDate = existingExpiry;
+        console.log(`[Services] Renewal with ${daysRemaining} days remaining - scheduling payment for ${existingExpiry.toISOString()}`);
       } else {
-        // Less than 1 day - immediate payment
         if (billingPeriod === 'yearly') {
           nextChargeDate = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
         } else {
@@ -228,16 +235,16 @@ async function subscribeToService(req, res) {
       const insertResult = await db.query(`
         INSERT INTO user_service_subscriptions
         (user_id, service_id, status, is_trial, trial_ends_at,
-         next_charge_date, billing_period, sumit_standing_order_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)
+         next_charge_date, billing_period, expires_at, sumit_standing_order_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL)
         RETURNING *
       `, [userId, serviceId, status, isTrial, trialEndsAt,
-          nextChargeDate, billingPeriod]);
+          nextChargeDate, billingPeriod, expiresAt]);
       subscription = insertResult.rows[0];
     }
 
-    // Schedule next charge in billing queue
-    if (price > 0 && nextChargeDate) {
+    // Schedule next charge in billing queue (not for one-time payments)
+    if (price > 0 && nextChargeDate && !isOneTime) {
       const { pool } = require('../../config/database');
       await pool.query(`
         INSERT INTO billing_queue (user_id, subscription_id, amount, charge_date, billing_type, description, currency)
