@@ -24,6 +24,7 @@ const SERVICE_ICONS = {
 // Services with dedicated landing pages
 const SERVICE_LANDING_PAGES = {
   'status-bot': '/status-bot',
+  'view-filter-bot': '/view-filter',
 };
 
 export default function ServicesPage() {
