@@ -93,7 +93,7 @@ async function sendMessage(req, res) {
        (user_id, contact_id, wa_message_id, direction, message_type, content, status, sent_at)
        VALUES ($1, $2, $3, 'outgoing', $4, $5, 'sent', NOW())
        RETURNING *`,
-      [userId, contactId, wahaResponse.data?.id?.id || null, message_type, content]
+      [userId, contactId, (() => { const waId = wahaResponse.data?.id; return typeof waId === 'string' ? waId : (waId?._serialized || waId?.id || null); })(), message_type, content]
     );
     
     // Update contact last message time

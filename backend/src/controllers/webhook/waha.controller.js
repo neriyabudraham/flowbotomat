@@ -514,6 +514,19 @@ async function handleIncomingMessage(userId, event) {
     await handleOutgoingDeviceMessage(userId, payload);
     return;
   }
+
+  // NOWEB engine can fire `message` with fromMe=false for the user's own group messages.
+  // If this messageId already exists as an outgoing message in the DB, skip it.
+  if (messageId) {
+    const existingOutgoing = await pool.query(
+      `SELECT id FROM messages WHERE wa_message_id = $1 AND user_id = $2 AND direction = 'outgoing'`,
+      [messageId, userId]
+    );
+    if (existingOutgoing.rows.length > 0) {
+      console.log(`[Webhook] ⏭️ Skipping own group message already saved as outgoing: ${messageId.substring(0, 40)}`);
+      return;
+    }
+  }
   
   // Determine if this is a group message or channel message
   const chatId = payload.from || payload.chatId;
