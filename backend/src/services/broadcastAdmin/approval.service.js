@@ -219,7 +219,7 @@ async function requestAdminApproval(userId, job, forward) {
       const senderDisplay = job.sender_name && job.sender_name !== job.sender_phone ? job.sender_name : null;
       const greeting = senderDisplay ? `שלום ${senderDisplay}! ` : '';
       await notifySender(userId, job.sender_phone,
-        `${greeting}⏳ *ההודעה שלך נשלחה לאישור המנהל*\n\n📋 *מסלול:* ${forward.name}\n📢 *קבוצות:* ${job.total_targets}\n\nברגע שהמנהל יאשר תקבל/י הודעה להמשיך.`
+        `${greeting}⏳ *ההודעה שלך נשלחה לאישור המנהל*\n\nברגע שהמנהל יאשר תקבל/י הודעה להמשיך.`
       );
     }
 
@@ -316,7 +316,7 @@ async function handleApproval(userId, jobId) {
     const shouldNotify = forward.notify_sender_on_pending !== false;
     if (shouldNotify && job.sender_phone) {
       await notifySender(userId, job.sender_phone,
-        `✅ *ההודעה שלך אושרה!*\n\n📋 *מסלול:* ${forward.name}\n📢 *קבוצות:* ${job.total_targets}\n\nתכף תקבל/י אפשרות לאשר את השליחה.`
+        `✅ *ההודעה שלך אושרה!*\n\nתכף תקבל/י אפשרות לאשר את השליחה.`
       );
     }
 
@@ -344,7 +344,7 @@ async function handleRejection(userId, jobId) {
       const shouldNotify = fwd?.notify_sender_on_pending !== false;
       if (shouldNotify && job.sender_phone) {
         await notifySender(userId, job.sender_phone,
-          `❌ *ההודעה שלך נדחתה על ידי המנהל*\n\n📋 *מסלול:* ${fwd?.name || ''}\n\nצור/י קשר עם המנהל לפרטים נוספים.`
+          `❌ *ההודעה שלך נדחתה על ידי המנהל*\n\nצור/י קשר עם המנהל לפרטים נוספים.`
         );
       }
     }
