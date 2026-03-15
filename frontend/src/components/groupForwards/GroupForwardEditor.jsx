@@ -847,35 +847,37 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                 </p>
               </div>
 
-              {/* Notify sender toggle card */}
-              <div className="mt-4 p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0">
-                      <Bell className="w-5 h-5 text-purple-600" />
+              {/* Notify sender toggle card — only when an admin sender is configured */}
+              {senders.some(s => s.is_admin) && (
+                <div className="mt-4 p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0">
+                        <Bell className="w-5 h-5 text-purple-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">עדכוני ווצאפ לשולח</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {notifySenderOnPending
+                            ? 'השולח יקבל הודעה כשהבקשה ממתינה, אושרה או נדחתה'
+                            : 'השולח לא יקבל הודעות עדכון על מצב הבקשה'}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">עדכוני ווצאפ לשולח</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {notifySenderOnPending
-                          ? 'השולח יקבל הודעה כשהבקשה ממתינה, אושרה או נדחתה'
-                          : 'השולח לא יקבל הודעות עדכון על מצב הבקשה'}
-                      </p>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setNotifySenderOnPending(!notifySenderOnPending)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors overflow-hidden flex-shrink-0 ${
+                        notifySenderOnPending ? 'bg-purple-500' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                        notifySenderOnPending ? 'translate-x-6' : 'translate-x-1'
+                      }`} />
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setNotifySenderOnPending(!notifySenderOnPending)}
-                    className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors flex-shrink-0 ${
-                      notifySenderOnPending ? 'bg-purple-500' : 'bg-gray-200'
-                    }`}
-                  >
-                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
-                      notifySenderOnPending ? 'translate-x-6' : 'translate-x-1'
-                    }`} />
-                  </button>
                 </div>
-              </div>
+              )}
 
               <div className="mt-4 p-5 bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl border border-green-100">
                 <div className="flex items-start gap-4">
