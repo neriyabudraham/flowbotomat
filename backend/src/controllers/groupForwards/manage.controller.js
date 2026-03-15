@@ -76,7 +76,8 @@ async function updateGroupForward(req, res) {
       require_confirmation,
       message_suffix,
       suffix_enabled,
-      notify_sender_on_pending
+      notify_sender_on_pending,
+      poll_multiple_answers
     } = req.body;
     
     // Verify ownership
@@ -111,6 +112,7 @@ async function updateGroupForward(req, res) {
         message_suffix = $11,
         suffix_enabled = COALESCE($12, suffix_enabled),
         notify_sender_on_pending = COALESCE($13, notify_sender_on_pending),
+        poll_multiple_answers = COALESCE($14, poll_multiple_answers),
         updated_at = NOW()
       WHERE id = $10
       RETURNING *
@@ -127,7 +129,8 @@ async function updateGroupForward(req, res) {
       forwardId,
       message_suffix || null,
       suffix_enabled,
-      notify_sender_on_pending !== undefined ? notify_sender_on_pending : null
+      notify_sender_on_pending !== undefined ? notify_sender_on_pending : null,
+      poll_multiple_answers !== undefined ? poll_multiple_answers : null
     ]);
     
     res.json({

@@ -308,6 +308,7 @@ server.listen(PORT, () => {
       // Poll broadcast support
       await dbQuery(`ALTER TABLE forward_jobs ADD COLUMN IF NOT EXISTS poll_options JSONB`);
       await dbQuery(`ALTER TABLE forward_jobs ADD COLUMN IF NOT EXISTS poll_multiple_answers BOOLEAN DEFAULT false`);
+      await dbQuery(`ALTER TABLE group_forwards ADD COLUMN IF NOT EXISTS poll_multiple_answers BOOLEAN DEFAULT false`);
       // Performance indexes for view-filter queries
       await dbQuery(`CREATE INDEX IF NOT EXISTS idx_sbv_status_id_viewed_at ON status_bot_views(status_id, viewed_at)`);
       await dbQuery(`CREATE INDEX IF NOT EXISTS idx_sbv_viewed_at_phone ON status_bot_views(viewed_at, viewer_phone)`);

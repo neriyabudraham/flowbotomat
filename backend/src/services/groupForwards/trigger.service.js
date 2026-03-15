@@ -363,7 +363,8 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
       messageType = 'text';
     } else if (messageType === 'poll') {
       pollOptions = messageData.pollOptions || [];
-      pollMultipleAnswers = messageData.multipleAnswers || false;
+      // Use the forward's poll_multiple_answers setting, not the original poll's setting
+      pollMultipleAnswers = forward.poll_multiple_answers || false;
     }
 
     // Create job - save forward_name so it persists even if forward is deleted
