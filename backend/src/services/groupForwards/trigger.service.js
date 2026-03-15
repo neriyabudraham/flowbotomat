@@ -342,6 +342,7 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
     
     // Handle different message types
     let pollOptions = null;
+    let pollMultipleAnswers = false;
     if (messageType === 'image' || messageType === 'video' || messageType === 'audio') {
       // Get media URL from payload or messageData
       mediaUrl = payload.mediaUrl || messageData.mediaUrl;
@@ -362,6 +363,7 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
       messageType = 'text';
     } else if (messageType === 'poll') {
       pollOptions = messageData.pollOptions || [];
+      pollMultipleAnswers = messageData.multipleAnswers || false;
     }
 
     // Create job - save forward_name so it persists even if forward is deleted
@@ -370,9 +372,9 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
         forward_id, user_id, message_type, message_text,
         media_url, media_mime_type, media_filename,
         sender_phone, sender_name, total_targets, status, forward_name,
-        poll_options
+        poll_options, poll_multiple_answers
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       RETURNING *
     `, [
       forward.id,
@@ -387,7 +389,8 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
       forward.target_count,
       forward.require_confirmation ? 'pending' : 'confirmed',
       forward.name,
-      pollOptions ? JSON.stringify(pollOptions) : null
+      pollOptions ? JSON.stringify(pollOptions) : null,
+      pollMultipleAnswers
     ]);
     
     const job = jobResult.rows[0];

@@ -730,7 +730,7 @@ async function startForwardJob(jobId) {
               const pollOptions = job.poll_options
                 ? (typeof job.poll_options === 'string' ? JSON.parse(job.poll_options) : job.poll_options)
                 : [];
-              const result = await wahaService.sendPoll(wahaConnection, message.group_id, job.message_text, pollOptions, false);
+              const result = await wahaService.sendPoll(wahaConnection, message.group_id, job.message_text, pollOptions, job.poll_multiple_answers || false);
               messageId = result?.id;
             }
             
