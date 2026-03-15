@@ -323,15 +323,9 @@ async function getViewers(req, res) {
     const limit = Math.min(200, parseInt(req.query.limit) || 50);
     const offset = (page - 1) * limit;
     const search = req.query.search?.trim() || '';
-    const sortBy = ['statuses_viewed', 'view_percentage', 'first_seen', 'last_seen'].includes(req.query.sort)
+    const sortBy = ['statuses_viewed', 'view_percentage', 'first_seen', 'last_seen', 'viewer_name'].includes(req.query.sort)
       ? req.query.sort : 'statuses_viewed';
     const sortDir = req.query.dir === 'asc' ? 'ASC' : 'DESC';
-    const minPercent = parseInt(req.query.min_percent) || 0;
-    const maxPercent = parseInt(req.query.max_percent) || 100;
-
-    const searchClause = search
-      ? `AND (sbv.viewer_phone ILIKE $5 OR MAX(sbv.viewer_name) ILIKE $5)`
-      : '';
 
     const totalStatusesResult = await db.query(`
       SELECT COUNT(*) as count FROM status_bot_statuses
@@ -339,13 +333,17 @@ async function getViewers(req, res) {
     `, [connection_id, started_at, ends_at]);
     const totalStatuses = parseInt(totalStatusesResult.rows[0].count) || 1;
 
-    const params = [connection_id, started_at, ends_at, totalStatuses];
+    const params = [connection_id, started_at, ends_at, totalStatuses, userId];
+    // $5 = userId, $6 = search (if provided)
+    const searchClause = search
+      ? `AND (sbv.viewer_phone ILIKE $6 OR COALESCE(MAX(c.display_name), MAX(sbv.viewer_name)) ILIKE $6)`
+      : '';
     if (search) params.push(`%${search}%`);
 
     const viewersResult = await db.query(`
       SELECT
         sbv.viewer_phone,
-        MAX(sbv.viewer_name) as viewer_name,
+        COALESCE(MAX(c.display_name), MAX(sbv.viewer_name)) as viewer_name,
         COUNT(DISTINCT sbv.status_id) as statuses_viewed,
         $4::int as total_statuses,
         ROUND(COUNT(DISTINCT sbv.status_id)::numeric / $4 * 100) as view_percentage,
@@ -363,12 +361,15 @@ async function getViewers(req, res) {
         ) as has_reply
       FROM status_bot_views sbv
       JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
+      LEFT JOIN contacts c ON c.user_id = $5
+        AND (c.phone = sbv.viewer_phone
+          OR c.wa_id = sbv.viewer_phone
+          OR c.wa_id = sbv.viewer_phone || '@s.whatsapp.net')
       WHERE sbs.connection_id = $1
         AND sbv.viewed_at >= $2 AND sbv.viewed_at <= $3
         ${searchClause}
       GROUP BY sbv.viewer_phone
-      HAVING ROUND(COUNT(DISTINCT sbv.status_id)::numeric / $4 * 100) BETWEEN ${minPercent} AND ${maxPercent}
-      ORDER BY ${sortBy} ${sortDir}
+      ORDER BY ${sortBy} ${sortDir} NULLS LAST
       LIMIT ${limit} OFFSET ${offset}
     `, params);
 

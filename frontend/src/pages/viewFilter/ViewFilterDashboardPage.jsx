@@ -51,8 +51,6 @@ export default function ViewFilterDashboardPage() {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('view_count');
   const [sortDir, setSortDir] = useState('DESC');
-  const [minPercent, setMinPercent] = useState('');
-  const [maxPercent, setMaxPercent] = useState('');
   const [page, setPage] = useState(1);
   const [showGray, setShowGray] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -65,7 +63,7 @@ export default function ViewFilterDashboardPage() {
     if (campaign) {
       loadViewers();
     }
-  }, [search, sortBy, sortDir, minPercent, maxPercent, page]);
+  }, [search, sortBy, sortDir, page]);
 
   const loadAll = async () => {
     setLoading(true);
@@ -113,7 +111,7 @@ export default function ViewFilterDashboardPage() {
     if (!activeCampaign) return;
     try {
       // Map frontend sort keys to backend column names
-      const sortMap = { view_count: 'statuses_viewed', view_percentage: 'view_percentage', last_view: 'last_seen', first_view: 'first_seen' };
+      const sortMap = { view_count: 'statuses_viewed', view_percentage: 'view_percentage', last_view: 'last_seen', first_view: 'first_seen', name: 'viewer_name' };
       const backendSort = sortMap[sortBy] || sortBy;
       const params = new URLSearchParams({
         page,
@@ -121,8 +119,6 @@ export default function ViewFilterDashboardPage() {
         sort: backendSort,
         dir: sortDir,
         ...(search && { search }),
-        ...(minPercent && { min_percent: minPercent }),
-        ...(maxPercent && { max_percent: maxPercent }),
       });
       const { data } = await api.get(`/view-filter/viewers?${params}`);
       // Normalize field names from backend
@@ -543,26 +539,6 @@ export default function ViewFilterDashboardPage() {
                     className="w-full pr-9 pl-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400"
                   />
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-500">% צפייה:</span>
-                  <input
-                    type="number"
-                    value={minPercent}
-                    onChange={e => { setMinPercent(e.target.value); setPage(1); }}
-                    placeholder="מינ׳"
-                    min="0" max="100"
-                    className="w-16 px-2 py-2 border border-gray-200 rounded-lg text-sm text-center"
-                  />
-                  <span className="text-gray-400">—</span>
-                  <input
-                    type="number"
-                    value={maxPercent}
-                    onChange={e => { setMaxPercent(e.target.value); setPage(1); }}
-                    placeholder="מקס׳"
-                    min="0" max="100"
-                    className="w-16 px-2 py-2 border border-gray-200 rounded-lg text-sm text-center"
-                  />
-                </div>
               </div>
             </div>
 
@@ -571,7 +547,9 @@ export default function ViewFilterDashboardPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 text-gray-500 text-xs">
-                    <th className="px-4 py-3 text-right font-medium">איש קשר</th>
+                    <th className="px-4 py-3 text-right font-medium cursor-pointer hover:text-purple-600" onClick={() => toggleSort('name')}>
+                      <span className="flex items-center gap-1">איש קשר <SortIcon col="name" /></span>
+                    </th>
                     <th className="px-4 py-3 text-right font-medium cursor-pointer hover:text-purple-600" onClick={() => toggleSort('view_count')}>
                       <span className="flex items-center gap-1">צפיות <SortIcon col="view_count" /></span>
                     </th>
