@@ -1404,6 +1404,7 @@ async function handleOutgoingDeviceMessage(userId, payload) {
 
   // Parse message content
   const messageData = parseMessage(payload);
+  console.log(`[Webhook] parseMessage result: type=${messageData.type} mediaUrl=${messageData.mediaUrl} mimeType=${messageData.mimeType} _data.Info.MediaType=${payload._data?.Info?.MediaType} hasMedia=${payload.hasMedia} media=${JSON.stringify(payload.media)}`);
 
   // Build metadata for poll messages
   const outgoingMetadata = messageData.type === 'poll'
