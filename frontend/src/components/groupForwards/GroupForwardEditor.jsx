@@ -882,36 +882,6 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                 </div>
               )}
 
-              {/* Poll multiple answers setting */}
-              <div className="mt-4 p-5 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-100">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
-                      <MessageSquare className="w-5 h-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">סקרים — מספר תשובות</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {pollMultipleAnswers
-                          ? 'הנמענים יוכלו לבחור מספר תשובות בסקר'
-                          : 'הנמענים יוכלו לבחור תשובה אחת בלבד בסקר'}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setPollMultipleAnswers(!pollMultipleAnswers)}
-                    className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer flex-shrink-0 ${
-                      pollMultipleAnswers ? 'bg-blue-500' : 'bg-gray-300'
-                    }`}
-                  >
-                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${
-                      pollMultipleAnswers ? 'right-1' : 'left-1'
-                    }`} />
-                  </button>
-                </div>
-              </div>
-
               <div className="mt-4 p-5 bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl border border-green-100">
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl flex items-center justify-center shadow">
