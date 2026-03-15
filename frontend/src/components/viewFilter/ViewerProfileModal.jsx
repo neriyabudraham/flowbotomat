@@ -6,14 +6,23 @@ export default function ViewerProfileModal({ viewer, onClose }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Normalize field names (backend returns viewer_phone/viewer_name)
+  const phone = viewer.viewer_phone || viewer.phone || '';
+  const name = viewer.viewer_name || viewer.name || '';
+  const viewCount = viewer.statuses_viewed ?? viewer.view_count ?? 0;
+  const viewPct = viewer.view_percentage ?? 0;
+  const lastView = viewer.last_seen || viewer.last_view;
+  const firstView = viewer.first_seen || viewer.first_view;
+
   useEffect(() => {
     loadProfile();
-  }, [viewer.phone]);
+  }, [phone]);
 
   const loadProfile = async () => {
+    if (!phone) return;
     setLoading(true);
     try {
-      const { data } = await api.get(`/view-filter/viewers/${encodeURIComponent(viewer.phone)}`);
+      const { data } = await api.get(`/view-filter/viewers/${encodeURIComponent(phone)}`);
       setProfile(data);
     } catch {
       setProfile(null);
@@ -22,7 +31,7 @@ export default function ViewerProfileModal({ viewer, onClose }) {
     }
   };
 
-  const whatsappLink = `https://wa.me/${viewer.phone.replace(/\D/g, '')}`;
+  const whatsappLink = `https://wa.me/${phone.replace(/\D/g, '')}`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
@@ -37,8 +46,8 @@ export default function ViewerProfileModal({ viewer, onClose }) {
             <User className="w-6 h-6 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="font-bold text-lg truncate">{viewer.name || 'ללא שם'}</h2>
-            <p className="text-white/80 text-sm" dir="ltr">{viewer.phone}</p>
+            <h2 className="font-bold text-lg truncate">{name || 'ללא שם'}</h2>
+            <p className="text-white/80 text-sm" dir="ltr">{phone}</p>
           </div>
           <div className="flex items-center gap-2">
             <a
@@ -62,11 +71,11 @@ export default function ViewerProfileModal({ viewer, onClose }) {
         {/* Stats Row */}
         <div className="grid grid-cols-3 divide-x divide-x-reverse divide-gray-100 border-b border-gray-100">
           <div className="p-4 text-center">
-            <div className="text-2xl font-bold text-gray-900">{viewer.view_count}</div>
+            <div className="text-2xl font-bold text-gray-900">{viewCount}</div>
             <div className="text-xs text-gray-500 mt-1">סטטוסים שצפה</div>
           </div>
           <div className="p-4 text-center">
-            <div className="text-2xl font-bold text-purple-600">{Math.round(viewer.view_percentage)}%</div>
+            <div className="text-2xl font-bold text-purple-600">{Math.round(viewPct)}%</div>
             <div className="text-xs text-gray-500 mt-1">מסך הסטטוסים</div>
           </div>
           <div className="p-4 text-center">
@@ -84,13 +93,13 @@ export default function ViewerProfileModal({ viewer, onClose }) {
           <div>
             <span className="text-gray-500">ראשון: </span>
             <span className="font-medium text-gray-700">
-              {viewer.first_view ? new Date(viewer.first_view).toLocaleDateString('he-IL') : '—'}
+              {firstView ? new Date(firstView).toLocaleDateString('he-IL') : '—'}
             </span>
           </div>
           <div>
             <span className="text-gray-500">אחרון: </span>
             <span className="font-medium text-gray-700">
-              {viewer.last_view ? new Date(viewer.last_view).toLocaleDateString('he-IL') : '—'}
+              {lastView ? new Date(lastView).toLocaleDateString('he-IL') : '—'}
             </span>
           </div>
         </div>

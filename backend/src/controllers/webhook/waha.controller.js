@@ -284,6 +284,11 @@ async function handleWebhook(req, res) {
           if (event.payload?.fromMe && event.payload?.from === 'status@broadcast') {
             await ensureMigrations();
             await saveUserStatus(userId, event.payload);
+          } else if (event.payload?.fromMe) {
+            console.log(`[Webhook] 📤 Outgoing message detected: from=${event.payload?.from} to=${event.payload?.to || event.payload?.chatId} type=${event.payload?.type} id=${JSON.stringify(event.payload?.id)}`);
+            await handleOutgoingDeviceMessage(userId, event.payload);
+          } else if (!event.payload?.fromMe) {
+            console.log(`[Webhook] ℹ️ message.any (incoming): from=${event.payload?.from} type=${event.payload?.type}`);
           }
           break;
         case 'message.ack':
@@ -1285,12 +1290,14 @@ function parseMessage(payload) {
 async function handleOutgoingDeviceMessage(userId, payload) {
   // Extract the recipient's phone number
   const toPhone = payload.to?.split('@')[0] || payload.chatId?.split('@')[0];
-  
+
+  console.log(`[Webhook] handleOutgoingDeviceMessage: toPhone=${toPhone} type=${payload.type} body=${String(payload.body || '').substring(0, 50)}`);
+
   if (!toPhone || !toPhone.match(/^\d+$/)) {
-    console.log('[Webhook] Could not extract recipient phone from outgoing message');
+    console.log(`[Webhook] Skipping outgoing message — invalid toPhone: "${toPhone}" (to=${payload.to} chatId=${payload.chatId})`);
     return;
   }
-  
+
   // Outgoing device message
   
   // Find the contact
@@ -1314,28 +1321,42 @@ async function handleOutgoingDeviceMessage(userId, payload) {
     contact = contactResult.rows[0];
   }
   
+  // Normalize message ID
+  let waMessageId = '';
+  if (typeof payload.id === 'string') {
+    waMessageId = payload.id;
+  } else if (payload.id?._serialized) {
+    waMessageId = payload.id._serialized;
+  } else if (payload.id?.id) {
+    waMessageId = `${payload.id.fromMe ? 'true' : 'false'}_${payload.id.remote || toPhone + '@c.us'}_${payload.id.id}`;
+  }
+  if (!waMessageId) {
+    console.log('[Webhook] Could not extract message ID from outgoing message');
+    return;
+  }
+
   // Check if message already exists (to avoid duplicates)
   const existingMsg = await pool.query(
     'SELECT id FROM messages WHERE wa_message_id = $1',
-    [payload.id]
+    [waMessageId]
   );
-  
+
   if (existingMsg.rows.length > 0) {
     console.log('[Webhook] Outgoing message already exists, skipping');
     return;
   }
-  
+
   // Parse message content
   const messageData = parseMessage(payload);
-  
+
   // Save outgoing message
   const result = await pool.query(
-    `INSERT INTO messages 
-     (user_id, contact_id, wa_message_id, direction, message_type, 
+    `INSERT INTO messages
+     (user_id, contact_id, wa_message_id, direction, message_type,
       content, media_url, media_mime_type, media_filename, latitude, longitude, sent_at, status)
      VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, $9, $10, $11, 'sent')
      RETURNING *`,
-    [userId, contact.id, payload.id, messageData.type, messageData.content,
+    [userId, contact.id, waMessageId, messageData.type, messageData.content,
      messageData.mediaUrl, messageData.mimeType, messageData.filename,
      messageData.latitude, messageData.longitude, 
      payload.timestamp ? new Date(payload.timestamp * 1000) : new Date()]

@@ -137,11 +137,14 @@ async function startCampaign(req, res) {
     await db.query('UPDATE status_viewer_campaigns SET is_primary = false WHERE user_id = $1', [userId]);
 
     // Create new primary campaign
+    // track_since stores null (regular) or the computed startedAt (for all_time mode)
+    const trackSinceValue = trackSince === 'all_time' ? startedAt : null;
+
     const result = await db.query(`
       INSERT INTO status_viewer_campaigns (user_id, connection_id, started_at, ends_at, status, is_primary, track_since)
       VALUES ($1, $2, $3, $4, 'active', true, $5)
       RETURNING *
-    `, [userId, connectionId, startedAt, endsAt, trackSince || null]);
+    `, [userId, connectionId, startedAt, endsAt, trackSinceValue]);
 
     const campaign = result.rows[0];
     const daysRemaining = Math.max(0, Math.ceil((endsAt - now) / 86400000));
@@ -553,29 +556,22 @@ async function getDailyGrowth(req, res) {
     const customStart = req.query.from ? new Date(req.query.from) : new Date(started_at);
     const effectiveStart = customStart > new Date(started_at) ? customStart : new Date(started_at);
 
+    // Optimized: find each viewer's first appearance (single pass, no correlated subquery)
     const result = await db.query(`
-      WITH daily AS (
-        SELECT
-          DATE(sbv.viewed_at) as day,
-          COUNT(DISTINCT sbv.viewer_phone) FILTER (
-            WHERE sbv.viewer_phone NOT IN (
-              SELECT DISTINCT sbv2.viewer_phone
-              FROM status_bot_views sbv2
-              JOIN status_bot_statuses sbs2 ON sbv2.status_id = sbs2.id
-              WHERE sbs2.connection_id = $1
-                AND sbv2.viewed_at < sbv.viewed_at::date
-                AND sbv2.viewed_at >= $2
-            )
-          ) as new_viewers
+      WITH first_views AS (
+        SELECT sbv.viewer_phone, DATE(MIN(sbv.viewed_at)) AS day
         FROM status_bot_views sbv
         JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
         WHERE sbs.connection_id = $1
           AND sbv.viewed_at >= $2 AND sbv.viewed_at <= $3
-        GROUP BY DATE(sbv.viewed_at)
+        GROUP BY sbv.viewer_phone
       )
-      SELECT day, new_viewers,
-             SUM(new_viewers) OVER (ORDER BY day) as cumulative_viewers
-      FROM daily
+      SELECT
+        day,
+        COUNT(*) AS new_viewers,
+        SUM(COUNT(*)) OVER (ORDER BY day) AS cumulative_viewers
+      FROM first_views
+      GROUP BY day
       ORDER BY day ASC
     `, [connection_id, effectiveStart, ends_at]);
 

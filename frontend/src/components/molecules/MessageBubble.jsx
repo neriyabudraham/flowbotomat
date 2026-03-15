@@ -87,7 +87,7 @@ export default function MessageBubble({ message, isGroupChat = false, lidMapping
   // Parse vCard to extract contact info
   const parseVcard = (vcardString) => {
     if (!vcardString) return null;
-    const lines = vcardString.split('\n');
+    const lines = vcardString.split(/\r?\n/);
     const contact = {};
     for (const line of lines) {
       if (line.startsWith('FN:')) contact.name = line.substring(3).trim();
