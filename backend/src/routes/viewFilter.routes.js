@@ -27,4 +27,9 @@ router.post('/google/sync',          c.syncToGoogle);
 // Renewal pricing
 router.get('/renewal-info',          c.getRenewalInfo);
 
+// Campaign management
+router.get('/campaigns',                    c.getCampaigns);
+router.post('/campaigns/:campaignId/set-primary', c.setPrimary);
+router.delete('/campaigns/:campaignId',     c.closeCampaign);
+
 module.exports = router;

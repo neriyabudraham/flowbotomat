@@ -31,9 +31,17 @@ async function checkSubscription(userId) {
   return { hasAccess: false, subscriptionExpired: true };
 }
 
+async function getPrimaryCampaign(userId) {
+  const result = await db.query(
+    `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 AND is_primary = true ORDER BY created_at DESC LIMIT 1`,
+    [userId]
+  );
+  return result.rows[0] || null;
+}
+
 async function getConnectionId(userId) {
   const result = await db.query(
-    `SELECT id FROM status_bot_connections WHERE user_id = $1 AND is_active = true LIMIT 1`,
+    `SELECT id FROM status_bot_connections WHERE user_id = $1 ORDER BY is_active DESC, created_at DESC LIMIT 1`,
     [userId]
   );
   return result.rows[0]?.id || null;
@@ -52,7 +60,7 @@ async function getCampaign(req, res) {
     }
 
     const result = await db.query(
-      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 AND is_primary = true ORDER BY created_at DESC LIMIT 1`,
       [userId]
     );
 
@@ -93,47 +101,60 @@ async function startCampaign(req, res) {
   try {
     const userId = req.user.id;
     const access = await checkSubscription(userId);
-    if (!access.hasAccess) {
-      return res.status(403).json({ error: 'אין גישה לשירות', ...access });
-    }
+    if (!access.hasAccess) return res.status(403).json({ error: 'אין גישה לשירות', ...access });
 
-    // Check for existing active campaign
-    const existing = await db.query(
-      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1`,
-      [userId]
-    );
-    if (existing.rows.length > 0 && existing.rows[0].status === 'active') {
-      return res.status(400).json({ error: 'כבר יש קמפיין פעיל. המתן לסיומו לפני התחלת חדש.' });
-    }
+    const { trackSince } = req.body; // null | 'all_time'
 
     const connectionId = await getConnectionId(userId);
     if (!connectionId) {
-      return res.status(400).json({ error: 'נדרש חיבור לבוט סטטוסים פעיל' });
+      return res.status(400).json({ error: 'נדרש חיבור לבוט סטטוסים. אנא הגדר חיבור תחילה.' });
     }
 
     const now = new Date();
-    const endsAt = new Date(now.getTime() + 90 * 86400000);
+    let startedAt = now;
 
+    if (trackSince === 'all_time') {
+      // Use the earliest available data point
+      const [earliestCampaign, earliestView] = await Promise.all([
+        db.query('SELECT MIN(started_at) as earliest FROM status_viewer_campaigns WHERE user_id = $1', [userId]),
+        db.query(`
+          SELECT MIN(sbv.viewed_at) as earliest
+          FROM status_bot_views sbv
+          JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
+          WHERE sbs.connection_id = $1
+        `, [connectionId]),
+      ]);
+      const candidates = [earliestCampaign.rows[0]?.earliest, earliestView.rows[0]?.earliest]
+        .filter(Boolean).map(d => new Date(d));
+      if (candidates.length > 0) {
+        startedAt = candidates.reduce((a, b) => a < b ? a : b);
+      }
+    }
+
+    const endsAt = new Date(startedAt.getTime() + 90 * 86400000);
+
+    // Mark all existing campaigns as non-primary
+    await db.query('UPDATE status_viewer_campaigns SET is_primary = false WHERE user_id = $1', [userId]);
+
+    // Create new primary campaign
     const result = await db.query(`
-      INSERT INTO status_viewer_campaigns (user_id, connection_id, started_at, ends_at, status)
-      VALUES ($1, $2, $3, $4, 'active')
-      ON CONFLICT (user_id) DO UPDATE SET
-        connection_id = EXCLUDED.connection_id,
-        started_at = EXCLUDED.started_at,
-        ends_at = EXCLUDED.ends_at,
-        status = 'active'
+      INSERT INTO status_viewer_campaigns (user_id, connection_id, started_at, ends_at, status, is_primary, track_since)
+      VALUES ($1, $2, $3, $4, 'active', true, $5)
       RETURNING *
-    `, [userId, connectionId, now, endsAt]);
+    `, [userId, connectionId, startedAt, endsAt, trackSince || null]);
 
     const campaign = result.rows[0];
+    const daysRemaining = Math.max(0, Math.ceil((endsAt - now) / 86400000));
+    const daysElapsed = 90 - daysRemaining;
+
     return res.json({
       success: true,
       campaign: {
         ...campaign,
-        daysRemaining: 90,
+        daysRemaining,
         daysTotal: 90,
-        daysElapsed: 0,
-        progressPercent: 0,
+        daysElapsed,
+        progressPercent: Math.round((daysElapsed / 90) * 100),
       }
     });
   } catch (err) {
@@ -155,7 +176,7 @@ async function getDashboardStats(req, res) {
     }
 
     const campaignResult = await db.query(
-      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 AND is_primary = true ORDER BY created_at DESC LIMIT 1`,
       [userId]
     );
     if (campaignResult.rows.length === 0) {
@@ -285,7 +306,7 @@ async function getViewers(req, res) {
     }
 
     const campaignResult = await db.query(
-      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 AND is_primary = true ORDER BY created_at DESC LIMIT 1`,
       [userId]
     );
     if (campaignResult.rows.length === 0) {
@@ -317,7 +338,6 @@ async function getViewers(req, res) {
 
     const params = [connection_id, started_at, ends_at, totalStatuses];
     if (search) params.push(`%${search}%`);
-    const searchIdx = search ? 5 : null;
 
     const viewersResult = await db.query(`
       SELECT
@@ -381,7 +401,7 @@ async function getGrayCheckmarks(req, res) {
     if (!access.hasAccess) return res.status(403).json({ error: 'אין גישה לשירות', ...access });
 
     const campaignResult = await db.query(
-      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 AND is_primary = true ORDER BY created_at DESC LIMIT 1`,
       [userId]
     );
     if (campaignResult.rows.length === 0) return res.json({ grayCheckmarks: [] });
@@ -443,7 +463,7 @@ async function getViewerProfile(req, res) {
     const { phone } = req.params;
 
     const campaignResult = await db.query(
-      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 AND is_primary = true ORDER BY created_at DESC LIMIT 1`,
       [userId]
     );
     if (campaignResult.rows.length === 0) return res.status(404).json({ error: 'אין קמפיין' });
@@ -488,7 +508,6 @@ async function getViewerProfile(req, res) {
 
     const total = parseInt(totalStatuses.rows[0].count) || 0;
     const viewed = viewedStatuses.rows.length;
-    const viewerName = viewedStatuses.rows[0] ? null : null; // fetched below
 
     // Get viewer name from most recent view
     const nameResult = await db.query(`
@@ -524,7 +543,7 @@ async function getDailyGrowth(req, res) {
     if (!access.hasAccess) return res.status(403).json({ error: 'אין גישה לשירות', ...access });
 
     const campaignResult = await db.query(
-      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 AND is_primary = true ORDER BY created_at DESC LIMIT 1`,
       [userId]
     );
     if (campaignResult.rows.length === 0) return res.json({ days: [] });
@@ -583,7 +602,7 @@ async function downloadContacts(req, res) {
     }
 
     const campaignResult = await db.query(
-      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 AND is_primary = true ORDER BY created_at DESC LIMIT 1`,
       [userId]
     );
     if (campaignResult.rows.length === 0) return res.status(404).json({ error: 'אין קמפיין' });
@@ -652,7 +671,7 @@ async function downloadReport(req, res) {
     if (!access.hasAccess) return res.status(403).json({ error: 'אין גישה לשירות', ...access });
 
     const campaignResult = await db.query(
-      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 AND is_primary = true ORDER BY created_at DESC LIMIT 1`,
       [userId]
     );
     if (campaignResult.rows.length === 0) return res.status(404).json({ error: 'אין קמפיין' });
@@ -758,7 +777,7 @@ async function syncToGoogle(req, res) {
     const { keepExtraContacts = true, extraPhones = [] } = req.body;
 
     const campaignResult = await db.query(
-      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 AND is_primary = true ORDER BY created_at DESC LIMIT 1`,
       [userId]
     );
     if (campaignResult.rows.length === 0) return res.status(404).json({ error: 'אין קמפיין' });
@@ -895,6 +914,67 @@ async function getRenewalInfo(req, res) {
   }
 }
 
+// ─────────────────────────────────────────────
+// MULTI-CAMPAIGN MANAGEMENT
+// ─────────────────────────────────────────────
+
+async function getCampaigns(req, res) {
+  try {
+    const userId = req.user.id;
+    const access = await checkSubscription(userId);
+    if (!access.hasAccess) return res.status(403).json({ error: 'אין גישה', ...access });
+
+    const result = await db.query(
+      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 ORDER BY created_at DESC`,
+      [userId]
+    );
+    return res.json({ campaigns: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: 'שגיאה' });
+  }
+}
+
+async function setPrimary(req, res) {
+  try {
+    const userId = req.user.id;
+    const { campaignId } = req.params;
+
+    const check = await db.query(
+      'SELECT id FROM status_viewer_campaigns WHERE id = $1 AND user_id = $2',
+      [campaignId, userId]
+    );
+    if (!check.rows.length) return res.status(404).json({ error: 'לא נמצא' });
+
+    await db.query('UPDATE status_viewer_campaigns SET is_primary = false WHERE user_id = $1', [userId]);
+    await db.query('UPDATE status_viewer_campaigns SET is_primary = true WHERE id = $1', [campaignId]);
+
+    return res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'שגיאה' });
+  }
+}
+
+async function closeCampaign(req, res) {
+  try {
+    const userId = req.user.id;
+    const { campaignId } = req.params;
+
+    const check = await db.query(
+      'SELECT id FROM status_viewer_campaigns WHERE id = $1 AND user_id = $2',
+      [campaignId, userId]
+    );
+    if (!check.rows.length) return res.status(404).json({ error: 'לא נמצא' });
+
+    await db.query(
+      `UPDATE status_viewer_campaigns SET status = 'completed' WHERE id = $1`,
+      [campaignId]
+    );
+    return res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'שגיאה' });
+  }
+}
+
 module.exports = {
   getCampaign,
   startCampaign,
@@ -908,4 +988,7 @@ module.exports = {
   getGoogleAccounts,
   syncToGoogle,
   getRenewalInfo,
+  getCampaigns,
+  setPrimary,
+  closeCampaign,
 };

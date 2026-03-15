@@ -263,6 +263,27 @@ server.listen(PORT, () => {
           END IF;
         END $$
       `);
+      // Multi-campaign support migration
+      await dbQuery(`
+        ALTER TABLE status_viewer_campaigns
+          DROP CONSTRAINT IF EXISTS status_viewer_campaigns_user_id_key
+      `);
+      await dbQuery(`
+        ALTER TABLE status_viewer_campaigns
+          ADD COLUMN IF NOT EXISTS is_primary BOOLEAN DEFAULT true
+      `);
+      await dbQuery(`
+        ALTER TABLE status_viewer_campaigns
+          ADD COLUMN IF NOT EXISTS track_since TIMESTAMP NULL
+      `);
+      // Set is_primary=true for the latest campaign per user
+      await dbQuery(`
+        UPDATE status_viewer_campaigns svc
+        SET is_primary = true
+        WHERE svc.created_at = (
+          SELECT MAX(s2.created_at) FROM status_viewer_campaigns s2 WHERE s2.user_id = svc.user_id
+        )
+      `);
       // Seed view-filter-bot service
       await dbQuery(`
         INSERT INTO additional_services (

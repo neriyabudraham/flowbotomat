@@ -4,7 +4,7 @@ import {
   Eye, Users, TrendingUp, Download, Smartphone, Search,
   ChevronDown, ChevronUp, Filter, RefreshCw, Play,
   AlertCircle, CheckCircle, Clock, BarChart2, FileText,
-  ArrowUpRight, User, Heart, ArrowLeft, Shield
+  ArrowUpRight, User, Heart, ArrowLeft, Shield, Plus
 } from 'lucide-react';
 import Logo from '../../components/atoms/Logo';
 import NotificationsDropdown from '../../components/notifications/NotificationsDropdown';
@@ -36,6 +36,9 @@ export default function ViewFilterDashboardPage() {
   const [viewersMeta, setViewersMeta] = useState({ total: 0, page: 1, pages: 1 });
   const [grayCheckmarks, setGrayCheckmarks] = useState([]);
   const [dailyGrowth, setDailyGrowth] = useState([]);
+  const [campaigns, setCampaigns] = useState([]);
+  const [showNewCampaign, setShowNewCampaign] = useState(false);
+  const [newCampaignType, setNewCampaignType] = useState('today'); // 'today' | 'all_time'
   const [startingCampaign, setStartingCampaign] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
@@ -70,14 +73,18 @@ export default function ViewFilterDashboardPage() {
         api.get('/view-filter/stats').catch(() => ({ data: null })),
       ]);
 
-      setCampaign(campaignRes.data);
-      setStats(statsRes.data);
+      const campaignData = campaignRes.data?.campaign || null;
+      const statsData = statsRes.data?.stats || null;
+      setCampaign(campaignData);
+      setStats(statsData);
+      loadCampaigns(); // always load campaign list
 
-      if (campaignRes.data?.status === 'active') {
+      if (campaignData?.status === 'active') {
         await Promise.all([
           loadViewers(),
           loadGrayCheckmarks(),
           loadDailyGrowth(),
+          loadCampaigns(),
         ]);
       }
     } catch (err) {
@@ -92,15 +99,15 @@ export default function ViewFilterDashboardPage() {
       const params = new URLSearchParams({
         page,
         limit: 20,
-        sortBy,
-        sortDir,
+        sort: sortBy,
+        dir: sortDir,
         ...(search && { search }),
-        ...(minPercent && { minPercent }),
-        ...(maxPercent && { maxPercent }),
+        ...(minPercent && { min_percent: minPercent }),
+        ...(maxPercent && { max_percent: maxPercent }),
       });
       const { data } = await api.get(`/view-filter/viewers?${params}`);
       setViewers(data.viewers || []);
-      setViewersMeta(data.meta || { total: 0, page: 1, pages: 1 });
+      setViewersMeta({ total: data.total || 0, page: data.page || 1, pages: Math.ceil((data.total || 0) / 20) });
     } catch {}
   };
 
@@ -118,11 +125,19 @@ export default function ViewFilterDashboardPage() {
     } catch {}
   };
 
-  const handleStartCampaign = async () => {
+  const loadCampaigns = async () => {
+    try {
+      const { data } = await api.get('/view-filter/campaigns');
+      setCampaigns(data.campaigns || []);
+    } catch {}
+  };
+
+  const handleStartCampaign = async (trackSince = null) => {
     setStartingCampaign(true);
     setError(null);
+    setShowNewCampaign(false);
     try {
-      const { data } = await api.post('/view-filter/campaign/start');
+      const { data } = await api.post('/view-filter/campaign/start', { trackSince });
       setCampaign(data.campaign);
       await loadAll();
     } catch (err) {
@@ -265,56 +280,129 @@ export default function ViewFilterDashboardPage() {
         )}
 
         {/* Campaign Status Card */}
-        {!campaign || campaign.status !== 'active' ? (
-          <div className="bg-white rounded-2xl border border-purple-100 shadow-sm p-8 text-center">
-            <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Play className="w-8 h-8 text-purple-500" />
-            </div>
-            <h2 className="text-xl font-bold text-gray-900 mb-2">מוכן להתחיל מעקב?</h2>
-            <p className="text-gray-600 mb-6 max-w-md mx-auto">
-              לחץ על הכפתור להפעלת תקופת מעקב של 90 יום. המערכת תעקוב אחרי כל מי שצופה בסטטוסים שלך.
-            </p>
-            <button
-              onClick={handleStartCampaign}
-              disabled={startingCampaign}
-              className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-purple-500 to-violet-600 text-white rounded-2xl font-bold text-lg hover:shadow-xl transition-all disabled:opacity-50"
-            >
-              {startingCampaign ? (
-                <><RefreshCw className="w-5 h-5 animate-spin" /> מפעיל...</>
-              ) : (
-                <><Play className="w-5 h-5" /> התחל מעקב 90 יום</>
-              )}
-            </button>
-          </div>
-        ) : (
-          <div className="bg-white rounded-2xl border border-purple-100 shadow-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="font-bold text-gray-900 text-lg">תקופת מעקב פעילה</h2>
-                <p className="text-sm text-gray-500">
-                  התחיל: {new Date(campaign.started_at).toLocaleDateString('he-IL')} •
-                  מסתיים: {new Date(campaign.ends_at).toLocaleDateString('he-IL')}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="p-6">
+            {!campaign || campaign.status !== 'active' ? (
+              <div className="text-center py-4">
+                <div className="w-16 h-16 bg-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Play className="w-8 h-8 text-purple-500" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">מוכן להתחיל מעקב?</h2>
+                <p className="text-gray-500 mb-6 max-w-sm mx-auto text-sm">
+                  בחר את נקודת ההתחלה לתקופת המעקב שלך
                 </p>
+                <div className="flex flex-col sm:flex-row gap-3 justify-center max-w-md mx-auto">
+                  <button
+                    onClick={() => handleStartCampaign(null)}
+                    disabled={startingCampaign}
+                    className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-violet-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all disabled:opacity-50"
+                  >
+                    {startingCampaign ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                    מהיום
+                  </button>
+                  <button
+                    onClick={() => handleStartCampaign('all_time')}
+                    disabled={startingCampaign}
+                    className="flex-1 flex items-center justify-center gap-2 px-6 py-3 border-2 border-purple-200 text-purple-700 rounded-xl font-semibold hover:bg-purple-50 transition-all disabled:opacity-50"
+                  >
+                    <Clock className="w-4 h-4" />
+                    מתחילת הנתונים
+                  </button>
+                </div>
               </div>
-              <div className="text-left">
-                <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
-                  <CheckCircle className="w-4 h-4" /> פעיל
-                </span>
+            ) : (
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                        <CheckCircle className="w-3 h-3" /> מעקב פעיל
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-500">
+                      {new Date(campaign.started_at).toLocaleDateString('he-IL')} — {new Date(campaign.ends_at).toLocaleDateString('he-IL')}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowNewCampaign(v => !v)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-600"
+                  >
+                    <Plus className="w-4 h-4" />
+                    מעקב חדש
+                  </button>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-2.5 mb-2">
+                  <div
+                    className="h-2.5 rounded-full bg-gradient-to-r from-purple-500 to-violet-600 transition-all"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>יום {daysElapsed} מתוך 90</span>
+                  <span className="font-medium text-purple-600">{Math.round(progressPercent)}% הושלם</span>
+                  <span>נותרו {daysRemaining} ימים</span>
+                </div>
               </div>
-            </div>
-            <div className="w-full bg-gray-100 rounded-full h-3 mb-2">
-              <div
-                className="h-3 rounded-full bg-gradient-to-r from-purple-500 to-violet-600 transition-all"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-sm text-gray-500">
-              <span>יום {daysElapsed}</span>
-              <span className="font-medium text-purple-600">{Math.round(progressPercent)}%</span>
-              <span>נותרו {daysRemaining} ימים</span>
-            </div>
+            )}
+
+            {/* New campaign options popup */}
+            {showNewCampaign && campaign?.status === 'active' && (
+              <div className="mt-4 p-4 bg-purple-50 border border-purple-100 rounded-xl">
+                <p className="text-sm font-medium text-purple-800 mb-3">התחל מעקב חדש — הנוכחי ישמר ברקע</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleStartCampaign(null)}
+                    disabled={startingCampaign}
+                    className="flex-1 py-2 px-3 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors disabled:opacity-50"
+                  >
+                    מהיום
+                  </button>
+                  <button
+                    onClick={() => handleStartCampaign('all_time')}
+                    disabled={startingCampaign}
+                    className="flex-1 py-2 px-3 border border-purple-300 text-purple-700 rounded-lg text-sm font-medium hover:bg-purple-100 transition-colors disabled:opacity-50"
+                  >
+                    מתחילת הנתונים
+                  </button>
+                  <button
+                    onClick={() => setShowNewCampaign(false)}
+                    className="py-2 px-3 text-gray-500 hover:text-gray-700 rounded-lg text-sm"
+                  >
+                    ביטול
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
+
+          {/* Past campaigns list */}
+          {campaigns.length > 1 && (
+            <div className="border-t border-gray-50 px-6 pb-4">
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mt-4 mb-2">מעקבים קודמים</p>
+              <div className="space-y-2">
+                {campaigns.filter(c => !c.is_primary).map(c => (
+                  <div key={c.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg text-sm">
+                    <div>
+                      <span className="text-gray-700">{new Date(c.started_at).toLocaleDateString('he-IL')} — {new Date(c.ends_at).toLocaleDateString('he-IL')}</span>
+                      <span className={`mr-2 text-xs px-2 py-0.5 rounded-full ${c.status === 'active' ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'}`}>
+                        {c.status === 'active' ? 'פעיל' : 'הסתיים'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        await api.post(`/view-filter/campaigns/${c.id}/set-primary`);
+                        loadAll();
+                      }}
+                      className="text-xs text-purple-600 hover:text-purple-800 hover:underline"
+                    >
+                      הצג
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Stats Cards */}
         {stats && (
@@ -324,7 +412,7 @@ export default function ViewFilterDashboardPage() {
               { label: 'חדשים היום', value: stats.newToday ?? 0, icon: <TrendingUp className="w-5 h-5 text-violet-500" />, color: 'violet' },
               { label: 'חדשים השבוע', value: stats.newThisWeek ?? 0, icon: <BarChart2 className="w-5 h-5 text-indigo-500" />, color: 'indigo' },
               { label: 'סטטוסים סה"כ', value: stats.totalStatuses ?? 0, icon: <Eye className="w-5 h-5 text-blue-500" />, color: 'blue' },
-              { label: 'ממוצע צפיות', value: stats.avgViews ?? 0, icon: <ArrowUpRight className="w-5 h-5 text-emerald-500" />, color: 'emerald' },
+              { label: 'ממוצע צפיות', value: stats.avgViewsPerStatus ?? 0, icon: <ArrowUpRight className="w-5 h-5 text-emerald-500" />, color: 'emerald' },
               { label: 'וי אפור', value: stats.grayCheckmarks ?? 0, icon: <Heart className="w-5 h-5 text-rose-400" />, color: 'rose' },
             ].map((s, i) => (
               <div key={i} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">

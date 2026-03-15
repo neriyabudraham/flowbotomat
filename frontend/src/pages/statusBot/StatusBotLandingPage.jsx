@@ -62,6 +62,12 @@ export default function StatusBotLandingPage() {
     checkAccess();
   }, []);
 
+  useEffect(() => {
+    if (hasSubscription) {
+      navigate('/status-bot/dashboard', { replace: true });
+    }
+  }, [hasSubscription]);
+
   const checkAccess = async () => {
     try {
       const token = localStorage.getItem('accessToken');

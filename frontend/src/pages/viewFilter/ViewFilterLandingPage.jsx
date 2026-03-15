@@ -20,6 +20,12 @@ export default function ViewFilterLandingPage() {
     loadServiceInfo();
   }, []);
 
+  useEffect(() => {
+    if (hasAccess) {
+      navigate('/view-filter/dashboard', { replace: true });
+    }
+  }, [hasAccess]);
+
   async function loadServiceInfo() {
     try {
       const token = localStorage.getItem('accessToken');
