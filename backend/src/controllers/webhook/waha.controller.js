@@ -1348,7 +1348,7 @@ async function handleOutgoingDeviceMessage(userId, payload) {
   console.log(`[Webhook] handleOutgoingDeviceMessage: toPhone=${toPhone} type=${payload.type} body=${String(payload.body || '').substring(0, 50)} rawFields={to:${payload.to},chatId:${payload.chatId},idRemote:${payload.id?.remote}}`);
 
   if (!toPhone || !toPhone.match(/^\d+$/)) {
-    console.log(`[Webhook] Skipping outgoing message — invalid toPhone: "${toPhone}" (to=${payload.to} chatId=${payload.chatId} id.remote=${payload.id?.remote})`);
+    console.log(`[Webhook] Skipping outgoing message — invalid toPhone: "${toPhone}" FULL_PAYLOAD=${JSON.stringify(payload)}`);
     return;
   }
 
