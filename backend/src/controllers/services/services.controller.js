@@ -257,12 +257,13 @@ async function subscribeToService(req, res) {
     if (!isTrial && !futureStartDate && price > 0) {
       await db.query(`
         INSERT INTO service_payment_history
-        (user_id, service_id, subscription_id, amount, status, payment_type, description, sumit_transaction_id)
-        VALUES ($1, $2, $3, $4, 'success', $5, $6, $7)
+        (user_id, service_id, subscription_id, amount, status, payment_type, description, sumit_transaction_id, receipt_url)
+        VALUES ($1, $2, $3, $4, 'success', $5, $6, $7, $8)
       `, [userId, serviceId, subscription.id, price,
           isOneTime ? 'one_time' : 'recurring',
           `הרשמה ל${service.name_he} - ${billingPeriod === 'yearly' ? 'שנתי' : billingPeriod === 'one_time' ? 'חד פעמי' : 'חודשי'}`,
-          chargeTransactionId || null]);
+          chargeTransactionId || null,
+          chargeDocumentURL || null]);
     }
     
     // Delete used custom trial if exists

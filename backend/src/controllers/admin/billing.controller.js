@@ -369,12 +369,31 @@ async function getUserPaymentHistory(req, res) {
     const { userId } = req.params;
 
     const result = await pool.query(`
-      SELECT ph.id, ph.amount, ph.status, ph.created_at,
-             ph.sumit_transaction_id, ph.description, ph.error_message,
-             ph.failure_code, ph.receipt_url, ph.billing_type
-      FROM payment_history ph
-      WHERE ph.user_id = $1
-      ORDER BY ph.created_at DESC
+      SELECT id, amount, status, created_at,
+             sumit_transaction_id, description, error_message,
+             failure_code, receipt_url, billing_type, plan_name_he
+      FROM (
+        SELECT ph.id, ph.amount, ph.status, ph.created_at,
+               ph.sumit_transaction_id, ph.description, ph.error_message,
+               ph.failure_code, ph.receipt_url, ph.billing_type,
+               sp.name_he as plan_name_he
+        FROM payment_history ph
+        LEFT JOIN user_subscriptions us ON us.id = ph.subscription_id
+        LEFT JOIN subscription_plans sp ON sp.id = us.plan_id
+        WHERE ph.user_id = $1
+
+        UNION ALL
+
+        SELECT sph.id, sph.amount, sph.status, sph.created_at,
+               sph.sumit_transaction_id, sph.description, sph.error_message,
+               NULL as failure_code, sph.receipt_url,
+               COALESCE(sph.payment_type, 'status_bot') as billing_type,
+               s.name_he as plan_name_he
+        FROM service_payment_history sph
+        JOIN additional_services s ON s.id = sph.service_id
+        WHERE sph.user_id = $1
+      ) combined
+      ORDER BY created_at DESC
       LIMIT 30
     `, [userId]);
 

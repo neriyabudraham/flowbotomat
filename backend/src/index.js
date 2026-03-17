@@ -333,6 +333,8 @@ server.listen(PORT, () => {
       // Track payment suspension: when payment method is removed, WhatsApp is suspended so that
       // WAHA webhooks cannot restore 'connected' status until user re-adds a payment method.
       await dbQuery(`ALTER TABLE whatsapp_connections ADD COLUMN IF NOT EXISTS payment_suspended BOOLEAN DEFAULT false`);
+      // Store receipt/invoice URL for service payments so the admin can view it
+      await dbQuery(`ALTER TABLE service_payment_history ADD COLUMN IF NOT EXISTS receipt_url TEXT`);
       console.log('[Startup] ✅ Migrations applied successfully');
     } catch (err) {
       console.error('[Startup] Migration error:', err.message);

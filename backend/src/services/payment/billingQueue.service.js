@@ -66,9 +66,12 @@ async function cancelUserCharges(userId) {
  */
 async function getUpcomingCharges(days = 7, limit = 100) {
   const result = await pool.query(
-    `SELECT bq.*, 
+    `SELECT bq.*,
             u.email, u.name as display_name,
             sp.name as plan_name, sp.name_he as plan_name_he,
+            -- For service subscriptions, get name from additional_services
+            COALESCE(sp.name_he, svc.name_he) as plan_name_he,
+            COALESCE(sp.name, svc.name) as plan_name,
             us.sumit_customer_id,
             EXISTS(SELECT 1 FROM user_payment_methods pm WHERE pm.user_id = bq.user_id AND pm.is_active = true) as has_payment_method,
             (SELECT pm.card_last_digits FROM user_payment_methods pm WHERE pm.user_id = bq.user_id AND pm.is_active = true LIMIT 1) as card_last_digits
@@ -76,7 +79,9 @@ async function getUpcomingCharges(days = 7, limit = 100) {
      JOIN users u ON u.id = bq.user_id
      LEFT JOIN user_subscriptions us ON us.user_id = bq.user_id
      LEFT JOIN subscription_plans sp ON sp.id = bq.plan_id
-     WHERE bq.status = 'pending' 
+     LEFT JOIN user_service_subscriptions uss ON uss.id = bq.subscription_id AND bq.plan_id IS NULL
+     LEFT JOIN additional_services svc ON svc.id = uss.service_id
+     WHERE bq.status = 'pending'
        AND bq.charge_date <= CURRENT_DATE + INTERVAL '${days} days'
      ORDER BY bq.charge_date ASC
      LIMIT $1`,
@@ -112,84 +117,110 @@ async function getFailedCharges(limit = 100) {
 
 /**
  * Get payment history with optional filters
+ * Includes both main subscription payments (payment_history) and service payments (service_payment_history)
  */
 async function getPaymentHistory({ userId, status, startDate, endDate, search, userEmail, limit = 100, offset = 0 }) {
-  let query = `
-    SELECT ph.*, 
-           u.email, u.name as display_name,
-           sp.name as plan_name, sp.name_he as plan_name_he
-    FROM payment_history ph
-    JOIN users u ON u.id = ph.user_id
-    LEFT JOIN user_subscriptions us ON us.id = ph.subscription_id
-    LEFT JOIN subscription_plans sp ON sp.id = us.plan_id
-    WHERE 1=1
-  `;
+  // Build shared WHERE conditions (same param indices used in both UNION parts)
   const params = [];
   let paramIdx = 1;
-  
+  const conditions = [];
+
+  if (userId) { conditions.push(`user_id_filter = $${paramIdx++}`); params.push(userId); }
+  if (userEmail) { conditions.push(`email_filter = $${paramIdx++}`); params.push(userEmail); }
+  if (search) { conditions.push(`search_filter = $${paramIdx}`); params.push(`%${search}%`); paramIdx++; }
+  if (status) { conditions.push(`status_filter = $${paramIdx++}`); params.push(status); }
+  if (startDate) { conditions.push(`start_filter = $${paramIdx++}`); params.push(startDate); }
+  if (endDate) { conditions.push(`end_filter = $${paramIdx++}`); params.push(endDate); }
+
+  // Rebuild conditions into actual SQL for each subquery
+  let phWhere = '1=1';
+  let sphWhere = '1=1';
+  let cIdx = 1;
+
   if (userId) {
-    query += ` AND ph.user_id = $${paramIdx++}`;
-    params.push(userId);
+    phWhere += ` AND ph.user_id = $${cIdx}`;
+    sphWhere += ` AND sph.user_id = $${cIdx}`;
+    cIdx++;
   }
   if (userEmail) {
-    query += ` AND u.email = $${paramIdx++}`;
-    params.push(userEmail);
+    phWhere += ` AND u.email = $${cIdx}`;
+    sphWhere += ` AND u.email = $${cIdx}`;
+    cIdx++;
   }
   if (search) {
-    query += ` AND (u.email ILIKE $${paramIdx} OR u.name ILIKE $${paramIdx})`;
-    params.push(`%${search}%`);
-    paramIdx++;
+    phWhere += ` AND (u.email ILIKE $${cIdx} OR u.name ILIKE $${cIdx})`;
+    sphWhere += ` AND (u.email ILIKE $${cIdx} OR u.name ILIKE $${cIdx})`;
+    cIdx++;
   }
   if (status) {
-    query += ` AND ph.status = $${paramIdx++}`;
-    params.push(status);
+    phWhere += ` AND ph.status = $${cIdx}`;
+    sphWhere += ` AND sph.status = $${cIdx}`;
+    cIdx++;
   }
   if (startDate) {
-    query += ` AND ph.created_at >= $${paramIdx++}`;
-    params.push(startDate);
+    phWhere += ` AND ph.created_at >= $${cIdx}`;
+    sphWhere += ` AND sph.created_at >= $${cIdx}`;
+    cIdx++;
   }
   if (endDate) {
-    query += ` AND ph.created_at <= $${paramIdx++}`;
-    params.push(endDate);
+    phWhere += ` AND ph.created_at <= $${cIdx}`;
+    sphWhere += ` AND sph.created_at <= $${cIdx}`;
+    cIdx++;
   }
-  
-  query += ` ORDER BY ph.created_at DESC LIMIT $${paramIdx++} OFFSET $${paramIdx}`;
+
+  const limitParam = cIdx++;
+  const offsetParam = cIdx;
   params.push(limit, offset);
-  
+
+  const query = `
+    SELECT * FROM (
+      SELECT ph.id, ph.user_id, ph.amount, ph.status, ph.created_at,
+             ph.sumit_transaction_id, ph.description, ph.error_message,
+             ph.failure_code, ph.receipt_url, ph.billing_type, ph.sumit_document_number,
+             u.email, u.name as display_name,
+             sp.name as plan_name, sp.name_he as plan_name_he
+      FROM payment_history ph
+      JOIN users u ON u.id = ph.user_id
+      LEFT JOIN user_subscriptions us ON us.id = ph.subscription_id
+      LEFT JOIN subscription_plans sp ON sp.id = us.plan_id
+      WHERE ${phWhere}
+
+      UNION ALL
+
+      SELECT sph.id, sph.user_id, sph.amount, sph.status, sph.created_at,
+             sph.sumit_transaction_id, sph.description, sph.error_message,
+             NULL as failure_code, sph.receipt_url,
+             COALESCE(sph.payment_type, 'status_bot') as billing_type,
+             sph.sumit_document_number,
+             u.email, u.name as display_name,
+             s.name as plan_name, s.name_he as plan_name_he
+      FROM service_payment_history sph
+      JOIN users u ON u.id = sph.user_id
+      JOIN additional_services s ON s.id = sph.service_id
+      WHERE ${sphWhere}
+    ) combined
+    ORDER BY created_at DESC
+    LIMIT $${limitParam} OFFSET $${offsetParam}
+  `;
+
   const result = await pool.query(query, params);
-  
-  // Get total count
-  let countQuery = `SELECT COUNT(*) FROM payment_history ph JOIN users u ON u.id = ph.user_id WHERE 1=1`;
-  const countParams = [];
-  paramIdx = 1;
-  if (userId) {
-    countQuery += ` AND ph.user_id = $${paramIdx++}`;
-    countParams.push(userId);
-  }
-  if (userEmail) {
-    countQuery += ` AND u.email = $${paramIdx++}`;
-    countParams.push(userEmail);
-  }
-  if (search) {
-    countQuery += ` AND (u.email ILIKE $${paramIdx} OR u.name ILIKE $${paramIdx})`;
-    countParams.push(`%${search}%`);
-    paramIdx++;
-  }
-  if (status) {
-    countQuery += ` AND ph.status = $${paramIdx++}`;
-    countParams.push(status);
-  }
-  if (startDate) {
-    countQuery += ` AND ph.created_at >= $${paramIdx++}`;
-    countParams.push(startDate);
-  }
-  if (endDate) {
-    countQuery += ` AND ph.created_at <= $${paramIdx++}`;
-    countParams.push(endDate);
-  }
-  
+
+  // Count query (same UNION approach, no pagination)
+  const countQuery = `
+    SELECT COUNT(*) FROM (
+      SELECT ph.id FROM payment_history ph
+      JOIN users u ON u.id = ph.user_id
+      WHERE ${phWhere}
+      UNION ALL
+      SELECT sph.id FROM service_payment_history sph
+      JOIN users u ON u.id = sph.user_id
+      WHERE ${sphWhere}
+    ) combined
+  `;
+  // Count uses same params but without limit/offset
+  const countParams = params.slice(0, params.length - 2);
   const countResult = await pool.query(countQuery, countParams);
-  
+
   return {
     payments: result.rows,
     total: parseInt(countResult.rows[0].count)
