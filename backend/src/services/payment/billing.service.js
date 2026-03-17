@@ -103,24 +103,13 @@ async function processSubscriptionCharges() {
           ]);
           
           console.error(`[Billing] Failed to charge user ${sub.user_email}:`, chargeResult.error);
-          
-          // Downgrade to free plan on charge failure
-          const FREE_PLAN_ID = '00000000-0000-0000-0000-000000000001';
-          await db.query(`
-            UPDATE user_subscriptions 
-            SET plan_id = $1, 
-                status = 'active',
-                sumit_standing_order_id = NULL,
-                next_charge_date = NULL,
-                expires_at = NULL,
-                admin_notes = COALESCE(admin_notes, '') || E'\n' || $2,
-                updated_at = NOW()
-            WHERE id = $3
-          `, [FREE_PLAN_ID, `שודרג למנוי חינמי עקב כשלון חיוב (${new Date().toLocaleDateString('he-IL')})`, sub.id]);
-          
-          console.log(`[Billing] Downgraded user ${sub.user_email} to free plan due to charge failure`);
-          
-          // TODO: Send failure email notification with downgrade notice
+
+          // Create a failed billing_queue entry so admin can see and retry it
+          await pool.query(`
+            INSERT INTO billing_queue
+              (user_id, subscription_id, amount, charge_date, billing_type, plan_id, description, currency, status, last_error, last_error_code, last_attempt_at, retry_count)
+            VALUES ($1, $2, $3, CURRENT_DATE, 'yearly', $4, $5, 'ILS', 'failed', $6, 'CHARGE_FAILED', NOW(), 1)
+          `, [sub.user_id, sub.id, yearlyPrice, sub.plan_id, `חידוש מנוי שנתי - ${sub.name_he}`, chargeResult.error]);
         }
       } catch (err) {
         console.error(`[Billing] Error processing subscription ${sub.id}:`, err);
@@ -273,8 +262,14 @@ async function processTrialEndings() {
           
           console.error(`[Billing] Failed to convert trial for user ${sub.user_email}:`, chargeResult.error);
           console.log(`[Billing] Downgraded user ${sub.user_email} to free plan`);
-          
-          // TODO: Send "trial ended, payment failed, downgraded to free" email
+
+          // Create a failed billing_queue entry so admin can see and retry it
+          await pool.query(`
+            INSERT INTO billing_queue
+              (user_id, subscription_id, amount, charge_date, billing_type, plan_id, description, currency, status, last_error, last_error_code, last_attempt_at, retry_count)
+            VALUES ($1, $2, $3, CURRENT_DATE, $4, $5, $6, 'ILS', 'failed', $7, 'CHARGE_FAILED', NOW(), 1)
+          `, [sub.user_id, sub.id, chargeAmount, isYearly ? 'yearly' : 'trial_conversion', sub.plan_id,
+              `המרת ניסיון - ${sub.name_he}`, chargeResult.error]);
         }
       } catch (err) {
         console.error(`[Billing] Error processing trial ${sub.id}:`, err);

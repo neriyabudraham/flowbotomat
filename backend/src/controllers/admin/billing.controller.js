@@ -518,6 +518,44 @@ async function cancelSubscription(req, res) {
   }
 }
 
+/**
+ * Void a payment record - marks it as voided without affecting Sumit
+ */
+async function voidPayment(req, res) {
+  try {
+    const { id } = req.params;
+    const adminId = req.user.id;
+
+    // Check in payment_history first
+    let result = await pool.query(
+      `UPDATE payment_history SET status = 'voided', updated_at = NOW() WHERE id = $1 AND status != 'voided' RETURNING *`,
+      [id]
+    );
+
+    // If not found there, try service_payment_history
+    if (result.rows.length === 0) {
+      result = await pool.query(
+        `UPDATE service_payment_history SET status = 'voided', updated_at = NOW() WHERE id = $1 AND status != 'voided' RETURNING *`,
+        [id]
+      );
+    }
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'תשלום לא נמצא או כבר מבוטל' });
+    }
+
+    await pool.query(
+      `INSERT INTO admin_audit_log (admin_id, action, entity_type, entity_id, details) VALUES ($1, 'void_payment', 'payment_history', $2, $3)`,
+      [adminId, id, JSON.stringify({ payment: result.rows[0] })]
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[AdminBilling] Void payment error:', error);
+    res.status(500).json({ error: 'שגיאה בביטול התשלום' });
+  }
+}
+
 module.exports = {
   getUpcomingCharges,
   getFailedCharges,
@@ -532,5 +570,6 @@ module.exports = {
   scheduleManualCharge,
   getChargeDetails,
   processBillingQueue,
-  cancelSubscription
+  cancelSubscription,
+  voidPayment
 };

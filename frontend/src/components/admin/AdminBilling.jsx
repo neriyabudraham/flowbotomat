@@ -4,7 +4,7 @@ import {
   RefreshCw, Calendar, Search, Filter, DollarSign,
   ChevronLeft, ChevronRight, Loader2, History, Ban, FileText,
   User, MoreVertical, Play, SkipForward, Edit3, Receipt,
-  AlertCircle, TrendingDown, ChevronDown, UserX
+  AlertCircle, TrendingDown, ChevronDown, UserX, Trash2
 } from 'lucide-react';
 import api from '../../services/api';
 import { UnifiedUserModal } from './AdminUsers';
@@ -853,11 +853,12 @@ function PaymentHistory({ onViewUser, loadingUser, initialUserEmail, onClearUser
                   <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">תיאור / שגיאה</th>
                   <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">מזהה עסקה</th>
                   <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">קבלה</th>
+                  <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">פעולות</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {payments.map(payment => (
-                  <tr key={payment.id} className={`hover:bg-gray-50 ${payment.status === 'failed' ? 'bg-red-50/30' : ''}`}>
+                  <tr key={payment.id} className={`hover:bg-gray-50 ${payment.status === 'failed' ? 'bg-red-50/30' : ''} ${payment.status === 'voided' ? 'opacity-50' : ''}`}>
                     <td className="px-4 py-3 text-gray-600 text-sm">
                       {new Date(payment.created_at).toLocaleString('he-IL')}
                     </td>
@@ -920,6 +921,14 @@ function PaymentHistory({ onViewUser, loadingUser, initialUserEmail, onClearUser
                         <span className="text-gray-300 text-xs">אין</span>
                       )}
                     </td>
+                    <td className="px-4 py-3">
+                      {payment.status !== 'voided' && (
+                        <PaymentActionsMenu
+                          payment={payment}
+                          onRefresh={loadPayments}
+                        />
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -939,6 +948,72 @@ function PaymentHistory({ onViewUser, loadingUser, initialUserEmail, onClearUser
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+// ─── Payment History Actions ──────────────────────────────────────────────────
+
+function PaymentActionsMenu({ payment, onRefresh }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const run = async (fn) => {
+    setOpen(false);
+    setLoading(true);
+    try { await fn(); } finally { setLoading(false); }
+  };
+
+  const handleVoid = () => run(async () => {
+    if (!confirm(`לבטל את הרישום של עסקה זו (₪${Number(payment.amount).toLocaleString()})?\n\nהפעולה מסמנת את החיוב כ"בוטל" ברשומות בלבד — לא מבצעת זיכוי בסאמיט.`)) return;
+    await api.post(`/admin/billing/void-payment/${payment.id}`);
+    onRefresh?.();
+  });
+
+  const handleCancelSubscription = () => run(async () => {
+    const reason = prompt(`ביטול מנוי עבור ${payment.display_name || payment.email}\n\nהמשתמש יועבר לתוכנית חינמית.\n\nסיבה (אופציונלי):`);
+    if (reason === null) return;
+    await api.post(`/admin/billing/cancel-subscription/${payment.user_id}`, { reason });
+    alert('✅ המנוי בוטל');
+    onRefresh?.();
+  });
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        disabled={loading}
+        className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-200 transition-colors disabled:opacity-50"
+      >
+        {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <MoreVertical className="w-3 h-3" />}
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full mt-1 w-52 bg-white rounded-xl shadow-xl border border-gray-200 z-50 py-1 overflow-hidden">
+          <button
+            onClick={handleVoid}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors text-right"
+          >
+            <Trash2 className="w-4 h-4 shrink-0" />
+            בטל חיוב (סמן כמבוטל)
+          </button>
+          <div className="h-px bg-gray-100 my-1" />
+          <button
+            onClick={handleCancelSubscription}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-700 hover:bg-red-50 transition-colors font-semibold text-right"
+          >
+            <UserX className="w-4 h-4 shrink-0" />
+            בטל מנוי (→ חינמי)
+          </button>
+        </div>
       )}
     </div>
   );
@@ -996,6 +1071,7 @@ function StatusBadge({ status }) {
     failed: { label: 'נכשל', color: 'bg-red-100 text-red-700', icon: XCircle },
     pending: { label: 'ממתין', color: 'bg-yellow-100 text-yellow-700', icon: Clock },
     refunded: { label: 'זוכה', color: 'bg-gray-100 text-gray-700', icon: RefreshCw },
+    voided: { label: 'בוטל', color: 'bg-gray-100 text-gray-500', icon: Ban },
   };
   const s = statuses[status] || statuses.pending;
   const Icon = s.icon;
