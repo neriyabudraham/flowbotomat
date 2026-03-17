@@ -240,14 +240,10 @@ function getIntelligenceWebhookUrl(sessionName) {
 async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
   const client = createClient(baseUrl, apiKey);
   
-  console.log(`[WAHA] addWebhook called for session ${sessionName}, url: ${webhookUrl}, requested events: ${events.length}`);
-  
   // Get current session config
   const sessionInfo = await client.get(`/api/sessions/${sessionName}`);
   const currentConfig = sessionInfo.data?.config || {};
   const currentWebhooks = currentConfig.webhooks || [];
-  
-  console.log(`[WAHA] Current webhooks count: ${currentWebhooks.length}`);
   
   // Define the two allowed webhooks
   const mainWebhookUrl = webhookUrl; // e.g., https://botomat.co.il/api/webhook/waha/{userId}
@@ -263,9 +259,7 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
   });
 
   const removedCount = currentWebhooks.length - thirdPartyWebhooks.length;
-  if (removedCount > 0) {
-    console.log(`[WAHA] 🧹 Removed ${removedCount} stale botomat webhooks (kept third-party)`);
-  }
+  // stale webhooks removed silently
 
   // Build final webhooks: third-party first, then our main, then intelligence
   const finalWebhooks = [...thirdPartyWebhooks];
@@ -297,7 +291,6 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
     },
   });
   
-  console.log(`[WAHA] ✅ Webhooks configured: ${finalWebhooks.length} webhooks total (main + intelligence)`);
   return response.data;
 }
 
@@ -550,11 +543,7 @@ async function sendList(connection, phone, listData) {
     },
   };
   
-  console.log('[WAHA] Sending list payload:', JSON.stringify(payload, null, 2));
-  
   const response = await client.post(`/api/sendList`, payload);
-  
-  console.log(`[WAHA] Sent list to ${phone}`);
   return response.data;
 }
 
@@ -564,8 +553,6 @@ async function sendList(connection, phone, listData) {
 async function sendVoice(connection, phone, audioUrl, convert = true) {
   const client = createClient(connection.base_url, connection.api_key);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
-  
-  console.log(`[WAHA] Sending voice to ${chatId}, url: ${audioUrl?.substring(0, 80)}`);
   
   // Determine mimetype - prefer opus for voice messages
   const ext = audioUrl.split('.').pop()?.toLowerCase();

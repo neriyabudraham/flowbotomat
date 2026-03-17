@@ -591,12 +591,9 @@ async function getSentStatuses(connectionId) {
  * Main message handler - routes to appropriate handler based on state
  */
 async function handleMessage(phone, message) {
-  console.log(`[CloudAPI Conv] handleMessage called for phone: ${phone}, message type: ${message.type}`);
-  
   try {
     const state = await getState(phone);
-    console.log(`[CloudAPI Conv] Current state for ${phone}: ${state.state}`);
-    
+
     // Emit message received event for admin real-time monitoring
     // Get user info from state if available
     const authorizations = await checkAuthorization(phone);
@@ -612,7 +609,6 @@ async function handleMessage(phone, message) {
     
     // Check if blocked
     if (state.blocked_until && new Date(state.blocked_until) > new Date()) {
-      console.log(`[CloudAPI Conv] Phone ${phone} is blocked until ${state.blocked_until}`);
       return;
     }
     
@@ -620,20 +616,16 @@ async function handleMessage(phone, message) {
     if (message.type === 'text') {
       const text = message.text.body.trim();
       const lowerText = text.toLowerCase();
-      console.log(`[CloudAPI Conv] Text message: "${text}"`);
-      
+
       if (lowerText === 'תפריט' || lowerText === 'menu') {
-        console.log(`[CloudAPI Conv] Menu command detected`);
         return await handleMenuCommand(phone, state);
       }
-      
+
       if (lowerText === 'סטטוסים' || lowerText === 'statuses') {
-        console.log(`[CloudAPI Conv] Statuses command detected`);
         return await handleStatusesCommand(phone, state);
       }
-      
+
       if (lowerText === 'בטל' || lowerText === 'cancel') {
-        console.log(`[CloudAPI Conv] Cancel command detected`);
         return await handleCancelCommand(phone, state);
       }
       
@@ -655,8 +647,6 @@ async function handleMessage(phone, message) {
         selectedId = message.interactive.list_reply.id;
       }
       
-      console.log(`[CloudAPI Conv] Interactive message, selectedId: ${selectedId}`);
-      
       // Check if it's our new format with statusId (e.g., send_abc12345, color_782138_abc12345)
       if (selectedId && selectedId.includes('_')) {
         const result = await handleInteractiveWithStatusId(phone, selectedId, message);
@@ -666,8 +656,6 @@ async function handleMessage(phone, message) {
         // If fallback, continue to legacy handlers
       }
     }
-    
-    console.log(`[CloudAPI Conv] Routing to state handler: ${state.state}`);
     
     // Route based on current state (legacy flow)
     switch (state.state) {
@@ -810,12 +798,9 @@ async function handleInteractiveWithStatusId(phone, selectedId, message) {
   // Get pending status
   const pendingStatus = await getPendingStatus(phone, statusId);
   if (!pendingStatus) {
-    console.log(`[CloudAPI Conv] Pending status ${statusId} not found`);
     await cloudApi.sendTextMessage(phone, 'ההודעה לא מזוהה או שפג תוקפה, אנא שלח את הסטטוס מחדש');
     return;
   }
-  
-  console.log(`[CloudAPI Conv] Found pending status ${statusId}, action: ${action}, type: ${pendingStatus.type}`);
   
   // Handle each action type
   switch (action) {
@@ -2141,18 +2126,13 @@ function buildQueueContent(pendingStatus) {
  * Now supports multiple concurrent statuses with unique IDs
  */
 async function handleIdleState(phone, message, state) {
-  console.log(`[CloudAPI Conv] handleIdleState for ${phone}`);
-  
   const messageId = message.id; // Original message ID for reply context
-  
+
   // Check authorization
   const authorizedConnections = await checkAuthorization(phone);
-  console.log(`[CloudAPI Conv] Found ${authorizedConnections.length} authorized connections for ${phone}`);
-  
+
   if (authorizedConnections.length === 0) {
-    console.log(`[CloudAPI Conv] Phone ${phone} is not authorized, notified_not_authorized: ${state.notified_not_authorized}`);
     if (!state.notified_not_authorized) {
-      console.log(`[CloudAPI Conv] Sending not authorized message to ${phone}`);
       await cloudApi.sendTextMessage(phone, 
         `שלום! על מנת להעלות סטטוסים דרך המספר הזה, יש להגדיר אותו כמספר מורשה בבוט העלאת הסטטוסים.\n\nלהרשמה: https://botomat.co.il/`
       );
@@ -2208,9 +2188,8 @@ async function handleIdleState(phone, message, state) {
         path.join(__dirname, '../../..', 'uploads') + '/'
       );
       videoDuration = await videoSplit.getVideoDuration(localVideoPath);
-      console.log(`[CloudAPI Conv] Video duration: ${videoDuration} seconds`);
     } catch (e) {
-      console.log(`[CloudAPI Conv] Could not get video duration: ${e.message}`);
+      // Could not get video duration, default to 0
     }
     
     // Decide based on duration:
@@ -2256,8 +2235,6 @@ async function handleIdleState(phone, message, state) {
       messageId
     };
   } else {
-    // Log the unexpected message type for debugging
-    console.log(`[CloudAPI Conv] Unsupported or malformed message type: ${message.type}`, JSON.stringify(message).substring(0, 200));
     await cloudApi.sendTextMessage(phone, 'סוג הודעה לא נתמך, אנא שלח טקסט, תמונה, סרטון או הקלטה קולית');
     return;
   }
@@ -2284,7 +2261,6 @@ async function handleIdleState(phone, message, state) {
   
   // Generate unique ID and store pending status
   const statusId = await addPendingStatus(phone, statusData, connection?.connection_id);
-  console.log(`[CloudAPI Conv] Created pending status ${statusId} for ${phone}`);
   
   // Handle video processing in background (non-blocking)
   if (needsVideoProcessing) {

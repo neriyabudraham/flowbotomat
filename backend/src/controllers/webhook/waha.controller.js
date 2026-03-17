@@ -251,7 +251,6 @@ async function autoUpdateWebhookEvents(userId) {
     const webhookUrl = `${appUrl}/api/webhook/waha/${userId}`;
     
     await wahaSession.addWebhook(baseUrl, apiKey, conn.session_name, webhookUrl, REQUIRED_EVENTS);
-    console.log(`[Webhook] Auto-updated webhook events for user ${userId}`);
   } catch (err) {
     console.log(`[Webhook] Auto-update webhook events failed for ${userId}:`, err.message);
   }
@@ -1616,12 +1615,10 @@ async function monitorDisconnectedSession(userId, sessionName, disconnectTime) {
   
   // Already monitoring this session
   if (activeDisconnectMonitors.has(monitorKey)) {
-    console.log(`[SessionMonitor] Already monitoring ${monitorKey}`);
     return;
   }
-  
+
   activeDisconnectMonitors.set(monitorKey, { startTime: disconnectTime });
-  console.log(`[SessionMonitor] 🔍 Started monitoring session ${sessionName} for user ${userId}`);
   
   const CHECK_INTERVAL_MS = 5000; // Check every 5 seconds
 
@@ -1662,8 +1659,6 @@ async function monitorDisconnectedSession(userId, sessionName, disconnectTime) {
       );
       
       const currentStatus = result.rows[0]?.status;
-      console.log(`[SessionMonitor] Check #${checkCount} for ${userId}: status=${currentStatus}, elapsed=${Math.round(elapsedMs/1000)}s`);
-      
       if (currentStatus === 'connected') {
         // Reconnected!
         clearInterval(checkInterval);
@@ -1673,10 +1668,8 @@ async function monitorDisconnectedSession(userId, sessionName, disconnectTime) {
 
         if (elapsedMs < FLICKER_THRESHOLD_MS || !restrictionsEnabled) {
           // Transient flicker or restrictions disabled — no restriction
-          console.log(`[SessionMonitor] ✅ User ${userId} reconnected within ${Math.round(elapsedMs/1000)}s — flicker/disabled, no restriction`);
         } else if (elapsedMs < SHORT_RESTRICTION_THRESHOLD_MS) {
           // Reconnected within 30s–1min - apply short restriction
-          console.log(`[SessionMonitor] ✅ User ${userId} reconnected within ${Math.round(elapsedMs/1000)}s - applying ${shortRestrictionMinutes}min restriction`);
 
           const restrictionEnd = new Date(Date.now() + SHORT_RESTRICTION_DURATION_MS);
           await pool.query(`
@@ -1696,7 +1689,6 @@ async function monitorDisconnectedSession(userId, sessionName, disconnectTime) {
           });
         } else {
           // Reconnected after 1 minute - no additional restriction needed
-          console.log(`[SessionMonitor] ✅ User ${userId} reconnected after ${Math.round(elapsedMs/1000)}s - no restriction`);
         }
         return;
       }
@@ -1705,8 +1697,6 @@ async function monitorDisconnectedSession(userId, sessionName, disconnectTime) {
       if (elapsedMs >= SHORT_RESTRICTION_THRESHOLD_MS) {
         clearInterval(checkInterval);
         activeDisconnectMonitors.delete(monitorKey);
-        
-        console.log(`[SessionMonitor] ⚠️ User ${userId} still disconnected after 1 minute - applying 24h restriction`);
         
         const restrictionEnd = new Date(Date.now() + LONG_RESTRICTION_DURATION_MS);
         await pool.query(`
@@ -1733,7 +1723,6 @@ async function monitorDisconnectedSession(userId, sessionName, disconnectTime) {
       if (checkCount >= maxChecks) {
         clearInterval(checkInterval);
         activeDisconnectMonitors.delete(monitorKey);
-        console.log(`[SessionMonitor] Stopped monitoring ${userId} after ${maxChecks} checks`);
       }
       
     } catch (error) {
@@ -1822,7 +1811,6 @@ async function handleSessionStatus(userId, event) {
     // Clear any active monitor for this session (reconnected via webhook before monitor caught it)
     const monitorKey = `${userId}_${session || 'main'}`;
     if (activeDisconnectMonitors.has(monitorKey)) {
-      console.log(`[SessionMonitor] Cleared monitor for ${monitorKey} - reconnected via webhook`);
       activeDisconnectMonitors.delete(monitorKey);
     }
     

@@ -280,7 +280,14 @@ async function processQueue() {
       WHERE id = $1
     `, [item.id]);
 
-    console.log(`[StatusBot Queue] Processing status ${item.id} (${item.status_type})`);
+    const scheduledAt = item.scheduled_for ? new Date(item.scheduled_for) : null;
+    const createdAt = new Date(item.created_at);
+    const now = new Date();
+    const scheduledInfo = scheduledAt
+      ? `scheduled=${scheduledAt.toISOString()}, delay=${Math.round((now - scheduledAt) / 1000)}s late`
+      : `created=${createdAt.toISOString()}, queued=${Math.round((now - createdAt) / 1000)}s ago`;
+    const uploaderInfo = item.source_phone ? `uploader=${item.source_phone}` : `source=${item.source || 'web'}`;
+    console.log(`[StatusBot] 🚀 Uploading status id=${item.id} type=${item.status_type} ${uploaderInfo} ${scheduledInfo}`);
 
     // Track processing state for graceful shutdown
     isCurrentlyProcessing = true;
@@ -322,7 +329,8 @@ async function processQueue() {
         WHERE id = 1
       `, [item.connection_id]);
 
-      console.log(`[StatusBot Queue] Status ${item.id} sent successfully`);
+      const uploadDuration = Math.round((Date.now() - now.getTime()) / 1000);
+      console.log(`[StatusBot] ✅ Status id=${item.id} uploaded successfully in ${uploadDuration}s`);
 
       // Send WhatsApp notification if this was from WhatsApp and was scheduled
       await sendStatusNotification(item, true);
@@ -339,7 +347,8 @@ async function processQueue() {
       currentProcessingPromise = null;
 
     } catch (sendError) {
-      console.error(`[StatusBot Queue] Failed to send status ${item.id}:`, sendError.message);
+      const isTimeout = sendError.message?.includes('timeout') || sendError.message?.includes('TIMEOUT');
+      console.error(`[StatusBot] ❌ Status id=${item.id} ${isTimeout ? 'TIMEOUT' : 'ERROR'}: ${sendError.message}`);
       
       // Emit socket event for admin monitoring
       emitToAdmin('statusbot:processing_end', {
@@ -528,7 +537,7 @@ async function sendStatus(queueItem) {
     .catch(err => {
       // Treat 500 errors like timeout: WhatsApp may have processed the status despite the error
       if (err.response?.status === 500) {
-        console.log(`[StatusBot Queue] ⚠️ WAHA returned 500 for status ${queueItem.id} - treating as uncertain upload`);
+        console.log(`[StatusBot] ⚠️ Status id=${queueItem.id} WAHA 500 - treating as uncertain upload`);
         return { uncertain: true, id: messageId };
       }
       throw err;
@@ -540,20 +549,16 @@ async function sendStatus(queueItem) {
   if (response?.timeout || response?.uncertain) {
     if (response.uncertain && historyId) {
       await db.query(`UPDATE status_bot_statuses SET uncertain_upload = true WHERE id = $1`, [historyId]);
-      console.log(`[StatusBot Queue] ⚠️ Status ${historyId} marked as uncertain - will appear in list when first view arrives`);
+      console.log(`[StatusBot] ⚠️ Status id=${queueItem.id} uncertain upload (WAHA 500) - awaiting first view`);
     } else {
-      console.log(`[StatusBot Queue] ⏱️ Status ${queueItem.id} reached timeout - treating as successful upload`);
-      console.log(`[StatusBot Queue] 📊 Views will continue to be collected using message ID: ${messageId}`);
+      console.log(`[StatusBot] ⏱️ Status id=${queueItem.id} TIMEOUT - treating as successful, msgId=${messageId}`);
     }
     return { success: true, timeout: !!response.timeout, uncertain: !!response.uncertain, id: messageId };
   }
   
-  console.log(`[StatusBot Queue] WAHA Response:`, JSON.stringify(response, null, 2));
-
   // Update history with actual message ID if different
   const actualMessageId = response?.id;
   if (actualMessageId && actualMessageId !== historyMessageId && historyId) {
-    console.log(`[StatusBot Queue] 🔄 Updating history with actual message ID: ${actualMessageId}`);
     await db.query(`
       UPDATE status_bot_statuses 
       SET waha_message_id = $1, updated_at = NOW()
@@ -626,7 +631,6 @@ async function sendStatusNotification(item, success, errorMessage = null) {
 
     // If scheduled >24h ahead, don't notify (outside WhatsApp window)
     if (hoursUntilScheduled > 24) {
-      console.log(`[StatusBot Queue] Skipping notification for status ${item.id} - scheduled >24h ahead`);
       return;
     }
 
