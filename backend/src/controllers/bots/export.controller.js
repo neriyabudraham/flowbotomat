@@ -63,20 +63,7 @@ async function importBot(req, res) {
     const userId = req.user.id;
     const { data, name } = req.body;
     
-    // Import checkLimit function
-    const { checkLimit, alertAdminIfOverLimit } = require('../subscriptions/subscriptions.controller');
-    
-    // Check bot limit FIRST
-    const botsLimit = await checkLimit(userId, 'bots');
-    if (!botsLimit.allowed) {
-      return res.status(400).json({ 
-        error: `הגעת למגבלת הבוטים (${botsLimit.limit}). שדרג את החבילה שלך כדי לייבא בוטים נוספים.`,
-        code: 'BOTS_LIMIT_REACHED',
-        limit: botsLimit.limit,
-        used: botsLimit.used
-      });
-    }
-    
+    // Import creates an inactive bot — no limit check needed here.
     if (!data || !data.bot) {
       return res.status(400).json({ error: 'קובץ לא תקין' });
     }
@@ -98,10 +85,7 @@ async function importBot(req, res) {
     );
     
     console.log(`[Import] Bot imported: ${result.rows[0].id} by user ${userId}`);
-    
-    // Check if user now exceeds limit (alert admin if so)
-    await alertAdminIfOverLimit(userId, 'bots');
-    
+
     res.json({
       success: true,
       bot: result.rows[0],
@@ -124,19 +108,8 @@ async function duplicateBot(req, res) {
     const userId = req.user.id;
     const { name } = req.body;
     
-    // Import checkLimit function
-    const { checkLimit, alertAdminIfOverLimit } = require('../subscriptions/subscriptions.controller');
-    
-    // Check bot limit FIRST - before anything else
-    const botsLimit = await checkLimit(userId, 'bots');
-    if (!botsLimit.allowed) {
-      return res.status(400).json({ 
-        error: `הגעת למגבלת הבוטים (${botsLimit.limit}). שדרג את החבילה שלך כדי לשכפל בוטים נוספים.`,
-        code: 'BOTS_LIMIT_REACHED',
-        limit: botsLimit.limit,
-        used: botsLimit.used
-      });
-    }
+    // Duplicate creates an inactive bot — no limit check needed here.
+    // Limit is enforced at activation time.
     
     // Get original bot with share info
     const original = await db.query(
@@ -171,10 +144,7 @@ async function duplicateBot(req, res) {
     );
     
     console.log(`[Duplicate] Bot duplicated: ${bot.id} -> ${result.rows[0].id}`);
-    
-    // Check if user now exceeds limit (shouldn't happen but alert admin if it does)
-    await alertAdminIfOverLimit(userId, 'bots');
-    
+
     res.json({
       success: true,
       bot: result.rows[0],

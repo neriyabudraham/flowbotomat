@@ -62,28 +62,8 @@ async function createBot(req, res) {
     // Lock user row to prevent concurrent bot creation
     await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [userId]);
     
-    // Check bot limit (includes own bots + edit shares)
-    const botsLimit = await checkLimit(userId, 'bots');
-    if (!botsLimit.allowed) {
-      await client.query('ROLLBACK');
-      
-      // Check if user has locked bots - suggest unlocking via upgrade
-      const lockedBotsResult = await client.query(
-        `SELECT COUNT(*) as count FROM bots WHERE user_id = $1 AND locked_reason IS NOT NULL`,
-        [userId]
-      );
-      const hasLockedBots = parseInt(lockedBotsResult.rows[0]?.count || 0) > 0;
-      
-      return res.status(400).json({ 
-        error: hasLockedBots 
-          ? `הגעת למגבלת הבוטים (${botsLimit.limit}). יש לך בוטים חסומים - שדרג את התוכנית כדי לפתוח אותם, או מחק בוט קיים.`
-          : `הגעת למגבלת הבוטים (${botsLimit.limit}). שדרג את החבילה שלך או מחק בוט קיים.`,
-        code: 'BOTS_LIMIT_REACHED',
-        limit: botsLimit.limit,
-        used: botsLimit.used,
-        hasLockedBots
-      });
-    }
+    // New bots are created as inactive — no limit check needed here.
+    // Limit is enforced at activation time (updateBot).
     
     // Default flow with a trigger node set to "any_message"
     const defaultFlow = {
@@ -160,31 +140,25 @@ async function updateBot(req, res) {
       });
     }
     
-    // IMPORTANT: Never allow setting is_active to true via API if bot would exceed limit
-    // This prevents bypassing limits by editing is_active directly
+    // Enforce active bot limit on activation — auto-deactivate others to stay within limit
     if (is_active === true) {
       const currentBot = await db.query('SELECT is_active, user_id FROM bots WHERE id = $1', [botId]);
       if (currentBot.rows[0] && !currentBot.rows[0].is_active) {
-        // Bot is currently inactive, check if user can activate another bot
         const botOwnerId = currentBot.rows[0].user_id;
         const botsLimit = await checkLimit(botOwnerId, 'bots');
-        
-        // Count active bots
-        const activeBotsResult = await db.query(
-          `SELECT COUNT(*) as count FROM bots WHERE user_id = $1 AND is_active = true`,
-          [botOwnerId]
-        );
-        const activeBots = parseInt(activeBotsResult.rows[0]?.count || 0);
-        
-        // If at limit of active bots and this one is inactive, block activation
-        // (unless limit is -1 = unlimited)
-        if (botsLimit.limit !== -1 && activeBots >= botsLimit.limit) {
-          return res.status(403).json({
-            error: `לא ניתן להפעיל בוט נוסף. הגעת למגבלת ${botsLimit.limit} בוטים פעילים.`,
-            code: 'ACTIVE_BOTS_LIMIT',
-            limit: botsLimit.limit,
-            active: activeBots
-          });
+
+        if (botsLimit.limit !== -1) {
+          // Auto-deactivate the oldest active bots to make room (limit - 1 allowed others)
+          const allowedOthers = botsLimit.limit - 1;
+          await db.query(`
+            UPDATE bots SET is_active = false, updated_at = NOW()
+            WHERE id IN (
+              SELECT id FROM bots
+              WHERE user_id = $1 AND is_active = true AND id != $2
+              ORDER BY updated_at ASC NULLS LAST
+              OFFSET $3
+            )
+          `, [botOwnerId, botId, allowedOthers]);
         }
       }
     }
