@@ -253,13 +253,16 @@ async function subscribeToService(req, res) {
           `מנוי ${service.name_he} - ${billingPeriod === 'yearly' ? 'שנתי' : 'חודשי'}`]);
     }
 
-    // Log immediate payment if it happened
-    if (!isTrial && !futureStartDate && price > 0 && chargeTransactionId) {
+    // Log immediate payment if it happened (regardless of whether transactionId came back)
+    if (!isTrial && !futureStartDate && price > 0) {
       await db.query(`
         INSERT INTO service_payment_history
-        (user_id, service_id, subscription_id, amount, status, payment_type, description)
-        VALUES ($1, $2, $3, $4, 'success', 'one_time', $5)
-      `, [userId, serviceId, subscription.id, price, `הרשמה ל${service.name_he}`]);
+        (user_id, service_id, subscription_id, amount, status, payment_type, description, sumit_transaction_id)
+        VALUES ($1, $2, $3, $4, 'success', $5, $6, $7)
+      `, [userId, serviceId, subscription.id, price,
+          isOneTime ? 'one_time' : 'recurring',
+          `הרשמה ל${service.name_he} - ${billingPeriod === 'yearly' ? 'שנתי' : billingPeriod === 'one_time' ? 'חד פעמי' : 'חודשי'}`,
+          chargeTransactionId || null]);
     }
     
     // Delete used custom trial if exists

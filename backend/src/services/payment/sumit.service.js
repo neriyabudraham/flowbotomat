@@ -441,7 +441,7 @@ async function chargeOneTime({ customerId, amount, description, sendEmail = true
     if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
       return {
         success: true,
-        transactionId: response.data.Data?.TransactionID,
+        transactionId: (response.data.Data?.Payment?.ID || response.data.Data?.TransactionID)?.toString(),
         documentNumber: response.data.Data?.DocumentNumber,
         documentURL: response.data.Data?.DocumentDownloadURL || response.data.Data?.DocumentURL,
         data: response.data.Data,
