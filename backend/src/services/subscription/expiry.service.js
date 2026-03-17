@@ -174,8 +174,23 @@ async function handleExpiredSubscriptions() {
           `, [sub.user_id]);
         }
         
+        // Disable all group forwards (they require an active subscription)
+        await db.query(
+          `UPDATE group_forwards SET is_active = false, updated_at = NOW() WHERE user_id = $1 AND is_active = true`,
+          [sub.user_id]
+        );
+
+        // Cancel any pending/sending broadcast campaigns
+        await db.query(
+          `UPDATE broadcast_campaigns SET status = 'cancelled', updated_at = NOW()
+           WHERE user_id = $1 AND status IN ('pending', 'active', 'sending', 'scheduled')`,
+          [sub.user_id]
+        );
+
+        console.log(`[Subscription Expiry] Disabled group forwards and broadcasts for user ${sub.user_id}`);
+
         const mostRecentBot = botsToKeep.rows[0];
-        
+
         // Create notification about downgrade - different message for external users
         const mostRecentBotName = mostRecentBot?.name || null;
         const keptBotCount = keepBotIds.length;

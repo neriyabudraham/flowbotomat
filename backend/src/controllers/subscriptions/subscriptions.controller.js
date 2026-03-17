@@ -446,22 +446,22 @@ async function checkLimit(userId, limitType) {
   if (limitType === 'bots') {
     if (limits.max_bots === -1) return { allowed: true, limit: -1, used: 0 };
     
-    // Count user's own bots
+    // Count user's own ACTIVE bots only (inactive bots don't count toward limit)
     const ownBotsResult = await db.query(
-      'SELECT COUNT(*) as count FROM bots WHERE user_id = $1',
+      'SELECT COUNT(*) as count FROM bots WHERE user_id = $1 AND is_active = true',
       [userId]
     );
-    
-    // Count bots shared with user for EDIT (not view-only)
-    // Edit/Admin shares count towards user's bot limit
+
+    // Count ACTIVE bots shared with user for EDIT (not view-only)
     const sharedEditBotsResult = await db.query(
-      `SELECT COUNT(*) as count FROM bot_shares 
-       WHERE shared_with_id = $1 
-       AND permission IN ('edit', 'admin')
-       AND (expires_at IS NULL OR expires_at > NOW())`,
+      `SELECT COUNT(*) as count FROM bot_shares bs
+       JOIN bots b ON b.id = bs.bot_id AND b.is_active = true
+       WHERE bs.shared_with_id = $1
+       AND bs.permission IN ('edit', 'admin')
+       AND (bs.expires_at IS NULL OR bs.expires_at > NOW())`,
       [userId]
     );
-    
+
     const ownBots = parseInt(ownBotsResult.rows[0]?.count || 0);
     const sharedEditBots = parseInt(sharedEditBotsResult.rows[0]?.count || 0);
     const used = ownBots + sharedEditBots;

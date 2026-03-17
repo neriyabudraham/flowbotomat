@@ -489,6 +489,17 @@ async function cancelSubscription(req, res) {
         );
       }
 
+      // Disable group forwards and cancel active broadcasts
+      await client.query(
+        `UPDATE group_forwards SET is_active = false, updated_at = NOW() WHERE user_id = $1 AND is_active = true`,
+        [userId]
+      );
+      await client.query(
+        `UPDATE broadcast_campaigns SET status = 'cancelled', updated_at = NOW()
+         WHERE user_id = $1 AND status IN ('pending', 'active', 'sending', 'scheduled')`,
+        [userId]
+      );
+
       // Create in-app notification for user
       await client.query(
         `INSERT INTO notifications (user_id, notification_type, title, message, metadata)

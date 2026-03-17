@@ -242,6 +242,15 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
       // Skipping list response
       return false;
     }
+
+    // Check if user has an active subscription — group forwards require a paid plan
+    const subCheck = await db.query(
+      `SELECT status FROM user_subscriptions WHERE user_id = $1 AND status IN ('active', 'trial') LIMIT 1`,
+      [userId]
+    );
+    if (subCheck.rows.length === 0) {
+      return false;
+    }
     
     const isGroupMessage = chatId?.includes('@g.us');
     
