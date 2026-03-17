@@ -42,6 +42,7 @@ export default function PricingPage() {
   const [billingPeriod, setBillingPeriod] = useState('monthly');
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
+  const [periodUpgradeData, setPeriodUpgradeData] = useState(null); // proration info for monthly→yearly upgrade
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showReactivateModal, setShowReactivateModal] = useState(false);
   const [currentSubscription, setCurrentSubscription] = useState(null);
@@ -210,6 +211,20 @@ export default function PricingPage() {
   // Get active promotion for a plan
   const getPromoForPlan = (planId) => {
     return promotions.find(p => p.plan_id === planId || !p.plan_id);
+  };
+
+  // Calculate proration credit for monthly→yearly upgrade
+  const calculatePeriodUpgrade = (plan) => {
+    const monthlyPrice = Math.floor(parseFloat(plan.price));
+    const yearlyPrice = Math.floor(monthlyPrice * 12 * 0.8);
+    const nextChargeDate = currentSubscription?.next_charge_date;
+    const daysRemaining = nextChargeDate
+      ? Math.max(0, Math.ceil((new Date(nextChargeDate) - new Date()) / (1000 * 60 * 60 * 24)))
+      : 0;
+    const dailyRate = monthlyPrice / 30;
+    const credit = Math.floor(dailyRate * daysRemaining);
+    const proratedAmount = Math.max(0, yearlyPrice - credit);
+    return { yearlyPrice, credit, daysRemaining, proratedAmount, monthlyPrice };
   };
 
   const handleSelectPlan = async (plan) => {
@@ -745,6 +760,28 @@ export default function PricingPage() {
                           );
                         }
                         
+                        // Same plan but switching from monthly to yearly - allow period upgrade with proration
+                        const isSamePlanPeriodUpgrade = isCurrentPlan &&
+                          currentSubscription?.status === 'active' &&
+                          currentSubscription?.billing_period === 'monthly' &&
+                          billingPeriod === 'yearly';
+
+                        if (isSamePlanPeriodUpgrade) {
+                          return (
+                            <button
+                              onClick={() => {
+                                const upgradeData = calculatePeriodUpgrade(plan);
+                                setPeriodUpgradeData(upgradeData);
+                                setSelectedPlan(plan);
+                                setShowCheckoutModal(true);
+                              }}
+                              className="w-full py-3.5 rounded-xl font-medium transition-all bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:shadow-lg hover:scale-[1.02] flex items-center justify-center gap-2"
+                            >
+                              שדרג לשנתי וחסוך
+                            </button>
+                          );
+                        }
+
                         // Current plan (active) - not clickable
                         if (isCurrentPlan && currentSubscription?.status !== 'cancelled') {
                           return (
@@ -935,13 +972,15 @@ export default function PricingPage() {
 
       {/* Checkout Modal */}
       {showCheckoutModal && selectedPlan && (
-        <CheckoutModal 
+        <CheckoutModal
           plan={selectedPlan}
           billingPeriod={billingPeriod}
           customDiscount={customDiscount}
+          periodUpgradeData={periodUpgradeData}
           onClose={() => {
             setShowCheckoutModal(false);
             setSelectedPlan(null);
+            setPeriodUpgradeData(null);
           }}
           onSuccess={() => {
             setShowCheckoutModal(false);
@@ -1296,7 +1335,7 @@ function ReactivateSubscriptionModal({ subscription, paymentMethod, daysLeft, on
   );
 }
 
-function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess }) {
+function CheckoutModal({ plan, billingPeriod, customDiscount, periodUpgradeData, onClose, onSuccess }) {
   const [paymentMethod, setPaymentMethod] = useState(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
@@ -1580,6 +1619,8 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
         paymentMethodId: paymentMethod?.id,
         couponCode: couponData ? couponCode : undefined,
         referralCode: referralInfo?.code,
+        isUpgrade: !!periodUpgradeData,
+        proratedAmount: periodUpgradeData?.proratedAmount,
       });
       
       onSuccess();
@@ -1862,8 +1903,33 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
                 </div>
               )}
 
+              {/* Period Upgrade (monthly→yearly) proration summary */}
+              {periodUpgradeData && (
+                <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 border border-purple-200">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-gray-600">מחיר שנתי ({plan.name_he})</span>
+                    <span className="text-gray-500">₪{periodUpgradeData.yearlyPrice}</span>
+                  </div>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-green-700 font-medium">
+                      קיזוז {periodUpgradeData.daysRemaining} ימים שנותרו בחודש
+                    </span>
+                    <span className="text-green-600 font-bold">-₪{periodUpgradeData.credit}</span>
+                  </div>
+                  <div className="border-t border-purple-200 pt-2 mt-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-900 font-bold">סה״כ לתשלום עכשיו</span>
+                      <span className="text-2xl font-bold text-purple-600">₪{periodUpgradeData.proratedAmount}</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1 text-left">
+                      * החיוב הבא: בעוד שנה ₪{periodUpgradeData.yearlyPrice}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Price Summary with Discount (Coupon or Referral or Yearly or Custom) */}
-              {(couponData || prices.referralDiscount || prices.isYearly || prices.customDiscount) && (
+              {!periodUpgradeData && (couponData || prices.referralDiscount || prices.isYearly || prices.customDiscount) && (
                 <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-4 border border-green-200">
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-gray-600">מחיר מקורי{prices.isYearly ? ' (שנתי)' : ''}</span>
