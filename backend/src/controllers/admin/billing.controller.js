@@ -104,7 +104,6 @@ async function cancelCharge(req, res) {
     const { id } = req.params;
     const adminId = req.user.id;
     
-    console.log(`[AdminBilling] Admin ${adminId} cancelling charge ${id}`);
     
     const result = await billingQueueService.cancelCharge(id);
     

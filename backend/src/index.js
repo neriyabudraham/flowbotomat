@@ -370,7 +370,6 @@ server.listen(PORT, () => {
         ORDER BY ph.user_id, ph.created_at DESC
         ON CONFLICT DO NOTHING
       `);
-      console.log('[Startup] ✅ Migrations applied successfully');
     } catch (err) {
       console.error('[Startup] Migration error:', err.message);
     }

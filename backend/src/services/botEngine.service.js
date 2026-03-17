@@ -69,14 +69,11 @@ class BotEngine {
       const contact = contactResult.rows[0];
       
       // Emit to frontend via socket
-      console.log('[BotEngine] 📡 Emitting outgoing_message via socket for user:', userId);
-      console.log('[BotEngine] 📡 Message data:', { id: savedMessage.id, contact_id: savedMessage.contact_id, type: savedMessage.message_type });
       const socketManager = getSocketManager();
       socketManager.emitToUser(userId, 'outgoing_message', {
         message: { ...savedMessage, from_bot: true },
         contact
       });
-      console.log('[BotEngine] 📡 Socket emit complete');
       
       return savedMessage;
     } catch (error) {
@@ -118,9 +115,7 @@ class BotEngine {
         if (contact.takeover_until && new Date(contact.takeover_until) < new Date()) {
           // Takeover expired, re-enable bot
           await db.query('UPDATE contacts SET is_bot_active = true, takeover_until = NULL WHERE id = $1', [contact.id]);
-          console.log('[BotEngine] Takeover expired, re-enabling bot for:', contactPhone);
         } else {
-          console.log('[BotEngine] Bot disabled for contact:', contactPhone);
           return;
         }
       }
@@ -196,16 +191,13 @@ class BotEngine {
           try {
             const limitCheck = await checkContactLimit(userId);
             if (!limitCheck.allowed) {
-              console.log(`[BotEngine] ⛔ User ${userId} over contact limit (${limitCheck.used}/${limitCheck.limit}) - NOT creating contact for event`);
               return;
             }
           } catch (limitErr) {
-            console.log('[BotEngine] Error checking contact limit:', limitErr.message);
           }
         }
         
         // Try to create contact
-        console.log('[BotEngine] Contact not found for event, creating:', contactPhone);
         try {
           const insertResult = await db.query(
             `INSERT INTO contacts (user_id, phone, display_name) 
@@ -216,7 +208,6 @@ class BotEngine {
           );
           contact = insertResult.rows[0];
         } catch (insertErr) {
-          console.log('[BotEngine] Could not create contact for event:', insertErr.message);
           return;
         }
       } else {
@@ -228,7 +219,6 @@ class BotEngine {
         if (contact.takeover_until && new Date(contact.takeover_until) < new Date()) {
           await db.query('UPDATE contacts SET is_bot_active = true, takeover_until = NULL WHERE id = $1', [contact.id]);
         } else {
-          console.log('[BotEngine] Bot disabled for contact:', contactPhone);
           return;
         }
       }
@@ -263,7 +253,6 @@ class BotEngine {
           [contact.id, bot.id]
         );
         if (disabledCheck.rows.length > 0) {
-          console.log('[BotEngine] Bot', bot.name, 'is disabled for contact:', contact.phone);
           return;
         }
       } catch (disabledErr) {
@@ -351,7 +340,6 @@ class BotEngine {
               const lastTime = new Date(lastTrigger.rows[0].triggered_at);
               const cooldownEnd = new Date(lastTime.getTime() + cooldownMinutes * 60000);
               if (new Date() < cooldownEnd) {
-                console.log('[BotEngine] Event cooldown active for group:', group.id);
                 continue;
               }
             }
@@ -364,7 +352,6 @@ class BotEngine {
               [bot.id, contact.id, group.id]
             );
             if (prevTrigger.rows.length > 0) {
-              console.log('[BotEngine] Event already triggered once for this user in group:', group.id);
               continue;
             }
           }
@@ -379,7 +366,6 @@ class BotEngine {
               [bot.id, contact.id, group.id]
             );
           } catch (historyErr) {
-            console.log('[BotEngine] Failed to record event trigger history:', historyErr.message);
           }
           
           break;
@@ -388,12 +374,10 @@ class BotEngine {
       
       if (!matched) return;
       
-      console.log(`[BotEngine] ✅ Event trigger matched! Starting flow for bot: ${bot.name}, event: ${eventType}`);
       
       // Check subscription limit for bot runs
       const runsLimit = await checkLimit(userId, 'bot_runs');
       if (!runsLimit.allowed) {
-        console.log('[BotEngine] User has reached monthly bot runs limit');
         return;
       }
       
@@ -462,12 +446,9 @@ class BotEngine {
     // Specific group matching for group_join, group_leave
     if (condition.filterByGroup && condition.specificGroupId && (condition.type === 'group_join' || condition.type === 'group_leave')) {
       const eventGroupId = eventData.groupId || '';
-      console.log(`[BotEngine] Specific group check: condition=${condition.specificGroupId}, event=${eventGroupId}`);
       if (eventGroupId !== condition.specificGroupId) {
-        console.log(`[BotEngine] Specific group mismatch`);
         return false;
       }
-      console.log(`[BotEngine] Specific group matched!`);
     }
     
     // Specific status matching for status_reaction, status_reply, status_viewed
@@ -487,15 +468,10 @@ class BotEngine {
       
       const eventHex = this.extractStatusHexId(eventMsgId);
       
-      console.log(`[BotEngine] Specific status check: condition.specificStatusId=${condition.specificStatusId}`);
-      console.log(`[BotEngine] Specific status check: eventMsgId=${eventMsgId}`);
-      console.log(`[BotEngine] Specific status check: storedHex=${storedHex}, eventHex=${eventHex}`);
       
       if (!storedHex || !eventHex || storedHex !== eventHex) {
-        console.log(`[BotEngine] Specific status mismatch`);
         return false;
       }
-      console.log(`[BotEngine] Specific status matched!`);
     }
     
     return true;
@@ -543,7 +519,6 @@ class BotEngine {
           [contact.id, bot.id]
         );
         if (disabledCheck.rows.length > 0) {
-          console.log('[BotEngine] Bot', bot.name, 'is disabled for contact:', contact.phone);
           return;
         }
       } catch (disabledErr) {
@@ -552,7 +527,6 @@ class BotEngine {
       
       const flowData = bot.flow_data;
       if (!flowData || !flowData.nodes || flowData.nodes.length === 0) {
-        console.log('[BotEngine] Bot has no flow data:', bot.id);
         return;
       }
       
@@ -560,12 +534,9 @@ class BotEngine {
       const session = await this.getSession(bot.id, contact.id);
       
       if (session && session.waiting_for) {
-        console.log('[BotEngine] 📍 Found active session, waiting for:', session.waiting_for);
-        console.log('[BotEngine] Current node:', session.current_node_id);
         
         // Check if session expired
         if (session.expires_at && new Date(session.expires_at) < new Date()) {
-          console.log('[BotEngine] Session expired, handling timeout');
           await this.handleSessionTimeout(session, flowData, contact, message, userId, bot);
           return;
         }
@@ -579,7 +550,6 @@ class BotEngine {
             return;
           } else {
             // Got regular message while waiting for list - check triggers normally
-            console.log('[BotEngine] 📝 Received text while waiting for list - checking triggers');
             // Don't return - fall through to trigger check below
           }
         } else if (session.waiting_for === 'reply') {
@@ -588,7 +558,6 @@ class BotEngine {
           
           // Check if text-only reply is required
           if (waitingData.textOnly && messageType !== 'text') {
-            console.log('[BotEngine] ⚠️ Text-only reply required but got:', messageType);
             
             // Send error message
             const connection = await this.getConnection(userId);
@@ -596,7 +565,6 @@ class BotEngine {
               const errorMsg = waitingData.invalidReplyMessage || 'התגובה לא תקינה. אנא שלח הודעת טקסט בלבד.';
               try {
                 await wahaService.sendMessage(connection.session_name, contact.phone, errorMsg);
-                console.log('[BotEngine] 📤 Sent invalid reply message');
               } catch (e) {
                 console.error('[BotEngine] Failed to send invalid reply message:', e.message);
               }
@@ -605,12 +573,10 @@ class BotEngine {
             return;
           }
           
-          console.log('[BotEngine] ⏳ Waiting for reply - continuing session');
           await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId, null);
           return;
         } else if (session.waiting_for === 'registration') {
           // Waiting for registration answer - this BLOCKS new triggers
-          console.log('[BotEngine] 📝 Waiting for registration answer - continuing session');
           await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId, null);
           return;
         }
@@ -619,7 +585,6 @@ class BotEngine {
       // If this is a list_response but no session exists, try to find the list by title
       if (messageType === 'list_response') {
         if (quotedListTitle) {
-          console.log('[BotEngine] List response without session - searching for list by title:', quotedListTitle);
           
           // Find the list node by title
           const listNode = flowData.nodes.find(n => 
@@ -627,7 +592,6 @@ class BotEngine {
           );
           
           if (listNode) {
-            console.log('[BotEngine] Found list node:', listNode.id);
             
             // Create a temporary session-like object
             const tempSession = {
@@ -648,18 +612,15 @@ class BotEngine {
             await this.continueSession(tempSession, flowData, contact, message, userId, bot, messageType, selectedRowId, quotedListTitle);
             return;
           } else {
-            console.log('[BotEngine] Could not find list node with title:', quotedListTitle);
           }
         }
         
-        console.log('[BotEngine] List response received but no active session and no matching list - ignoring');
         return;
       }
       
       // No active session - check trigger for new flow
       const triggerNode = flowData.nodes.find(n => n.type === 'trigger');
       if (!triggerNode) {
-        console.log('[BotEngine] No trigger node in bot:', bot.id);
         return;
       }
       
@@ -669,7 +630,6 @@ class BotEngine {
         return;
       }
       
-      console.log('[BotEngine] ✅ Trigger matched for bot:', bot.name);
       
       // Record trigger history for cooldown/once-per-user tracking
       const matchedGroupId = triggerNode.data._matchedGroupId;
@@ -679,9 +639,7 @@ class BotEngine {
             INSERT INTO bot_trigger_history (bot_id, contact_id, trigger_group_id, triggered_at)
             VALUES ($1, $2, $3, NOW())
           `, [bot.id, contact.id, matchedGroupId]);
-          console.log('[BotEngine] Recorded trigger history for group:', matchedGroupId);
         } catch (historyErr) {
-          console.log('[BotEngine] Failed to record trigger history:', historyErr.message);
         }
         // Clean up the temporary field
         delete triggerNode.data._matchedGroupId;
@@ -693,17 +651,14 @@ class BotEngine {
           const connection = await this.getConnection(userId);
           if (connection) {
             await wahaService.sendSeen(connection, contact.phone);
-            console.log('[BotEngine] ✅ Auto marked as seen (trigger setting)');
           }
         } catch (err) {
-          console.log('[BotEngine] ⚠️ Failed to auto mark as seen:', err.message);
         }
       }
       
       // Check subscription limit for bot runs
       const runsLimit = await checkLimit(userId, 'bot_runs');
       if (!runsLimit.allowed) {
-        console.log('[BotEngine] ⚠️ User has reached monthly bot runs limit:', runsLimit.limit);
         // Optionally send a message to the contact
         // For now, just log and skip
         return;
@@ -716,7 +671,6 @@ class BotEngine {
       // Find ALL next nodes after trigger (support multiple branches)
       const nextEdges = flowData.edges.filter(e => e.source === triggerNode.id);
       if (nextEdges.length === 0) {
-        console.log('[BotEngine] No edge from trigger');
         return;
       }
       
@@ -729,7 +683,6 @@ class BotEngine {
         return posA - posB;
       });
       
-      console.log('[BotEngine] Executing', sortedEdges.length, 'branches from trigger');
       
       // Execute all branches sequentially (top to bottom)
       for (const edge of sortedEdges) {
@@ -750,7 +703,6 @@ class BotEngine {
     );
     const session = result.rows[0] || null;
     if (session) {
-      console.log('[BotEngine] 📋 Found session:', { botId, contactId, waitingFor: session.waiting_for, nodeId: session.current_node_id });
     }
     return session;
   }
@@ -770,7 +722,6 @@ class BotEngine {
         [botId, contactId, nodeId, waitingFor, JSON.stringify(waitingData), expiresAt]
       );
       
-      console.log('[BotEngine] 💾 Session saved:', { botId, contactId, nodeId, waitingFor, timeout: timeoutSeconds });
     } catch (error) {
       console.error('[BotEngine] ❌ Error saving session:', error.message);
       throw error;
@@ -783,20 +734,16 @@ class BotEngine {
       'DELETE FROM bot_sessions WHERE bot_id = $1 AND contact_id = $2',
       [botId, contactId]
     );
-    console.log('[BotEngine] 🗑️ Session cleared');
   }
   
   // Continue from saved session
   async continueSession(session, flowData, contact, message, userId, bot, messageType = 'text', selectedRowId = null, quotedListTitle = null) {
     const currentNode = flowData.nodes.find(n => n.id === session.current_node_id);
     if (!currentNode) {
-      console.log('[BotEngine] Session node not found, clearing session');
       await this.clearSession(bot.id, contact.id);
       return;
     }
     
-    console.log('[BotEngine] ▶️ Continuing from node:', currentNode.type, currentNode.id);
-    console.log('[BotEngine] Message type:', messageType, '| Selected row ID:', selectedRowId);
     
     // Auto mark as seen if enabled in trigger (for all messages in the flow)
     const triggerNode = flowData.nodes.find(n => n.type === 'trigger');
@@ -805,10 +752,8 @@ class BotEngine {
         const connection = await this.getConnection(userId);
         if (connection) {
           await wahaService.sendSeen(connection, contact.phone);
-          console.log('[BotEngine] ✅ Auto marked as seen (during flow)');
         }
       } catch (err) {
-        console.log('[BotEngine] ⚠️ Failed to auto mark as seen:', err.message);
       }
     }
     
@@ -822,17 +767,12 @@ class BotEngine {
     if (session.waiting_for === 'list_response') {
       // Check if this is actually a list response
       if (messageType !== 'list_response') {
-        console.log('[BotEngine] ⚠️ Waiting for list_response but received:', messageType);
-        console.log('[BotEngine] Ignoring non-list response');
         return;
       }
       
       // IMPORTANT: Verify the list_response is for THIS list, not a different one
       const sessionListTitle = session.waiting_data?.listTitle;
       if (quotedListTitle && sessionListTitle && quotedListTitle !== sessionListTitle) {
-        console.log('[BotEngine] ⚠️ List response is for a DIFFERENT list!');
-        console.log('[BotEngine] Session list:', sessionListTitle);
-        console.log('[BotEngine] Clicked list:', quotedListTitle);
         
         // Find the correct list node by title
         const correctListNode = flowData.nodes.find(n => 
@@ -840,7 +780,6 @@ class BotEngine {
         );
         
         if (correctListNode) {
-          console.log('[BotEngine] Found correct list node:', correctListNode.id);
           
           // Clear current session
           await this.clearSession(bot.id, contact.id);
@@ -863,8 +802,6 @@ class BotEngine {
           // Recursively call continueSession with the correct list
           return await this.continueSession(tempSession, flowData, contact, message, userId, bot, messageType, selectedRowId, quotedListTitle);
         } else {
-          console.log('[BotEngine] Could not find list node with title:', quotedListTitle);
-          console.log('[BotEngine] Clearing session - user needs to start again');
           await this.clearSession(bot.id, contact.id);
           return;
         }
@@ -874,7 +811,6 @@ class BotEngine {
       if (selectedRowId !== null && selectedRowId !== undefined) {
         // Convert to string in case WAHA sends a number
         const rowIdStr = String(selectedRowId);
-        console.log('[BotEngine] Using selectedRowId from WAHA:', rowIdStr, '(original type:', typeof selectedRowId, ')');
         
         // Extract display index from selectedRowId (e.g., "option_0" -> 0, or just "0")
         let displayIndex = -1;
@@ -884,7 +820,6 @@ class BotEngine {
           displayIndex = parseInt(rowIdStr);
         }
         
-        console.log('[BotEngine] Display index:', displayIndex);
         
         // Get session buttons to find original index (for filtered lists)
         const sessionButtons = session.waiting_data?.buttons || [];
@@ -895,11 +830,9 @@ class BotEngine {
         );
         const originalIndex = selectedButton?.originalIndex ?? displayIndex;
         
-        console.log('[BotEngine] Original index:', originalIndex);
         
         // Find edges from this node
         const nodeEdges = flowData.edges.filter(e => e.source === currentNode.id);
-        console.log('[BotEngine] Available edges:', nodeEdges.map(e => ({ target: e.target, handle: e.sourceHandle })));
         
         // Try to find matching edge using ORIGINAL index (not display index)
         if (originalIndex >= 0) {
@@ -913,7 +846,6 @@ class BotEngine {
             const edge = nodeEdges.find(e => e.sourceHandle === handleId);
             if (edge) {
               nextHandleId = handleId;
-              console.log('[BotEngine] ✅ Found matching handle:', handleId);
               break;
             }
           }
@@ -926,7 +858,6 @@ class BotEngine {
       if (singleSelect) {
         // Single select - clear session before executing flow
         await this.clearSession(bot.id, contact.id);
-        console.log('[BotEngine] Single select mode - session cleared');
       }
       
       // Store session data BEFORE executing flow (in case flow creates new session)
@@ -942,7 +873,6 @@ class BotEngine {
         // Fallback - try default edges (no handle)
         nextEdges = flowData.edges.filter(e => e.source === currentNode.id && !e.sourceHandle);
         if (nextEdges.length > 0) {
-          console.log('[BotEngine] Using default edges (no specific handle)');
         }
       }
       
@@ -954,12 +884,10 @@ class BotEngine {
           return (nodeA?.position?.y || 0) - (nodeB?.position?.y || 0);
         });
         
-        console.log('[BotEngine] ➡️ Following', sortedEdges.length, 'edges from session node');
         for (const edge of sortedEdges) {
           await this.executeNode(edge.target, flowData, contact, message, userId, bot.id, bot.name);
         }
       } else {
-        console.log('[BotEngine] No next edge found from session node');
       }
       
       // For multi-select, restore the list session ONLY if no new session was created by the flow
@@ -983,10 +911,8 @@ class BotEngine {
             originalSessionData,
             null // No timeout for list responses
           );
-          console.log('[BotEngine] ✅ Multi-select session restored for more selections');
         } else {
           // Flow created a new session (registration, reply, another list, etc.) - don't override it
-          console.log('[BotEngine] ℹ️ New session exists (' + (currentSession?.waiting_for || 'unknown') + ' on ' + (currentSession?.current_node_id || 'unknown') + '), not restoring list session');
         }
       }
       
@@ -999,17 +925,14 @@ class BotEngine {
       // Save reply to variable if configured
       if (waitingData.saveToVariable && waitingData.variableName && message) {
         await this.setContactVariable(contact.id, waitingData.variableName, message);
-        console.log(`[BotEngine] 💾 Saved reply to variable "${waitingData.variableName}": ${message.substring(0, 50)}`);
       }
       
       await this.clearSession(bot.id, contact.id);
-      console.log('[BotEngine] Got reply, continuing flow');
       
       // For reply sessions, prefer 'reply' handle edge, then fall back to default
       nextHandleId = 'reply';
     } else if (session.waiting_for === 'registration') {
       // Continue registration flow
-      console.log('[BotEngine] Continuing registration flow');
       return await this.continueRegistration(session, flowData, contact, message, userId, bot, messageType);
     }
     
@@ -1022,7 +945,6 @@ class BotEngine {
       // Fallback - try default edges (no handle or null handle)
       nextEdges = flowData.edges.filter(e => e.source === currentNode.id && (!e.sourceHandle || e.sourceHandle === null));
       if (nextEdges.length > 0) {
-        console.log('[BotEngine] Using default edges (no specific handle)');
       }
     }
     
@@ -1034,12 +956,10 @@ class BotEngine {
         return (nodeA?.position?.y || 0) - (nodeB?.position?.y || 0);
       });
       
-      console.log('[BotEngine] ➡️ Following', sortedEdges.length, 'edges from session node');
       for (const edge of sortedEdges) {
         await this.executeNode(edge.target, flowData, contact, message, userId, bot.id, bot.name);
       }
     } else {
-      console.log('[BotEngine] No next edge found from session node');
     }
   }
   
@@ -1058,7 +978,6 @@ class BotEngine {
     );
     
     if (timeoutEdges.length > 0) {
-      console.log('[BotEngine] ⏰ Executing', timeoutEdges.length, 'timeout paths');
       for (const edge of timeoutEdges) {
         await this.executeNode(edge.target, flowData, contact, message, userId, bot.id, bot.name);
       }
@@ -1137,7 +1056,6 @@ class BotEngine {
             const fromTime = fromHours * 60 + fromMins;
             const toTime = toHours * 60 + toMins;
             
-            console.log(`[BotEngine] Active hours check: current=${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')} (Israel), range=${activeFrom}-${activeTo}`);
             
             let isWithinHours;
             if (fromTime <= toTime) {
@@ -1149,10 +1067,8 @@ class BotEngine {
             }
             
             if (!isWithinHours) {
-              console.log('[BotEngine] Group outside active hours, skipping');
               groupMatches = false;
             } else {
-              console.log('[BotEngine] Group within active hours, continuing');
             }
           }
           
@@ -1182,7 +1098,6 @@ class BotEngine {
             if (lastTrigger.rows.length > 0) {
               const lastTriggerTime = new Date(lastTrigger.rows[0].triggered_at);
               if (lastTriggerTime > cutoffTime) {
-                console.log('[BotEngine] Group in cooldown period, skipping');
                 groupMatches = false;
               }
             }
@@ -1197,7 +1112,6 @@ class BotEngine {
             );
             
             if (triggered.rows.length > 0) {
-              console.log('[BotEngine] Group already triggered for this user, skipping');
               groupMatches = false;
             }
           }
@@ -1228,7 +1142,6 @@ class BotEngine {
               if (lastTrigger.rows.length > 0) {
                 const lastTriggerTime = new Date(lastTrigger.rows[0].triggered_at);
                 if (lastTriggerTime > cutoffTime) {
-                  console.log('[BotEngine] Bot triggered within time window, condition not met');
                   groupMatches = false;
                 }
               }
@@ -1238,7 +1151,6 @@ class BotEngine {
         
         // If this group matches, content matches (OR between groups)
         if (groupMatches) {
-          console.log('[BotEngine] Trigger group matched!');
           contentMatches = true;
           // Store the matched group for history tracking
           triggerData._matchedGroupId = group.id;
@@ -1248,7 +1160,6 @@ class BotEngine {
     }
     // OLD FORMAT: Check triggers array (backward compatibility)
     else if (oldTriggers.length > 0) {
-      console.log('[BotEngine] Using old triggers format');
       for (const trigger of oldTriggers) {
         let matches = false;
         
@@ -1270,7 +1181,6 @@ class BotEngine {
               const regex = new RegExp(trigger.value, 'i');
               matches = regex.test(message);
             } catch (e) {
-              console.log('[BotEngine] Invalid regex:', trigger.value);
               matches = false;
             }
             break;
@@ -1311,7 +1221,6 @@ class BotEngine {
       const toTime = parseInt(toParts[0]) * 100 + parseInt(toParts[1]);
       
       if (currentTime < fromTime || currentTime > toTime) {
-        console.log('[BotEngine] Outside active hours');
         return false;
       }
     }
@@ -1324,11 +1233,9 @@ class BotEngine {
           [botId, contact.id, 'triggered']
         );
         if (hasRun.rows.length > 0) {
-          console.log('[BotEngine] Already ran for this user (oncePerUser)');
           return false;
         }
       } catch (err) {
-        console.log('[BotEngine] oncePerUser check failed, skipping:', err.message);
       }
     }
     
@@ -1352,16 +1259,13 @@ class BotEngine {
         if (lastRun.rows.length > 0 && lastRun.rows[0].created_at) {
           const lastRunTime = new Date(lastRun.rows[0].created_at).getTime();
           if (Date.now() - lastRunTime < cooldownMs) {
-            console.log('[BotEngine] In cooldown period (', Math.round((cooldownMs - (Date.now() - lastRunTime)) / 1000), 'seconds left)');
             return false;
           }
         }
       } catch (cooldownErr) {
-        console.log('[BotEngine] Cooldown check failed, skipping:', cooldownErr.message);
       }
     }
     
-    console.log('[BotEngine] ✅ All checks passed - trigger matches!');
     return true;
   }
   
@@ -1382,7 +1286,6 @@ class BotEngine {
         [contact.id]
       );
       const messageCount = parseInt(countResult.rows[0]?.count || 0);
-      console.log(`[BotEngine] first_message check: contact has ${messageCount} incoming messages`);
       return messageCount === 1; // Exactly 1 means this is the first (current) message
     }
     
@@ -1463,7 +1366,6 @@ class BotEngine {
         (entryPointSource && entryPointSource.toLowerCase().includes('facebook')) ||
         (externalAdReply && (externalAdReply.title || externalAdReply.body));
       
-      console.log(`[BotEngine] facebook_campaign check: entryPoint=${entryPointSource}, hasExternalAdReply=${!!externalAdReply}, result=${isFacebookCampaign}`);
       
       return isFacebookCampaign;
     }
@@ -1496,13 +1398,11 @@ class BotEngine {
       
       if (previousMessage.rows.length === 0) {
         // This is the first message ever from this contact - consider it as "no message in X time"
-        console.log('[BotEngine] no_message_in: First message from contact, condition met');
         return true;
       }
       
       const previousMessageTime = new Date(previousMessage.rows[0].created_at);
       const conditionMet = previousMessageTime < cutoffTime;
-      console.log(`[BotEngine] no_message_in: Previous message at ${previousMessageTime.toISOString()}, cutoff: ${cutoffTime.toISOString()}, met: ${conditionMet}`);
       return conditionMet;
     }
     
@@ -1572,11 +1472,9 @@ class BotEngine {
     
     const node = flowData.nodes.find(n => n.id === nodeId);
     if (!node) {
-      console.log('[BotEngine] Node not found:', nodeId);
       return;
     }
     
-    console.log('[BotEngine] Executing node:', node.type, nodeId);
     
     let nextHandleId = null;
     
@@ -1622,7 +1520,6 @@ class BotEngine {
         
       case 'note':
         // Note nodes are just for documentation, skip them
-        console.log('[BotEngine] 📝 Note node (skipped):', node.data?.text?.substring(0, 50) || '');
         break;
         
       case 'send_other':
@@ -1658,7 +1555,6 @@ class BotEngine {
         return posA - posB; // Lower Y first (top to bottom)
       });
       
-      console.log('[BotEngine] Executing', sortedEdges.length, 'branches sequentially');
       
       // Execute all branches sequentially (top to bottom)
       for (const edge of sortedEdges) {
@@ -1673,18 +1569,15 @@ class BotEngine {
     const waitForReply = node.data.waitForReply || false;
     const timeout = node.data.timeout || null;
     
-    console.log('[BotEngine] Message node has', actions.length, 'actions, waitForReply:', waitForReply);
     
     // Get WAHA connection
     const connection = await this.getConnection(userId);
     if (!connection) {
-      console.log('[BotEngine] No WAHA connection for user:', userId);
       return false;
     }
     
     for (let i = 0; i < actions.length; i++) {
       const action = actions[i];
-      console.log(`[BotEngine] Executing action ${i + 1}/${actions.length}:`, action.type);
       
       try {
         switch (action.type) {
@@ -1694,11 +1587,9 @@ class BotEngine {
 
               // Skip empty messages - don't send but continue flow
               if (!text || !text.trim()) {
-                console.log('[BotEngine] ⏭️ Skipping empty text message (after variable replacement)');
                 break;
               }
 
-              console.log('[BotEngine] Sending text:', text.substring(0, 50) + '...');
 
               // Build mentions list — triggered by @כולם in text or explicit mentionAll flag
               let mentions = null;
@@ -1707,7 +1598,6 @@ class BotEngine {
                 try {
                   const participants = await wahaService.getGroupParticipants(connection, contact.phone);
                   mentions = (participants || []).map(p => p.PhoneNumber || p.id || p).filter(Boolean);
-                  console.log(`[BotEngine] mentionAll: tagging ${mentions.length} participants`);
                 } catch (e) {
                   console.warn('[BotEngine] mentionAll: failed to get participants:', e.message);
                 }
@@ -1728,13 +1618,11 @@ class BotEngine {
                   preview.image = { url: previewImage };
                 }
                 result = await wahaService.sendLinkPreview(connection, contact.phone, text, preview);
-                console.log('[BotEngine] ✅ Text with custom link preview sent');
               } else {
                 result = await wahaService.sendMessage(connection, contact.phone, text, mentions);
               }
               // Save outgoing message to DB
               await this.saveOutgoingMessage(userId, contact.id, text, 'text', null, result?.id?.id);
-              console.log('[BotEngine] ✅ Text sent and saved');
             }
             break;
 
@@ -1746,9 +1634,7 @@ class BotEngine {
               );
               const pollResult = await wahaService.sendPoll(connection, contact.phone, pollName, pollOptions, action.pollMultipleAnswers || false);
               await this.saveOutgoingMessage(userId, contact.id, `📊 ${pollName}`, 'text', null, pollResult?.id?.id);
-              console.log('[BotEngine] ✅ Poll sent:', pollName);
             } else {
-              console.log('[BotEngine] ⚠️ Poll action missing name or options (need at least 2)');
             }
             break;
 
@@ -1756,13 +1642,10 @@ class BotEngine {
             if (action.url || action.fileData) {
               const imageUrl = action.fileData || action.url;
               const caption = await this.replaceAllVariables(action.caption || '', contact, originalMessage, botName, userId);
-              console.log('[BotEngine] Sending image:', imageUrl.substring(0, 50) + '...');
               const result = await wahaService.sendImage(connection, contact.phone, imageUrl, caption);
               // Save outgoing message to DB
               await this.saveOutgoingMessage(userId, contact.id, caption || '', 'image', imageUrl, result?.id?.id);
-              console.log('[BotEngine] ✅ Image sent and saved');
             } else {
-              console.log('[BotEngine] ⚠️ Image action has no URL');
             }
             break;
             
@@ -1770,26 +1653,20 @@ class BotEngine {
             if (action.url || action.fileData) {
               const videoUrl = action.fileData || action.url;
               const caption = await this.replaceAllVariables(action.caption || '', contact, originalMessage, botName, userId);
-              console.log('[BotEngine] Sending video:', videoUrl.substring(0, 50) + '...');
               const result = await wahaService.sendVideo(connection, contact.phone, videoUrl, caption);
               // Save outgoing message to DB
               await this.saveOutgoingMessage(userId, contact.id, caption || '', 'video', videoUrl, result?.id?.id);
-              console.log('[BotEngine] ✅ Video sent');
             } else {
-              console.log('[BotEngine] ⚠️ Video action has no URL');
             }
             break;
             
           case 'audio':
             if (action.url || action.fileData) {
               const audioUrl = action.fileData || action.url;
-              console.log('[BotEngine] Sending voice message:', audioUrl.substring(0, 50) + '...');
               const result = await wahaService.sendVoice(connection, contact.phone, audioUrl);
               // Save outgoing message to DB
               await this.saveOutgoingMessage(userId, contact.id, '', 'audio', audioUrl, result?.id?.id);
-              console.log('[BotEngine] ✅ Voice message sent');
             } else {
-              console.log('[BotEngine] ⚠️ Audio action has no URL');
             }
             break;
             
@@ -1835,20 +1712,15 @@ class BotEngine {
                 };
                 mimetype = mimetypes[ext] || 'application/octet-stream';
               }
-              console.log('[BotEngine] Sending file:', filename, '- mimetype:', mimetype, '-', fileUrl.substring(0, 50) + '...');
               const fileResult = await wahaService.sendFile(connection, contact.phone, fileUrl, filename, mimetype);
               await this.saveOutgoingMessage(userId, contact.id, filename, 'document', fileUrl, fileResult?.id?.id, { filename, mimetype });
-              console.log('[BotEngine] ✅ File sent and saved:', filename);
             } else {
-              console.log('[BotEngine] ⚠️ File action has no URL');
             }
             break;
             
           case 'delay':
             const ms = (action.delay || 1) * (action.unit === 'minutes' ? 60000 : 1000);
-            console.log('[BotEngine] Waiting', ms, 'ms...');
             await this.sleep(ms);
-            console.log('[BotEngine] ✅ Delay completed');
             break;
             
           case 'contact':
@@ -1860,9 +1732,7 @@ class BotEngine {
               // Save vCard content for display
               const vcardContent = `BEGIN:VCARD\nVERSION:3.0\nFN:${contactName}\nTEL:${contactPhoneNum}\n${contactOrg ? `ORG:${contactOrg};\n` : ''}END:VCARD`;
               await this.saveOutgoingMessage(userId, contact.id, vcardContent, 'vcard', null, null);
-              console.log('[BotEngine] ✅ Contact vCard sent and saved');
             } else {
-              console.log('[BotEngine] ⚠️ Contact action has no phone number');
             }
             break;
           
@@ -1871,9 +1741,7 @@ class BotEngine {
               const title = this.replaceVariables(action.locationTitle || '', contact, originalMessage, botName);
               await wahaService.sendLocation(connection, contact.phone, action.latitude, action.longitude, title);
               await this.saveOutgoingMessage(userId, contact.id, title || 'מיקום', 'location', null, null, { latitude: action.latitude, longitude: action.longitude });
-              console.log('[BotEngine] ✅ Location sent and saved');
             } else {
-              console.log('[BotEngine] ⚠️ Location action missing coordinates');
             }
             break;
           
@@ -1883,7 +1751,6 @@ class BotEngine {
               await wahaService.startTyping(connection, contact.phone);
               await this.sleep(duration * 1000);
               await wahaService.stopTyping(connection, contact.phone);
-              console.log('[BotEngine] ✅ Typing indicator completed');
             }
             break;
           
@@ -1898,11 +1765,9 @@ class BotEngine {
               );
               if (lastSeenMsg.rows.length > 0 && lastSeenMsg.rows[0].wa_message_id) {
                 await wahaService.sendSeen(connection, contact.phone, [lastSeenMsg.rows[0].wa_message_id]);
-                console.log('[BotEngine] ✅ Marked as seen:', lastSeenMsg.rows[0].wa_message_id);
               } else {
                 // Fallback to just chat seen
                 await wahaService.sendSeen(connection, contact.phone, []);
-                console.log('[BotEngine] ✅ Marked chat as seen');
               }
             }
             break;
@@ -1920,7 +1785,6 @@ class BotEngine {
                 const rawMsgId = lastReactMsg.rows[0].wa_message_id;
                 const msgId = await this.resolveMsgIdLid(connection, rawMsgId);
                 const dbMsgId = lastReactMsg.rows[0].id;
-                console.log('[BotEngine] Sending reaction to message:', msgId);
                 try {
                   await wahaService.sendReaction(connection, msgId, action.reaction);
 
@@ -1937,12 +1801,10 @@ class BotEngine {
                     reaction: action.reaction
                   });
 
-                  console.log('[BotEngine] ✅ Reaction sent:', action.reaction);
                 } catch (reactionErr) {
                   console.warn('[BotEngine] ⚠️ Reaction failed (continuing flow):', reactionErr.response?.data || reactionErr.message);
                 }
               } else {
-                console.log('[BotEngine] ⚠️ Cannot send reaction - no message ID found');
               }
             }
             break;
@@ -1963,14 +1825,12 @@ class BotEngine {
                 invalidReplyMessage: action.invalidReplyMessage || 'התגובה לא תקינה. אנא שלח הודעת טקסט בלבד.',
               };
               await this.saveSession(botId, contact.id, node.id, 'reply', waitData, waitTimeout);
-              console.log('[BotEngine] ⏳ Wait reply action - waiting for reply (timeout:', waitTimeout, 'seconds, textOnly:', waitData.textOnly, ')');
               return true;
             }
             break;
           }
             
           default:
-            console.log('[BotEngine] Unknown action type:', action.type);
         }
       } catch (actionError) {
         console.error(`[BotEngine] ❌ Action ${action.type} failed:`, actionError.message);
@@ -1989,7 +1849,6 @@ class BotEngine {
         invalidReplyMessage: node.data.invalidReplyMessage || 'התגובה לא תקינה. אנא שלח הודעת טקסט בלבד.',
       };
       await this.saveSession(botId, contact.id, node.id, 'reply', waitData, timeout);
-      console.log('[BotEngine] ⏳ Waiting for reply (legacy, textOnly:', waitData.textOnly, ')...');
       return true;
     }
     
@@ -2009,7 +1868,6 @@ class BotEngine {
       result = await this.evaluateSingleCondition(data, contact, message, userId);
     }
     
-    console.log('[BotEngine] Condition result:', result);
     return result ? 'yes' : 'no';
   }
   
@@ -2041,7 +1899,6 @@ class BotEngine {
     const { variable, operator, value, varName } = condition;
     let checkValue = '';
     
-    console.log(`[BotEngine] Evaluating condition: variable=${variable}, varName="${varName}", value="${value}"`);
     
     // Resolve value if it contains variables like {{varName}}
     let resolvedValue = value || '';
@@ -2114,7 +1971,6 @@ class BotEngine {
           // If it contains {{...}}, resolve it using replaceAllVariables
           if (varName.includes('{{')) {
             checkValue = await this.replaceAllVariables(varName, contact, message, '', userId);
-            console.log(`[BotEngine] Variable ${varName} = "${checkValue}"`);
           } else {
             // Plain variable name - query from contact_variables table
             try {
@@ -2123,7 +1979,6 @@ class BotEngine {
                 [contact.id, varName]
               );
               checkValue = varResult.rows[0]?.value || '';
-              console.log(`[BotEngine] Variable ${varName} = "${checkValue}"`);
             } catch (err) {
               console.error('[BotEngine] Error getting variable:', err.message);
               checkValue = '';
@@ -2147,7 +2002,6 @@ class BotEngine {
       return lower;
     };
     
-    console.log(`[BotEngine] Condition: "${checkValue}" ${operator} "${resolvedValue}"`);
     
     switch (operator) {
       case 'equals':
@@ -2225,7 +2079,6 @@ class BotEngine {
     if (node.data.actions && Array.isArray(node.data.actions)) {
       // Skip if no actions
       if (node.data.actions.length === 0) {
-        console.log('[BotEngine] Delay node has no actions, skipping');
         return;
       }
       
@@ -2234,7 +2087,6 @@ class BotEngine {
       for (const action of node.data.actions) {
         if (action.type === 'delay') {
           const ms = (action.delay || 1) * (action.unit === 'minutes' ? 60000 : 1000);
-          console.log('[BotEngine] Delay:', ms, 'ms');
           await this.sleep(ms);
         } else if (action.type === 'typing') {
           if (connection) {
@@ -2242,7 +2094,6 @@ class BotEngine {
             await wahaService.startTyping(connection, contact.phone);
             await this.sleep(duration * 1000);
             await wahaService.stopTyping(connection, contact.phone);
-            console.log('[BotEngine] ✅ Typing indicator shown for', duration, 'seconds');
           }
         }
       }
@@ -2250,10 +2101,8 @@ class BotEngine {
       // Old format fallback - only if delay or unit exists
       const { delay, unit } = node.data;
       const ms = (delay || 1) * (unit === 'minutes' ? 60000 : unit === 'hours' ? 3600000 : 1000);
-      console.log('[BotEngine] Delay:', ms, 'ms');
       await this.sleep(ms);
     } else {
-      console.log('[BotEngine] Delay node has no configuration, skipping');
     }
   }
   
@@ -2284,7 +2133,6 @@ class BotEngine {
         case 'delete_variable':
           if (action.varName) {
             await this.deleteContactVariable(contact.id, action.varName);
-            console.log(`[BotEngine] ✅ Deleted variable: ${action.varName}`);
           }
           break;
           
@@ -2295,9 +2143,7 @@ class BotEngine {
               delayMs = (action.delay || 1) * 60 * 1000;
             }
             delayMs = Math.min(delayMs, 5 * 60 * 1000); // max 5 minutes
-            console.log(`[BotEngine] ⏱️ Waiting ${delayMs / 1000} seconds...`);
             await this.sleep(delayMs);
-            console.log('[BotEngine] ✅ Delay finished');
           }
           break;
           
@@ -2321,7 +2167,6 @@ class BotEngine {
             const connection = await this.getConnection(userId);
             if (connection) {
               await wahaService.sendVoice(connection, contact.phone, action.audioUrl);
-              console.log('[BotEngine] ✅ Voice message sent');
             }
           }
           break;
@@ -2335,7 +2180,6 @@ class BotEngine {
                 filename: action.filename || 'file',
                 mimetype: action.mimetype || 'application/pdf'
               });
-              console.log('[BotEngine] ✅ File sent');
             }
           }
           break;
@@ -2345,7 +2189,6 @@ class BotEngine {
             const connection = await this.getConnection(userId);
             if (connection) {
               await wahaService.sendLocation(connection, contact.phone, action.latitude, action.longitude, action.locationTitle || '');
-              console.log('[BotEngine] ✅ Location sent');
             }
           }
           break;
@@ -2358,7 +2201,6 @@ class BotEngine {
               const contactPhone = this.replaceVariables(action.contactPhone || '', contact, originalMessage, botName);
               const contactOrg = action.contactOrg || '';
               await wahaService.sendContactVcard(connection, contact.phone, contactName, contactPhone, contactOrg);
-              console.log('[BotEngine] ✅ Contact vCard sent');
             }
           }
           break;
@@ -2373,7 +2215,6 @@ class BotEngine {
                 description: action.linkDescription || '',
                 image: action.linkImage ? { url: action.linkImage } : undefined
               });
-              console.log('[BotEngine] ✅ Link preview sent');
             }
           }
           break;
@@ -2383,7 +2224,6 @@ class BotEngine {
             const connection = await this.getConnection(userId);
             if (connection) {
               await wahaService.sendSeen(connection, contact.phone);
-              console.log('[BotEngine] ✅ Marked as seen');
             }
           }
           break;
@@ -2394,10 +2234,8 @@ class BotEngine {
             if (connection) {
               const duration = Math.min(30, Math.max(1, action.typingDuration || 3));
               await wahaService.startTyping(connection, contact.phone);
-              console.log(`[BotEngine] ⌨️ Typing for ${duration} seconds...`);
               await this.sleep(duration * 1000);
               await wahaService.stopTyping(connection, contact.phone);
-              console.log('[BotEngine] ✅ Typing finished');
             }
           }
           break;
@@ -2408,7 +2246,6 @@ class BotEngine {
             const connection = await this.getConnection(userId);
             if (connection) {
               await wahaService.startTyping(connection, contact.phone);
-              console.log('[BotEngine] ✅ Typing started');
             }
           }
           break;
@@ -2418,7 +2255,6 @@ class BotEngine {
             const connection = await this.getConnection(userId);
             if (connection) {
               await wahaService.stopTyping(connection, contact.phone);
-              console.log('[BotEngine] ✅ Typing stopped');
             }
           }
           break;
@@ -2436,7 +2272,6 @@ class BotEngine {
                 const rawId = lastMsg.rows[0].wa_message_id;
                 const resolvedId = await this.resolveMsgIdLid(connection, rawId);
                 await wahaService.sendReaction(connection, resolvedId, action.reaction);
-                console.log('[BotEngine] ✅ Reaction sent:', action.reaction);
               }
             }
           }
@@ -2448,7 +2283,6 @@ class BotEngine {
             const connection = await this.getConnection(userId);
             if (connection) {
               await wahaService.addGroupParticipants(connection, action.groupId, [contact.phone]);
-              console.log('[BotEngine] ✅ Added to group:', action.groupId);
             }
           }
           break;
@@ -2458,7 +2292,6 @@ class BotEngine {
             const connection = await this.getConnection(userId);
             if (connection) {
               await wahaService.removeGroupParticipants(connection, action.groupId, [contact.phone]);
-              console.log('[BotEngine] ✅ Removed from group:', action.groupId);
             }
           }
           break;
@@ -2472,7 +2305,6 @@ class BotEngine {
                 const isMember = participants.some(p => p.id?.includes(contact.phone) || p.phone === contact.phone);
                 const varName = action.resultVar || 'is_member';
                 await this.setContactVariable(contact.id, varName, isMember ? 'true' : 'false');
-                console.log('[BotEngine] ✅ Group membership check:', varName, '=', isMember);
               } catch (err) {
                 console.error('[BotEngine] Group check error:', err.message);
                 await this.setContactVariable(contact.id, action.resultVar || 'is_member', 'false');
@@ -2486,7 +2318,6 @@ class BotEngine {
             const connection = await this.getConnection(userId);
             if (connection) {
               await wahaService.setGroupAdminOnly(connection, action.groupId, action.adminsOnly);
-              console.log('[BotEngine] ✅ Group admin-only set:', action.adminsOnly);
             }
           }
           break;
@@ -2497,7 +2328,6 @@ class BotEngine {
             if (connection) {
               const subject = this.replaceVariables(action.groupSubject, contact, '', '');
               await wahaService.updateGroupSubject(connection, action.groupId, subject);
-              console.log('[BotEngine] ✅ Group subject updated');
             }
           }
           break;
@@ -2508,7 +2338,6 @@ class BotEngine {
             if (connection) {
               const desc = this.replaceVariables(action.groupDescription, contact, '', '');
               await wahaService.updateGroupDescription(connection, action.groupId, desc);
-              console.log('[BotEngine] ✅ Group description updated');
             }
           }
           break;
@@ -2520,7 +2349,6 @@ class BotEngine {
             if (connection) {
               const chatId = `${contact.phone}@c.us`;
               await wahaService.setChatLabels(connection, chatId, [action.labelId]);
-              console.log('[BotEngine] ✅ Label set:', action.labelId);
             }
           }
           break;
@@ -2532,7 +2360,6 @@ class BotEngine {
   async executeGoogleSheetsNode(node, contact, userId) {
     const googleSheets = require('./googleSheets.service');
     const actions = node.data?.actions || [];
-    console.log(`[BotEngine] Google Sheets node has ${actions.length} action(s)`);
     
     // Default Hebrew labels for variables
     const DEFAULT_LABELS = {
@@ -2560,7 +2387,6 @@ class BotEngine {
       
       if (varName && value !== undefined && value !== null) {
         await this.setContactVariable(contact.id, varName, String(value), label);
-        console.log(`[BotEngine] Setting ${varName} (${label}) = ${String(value).substring(0, 50)}`);
       }
     };
     
@@ -2570,11 +2396,9 @@ class BotEngine {
       const varNames = action.varNames || {};
       
       if (!spreadsheetId || !sheetName) {
-        console.log('[BotEngine] ⚠️ Google Sheets action missing spreadsheet or sheet name');
         continue;
       }
       
-      console.log(`[BotEngine] Executing Google Sheets: ${operation} on "${action.spreadsheetName}/${sheetName}"`);
       
       try {
         switch (operation) {
@@ -2586,7 +2410,6 @@ class BotEngine {
               }
             }
             const result = await googleSheets.appendRow(userId, spreadsheetId, sheetName, values);
-            console.log('[BotEngine] ✅ Google Sheets row appended:', result.updatedRange);
             
             // Extract row index from updated range (e.g., "Sheet1!A5:C5" -> 5)
             let rowIndex = '';
@@ -2605,7 +2428,6 @@ class BotEngine {
             const resolvedRowIndex = await this.replaceAllVariables(action.rowIndex || '', contact, '', '', userId);
             const rowIndex = parseInt(resolvedRowIndex);
             if (!rowIndex || isNaN(rowIndex)) {
-              console.log(`[BotEngine] ⚠️ Invalid row index for update: "${action.rowIndex}" resolved to "${resolvedRowIndex}"`);
               await saveVar(varNames, 'sheets_success', 'false');
               await saveVar(varNames, 'sheets_error', 'מספר שורה לא תקין');
               break;
@@ -2617,7 +2439,6 @@ class BotEngine {
               }
             }
             const result = await googleSheets.updateCells(userId, spreadsheetId, sheetName, rowIndex, values);
-            console.log('[BotEngine] ✅ Google Sheets row updated:', result.updated, 'cells');
             
             await saveVar(varNames, 'sheets_action', 'updated');
             await saveVar(varNames, 'sheets_success', 'true');
@@ -2630,7 +2451,6 @@ class BotEngine {
               userId, spreadsheetId, sheetName,
               action.searchColumn, action.searchOperator || 'equals', searchValue
             );
-            console.log(`[BotEngine] 🔍 Google Sheets search: ${result.totalMatches} matches`);
             
             await saveVar(varNames, 'sheets_found', result.totalMatches > 0 ? 'true' : 'false');
             await saveVar(varNames, 'sheets_total_matches', String(result.totalMatches));
@@ -2644,7 +2464,6 @@ class BotEngine {
                 if (mapping.column && mapping.variable) {
                   const val = String(firstRow[mapping.column] || '');
                   await this.setContactVariable(contact.id, mapping.variable, val);
-                  console.log(`[BotEngine] ✅ Mapped "${mapping.column}" → ${mapping.variable} = "${val.substring(0, 100)}"`);
                 }
               }
             }
@@ -2653,7 +2472,6 @@ class BotEngine {
           
           case 'read_rows': {
             const result = await googleSheets.readRows(userId, spreadsheetId, sheetName);
-            console.log(`[BotEngine] 📖 Google Sheets read: ${result.rows.length} rows`);
             
             await saveVar(varNames, 'sheets_total_rows', String(result.rows.length));
             
@@ -2664,7 +2482,6 @@ class BotEngine {
                 if (mapping.column && mapping.variable) {
                   const val = String(firstRow[mapping.column] || '');
                   await this.setContactVariable(contact.id, mapping.variable, val);
-                  console.log(`[BotEngine] ✅ Mapped "${mapping.column}" → ${mapping.variable} = "${val.substring(0, 100)}"`);
                 }
               }
             }
@@ -2683,7 +2500,6 @@ class BotEngine {
               userId, spreadsheetId, sheetName,
               action.searchColumn, searchValue, updateValues
             );
-            console.log(`[BotEngine] 🔄 Google Sheets search & update: found=${result.found}, row=${result.rowIndex}`);
             
             await saveVar(varNames, 'sheets_found', result.found ? 'true' : 'false');
             await saveVar(varNames, 'sheets_action', result.found ? 'updated' : 'not_found');
@@ -2722,7 +2538,6 @@ class BotEngine {
               userId, spreadsheetId, sheetName,
               action.searchColumn, searchValue, values
             );
-            console.log(`[BotEngine] 🔎 Google Sheets search or append: action=${result.action}`);
             
             await saveVar(varNames, 'sheets_found', result.action === 'updated' ? 'true' : 'false');
             await saveVar(varNames, 'sheets_action', result.action); // 'updated' or 'appended'
@@ -2734,7 +2549,6 @@ class BotEngine {
           }
           
           default:
-            console.log(`[BotEngine] ⚠️ Unknown Google Sheets operation: ${operation}`);
         }
       } catch (error) {
         console.error(`[BotEngine] ❌ Google Sheets error (${operation}):`, error.message);
@@ -2766,7 +2580,6 @@ class BotEngine {
   async executeGoogleContactsNode(node, contact, userId) {
     const googleContacts = require('./googleContacts.service');
     const actions = node.data?.actions || [];
-    console.log(`[BotEngine] Google Contacts node has ${actions.length} action(s)`);
     
     // Default Hebrew labels for variables
     const DEFAULT_LABELS = {
@@ -2795,7 +2608,6 @@ class BotEngine {
       
       if (varName && value !== undefined && value !== null) {
         await this.setContactVariable(contact.id, varName, String(value), label);
-        console.log(`[BotEngine] Setting ${varName} (${label}) = ${String(value).substring(0, 50)}`);
       }
     };
     
@@ -2804,7 +2616,6 @@ class BotEngine {
       const { operation } = action;
       const varNames = action.varNames || {};
       
-      console.log(`[BotEngine] Executing Google Contacts: ${operation}`);
       
       try {
         switch (operation) {
@@ -2813,7 +2624,6 @@ class BotEngine {
             const searchBy = action.searchBy || 'phone';
             
             const result = await googleContacts.exists(userId, searchValue, searchBy);
-            console.log(`[BotEngine] 🔍 Google Contacts exists check: ${result.exists}`);
             
             // Save all relevant variables
             await saveVar(varNames, 'contact_exists', result.exists ? 'true' : 'false');
@@ -2832,7 +2642,6 @@ class BotEngine {
               foundContact = await googleContacts.findByEmail(userId, searchValue);
             }
             
-            console.log(`[BotEngine] 🔍 Google Contacts search: ${foundContact ? 'found' : 'not found'}`);
             
             await saveVar(varNames, 'contact_exists', foundContact ? 'true' : 'false');
             await saveVar(varNames, 'contact_id', foundContact?.resourceName || '');
@@ -2853,7 +2662,6 @@ class BotEngine {
             };
             
             const newContact = await googleContacts.createContact(userId, contactData);
-            console.log(`[BotEngine] ➕ Google Contact created: ${newContact.resourceName}`);
             
             await saveVar(varNames, 'contact_id', newContact.resourceName);
             await saveVar(varNames, 'contact_action', 'created');
@@ -2872,7 +2680,6 @@ class BotEngine {
             }
             
             if (!foundContact) {
-              console.log('[BotEngine] ⚠️ Google Contact not found for update');
               await saveVar(varNames, 'contact_exists', 'false');
               break;
             }
@@ -2885,7 +2692,6 @@ class BotEngine {
             if (action.email) updateData.email = await this.replaceAllVariables(action.email, contact, '', '', userId);
             
             const updatedContact = await googleContacts.updateContact(userId, foundContact.resourceName, updateData);
-            console.log(`[BotEngine] ✏️ Google Contact updated: ${updatedContact.resourceName}`);
             
             await saveVar(varNames, 'contact_id', updatedContact.resourceName);
             await saveVar(varNames, 'contact_action', 'updated');
@@ -2903,7 +2709,6 @@ class BotEngine {
             };
             
             const result = await googleContacts.findOrCreate(userId, phone, contactData);
-            console.log(`[BotEngine] 🔎 Google Contact find or create: ${result.action}`);
             
             await saveVar(varNames, 'contact_exists', result.action === 'found' ? 'true' : 'false');
             await saveVar(varNames, 'contact_id', result.contact.resourceName);
@@ -2920,7 +2725,6 @@ class BotEngine {
             const labelId = action.labelId;
             
             if (!labelId) {
-              console.log('[BotEngine] ⚠️ No label specified for add_to_label');
               await saveVar(varNames, 'contact_success', 'false');
               break;
             }
@@ -2933,13 +2737,11 @@ class BotEngine {
             }
             
             if (!foundContact) {
-              console.log('[BotEngine] ⚠️ Google Contact not found for label operation');
               await saveVar(varNames, 'contact_success', 'false');
               break;
             }
             
             await googleContacts.addToLabel(userId, foundContact.resourceName, labelId);
-            console.log(`[BotEngine] 🏷️ Google Contact added to label`);
             
             await saveVar(varNames, 'contact_success', 'true');
             break;
@@ -2951,7 +2753,6 @@ class BotEngine {
             const labelId = action.labelId;
             
             if (!labelId) {
-              console.log('[BotEngine] ⚠️ No label specified for remove_from_label');
               await saveVar(varNames, 'contact_success', 'false');
               break;
             }
@@ -2964,20 +2765,17 @@ class BotEngine {
             }
             
             if (!foundContact) {
-              console.log('[BotEngine] ⚠️ Google Contact not found for label operation');
               await saveVar(varNames, 'contact_success', 'false');
               break;
             }
             
             await googleContacts.removeFromLabel(userId, foundContact.resourceName, labelId);
-            console.log(`[BotEngine] 🗑️ Google Contact removed from label`);
             
             await saveVar(varNames, 'contact_success', 'true');
             break;
           }
           
           default:
-            console.log(`[BotEngine] ⚠️ Unknown Google Contacts operation: ${operation}`);
         }
       } catch (error) {
         console.error(`[BotEngine] ❌ Google Contacts error (${operation}):`, error.message);
@@ -3007,22 +2805,18 @@ class BotEngine {
   // Execute integration node (API requests)
   async executeIntegrationNode(node, contact, userId, message = '') {
     const actions = node.data?.actions || [];
-    console.log(`[BotEngine] Integration node has ${actions.length} action(s)`);
     
     for (let i = 0; i < actions.length; i++) {
       const action = actions[i];
       const actionType = action.type || 'http_request';
       
       if (actionType === 'http_request') {
-        console.log(`[BotEngine] Executing API request ${i + 1}/${actions.length}: ${action.method || 'GET'} ${action.apiUrl}`);
         await this.executeHttpRequest(action, contact, message);
       } else if (actionType === 'google_sheets') {
-        console.log(`[BotEngine] Executing Google Sheets action ${i + 1}/${actions.length}`);
         // Create a virtual node with the nested actions
         const virtualNode = { data: { actions: action.actions || [] } };
         await this.executeGoogleSheetsNode(virtualNode, contact, userId);
       } else if (actionType === 'google_contacts') {
-        console.log(`[BotEngine] Executing Google Contacts action ${i + 1}/${actions.length}`);
         // Create a virtual node with the nested actions
         const virtualNode = { data: { actions: action.actions || [] } };
         await this.executeGoogleContactsNode(virtualNode, contact, userId);
@@ -3073,7 +2867,6 @@ class BotEngine {
             try {
               body = JSON.parse(bodyStr);
             } catch {
-              console.log('[BotEngine] ⚠️ Could not parse body as JSON, sending as-is');
               body = bodyStr;
             }
           }
@@ -3081,9 +2874,7 @@ class BotEngine {
       }
 
       const url = await this.replaceAllVariables(action.apiUrl, contact, message, '');
-      console.log('[BotEngine] HTTP Request:', action.method, url);
       if (body) {
-        console.log('[BotEngine] HTTP Body:', JSON.stringify(body, null, 2));
       }
       
       const response = await axios({
@@ -3094,11 +2885,8 @@ class BotEngine {
         timeout: 30000
       });
       
-      console.log('[BotEngine] ✅ HTTP Response status:', response.status);
       
       // Apply response mappings
-      console.log('[BotEngine] Response data:', JSON.stringify(response.data).substring(0, 500));
-      console.log('[BotEngine] Mappings to apply:', JSON.stringify(action.mappings));
       
       if (action.mappings && Array.isArray(action.mappings)) {
         for (const mapping of action.mappings) {
@@ -3115,14 +2903,11 @@ class BotEngine {
             if (value !== undefined && value !== null) {
               const stringValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
               await this.setContactVariable(contact.id, mapping.varName, stringValue);
-              console.log('[BotEngine] ✅ Mapped', mapping.path, '→', mapping.varName, '=', stringValue.substring(0, 100));
             } else {
-              console.log('[BotEngine] ⚠️ No value found for path:', mapping.path);
             }
           }
         }
       } else {
-        console.log('[BotEngine] No mappings defined for this API request');
       }
     } catch (error) {
       console.error('[BotEngine] ❌ HTTP Request failed:', error.message);
@@ -3138,7 +2923,6 @@ class BotEngine {
     
     for (const part of parts) {
       if (current === null || current === undefined) {
-        console.log('[BotEngine] Path traversal failed at:', part);
         return undefined;
       }
       current = current[part];
@@ -3152,12 +2936,10 @@ class BotEngine {
     const recipient = node.data?.recipient || {};
     const actions = node.data?.actions || [];
     
-    console.log('[BotEngine] Send Other node - recipient type:', recipient.type, 'actions:', actions.length);
     
     // Get WAHA connection
     const connection = await this.getConnection(userId);
     if (!connection) {
-      console.log('[BotEngine] No WAHA connection for user:', userId);
       return;
     }
     
@@ -3186,7 +2968,6 @@ class BotEngine {
         targetChatId = groupId;
       }
 
-      console.log('[BotEngine] Target group:', targetChatId);
     } else if (recipient.type === 'channel') {
       // WhatsApp channel recipient
       let channelId;
@@ -3206,7 +2987,6 @@ class BotEngine {
         targetChatId = channelId;
       }
 
-      console.log('[BotEngine] Target channel:', targetChatId);
     } else {
       // Phone recipient
       let phone;
@@ -3226,18 +3006,15 @@ class BotEngine {
       phone = this.normalizePhoneNumber(phone);
       targetChatId = phone;
       
-      console.log('[BotEngine] Target phone:', targetChatId);
     }
     
     if (!targetChatId) {
-      console.log('[BotEngine] ⚠️ No target chat ID specified');
       return;
     }
     
     // Execute each action
     for (let i = 0; i < actions.length; i++) {
       const action = actions[i];
-      console.log(`[BotEngine] Executing send_other action ${i + 1}/${actions.length}:`, action.type);
       
       try {
         switch (action.type) {
@@ -3247,11 +3024,9 @@ class BotEngine {
               
               // Skip empty messages - don't send but continue flow
               if (!text || !text.trim()) {
-                console.log('[BotEngine] ⏭️ Skipping empty text message (after variable replacement)');
                 break;
               }
               
-              console.log('[BotEngine] Sending text to', targetChatId.substring(0, 20) + '...', '- content length:', text.length);
               
               // Check if custom link preview is configured
               if (action.customLinkPreview && action.linkPreviewUrl) {
@@ -3267,11 +3042,9 @@ class BotEngine {
                   preview.image = { url: previewImage };
                 }
                 await wahaService.sendLinkPreview(connection, targetChatId, text, preview);
-                console.log('[BotEngine] ✅ Text with custom link preview sent to other recipient');
               } else {
                 await wahaService.sendMessage(connection, targetChatId, text);
               }
-              console.log('[BotEngine] ✅ Text sent to other recipient');
             }
             break;
             
@@ -3280,7 +3053,6 @@ class BotEngine {
               const imageUrl = action.fileData || await this.replaceAllVariables(action.url, contact, originalMessage, '', userId);
               const caption = await this.replaceAllVariables(action.caption || '', contact, originalMessage, '', userId);
               await wahaService.sendImage(connection, targetChatId, imageUrl, caption);
-              console.log('[BotEngine] ✅ Image sent to other recipient');
             }
             break;
             
@@ -3289,7 +3061,6 @@ class BotEngine {
               const videoUrl = action.fileData || await this.replaceAllVariables(action.url, contact, originalMessage, '', userId);
               const caption = await this.replaceAllVariables(action.caption || '', contact, originalMessage, '', userId);
               await wahaService.sendVideo(connection, targetChatId, videoUrl, caption);
-              console.log('[BotEngine] ✅ Video sent to other recipient');
             }
             break;
             
@@ -3297,7 +3068,6 @@ class BotEngine {
             if (action.url || action.fileData) {
               const audioUrl = action.fileData || await this.replaceAllVariables(action.url, contact, originalMessage, '', userId);
               await wahaService.sendVoice(connection, targetChatId, audioUrl);
-              console.log('[BotEngine] ✅ Audio sent to other recipient');
             }
             break;
             
@@ -3323,7 +3093,6 @@ class BotEngine {
               }
               
               await wahaService.sendFile(connection, targetChatId, fileUrl, filename, mimetype);
-              console.log('[BotEngine] ✅ File sent to other recipient:', filename);
             }
             break;
             
@@ -3333,7 +3102,6 @@ class BotEngine {
               const contactPhoneNum = this.replaceVariables(action.contactPhone || '', contact, originalMessage, '');
               const contactOrg = action.contactOrg || '';
               await wahaService.sendContactVcard(connection, targetChatId, contactName, contactPhoneNum, contactOrg);
-              console.log('[BotEngine] ✅ Contact vCard sent to other recipient');
             }
             break;
           
@@ -3343,19 +3111,16 @@ class BotEngine {
               const lng = parseFloat(this.replaceVariables(String(action.longitude), contact, originalMessage, ''));
               const title = this.replaceVariables(action.locationTitle || '', contact, originalMessage, '');
               await wahaService.sendLocation(connection, targetChatId, lat, lng, title);
-              console.log('[BotEngine] ✅ Location sent to other recipient');
             }
             break;
             
           default:
-            console.log('[BotEngine] ⚠️ Unknown action type in send_other:', action.type);
         }
       } catch (error) {
         console.error(`[BotEngine] ❌ Send other action ${action.type} failed:`, error.message);
       }
     }
     
-    console.log('[BotEngine] ✅ Send Other node completed');
   }
   
   // Normalize phone number to consistent format
@@ -3399,9 +3164,7 @@ class BotEngine {
     // Filter buttons based on validations
     let filteredButtons = allButtons;
     if (allButtons.some(btn => btn.validation || btn.validationId)) {
-      console.log('[BotEngine] Running validations for list buttons...');
       filteredButtons = await validationService.filterListButtons(allButtons, contact, contactVars);
-      console.log('[BotEngine] Buttons after validation:', filteredButtons.length, 'of', allButtons.length);
     }
     
     // Prepare list data with variable replacement
@@ -3419,7 +3182,6 @@ class BotEngine {
       })),
     };
     
-    console.log('[BotEngine] Sending list message with', listData.buttons.length, 'options');
     
     try {
       await wahaService.sendList(connection, contact.phone, listData);
@@ -3430,7 +3192,6 @@ class BotEngine {
         buttonText: listData.buttonText,
         footer: listData.footer
       });
-      console.log('[BotEngine] ✅ List sent and saved');
     } catch (listError) {
       console.error('[BotEngine] ❌ List send failed:', listError.message);
       console.error('[BotEngine] Error details:', listError.response?.data || 'No details');
@@ -3447,7 +3208,6 @@ class BotEngine {
       }
       await wahaService.sendMessage(connection, contact.phone, text);
       await this.saveOutgoingMessage(userId, contact.id, text, 'text', null, null);
-      console.log('[BotEngine] ✅ List sent as text fallback and saved');
     }
     
     // Save session to wait for response
@@ -3478,7 +3238,6 @@ class BotEngine {
   async executeRegistrationNode(node, contact, triggerMessage, userId, botName = '', botId = null) {
     const connection = await this.getConnection(userId);
     if (!connection) {
-      console.log('[BotEngine] No connection for registration');
       return;
     }
     
@@ -3491,7 +3250,6 @@ class BotEngine {
       welcomeDelay = 2 // Default 2 seconds delay between welcome and first question
     } = node.data;
     
-    console.log('[BotEngine] Starting registration with', questions.length, 'questions');
     
     // Get contact variables for validation
     const contactVars = await this.getContactVariables(contact.id);
@@ -3499,13 +3257,10 @@ class BotEngine {
     // Filter questions based on validations
     let filteredQuestions = questions;
     if (questions.some(q => q.validation || q.validationId)) {
-      console.log('[BotEngine] Running validations for registration questions...');
       filteredQuestions = await validationService.filterQuestions(questions, contact, contactVars);
-      console.log('[BotEngine] Questions after validation:', filteredQuestions.length, 'of', questions.length);
     }
     
     if (filteredQuestions.length === 0) {
-      console.log('[BotEngine] No questions after validation, skipping registration');
       return;
     }
     
@@ -3514,7 +3269,6 @@ class BotEngine {
       const welcomeText = this.replaceVariables(welcomeMessage, contact, triggerMessage, botName);
       const welcomeResult = await wahaService.sendMessage(connection, contact.phone, welcomeText);
       await this.saveOutgoingMessage(userId, contact.id, welcomeText, 'text', null, welcomeResult?.id?.id);
-      console.log('[BotEngine] ✅ Welcome message sent and saved');
       // Wait for configured delay before sending first question
       await this.sleep((welcomeDelay || 2) * 1000);
     }
@@ -3524,14 +3278,12 @@ class BotEngine {
     const questionText = this.replaceVariables(firstQuestion.question, contact, triggerMessage, botName);
     const questionResult = await wahaService.sendMessage(connection, contact.phone, questionText);
     await this.saveOutgoingMessage(userId, contact.id, questionText, 'text', null, questionResult?.id?.id);
-    console.log('[BotEngine] ✅ First question sent and saved:', questionText.substring(0, 50));
     
     // Calculate timeout in seconds
     const timeoutSeconds = timeout * (timeoutUnit === 'hours' ? 3600 : 60);
     
     // Save session to wait for response (including trigger message for variable replacement)
     if (botId) {
-      console.log('[BotEngine] 💾 Saving registration session:', { botId, contactId: contact.id, nodeId: node.id });
       await this.saveSession(
         botId,
         contact.id,
@@ -3546,9 +3298,7 @@ class BotEngine {
         },
         timeoutSeconds
       );
-      console.log('[BotEngine] ✅ Registration session saved successfully!');
     } else {
-      console.log('[BotEngine] ⚠️ No botId provided, session NOT saved!');
     }
   }
   
@@ -3568,7 +3318,6 @@ class BotEngine {
     const cancelKeyword = waitingData.cancelKeyword || 'ביטול';
     const triggerMessage = waitingData.triggerMessage || ''; // Original trigger message
     
-    console.log('[BotEngine] Registration continue - question', currentQuestionIndex + 1, 'of', questions.length);
     
     // Check if text-only is expected but received non-text message type
     const currentQuestion = questions[currentQuestionIndex];
@@ -3576,7 +3325,6 @@ class BotEngine {
     const requiresTextInput = textOnlyTypes.includes(currentQuestion?.type);
     
     if (requiresTextInput && messageType !== 'text') {
-      console.log('[BotEngine] ⚠️ Registration expects text input but got:', messageType);
       const errorMessage = 'התגובה לא תקינה. אנא שלח הודעת טקסט בלבד.';
       const errorResult = await wahaService.sendMessage(connection, contact.phone, errorMessage);
       await this.saveOutgoingMessage(userId, contact.id, errorMessage, 'text', null, errorResult?.id?.id);
@@ -3595,7 +3343,6 @@ class BotEngine {
     
     // Check for cancel keyword
     if (message.toLowerCase().trim() === cancelKeyword) {
-      console.log('[BotEngine] Registration cancelled by user');
       await this.clearSession(bot.id, contact.id);
       
       // Send cancel message
@@ -3649,7 +3396,6 @@ class BotEngine {
       const questionText = this.replaceVariables(nextQuestion.question, contact, triggerMessage, bot.name);
       const nextResult = await wahaService.sendMessage(connection, contact.phone, questionText);
       await this.saveOutgoingMessage(userId, contact.id, questionText, 'text', null, nextResult?.id?.id);
-      console.log('[BotEngine] ✅ Next question sent and saved:', questionText.substring(0, 50));
       
       // Update session
       await this.saveSession(
@@ -3664,7 +3410,6 @@ class BotEngine {
     }
     
     // All questions answered - complete registration
-    console.log('[BotEngine] ✅ Registration completed');
     await this.clearSession(bot.id, contact.id);
     
     // Send completion message
@@ -3784,12 +3529,10 @@ class BotEngine {
       } else if (summaryPhone) {
         targetPhone = summaryPhone;
       } else {
-        console.log('[BotEngine] No summary target configured');
         return;
       }
       
       await wahaService.sendMessage(connection, targetPhone, summaryText);
-      console.log('[BotEngine] ✅ Registration summary sent to:', targetPhone);
     } catch (error) {
       console.error('[BotEngine] Error sending registration summary:', error.message);
     }
@@ -3804,7 +3547,6 @@ class BotEngine {
       registrationTitle = this.replaceVariables(registrationTitle, contact, triggerMessage, botName);
       
       if (!webhookUrl) {
-        console.log('[BotEngine] No webhook URL configured');
         return;
       }
       
@@ -3849,7 +3591,6 @@ class BotEngine {
         timeout: 10000
       });
       
-      console.log('[BotEngine] ✅ Registration webhook sent to:', webhookUrl);
     } catch (error) {
       console.error('[BotEngine] Error sending registration webhook:', error.message);
     }
@@ -4011,7 +3752,6 @@ class BotEngine {
           result = result.replace(regex, row.value || '');
         }
       } catch (e) {
-        console.log('[BotEngine] Error fetching contact variables:', e.message);
       }
     }
     
@@ -4027,14 +3767,12 @@ class BotEngine {
           result = result.replace(regex, row.default_value || '');
         }
       } catch (e) {
-        console.log('[BotEngine] Error fetching system variables:', e.message);
       }
     }
     
     // Remove any remaining unreplaced {{...}} patterns
     const unreplacedMatches = result.match(/\{\{[^}]+\}\}/g);
     if (unreplacedMatches) {
-      console.log('[BotEngine] ⚠️ Removing unreplaced variables:', unreplacedMatches);
       result = result.replace(/\{\{[^}]+\}\}/g, '');
     }
     
@@ -4049,7 +3787,6 @@ class BotEngine {
     );
     
     if (result.rows.length === 0) {
-      console.log('[BotEngine] No WhatsApp connection found for user:', userId);
       return null;
     }
     
@@ -4069,12 +3806,6 @@ class BotEngine {
       api_key = decrypt(connection.external_api_key);
     }
     
-    console.log('[BotEngine] Found connection:', {
-      id: connection.id,
-      status: connection.status,
-      type: connection.connection_type,
-      base_url: base_url ? base_url.substring(0, 30) + '...' : 'N/A',
-    });
     
     // Return connection object with decrypted values
     return {
@@ -4094,7 +3825,6 @@ class BotEngine {
       const phone = await wahaService.resolveLid(connection, m[2]);
       if (phone) {
         const resolved = `${m[1]}${phone}@c.us${m[3]}`;
-        console.log(`[BotEngine] Resolved @lid in msgId: ${msgId.substring(0, 40)} → ${resolved.substring(0, 40)}`);
         return resolved;
       }
     } catch (e) {
@@ -4119,7 +3849,6 @@ class BotEngine {
          VALUES ($1, $2, $3, $4, $5, NOW())`,
         [botId, contactId, 'message', status, errorMessage]
       );
-      console.log('[BotEngine] 📝 Logged bot run:', { botId, contactId, status });
     } catch (err) {
       console.error('[BotEngine] Failed to log bot run:', err.message);
     }
@@ -4174,7 +3903,6 @@ class BotEngine {
       }
       return vars;
     } catch (e) {
-      console.log('[BotEngine] Error fetching contact variables:', e.message);
       return {};
     }
   }
@@ -4183,7 +3911,6 @@ class BotEngine {
   async executeFormulaNode(node, contact, userId, message = '') {
     const steps = node.data?.steps || [];
     if (steps.length === 0) return;
-    console.log(`[BotEngine] Formula node: ${steps.length} step(s)`);
 
     for (const step of steps) {
       const { expression, outputVar } = step;
@@ -4205,7 +3932,6 @@ class BotEngine {
         // Update in-memory contact variables for subsequent steps
         if (!contact.variables) contact.variables = {};
         contact.variables[outputVar] = resultStr;
-        console.log(`[BotEngine] Formula: {{${outputVar}}} = ${resultStr.substring(0, 100)}`);
       } catch (err) {
         console.error(`[BotEngine] Formula step error for {{${outputVar}}}: ${err.message}`);
       }
@@ -4254,7 +3980,6 @@ class BotEngine {
       'date', 'time', 'day', 'phone', 'email'
     ];
     
-    console.log(`[BotEngine] Setting variable for contact ${contactId}: ${key} = ${String(value).substring(0, 100)}`);
     
     // Save the value to contact
     await db.query(
@@ -4263,11 +3988,9 @@ class BotEngine {
        ON CONFLICT (contact_id, key) DO UPDATE SET value = $3, updated_at = NOW()`,
       [contactId, key, value]
     );
-    console.log(`[BotEngine] ✅ Variable saved to contact_variables table`);
     
     // Don't add reserved system variable names to user definitions
     if (RESERVED_VARIABLES.includes(key.toLowerCase())) {
-      console.log(`[BotEngine] ⚠️ Skipping user definition for reserved variable: ${key}`);
       return;
     }
     
@@ -4286,16 +4009,12 @@ class BotEngine {
           [userId, key, displayLabel]
         );
         if (result.rows.length > 0) {
-          console.log(`[BotEngine] ✅ New variable definition added for user ${userId}: ${key} (${displayLabel})`);
         } else {
-          console.log(`[BotEngine] Variable definition already exists: ${key}`);
         }
       } else {
-        console.log(`[BotEngine] ⚠️ Contact ${contactId} not found - cannot add variable definition`);
       }
     } catch (err) {
       // Ignore errors - table might not exist yet
-      console.log('[BotEngine] Could not auto-add variable definition:', err.message);
     }
   }
   

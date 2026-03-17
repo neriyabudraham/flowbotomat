@@ -226,7 +226,7 @@ async function processScheduledForwards() {
       LIMIT 10
     `);
     
-    console.log(`[ScheduledForwards] Found ${pending.rows.length} due schedules`);
+    if (pending.rows.length > 0) console.log(`[ScheduledForwards] Found ${pending.rows.length} due schedules`);
     
     for (const schedule of pending.rows) {
       try {

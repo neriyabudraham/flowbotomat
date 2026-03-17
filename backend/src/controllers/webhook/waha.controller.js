@@ -1371,7 +1371,6 @@ async function handleOutgoingDeviceMessage(userId, payload) {
       [userId, toPhone, toPhone]
     );
     contact = newContact.rows[0];
-    console.log(`[Webhook] Created new contact for outgoing message: ${toPhone}`);
   } else {
     contact = contactResult.rows[0];
   }
@@ -2051,14 +2050,12 @@ async function handleCallEvent(userId, event) {
       // Cache the caller phone for later call.rejected/call.accepted events
       if (callerPhone && callId) {
         callCache.set(callId, { callerPhone, userId, isVideo, isGroup, timestamp: Date.now() });
-        console.log(`[Webhook] Cached call ${callId} -> ${callerPhone}`);
       }
     } else {
       // call.rejected / call.accepted - look up from cache first
       if (callId && callCache.has(callId)) {
         const cached = callCache.get(callId);
         callerPhone = cached.callerPhone;
-        console.log(`[Webhook] Resolved call ${callId} from cache -> ${callerPhone}`);
         callCache.delete(callId); // Clean up
       }
       
@@ -2078,7 +2075,6 @@ async function handleCallEvent(userId, event) {
     
     // If still no phone, skip - we can't identify the caller
     if (!callerPhone) {
-      console.log(`[Webhook] Call event ${eventType}: could not resolve caller phone, skipping`);
       return;
     }
     
@@ -2091,7 +2087,6 @@ async function handleCallEvent(userId, event) {
       triggerType = 'call_accepted';
     }
     
-    console.log(`[Webhook] Call event: ${triggerType} from ${callerPhone}, video: ${isVideo}`);
     
     await botEngine.processEvent(userId, callerPhone, triggerType, {
       callId: payload.id || payload._data?.CallID,
