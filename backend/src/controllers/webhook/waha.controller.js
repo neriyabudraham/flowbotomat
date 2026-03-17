@@ -1690,29 +1690,13 @@ async function monitorDisconnectedSession(userId, sessionName, disconnectTime) {
         return;
       }
       
-      // Still disconnected after 1 minute - apply 24h restriction
+      // Still disconnected after 1 minute
       if (elapsedMs >= SHORT_RESTRICTION_THRESHOLD_MS) {
         clearInterval(checkInterval);
         activeDisconnectMonitors.delete(monitorKey);
-        
-        const restrictionEnd = new Date(Date.now() + LONG_RESTRICTION_DURATION_MS);
-        await pool.query(`
-          UPDATE status_bot_connections 
-          SET restriction_lifted = false,
-              last_connected_at = NOW(),
-              short_restriction_until = NULL,
-              updated_at = NOW()
-          WHERE user_id = $1
-        `, [userId]);
-        
-        // Emit to frontend
-        const socketManager = getSocketManager();
-        socketManager.emitToUser(userId, 'session_restriction', { 
-          type: 'full',
-          reason: 'הסשן נותק ולא חזר תוך דקה',
-          restrictionEndsAt: restrictionEnd.toISOString(),
-          durationHours: 24
-        });
+        // Note: status_bot_connections restriction is managed by statusBot.controller.js
+        // which properly distinguishes QR re-auth from network disconnects.
+        // We do NOT apply a 24h block here for ordinary network disconnections.
         return;
       }
       

@@ -274,17 +274,28 @@ async function processQueue() {
       `);
       if (blockedResult.rows.length > 0) {
         for (const row of blockedResult.rows) {
-          const shortRestriction = row.short_restriction_until && new Date(row.short_restriction_until) > new Date();
-          const longRestriction = row.restriction_lifted === false;
+          const now = new Date();
           const notConnected = row.connection_status !== 'connected';
-          const reason = notConnected
-            ? `connection_status=${row.connection_status}`
-            : shortRestriction
-              ? `short_restriction_until=${row.short_restriction_until}`
-              : longRestriction
-                ? `24h restriction active (restriction_lifted=false)`
-                : 'unknown';
-          console.log(`[StatusBot] ⏸️ Queue item id=${row.id} skipped: ${reason}`);
+          const shortUntil = row.short_restriction_until ? new Date(row.short_restriction_until) : null;
+          const shortRestriction = shortUntil && shortUntil > now;
+          const restrictionActive = row.restriction_lifted !== true; // false or null
+          const baseTime = row.last_connected_at || row.first_connected_at;
+          const unlocksAt = baseTime ? new Date(new Date(baseTime).getTime() + 24 * 60 * 60 * 1000) : null;
+          const longRestriction = restrictionActive && unlocksAt && unlocksAt > now;
+
+          let reason;
+          if (notConnected) {
+            reason = `connection_status=${row.connection_status}`;
+          } else if (shortRestriction) {
+            const minsLeft = Math.ceil((shortUntil - now) / 60000);
+            reason = `short restriction active, unlocks in ${minsLeft}min (${shortUntil.toISOString()})`;
+          } else if (longRestriction) {
+            const hoursLeft = ((unlocksAt - now) / 3600000).toFixed(1);
+            reason = `24h restriction active, unlocks in ${hoursLeft}h (${unlocksAt.toISOString()})`;
+          } else {
+            reason = `unknown — connection_status=${row.connection_status}, restriction_lifted=${row.restriction_lifted}, last_connected_at=${row.last_connected_at}`;
+          }
+          console.log(`[StatusBot] ⏸️ Queue item id=${row.id} conn=${row.connection_id} BLOCKED: ${reason}`);
         }
       }
       return;
