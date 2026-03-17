@@ -1472,17 +1472,24 @@ async function subscribe(req, res) {
     }
     
     if (coupon) {
-      // Record coupon usage
-      await db.query(`
+      // Record coupon usage — use ON CONFLICT DO UPDATE to handle re-subscriptions with same coupon
+      const usageResult = await db.query(`
         INSERT INTO coupon_usage (coupon_id, user_id, subscription_id, discount_applied)
         VALUES ($1, $2, $3, $4)
+        ON CONFLICT (coupon_id, user_id) DO UPDATE
+          SET subscription_id = EXCLUDED.subscription_id,
+              discount_applied = EXCLUDED.discount_applied,
+              used_at = NOW()
+        RETURNING (xmax = 0) as inserted
       `, [coupon.id, userId, subResult.rows[0].id, discountAmount]);
-      
-      // Increment coupon usage counter
-      await db.query(
-        'UPDATE coupons SET current_uses = current_uses + 1 WHERE id = $1',
-        [coupon.id]
-      );
+
+      // Only increment usage counter for new records (not updates)
+      if (usageResult.rows[0]?.inserted) {
+        await db.query(
+          'UPDATE coupons SET current_uses = current_uses + 1 WHERE id = $1',
+          [coupon.id]
+        );
+      }
     }
     
     // Log payment history

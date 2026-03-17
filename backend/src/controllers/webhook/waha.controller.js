@@ -1351,7 +1351,6 @@ async function handleOutgoingDeviceMessage(userId, payload) {
   const toPhone = rawPhone?.replace(/^\+/, ''); // strip leading + if present
 
   if (!toPhone || !toPhone.match(/^\d+$/)) {
-    console.log(`[Webhook] Skipping outgoing message — invalid toPhone: "${toPhone}" (to=${payload.to} chatId=${payload.chatId} recipientAlt=${payload._data?.Info?.RecipientAlt})`);
     return;
   }
 
