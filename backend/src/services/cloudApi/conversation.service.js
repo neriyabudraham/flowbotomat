@@ -716,7 +716,6 @@ async function handleMessage(phone, message) {
  * Returns 'fallback' if this message should be handled by legacy handlers
  */
 async function handleInteractiveWithStatusId(phone, selectedId, message) {
-  console.log(`[CloudAPI Conv] handleInteractiveWithStatusId: ${selectedId}`);
   
   // Parse the selectedId to extract action and statusId
   // Formats: send_statusId, sched_statusId, cancel_statusId, color_colorId_statusId, acc_connId_statusId
