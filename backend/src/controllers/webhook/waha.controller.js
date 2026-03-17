@@ -1651,22 +1651,27 @@ async function monitorDisconnectedSession(userId, sessionName, disconnectTime) {
         // Reconnected!
         clearInterval(checkInterval);
         activeDisconnectMonitors.delete(monitorKey);
-        
-        if (elapsedMs < SHORT_RESTRICTION_THRESHOLD_MS) {
-          // Reconnected within 1 minute - apply 30 minute restriction
+
+        const FLICKER_THRESHOLD_MS = 30000; // < 30s = normal flicker, no restriction
+
+        if (elapsedMs < FLICKER_THRESHOLD_MS) {
+          // Transient flicker — no restriction
+          console.log(`[SessionMonitor] ✅ User ${userId} reconnected within ${Math.round(elapsedMs/1000)}s — flicker, no restriction`);
+        } else if (elapsedMs < SHORT_RESTRICTION_THRESHOLD_MS) {
+          // Reconnected within 30s–1min - apply 30 minute restriction
           console.log(`[SessionMonitor] ✅ User ${userId} reconnected within ${Math.round(elapsedMs/1000)}s - applying 30min restriction`);
-          
+
           const restrictionEnd = new Date(Date.now() + SHORT_RESTRICTION_DURATION_MS);
           await pool.query(`
-            UPDATE status_bot_connections 
+            UPDATE status_bot_connections
             SET short_restriction_until = $1,
                 updated_at = NOW()
             WHERE user_id = $2
           `, [restrictionEnd, userId]);
-          
+
           // Emit to frontend
           const socketManager = getSocketManager();
-          socketManager.emitToUser(userId, 'session_restriction', { 
+          socketManager.emitToUser(userId, 'session_restriction', {
             type: 'short',
             reason: 'הסשן נותק וחזר תוך דקה',
             restrictionEndsAt: restrictionEnd.toISOString(),
@@ -1728,13 +1733,29 @@ async function handleSessionStatus(userId, event) {
   
   const statusMap = {
     'WORKING': 'connected',
+    'CONNECTED': 'connected',   // Some WAHA versions (GOWS) use CONNECTED instead of WORKING
     'SCAN_QR_CODE': 'qr_pending',
     'STARTING': 'qr_pending',
+    'OPENING': null,            // Transient — keep current DB status
+    'SYNCING': null,            // Transient — keep current DB status
     'STOPPED': 'disconnected',
     'FAILED': 'failed',
+    'TIMEOUT': 'disconnected',
+    'CONFLICT': null,           // Transient — keep current DB status
+    'UNLAUNCHED': 'disconnected',
   };
-  
-  const ourStatus = statusMap[payload.status] || 'disconnected';
+
+  // null = transient state, don't touch DB or frontend
+  if (!(payload.status in statusMap)) {
+    console.log(`[Webhook] Unknown WAHA status "${payload.status}" — ignoring to prevent false disconnect`);
+    return;
+  }
+
+  const ourStatus = statusMap[payload.status];
+  if (ourStatus === null) {
+    console.log(`[Webhook] Transient WAHA status "${payload.status}" — skipping DB update`);
+    return;
+  }
   
   // Session status changed
   
