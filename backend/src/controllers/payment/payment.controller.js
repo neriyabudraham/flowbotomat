@@ -1161,7 +1161,7 @@ async function subscribe(req, res) {
     let nextChargeDate = new Date(now);
     let expiresAt = null;
     
-    if (billingPeriod === 'yearly' && !promotion && !referralDiscount) {
+    if (billingPeriod === 'yearly' && !promotion && !referralDiscount && !coupon && !adminCustomDiscount) {
       chargeAmount = parseFloat(plan.price) * 12 * 0.8; // 20% discount
       nextChargeDate.setFullYear(nextChargeDate.getFullYear() + 1);
       expiresAt = new Date(nextChargeDate);
