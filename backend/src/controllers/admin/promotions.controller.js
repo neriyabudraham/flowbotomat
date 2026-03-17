@@ -249,7 +249,7 @@ async function deleteCoupon(req, res) {
 
 async function validateCoupon(req, res) {
   try {
-    const { code, planId } = req.body;
+    const { code, planId, billingPeriod = 'monthly' } = req.body;
     const userId = req.user?.id;
     
     if (!code) {
@@ -299,20 +299,31 @@ async function validateCoupon(req, res) {
     }
     
     // Calculate discount
-    let planPrice = c.plan_price;
+    let monthlyPrice = c.plan_price;
     if (planId && !c.plan_id) {
       const plan = await db.query('SELECT price FROM subscription_plans WHERE id = $1', [planId]);
-      if (plan.rows.length > 0) planPrice = parseFloat(plan.rows[0].price);
+      if (plan.rows.length > 0) monthlyPrice = parseFloat(plan.rows[0].price);
     }
-    
+
+    // Base price for coupon calculation depends on billing period
+    // Compound: yearly base (monthly * 12 * 0.8) unless override_other_discounts
+    let basePrice;
+    if (billingPeriod === 'yearly') {
+      basePrice = c.override_other_discounts
+        ? monthlyPrice * 12              // override: coupon on full yearly only, no 20%
+        : monthlyPrice * 12 * 0.8;       // compound: yearly 20% first, then coupon
+    } else {
+      basePrice = monthlyPrice;
+    }
+
     let discountAmount, finalPrice;
     if (c.discount_type === 'percentage') {
-      discountAmount = (planPrice * parseFloat(c.discount_value)) / 100;
+      discountAmount = Math.floor(basePrice * parseFloat(c.discount_value) / 100);
     } else {
       discountAmount = parseFloat(c.discount_value);
     }
-    finalPrice = Math.max(0, planPrice - discountAmount);
-    
+    finalPrice = Math.max(0, basePrice - discountAmount);
+
     // Duration text
     let durationText;
     switch (c.duration_type) {
@@ -320,7 +331,7 @@ async function validateCoupon(req, res) {
       case 'months': durationText = `ל-${c.duration_months} חודשים`; break;
       default: durationText = 'לתשלום הראשון';
     }
-    
+
     res.json({
       valid: true,
       coupon: {
@@ -329,10 +340,12 @@ async function validateCoupon(req, res) {
         discount_type: c.discount_type,
         discount_value: c.discount_value,
         duration_type: c.duration_type,
-        duration_months: c.duration_months
+        duration_months: c.duration_months,
+        override_other_discounts: c.override_other_discounts
       },
       calculation: {
-        original_price: planPrice,
+        original_price: basePrice,
+        monthly_price: monthlyPrice,
         discount_amount: Math.round(discountAmount * 100) / 100,
         final_price: Math.round(finalPrice * 100) / 100
       },

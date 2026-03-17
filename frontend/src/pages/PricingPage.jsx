@@ -1393,7 +1393,8 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
     try {
       const { data } = await api.post('/payment/coupon/validate', {
         code: couponCode,
-        planId: plan.id
+        planId: plan.id,
+        billingPeriod
       });
       
       if (data.valid) {
@@ -1415,6 +1416,14 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, onClose, onSuccess
     setCouponData(null);
     setCouponError(null);
   };
+
+  // Re-validate coupon when billing period changes (price calculation changes)
+  useEffect(() => {
+    if (couponData && couponCode) {
+      validateCoupon();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billingPeriod]);
 
   const getReferralDurationText = () => {
     if (!referralInfo) return '';
