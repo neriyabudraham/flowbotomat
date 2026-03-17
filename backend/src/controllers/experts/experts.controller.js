@@ -774,7 +774,6 @@ async function switchAccount(req, res) {
         can_manage_contacts: true,
         can_view_analytics: true
       };
-      console.log(`[Experts] Admin ${originalUserId} switching to account ${targetUserId}`);
     } else {
       // Check if ORIGINAL user has access to target account
       const accessResult = await db.query(
@@ -829,8 +828,6 @@ async function switchAccount(req, res) {
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
-    
-    console.log(`[Experts] ${originalUserId} switched to account ${targetUserId} (was viewing: ${currentUserId})`);
     
     res.json({
       success: true,

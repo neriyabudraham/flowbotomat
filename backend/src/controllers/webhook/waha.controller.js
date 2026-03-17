@@ -656,10 +656,10 @@ async function handleIncomingMessage(userId, event) {
               `${baseUrl}/api/${conn.session_name}/groups/${encodeURIComponent(groupId)}`,
               {
                 headers: { 'accept': 'application/json', 'X-Api-Key': apiKey },
-                timeout: 5000
+                timeout: 15000
               }
             );
-            
+
             const groupData = groupResponse.data;
             if (groupData) {
               const resolvedName = groupData.subject || groupData.name || groupData.Name || null;
@@ -678,13 +678,11 @@ async function handleIncomingMessage(userId, event) {
             }
           } catch (specificError) {
             // Specific endpoint failed, try fetching all groups
-            console.log(`[Webhook] Specific group fetch failed, trying all groups: ${specificError.message}`);
-            
             const groupsResponse = await axios.get(
               `${baseUrl}/api/${conn.session_name}/groups`,
               {
                 headers: { 'accept': 'application/json', 'X-Api-Key': apiKey },
-                timeout: 10000
+                timeout: 25000
               }
             );
             
@@ -708,7 +706,7 @@ async function handleIncomingMessage(userId, event) {
           }
         }
       } catch (groupError) {
-        console.log(`[Webhook] Could not fetch group info: ${groupError.message}`);
+        console.error(`[Webhook] Could not fetch group info: ${groupError.message}`);
       }
     }
     
@@ -764,7 +762,7 @@ async function handleIncomingMessage(userId, event) {
             `${baseUrl}/api/${conn.session_name}/channels/${encodeURIComponent(channelId)}`,
             {
               headers: { 'accept': 'application/json', 'X-Api-Key': apiKey },
-              timeout: 5000
+              timeout: 15000
             }
           );
           

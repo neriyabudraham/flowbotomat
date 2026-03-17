@@ -261,7 +261,33 @@ async function processQueue() {
     `);
 
     if (queueResult.rows.length === 0) {
-      return; // No items to process
+      // Diagnose why: are there pending items being blocked?
+      const blockedResult = await db.query(`
+        SELECT q.id, q.connection_id, q.queue_status, q.created_at,
+               c.connection_status, c.restriction_lifted, c.short_restriction_until,
+               c.first_connected_at, c.last_connected_at
+        FROM status_bot_queue q
+        JOIN status_bot_connections c ON c.id = q.connection_id
+        WHERE q.queue_status IN ('pending', 'scheduled')
+          AND (q.scheduled_for IS NULL OR q.scheduled_for <= NOW())
+        LIMIT 5
+      `);
+      if (blockedResult.rows.length > 0) {
+        for (const row of blockedResult.rows) {
+          const shortRestriction = row.short_restriction_until && new Date(row.short_restriction_until) > new Date();
+          const longRestriction = row.restriction_lifted === false;
+          const notConnected = row.connection_status !== 'connected';
+          const reason = notConnected
+            ? `connection_status=${row.connection_status}`
+            : shortRestriction
+              ? `short_restriction_until=${row.short_restriction_until}`
+              : longRestriction
+                ? `24h restriction active (restriction_lifted=false)`
+                : 'unknown';
+          console.log(`[StatusBot] ⏸️ Queue item id=${row.id} skipped: ${reason}`);
+        }
+      }
+      return;
     }
 
     const item = queueResult.rows[0];
