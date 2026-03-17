@@ -156,26 +156,27 @@ async function createCoupon(req, res) {
       code, name, discount_type, discount_value,
       duration_type, duration_months, plan_id,
       max_uses, max_uses_per_user, is_new_users_only,
-      start_date, end_date
+      start_date, end_date, override_other_discounts
     } = req.body;
-    
+
     if (!code) {
       return res.status(400).json({ error: 'נדרש קוד קופון' });
     }
-    
+
     const result = await db.query(`
       INSERT INTO coupons (
         code, name, discount_type, discount_value,
         duration_type, duration_months, plan_id,
         max_uses, max_uses_per_user, is_new_users_only,
-        start_date, end_date, created_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        start_date, end_date, created_by, override_other_discounts
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       RETURNING *
     `, [
       code.toUpperCase(), name, discount_type || 'fixed', discount_value,
       duration_type || 'once', duration_months, plan_id || null,
       max_uses, max_uses_per_user || 1, is_new_users_only || false,
-      start_date || null, end_date || null, req.user.id
+      start_date || null, end_date || null, req.user.id,
+      override_other_discounts || false
     ]);
     
     res.json({ coupon: result.rows[0], message: 'קופון נוצר בהצלחה' });
@@ -195,9 +196,9 @@ async function updateCoupon(req, res) {
       code, name, discount_type, discount_value,
       duration_type, duration_months, plan_id,
       max_uses, max_uses_per_user, is_new_users_only, is_active,
-      start_date, end_date
+      start_date, end_date, override_other_discounts
     } = req.body;
-    
+
     const result = await db.query(`
       UPDATE coupons SET
         code = COALESCE($1, code),
@@ -213,14 +214,15 @@ async function updateCoupon(req, res) {
         is_active = COALESCE($11, is_active),
         start_date = $12,
         end_date = $13,
+        override_other_discounts = COALESCE($14, override_other_discounts),
         updated_at = NOW()
-      WHERE id = $14
+      WHERE id = $15
       RETURNING *
     `, [
       code?.toUpperCase(), name, discount_type, discount_value,
       duration_type, duration_months, plan_id,
       max_uses, max_uses_per_user, is_new_users_only, is_active,
-      start_date, end_date, couponId
+      start_date, end_date, override_other_discounts, couponId
     ]);
     
     if (result.rows.length === 0) {

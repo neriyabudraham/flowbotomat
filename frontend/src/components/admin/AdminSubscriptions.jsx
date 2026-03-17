@@ -1312,6 +1312,7 @@ function CouponEditModal({ coupon, plans, onSave, onClose }) {
     max_uses_per_user: coupon.max_uses_per_user || 1,
     is_new_users_only: coupon.is_new_users_only || false,
     is_active: coupon.is_active ?? true,
+    override_other_discounts: coupon.override_other_discounts || false,
     start_date: coupon.start_date ? coupon.start_date.split('T')[0] : '',
     end_date: coupon.end_date ? coupon.end_date.split('T')[0] : '',
   });
@@ -1508,6 +1509,17 @@ function CouponEditModal({ coupon, plans, onSave, onClose }) {
                 className="w-4 h-4 rounded text-purple-600"
               />
               <span className="text-sm text-gray-700 dark:text-gray-300">קופון פעיל</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.override_other_discounts}
+                onChange={e => setForm({...form, override_other_discounts: e.target.checked})}
+                className="w-4 h-4 rounded text-purple-600"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                בטל הנחות נוספות (הנחת שותף, אדמין) — הקופון בלבד קובע
+              </span>
             </label>
           </div>
 

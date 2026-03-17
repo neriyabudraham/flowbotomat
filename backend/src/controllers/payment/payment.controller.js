@@ -1015,27 +1015,38 @@ async function subscribe(req, res) {
     
     // Apply coupon discount
     if (coupon) {
+      // Base price accounts for yearly billing: compound discount (yearly base first, then coupon on top)
+      // If override_other_discounts=true, skip the yearly 20% and apply coupon on full yearly price only
+      let couponBase;
+      if (billingPeriod === 'yearly') {
+        couponBase = coupon.override_other_discounts
+          ? originalPrice * 12                // override: coupon on full yearly, no extra 20%
+          : originalPrice * 12 * 0.8;         // compound: yearly 20% first, then coupon on result
+      } else {
+        couponBase = originalPrice;
+      }
+
       if (coupon.discount_type === 'percentage') {
-        discountAmount = (originalPrice * parseFloat(coupon.discount_value)) / 100;
+        discountAmount = Math.floor(couponBase * parseFloat(coupon.discount_value) / 100);
       } else {
         discountAmount = parseFloat(coupon.discount_value);
       }
-      chargeAmount = Math.max(0, originalPrice - discountAmount);
-      
+      chargeAmount = Math.max(0, couponBase - discountAmount);
+
       // Set duration
       if (coupon.duration_type === 'forever') {
         regularPriceAfterPromo = null; // Forever discount
         promoMonthsRemaining = -1; // -1 means forever
       } else if (coupon.duration_type === 'months' && coupon.duration_months) {
-        regularPriceAfterPromo = originalPrice;
+        regularPriceAfterPromo = couponBase;
         promoMonthsRemaining = coupon.duration_months;
       } else {
         // 'once' - only first payment
-        regularPriceAfterPromo = originalPrice;
+        regularPriceAfterPromo = couponBase;
         promoMonthsRemaining = 1;
       }
-      
-      console.log(`[Payment] Applying coupon ${coupon.code}: ${chargeAmount} ILS (${coupon.duration_type})`);
+
+      console.log(`[Payment] Applying coupon ${coupon.code}: base=${couponBase} -> ${chargeAmount} ILS (${coupon.duration_type}, override=${!!coupon.override_other_discounts})`);
     }
     // Apply promotion discount (only if no coupon)
     else if (promotion) {
@@ -1052,6 +1063,7 @@ async function subscribe(req, res) {
     }
     
     // Apply admin custom discount (takes priority over referral, but not over coupon/promotion)
+    // If coupon has override_other_discounts, also skip admin discount
     if (adminCustomDiscount && !coupon && !promotion) {
       const mode = adminCustomDiscount.custom_discount_mode;
       const customPercent = parseFloat(adminCustomDiscount.custom_discount_percent) || 0;
@@ -1399,7 +1411,7 @@ async function subscribe(req, res) {
       expiresAt,
       promotion?.id || null,
       promoMonthsRemaining > 0 ? promoMonthsRemaining - 1 : 0,
-      promotion ? chargeAmount : null,
+      (coupon || promotion) ? chargeAmount : null,
       regularPriceAfterPromo,
       referralDiscountType,
       referralDiscountPercent > 0 ? referralDiscountPercent : null,
@@ -1409,7 +1421,10 @@ async function subscribe(req, res) {
     
     // Schedule next charge in billing queue
     const billingType = billingPeriod === 'yearly' ? 'yearly' : 'monthly';
-    const nextAmount = promotion ? chargeAmount : (referralDiscount > 0 ? chargeAmount : originalPrice);
+    // Use the actual charged amount as next amount (unless it's a one-time discount)
+    const isOneTimeDiscount = (coupon && coupon.duration_type === 'once') ||
+                              (promotion && (promoMonthsRemaining <= 1));
+    const nextAmount = isOneTimeDiscount ? (billingPeriod === 'yearly' ? originalPrice * 12 * 0.8 : originalPrice) : chargeAmount;
     
     await billingQueueService.scheduleCharge({
       userId,

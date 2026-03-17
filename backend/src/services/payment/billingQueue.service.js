@@ -605,34 +605,42 @@ async function handleChargeSuccess(charge, chargeResult) {
       // Calculate next charge amount with discounts
       let nextAmount = parseFloat(sub?.plan_price || charge.amount);
       let description = `מנוי ${isYearly ? 'שנתי' : 'חודשי'} - ${sub?.plan_name_he || charge.plan_name_he}`;
-      
+
       if (sub) {
         // Apply custom discount from admin (fixed price)
         if (sub.custom_discount_mode === 'fixed_price' && sub.custom_fixed_price) {
           nextAmount = parseFloat(sub.custom_fixed_price);
           if (isYearly) nextAmount *= 12;
           description += ' (מחיר מותאם)';
-        } 
-        // Apply admin percent discount
+        }
+        // Apply admin percent discount (compound: yearly base first, then percent)
         else if (sub.custom_discount_mode === 'percent' && sub.referral_discount_percent) {
-          if (isYearly) {
-            nextAmount = nextAmount * 12 * 0.8; // Base yearly discount
-          }
+          if (isYearly) nextAmount = nextAmount * 12 * 0.8;
           nextAmount = Math.floor(nextAmount * (1 - sub.referral_discount_percent / 100));
           description += ` (${sub.referral_discount_percent}% הנחה)`;
         }
-        // Apply referral discount if still active (check AFTER decrement)
-        else if (sub.referral_discount_percent && sub.referral_months_remaining > 1) {
-          // > 1 because we already decremented above
-          if (isYearly) {
-            nextAmount = nextAmount * 12 * 0.8;
+        // Apply coupon/promo recurring discount (promo_price stored on subscription)
+        // promo_months_remaining > 1 because it was already decremented when the previous charge was scheduled
+        else if (sub.promo_price && (sub.promo_months_remaining > 1 || sub.promo_months_remaining === -1)) {
+          nextAmount = parseFloat(sub.promo_price);
+          description += ' (מחיר מבצע)';
+          // Decrement promo_months_remaining for next cycle
+          if (sub.promo_months_remaining > 1) {
+            await client.query(
+              `UPDATE user_subscriptions SET promo_months_remaining = promo_months_remaining - 1, updated_at = NOW() WHERE user_id = $1`,
+              [charge.user_id]
+            );
           }
+        }
+        // Apply referral discount if still active (compound)
+        else if (sub.referral_discount_percent && sub.referral_months_remaining > 1) {
+          if (isYearly) nextAmount = nextAmount * 12 * 0.8;
           nextAmount = Math.floor(nextAmount * (1 - sub.referral_discount_percent / 100));
           description += ` (${sub.referral_discount_percent}% הנחת הפניה)`;
         }
         // Apply yearly discount only
         else if (isYearly) {
-          nextAmount = nextAmount * 12 * 0.8; // 20% yearly discount
+          nextAmount = nextAmount * 12 * 0.8;
           description += ' (20% הנחה שנתית)';
         }
       }

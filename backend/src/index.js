@@ -335,6 +335,9 @@ server.listen(PORT, () => {
       await dbQuery(`ALTER TABLE whatsapp_connections ADD COLUMN IF NOT EXISTS payment_suspended BOOLEAN DEFAULT false`);
       // Store receipt/invoice URL for service payments so the admin can view it
       await dbQuery(`ALTER TABLE service_payment_history ADD COLUMN IF NOT EXISTS receipt_url TEXT`);
+      await dbQuery(`ALTER TABLE coupons ADD COLUMN IF NOT EXISTS override_other_discounts BOOLEAN DEFAULT false`);
+      await dbQuery(`ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS coupon_discount_percent DECIMAL(5,2) DEFAULT NULL`);
+      await dbQuery(`ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS coupon_duration_type VARCHAR(20) DEFAULT NULL`);
       // Backfill billing_queue failed entries for payment_history failures that have no billing_queue entry
       // This ensures legacy failures (from billing.service.js direct charging) appear in the admin failed tab
       await dbQuery(`
