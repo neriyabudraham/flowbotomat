@@ -1348,17 +1348,6 @@ async function subscribe(req, res) {
     
     console.log(`[Payment] Charge successful - Transaction: ${chargeResult.transactionId}`);
     
-    // Log successful payment
-    try {
-      await db.query(`
-        INSERT INTO payment_history (
-          user_id, amount, status, sumit_transaction_id, sumit_document_number, description
-        ) VALUES ($1, $2, 'success', $3, $4, $5)
-      `, [userId, actualChargeAmount, chargeResult.transactionId, chargeResult.documentNumber, description]);
-    } catch (logErr) {
-      console.error('[Payment] Failed to log successful payment:', logErr);
-    }
-    
     // Ensure referral discount columns exist
     await db.query(`
       DO $$ BEGIN
