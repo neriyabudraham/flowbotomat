@@ -335,6 +335,38 @@ server.listen(PORT, () => {
       await dbQuery(`ALTER TABLE whatsapp_connections ADD COLUMN IF NOT EXISTS payment_suspended BOOLEAN DEFAULT false`);
       // Store receipt/invoice URL for service payments so the admin can view it
       await dbQuery(`ALTER TABLE service_payment_history ADD COLUMN IF NOT EXISTS receipt_url TEXT`);
+      // Backfill billing_queue failed entries for payment_history failures that have no billing_queue entry
+      // This ensures legacy failures (from billing.service.js direct charging) appear in the admin failed tab
+      await dbQuery(`
+        INSERT INTO billing_queue
+          (user_id, subscription_id, amount, charge_date, billing_type, plan_id, description, currency, status, last_error, last_error_code, last_attempt_at, retry_count)
+        SELECT DISTINCT ON (ph.user_id)
+          ph.user_id,
+          ph.subscription_id,
+          ph.amount,
+          ph.created_at::date,
+          COALESCE(ph.billing_type, 'monthly'),
+          us.plan_id,
+          ph.description,
+          'ILS',
+          'failed',
+          ph.error_message,
+          'CHARGE_FAILED',
+          ph.created_at,
+          1
+        FROM payment_history ph
+        JOIN users u ON u.id = ph.user_id
+        LEFT JOIN user_subscriptions us ON us.user_id = ph.user_id
+        WHERE ph.status = 'failed'
+          AND ph.billing_queue_id IS NULL
+          AND ph.created_at > NOW() - INTERVAL '60 days'
+          AND NOT EXISTS (
+            SELECT 1 FROM billing_queue bq
+            WHERE bq.user_id = ph.user_id AND bq.status = 'failed'
+          )
+        ORDER BY ph.user_id, ph.created_at DESC
+        ON CONFLICT DO NOTHING
+      `);
       console.log('[Startup] ✅ Migrations applied successfully');
     } catch (err) {
       console.error('[Startup] Migration error:', err.message);

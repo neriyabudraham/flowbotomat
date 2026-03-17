@@ -528,14 +528,14 @@ async function voidPayment(req, res) {
 
     // Check in payment_history first
     let result = await pool.query(
-      `UPDATE payment_history SET status = 'voided', updated_at = NOW() WHERE id = $1 AND status != 'voided' RETURNING *`,
+      `UPDATE payment_history SET status = 'voided' WHERE id = $1 AND status != 'voided' RETURNING *`,
       [id]
     );
 
     // If not found there, try service_payment_history
     if (result.rows.length === 0) {
       result = await pool.query(
-        `UPDATE service_payment_history SET status = 'voided', updated_at = NOW() WHERE id = $1 AND status != 'voided' RETURNING *`,
+        `UPDATE service_payment_history SET status = 'voided' WHERE id = $1 AND status != 'voided' RETURNING *`,
         [id]
       );
     }
