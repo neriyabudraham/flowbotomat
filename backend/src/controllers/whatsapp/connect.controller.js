@@ -658,13 +658,19 @@ async function checkExisting(req, res) {
     
     if (existingSession && existingSession.status === 'WORKING') {
       console.log(`[WhatsApp] ✅ Found existing WORKING session: ${existingSession.name}`);
-      
+
+      // User has a valid payment method and session is WORKING — clear any payment suspension
+      await pool.query(
+        `UPDATE whatsapp_connections SET payment_suspended = false WHERE user_id = $1`,
+        [userId]
+      );
+
       // Verify and update webhooks in background
       const webhookUrl = getWebhookUrl(userId);
       wahaSession.addWebhook(baseUrl, apiKey, existingSession.name, webhookUrl, WEBHOOK_EVENTS)
         .then(() => console.log(`[Webhook] ✅ Verified/updated for user ${userId}`))
         .catch(err => console.error(`[Webhook] Update failed for ${userId}:`, err.message));
-      
+
       return res.json({
         exists: true,
         sessionName: existingSession.name,

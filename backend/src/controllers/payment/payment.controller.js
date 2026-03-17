@@ -23,6 +23,20 @@ async function fullDisconnectWhatsApp(userId) {
 }
 
 /**
+ * Disconnect WhatsApp due to payment removal.
+ * Sets payment_suspended = true so that WAHA 'session.status' webhooks
+ * cannot restore the 'connected' state until the user re-adds a payment method.
+ */
+async function disconnectForPayment(userId) {
+  await db.query(
+    `UPDATE whatsapp_connections SET status = 'disconnected', payment_suspended = true, updated_at = NOW() WHERE user_id = $1`,
+    [userId]
+  );
+  await db.query(`UPDATE bots SET is_active = false, updated_at = NOW() WHERE user_id = $1`, [userId]);
+  console.log(`[Payment] Payment-suspended WhatsApp for user ${userId}`);
+}
+
+/**
  * Save payment method
  * 
  * Supports two flows:
@@ -88,45 +102,21 @@ async function savePaymentMethod(req, res) {
     const user = userResult.rows[0];
     const receiptEmail = user.receipt_email || user.email; // Use receipt_email if set, otherwise default email
     
-    // Check if user already has a Sumit customer ID
+    // Check if user already has a Sumit customer ID (search all records, including inactive)
     let existingSumitCustomerId = null;
     const existingMethod = await db.query(
       'SELECT sumit_customer_id FROM user_payment_methods WHERE user_id = $1 AND sumit_customer_id IS NOT NULL LIMIT 1',
       [userId]
     );
-    
+
     if (existingMethod.rows.length > 0) {
       existingSumitCustomerId = existingMethod.rows[0].sumit_customer_id;
     }
-    
-    // If no existing customer, create one first
-    if (!existingSumitCustomerId) {
-      console.log(`[Payment] Creating new Sumit customer for user ${userId}, receipt email: ${receiptEmail}, phone: ${phone}`);
-      const customerResult = await sumitService.createCustomer({
-        name: cardHolderName || user.name || user.email,
-        email: receiptEmail, // Use receipt_email for receipts
-        phone: phone,
-        citizenId: citizenId,
-        companyNumber: companyNumber,
-        externalId: `user_${userId}`,
-      });
-      
-      if (customerResult.success) {
-        existingSumitCustomerId = customerResult.customerId;
-        console.log(`[Payment] Created Sumit customer: ${existingSumitCustomerId}`);
-      } else {
-        console.error('[Payment] Failed to create Sumit customer:', customerResult.error);
-        // If Sumit locked us out due to repeated attempts, abort immediately
-        if (isSumitLockoutError(customerResult.error)) {
-          return res.status(503).json({
-            error: 'שירות התשלומים זמנית חסום עקב ניסיונות מרובים. אנא המתן מספר דקות ונסה שנית.',
-            code: 'SUMIT_LOCKOUT',
-          });
-        }
-        // Otherwise continue — setPaymentMethod can create the customer on its own
-      }
-    }
-    
+
+    // Note: we do NOT call sumitService.createCustomer() separately here.
+    // The setPaymentMethodForCustomer / setPaymentMethodWithCard endpoints handle
+    // customer creation internally, preventing duplicate customer records in Sumit.
+
     console.log(`[Payment] Saving payment method for user ${userId}, Sumit customer: ${existingSumitCustomerId || 'will create'}`);
     
     let sumitResult;
@@ -185,39 +175,76 @@ async function savePaymentMethod(req, res) {
       'UPDATE user_payment_methods SET is_active = false, is_default = false, updated_at = NOW() WHERE user_id = $1',
       [userId]
     );
-    
-    // Save the new payment method
-    const result = await db.query(`
-      INSERT INTO user_payment_methods (
-        user_id, 
-        card_token,           -- Sumit Payment Method ID
-        card_last_digits, 
-        card_expiry_month, 
-        card_expiry_year, 
-        card_holder_name, 
-        citizen_id, 
-        sumit_customer_id,
-        is_active,
-        is_default
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, true)
-      RETURNING id, card_last_digits, card_expiry_month, card_expiry_year, card_holder_name, created_at
-    `, [
-      userId, 
-      sumitResult.paymentMethodId?.toString() || 'stored',
-      lastDigits || sumitResult.last4Digits || '****',
-      expiryMonth || sumitResult.expiryMonth || null, 
-      expiryYear || sumitResult.expiryYear || null, 
-      cardHolderName,
-      citizenId || null,
-      sumitResult.customerId
-    ]);
+
+    const newCardToken = sumitResult.paymentMethodId?.toString() || 'stored';
+
+    // Check if this exact payment method (same card token) already exists — reactivate it
+    const existingCardRecord = await db.query(
+      'SELECT id FROM user_payment_methods WHERE user_id = $1 AND card_token = $2 LIMIT 1',
+      [userId, newCardToken]
+    );
+
+    let result;
+    if (existingCardRecord.rows.length > 0) {
+      // Same card re-added — reactivate the existing record
+      result = await db.query(`
+        UPDATE user_payment_methods
+        SET is_active = true, is_default = true,
+            card_holder_name = $2, citizen_id = $3, sumit_customer_id = $4,
+            card_expiry_month = COALESCE($5, card_expiry_month),
+            card_expiry_year = COALESCE($6, card_expiry_year),
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, card_last_digits, card_expiry_month, card_expiry_year, card_holder_name, created_at
+      `, [
+        existingCardRecord.rows[0].id,
+        cardHolderName,
+        citizenId || null,
+        sumitResult.customerId,
+        expiryMonth || sumitResult.expiryMonth || null,
+        expiryYear || sumitResult.expiryYear || null,
+      ]);
+      console.log(`[Payment] Reactivated existing payment method record for user ${userId}`);
+    } else {
+      // New card — insert fresh record
+      result = await db.query(`
+        INSERT INTO user_payment_methods (
+          user_id,
+          card_token,
+          card_last_digits,
+          card_expiry_month,
+          card_expiry_year,
+          card_holder_name,
+          citizen_id,
+          sumit_customer_id,
+          is_active,
+          is_default
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, true)
+        RETURNING id, card_last_digits, card_expiry_month, card_expiry_year, card_holder_name, created_at
+      `, [
+        userId,
+        newCardToken,
+        lastDigits || sumitResult.last4Digits || '****',
+        expiryMonth || sumitResult.expiryMonth || null,
+        expiryYear || sumitResult.expiryYear || null,
+        cardHolderName,
+        citizenId || null,
+        sumitResult.customerId,
+      ]);
+    }
     
     // Update user's has_payment_method flag
     await db.query(
       'UPDATE users SET has_payment_method = true, updated_at = NOW() WHERE id = $1',
       [userId]
     );
-    
+
+    // Clear payment suspension — user re-added a payment method, allow WhatsApp reconnection
+    await db.query(
+      `UPDATE whatsapp_connections SET payment_suspended = false WHERE user_id = $1`,
+      [userId]
+    );
+
     console.log(`[Payment] Successfully saved payment method for user ${userId}`);
     
     // Auto-create trial subscription if user doesn't have a paid subscription
@@ -788,7 +815,7 @@ async function deletePaymentMethod(req, res) {
     }
     if (shouldDisconnectWaha) {
       try {
-        await fullDisconnectWhatsApp(userId);
+        await disconnectForPayment(userId);
         message += ' | חיבור WhatsApp נותק (דורש אשראי פעיל לחיבור מחדש)';
       } catch (err) {
         console.error('[Payment] Error disconnecting WAHA (while_credit):', err.message);
@@ -1938,22 +1965,22 @@ async function removeAllPaymentMethods(req, res) {
       
       // TRIAL subscriptions: removing payment method = immediate disconnect
       // Trial is only valid WITH a payment method on file
-      if (isTrial && !hasPaidTime) {
+      if (isTrial) {
         disconnectImmediately = true;
         message = 'פרטי האשראי הוסרו. מכיוון שאתה בתקופת ניסיון, השירות נותק מיידית.';
         console.log(`[Payment] Trial subscription - disconnecting immediately after payment removal`);
       } else if (hasPaidTime) {
-        // PAID subscriptions: service continues until end of paid period
+        // PAID subscriptions with explicit expiry: service continues until end of paid period
         const endDate = subscription.expires_at;
         if (endDate) {
           const formattedDate = new Date(endDate).toLocaleDateString('he-IL');
           message = `המנוי בוטל. השירות ימשיך לפעול עד סוף תקופת החיוב (${formattedDate})`;
         }
       } else {
-        // Edge case: unknown state - disconnect to be safe
+        // Active monthly subscription without expiry date — no remaining paid period
         disconnectImmediately = true;
         message = 'פרטי האשראי הוסרו והשירות הופסק.';
-        console.log(`[Payment] Unknown subscription state - disconnecting for safety`);
+        console.log(`[Payment] Active monthly subscription - disconnecting immediately after payment removal`);
       }
       
     } else if (connectionResult.rows.length > 0) {
@@ -1993,7 +2020,7 @@ async function removeAllPaymentMethods(req, res) {
     
     if (disconnectImmediately) {
       try {
-        await fullDisconnectWhatsApp(userId);
+        await disconnectForPayment(userId);
       } catch (err) {
         console.error('[Payment] Error fully disconnecting WhatsApp:', err.message);
       }

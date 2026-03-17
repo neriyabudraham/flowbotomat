@@ -1408,8 +1408,6 @@ async function handleOutgoingDeviceMessage(userId, payload) {
 
   // Parse message content
   const messageData = parseMessage(payload);
-  console.log(`[Webhook] parseMessage result: type=${messageData.type} mediaUrl=${messageData.mediaUrl} mimeType=${messageData.mimeType} _data.Info.MediaType=${payload._data?.Info?.MediaType} hasMedia=${payload.hasMedia} media=${JSON.stringify(payload.media)}`);
-
   // Build metadata for poll messages
   const outgoingMetadata = messageData.type === 'poll'
     ? JSON.stringify({ options: messageData.pollOptions || [], multipleAnswers: messageData.multipleAnswers || false })
@@ -1781,7 +1779,20 @@ async function handleSessionStatus(userId, event) {
   }
   
   // Session status changed
-  
+
+  // If session reports CONNECTED but user is payment-suspended, ignore — the user must
+  // re-add a payment method before WhatsApp can be marked as connected again.
+  if (ourStatus === 'connected') {
+    const suspendCheck = await pool.query(
+      `SELECT payment_suspended FROM whatsapp_connections WHERE user_id = $1`,
+      [userId]
+    );
+    if (suspendCheck.rows[0]?.payment_suspended === true) {
+      console.log(`[Webhook] Ignoring CONNECTED for user ${userId} — payment suspended`);
+      return;
+    }
+  }
+
   // Update main whatsapp_connections
   await pool.query(
     `UPDATE whatsapp_connections SET status = $1, updated_at = NOW() WHERE user_id = $2`,
