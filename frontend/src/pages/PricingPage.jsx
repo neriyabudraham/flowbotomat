@@ -1620,7 +1620,12 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, periodUpgradeData,
         couponCode: couponData ? couponCode : undefined,
         referralCode: referralInfo?.code,
         isUpgrade: !!periodUpgradeData,
-        proratedAmount: periodUpgradeData?.proratedAmount,
+        // If both period upgrade and coupon active: apply coupon on yearly first, then subtract credit
+        proratedAmount: periodUpgradeData
+          ? (couponData
+              ? Math.max(0, couponData.calculation.final_price - periodUpgradeData.credit)
+              : periodUpgradeData.proratedAmount)
+          : undefined,
       });
       
       onSuccess();
@@ -1904,29 +1909,50 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, periodUpgradeData,
               )}
 
               {/* Period Upgrade (monthly→yearly) proration summary */}
-              {periodUpgradeData && (
-                <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 border border-purple-200">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-gray-600">מחיר שנתי ({plan.name_he})</span>
-                    <span className="text-gray-500">₪{periodUpgradeData.yearlyPrice}</span>
-                  </div>
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-green-700 font-medium">
-                      קיזוז {periodUpgradeData.daysRemaining} ימים שנותרו בחודש
-                    </span>
-                    <span className="text-green-600 font-bold">-₪{periodUpgradeData.credit}</span>
-                  </div>
-                  <div className="border-t border-purple-200 pt-2 mt-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-900 font-bold">סה״כ לתשלום עכשיו</span>
-                      <span className="text-2xl font-bold text-purple-600">₪{periodUpgradeData.proratedAmount}</span>
+              {periodUpgradeData && (() => {
+                const baseYearly = couponData
+                  ? couponData.calculation.final_price
+                  : periodUpgradeData.yearlyPrice;
+                const effectiveTotal = Math.max(0, baseYearly - periodUpgradeData.credit);
+                const nextYearlyPrice = couponData
+                  ? couponData.calculation.final_price
+                  : periodUpgradeData.yearlyPrice;
+                return (
+                  <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 border border-purple-200">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-gray-600">מחיר שנתי ({plan.name_he})</span>
+                      <span className={couponData ? 'text-gray-400 line-through' : 'text-gray-500'}>
+                        ₪{periodUpgradeData.yearlyPrice}
+                      </span>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1 text-left">
-                      * החיוב הבא: בעוד שנה ₪{periodUpgradeData.yearlyPrice}
-                    </p>
+                    {couponData && (
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-purple-700 font-medium">הנחת קופון</span>
+                        <span className="text-purple-600 font-bold">
+                          ₪{couponData.calculation.final_price}
+                        </span>
+                      </div>
+                    )}
+                    {periodUpgradeData.credit > 0 && (
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-green-700 font-medium">
+                          קיזוז {periodUpgradeData.daysRemaining} ימים שנותרו בחודש
+                        </span>
+                        <span className="text-green-600 font-bold">-₪{periodUpgradeData.credit}</span>
+                      </div>
+                    )}
+                    <div className="border-t border-purple-200 pt-2 mt-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-900 font-bold">סה״כ לתשלום עכשיו</span>
+                        <span className="text-2xl font-bold text-purple-600">₪{effectiveTotal}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1 text-left">
+                        * החיוב הבא: בעוד שנה ₪{nextYearlyPrice}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Price Summary with Discount (Coupon or Referral or Yearly or Custom) */}
               {!periodUpgradeData && (couponData || prices.referralDiscount || prices.isYearly || prices.customDiscount) && (
@@ -2013,7 +2039,14 @@ function CheckoutModal({ plan, billingPeriod, customDiscount, periodUpgradeData,
                 ) : (
                   <Lock className="w-5 h-5" />
                 )}
-                {processing ? 'מעבד...' : isTrial ? `התחל ${plan.trial_days} ימי ניסיון חינם` : `שלם ₪${prices.total}${prices.isYearly ? ' (לשנה)' : ''}`}
+                {processing ? 'מעבד...' : isTrial ? `התחל ${plan.trial_days} ימי ניסיון חינם` : (() => {
+                  if (periodUpgradeData) {
+                    const base = couponData ? couponData.calculation.final_price : periodUpgradeData.yearlyPrice;
+                    const effective = Math.max(0, base - periodUpgradeData.credit);
+                    return `שלם ₪${effective} (לשנה)`;
+                  }
+                  return `שלם ₪${prices.total}${prices.isYearly ? ' (לשנה)' : ''}`;
+                })()}
               </button>
             </div>
           )}
