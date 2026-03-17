@@ -41,20 +41,22 @@ WHERE uss.id = '1f23a338-dadf-4d26-ac9c-b5ccc045b545';
 INSERT INTO billing_queue (
   user_id,
   subscription_id,
-  subscription_type,
   amount,
-  scheduled_date,
-  status,
-  created_at
+  charge_date,
+  billing_type,
+  description,
+  currency,
+  status
 )
 VALUES (
   '7ea90ece-c27f-4cbb-aba1-e863a182311b',
   '1f23a338-dadf-4d26-ac9c-b5ccc045b545',
-  'service',
   250.00,
   '2026-04-16',
-  'pending',
-  NOW()
+  'service_recurring',
+  'חידוש בוט העלאת סטטוסים - חודשי',
+  'ILS',
+  'pending'
 );
 
 -- Verify
