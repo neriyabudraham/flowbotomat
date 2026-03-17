@@ -733,7 +733,7 @@ function PaymentHistory({ onViewUser, loadingUser, initialUserEmail, onClearUser
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
-    status: '',
+    status: 'success',
     startDate: '',
     endDate: '',
     search: '',

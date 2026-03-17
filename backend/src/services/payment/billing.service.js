@@ -37,9 +37,20 @@ async function processSubscriptionCharges() {
     
     for (const sub of dueSubscriptions.rows) {
       try {
+        // Skip if billing_queue is already handling this user's charge (prevents double-charging)
+        const { pool } = require('../../config/database');
+        const bqCheck = await pool.query(
+          `SELECT id FROM billing_queue WHERE user_id = $1 AND status IN ('pending', 'processing') LIMIT 1`,
+          [sub.user_id]
+        );
+        if (bqCheck.rows.length > 0) {
+          console.log(`[Billing] Skipping yearly charge for ${sub.user_email} — billing_queue is handling it`);
+          continue;
+        }
+
         // Calculate yearly price with 20% discount
         const yearlyPrice = parseFloat(sub.price) * 12 * 0.8;
-        
+
         console.log(`[Billing] Charging user ${sub.user_email} - ${yearlyPrice} ILS for ${sub.name_he}`);
         
         const chargeResult = await sumitService.chargeOneTime({
@@ -151,11 +162,22 @@ async function processTrialEndings() {
     
     for (const sub of endedTrials.rows) {
       try {
+        // Skip if billing_queue is already handling this user's trial conversion (prevents double-charging)
+        const { pool } = require('../../config/database');
+        const bqCheck = await pool.query(
+          `SELECT id FROM billing_queue WHERE user_id = $1 AND status IN ('pending', 'processing') LIMIT 1`,
+          [sub.user_id]
+        );
+        if (bqCheck.rows.length > 0) {
+          console.log(`[Billing] Skipping trial conversion for ${sub.user_email} — billing_queue is handling it`);
+          continue;
+        }
+
         let chargeAmount = parseFloat(sub.price);
         let chargeResult;
         let nextChargeDate = new Date();
         let expiresAt;
-        
+
         console.log(`[Billing] Converting trial for user ${sub.user_email} - Plan: ${sub.name_he}, Period: ${sub.billing_period}`);
         
         const isYearly = sub.billing_period === 'yearly';
