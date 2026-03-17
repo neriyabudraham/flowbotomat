@@ -383,7 +383,7 @@ function ChangeAmountModal({ charge, onClose, onDone }) {
 function UpcomingCharges({ onRefresh, onViewUser, loadingUser, onViewHistory }) {
   const [charges, setCharges] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [days, setDays] = useState(365);
+  const [days, setDays] = useState(9999);
   const [changeAmountCharge, setChangeAmountCharge] = useState(null);
   const [toast, setToast] = useState(null);
 
