@@ -1339,7 +1339,11 @@ async function handleOutgoingDeviceMessage(userId, payload) {
   // e.g. "972535405090@s.whatsapp.net" — extract the numeric part
   const recipientAltPhone = payload._data?.Info?.RecipientAlt?.split('@')[0];
 
-  const rawPhone = payload.to?.split('@')[0]
+  // Skip payload.to if it contains @lid — for group messages GOWS puts the sender's
+  // LID there instead of the group/contact ID, which would create bogus contacts.
+  const toField = payload.to?.includes('@lid') ? null : payload.to;
+
+  const rawPhone = toField?.split('@')[0]
     || payload.chatId?.split('@')[0]
     || payload.id?.remote?.split('@')[0]
     || payload.key?.remoteJid?.split('@')[0]
