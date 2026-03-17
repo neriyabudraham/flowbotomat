@@ -1630,10 +1630,29 @@ async function monitorDisconnectedSession(userId, sessionName, disconnectTime) {
   console.log(`[SessionMonitor] 🔍 Started monitoring session ${sessionName} for user ${userId}`);
   
   const CHECK_INTERVAL_MS = 5000; // Check every 5 seconds
-  const SHORT_RESTRICTION_THRESHOLD_MS = 60000; // 1 minute
-  const SHORT_RESTRICTION_DURATION_MS = 30 * 60 * 1000; // 30 minutes
-  const LONG_RESTRICTION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
-  
+
+  // Load per-user restriction settings (falls back to defaults if not configured)
+  let shortRestrictionMinutes = 30;
+  let longRestrictionHours = 24;
+  let restrictionsEnabled = true;
+  try {
+    const settingsRow = await pool.query(
+      `SELECT disconnect_restriction_enabled, short_restriction_minutes, long_restriction_hours
+       FROM status_bot_connections WHERE user_id = $1 LIMIT 1`,
+      [userId]
+    );
+    if (settingsRow.rows.length > 0) {
+      const s = settingsRow.rows[0];
+      if (s.disconnect_restriction_enabled === false) restrictionsEnabled = false;
+      if (s.short_restriction_minutes != null) shortRestrictionMinutes = s.short_restriction_minutes;
+      if (s.long_restriction_hours != null) longRestrictionHours = s.long_restriction_hours;
+    }
+  } catch (_) { /* columns may not exist yet — use defaults */ }
+
+  const SHORT_RESTRICTION_THRESHOLD_MS = 60000; // 1 minute — how long disconnected before long restriction
+  const SHORT_RESTRICTION_DURATION_MS = shortRestrictionMinutes * 60 * 1000;
+  const LONG_RESTRICTION_DURATION_MS = longRestrictionHours * 60 * 60 * 1000;
+
   let checkCount = 0;
   const maxChecks = 15; // Stop after ~75 seconds
   
@@ -1658,12 +1677,12 @@ async function monitorDisconnectedSession(userId, sessionName, disconnectTime) {
 
         const FLICKER_THRESHOLD_MS = 30000; // < 30s = normal flicker, no restriction
 
-        if (elapsedMs < FLICKER_THRESHOLD_MS) {
-          // Transient flicker — no restriction
-          console.log(`[SessionMonitor] ✅ User ${userId} reconnected within ${Math.round(elapsedMs/1000)}s — flicker, no restriction`);
+        if (elapsedMs < FLICKER_THRESHOLD_MS || !restrictionsEnabled) {
+          // Transient flicker or restrictions disabled — no restriction
+          console.log(`[SessionMonitor] ✅ User ${userId} reconnected within ${Math.round(elapsedMs/1000)}s — flicker/disabled, no restriction`);
         } else if (elapsedMs < SHORT_RESTRICTION_THRESHOLD_MS) {
-          // Reconnected within 30s–1min - apply 30 minute restriction
-          console.log(`[SessionMonitor] ✅ User ${userId} reconnected within ${Math.round(elapsedMs/1000)}s - applying 30min restriction`);
+          // Reconnected within 30s–1min - apply short restriction
+          console.log(`[SessionMonitor] ✅ User ${userId} reconnected within ${Math.round(elapsedMs/1000)}s - applying ${shortRestrictionMinutes}min restriction`);
 
           const restrictionEnd = new Date(Date.now() + SHORT_RESTRICTION_DURATION_MS);
           await pool.query(`
