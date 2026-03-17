@@ -107,7 +107,6 @@ class BotEngine {
       );
       
       if (contactResult.rows.length === 0) {
-        console.log('[BotEngine] Contact not found:', contactPhone);
         return;
       }
       

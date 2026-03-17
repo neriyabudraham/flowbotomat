@@ -209,8 +209,6 @@ async function deleteScheduledForward(req, res) {
  * Process pending scheduled forwards (called by cron)
  */
 async function processScheduledForwards() {
-  console.log('[ScheduledForwards] Processing scheduled forwards...');
-  
   try {
     // Restore stale rescheduling records (stuck for over 1 hour) back to pending
     await db.query(`
@@ -328,7 +326,6 @@ async function processScheduledForwards() {
       }
     }
     
-    console.log('[ScheduledForwards] Processing completed');
   } catch (error) {
     console.error('[ScheduledForwards] Process error:', error);
   }

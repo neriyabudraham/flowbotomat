@@ -48,8 +48,6 @@ async function getContactStats(req, res) {
       console.log('[Stats] Last message query error:', e.message);
     }
     
-    console.log(`[Stats] Contact ${contactId} - Total: ${messagesResult.rows[0]?.total_count}, In: ${messagesResult.rows[0]?.incoming_count}, Out: ${messagesResult.rows[0]?.outgoing_count}`);
-    
     // Get bots that this contact triggered - from bot_logs table
     let botsResult = { rows: [] };
     try {
@@ -86,8 +84,6 @@ async function getContactStats(req, res) {
         count: parseInt(b.run_count)
       }))
     };
-    
-    console.log(`[Stats] Contact ${contactId} response:`, JSON.stringify(response));
     
     res.json(response);
     

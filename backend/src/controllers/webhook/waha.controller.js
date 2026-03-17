@@ -292,7 +292,6 @@ async function handleWebhook(req, res) {
             await ensureMigrations();
             await saveUserStatus(userId, event.payload);
           } else if (event.payload?.fromMe) {
-            console.log(`[Webhook] 📤 Outgoing message detected: from=${event.payload?.from} to=${event.payload?.to || event.payload?.chatId} type=${event.payload?.type} id=${JSON.stringify(event.payload?.id)}`);
             await handleOutgoingDeviceMessage(userId, event.payload);
           }
           break;
@@ -1351,8 +1350,6 @@ async function handleOutgoingDeviceMessage(userId, payload) {
     || recipientAltPhone;
   const toPhone = rawPhone?.replace(/^\+/, ''); // strip leading + if present
 
-  console.log(`[Webhook] handleOutgoingDeviceMessage: toPhone=${toPhone} type=${payload.type} body=${String(payload.body || '').substring(0, 50)} rawFields={to:${payload.to},chatId:${payload.chatId},idRemote:${payload.id?.remote}}`);
-
   if (!toPhone || !toPhone.match(/^\d+$/)) {
     console.log(`[Webhook] Skipping outgoing message — invalid toPhone: "${toPhone}" (to=${payload.to} chatId=${payload.chatId} recipientAlt=${payload._data?.Info?.RecipientAlt})`);
     return;
@@ -1917,7 +1914,6 @@ async function handleMessageReaction(userId, event) {
       reaction: reactionText,
     });
 
-    console.log(`[Webhook] 💬 Reaction "${reactionText}" on message ${dbMsg.id}`);
   } catch (error) {
     console.error('[Webhook] Reaction handler error:', error.message);
   }
