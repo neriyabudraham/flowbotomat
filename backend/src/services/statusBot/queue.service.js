@@ -562,9 +562,10 @@ async function sendStatus(queueItem) {
 
   const sendPromise = wahaSession.makeRequest(baseUrl, apiKey, 'POST', endpoint, body)
     .catch(err => {
-      // Treat 500 errors like timeout: WhatsApp may have processed the status despite the error
-      if (err.response?.status === 500) {
-        console.log(`[StatusBot] ⚠️ Status id=${queueItem.id} WAHA 500 - treating as uncertain upload`);
+      const status = err.response?.status;
+      // Treat 500/502/503/504 as uncertain: the request may have reached WhatsApp before the error
+      if (status === 500 || status === 502 || status === 503 || status === 504) {
+        console.log(`[StatusBot] ⚠️ Status id=${queueItem.id} WAHA ${status} - treating as uncertain upload`);
         return { uncertain: true, id: messageId };
       }
       throw err;
@@ -576,7 +577,7 @@ async function sendStatus(queueItem) {
   if (response?.timeout || response?.uncertain) {
     if (response.uncertain && historyId) {
       await db.query(`UPDATE status_bot_statuses SET uncertain_upload = true WHERE id = $1`, [historyId]);
-      console.log(`[StatusBot] ⚠️ Status id=${queueItem.id} uncertain upload (WAHA 500) - awaiting first view`);
+      console.log(`[StatusBot] ⚠️ Status id=${queueItem.id} uncertain upload (WAHA 5xx) - awaiting first view`);
     } else {
       console.log(`[StatusBot] ⏱️ Status id=${queueItem.id} TIMEOUT - treating as successful, msgId=${messageId}`);
     }
