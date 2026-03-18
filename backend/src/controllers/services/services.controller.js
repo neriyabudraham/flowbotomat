@@ -764,10 +764,12 @@ async function adminAssignSubscription(req, res) {
           custom_price = $3,
           admin_notes = $4,
           is_manual = true,
+          is_trial = false,
+          trial_ends_at = NULL,
           updated_at = NOW()
         WHERE user_id = $5 AND service_id = $6
         RETURNING *
-      `, [status || 'active', expiresAt || null, customPrice || null, 
+      `, [status || 'active', expiresAt || null, customPrice || null,
           adminNotes || null, userId, serviceId]);
       subscription = updateResult.rows[0];
     } else {

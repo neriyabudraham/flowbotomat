@@ -999,11 +999,15 @@ async function checkSubscriptionForUpload(userId) {
     const now = new Date();
     
     // Check if subscription is active or trial
-    if (sub.status === 'active' || sub.status === 'trial') {
+    if (sub.status === 'active') {
+      return { canUpload: true }; // active subscription always allowed
+    }
+
+    if (sub.status === 'trial') {
       // Check if trial ended
       if (sub.is_trial && sub.trial_ends_at && new Date(sub.trial_ends_at) < now) {
-        return { 
-          canUpload: false, 
+        return {
+          canUpload: false,
           reason: 'תקופת הניסיון הסתיימה. יש לשלם כדי להמשיך',
           subscriptionExpired: true
         };
