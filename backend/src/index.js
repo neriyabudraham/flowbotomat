@@ -392,7 +392,9 @@ server.listen(PORT, () => {
           CONSTRAINT proxy_sources_base_url_unique UNIQUE (base_url)
         )
       `);
-      await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS proxy_ip VARCHAR(50)`);
+      await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS proxy_ip VARCHAR(100)`);
+      await dbQuery(`ALTER TABLE proxy_sources ADD COLUMN IF NOT EXISTS proxy_username VARCHAR(100)`);
+      await dbQuery(`ALTER TABLE proxy_sources ADD COLUMN IF NOT EXISTS proxy_password_enc TEXT`);
       // Drop FK on billing_queue.subscription_id — it references user_subscriptions but
       // service subscriptions use user_service_subscriptions (different table), causing FK violations.
       await dbQuery(`ALTER TABLE billing_queue DROP CONSTRAINT IF EXISTS billing_queue_subscription_id_fkey`);

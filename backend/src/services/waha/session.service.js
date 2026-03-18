@@ -224,6 +224,22 @@ async function findSessionByEmailWithWebhookPriority(baseUrl, apiKey, email, web
 }
 
 /**
+ * Update (or remove) the proxy config on a WAHA session.
+ * @param {string|null} proxy - { server, username, password } or null to remove
+ */
+async function updateSessionProxy(baseUrl, apiKey, sessionName, proxy) {
+  const client = createClient(baseUrl, apiKey);
+  const sessionInfo = await client.get(`/api/sessions/${sessionName}`);
+  const currentConfig = sessionInfo.data?.config || {};
+  await client.put(`/api/sessions/${sessionName}`, {
+    config: {
+      ...currentConfig,
+      proxy: proxy || null,
+    },
+  });
+}
+
+/**
  * Add webhook to session (keeps ALL existing config)
  */
 async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
@@ -1230,6 +1246,7 @@ module.exports = {
   findSessionByEmailAndService,
   findSessionByEmailWithWebhookPriority,
   addWebhook,
+  updateSessionProxy,
   sendMessage,
   sendImage,
   sendFile,

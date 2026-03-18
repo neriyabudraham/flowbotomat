@@ -7,6 +7,7 @@ const wahaSession = require('../../services/waha/session.service');
 const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
 const { checkContactLimit } = require('../../services/limits.service');
 const { assignProxy, removeProxy } = require('../../services/proxy/proxy.service');
+const { getCredentialsForSource } = require('../../services/waha/sources.service');
 
 // In-memory cache: callId -> { callerPhone, userId, isVideo, isGroup, timestamp }
 // Used to resolve caller phone for call.rejected/call.accepted events
@@ -1738,7 +1739,7 @@ async function handleSessionStatus(userId, event) {
           display_name = COALESCE($3, display_name),
           updated_at = NOW()
       WHERE session_name = $4
-      RETURNING id, phone_number, proxy_ip
+      RETURNING id, phone_number, proxy_ip, waha_source_id
     `, [ourStatus, phoneNumber, displayName, session]);
 
     // Assign proxy when status bot session becomes connected and has a phone number
@@ -1747,11 +1748,13 @@ async function handleSessionStatus(userId, event) {
       const resolvedPhone = phoneNumber || sbc.phone_number;
       if (resolvedPhone && !sbc.proxy_ip) {
         try {
-          const proxyIp = await assignProxy(resolvedPhone);
-          if (proxyIp) {
+          const wahaCreds = sbc.waha_source_id ? await getCredentialsForSource(sbc.waha_source_id) : null;
+          const wahaOpts = wahaCreds ? { baseUrl: wahaCreds.baseUrl, apiKey: wahaCreds.apiKey, sessionName: session } : null;
+          const proxyServer = await assignProxy(resolvedPhone, wahaOpts);
+          if (proxyServer) {
             await pool.query(
               `UPDATE status_bot_connections SET proxy_ip = $1 WHERE id = $2`,
-              [proxyIp, sbc.id]
+              [proxyServer, sbc.id]
             );
           }
         } catch (proxyErr) {

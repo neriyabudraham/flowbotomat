@@ -61,14 +61,14 @@ export default function AdminProxySources() {
 
   const openCreate = () => {
     setEditingSource(null);
-    setForm({ base_url: '', api_key: '', name: '' });
+    setForm({ base_url: '', api_key: '', name: '', proxy_username: '', proxy_password: '' });
     setError('');
     setShowForm(true);
   };
 
   const openEdit = (source) => {
     setEditingSource(source);
-    setForm({ base_url: source.base_url || '', api_key: '', name: source.name || '' });
+    setForm({ base_url: source.base_url || '', api_key: '', name: source.name || '', proxy_username: source.proxy_username || '', proxy_password: '' });
     setError('');
     setShowForm(true);
   };
@@ -81,6 +81,8 @@ export default function AdminProxySources() {
     try {
       const payload = { base_url: form.base_url.trim(), name: form.name.trim() || undefined };
       if (form.api_key.trim()) payload.api_key = form.api_key.trim();
+      if (form.proxy_username !== undefined) payload.proxy_username = form.proxy_username.trim() || '';
+      if (form.proxy_password.trim()) payload.proxy_password = form.proxy_password.trim();
       if (editingSource) {
         await api.put(`/admin/proxy-sources/${editingSource.id}`, payload);
       } else {
@@ -462,6 +464,35 @@ export default function AdminProxySources() {
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                     dir="ltr"
                   />
+                </div>
+                <div className="border-t border-gray-100 pt-3">
+                  <p className="text-xs text-gray-500 mb-3">פרטי אימות לשרת הפרוקסי (לסשן WAHA)</p>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">שם משתמש לפרוקסי (אופציונלי)</label>
+                      <input
+                        type="text"
+                        value={form.proxy_username}
+                        onChange={e => setForm(f => ({ ...f, proxy_username: e.target.value }))}
+                        placeholder="username"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        dir="ltr"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        סיסמה לפרוקסי {editingSource ? '(השאר ריק לאי-שינוי)' : '(אופציונלי)'}
+                      </label>
+                      <input
+                        type="password"
+                        value={form.proxy_password}
+                        onChange={e => setForm(f => ({ ...f, proxy_password: e.target.value }))}
+                        placeholder={editingSource ? '••••••• (ללא שינוי)' : 'סיסמה'}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        dir="ltr"
+                      />
+                    </div>
+                  </div>
                 </div>
                 {error && (
                   <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 rounded-lg p-3">

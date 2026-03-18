@@ -740,7 +740,7 @@ async function getQR(req, res) {
       // Assign proxy if not already assigned
       if (phoneNumber && !connection.proxy_ip) {
         try {
-          const proxyIp = await assignProxy(phoneNumber);
+          const proxyIp = await assignProxy(phoneNumber, { baseUrl, apiKey, sessionName: connection.session_name });
           if (proxyIp) {
             await db.query(`UPDATE status_bot_connections SET proxy_ip = $1 WHERE id = $2`, [proxyIp, connection.id]);
           }
@@ -809,10 +809,10 @@ async function disconnect(req, res) {
       console.error('[StatusBot] Stop session error:', e.message);
     }
 
-    // Remove proxy assignment before clearing phone_number
+    // Remove proxy assignment before clearing phone_number (also clears WAHA session proxy)
     if (connection.phone_number) {
       try {
-        await removeProxy(connection.phone_number);
+        await removeProxy(connection.phone_number, { baseUrl, apiKey, sessionName: connection.session_name });
       } catch (proxyErr) {
         console.error('[StatusBot] Proxy removal error:', proxyErr.message);
       }
