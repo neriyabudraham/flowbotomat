@@ -4,7 +4,6 @@ const botEngine = require('../../services/botEngine.service');
 const groupForwardsTrigger = require('../../services/groupForwards/trigger.service');
 const groupTransfersTrigger = require('../../services/groupTransfers/trigger.service');
 const wahaSession = require('../../services/waha/session.service');
-const { decrypt } = require('../../services/crypto/encrypt.service');
 const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
 const { checkContactLimit } = require('../../services/limits.service');
 

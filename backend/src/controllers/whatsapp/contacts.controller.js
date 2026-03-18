@@ -1,6 +1,5 @@
 const pool = require('../../config/database');
 const wahaService = require('../../services/waha/session.service');
-const { decrypt } = require('../../services/crypto/encrypt.service');
 const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
 
 /**

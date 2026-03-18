@@ -1,6 +1,5 @@
 const db = require('../config/database');
 const wahaService = require('./waha/session.service');
-const { decrypt } = require('./crypto/encrypt.service');
 const { getWahaCredentialsForConnection } = require('./settings/system.service');
 const validationService = require('./validation.service');
 const { checkLimit, incrementBotRuns } = require('../controllers/subscriptions/subscriptions.controller');

@@ -1,5 +1,4 @@
 const db = require('../../config/database');
-const { decrypt } = require('../../services/crypto/encrypt.service');
 const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
 const axios = require('axios');
 

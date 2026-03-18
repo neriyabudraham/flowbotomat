@@ -1,7 +1,6 @@
 const db = require('../../config/database');
 const wahaService = require('../waha/session.service');
 const { getWahaCredentialsForConnection } = require('../settings/system.service');
-const { decrypt } = require('../crypto/encrypt.service');
 const { emitToUser } = require('../socket/manager.service');
 
 // Track active campaign processes with detailed progress

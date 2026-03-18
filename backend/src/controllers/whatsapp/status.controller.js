@@ -1,6 +1,5 @@
 const pool = require('../../config/database');
 const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
-const { decrypt } = require('../../services/crypto/encrypt.service');
 const wahaSession = require('../../services/waha/session.service');
 
 // Required webhook events - must match connect.controller.js
