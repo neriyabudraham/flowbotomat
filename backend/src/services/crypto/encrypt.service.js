@@ -30,19 +30,27 @@ function encrypt(text) {
  */
 function decrypt(encryptedText) {
   if (!encryptedText) return null;
-  
-  const [ivHex, authTagHex, encrypted] = encryptedText.split(':');
-  
+
+  const parts = encryptedText.split(':');
+  if (parts.length !== 3) {
+    throw new Error(`שגיאת פענוח: פורמט לא תקין (${parts.length} חלקים במקום 3) — ייתכן שהנתונים הוצפנו עם מפתח אחר`);
+  }
+
+  const [ivHex, authTagHex, encrypted] = parts;
+
   const iv = Buffer.from(ivHex, 'hex');
   const authTag = Buffer.from(authTagHex, 'hex');
   const decipher = crypto.createDecipheriv(ALGORITHM, getKey(), iv);
-  
+
   decipher.setAuthTag(authTag);
-  
-  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  
-  return decrypted;
+
+  try {
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err) {
+    throw new Error(`שגיאת פענוח AES-GCM: ${err.message} — ייתכן שה-ENCRYPTION_KEY שונה מזה שבו הוצפנו הנתונים`);
+  }
 }
 
 module.exports = { encrypt, decrypt };

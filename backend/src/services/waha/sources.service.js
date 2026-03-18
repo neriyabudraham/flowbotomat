@@ -85,7 +85,11 @@ async function getCredentialsForSource(sourceId) {
   const result = await db.query(`SELECT * FROM waha_sources WHERE id = $1`, [sourceId]);
   if (result.rows.length === 0) return null;
   const src = result.rows[0];
-  return { baseUrl: src.base_url, apiKey: decrypt(src.api_key_enc), webhookBaseUrl: src.webhook_base_url };
+  try {
+    return { baseUrl: src.base_url, apiKey: decrypt(src.api_key_enc), webhookBaseUrl: src.webhook_base_url };
+  } catch (err) {
+    throw new Error(`שגיאה בפענוח אישורי WAHA source "${src.name}" (id=${sourceId}): ${err.message}`);
+  }
 }
 
 module.exports = {

@@ -17,11 +17,15 @@ async function getWahaCredentialsForConnection(connection) {
 
   if (connection.connection_type === 'external') {
     const { decrypt } = require('../crypto/encrypt.service');
-    return {
-      baseUrl: decrypt(connection.external_base_url),
-      apiKey: decrypt(connection.external_api_key),
-      webhookBaseUrl: null,
-    };
+    try {
+      return {
+        baseUrl: decrypt(connection.external_base_url),
+        apiKey: decrypt(connection.external_api_key),
+        webhookBaseUrl: null,
+      };
+    } catch (err) {
+      throw new Error(`שגיאה בפענוח אישורי external connection (id=${connection.id}): ${err.message}`);
+    }
   }
 
   // Managed connection — use waha_source_id if available

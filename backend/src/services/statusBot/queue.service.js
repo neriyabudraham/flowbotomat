@@ -377,6 +377,7 @@ async function processQueue() {
     } catch (sendError) {
       const isTimeout = sendError.message?.includes('timeout') || sendError.message?.includes('TIMEOUT');
       console.error(`[StatusBot] ❌ Status id=${item.id} ${isTimeout ? 'TIMEOUT' : 'ERROR'}: ${sendError.message}`);
+      if (!isTimeout) console.error(sendError.stack || sendError);
       
       // Emit socket event for admin monitoring
       emitToAdmin('statusbot:processing_end', {
