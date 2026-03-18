@@ -103,6 +103,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      backend:
+        condition: service_healthy
     networks:
       - flowbotomat_network
     command: node src/workers/queueProcessor.js
