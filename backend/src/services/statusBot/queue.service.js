@@ -217,7 +217,7 @@ async function processQueue() {
       // Check for stuck processing (timeout)
       if (lock.processing_started_at) {
         const processingTime = Date.now() - new Date(lock.processing_started_at).getTime();
-        if (processingTime > await getStatusTimeout()) {
+        if (processingTime > await getStatusTimeout() + 60000) {
           console.log('[StatusBot Queue] Stuck processing detected, resetting...');
           await db.query(`
             UPDATE status_bot_queue_lock 
@@ -349,7 +349,7 @@ async function processQueue() {
         processingPromiseCallback(sendPromise);
       }
       
-      await sendPromise;
+      const sendResult = await sendPromise;
 
       // Mark as sent
       await db.query(`
@@ -367,7 +367,11 @@ async function processQueue() {
       `, [item.connection_id]);
 
       const uploadDuration = Math.round((Date.now() - now.getTime()) / 1000);
-      console.log(`[StatusBot] ✅ Status id=${item.id} uploaded successfully in ${uploadDuration}s`);
+      if (sendResult?.timeout) {
+        console.log(`[StatusBot] ⏱️ Status id=${item.id} type=${item.status_type} TIMEOUT after ${uploadDuration}s (treating as success)`);
+      } else {
+        console.log(`[StatusBot] ✅ Status id=${item.id} type=${item.status_type} confirmed uploaded in ${uploadDuration}s`);
+      }
 
       // Send WhatsApp notification if this was from WhatsApp and was scheduled
       await sendStatusNotification(item, true);
@@ -561,8 +565,6 @@ async function sendStatus(queueItem) {
     default:
       throw new Error(`Unknown status type: ${queueItem.status_type}`);
   }
-
-  console.log(`[StatusBot Queue] Sending to ${endpoint}`, JSON.stringify(body, null, 2));
 
   // Send the status with timeout
   const timeoutMs = await getStatusTimeout();

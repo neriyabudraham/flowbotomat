@@ -223,59 +223,34 @@ async function findSessionByEmailWithWebhookPriority(baseUrl, apiKey, email, web
   return null;
 }
 
-// Intelligence webhook events (internal service)
-const INTELLIGENCE_WEBHOOK_EVENTS = ['message.ack', 'message.reaction', 'presence.update'];
-
-/**
- * Get the intelligence webhook URL for a session
- */
-function getIntelligenceWebhookUrl(sessionName) {
-  return `http://botomat-intelligence:3000/webhook/${sessionName}`;
-}
-
 /**
  * Add webhook to session (keeps ALL existing config)
- * Also manages intelligence webhook and ensures only 2 webhooks exist per session
  */
 async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
   const client = createClient(baseUrl, apiKey);
-  
+
   // Get current session config
   const sessionInfo = await client.get(`/api/sessions/${sessionName}`);
   const currentConfig = sessionInfo.data?.config || {};
   const currentWebhooks = currentConfig.webhooks || [];
-  
-  // Define the two allowed webhooks
+
   const mainWebhookUrl = webhookUrl; // e.g., https://botomat.co.il/api/webhook/waha/{userId}
-  const intelligenceWebhookUrl = getIntelligenceWebhookUrl(sessionName);
-  
-  // Remove only stale/old versions of OUR webhooks (botomat.co.il/api/webhook/waha/...)
-  // Keep all third-party webhooks untouched
+
+  // Remove stale versions of our main webhook; keep all third-party webhooks untouched
   const OUR_WEBHOOK_PATTERN = 'botomat.co.il/api/webhook/waha/';
-  // Keep only true third-party webhooks — exclude ALL botomat webhooks (current + old) and intelligence
   const thirdPartyWebhooks = currentWebhooks.filter(wh => {
     const url = wh.url || '';
-    return !url.includes(OUR_WEBHOOK_PATTERN) && url !== intelligenceWebhookUrl;
+    return !url.includes(OUR_WEBHOOK_PATTERN) && !url.includes('botomat-intelligence');
   });
 
-  const removedCount = currentWebhooks.length - thirdPartyWebhooks.length;
-  // stale webhooks removed silently
-
-  // Build final webhooks: third-party first, then our main, then intelligence
+  // Build final webhooks: third-party first, then our main
   const finalWebhooks = [...thirdPartyWebhooks];
 
-  // 1. Main system webhook
+  // Main system webhook
   const existingMain = currentWebhooks.find(wh => wh.url === mainWebhookUrl);
   finalWebhooks.push(existingMain
     ? { ...existingMain, events }
     : { url: mainWebhookUrl, events, retries: { delaySeconds: 2, attempts: 2, policy: 'constant' } }
-  );
-
-  // 2. Intelligence webhook
-  const existingIntelligence = currentWebhooks.find(wh => wh.url === intelligenceWebhookUrl);
-  finalWebhooks.push(existingIntelligence
-    ? { ...existingIntelligence, events: INTELLIGENCE_WEBHOOK_EVENTS }
-    : { url: intelligenceWebhookUrl, events: INTELLIGENCE_WEBHOOK_EVENTS, retries: { delaySeconds: 2, attempts: 2, policy: 'constant' } }
   );
   
   // Update session - keep ALL existing config, update webhooks, ensure status/groups/channels/broadcast enabled
