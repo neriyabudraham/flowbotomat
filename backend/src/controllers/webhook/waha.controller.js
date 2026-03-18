@@ -6,6 +6,7 @@ const groupTransfersTrigger = require('../../services/groupTransfers/trigger.ser
 const wahaSession = require('../../services/waha/session.service');
 const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
 const { checkContactLimit } = require('../../services/limits.service');
+const { assignProxy, removeProxy } = require('../../services/proxy/proxy.service');
 
 // In-memory cache: callId -> { callerPhone, userId, isVideo, isGroup, timestamp }
 // Used to resolve caller phone for call.rejected/call.accepted events
@@ -1729,15 +1730,35 @@ async function handleSessionStatus(userId, event) {
   if (session) {
     const phoneNumber = payload.me?.id?.split('@')[0] || null;
     const displayName = payload.me?.pushName || null;
-    
-    await pool.query(`
-      UPDATE status_bot_connections 
-      SET connection_status = $1, 
+
+    const sbcResult = await pool.query(`
+      UPDATE status_bot_connections
+      SET connection_status = $1,
           phone_number = COALESCE($2, phone_number),
           display_name = COALESCE($3, display_name),
           updated_at = NOW()
       WHERE session_name = $4
+      RETURNING id, phone_number, proxy_ip
     `, [ourStatus, phoneNumber, displayName, session]);
+
+    // Assign proxy when status bot session becomes connected and has a phone number
+    if (ourStatus === 'connected' && sbcResult.rows.length > 0) {
+      const sbc = sbcResult.rows[0];
+      const resolvedPhone = phoneNumber || sbc.phone_number;
+      if (resolvedPhone && !sbc.proxy_ip) {
+        try {
+          const proxyIp = await assignProxy(resolvedPhone);
+          if (proxyIp) {
+            await pool.query(
+              `UPDATE status_bot_connections SET proxy_ip = $1 WHERE id = $2`,
+              [proxyIp, sbc.id]
+            );
+          }
+        } catch (proxyErr) {
+          console.error('[Webhook] Proxy assignment error:', proxyErr.message);
+        }
+      }
+    }
   }
   
   // Emit status change to frontend

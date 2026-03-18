@@ -1,6 +1,7 @@
 const db = require('../../config/database');
 const wahaSession = require('../../services/waha/session.service');
 const { getWahaCredentials, getWahaCredentialsForConnection } = require('../../services/settings/system.service');
+const { assignProxy, removeProxy } = require('../../services/proxy/proxy.service');
 const crypto = require('crypto');
 
 // ============================================
@@ -253,6 +254,11 @@ async function initializeTables() {
       ALTER TABLE cloud_api_conversation_states 
       ADD COLUMN IF NOT EXISTS pending_statuses JSONB DEFAULT '{}'
     `);
+
+    // Add proxy_ip column if not exists
+    await db.query(`
+      ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS proxy_ip VARCHAR(50)
+    `).catch(() => {});
 
     // Create indexes
     await db.query(`CREATE INDEX IF NOT EXISTS idx_status_bot_queue_status ON status_bot_queue(queue_status)`);
@@ -723,13 +729,26 @@ async function getQR(req, res) {
       // Already connected - update DB
       const phoneNumber = sessionStatus.me?.id?.split('@')[0] || null;
       const displayName = sessionStatus.me?.pushName || null;
-      
+
       await db.query(`
-        UPDATE status_bot_connections 
+        UPDATE status_bot_connections
         SET connection_status = 'connected', phone_number = $2, display_name = $3,
             first_connected_at = COALESCE(first_connected_at, NOW()), updated_at = NOW()
         WHERE id = $1
       `, [connection.id, phoneNumber, displayName]);
+
+      // Assign proxy if not already assigned
+      if (phoneNumber && !connection.proxy_ip) {
+        try {
+          const proxyIp = await assignProxy(phoneNumber);
+          if (proxyIp) {
+            await db.query(`UPDATE status_bot_connections SET proxy_ip = $1 WHERE id = $2`, [proxyIp, connection.id]);
+          }
+        } catch (proxyErr) {
+          console.error('[StatusBot] Proxy assignment error:', proxyErr.message);
+        }
+      }
+
       return res.json({ status: 'connected' });
     }
 
@@ -790,10 +809,19 @@ async function disconnect(req, res) {
       console.error('[StatusBot] Stop session error:', e.message);
     }
 
+    // Remove proxy assignment before clearing phone_number
+    if (connection.phone_number) {
+      try {
+        await removeProxy(connection.phone_number);
+      } catch (proxyErr) {
+        console.error('[StatusBot] Proxy removal error:', proxyErr.message);
+      }
+    }
+
     // Update DB
     await db.query(`
-      UPDATE status_bot_connections 
-      SET connection_status = 'disconnected', phone_number = NULL, display_name = NULL, updated_at = NOW()
+      UPDATE status_bot_connections
+      SET connection_status = 'disconnected', phone_number = NULL, display_name = NULL, proxy_ip = NULL, updated_at = NOW()
       WHERE id = $1
     `, [connection.id]);
 

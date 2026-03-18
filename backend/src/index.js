@@ -378,6 +378,21 @@ server.listen(PORT, () => {
       } catch (seedErr) {
         console.error('[Startup] WAHA source seed error:', seedErr.message);
       }
+      // Proxy sources for Status Bot
+      await dbQuery(`
+        CREATE TABLE IF NOT EXISTS proxy_sources (
+          id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          name        VARCHAR(100),
+          base_url    TEXT NOT NULL,
+          api_key_enc TEXT NOT NULL,
+          is_active   BOOLEAN NOT NULL DEFAULT true,
+          created_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          CONSTRAINT proxy_sources_base_url_unique UNIQUE (base_url)
+        )
+      `);
+      await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS proxy_ip VARCHAR(50)`);
       // Drop FK on billing_queue.subscription_id — it references user_subscriptions but
       // service subscriptions use user_service_subscriptions (different table), causing FK violations.
       await dbQuery(`ALTER TABLE billing_queue DROP CONSTRAINT IF EXISTS billing_queue_subscription_id_fkey`);

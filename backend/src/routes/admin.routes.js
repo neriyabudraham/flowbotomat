@@ -10,6 +10,7 @@ const backupsController = require('../controllers/admin/backups.controller');
 const promotionsController = require('../controllers/admin/promotions.controller');
 const billingController = require('../controllers/admin/billing.controller');
 const wahaSourcesController = require('../controllers/admin/waha-sources.controller');
+const proxySourcesController = require('../controllers/admin/proxy-sources.controller');
 
 // All admin routes require auth + admin role
 router.use(authMiddleware);
@@ -45,6 +46,12 @@ router.get('/waha-sources', wahaSourcesController.list);
 router.post('/waha-sources', superadminMiddleware, wahaSourcesController.create);
 router.put('/waha-sources/:id', superadminMiddleware, wahaSourcesController.update);
 router.delete('/waha-sources/:id', superadminMiddleware, wahaSourcesController.deactivate);
+
+// Proxy sources management
+router.get('/proxy-sources', proxySourcesController.list);
+router.post('/proxy-sources', superadminMiddleware, proxySourcesController.create);
+router.put('/proxy-sources/:id', superadminMiddleware, proxySourcesController.update);
+router.delete('/proxy-sources/:id', superadminMiddleware, proxySourcesController.deactivate);
 
 // System settings (superadmin only for updates)
 router.get('/settings', settingsController.getSettings);
