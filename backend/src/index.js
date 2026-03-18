@@ -354,13 +354,18 @@ server.listen(PORT, () => {
         const wahaBaseUrl = process.env.WAHA_BASE_URL;
         const wahaApiKey = process.env.WAHA_API_KEY;
         if (wahaBaseUrl && wahaApiKey) {
+          const encryptedApiKey = encryptForSeed(wahaApiKey);
           // Always re-encrypt the API key with the current ENCRYPTION_KEY on startup.
           // DO UPDATE ensures that if ENCRYPTION_KEY changed, the stored encrypted value is refreshed.
           await dbQuery(`
             INSERT INTO waha_sources (name, base_url, api_key_enc, is_active)
             VALUES ('Default', $1, $2, true)
             ON CONFLICT (base_url) DO UPDATE SET api_key_enc = EXCLUDED.api_key_enc
-          `, [wahaBaseUrl, encryptForSeed(wahaApiKey)]);
+          `, [wahaBaseUrl, encryptedApiKey]);
+          // Also update by name "Default" in case base_url differs slightly (trailing slash etc.)
+          await dbQuery(`
+            UPDATE waha_sources SET api_key_enc = $1 WHERE name = 'Default'
+          `, [encryptedApiKey]);
           await dbQuery(`
             UPDATE whatsapp_connections wc
             SET waha_source_id = ws.id

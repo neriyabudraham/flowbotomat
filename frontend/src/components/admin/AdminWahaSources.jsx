@@ -124,6 +124,17 @@ export default function AdminWahaSources() {
     }
   };
 
+  const handleReEncryptFromEnv = async () => {
+    if (!window.confirm('פעולה זו תעדכן את ה-API Key של ה-Default source לפי WAHA_API_KEY שב-env, ותפתור שגיאות פענוח. להמשיך?')) return;
+    try {
+      const { data } = await api.post('/admin/waha-sources/re-encrypt-from-env');
+      alert(`✅ עודכנו ${data.updated?.length || 0} מקורות בהצלחה`);
+      load();
+    } catch (err) {
+      alert('שגיאה: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
   if (loading) {
     return <div className="text-center py-8 text-gray-500">טוען מקורות WAHA...</div>;
   }
@@ -141,6 +152,13 @@ export default function AdminWahaSources() {
         <div className="flex gap-2">
           <button onClick={load} className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
             <RefreshCw size={18} />
+          </button>
+          <button
+            onClick={handleReEncryptFromEnv}
+            className="flex items-center gap-2 px-3 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors text-sm font-medium"
+            title="תקן שגיאת פענוח — מעדכן את ה-API Key מה-env vars"
+          >
+            תקן הצפנה
           </button>
           <button
             onClick={openCreate}

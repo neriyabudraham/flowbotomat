@@ -1,4 +1,5 @@
 const sourcesService = require('../../services/waha/sources.service');
+const db = require('../../config/database');
 
 async function list(req, res) {
   try {
@@ -84,4 +85,32 @@ async function deactivate(req, res) {
   }
 }
 
-module.exports = { list, create, update, deactivate };
+/**
+ * Re-encrypt WAHA source API keys from env vars — fixes "Unsupported state" decryption errors.
+ * Updates the Default source (matched by name) with current WAHA_API_KEY re-encrypted with current ENCRYPTION_KEY.
+ */
+async function reEncryptFromEnv(req, res) {
+  try {
+    const wahaBaseUrl = process.env.WAHA_BASE_URL;
+    const wahaApiKey = process.env.WAHA_API_KEY;
+    if (!wahaBaseUrl || !wahaApiKey) {
+      return res.status(400).json({ error: 'WAHA_BASE_URL or WAHA_API_KEY not set in environment' });
+    }
+    const { encrypt } = require('../../services/crypto/encrypt.service');
+    const encryptedApiKey = encrypt(wahaApiKey);
+    // Update by base_url AND by name 'Default' to cover both matching strategies
+    const result = await db.query(`
+      UPDATE waha_sources
+      SET api_key_enc = $1, updated_at = NOW()
+      WHERE base_url = $2 OR name = 'Default'
+      RETURNING id, name, base_url
+    `, [encryptedApiKey, wahaBaseUrl]);
+    console.log(`[WahaSources] Re-encrypted ${result.rowCount} source(s) from env vars`);
+    res.json({ success: true, updated: result.rows });
+  } catch (e) {
+    console.error('[WahaSources] re-encrypt error:', e);
+    res.status(500).json({ error: e.message });
+  }
+}
+
+module.exports = { list, create, update, deactivate, reEncryptFromEnv };
