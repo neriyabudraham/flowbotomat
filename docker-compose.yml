@@ -90,6 +90,7 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       APP_URL: ${APP_URL}
       WAHA_BASE_URL: ${WAHA_BASE_URL}
       WAHA_API_KEY: ${WAHA_API_KEY}
