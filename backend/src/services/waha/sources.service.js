@@ -73,7 +73,7 @@ async function pickSourceForNewSession() {
     LEFT JOIN whatsapp_connections wc ON wc.waha_source_id = ws.id
     WHERE ws.is_active = true
     GROUP BY ws.id
-    ORDER BY session_count ASC, ws.priority ASC, ws.created_at ASC
+    ORDER BY session_count ASC, ws.created_at ASC
     LIMIT 1
   `);
   if (result.rows.length === 0) return null;
