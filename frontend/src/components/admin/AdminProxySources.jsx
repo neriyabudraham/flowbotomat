@@ -1,11 +1,22 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, RefreshCw, Shield, CheckCircle, XCircle, AlertCircle, Wifi, Users } from 'lucide-react';
+import { Plus, Edit2, Trash2, RefreshCw, Shield, CheckCircle, XCircle, AlertCircle, Wifi, Users, ChevronDown, ChevronUp } from 'lucide-react';
 import api from '../../services/api';
+
+const STATUS_LABEL = {
+  connected: { label: 'מחובר', cls: 'bg-green-100 text-green-700' },
+  disconnected: { label: 'מנותק', cls: 'bg-gray-100 text-gray-600' },
+  qr_pending: { label: 'ממתין QR', cls: 'bg-yellow-100 text-yellow-700' },
+  failed: { label: 'כשל', cls: 'bg-red-100 text-red-700' },
+};
 
 export default function AdminProxySources() {
   const [sources, setSources] = useState([]);
   const [proxies, setProxies] = useState([]);
+  const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingConns, setLoadingConns] = useState(false);
+  const [showConns, setShowConns] = useState(false);
+  const [connFilter, setConnFilter] = useState('all'); // all | has_proxy | no_proxy
   const [showForm, setShowForm] = useState(false);
   const [editingSource, setEditingSource] = useState(null);
   const [form, setForm] = useState({ base_url: '', api_key: '', name: '' });
@@ -29,6 +40,23 @@ export default function AdminProxySources() {
     }
   };
 
+  const loadConnections = async () => {
+    setLoadingConns(true);
+    try {
+      const { data } = await api.get('/admin/proxy-sources/connections');
+      setConnections(data.connections || []);
+    } catch (err) {
+      console.error('Failed to load connections:', err);
+    } finally {
+      setLoadingConns(false);
+    }
+  };
+
+  const toggleConns = () => {
+    if (!showConns && connections.length === 0) loadConnections();
+    setShowConns(v => !v);
+  };
+
   const openCreate = () => {
     setEditingSource(null);
     setForm({ base_url: '', api_key: '', name: '' });
@@ -49,12 +77,8 @@ export default function AdminProxySources() {
     setSaving(true);
     setError('');
     try {
-      const payload = {
-        base_url: form.base_url.trim(),
-        name: form.name.trim() || undefined,
-      };
+      const payload = { base_url: form.base_url.trim(), name: form.name.trim() || undefined };
       if (form.api_key.trim()) payload.api_key = form.api_key.trim();
-
       if (editingSource) {
         await api.put(`/admin/proxy-sources/${editingSource.id}`, payload);
       } else {
@@ -77,6 +101,7 @@ export default function AdminProxySources() {
       const { data } = await api.post('/admin/proxy-sources/sync');
       setSyncResult(data);
       load();
+      if (showConns) loadConnections();
     } catch (err) {
       setSyncResult({ error: err.response?.data?.error || 'שגיאה בסנכרון' });
     } finally {
@@ -93,6 +118,15 @@ export default function AdminProxySources() {
       alert(err.response?.data?.error || 'שגיאה בנטרול');
     }
   };
+
+  const filteredConns = connections.filter(c => {
+    if (connFilter === 'has_proxy') return !!c.proxy_ip;
+    if (connFilter === 'no_proxy') return !c.proxy_ip;
+    return true;
+  });
+
+  const withProxy = connections.filter(c => !!c.proxy_ip).length;
+  const withoutProxy = connections.filter(c => !c.proxy_ip && c.connection_status === 'connected').length;
 
   if (loading) {
     return <div className="text-center py-8 text-gray-500">טוען מקורות פרוקסי...</div>;
@@ -183,18 +217,10 @@ export default function AdminProxySources() {
                 </div>
                 {src.is_active && (
                   <div className="flex gap-2 flex-shrink-0">
-                    <button
-                      onClick={() => openEdit(src)}
-                      className="p-2 text-gray-600 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                      title="עריכה"
-                    >
+                    <button onClick={() => openEdit(src)} className="p-2 text-gray-600 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors" title="עריכה">
                       <Edit2 size={16} />
                     </button>
-                    <button
-                      onClick={() => handleDeactivate(src.id)}
-                      className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      title="נטרול"
-                    >
+                    <button onClick={() => handleDeactivate(src.id)} className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="נטרול">
                       <Trash2 size={16} />
                     </button>
                   </div>
@@ -204,6 +230,102 @@ export default function AdminProxySources() {
           ))}
         </div>
       )}
+
+      {/* Connections status section */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <button
+          onClick={toggleConns}
+          className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Users size={18} className="text-purple-600" />
+            <span className="font-semibold text-gray-800">מצב שיוך פרוקסי ללקוחות</span>
+            {connections.length > 0 && (
+              <div className="flex gap-2">
+                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">{withProxy} משויכים</span>
+                {withoutProxy > 0 && (
+                  <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{withoutProxy} מחוברים ללא פרוקסי</span>
+                )}
+              </div>
+            )}
+          </div>
+          {showConns ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
+        </button>
+
+        {showConns && (
+          <div className="border-t border-gray-100">
+            {/* Filter tabs */}
+            <div className="flex gap-1 px-5 pt-3 pb-2">
+              {[
+                { key: 'all', label: `הכל (${connections.length})` },
+                { key: 'has_proxy', label: `יש פרוקסי (${withProxy})` },
+                { key: 'no_proxy', label: `אין פרוקסי (${connections.filter(c => !c.proxy_ip).length})` },
+              ].map(f => (
+                <button
+                  key={f.key}
+                  onClick={() => setConnFilter(f.key)}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${connFilter === f.key ? 'bg-purple-100 text-purple-700' : 'text-gray-500 hover:bg-gray-100'}`}
+                >
+                  {f.label}
+                </button>
+              ))}
+              <button onClick={loadConnections} className="mr-auto p-1 text-gray-400 hover:text-gray-600">
+                <RefreshCw size={14} />
+              </button>
+            </div>
+
+            {loadingConns ? (
+              <div className="text-center py-6 text-gray-400 text-sm">טוען...</div>
+            ) : filteredConns.length === 0 ? (
+              <div className="text-center py-6 text-gray-400 text-sm">אין תוצאות</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-y border-gray-100">
+                    <tr>
+                      <th className="text-right px-4 py-2 font-medium text-gray-600">משתמש</th>
+                      <th className="text-right px-4 py-2 font-medium text-gray-600">טלפון</th>
+                      <th className="text-right px-4 py-2 font-medium text-gray-600">סטטוס</th>
+                      <th className="text-right px-4 py-2 font-medium text-gray-600">פרוקסי משויך</th>
+                      <th className="text-right px-4 py-2 font-medium text-gray-600">עדכון אחרון</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {filteredConns.map((c) => {
+                      const st = STATUS_LABEL[c.connection_status] || { label: c.connection_status, cls: 'bg-gray-100 text-gray-600' };
+                      return (
+                        <tr key={c.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-2.5">
+                            <div className="font-medium text-gray-800">{c.user_name || '—'}</div>
+                            <div className="text-xs text-gray-400">{c.user_email}</div>
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-gray-700">
+                            {c.phone_number || '—'}
+                            {c.display_name && <div className="text-xs text-gray-400">{c.display_name}</div>}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${st.cls}`}>{st.label}</span>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            {c.proxy_ip ? (
+                              <span className="font-mono text-green-700 bg-green-50 px-2 py-0.5 rounded text-xs">{c.proxy_ip}</span>
+                            ) : (
+                              <span className="text-xs text-gray-400">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs text-gray-400">
+                            {c.updated_at ? new Date(c.updated_at).toLocaleDateString('he-IL') : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Live proxy list from active source */}
       {proxies.length > 0 && (

@@ -62,6 +62,33 @@ async function deactivate(req, res) {
 }
 
 /**
+ * List all status bot connections with their proxy assignment status.
+ */
+async function listConnections(req, res) {
+  try {
+    const result = await db.query(`
+      SELECT
+        sbc.id,
+        sbc.phone_number,
+        sbc.display_name,
+        sbc.connection_status,
+        sbc.proxy_ip,
+        sbc.updated_at,
+        u.id   AS user_id,
+        u.name AS user_name,
+        u.email AS user_email
+      FROM status_bot_connections sbc
+      JOIN users u ON u.id = sbc.user_id
+      ORDER BY sbc.connection_status ASC, sbc.updated_at DESC
+    `);
+    res.json({ connections: result.rows });
+  } catch (e) {
+    console.error('[ProxySources] listConnections error:', e);
+    res.status(500).json({ error: 'שגיאה בטעינת חיבורים' });
+  }
+}
+
+/**
  * Bulk-assign proxies to all connected status bot users who don't have one yet.
  */
 async function syncExisting(req, res) {
@@ -110,4 +137,4 @@ async function syncExisting(req, res) {
   }
 }
 
-module.exports = { list, create, update, deactivate, syncExisting };
+module.exports = { list, create, update, deactivate, syncExisting, listConnections };
