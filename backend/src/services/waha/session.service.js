@@ -230,13 +230,12 @@ async function findSessionByEmailWithWebhookPriority(baseUrl, apiKey, email, web
 async function updateSessionProxy(baseUrl, apiKey, sessionName, proxy) {
   const client = createClient(baseUrl, apiKey);
   const sessionInfo = await client.get(`/api/sessions/${sessionName}`);
-  const currentConfig = sessionInfo.data?.config || {};
-  await client.put(`/api/sessions/${sessionName}`, {
-    config: {
-      ...currentConfig,
-      proxy: proxy || null,
-    },
-  });
+  // eslint-disable-next-line no-unused-vars
+  const { proxy: _old, ...configWithoutProxy } = sessionInfo.data?.config || {};
+  // When removing: omit proxy key entirely (don't send null — WAHA may ignore it)
+  // When setting: include the proxy object
+  const config = proxy ? { ...configWithoutProxy, proxy } : configWithoutProxy;
+  await client.put(`/api/sessions/${sessionName}`, { config });
 }
 
 /**

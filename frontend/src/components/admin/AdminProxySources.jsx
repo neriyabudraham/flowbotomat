@@ -145,7 +145,9 @@ export default function AdminProxySources() {
     setRemovingId(connId);
     try {
       await api.delete(`/admin/proxy-sources/connections/${connId}`);
-      setConnections(prev => prev.map(c => c.id === connId ? { ...c, proxy_ip: null } : c));
+      // Reload from server to confirm the change
+      await loadConnections();
+      load(); // refresh proxy list too
     } catch (err) {
       alert(err.response?.data?.error || 'שגיאה בהסרת פרוקסי');
     } finally {
@@ -160,7 +162,9 @@ export default function AdminProxySources() {
     try {
       const { data } = await api.delete('/admin/proxy-sources/connections/all');
       setSyncResult(data);
-      setConnections(prev => prev.map(c => ({ ...c, proxy_ip: null })));
+      // Reload from server to see actual state
+      await loadConnections();
+      load();
     } catch (err) {
       setSyncResult({ error: err.response?.data?.error || 'שגיאה בהסרת פרוקסים' });
     } finally {
