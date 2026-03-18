@@ -7,7 +7,7 @@
 const db = require('../../config/database');
 const cloudApi = require('./cloudApi.service');
 const wahaSession = require('../waha/session.service');
-const { getWahaCredentials } = require('../settings/system.service');
+const { getWahaCredentialsForConnection } = require('../settings/system.service');
 const videoSplit = require('../statusBot/videoSplit.service');
 const { v4: uuidv4 } = require('uuid');
 const { getIO } = require('../socket/manager.service');
@@ -879,19 +879,19 @@ async function handleQueuedAction(phone, selectedId, contextMessageId = null) {
     
     // First check if any parts were already sent - need to delete from WhatsApp too
     const sentParts = await db.query(
-      `SELECT q.id, s.waha_message_id, c.session_name
+      `SELECT q.id, s.waha_message_id, c.session_name, c.waha_source_id
        FROM status_bot_queue q
        LEFT JOIN status_bot_statuses s ON s.queue_id = q.id
        LEFT JOIN status_bot_connections c ON c.id = q.connection_id
        WHERE q.part_group_id = $1 AND q.queue_status = 'sent' AND s.waha_message_id IS NOT NULL`,
       [groupId]
     );
-    
+
     // Delete sent statuses from WhatsApp
     let deletedFromWA = 0;
     if (sentParts.rows.length > 0) {
-      const { baseUrl, apiKey } = await getWahaCredentials();
       for (const part of sentParts.rows) {
+        const { baseUrl, apiKey } = await getWahaCredentialsForConnection(part);
         try {
           await wahaSession.makeRequest(baseUrl, apiKey, 'POST', `/api/${part.session_name}/status/delete`, {
             id: part.waha_message_id,
@@ -930,7 +930,7 @@ async function handleQueuedAction(phone, selectedId, contextMessageId = null) {
   // Delete single status action
   if (selectedId.startsWith('queued_delete_')) {
     const result = await db.query(
-      `SELECT q.*, s.waha_message_id, s.id as status_id, c.session_name
+      `SELECT q.*, s.waha_message_id, s.id as status_id, c.session_name, c.waha_source_id
        FROM status_bot_queue q
        LEFT JOIN status_bot_statuses s ON s.queue_id = q.id
        LEFT JOIN status_bot_connections c ON c.id = q.connection_id
@@ -952,7 +952,7 @@ async function handleQueuedAction(phone, selectedId, contextMessageId = null) {
         // Delete sent status from WhatsApp
         if (queueItem.waha_message_id) {
           try {
-            const { baseUrl, apiKey } = await getWahaCredentials();
+            const { baseUrl, apiKey } = await getWahaCredentialsForConnection(queueItem);
             await wahaSession.makeRequest(baseUrl, apiKey, 'POST', `/api/${queueItem.session_name}/status/delete`, {
               id: queueItem.waha_message_id,
               contacts: null
@@ -3241,7 +3241,7 @@ async function handleAfterSendMenuState(phone, message, state) {
   // Delete action
   if (selectedId.startsWith('queued_delete_')) {
     const result = await db.query(
-      `SELECT q.*, s.waha_message_id, s.id as status_id, c.session_name
+      `SELECT q.*, s.waha_message_id, s.id as status_id, c.session_name, c.waha_source_id
        FROM status_bot_queue q
        LEFT JOIN status_bot_statuses s ON s.queue_id = q.id
        LEFT JOIN status_bot_connections c ON c.id = q.connection_id
@@ -3262,7 +3262,7 @@ async function handleAfterSendMenuState(phone, message, state) {
       } else if (queueItem.queue_status === 'sent' && queueItem.waha_message_id) {
         // Delete sent status from WhatsApp
         try {
-          const { baseUrl, apiKey } = await getWahaCredentials();
+          const { baseUrl, apiKey } = await getWahaCredentialsForConnection(queueItem);
           await wahaSession.makeRequest(baseUrl, apiKey, 'POST', `/api/${queueItem.session_name}/status/delete`, {
             id: queueItem.waha_message_id,
             contacts: null

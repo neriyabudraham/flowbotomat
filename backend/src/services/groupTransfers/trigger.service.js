@@ -1,7 +1,6 @@
 const db = require('../../config/database');
 const wahaService = require('../waha/session.service');
-const { decrypt } = require('../crypto/encrypt.service');
-const { getWahaCredentials } = require('../settings/system.service');
+const { getWahaCredentialsForConnection } = require('../settings/system.service');
 
 /**
  * Group Transfers Trigger Service
@@ -198,21 +197,12 @@ async function processGroupMessage(params) {
     console.log(`[GroupTransfers] Attribution: text="${attribution.text}", mentions=${JSON.stringify(attribution.mentions)}, format="${attributionFormat}"`);
 
     // Build connection object for waha service
-    let wahaConnection;
-    if (conn.connection_type === 'external') {
-      wahaConnection = {
-        base_url: decrypt(conn.external_base_url),
-        api_key: decrypt(conn.external_api_key),
-        session_name: conn.session_name
-      };
-    } else {
-      const systemCreds = getWahaCredentials();
-      wahaConnection = {
-        base_url: systemCreds.baseUrl,
-        api_key: systemCreds.apiKey,
-        session_name: conn.session_name
-      };
-    }
+    const { baseUrl: connBaseUrl, apiKey: connApiKey } = await getWahaCredentialsForConnection(conn);
+    const wahaConnection = {
+      base_url: connBaseUrl,
+      api_key: connApiKey,
+      session_name: conn.session_name
+    };
 
     // Create a job record for tracking
     const jobResult = await db.query(`

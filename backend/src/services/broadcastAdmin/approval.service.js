@@ -1,6 +1,5 @@
 const db = require('../../config/database');
-const { getWahaCredentials } = require('../settings/system.service');
-const { decrypt } = require('../crypto/encrypt.service');
+const { getWahaCredentialsForConnection } = require('../settings/system.service');
 
 /**
  * Broadcast Admin Approval Service (per-forward)
@@ -29,17 +28,7 @@ async function getWahaConnection(userId) {
   if (result.rows.length === 0) return null;
 
   const conn = result.rows[0];
-  let baseUrl, apiKey;
-
-  if (conn.connection_type === 'external') {
-    baseUrl = decrypt(conn.external_base_url);
-    apiKey = decrypt(conn.external_api_key);
-  } else {
-    const systemCreds = getWahaCredentials();
-    baseUrl = systemCreds.baseUrl;
-    apiKey = systemCreds.apiKey;
-  }
-
+  const { baseUrl, apiKey } = await getWahaCredentialsForConnection(conn);
   return { ...conn, base_url: baseUrl, api_key: apiKey };
 }
 

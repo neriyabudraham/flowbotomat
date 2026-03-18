@@ -1,5 +1,5 @@
 const db = require('../../config/database');
-const { getWahaCredentials } = require('../settings/system.service');
+const { getWahaCredentialsForConnection } = require('../settings/system.service');
 const wahaSession = require('../waha/session.service');
 const { sendMail } = require('../mail/transport.service');
 
@@ -20,7 +20,10 @@ async function handleExpiredSubscriptions() {
         u.email as user_email,
         wc.id as connection_id,
         wc.connection_type,
-        wc.session_name
+        wc.session_name,
+        wc.external_base_url,
+        wc.external_api_key,
+        wc.waha_source_id
       FROM user_subscriptions us
       JOIN users u ON us.user_id = u.id
       LEFT JOIN whatsapp_connections wc ON wc.user_id = us.user_id AND wc.status = 'connected'
@@ -100,9 +103,9 @@ async function handleExpiredSubscriptions() {
           if (sub.connection_type === 'managed') {
             // Managed connection - delete from WAHA
             console.log(`[Subscription Expiry] Deleting managed WhatsApp session: ${sub.session_name}`);
-            
+
             try {
-              const { baseUrl, apiKey } = getWahaCredentials();
+              const { baseUrl, apiKey } = await getWahaCredentialsForConnection(sub);
               if (baseUrl && apiKey && sub.session_name) {
                 await wahaSession.deleteSession(baseUrl, apiKey, sub.session_name);
                 console.log(`[Subscription Expiry] ✅ Deleted WAHA session: ${sub.session_name}`);

@@ -1,6 +1,6 @@
 const db = require('../../config/database');
 const { decrypt } = require('../../services/crypto/encrypt.service');
-const { getWahaCredentials } = require('../../services/settings/system.service');
+const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
 const axios = require('axios');
 
 async function getChannels(req, res) {
@@ -20,20 +20,8 @@ async function getChannels(req, res) {
     }
     
     const connection = result.rows[0];
-    let baseUrl, apiKey, sessionName;
-    
-    if (connection.connection_type === 'external') {
-      // Decrypt external credentials
-      baseUrl = decrypt(connection.external_base_url);
-      apiKey = decrypt(connection.external_api_key);
-      sessionName = connection.session_name;
-    } else {
-      // Use system WAHA
-      const systemCreds = await getWahaCredentials();
-      baseUrl = systemCreds.baseUrl;
-      apiKey = systemCreds.apiKey;
-      sessionName = connection.session_name;
-    }
+    const { baseUrl, apiKey } = await getWahaCredentialsForConnection(connection);
+    const sessionName = connection.session_name;
     
     // Fetch channels from WAHA
     console.log('[Channels] Fetching from:', `${baseUrl}/api/${sessionName}/channels`);

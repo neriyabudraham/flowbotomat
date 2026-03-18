@@ -1,6 +1,7 @@
 const pool = require('../../config/database');
 const { v4: uuidv4 } = require('uuid');
 const { getWahaCredentials } = require('../../services/settings/system.service');
+const { pickSourceForNewSession } = require('../../services/waha/sources.service');
 const { encrypt, decrypt } = require('../../services/crypto/encrypt.service');
 const wahaSession = require('../../services/waha/session.service');
 const { checkLimit } = require('../subscriptions/subscriptions.controller');
@@ -276,13 +277,25 @@ async function createManaged(req, res) {
       return res.status(400).json({ error: 'לא נמצא מייל למשתמש' });
     }
     
-    // Get system WAHA credentials
-    const { baseUrl, apiKey } = getWahaCredentials();
-    
+    // Pick WAHA source with fewest active sessions (load balancing)
+    // Falls back to env vars if no sources defined yet
+    let wahaSource = await pickSourceForNewSession();
+    let baseUrl, apiKey, wahaSourceId;
+    if (wahaSource) {
+      baseUrl = wahaSource.baseUrl;
+      apiKey = wahaSource.apiKey;
+      wahaSourceId = wahaSource.id;
+    } else {
+      const envCreds = getWahaCredentials();
+      baseUrl = envCreds.baseUrl;
+      apiKey = envCreds.apiKey;
+      wahaSourceId = null;
+    }
+
     if (!baseUrl || !apiKey) {
       return res.status(500).json({ error: 'WAHA לא מוגדר במערכת' });
     }
-    
+
     let sessionName = null;
     let wahaStatus = null;
     let existingSession = null;
@@ -384,7 +397,11 @@ async function createManaged(req, res) {
     }
     
     // Setup webhook for this user (adds/updates webhooks with all required events)
-    const webhookUrl = getWebhookUrl(userId);
+    // Use source's webhookBaseUrl if set (for internal routing), otherwise use APP_URL
+    const webhookBase = wahaSource?.webhookBaseUrl || null;
+    const webhookUrl = webhookBase
+      ? `${webhookBase}/api/webhook/waha/${userId}`
+      : getWebhookUrl(userId);
     try {
       console.log(`[Webhook] Setting up webhook with ${WEBHOOK_EVENTS.length} events for user ${userId}`);
       await wahaSession.addWebhook(baseUrl, apiKey, sessionName, webhookUrl, WEBHOOK_EVENTS);
@@ -397,11 +414,11 @@ async function createManaged(req, res) {
     await pool.query('DELETE FROM whatsapp_connections WHERE user_id = $1', [userId]);
     
     const result = await pool.query(
-      `INSERT INTO whatsapp_connections 
-       (user_id, connection_type, session_name, status, phone_number, display_name, connected_at)
-       VALUES ($1, 'managed', $2, $3, $4, $5, $6)
+      `INSERT INTO whatsapp_connections
+       (user_id, connection_type, session_name, status, phone_number, display_name, connected_at, waha_source_id)
+       VALUES ($1, 'managed', $2, $3, $4, $5, $6, $7)
        RETURNING id, session_name, status, phone_number, display_name, created_at`,
-      [userId, sessionName, ourStatus, phoneNumber, displayName, connectedAt]
+      [userId, sessionName, ourStatus, phoneNumber, displayName, connectedAt, wahaSourceId]
     );
     console.log(`[WhatsApp] ✅ Saved to DB: ${sessionName}`);
     

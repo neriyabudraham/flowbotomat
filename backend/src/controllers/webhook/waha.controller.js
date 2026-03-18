@@ -5,7 +5,7 @@ const groupForwardsTrigger = require('../../services/groupForwards/trigger.servi
 const groupTransfersTrigger = require('../../services/groupTransfers/trigger.service');
 const wahaSession = require('../../services/waha/session.service');
 const { decrypt } = require('../../services/crypto/encrypt.service');
-const { getWahaCredentials } = require('../../services/settings/system.service');
+const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
 const { checkContactLimit } = require('../../services/limits.service');
 
 // In-memory cache: callId -> { callerPhone, userId, isVideo, isGroup, timestamp }
@@ -85,17 +85,7 @@ async function resolveLidToPhone(userId, lid) {
     
     if (connResult.rows.length > 0) {
       const conn = connResult.rows[0];
-      let baseUrl, apiKey;
-      
-      if (conn.connection_type === 'external') {
-        baseUrl = decrypt(conn.external_base_url);
-        apiKey = decrypt(conn.external_api_key);
-      } else {
-        const systemCreds = getWahaCredentials();
-        baseUrl = systemCreds.baseUrl;
-        apiKey = systemCreds.apiKey;
-      }
-      
+      const { baseUrl, apiKey } = await getWahaCredentialsForConnection(conn);
       const connection = {
         base_url: baseUrl,
         api_key: apiKey,
@@ -227,17 +217,8 @@ async function autoUpdateWebhookEvents(userId) {
     if (connResult.rows.length === 0) return;
     
     const conn = connResult.rows[0];
-    let baseUrl, apiKey;
-    
-    if (conn.connection_type === 'external') {
-      baseUrl = decrypt(conn.external_base_url);
-      apiKey = decrypt(conn.external_api_key);
-    } else {
-      const systemCreds = getWahaCredentials();
-      baseUrl = systemCreds.baseUrl;
-      apiKey = systemCreds.apiKey;
-    }
-    
+    const { baseUrl, apiKey } = await getWahaCredentialsForConnection(conn);
+
     const REQUIRED_EVENTS = [
       'message', 'message.ack', 'session.status', 'call.received', 'call.accepted', 'call.rejected',
       'label.upsert', 'label.deleted', 'label.chat.added', 'label.chat.deleted',
@@ -637,19 +618,9 @@ async function handleIncomingMessage(userId, event) {
         
         if (connResult.rows.length > 0) {
           const conn = connResult.rows[0];
-          let baseUrl, apiKey;
-          
-          if (conn.connection_type === 'external') {
-            baseUrl = decrypt(conn.external_base_url);
-            apiKey = decrypt(conn.external_api_key);
-          } else {
-            const systemCreds = getWahaCredentials();
-            baseUrl = systemCreds.baseUrl;
-            apiKey = systemCreds.apiKey;
-          }
-          
+          const { baseUrl, apiKey } = await getWahaCredentialsForConnection(conn);
           const axios = require('axios');
-          
+
           // Try specific group endpoint first (faster)
           try {
             const groupResponse = await axios.get(
@@ -745,17 +716,7 @@ async function handleIncomingMessage(userId, event) {
         
         if (connResult.rows.length > 0) {
           const conn = connResult.rows[0];
-          let baseUrl, apiKey;
-          
-          if (conn.connection_type === 'external') {
-            baseUrl = decrypt(conn.external_base_url);
-            apiKey = decrypt(conn.external_api_key);
-          } else {
-            const systemCreds = getWahaCredentials();
-            baseUrl = systemCreds.baseUrl;
-            apiKey = systemCreds.apiKey;
-          }
-          
+          const { baseUrl, apiKey } = await getWahaCredentialsForConnection(conn);
           // Fetch specific channel by ID
           const axios = require('axios');
           const channelResponse = await axios.get(

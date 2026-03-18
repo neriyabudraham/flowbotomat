@@ -5,7 +5,7 @@
 
 const db = require('../../config/database');
 const wahaSession = require('../../services/waha/session.service');
-const { getWahaCredentials } = require('../../services/settings/system.service');
+const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
 const cloudApi = require('../cloudApi/cloudApi.service');
 
 // Socket helper - safely emit to admin room
@@ -230,7 +230,7 @@ async function processQueue() {
 
     // 3. Get next pending item
     const queueResult = await db.query(`
-      SELECT q.*, c.session_name, c.connection_status, c.first_connected_at, c.last_connected_at, c.restriction_lifted, c.short_restriction_until
+      SELECT q.*, c.session_name, c.connection_status, c.first_connected_at, c.last_connected_at, c.restriction_lifted, c.short_restriction_until, c.waha_source_id
       FROM status_bot_queue q
       JOIN status_bot_connections c ON c.id = q.connection_id
       WHERE q.queue_status IN ('pending', 'scheduled') 
@@ -426,7 +426,7 @@ async function processQueue() {
  * Send a status via WAHA
  */
 async function sendStatus(queueItem) {
-  const { baseUrl, apiKey } = await getWahaCredentials();
+  const { baseUrl, apiKey } = await getWahaCredentialsForConnection(queueItem);
   const sessionName = queueItem.session_name;
   const content = queueItem.content;
 

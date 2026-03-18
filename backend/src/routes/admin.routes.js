@@ -9,6 +9,7 @@ const settingsController = require('../controllers/admin/settings.controller');
 const backupsController = require('../controllers/admin/backups.controller');
 const promotionsController = require('../controllers/admin/promotions.controller');
 const billingController = require('../controllers/admin/billing.controller');
+const wahaSourcesController = require('../controllers/admin/waha-sources.controller');
 
 // All admin routes require auth + admin role
 router.use(authMiddleware);
@@ -38,6 +39,12 @@ router.put('/bots/:botId/lock', usersController.toggleBotLock);
 
 // Plans for admin
 router.get('/plans', usersController.getPlans);
+
+// WAHA sources management
+router.get('/waha-sources', wahaSourcesController.list);
+router.post('/waha-sources', superadminMiddleware, wahaSourcesController.create);
+router.put('/waha-sources/:id', superadminMiddleware, wahaSourcesController.update);
+router.delete('/waha-sources/:id', superadminMiddleware, wahaSourcesController.deactivate);
 
 // System settings (superadmin only for updates)
 router.get('/settings', settingsController.getSettings);

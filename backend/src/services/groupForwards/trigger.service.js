@@ -1,6 +1,5 @@
 const db = require('../../config/database');
-const { getWahaCredentials } = require('../settings/system.service');
-const { decrypt } = require('../crypto/encrypt.service');
+const { getWahaCredentialsForConnection } = require('../settings/system.service');
 const { checkContactLimit } = require('../limits.service');
 const axios = require('axios');
 const path = require('path');
@@ -14,7 +13,7 @@ const pendingEdits = new Map();
  * Download media from URL and save locally to uploads folder
  * Returns the local URL or the original URL if download fails
  */
-async function downloadAndSaveMedia(mediaUrl, mimeType, originalFilename) {
+async function downloadAndSaveMedia(mediaUrl, mimeType, originalFilename, wahaBaseUrlIn, wahaApiKeyIn) {
   try {
     if (!mediaUrl) return mediaUrl;
     
@@ -44,9 +43,8 @@ async function downloadAndSaveMedia(mediaUrl, mimeType, originalFilename) {
     const savePath = path.join(uploadsDir, filename);
     
     // Build URLs to try (with WAHA API key for auth)
-    const creds = getWahaCredentials();
-    const wahaBaseUrl = (creds.baseUrl || process.env.WAHA_BASE_URL || '').replace(/\/$/, '');
-    const wahaApiKey = creds.apiKey || process.env.WAHA_API_KEY;
+    const wahaBaseUrl = (wahaBaseUrlIn || process.env.WAHA_BASE_URL || '').replace(/\/$/, '');
+    const wahaApiKey = wahaApiKeyIn || process.env.WAHA_API_KEY;
     const headers = wahaApiKey ? { 'X-Api-Key': wahaApiKey } : {};
     
     const urlsToTry = [];
@@ -203,27 +201,18 @@ function normalizePhoneNumber(phone) {
  */
 async function getWahaConnection(userId) {
   const connectionResult = await db.query(`
-    SELECT * FROM whatsapp_connections 
+    SELECT * FROM whatsapp_connections
     WHERE user_id = $1 AND status = 'connected'
     ORDER BY connected_at DESC LIMIT 1
   `, [userId]);
-  
+
   if (connectionResult.rows.length === 0) {
     return null;
   }
-  
+
   const connection = connectionResult.rows[0];
-  let baseUrl, apiKey;
-  
-  if (connection.connection_type === 'external') {
-    baseUrl = decrypt(connection.external_base_url);
-    apiKey = decrypt(connection.external_api_key);
-  } else {
-    const systemCreds = getWahaCredentials();
-    baseUrl = systemCreds.baseUrl;
-    apiKey = systemCreds.apiKey;
-  }
-  
+  const { baseUrl, apiKey } = await getWahaCredentialsForConnection(connection);
+
   return {
     ...connection,
     base_url: baseUrl,
@@ -367,7 +356,8 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
       }
 
       // Download and save media locally so it persists after WAHA restart
-      mediaUrl = await downloadAndSaveMedia(mediaUrl, mediaMimeType, mediaFilename);
+      const wahaConn = await getWahaConnection(userId);
+      mediaUrl = await downloadAndSaveMedia(mediaUrl, mediaMimeType, mediaFilename, wahaConn?.base_url, wahaConn?.api_key);
     } else if (messageType === 'list_response') {
       messageType = 'text';
     } else if (messageType === 'poll') {

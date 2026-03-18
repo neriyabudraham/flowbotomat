@@ -1024,31 +1024,21 @@ async function deleteMessage(connectionOrUserId, chatId, messageId) {
   // If string passed, look up connection by user_id or session_name
   if (typeof connectionOrUserId === 'string') {
     const db = require('../../config/database');
-    const { decrypt } = require('../crypto/encrypt.service');
-    const { getWahaCredentials } = require('../settings/system.service');
-    
+    const { getWahaCredentialsForConnection } = require('../settings/system.service');
+
     const result = await db.query(`
-      SELECT * FROM whatsapp_connections 
+      SELECT * FROM whatsapp_connections
       WHERE (user_id::text = $1 OR session_name = $1) AND status = 'connected'
       ORDER BY connected_at DESC LIMIT 1
     `, [connectionOrUserId]);
-    
+
     if (result.rows.length === 0) {
       throw new Error(`Connection not found for ${connectionOrUserId}`);
     }
-    
+
     const conn = result.rows[0];
-    let baseUrl, apiKey;
-    
-    if (conn.connection_type === 'external') {
-      baseUrl = decrypt(conn.external_base_url);
-      apiKey = decrypt(conn.external_api_key);
-    } else {
-      const systemCreds = getWahaCredentials();
-      baseUrl = systemCreds.baseUrl;
-      apiKey = systemCreds.apiKey;
-    }
-    
+    const { baseUrl, apiKey } = await getWahaCredentialsForConnection(conn);
+
     connection = {
       base_url: baseUrl,
       api_key: apiKey,
@@ -1078,8 +1068,7 @@ async function resolveConnection(connectionOrUserId) {
     return connectionOrUserId;
   }
   const db = require('../../config/database');
-  const { decrypt } = require('../crypto/encrypt.service');
-  const { getWahaCredentials } = require('../settings/system.service');
+  const { getWahaCredentialsForConnection } = require('../settings/system.service');
 
   const result = await db.query(`
     SELECT * FROM whatsapp_connections
@@ -1092,15 +1081,7 @@ async function resolveConnection(connectionOrUserId) {
   }
 
   const conn = result.rows[0];
-  let baseUrl, apiKey;
-  if (conn.connection_type === 'external') {
-    baseUrl = decrypt(conn.external_base_url);
-    apiKey = decrypt(conn.external_api_key);
-  } else {
-    const systemCreds = getWahaCredentials();
-    baseUrl = systemCreds.baseUrl;
-    apiKey = systemCreds.apiKey;
-  }
+  const { baseUrl, apiKey } = await getWahaCredentialsForConnection(conn);
   return { base_url: baseUrl, api_key: apiKey, session_name: conn.session_name };
 }
 

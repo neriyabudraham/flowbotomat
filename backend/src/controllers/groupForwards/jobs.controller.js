@@ -9,22 +9,19 @@ const crypto = require('crypto');
  * Download media from WAHA temp URL and save locally
  * Returns the new local URL, or the original URL if download fails
  */
-async function downloadWahaMedia(mediaUrl, mediaMimeType, mediaFilename) {
+async function downloadWahaMedia(mediaUrl, mediaMimeType, mediaFilename, wahaBaseUrlIn, wahaApiKeyIn) {
   if (!mediaUrl || !mediaUrl.includes('/api/files/session_')) {
     return mediaUrl;
   }
-  
+
   try {
-    const { getWahaCredentials } = require('../../services/settings/system.service');
-    const creds = getWahaCredentials();
-    
     console.log(`[MediaDownload] Downloading WAHA media: ${mediaUrl.substring(0, 80)}...`);
-    
+
     const urlObj = new URL(mediaUrl);
     const filePath = urlObj.pathname;
-    
-    const wahaBaseUrl = (creds.baseUrl || process.env.WAHA_BASE_URL || '').replace(/\/$/, '');
-    const wahaApiKey = creds.apiKey || process.env.WAHA_API_KEY;
+
+    const wahaBaseUrl = (wahaBaseUrlIn || process.env.WAHA_BASE_URL || '').replace(/\/$/, '');
+    const wahaApiKey = wahaApiKeyIn || process.env.WAHA_API_KEY;
     
     const urlsToTry = [];
     if (wahaBaseUrl) {
@@ -517,18 +514,18 @@ async function getAllJobHistory(req, res) {
  */
 async function startForwardJob(jobId) {
   const wahaService = require('../../services/waha/session.service');
-  const { getWahaCredentials } = require('../../services/settings/system.service');
+  const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
   const triggerService = require('../../services/groupForwards/trigger.service');
-  
+
   console.log(`[GroupForwards] startForwardJob called for job ${jobId}`);
-  
+
   try {
     // Get job with forward details and WhatsApp connection info
     const jobResult = await db.query(`
       SELECT fj.*, gf.delay_min, gf.delay_max, gf.user_id, gf.name as forward_name,
         gf.trigger_type, gf.trigger_group_id,
         gf.message_suffix, gf.suffix_enabled,
-        wc.session_name, wc.connection_type, wc.external_base_url, wc.external_api_key
+        wc.session_name, wc.connection_type, wc.external_base_url, wc.external_api_key, wc.waha_source_id
       FROM forward_jobs fj
       JOIN group_forwards gf ON fj.forward_id = gf.id
       JOIN whatsapp_connections wc ON wc.user_id = gf.user_id AND wc.status = 'connected'
@@ -566,19 +563,19 @@ async function startForwardJob(jobId) {
     }
     
     // Get WAHA credentials
-    const creds = getWahaCredentials();
-    
+    const { baseUrl: jobBaseUrl, apiKey: jobApiKey } = await getWahaCredentialsForConnection(job);
+
     // Create connection object for WAHA service
     const wahaConnection = {
-      base_url: creds.baseUrl,
-      api_key: creds.apiKey,
+      base_url: jobBaseUrl,
+      api_key: jobApiKey,
       session_name: sessionName
     };
     
     // If media_url is still a WAHA URL, download and save locally before sending
     if (job.media_url && job.media_url.includes('/api/files/session_')) {
       console.log(`[GroupForwards] Job ${jobId}: WAHA media URL detected, downloading locally...`);
-      const localUrl = await downloadWahaMedia(job.media_url, job.media_mime_type, job.media_filename);
+      const localUrl = await downloadWahaMedia(job.media_url, job.media_mime_type, job.media_filename, jobBaseUrl, jobApiKey);
       if (localUrl && localUrl !== job.media_url) {
         await db.query(`UPDATE forward_jobs SET media_url = $2 WHERE id = $1`, [jobId, localUrl]);
         job.media_url = localUrl;

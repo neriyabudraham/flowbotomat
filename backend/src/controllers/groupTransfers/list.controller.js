@@ -1,7 +1,6 @@
 const db = require('../../config/database');
 const { checkLimit } = require('../subscriptions/subscriptions.controller');
-const { decrypt } = require('../../services/crypto/encrypt.service');
-const { getWahaCredentials } = require('../../services/settings/system.service');
+const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
 const axios = require('axios');
 
 /**
@@ -104,18 +103,8 @@ async function getAvailableGroups(req, res) {
     }
     
     const connection = result.rows[0];
-    let baseUrl, apiKey, sessionName;
-    
-    if (connection.connection_type === 'external') {
-      baseUrl = decrypt(connection.external_base_url);
-      apiKey = decrypt(connection.external_api_key);
-      sessionName = connection.session_name;
-    } else {
-      const systemCreds = getWahaCredentials();
-      baseUrl = systemCreds.baseUrl;
-      apiKey = systemCreds.apiKey;
-      sessionName = connection.session_name;
-    }
+    const { baseUrl, apiKey } = await getWahaCredentialsForConnection(connection);
+    const sessionName = connection.session_name;
     
     console.log('[GroupTransfers] Fetching groups from:', `${baseUrl}/api/${sessionName}/groups`);
     

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2, Bell, Package, Smartphone, Globe, Receipt
+  Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2, Bell, Package, Smartphone, Globe, Receipt, Server
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
@@ -22,6 +22,7 @@ import AdminServices from '../components/admin/AdminServices';
 import AdminStatusBot from '../components/admin/AdminStatusBot';
 import AdminSiteConfig from '../components/admin/AdminSiteConfig';
 import AdminBilling from '../components/admin/AdminBilling';
+import AdminWahaSources from '../components/admin/AdminWahaSources';
 
 const TABS = [
   { id: 'dashboard', label: 'דשבורד', icon: BarChart3 },
@@ -34,6 +35,7 @@ const TABS = [
   { id: 'notifications', label: 'התראות', icon: Bell },
   { id: 'templates', label: 'תבניות', icon: Grid },
   { id: 'site-config', label: 'הגדרות אתר', icon: Globe },
+  { id: 'waha-sources', label: 'שרתי WAHA', icon: Server },
   { id: 'settings', label: 'הגדרות מערכת', icon: Settings },
   { id: 'backups', label: 'גיבויים', icon: Database },
   { id: 'logs', label: 'לוגים', icon: Activity },
@@ -126,6 +128,8 @@ export default function AdminPage() {
         return <AdminTemplates />;
       case 'site-config':
         return <AdminSiteConfig />;
+      case 'waha-sources':
+        return <AdminWahaSources />;
       case 'settings':
         return <AdminSettings />;
       case 'backups':

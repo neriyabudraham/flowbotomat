@@ -1,6 +1,6 @@
 const db = require('../../config/database');
 const wahaSession = require('../../services/waha/session.service');
-const { getWahaCredentials } = require('../../services/settings/system.service');
+const { getWahaCredentials, getWahaCredentialsForConnection } = require('../../services/settings/system.service');
 const crypto = require('crypto');
 
 // ============================================
@@ -401,13 +401,14 @@ async function checkExisting(req, res) {
       return res.json({ exists: false });
     }
     
-    // Get WAHA credentials
-    const { baseUrl, apiKey } = await getWahaCredentials();
-    
+    // Get WAHA credentials - use existing connection source or fall back to system defaults
+    const existingConn = dbConnection.rows[0] || null;
+    const { baseUrl, apiKey } = await getWahaCredentialsForConnection(existingConn);
+
     if (!baseUrl || !apiKey) {
       return res.json({ exists: false });
     }
-    
+
     // Search in WAHA by email, preferring sessions with status-bot webhook configured
     console.log(`[StatusBot] Checking existing session for: ${userEmail}`);
     // Use the main webhook pattern - Status Bot shares the main webhook
@@ -534,9 +535,11 @@ async function startConnection(req, res) {
       return res.status(400).json({ error: 'לא נמצא מייל למשתמש' });
     }
 
-    // Get WAHA credentials
-    const { baseUrl, apiKey } = await getWahaCredentials();
-    
+    // Get WAHA credentials - pick best source for new session
+    const { pickSourceForNewSession } = require('../../services/waha/sources.service');
+    const wahaSource = await pickSourceForNewSession();
+    const { baseUrl, apiKey } = wahaSource || { baseUrl: process.env.WAHA_BASE_URL, apiKey: process.env.WAHA_API_KEY };
+
     if (!baseUrl || !apiKey) {
       return res.status(500).json({ error: 'WAHA לא מוגדר במערכת' });
     }
@@ -658,12 +661,12 @@ async function startConnection(req, res) {
       // Create new record
       console.log(`[StatusBot] Creating new connection record`);
       result = await db.query(`
-        INSERT INTO status_bot_connections 
-        (user_id, session_name, connection_status, phone_number, display_name, first_connected_at)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO status_bot_connections
+        (user_id, session_name, connection_status, phone_number, display_name, first_connected_at, waha_source_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *
-      `, [userId, sessionName, ourStatus, phoneNumber, displayName, 
-          ourStatus === 'connected' ? firstConnectedAt : null]);
+      `, [userId, sessionName, ourStatus, phoneNumber, displayName,
+          ourStatus === 'connected' ? firstConnectedAt : null, wahaSource?.id || null]);
     }
     
     console.log(`[StatusBot] ✅ Saved to DB: ${sessionName}`);
@@ -703,7 +706,7 @@ async function getQR(req, res) {
       return res.json({ status: 'connected' });
     }
 
-    const { baseUrl, apiKey } = await getWahaCredentials();
+    const { baseUrl, apiKey } = await getWahaCredentialsForConnection(connection);
 
     // First check if session exists
     const sessionStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
@@ -778,7 +781,7 @@ async function disconnect(req, res) {
     }
 
     const connection = result.rows[0];
-    const { baseUrl, apiKey } = await getWahaCredentials();
+    const { baseUrl, apiKey } = await getWahaCredentialsForConnection(connection);
 
     // Stop session in WAHA
     try {
@@ -1493,7 +1496,7 @@ async function deleteStatus(req, res) {
 
     // If status was sent and has waha_message_id, delete from WhatsApp
     if (status.waha_message_id) {
-      const { baseUrl, apiKey } = await getWahaCredentials();
+      const { baseUrl, apiKey } = await getWahaCredentialsForConnection(connection);
 
       try {
         await wahaSession.makeRequest(baseUrl, apiKey, 'POST', `/api/${connection.session_name}/status/delete`, {
@@ -2688,18 +2691,17 @@ async function adminRetryUserErrors(req, res) {
  */
 async function adminSyncPhoneNumbers(req, res) {
   try {
-    const { baseUrl, apiKey } = await getWahaCredentials();
-    
     // Get all connections that are supposed to be connected but may have missing phone numbers
     const connectionsResult = await db.query(`
-      SELECT * FROM status_bot_connections 
+      SELECT * FROM status_bot_connections
       WHERE connection_status = 'connected' OR session_name IS NOT NULL
     `);
-    
+
     const results = [];
-    
+
     for (const connection of connectionsResult.rows) {
       try {
+        const { baseUrl, apiKey } = await getWahaCredentialsForConnection(connection);
         // Get session info from WAHA
         const sessionStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
         
@@ -2923,7 +2925,7 @@ async function handleSessionStatus(connection, payload) {
             }
             
             // Check WAHA status
-            const { baseUrl, apiKey } = await getWahaCredentials();
+            const { baseUrl, apiKey } = await getWahaCredentialsForConnection(freshConnection);
             const wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
             
             console.log(`[StatusBot] ⏰ WAHA status for ${sessionName}: ${wahaStatus?.status}`);
@@ -3056,13 +3058,13 @@ async function handleStatusView(connection, payload) {
     if (isLid) {
       // Try to resolve LID to phone number
       try {
-        const systemCreds = getWahaCredentials();
+        const { baseUrl: lidBaseUrl, apiKey: lidApiKey } = await getWahaCredentialsForConnection(connection);
         const wahaConnection = {
-          base_url: systemCreds.baseUrl,
-          api_key: systemCreds.apiKey,
+          base_url: lidBaseUrl,
+          api_key: lidApiKey,
           session_name: connection.session_name
         };
-        
+
         const resolvedPhone = await wahaSession.resolveLid(wahaConnection, viewerPhone);
         if (resolvedPhone) {
           viewerPhone = resolvedPhone;
@@ -3161,13 +3163,13 @@ async function handleStatusReaction(connection, payload) {
     
     if (isLid) {
       try {
-        const systemCreds = getWahaCredentials();
+        const { baseUrl: lidBaseUrl, apiKey: lidApiKey } = await getWahaCredentialsForConnection(connection);
         const wahaConnection = {
-          base_url: systemCreds.baseUrl,
-          api_key: systemCreds.apiKey,
+          base_url: lidBaseUrl,
+          api_key: lidApiKey,
           session_name: connection.session_name
         };
-        
+
         const resolvedPhone = await wahaSession.resolveLid(wahaConnection, reactorPhone);
         if (resolvedPhone) {
           reactorPhone = resolvedPhone;

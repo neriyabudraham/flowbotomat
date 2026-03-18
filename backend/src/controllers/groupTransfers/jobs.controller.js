@@ -8,22 +8,19 @@ const crypto = require('crypto');
 /**
  * Download media from WAHA temp URL and save locally
  */
-async function downloadWahaMedia(mediaUrl, mediaMimeType, mediaFilename) {
+async function downloadWahaMedia(mediaUrl, mediaMimeType, mediaFilename, wahaBaseUrlIn, wahaApiKeyIn) {
   if (!mediaUrl || !mediaUrl.includes('/api/files/session_')) {
     return mediaUrl;
   }
-  
+
   try {
-    const { getWahaCredentials } = require('../../services/settings/system.service');
-    const creds = getWahaCredentials();
-    
     console.log(`[MediaDownload] Downloading WAHA media: ${mediaUrl.substring(0, 80)}...`);
-    
+
     const urlObj = new URL(mediaUrl);
     const filePath = urlObj.pathname;
-    
-    const wahaBaseUrl = (creds.baseUrl || process.env.WAHA_BASE_URL || '').replace(/\/$/, '');
-    const wahaApiKey = creds.apiKey || process.env.WAHA_API_KEY;
+
+    const wahaBaseUrl = (wahaBaseUrlIn || process.env.WAHA_BASE_URL || '').replace(/\/$/, '');
+    const wahaApiKey = wahaApiKeyIn || process.env.WAHA_API_KEY;
     
     const urlsToTry = [];
     if (wahaBaseUrl) {
@@ -116,7 +113,14 @@ async function createTransferJob(req, res) {
     
     let finalMediaUrl = media_url;
     if (media_url && media_url.includes('/api/files/session_')) {
-      finalMediaUrl = await downloadWahaMedia(media_url, media_mime_type, media_filename);
+      const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
+      const wcResult = await db.query(
+        `SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' LIMIT 1`,
+        [userId]
+      );
+      const wc = wcResult.rows[0] || null;
+      const { baseUrl: dlBaseUrl, apiKey: dlApiKey } = await getWahaCredentialsForConnection(wc);
+      finalMediaUrl = await downloadWahaMedia(media_url, media_mime_type, media_filename, dlBaseUrl, dlApiKey);
     }
     
     const jobResult = await db.query(`
@@ -634,12 +638,12 @@ async function resumeTransferJob(req, res) {
  */
 async function startTransferJob(jobId) {
   const wahaService = require('../../services/waha/session.service');
-  const { getWahaCredentials } = require('../../services/settings/system.service');
-  
+  const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
+
   try {
     const jobResult = await db.query(`
       SELECT tj.*, gt.delay_min, gt.delay_max, gt.user_id, gt.name as transfer_name,
-        wc.session_name, wc.connection_type, wc.external_base_url, wc.external_api_key
+        wc.session_name, wc.connection_type, wc.external_base_url, wc.external_api_key, wc.waha_source_id
       FROM transfer_jobs tj
       JOIN group_transfers gt ON tj.transfer_id = gt.id
       JOIN whatsapp_connections wc ON wc.user_id = gt.user_id AND wc.status = 'connected'
@@ -657,10 +661,10 @@ async function startTransferJob(jobId) {
       throw new Error('No WhatsApp session available');
     }
     
-    const creds = getWahaCredentials();
+    const { baseUrl: jobBaseUrl, apiKey: jobApiKey } = await getWahaCredentialsForConnection(job);
     const wahaConnection = {
-      base_url: creds.baseUrl,
-      api_key: creds.apiKey,
+      base_url: jobBaseUrl,
+      api_key: jobApiKey,
       session_name: sessionName
     };
     

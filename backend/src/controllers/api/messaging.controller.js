@@ -1,6 +1,5 @@
 const db = require('../../config/database');
-const { decrypt } = require('../../services/crypto/encrypt.service');
-const { getWahaCredentials } = require('../../services/settings/system.service');
+const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
 const { createClient } = require('../../services/waha/client.service');
 const { checkContactLimit } = require('../../services/limits.service');
 
@@ -19,15 +18,7 @@ async function getWhatsAppClient(userId) {
   
   const connection = connectionResult.rows[0];
   
-  let baseUrl, apiKey;
-  if (connection.connection_type === 'managed') {
-    const creds = getWahaCredentials();
-    baseUrl = creds.baseUrl;
-    apiKey = creds.apiKey;
-  } else {
-    baseUrl = decrypt(connection.external_base_url);
-    apiKey = decrypt(connection.external_api_key);
-  }
+  const { baseUrl, apiKey } = await getWahaCredentialsForConnection(connection);
   
   return {
     client: createClient(baseUrl, apiKey),

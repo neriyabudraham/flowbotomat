@@ -1,5 +1,5 @@
 const pool = require('../../config/database');
-const { getWahaCredentials } = require('../../services/settings/system.service');
+const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
 const { decrypt } = require('../../services/crypto/encrypt.service');
 const wahaSession = require('../../services/waha/session.service');
 
@@ -59,7 +59,7 @@ async function getStatus(req, res) {
     
     // Get live status from WAHA
     try {
-      const { baseUrl, apiKey } = getCredentials(connection);
+      const { baseUrl, apiKey } = await getCredentials(connection);
       const wahaStatus = await wahaSession.getSessionStatus(
         baseUrl, apiKey, connection.session_name
       );
@@ -123,7 +123,7 @@ async function getQR(req, res) {
     }
     
     const connection = result.rows[0];
-    const { baseUrl, apiKey } = getCredentials(connection);
+    const { baseUrl, apiKey } = await getCredentials(connection);
     
     // First check session status - if not SCAN_QR_CODE, may need to restart
     try {
@@ -190,7 +190,7 @@ async function requestCode(req, res) {
     }
     
     const connection = result.rows[0];
-    const { baseUrl, apiKey } = getCredentials(connection);
+    const { baseUrl, apiKey } = await getCredentials(connection);
     
     // First check/start session if needed
     try {
@@ -245,15 +245,9 @@ function formatPhoneNumber(phone) {
   return clean;
 }
 
-// Helper: Get WAHA credentials based on connection type
-function getCredentials(connection) {
-  if (connection.connection_type === 'managed') {
-    return getWahaCredentials();
-  }
-  return {
-    baseUrl: decrypt(connection.external_base_url),
-    apiKey: decrypt(connection.external_api_key),
-  };
+// Helper: Get WAHA credentials based on connection type (source-aware)
+async function getCredentials(connection) {
+  return getWahaCredentialsForConnection(connection);
 }
 
 // Helper: Map WAHA status to our status

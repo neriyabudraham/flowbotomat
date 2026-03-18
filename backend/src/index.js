@@ -327,6 +327,57 @@ server.listen(PORT, () => {
       await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS disconnect_restriction_enabled BOOLEAN DEFAULT true`);
       await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS short_restriction_minutes INTEGER DEFAULT 30`);
       await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS long_restriction_hours INTEGER DEFAULT 24`);
+      // WAHA multi-source support
+      await dbQuery(`
+        CREATE TABLE IF NOT EXISTS waha_sources (
+          id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          name            VARCHAR(100) NOT NULL,
+          base_url        TEXT NOT NULL,
+          api_key_enc     TEXT NOT NULL,
+          webhook_base_url TEXT,
+          is_active       BOOLEAN NOT NULL DEFAULT true,
+          priority        INTEGER NOT NULL DEFAULT 0,
+          created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          created_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+          CONSTRAINT waha_sources_base_url_unique UNIQUE (base_url)
+        )
+      `);
+      await dbQuery(`CREATE INDEX IF NOT EXISTS idx_waha_sources_active ON waha_sources(is_active)`);
+      await dbQuery(`ALTER TABLE whatsapp_connections ADD COLUMN IF NOT EXISTS waha_source_id UUID REFERENCES waha_sources(id) ON DELETE SET NULL`);
+      await dbQuery(`CREATE INDEX IF NOT EXISTS idx_wc_waha_source ON whatsapp_connections(waha_source_id)`);
+      await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS waha_source_id UUID REFERENCES waha_sources(id) ON DELETE SET NULL`);
+      await dbQuery(`CREATE INDEX IF NOT EXISTS idx_sbc_waha_source ON status_bot_connections(waha_source_id)`);
+      // Seed default source from env vars and backfill existing connections
+      try {
+        const { encrypt: encryptForSeed } = require('./services/crypto/encrypt.service');
+        const wahaBaseUrl = process.env.WAHA_BASE_URL;
+        const wahaApiKey = process.env.WAHA_API_KEY;
+        if (wahaBaseUrl && wahaApiKey) {
+          await dbQuery(`
+            INSERT INTO waha_sources (name, base_url, api_key_enc, is_active)
+            VALUES ('Default', $1, $2, true)
+            ON CONFLICT (base_url) DO NOTHING
+          `, [wahaBaseUrl, encryptForSeed(wahaApiKey)]);
+          await dbQuery(`
+            UPDATE whatsapp_connections wc
+            SET waha_source_id = ws.id
+            FROM waha_sources ws
+            WHERE wc.connection_type = 'managed'
+              AND wc.waha_source_id IS NULL
+              AND ws.base_url = $1
+          `, [wahaBaseUrl]);
+          await dbQuery(`
+            UPDATE status_bot_connections sbc
+            SET waha_source_id = ws.id
+            FROM waha_sources ws
+            WHERE sbc.waha_source_id IS NULL
+              AND ws.base_url = $1
+          `, [wahaBaseUrl]);
+        }
+      } catch (seedErr) {
+        console.error('[Startup] WAHA source seed error:', seedErr.message);
+      }
       // Drop FK on billing_queue.subscription_id — it references user_subscriptions but
       // service subscriptions use user_service_subscriptions (different table), causing FK violations.
       await dbQuery(`ALTER TABLE billing_queue DROP CONSTRAINT IF EXISTS billing_queue_subscription_id_fkey`);

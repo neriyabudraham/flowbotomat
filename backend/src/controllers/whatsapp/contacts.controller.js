@@ -1,23 +1,13 @@
 const pool = require('../../config/database');
 const wahaService = require('../../services/waha/session.service');
 const { decrypt } = require('../../services/crypto/encrypt.service');
-const { getWahaCredentials } = require('../../services/settings/system.service');
+const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
 
 /**
  * Helper to prepare WAHA connection object from database row
  */
 async function prepareConnection(dbConnection) {
-  let baseUrl, apiKey;
-  
-  if (dbConnection.connection_type === 'external') {
-    baseUrl = decrypt(dbConnection.external_base_url);
-    apiKey = decrypt(dbConnection.external_api_key);
-  } else {
-    const systemCreds = await getWahaCredentials();
-    baseUrl = systemCreds.baseUrl;
-    apiKey = systemCreds.apiKey;
-  }
-  
+  const { baseUrl, apiKey } = await getWahaCredentialsForConnection(dbConnection);
   return {
     base_url: baseUrl,
     api_key: apiKey,

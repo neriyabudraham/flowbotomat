@@ -1,6 +1,5 @@
 const pool = require('../../config/database');
-const { getWahaCredentials } = require('../../services/settings/system.service');
-const { decrypt } = require('../../services/crypto/encrypt.service');
+const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
 const wahaSession = require('../../services/waha/session.service');
 
 /**
@@ -60,28 +59,19 @@ async function deleteConnection(req, res) {
     
     const connection = result.rows[0];
     
-    // For managed connections, logout and delete session from WAHA
-    if (connection.connection_type === 'managed') {
-      try {
-        const { baseUrl, apiKey } = getWahaCredentials();
-        // First logout (this disconnects WhatsApp)
-        await wahaSession.logoutSession(baseUrl, apiKey, connection.session_name);
+    // Logout and delete session from WAHA
+    try {
+      const { baseUrl, apiKey } = await getWahaCredentialsForConnection(connection);
+      // First logout (this disconnects WhatsApp)
+      await wahaSession.logoutSession(baseUrl, apiKey, connection.session_name);
+      if (connection.connection_type === 'managed') {
         // Then stop the session
         await wahaSession.stopSession(baseUrl, apiKey, connection.session_name);
         // Finally delete it
         await wahaSession.deleteSession(baseUrl, apiKey, connection.session_name);
-      } catch (err) {
-        console.error('WAHA session delete failed:', err.message);
       }
-    } else {
-      // For external connections, just stop and delete if we can
-      try {
-        const baseUrl = decrypt(connection.external_base_url);
-        const apiKey = decrypt(connection.external_api_key);
-        await wahaSession.logoutSession(baseUrl, apiKey, connection.session_name);
-      } catch (err) {
-        console.error('External WAHA logout failed:', err.message);
-      }
+    } catch (err) {
+      console.error('WAHA session delete failed:', err.message);
     }
     
     // Delete from DB

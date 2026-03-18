@@ -1,7 +1,7 @@
 const db = require('../config/database');
 const wahaService = require('./waha/session.service');
 const { decrypt } = require('./crypto/encrypt.service');
-const { getWahaCredentials } = require('./settings/system.service');
+const { getWahaCredentialsForConnection } = require('./settings/system.service');
 const validationService = require('./validation.service');
 const { checkLimit, incrementBotRuns } = require('../controllers/subscriptions/subscriptions.controller');
 const { getSocketManager } = require('./socket/manager.service');
@@ -3795,16 +3795,9 @@ class BotEngine {
     // Get decrypted credentials
     let base_url, api_key;
     
-    if (connection.connection_type === 'managed') {
-      // Use system WAHA credentials
-      const creds = getWahaCredentials();
-      base_url = creds.baseUrl;
-      api_key = creds.apiKey;
-    } else {
-      // Decrypt external credentials
-      base_url = decrypt(connection.external_base_url);
-      api_key = decrypt(connection.external_api_key);
-    }
+    const { baseUrl: base_url_resolved, apiKey: api_key_resolved } = await getWahaCredentialsForConnection(connection);
+    base_url = base_url_resolved;
+    api_key = api_key_resolved;
     
     
     // Return connection object with decrypted values
