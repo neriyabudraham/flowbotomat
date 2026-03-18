@@ -1,4 +1,5 @@
 const proxyService = require('../../services/proxy/proxy.service');
+const db = require('../../config/database');
 
 async function list(req, res) {
   try {
@@ -60,4 +61,53 @@ async function deactivate(req, res) {
   }
 }
 
-module.exports = { list, create, update, deactivate };
+/**
+ * Bulk-assign proxies to all connected status bot users who don't have one yet.
+ */
+async function syncExisting(req, res) {
+  try {
+    const result = await db.query(`
+      SELECT id, phone_number
+      FROM status_bot_connections
+      WHERE connection_status = 'connected'
+        AND phone_number IS NOT NULL
+        AND (proxy_ip IS NULL OR proxy_ip = '')
+    `);
+
+    const connections = result.rows;
+    if (connections.length === 0) {
+      return res.json({ success: true, assigned: 0, message: 'כל המשתמשים המחוברים כבר משויכים לפרוקסי' });
+    }
+
+    let assigned = 0;
+    let failed = 0;
+
+    for (const conn of connections) {
+      try {
+        const proxyIp = await proxyService.assignProxy(conn.phone_number);
+        if (proxyIp) {
+          await db.query(`UPDATE status_bot_connections SET proxy_ip = $1 WHERE id = $2`, [proxyIp, conn.id]);
+          assigned++;
+        } else {
+          failed++;
+        }
+      } catch (err) {
+        console.error(`[ProxySources] sync failed for ${conn.phone_number}:`, err.message);
+        failed++;
+      }
+    }
+
+    res.json({
+      success: true,
+      total: connections.length,
+      assigned,
+      failed,
+      message: `שויכו ${assigned} מתוך ${connections.length} משתמשים`,
+    });
+  } catch (e) {
+    console.error('[ProxySources] syncExisting error:', e);
+    res.status(500).json({ error: 'שגיאה בסנכרון' });
+  }
+}
+
+module.exports = { list, create, update, deactivate, syncExisting };

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, RefreshCw, Shield, CheckCircle, XCircle, AlertCircle, Wifi } from 'lucide-react';
+import { Plus, Edit2, Trash2, RefreshCw, Shield, CheckCircle, XCircle, AlertCircle, Wifi, Users } from 'lucide-react';
 import api from '../../services/api';
 
 export default function AdminProxySources() {
@@ -10,6 +10,8 @@ export default function AdminProxySources() {
   const [editingSource, setEditingSource] = useState(null);
   const [form, setForm] = useState({ base_url: '', api_key: '', name: '' });
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => { load(); }, []);
@@ -67,6 +69,21 @@ export default function AdminProxySources() {
     }
   };
 
+  const handleSyncExisting = async () => {
+    if (!window.confirm('לשייך פרוקסי לכל המשתמשים המחוברים שעדיין אין להם פרוקסי?')) return;
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const { data } = await api.post('/admin/proxy-sources/sync');
+      setSyncResult(data);
+      load();
+    } catch (err) {
+      setSyncResult({ error: err.response?.data?.error || 'שגיאה בסנכרון' });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleDeactivate = async (sourceId) => {
     if (!window.confirm('האם לנטרל מקור פרוקסי זה?')) return;
     try {
@@ -97,6 +114,15 @@ export default function AdminProxySources() {
             <RefreshCw size={18} />
           </button>
           <button
+            onClick={handleSyncExisting}
+            disabled={syncing}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors text-sm font-medium"
+            title="שייך פרוקסי לכל המשתמשים המחוברים שעדיין אין להם"
+          >
+            <Users size={16} />
+            {syncing ? 'מסנכרן...' : 'שייך קיימים'}
+          </button>
+          <button
             onClick={openCreate}
             className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
           >
@@ -105,6 +131,23 @@ export default function AdminProxySources() {
           </button>
         </div>
       </div>
+
+      {/* Sync result banner */}
+      {syncResult && (
+        <div className={`rounded-xl p-4 text-sm flex items-start justify-between gap-3 ${syncResult.error ? 'bg-red-50 border border-red-200 text-red-700' : 'bg-green-50 border border-green-200 text-green-800'}`}>
+          <div>
+            {syncResult.error ? (
+              <span>{syncResult.error}</span>
+            ) : (
+              <span>
+                <strong>{syncResult.message}</strong>
+                {syncResult.failed > 0 && <span className="mr-2 text-yellow-700">({syncResult.failed} נכשלו)</span>}
+              </span>
+            )}
+          </div>
+          <button onClick={() => setSyncResult(null)} className="text-gray-400 hover:text-gray-600 flex-shrink-0">✕</button>
+        </div>
+      )}
 
       {/* Sources list */}
       {sources.length === 0 ? (

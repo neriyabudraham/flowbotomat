@@ -50,6 +50,7 @@ router.delete('/waha-sources/:id', superadminMiddleware, wahaSourcesController.d
 // Proxy sources management
 router.get('/proxy-sources', proxySourcesController.list);
 router.post('/proxy-sources', superadminMiddleware, proxySourcesController.create);
+router.post('/proxy-sources/sync', superadminMiddleware, proxySourcesController.syncExisting);
 router.put('/proxy-sources/:id', superadminMiddleware, proxySourcesController.update);
 router.delete('/proxy-sources/:id', superadminMiddleware, proxySourcesController.deactivate);
 
