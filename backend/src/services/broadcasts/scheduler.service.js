@@ -113,9 +113,20 @@ async function startNewExecution(campaign, triggerType = 'scheduled') {
  */
 async function resumeExecution(execution) {
   const startStep = execution.paused_at_step || 0;
-  console.log(`[Scheduler] Resuming execution ${execution.id} from step ${startStep}`);
-  
+
   try {
+    // Atomically claim this execution — only if still 'waiting'
+    // Prevents double-resume if two scheduler intervals overlap
+    const claimed = await db.query(`
+      UPDATE campaign_executions
+      SET status = 'running', resume_at = NULL, paused_at_step = NULL
+      WHERE id = $1 AND status = 'waiting'
+      RETURNING id
+    `, [execution.id]);
+    if (claimed.rowCount === 0) return; // already claimed
+
+    console.log(`[Scheduler] Resuming execution ${execution.id} from step ${startStep}`);
+
     // Get campaign data
     const campaignResult = await db.query(`
       SELECT ac.*, a.id as resolved_audience_id
@@ -123,21 +134,14 @@ async function resumeExecution(execution) {
       LEFT JOIN broadcast_audiences a ON a.id = ac.audience_id
       WHERE ac.id = $1
     `, [execution.campaign_id]);
-    
+
     if (campaignResult.rows.length === 0) {
       console.error(`[Scheduler] Campaign ${execution.campaign_id} not found`);
       await db.query(`UPDATE campaign_executions SET status = 'failed', error_message = 'Campaign not found' WHERE id = $1`, [execution.id]);
       return;
     }
-    
+
     const campaign = campaignResult.rows[0];
-    
-    // Mark as running
-    await db.query(`
-      UPDATE campaign_executions 
-      SET status = 'running', resume_at = NULL, paused_at_step = NULL
-      WHERE id = $1
-    `, [execution.id]);
     
     // Continue execution
     await executeWithExecution(campaign, execution.id, startStep);

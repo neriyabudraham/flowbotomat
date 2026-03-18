@@ -200,49 +200,35 @@ async function processQueue() {
   }
 
   try {
-    // Check if we can process (30 seconds passed since last send)
-    const lockResult = await db.query(`
-      SELECT * FROM status_bot_queue_lock WHERE id = 1
-    `);
+    // Ensure lock row exists
+    await db.query(`INSERT INTO status_bot_queue_lock (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
 
-    if (lockResult.rows.length === 0) {
-      await db.query(`INSERT INTO status_bot_queue_lock (id) VALUES (1)`);
-      return;
+    // 1. Atomically reset stuck lock (processing started > timeout+60s ago)
+    const stuckReset = await db.query(`
+      UPDATE status_bot_queue_lock
+      SET is_processing = false, processing_started_at = NULL
+      WHERE id = 1
+        AND is_processing = true
+        AND processing_started_at IS NOT NULL
+        AND EXTRACT(EPOCH FROM (NOW() - processing_started_at)) * 1000 > $1
+    `, [await getStatusTimeout() + 60000]);
+    if (stuckReset.rowCount > 0) {
+      console.log('[StatusBot Queue] Stuck processing detected, resetting...');
     }
 
-    const lock = lockResult.rows[0];
+    // 2. Atomically acquire lock — only if not processing AND delay since last send has passed
+    //    Two concurrent workers hitting this will serialize in Postgres; only one gets rowCount=1
+    const lockAcquired = await db.query(`
+      UPDATE status_bot_queue_lock
+      SET is_processing = true, processing_started_at = NOW()
+      WHERE id = 1
+        AND is_processing = false
+        AND (last_sent_at IS NULL OR last_sent_at + ($1 * interval '1 millisecond') <= NOW())
+      RETURNING *
+    `, [STATUS_DELAY]);
+    if (lockAcquired.rowCount === 0) return; // busy or delay not yet passed
 
-    // Check if already processing
-    if (lock.is_processing) {
-      // Check for stuck processing (timeout)
-      if (lock.processing_started_at) {
-        const processingTime = Date.now() - new Date(lock.processing_started_at).getTime();
-        if (processingTime > await getStatusTimeout() + 60000) {
-          console.log('[StatusBot Queue] Stuck processing detected, resetting...');
-          await db.query(`
-            UPDATE status_bot_queue_lock 
-            SET is_processing = false, processing_started_at = NULL
-            WHERE id = 1
-          `);
-        } else {
-          return; // Still processing
-        }
-      }
-    }
-
-    // Check if 30 seconds passed since last send
-    if (lock.last_sent_at) {
-      const timeSinceLastSend = Date.now() - new Date(lock.last_sent_at).getTime();
-      if (timeSinceLastSend < STATUS_DELAY) {
-        return; // Need to wait more
-      }
-    }
-
-    // Get next pending item
-    // Include 'scheduled' status for backwards compatibility
-    // Only process if scheduled_for is null (send now) or scheduled_for <= NOW()
-    // Skip connections that are in restriction period (24h after first connection unless lifted, or short 30min restriction)
-    // Order by scheduled_for first (nulls first = send now items), then by created_at
+    // 3. Get next pending item
     const queueResult = await db.query(`
       SELECT q.*, c.session_name, c.connection_status, c.first_connected_at, c.last_connected_at, c.restriction_lifted, c.short_restriction_until
       FROM status_bot_queue q
@@ -261,6 +247,8 @@ async function processQueue() {
     `);
 
     if (queueResult.rows.length === 0) {
+      // Release lock — nothing to process
+      await db.query(`UPDATE status_bot_queue_lock SET is_processing = false, processing_started_at = NULL WHERE id = 1`);
       // Diagnose why: are there pending items being blocked?
       const blockedResult = await db.query(`
         SELECT q.id, q.connection_id, q.queue_status, q.created_at,
@@ -303,19 +291,18 @@ async function processQueue() {
 
     const item = queueResult.rows[0];
 
-    // Acquire lock
-    await db.query(`
-      UPDATE status_bot_queue_lock 
-      SET is_processing = true, processing_started_at = NOW()
-      WHERE id = 1
-    `);
-
-    // Update queue item status
-    await db.query(`
-      UPDATE status_bot_queue 
+    // 4. Atomically claim the queue item — defense-in-depth against any edge case
+    const claimed = await db.query(`
+      UPDATE status_bot_queue
       SET queue_status = 'processing', processing_started_at = NOW()
-      WHERE id = $1
+      WHERE id = $1 AND queue_status IN ('pending', 'scheduled')
+      RETURNING id
     `, [item.id]);
+    if (claimed.rowCount === 0) {
+      // Item was already claimed (shouldn't happen, but safe to handle)
+      await db.query(`UPDATE status_bot_queue_lock SET is_processing = false, processing_started_at = NULL WHERE id = 1`);
+      return;
+    }
 
     const scheduledAt = item.scheduled_for ? new Date(item.scheduled_for) : null;
     const createdAt = new Date(item.created_at);

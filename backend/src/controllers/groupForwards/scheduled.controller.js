@@ -234,11 +234,13 @@ async function processScheduledForwards() {
         const userResult = await db.query('SELECT phone FROM users WHERE id = $1', [schedule.user_id]);
         const userPhone = userResult.rows[0]?.phone;
         
-        // Mark as processing
-        await db.query(`
+        // Atomically claim — skip if already taken by another process
+        const claimed = await db.query(`
           UPDATE scheduled_forwards SET status = 'processing', updated_at = NOW()
-          WHERE id = $1
+          WHERE id = $1 AND status = 'pending'
+          RETURNING id
         `, [schedule.id]);
+        if (claimed.rowCount === 0) continue;
         
         // Create a job for this scheduled forward
         const { createForwardJob, startForwardJob } = require('./jobs.controller');
