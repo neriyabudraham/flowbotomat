@@ -89,6 +89,59 @@ async function listConnections(req, res) {
 }
 
 /**
+ * Sync proxy_ip from the proxy API into our DB.
+ * Reads /api/v1/proxies/all, builds phone→ip map, updates matching connections.
+ */
+async function syncFromProxyAPI(req, res) {
+  try {
+    const phoneMap = await proxyService.buildPhoneProxyMap();
+    const phones = Object.keys(phoneMap);
+    if (phones.length === 0) {
+      return res.json({ success: true, updated: 0, message: 'לא נמצאו שיוכים ב-API הפרוקסי' });
+    }
+
+    let updated = 0;
+    for (const [phone, ip] of Object.entries(phoneMap)) {
+      const r = await db.query(
+        `UPDATE status_bot_connections SET proxy_ip = $1 WHERE phone_number = $2 AND (proxy_ip IS NULL OR proxy_ip != $1) RETURNING id`,
+        [ip, phone]
+      );
+      updated += r.rowCount;
+    }
+
+    res.json({ success: true, updated, phones: phones.length, message: `עודכנו ${updated} חיבורים מה-API (${phones.length} טלפונים ב-API)` });
+  } catch (e) {
+    console.error('[ProxySources] syncFromProxyAPI error:', e);
+    res.status(500).json({ error: 'שגיאה בסנכרון מה-API' });
+  }
+}
+
+/**
+ * Manually assign (or re-assign) proxy to a specific connection.
+ */
+async function assignConnection(req, res) {
+  try {
+    const { id } = req.params;
+    const connResult = await db.query(
+      'SELECT id, phone_number FROM status_bot_connections WHERE id = $1',
+      [id]
+    );
+    if (connResult.rows.length === 0) return res.status(404).json({ error: 'חיבור לא נמצא' });
+    const conn = connResult.rows[0];
+    if (!conn.phone_number) return res.status(400).json({ error: 'אין מספר טלפון לחיבור זה' });
+
+    const proxyIp = await proxyService.assignProxy(conn.phone_number);
+    if (!proxyIp) return res.status(502).json({ error: 'שירות הפרוקסי לא הצליח לשייך' });
+
+    await db.query(`UPDATE status_bot_connections SET proxy_ip = $1 WHERE id = $2`, [proxyIp, id]);
+    res.json({ success: true, proxyIp });
+  } catch (e) {
+    console.error('[ProxySources] assignConnection error:', e);
+    res.status(500).json({ error: 'שגיאה בשיוך' });
+  }
+}
+
+/**
  * Bulk-assign proxies to all connected status bot users who don't have one yet.
  */
 async function syncExisting(req, res) {
@@ -137,4 +190,4 @@ async function syncExisting(req, res) {
   }
 }
 
-module.exports = { list, create, update, deactivate, syncExisting, listConnections };
+module.exports = { list, create, update, deactivate, syncExisting, syncFromProxyAPI, assignConnection, listConnections };

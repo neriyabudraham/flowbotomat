@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, RefreshCw, Shield, CheckCircle, XCircle, AlertCircle, Wifi, Users, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Edit2, Trash2, RefreshCw, Shield, CheckCircle, XCircle, AlertCircle, Wifi, Users, ChevronDown, ChevronUp, Download, Link } from 'lucide-react';
 import api from '../../services/api';
 
 const STATUS_LABEL = {
@@ -22,7 +22,9 @@ export default function AdminProxySources() {
   const [form, setForm] = useState({ base_url: '', api_key: '', name: '' });
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncingApi, setSyncingApi] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  const [assigningId, setAssigningId] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => { load(); }, []);
@@ -109,6 +111,32 @@ export default function AdminProxySources() {
     }
   };
 
+  const handleSyncFromApi = async () => {
+    setSyncingApi(true);
+    setSyncResult(null);
+    try {
+      const { data } = await api.post('/admin/proxy-sources/sync-from-api');
+      setSyncResult(data);
+      if (showConns) loadConnections();
+    } catch (err) {
+      setSyncResult({ error: err.response?.data?.error || 'שגיאה בסנכרון מה-API' });
+    } finally {
+      setSyncingApi(false);
+    }
+  };
+
+  const handleAssignConnection = async (connId) => {
+    setAssigningId(connId);
+    try {
+      const { data } = await api.post(`/admin/proxy-sources/connections/${connId}/assign`);
+      setConnections(prev => prev.map(c => c.id === connId ? { ...c, proxy_ip: data.proxyIp } : c));
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בשיוך');
+    } finally {
+      setAssigningId(null);
+    }
+  };
+
   const handleDeactivate = async (sourceId) => {
     if (!window.confirm('האם לנטרל מקור פרוקסי זה?')) return;
     try {
@@ -146,6 +174,15 @@ export default function AdminProxySources() {
         <div className="flex gap-2">
           <button onClick={load} className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
             <RefreshCw size={18} />
+          </button>
+          <button
+            onClick={handleSyncFromApi}
+            disabled={syncingApi}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm font-medium"
+            title="קרא שיוכים קיימים מה-API של הפרוקסי ועדכן ה-DB"
+          >
+            <Download size={16} />
+            {syncingApi ? 'מסנכרן...' : 'סנכרן מה-API'}
           </button>
           <button
             onClick={handleSyncExisting}
@@ -288,11 +325,13 @@ export default function AdminProxySources() {
                       <th className="text-right px-4 py-2 font-medium text-gray-600">סטטוס</th>
                       <th className="text-right px-4 py-2 font-medium text-gray-600">פרוקסי משויך</th>
                       <th className="text-right px-4 py-2 font-medium text-gray-600">עדכון אחרון</th>
+                  <th className="px-4 py-2" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {filteredConns.map((c) => {
                       const st = STATUS_LABEL[c.connection_status] || { label: c.connection_status, cls: 'bg-gray-100 text-gray-600' };
+                      const isAssigning = assigningId === c.id;
                       return (
                         <tr key={c.id} className="hover:bg-gray-50">
                           <td className="px-4 py-2.5">
@@ -315,6 +354,19 @@ export default function AdminProxySources() {
                           </td>
                           <td className="px-4 py-2.5 text-xs text-gray-400">
                             {c.updated_at ? new Date(c.updated_at).toLocaleDateString('he-IL') : '—'}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            {c.phone_number && (
+                              <button
+                                onClick={() => handleAssignConnection(c.id)}
+                                disabled={isAssigning}
+                                className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-lg transition-colors disabled:opacity-50"
+                                title={c.proxy_ip ? 'שייך מחדש' : 'שייך פרוקסי'}
+                              >
+                                <Link size={11} />
+                                {isAssigning ? '...' : c.proxy_ip ? 'שנה' : 'שייך'}
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );

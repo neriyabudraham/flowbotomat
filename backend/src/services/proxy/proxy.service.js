@@ -59,6 +59,7 @@ async function removeProxy(phoneNumber) {
 
 /**
  * List all proxies from the active source (for admin display).
+ * Response format: [{ id, ip, port, serverName, phones: [...] }]
  */
 async function listAllProxies() {
   const source = await getActiveSource();
@@ -68,11 +69,29 @@ async function listAllProxies() {
       `${source.baseUrl}/api/v1/proxies/all`,
       { headers: { 'x-api-key': source.apiKey }, timeout: 10000 }
     );
-    return resp.data?.proxies || resp.data || [];
+    return Array.isArray(resp.data) ? resp.data : (resp.data?.proxies || []);
   } catch (err) {
     console.error('[Proxy] listAllProxies error:', err.message);
     return [];
   }
+}
+
+/**
+ * Build a map of phone → proxyIp from the proxy service.
+ * Uses /api/v1/proxies/all which returns [{ ip, phones: [...] }]
+ */
+async function buildPhoneProxyMap() {
+  const proxies = await listAllProxies();
+  const map = {};
+  for (const proxy of proxies) {
+    const ip = proxy.ip || proxy.proxyIp;
+    if (ip && Array.isArray(proxy.phones)) {
+      for (const phone of proxy.phones) {
+        if (phone && !map[phone]) map[phone] = ip; // first match wins
+      }
+    }
+  }
+  return map;
 }
 
 // ─── DB CRUD for proxy_sources ───────────────────────────────────────────────
@@ -122,6 +141,7 @@ module.exports = {
   assignProxy,
   removeProxy,
   listAllProxies,
+  buildPhoneProxyMap,
   listSources,
   createSource,
   updateSource,

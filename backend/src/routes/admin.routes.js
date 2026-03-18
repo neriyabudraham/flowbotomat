@@ -52,6 +52,8 @@ router.get('/proxy-sources', proxySourcesController.list);
 router.get('/proxy-sources/connections', proxySourcesController.listConnections);
 router.post('/proxy-sources', superadminMiddleware, proxySourcesController.create);
 router.post('/proxy-sources/sync', superadminMiddleware, proxySourcesController.syncExisting);
+router.post('/proxy-sources/sync-from-api', superadminMiddleware, proxySourcesController.syncFromProxyAPI);
+router.post('/proxy-sources/connections/:id/assign', superadminMiddleware, proxySourcesController.assignConnection);
 router.put('/proxy-sources/:id', superadminMiddleware, proxySourcesController.update);
 router.delete('/proxy-sources/:id', superadminMiddleware, proxySourcesController.deactivate);
 
