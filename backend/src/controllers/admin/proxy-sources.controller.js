@@ -234,4 +234,75 @@ async function syncExisting(req, res) {
   }
 }
 
-module.exports = { list, create, update, deactivate, syncExisting, syncFromProxyAPI, assignConnection, listConnections };
+/**
+ * Remove proxy from a single connection (proxy API + WAHA session + DB).
+ */
+async function removeConnectionProxy(req, res) {
+  try {
+    const { id } = req.params;
+    const connResult = await db.query(
+      'SELECT id, phone_number, session_name, waha_source_id, proxy_ip FROM status_bot_connections WHERE id = $1',
+      [id]
+    );
+    if (connResult.rows.length === 0) return res.status(404).json({ error: 'חיבור לא נמצא' });
+    const conn = connResult.rows[0];
+
+    const creds = conn.waha_source_id ? await getCredentialsForSource(conn.waha_source_id) : null;
+    const wahaOpts = creds ? { baseUrl: creds.baseUrl, apiKey: creds.apiKey, sessionName: conn.session_name } : null;
+
+    await proxyService.removeProxy(conn.phone_number, wahaOpts);
+    await db.query('UPDATE status_bot_connections SET proxy_ip = NULL WHERE id = $1', [id]);
+
+    console.log(`[ProxySources] ✅ Removed proxy for connection ${id} (${conn.phone_number})`);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[ProxySources] removeConnectionProxy error:', e);
+    res.status(500).json({ error: 'שגיאה בהסרת פרוקסי' });
+  }
+}
+
+/**
+ * Remove proxies from ALL connections that have one assigned.
+ */
+async function removeAllProxies(req, res) {
+  try {
+    const result = await db.query(
+      `SELECT id, phone_number, session_name, waha_source_id FROM status_bot_connections WHERE proxy_ip IS NOT NULL AND proxy_ip != ''`
+    );
+
+    const connections = result.rows;
+    if (connections.length === 0) {
+      return res.json({ success: true, removed: 0, message: 'אין חיבורים עם פרוקסי משויך' });
+    }
+
+    let removed = 0;
+    let failed = 0;
+
+    for (const conn of connections) {
+      try {
+        const creds = conn.waha_source_id ? await getCredentialsForSource(conn.waha_source_id) : null;
+        const wahaOpts = creds ? { baseUrl: creds.baseUrl, apiKey: creds.apiKey, sessionName: conn.session_name } : null;
+
+        await proxyService.removeProxy(conn.phone_number, wahaOpts);
+        await db.query('UPDATE status_bot_connections SET proxy_ip = NULL WHERE id = $1', [conn.id]);
+        removed++;
+      } catch (err) {
+        console.error(`[ProxySources] removeAll failed for ${conn.phone_number}:`, err.message);
+        failed++;
+      }
+    }
+
+    res.json({
+      success: true,
+      total: connections.length,
+      removed,
+      failed,
+      message: `הוסרו ${removed} מתוך ${connections.length} פרוקסים`,
+    });
+  } catch (e) {
+    console.error('[ProxySources] removeAllProxies error:', e);
+    res.status(500).json({ error: 'שגיאה בהסרת פרוקסים' });
+  }
+}
+
+module.exports = { list, create, update, deactivate, syncExisting, syncFromProxyAPI, assignConnection, listConnections, removeConnectionProxy, removeAllProxies };

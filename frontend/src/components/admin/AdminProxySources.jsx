@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, RefreshCw, Shield, CheckCircle, XCircle, AlertCircle, Wifi, Users, ChevronDown, ChevronUp, Download, Link } from 'lucide-react';
+import { Plus, Edit2, Trash2, RefreshCw, Shield, CheckCircle, XCircle, AlertCircle, Wifi, Users, ChevronDown, ChevronUp, Download, Link, X } from 'lucide-react';
 import api from '../../services/api';
 
 const STATUS_LABEL = {
@@ -25,6 +25,8 @@ export default function AdminProxySources() {
   const [syncingApi, setSyncingApi] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
   const [assigningId, setAssigningId] = useState(null);
+  const [removingId, setRemovingId] = useState(null);
+  const [removingAll, setRemovingAll] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => { load(); }, []);
@@ -139,6 +141,33 @@ export default function AdminProxySources() {
     }
   };
 
+  const handleRemoveConnection = async (connId) => {
+    setRemovingId(connId);
+    try {
+      await api.delete(`/admin/proxy-sources/connections/${connId}`);
+      setConnections(prev => prev.map(c => c.id === connId ? { ...c, proxy_ip: null } : c));
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בהסרת פרוקסי');
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  const handleRemoveAll = async () => {
+    if (!window.confirm('להסיר פרוקסי מכל החיבורים? פעולה זו תעדכן גם את שרתי WAHA.')) return;
+    setRemovingAll(true);
+    setSyncResult(null);
+    try {
+      const { data } = await api.delete('/admin/proxy-sources/connections/all');
+      setSyncResult(data);
+      setConnections(prev => prev.map(c => ({ ...c, proxy_ip: null })));
+    } catch (err) {
+      setSyncResult({ error: err.response?.data?.error || 'שגיאה בהסרת פרוקסים' });
+    } finally {
+      setRemovingAll(false);
+    }
+  };
+
   const handleDeactivate = async (sourceId) => {
     if (!window.confirm('האם לנטרל מקור פרוקסי זה?')) return;
     try {
@@ -176,6 +205,15 @@ export default function AdminProxySources() {
         <div className="flex gap-2">
           <button onClick={load} className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
             <RefreshCw size={18} />
+          </button>
+          <button
+            onClick={handleRemoveAll}
+            disabled={removingAll}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors text-sm font-medium"
+            title="הסר פרוקסי מכל החיבורים ועדכן WAHA"
+          >
+            <X size={16} />
+            {removingAll ? 'מסיר...' : 'בטל סנכרון כללי'}
           </button>
           <button
             onClick={handleSyncFromApi}
@@ -358,17 +396,30 @@ export default function AdminProxySources() {
                             {c.updated_at ? new Date(c.updated_at).toLocaleDateString('he-IL') : '—'}
                           </td>
                           <td className="px-4 py-2.5">
-                            {c.phone_number && (
-                              <button
-                                onClick={() => handleAssignConnection(c.id)}
-                                disabled={isAssigning}
-                                className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-lg transition-colors disabled:opacity-50"
-                                title={c.proxy_ip ? 'שייך מחדש' : 'שייך פרוקסי'}
-                              >
-                                <Link size={11} />
-                                {isAssigning ? '...' : c.proxy_ip ? 'שנה' : 'שייך'}
-                              </button>
-                            )}
+                            <div className="flex gap-1">
+                              {c.phone_number && (
+                                <button
+                                  onClick={() => handleAssignConnection(c.id)}
+                                  disabled={isAssigning || removingId === c.id}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-lg transition-colors disabled:opacity-50"
+                                  title={c.proxy_ip ? 'שייך מחדש' : 'שייך פרוקסי'}
+                                >
+                                  <Link size={11} />
+                                  {isAssigning ? '...' : c.proxy_ip ? 'שנה' : 'שייך'}
+                                </button>
+                              )}
+                              {c.proxy_ip && (
+                                <button
+                                  onClick={() => handleRemoveConnection(c.id)}
+                                  disabled={removingId === c.id || isAssigning}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-50"
+                                  title="הסר פרוקסי"
+                                >
+                                  <X size={11} />
+                                  {removingId === c.id ? '...' : 'הסר'}
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -392,29 +443,29 @@ export default function AdminProxySources() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-right px-4 py-2 font-medium text-gray-600">IP</th>
-                  <th className="text-right px-4 py-2 font-medium text-gray-600">פורט</th>
-                  <th className="text-right px-4 py-2 font-medium text-gray-600">סטטוס</th>
-                  <th className="text-right px-4 py-2 font-medium text-gray-600">חיבורים</th>
+                  <th className="text-right px-4 py-2 font-medium text-gray-600">שם</th>
+                  <th className="text-right px-4 py-2 font-medium text-gray-600">שרת (IP:Port)</th>
+                  <th className="text-right px-4 py-2 font-medium text-gray-600">טלפונים משויכים</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {proxies.map((proxy, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
-                    <td className="px-4 py-2 font-mono text-gray-800">{proxy.proxyIp || proxy.ip || '—'}</td>
-                    <td className="px-4 py-2 text-gray-600">{proxy.port || '—'}</td>
-                    <td className="px-4 py-2">
-                      {proxy.status === 'free' || proxy.isFree ? (
-                        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">פנוי</span>
-                      ) : proxy.status === 'assigned' || proxy.isAssigned ? (
-                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">משויך</span>
-                      ) : (
-                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{proxy.status || '—'}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-gray-600">{proxy.connectionCount ?? proxy.connections ?? '—'}</td>
-                  </tr>
-                ))}
+                {proxies.map((proxy, i) => {
+                  const phoneCount = Array.isArray(proxy.phones) ? proxy.phones.length : null;
+                  const server = proxy.proxy || (proxy.ip && proxy.port ? `${proxy.ip}:${proxy.port}` : proxy.ip || '—');
+                  return (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="px-4 py-2 text-gray-700">{proxy.serverName || `פרוקסי ${i + 1}`}</td>
+                      <td className="px-4 py-2 font-mono text-gray-800">{server}</td>
+                      <td className="px-4 py-2 text-gray-600">
+                        {phoneCount !== null ? (
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${phoneCount === 0 ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                            {phoneCount === 0 ? 'פנוי' : `${phoneCount} טלפונים`}
+                          </span>
+                        ) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
