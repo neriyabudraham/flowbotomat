@@ -832,16 +832,21 @@ async function startForwardJob(jobId) {
         }
         
       } catch (sendError) {
-        console.error(`[GroupForwards] Error sending to ${message.group_id}:`, sendError.message);
-        
+        const wahaDetail = sendError.response?.data ? JSON.stringify(sendError.response.data) : '';
+        console.error(`[GroupForwards] Error sending to ${message.group_id}: ${sendError.message}${wahaDetail ? ' | WAHA: ' + wahaDetail : ''}`);
+
+        const fullErrorMsg = wahaDetail
+          ? `${sendError.message} | ${wahaDetail}`
+          : sendError.message;
+
         await db.query(`
-          UPDATE forward_job_messages 
+          UPDATE forward_job_messages
           SET status = 'failed', error_message = $2
           WHERE id = $1
-        `, [message.id, sendError.message]);
-        
+        `, [message.id, (fullErrorMsg || sendError.message).substring(0, 500)]);
+
         failedCount++;
-        
+
         // Update target with error
         await db.query(`
           UPDATE group_forward_targets 
