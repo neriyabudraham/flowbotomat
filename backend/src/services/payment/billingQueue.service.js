@@ -291,7 +291,38 @@ async function detectMissingBillingEntries() {
     console.log(`[BillingQueue] Created ${created} missing billing queue entries`);
   }
 
-  return { stuckFixed: stuckResult.rows.length, missingCreated: created };
+  // 3. Find failed charges that exhausted retries but were never finalized (handleMaxRetriesReached not called)
+  //    These are identifiable by: status='failed', retry_count >= max_retries, next_retry_at IS NOT NULL
+  const unfinishedResult = await pool.query(`
+    SELECT bq.*,
+           u.email, u.name as display_name,
+           us.sumit_customer_id,
+           sp.name as plan_name, sp.name_he as plan_name_he
+    FROM billing_queue bq
+    JOIN users u ON u.id = bq.user_id
+    LEFT JOIN user_subscriptions us ON us.user_id = bq.user_id
+    LEFT JOIN subscription_plans sp ON sp.id = bq.plan_id
+    WHERE bq.status = 'failed'
+      AND bq.retry_count >= bq.max_retries
+      AND bq.next_retry_at IS NOT NULL
+  `);
+
+  let finalized = 0;
+  for (const charge of unfinishedResult.rows) {
+    try {
+      await handleMaxRetriesReached(charge, charge.last_error || 'MAX_RETRIES_EXHAUSTED');
+      finalized++;
+      console.log(`[BillingQueue] Finalized exhausted charge ${charge.id} for user ${charge.user_id}`);
+    } catch (e) {
+      console.error(`[BillingQueue] Error finalizing exhausted charge ${charge.id}:`, e);
+    }
+  }
+
+  if (finalized > 0) {
+    console.log(`[BillingQueue] Finalized ${finalized} exhausted failed charges`);
+  }
+
+  return { stuckFixed: stuckResult.rows.length, missingCreated: created, exhaustedFinalized: finalized };
 }
 
 /**
@@ -434,16 +465,29 @@ async function retryFailedCharges() {
     retried++;
     
     try {
-      // Reset to pending for processing
+      // Reset to processing
       await pool.query(
-        `UPDATE billing_queue 
-         SET status = 'processing', 
+        `UPDATE billing_queue
+         SET status = 'processing',
              retry_count = retry_count + 1,
-             updated_at = NOW() 
+             updated_at = NOW()
          WHERE id = $1`,
         [charge.id]
       );
-      
+
+      // newRetryCount reflects the value now stored in DB
+      const newRetryCount = charge.retry_count + 1;
+
+      // Check if user has a payment method (same guard as processQueue)
+      if (!charge.sumit_customer_id) {
+        if (newRetryCount >= charge.max_retries) {
+          await handleMaxRetriesReached(charge, 'NO_PAYMENT_METHOD');
+        } else {
+          await handleChargeFailure(charge, 'NO_PAYMENT_METHOD', 'למשתמש אין אמצעי תשלום מוגדר');
+        }
+        continue;
+      }
+
       // Execute charge
       const description = charge.description || charge.plan_name_he || `מנוי ${charge.billing_type}`;
       const chargeResult = await sumitService.chargeOneTime({
@@ -452,14 +496,12 @@ async function retryFailedCharges() {
         description,
         sendEmail: true
       });
-      
+
       if (chargeResult.success) {
         await handleChargeSuccess(charge, chargeResult);
         successful++;
       } else {
         // This was a retry that failed again
-        const newRetryCount = charge.retry_count + 1;
-        
         if (newRetryCount >= charge.max_retries) {
           // Max retries reached - downgrade user
           await handleMaxRetriesReached(charge, chargeResult.error);
@@ -468,9 +510,20 @@ async function retryFailedCharges() {
           await handleChargeFailure(charge, chargeResult.status || 'CHARGE_FAILED', chargeResult.error, chargeResult.technicalError);
         }
       }
-      
+
     } catch (error) {
       console.error(`[BillingQueue] Error retrying charge ${charge.id}:`, error);
+      // Properly finalize the charge so it isn't left stuck in 'processing'
+      try {
+        const newRetryCount = charge.retry_count + 1;
+        if (newRetryCount >= (charge.max_retries || 2)) {
+          await handleMaxRetriesReached(charge, error.message);
+        } else {
+          await handleChargeFailure(charge, 'SYSTEM_ERROR', error.message);
+        }
+      } catch (innerError) {
+        console.error(`[BillingQueue] Error finalizing failed retry for charge ${charge.id}:`, innerError);
+      }
     }
   }
   
