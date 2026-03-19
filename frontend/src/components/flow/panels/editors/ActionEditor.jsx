@@ -458,6 +458,9 @@ function BotSelector({ action, onUpdate, actionType }) {
     setLoading(false);
   };
   
+  const activeBots = bots.filter(b => b.is_active);
+  const inactiveBots = bots.filter(b => !b.is_active);
+
   return (
     <div className="space-y-2">
       <p className="text-xs text-gray-500">
@@ -474,9 +477,20 @@ function BotSelector({ action, onUpdate, actionType }) {
           disabled={loading}
         >
           <option value="">-- בחר בוט --</option>
-          {bots.map(bot => (
-            <option key={bot.id} value={bot.id}>{bot.name}</option>
-          ))}
+          {activeBots.length > 0 && (
+            <optgroup label="✅ פעילים">
+              {activeBots.map(bot => (
+                <option key={bot.id} value={bot.id}>{bot.name}</option>
+              ))}
+            </optgroup>
+          )}
+          {inactiveBots.length > 0 && (
+            <optgroup label="⏸ לא פעילים">
+              {inactiveBots.map(bot => (
+                <option key={bot.id} value={bot.id}>{bot.name}</option>
+              ))}
+            </optgroup>
+          )}
         </select>
         <button
           type="button"
@@ -488,9 +502,19 @@ function BotSelector({ action, onUpdate, actionType }) {
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
+      {action.botId && (() => {
+        const selected = bots.find(b => b.id === action.botId);
+        return selected ? (
+          <p className="text-xs flex items-center gap-1.5 px-2 py-1 bg-gray-50 rounded-lg">
+            <span className={selected.is_active ? 'text-green-500' : 'text-gray-400'}>●</span>
+            <span className="text-gray-600">{selected.name}</span>
+            <span className="text-gray-400">{selected.is_active ? '(פעיל)' : '(לא פעיל)'}</span>
+          </p>
+        ) : null;
+      })()}
       <p className="text-xs text-gray-400">
-        {actionType === 'run_bot' 
-          ? 'הבוט הנבחר יופעל עבור איש הקשר הנוכחי'
+        {actionType === 'run_bot'
+          ? 'הבוט הנבחר יופעל עבור איש הקשר הנוכחי. אם לבוט יש טריגר ״בעת הפעלה״ הוא יתחיל לרוץ.'
           : 'הבוט הנבחר ייכבה עבור איש הקשר הנוכחי'
         }
       </p>

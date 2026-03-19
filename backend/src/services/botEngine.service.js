@@ -159,7 +159,7 @@ class BotEngine {
       // For webhook events: only run the specific bot identified by botId
       // For other events: run all active bots
       let botsResult;
-      if (eventType === 'webhook' && eventData.botId) {
+      if ((eventType === 'webhook' || eventType === 'bot_activated') && eventData.botId) {
         botsResult = await db.query(
           'SELECT * FROM bots WHERE user_id = $1 AND id = $2 AND is_active = true AND locked_reason IS NULL',
           [userId, eventData.botId]
@@ -411,7 +411,8 @@ class BotEngine {
   // Check if condition type is an event-based condition
   isEventCondition(type) {
     return ['status_viewed', 'status_reaction', 'status_reply', 'group_join', 'group_leave',
-            'call_received', 'call_rejected', 'call_accepted', 'poll_vote', 'webhook', 'message_revoked'].includes(type);
+            'call_received', 'call_rejected', 'call_accepted', 'poll_vote', 'webhook', 'message_revoked',
+            'bot_activated'].includes(type);
   }
   
   // Check if event matches condition
@@ -1347,6 +1348,27 @@ class BotEngine {
       return true; // Any channel message matches
     }
     
+    // Unified message_received trigger — filter by type and optional content
+    if (type === 'message_received') {
+      const msgType = condition.messageType || 'any';
+      const mediaType = contact._mediaType || null;
+      if (msgType === 'text' && mediaType) return false; // text only — no media
+      if (msgType === 'image' && mediaType !== 'image') return false;
+      if (msgType === 'video' && mediaType !== 'video') return false;
+      if (msgType === 'audio' && mediaType !== 'audio' && mediaType !== 'ptt') return false;
+      if (msgType === 'file' && mediaType !== 'document') return false;
+      if (msgType === 'sticker' && mediaType !== 'sticker') return false;
+      // Optional content filter (text/any only)
+      if (condition.hasContentFilter && condition.operator && ['any', 'text'].includes(msgType)) {
+        if (!['is_empty', 'is_not_empty'].includes(condition.operator) && condition.value) {
+          return this.matchOperator(message, condition.operator, condition.value, condition.caseSensitive);
+        }
+        if (condition.operator === 'is_empty') return !message || message.trim() === '';
+        if (condition.operator === 'is_not_empty') return !!(message && message.trim());
+      }
+      return true;
+    }
+
     // media type triggers — use contact._mediaType (set from extraContext in processMessage)
     if (type === 'image_received') return contact._mediaType === 'image';
     if (type === 'video_received') return contact._mediaType === 'video';
@@ -2148,6 +2170,51 @@ class BotEngine {
           
         case 'stop_bot':
           await db.query('UPDATE contacts SET is_bot_active = false WHERE id = $1', [contact.id]);
+          break;
+
+        case 'run_bot':
+          if (action.botId) {
+            // Verify the target bot belongs to this user
+            const targetBotCheck = await db.query(
+              'SELECT id FROM bots WHERE id = $1 AND user_id = $2 AND is_active = true AND locked_reason IS NULL',
+              [action.botId, userId]
+            );
+            if (targetBotCheck.rows.length > 0) {
+              // Fire bot_activated event for the target bot
+              setImmediate(() => {
+                this.processEvent(userId, contact.phone, 'bot_activated', { botId: action.botId }).catch(err => {
+                  console.error('[BotEngine] run_bot processEvent error:', err.message);
+                });
+              });
+            }
+          }
+          break;
+
+        case 'disable_bot':
+          if (action.botId) {
+            try {
+              await db.query(
+                `INSERT INTO contact_disabled_bots (contact_id, bot_id, created_at)
+                 VALUES ($1, $2, NOW()) ON CONFLICT DO NOTHING`,
+                [contact.id, action.botId]
+              );
+            } catch (e) {
+              // Table may not exist
+              console.warn('[BotEngine] contact_disabled_bots table missing:', e.message);
+            }
+          }
+          break;
+
+        case 'pause_all_bots':
+          await db.query('UPDATE contacts SET is_bot_active = false WHERE id = $1', [contact.id]);
+          break;
+
+        case 'enable_all_bots':
+          await db.query('UPDATE contacts SET is_bot_active = true WHERE id = $1', [contact.id]);
+          break;
+
+        case 'delete_contact':
+          await db.query('DELETE FROM contacts WHERE id = $1', [contact.id]);
           break;
           
         case 'webhook':

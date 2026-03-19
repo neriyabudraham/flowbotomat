@@ -4,6 +4,7 @@ import api from '../../../../services/api';
 
 const triggerTypes = [
   { id: 'any_message', label: 'כל הודעה נכנסת', icon: '💬', category: 'message' },
+  { id: 'message_received', label: 'הודעה נכנסת לפי סוג', icon: '📨', hasMessageType: true, hasOptionalContent: true, category: 'message' },
   { id: 'message_content', label: 'תוכן ההודעה', icon: '🔍', hasValue: true, hasOperator: true, category: 'message' },
   { id: 'first_message', label: 'הודעה ראשונה מאיש קשר', icon: '👋', category: 'message' },
   { id: 'no_message_in', label: 'לא שלח הודעה ב-X זמן', icon: '🔕', hasTimeValue: true, category: 'message' },
@@ -11,6 +12,7 @@ const triggerTypes = [
   { id: 'video_received', label: 'סרטון נכנס', icon: '🎥', category: 'media' },
   { id: 'audio_received', label: 'הודעה קולית / שמע', icon: '🎵', category: 'media' },
   { id: 'file_received', label: 'קובץ נכנס', icon: '📎', category: 'media' },
+  { id: 'bot_activated', label: 'בעת הפעלת הבוט', icon: '▶️', category: 'bot' },
   { id: 'contact_field', label: 'שדה באיש קשר', icon: '👤', hasValue: true, hasOperator: true, hasField: true, category: 'contact' },
   { id: 'has_tag', label: 'יש תגית', icon: '🏷️', hasValue: true, category: 'contact' },
   { id: 'no_tag', label: 'אין תגית', icon: '🏷️', hasValue: true, category: 'contact' },
@@ -43,6 +45,16 @@ const operators = [
   { id: 'regex', label: 'תואם ביטוי (Regex)' },
   { id: 'is_empty', label: 'ריק' },
   { id: 'is_not_empty', label: 'לא ריק' },
+];
+
+const messageTypeOptions = [
+  { id: 'any', label: 'כל סוג הודעה', icon: '💬' },
+  { id: 'text', label: 'טקסט בלבד', icon: '📝' },
+  { id: 'image', label: 'תמונה', icon: '🖼️' },
+  { id: 'video', label: 'סרטון', icon: '🎥' },
+  { id: 'audio', label: 'הודעה קולית / שמע', icon: '🎵' },
+  { id: 'file', label: 'קובץ / מסמך', icon: '📎' },
+  { id: 'sticker', label: 'מדבקה', icon: '🎭' },
 ];
 
 const contactFields = [
@@ -451,7 +463,12 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                                 <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
                               ))}
                             </optgroup>
-                            <optgroup label="מדיה">
+                            <optgroup label="בוטים">
+                              {triggerTypes.filter(t => t.category === 'bot').map(t => (
+                                <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="מדיה (נפרד)">
                               {triggerTypes.filter(t => t.category === 'media').map(t => (
                                 <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
                               ))}
@@ -593,6 +610,78 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                                   )}
                                 </div>
                               )}
+                            </div>
+                          )}
+
+                          {/* message_received — message type picker + optional content filter */}
+                          {condition.type === 'message_received' && (
+                            <div className="space-y-3">
+                              <div>
+                                <p className="text-xs text-gray-500 mb-1.5">סוג ההודעה:</p>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  {messageTypeOptions.map(opt => (
+                                    <button
+                                      key={opt.id}
+                                      type="button"
+                                      onClick={() => updateCondition(group.id, conditionIndex, 'messageType', opt.id)}
+                                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm border transition-all ${
+                                        (condition.messageType || 'any') === opt.id
+                                          ? 'bg-purple-100 border-purple-400 text-purple-700 font-medium'
+                                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                                      }`}
+                                    >
+                                      <span>{opt.icon}</span>
+                                      <span className="text-xs">{opt.label}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                              {/* Optional content filter — only for text/any */}
+                              {['any', 'text'].includes(condition.messageType || 'any') && (
+                                <div className="space-y-2 border-t border-gray-100 pt-2">
+                                  <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!condition.hasContentFilter}
+                                      onChange={(e) => updateCondition(group.id, conditionIndex, 'hasContentFilter', e.target.checked)}
+                                      className="w-4 h-4 rounded border-gray-300 text-purple-600"
+                                    />
+                                    <span className="text-sm text-gray-700">סנן לפי תוכן ההודעה</span>
+                                  </label>
+                                  {condition.hasContentFilter && (
+                                    <>
+                                      <select
+                                        value={condition.operator || 'contains'}
+                                        onChange={(e) => updateCondition(group.id, conditionIndex, 'operator', e.target.value)}
+                                        className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                                      >
+                                        {operators.map(op => (
+                                          <option key={op.id} value={op.id}>{op.label}</option>
+                                        ))}
+                                      </select>
+                                      {!['is_empty', 'is_not_empty'].includes(condition.operator) && (
+                                        <input
+                                          type="text"
+                                          value={condition.value || ''}
+                                          onChange={(e) => updateCondition(group.id, conditionIndex, 'value', e.target.value)}
+                                          placeholder={condition.operator === 'regex' ? 'ביטוי רגולרי...' : 'הזן ערך...'}
+                                          className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                                          dir={condition.operator === 'regex' ? 'ltr' : 'rtl'}
+                                        />
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* bot_activated — informational */}
+                          {condition.type === 'bot_activated' && (
+                            <div className="bg-violet-50 border border-violet-200 rounded-xl p-3">
+                              <p className="text-xs text-violet-700">
+                                ▶️ הבוט יופעל כאשר בוט אחר מפעיל אותו דרך פעולת <strong>״הפעל בוט״</strong>.
+                              </p>
                             </div>
                           )}
 
