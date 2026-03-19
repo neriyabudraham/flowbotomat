@@ -428,6 +428,51 @@ export default function AdminStatusBot() {
         </div>
       </div>
 
+      {/* Queue Settings Panel */}
+      {showQueueSettings && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
+            <Timer className="w-4 h-4" />
+            הגדרות תור ועיבוד מקביל
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {[
+              { key: 'timeoutMinutes', label: 'טיימאאוט (דקות)', min: 0.5, step: 0.5 },
+              { key: 'maxParallelTotal', label: 'מקסימום מקביל סה"כ', min: 1, step: 1 },
+              { key: 'maxParallelPerSource', label: 'מקסימום מקביל לשרת', min: 1, step: 1 },
+              { key: 'delayBetweenStatusesSeconds', label: 'השהיה בין סטטוסים (שניות)', min: 0, step: 1 },
+              { key: 'restrictionNewSessionHours', label: 'השהיה - סשן חדש (שעות)', min: 0, step: 0.5 },
+              { key: 'restrictionWithMainBotMinutes', label: 'השהיה - בוט רגיל (דקות)', min: 0, step: 5 },
+              { key: 'delayOnDisconnectMinutes', label: 'השהיה בניתוק (דקות)', min: 0, step: 1 },
+            ].map(({ key, label, min, step }) => (
+              <div key={key}>
+                <label className="text-xs text-gray-500 mb-1 block">{label}</label>
+                <input
+                  type="number"
+                  id={`queue-setting-${key}`}
+                  name={`queue-setting-${key}`}
+                  min={min}
+                  step={step}
+                  value={editingSettings[key] ?? String(queueSettings[key] ?? '')}
+                  onChange={e => setEditingSettings(s => ({ ...s, [key]: e.target.value }))}
+                  className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-blue-400 bg-white dark:bg-gray-700"
+                />
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 flex justify-end">
+            <button
+              onClick={handleSaveAllSettings}
+              disabled={savingSettings}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              {savingSettings ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              שמור הגדרות
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Stats Grid */}
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
@@ -959,49 +1004,6 @@ export default function AdminStatusBot() {
               </div>
             );
           })}
-        </div>
-      )}
-
-      {/* Queue Settings Panel */}
-      {showQueueSettings && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-          <h3 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
-            <Timer className="w-4 h-4" />
-            הגדרות תור ועיבוד מקביל
-          </h3>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {[
-              { key: 'timeoutMinutes', label: 'טיימאאוט (דקות)', min: 0.5, step: 0.5 },
-              { key: 'maxParallelTotal', label: 'מקסימום מקביל סה"כ', min: 1, step: 1 },
-              { key: 'maxParallelPerSource', label: 'מקסימום מקביל לשרת', min: 1, step: 1 },
-              { key: 'delayBetweenStatusesSeconds', label: 'השהיה בין סטטוסים (שניות)', min: 0, step: 1 },
-              { key: 'restrictionNewSessionHours', label: 'השהיה - סשן חדש (שעות)', min: 0, step: 0.5 },
-              { key: 'restrictionWithMainBotMinutes', label: 'השהיה - בוט רגיל (דקות)', min: 0, step: 5 },
-              { key: 'delayOnDisconnectMinutes', label: 'השהיה בניתוק (דקות)', min: 0, step: 1 },
-            ].map(({ key, label, min, step }) => (
-              <div key={key}>
-                <label className="text-xs text-gray-500 mb-1 block">{label}</label>
-                <input
-                  type="number"
-                  min={min}
-                  step={step}
-                  value={editingSettings[key] ?? String(queueSettings[key] ?? '')}
-                  onChange={e => setEditingSettings(s => ({ ...s, [key]: e.target.value }))}
-                  className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-blue-400 bg-white dark:bg-gray-700"
-                />
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 flex justify-end">
-            <button
-              onClick={handleSaveAllSettings}
-              disabled={savingSettings}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-            >
-              {savingSettings ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-              שמור הגדרות
-            </button>
-          </div>
         </div>
       )}
 
