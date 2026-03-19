@@ -10,14 +10,16 @@ export default function ReferralBonusBanner() {
   const [discountPercent, setDiscountPercent] = useState(10);
   const [timeLeft, setTimeLeft] = useState(0);
 
-  // Format time as MM:SS or HH:MM:SS
+  // Format time — show days when > 24h, hours:mins when > 1h, else mins:secs
   const formatTime = (seconds) => {
     if (seconds <= 0) return '00:00';
+    const days = Math.floor(seconds / 86400);
+    if (days > 0) return `${days} ימים`;
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
     if (hrs > 0) {
-      return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
