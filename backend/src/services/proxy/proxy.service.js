@@ -66,6 +66,33 @@ async function assignProxy(phoneNumber, wahaOpts) {
 
     return proxyServer;
   } catch (err) {
+    // 400 usually means the phone is already assigned to a proxy — look up existing assignment
+    if (err.response?.status === 400) {
+      console.warn(`[Proxy] assignProxy 400 for ${phoneNumber} — phone may already be assigned, looking up existing proxy`);
+      try {
+        const map = await buildPhoneProxyMap();
+        const existingServer = map[phoneNumber];
+        if (existingServer) {
+          console.log(`[Proxy] ✅ Found existing proxy ${existingServer} for phone ${phoneNumber}`);
+          // Update WAHA session with the existing proxy
+          if (wahaOpts?.baseUrl && wahaOpts?.apiKey && wahaOpts?.sessionName) {
+            try {
+              await wahaSession.updateSessionProxy(wahaOpts.baseUrl, wahaOpts.apiKey, wahaOpts.sessionName, {
+                server: existingServer,
+                ...(source.proxyUsername ? { username: source.proxyUsername } : {}),
+                ...(source.proxyPassword ? { password: source.proxyPassword } : {}),
+              });
+              console.log(`[Proxy] ✅ Updated WAHA session ${wahaOpts.sessionName} with existing proxy ${existingServer}`);
+            } catch (wahaErr) {
+              console.error('[Proxy] updateSessionProxy (existing) error:', wahaErr.message);
+            }
+          }
+          return existingServer;
+        }
+      } catch (lookupErr) {
+        console.error('[Proxy] Lookup existing proxy error:', lookupErr.message);
+      }
+    }
     console.error('[Proxy] assignProxy error:', err.message);
     return null;
   }

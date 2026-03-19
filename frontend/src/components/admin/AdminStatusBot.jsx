@@ -83,12 +83,15 @@ export default function AdminStatusBot() {
   const socketRef = useRef(null);
 
   // Queue settings
-  const [queueSettings, setQueueSettings] = useState({
+  const defaultQueueSettings = {
     timeoutMinutes: 10, maxParallelTotal: 5, maxParallelPerSource: 2,
     delayBetweenStatusesSeconds: 30, restrictionNewSessionHours: 24,
     restrictionWithMainBotMinutes: 30, delayOnDisconnectMinutes: 0,
-  });
-  const [editingSettings, setEditingSettings] = useState({});
+  };
+  const [queueSettings, setQueueSettings] = useState(defaultQueueSettings);
+  const [editingSettings, setEditingSettings] = useState(
+    Object.fromEntries(Object.entries(defaultQueueSettings).map(([k, v]) => [k, String(v)]))
+  );
   const [editingTimeout, setEditingTimeout] = useState(''); // legacy alias
   const [savingSettings, setSavingSettings] = useState(false);
   const [showQueueSettings, setShowQueueSettings] = useState(false);
