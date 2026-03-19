@@ -3478,11 +3478,13 @@ class BotEngine {
     // All questions answered - complete registration
     await this.clearSession(bot.id, contact.id);
     
-    // Send completion message
-    const completionMessage = node.data.completionMessage || 'תודה! הרישום הושלם בהצלחה.';
-    const completionText = this.replaceVariables(completionMessage, contact, triggerMessage, bot.name);
-    const completionResult = await wahaService.sendMessage(connection, contact.phone, completionText);
-    await this.saveOutgoingMessage(userId, contact.id, completionText, 'text', null, completionResult?.id?.id);
+    // Send completion message (optional — sendCompletionMessage defaults to true)
+    if (node.data.sendCompletionMessage !== false) {
+      const completionMessage = node.data.completionMessage || 'תודה! הרישום הושלם בהצלחה.';
+      const completionText = this.replaceVariables(completionMessage, contact, triggerMessage, bot.name);
+      const completionResult = await wahaService.sendMessage(connection, contact.phone, completionText);
+      await this.saveOutgoingMessage(userId, contact.id, completionText, 'text', null, completionResult?.id?.id);
+    }
     
     // Send summary if enabled
     if (node.data.sendSummary) {

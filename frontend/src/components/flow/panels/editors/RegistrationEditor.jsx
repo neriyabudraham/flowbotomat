@@ -292,14 +292,30 @@ export default function RegistrationEditor({ data, onUpdate }) {
       
       {/* Completion Message */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">הודעת סיום</label>
-        <TextInputWithVariables
-          value={data.completionMessage ?? DEFAULT_COMPLETION_MESSAGE}
-          onChange={(v) => onUpdate({ completionMessage: v })}
-          placeholder={DEFAULT_COMPLETION_MESSAGE}
-          multiline
-          rows={2}
-        />
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-sm font-medium text-gray-700">הודעת סיום</label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={data.sendCompletionMessage !== false}
+              onChange={(e) => onUpdate({ sendCompletionMessage: e.target.checked })}
+              className="w-4 h-4 rounded border-gray-300 text-indigo-600"
+            />
+            <span className="text-xs text-gray-500">שלח הודעה</span>
+          </label>
+        </div>
+        {data.sendCompletionMessage !== false && (
+          <TextInputWithVariables
+            value={data.completionMessage ?? DEFAULT_COMPLETION_MESSAGE}
+            onChange={(v) => onUpdate({ completionMessage: v })}
+            placeholder={DEFAULT_COMPLETION_MESSAGE}
+            multiline
+            rows={2}
+          />
+        )}
+        {data.sendCompletionMessage === false && (
+          <p className="text-xs text-gray-400 bg-gray-50 px-3 py-2 rounded-lg">לא תישלח הודעת סיום — הפלאו ימשיך ישירות לצומת הבא.</p>
+        )}
       </div>
       
       {/* Timeout Settings */}
