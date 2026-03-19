@@ -379,20 +379,20 @@ class BotEngine {
       if (!runsLimit.allowed) {
         return;
       }
-      
-      // Log bot run and increment usage
-      await this.logBotRun(bot.id, contact.id, 'triggered');
-      await incrementBotRuns(userId);
-      
+
       // Create event description for the flow
       const eventMessage = this.getEventDescription(eventType, eventData);
-      
+
       // Start the flow from trigger node
       const triggerNode2 = flowData.nodes.find(n => n.type === 'trigger');
       if (!triggerNode2) return;
-      
+
       const nextEdges = flowData.edges.filter(e => e.source === triggerNode2.id);
       if (nextEdges.length === 0) return;
+
+      // Log bot run and increment usage (only when trigger actually continues to execution)
+      await this.logBotRun(bot.id, contact.id, 'triggered');
+      await incrementBotRuns(userId);
       
       const sortedEdges = nextEdges.sort((a, b) => {
         const nodeA = flowData.nodes.find(n => n.id === a.target);
@@ -663,16 +663,16 @@ class BotEngine {
         // For now, just log and skip
         return;
       }
-      
-      // Log bot run and increment usage
-      await this.logBotRun(bot.id, contact.id, 'triggered');
-      await incrementBotRuns(userId);
-      
+
       // Find ALL next nodes after trigger (support multiple branches)
       const nextEdges = flowData.edges.filter(e => e.source === triggerNode.id);
       if (nextEdges.length === 0) {
         return;
       }
+
+      // Log bot run and increment usage (only when trigger actually continues to execution)
+      await this.logBotRun(bot.id, contact.id, 'triggered');
+      await incrementBotRuns(userId);
       
       // Sort by target node Y position (top to bottom)
       const sortedEdges = nextEdges.sort((a, b) => {
