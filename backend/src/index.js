@@ -406,6 +406,7 @@ server.listen(PORT, () => {
       // Drop FK on billing_queue.subscription_id — it references user_subscriptions but
       // service subscriptions use user_service_subscriptions (different table), causing FK violations.
       await dbQuery(`ALTER TABLE billing_queue DROP CONSTRAINT IF EXISTS billing_queue_subscription_id_fkey`);
+      await dbQuery(`ALTER TABLE status_bot_queue ADD COLUMN IF NOT EXISTS sent_timed_out BOOLEAN DEFAULT false`);
       // Track payment suspension: when payment method is removed, WhatsApp is suspended so that
       // WAHA webhooks cannot restore 'connected' status until user re-adds a payment method.
       await dbQuery(`ALTER TABLE whatsapp_connections ADD COLUMN IF NOT EXISTS payment_suspended BOOLEAN DEFAULT false`);

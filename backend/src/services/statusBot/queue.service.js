@@ -218,7 +218,10 @@ async function processItem(item) {
   try {
     const sendResult = await sendStatus(item);
 
-    await db.query(`UPDATE status_bot_queue SET queue_status = 'sent', sent_at = NOW() WHERE id = $1`, [item.id]);
+    await db.query(
+      `UPDATE status_bot_queue SET queue_status = 'sent', sent_at = NOW(), sent_timed_out = $2 WHERE id = $1`,
+      [item.id, !!sendResult?.timeout]
+    );
 
     const uploadDuration = Math.round((Date.now() - now.getTime()) / 1000);
     if (sendResult?.timeout) {
@@ -322,7 +325,20 @@ async function processQueue() {
           SELECT 1 FROM status_bot_queue q3
           WHERE q3.connection_id = q.connection_id
             AND q3.queue_status = 'sent'
-            AND q3.sent_at > NOW() - ($1 * interval '1 second')
+            AND (
+              -- Normal send: wait 30 seconds after sent_at
+              (q3.sent_timed_out IS NOT TRUE AND q3.sent_at > NOW() - ($1 * interval '1 second'))
+              OR
+              -- Timeout send: wait until first view OR 5 minutes (whichever comes first)
+              (
+                q3.sent_timed_out = TRUE
+                AND q3.sent_at > NOW() - INTERVAL '5 minutes'
+                AND NOT EXISTS (
+                  SELECT 1 FROM status_bot_statuses sbs
+                  WHERE sbs.queue_id = q3.id AND sbs.view_count > 0
+                )
+              )
+            )
         )
       ORDER BY COALESCE(q.scheduled_for, '1970-01-01'::timestamp) ASC, q.created_at ASC
       LIMIT $2
