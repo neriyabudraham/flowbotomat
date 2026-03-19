@@ -9,6 +9,26 @@ const crypto = require('crypto');
 // ============================================
 
 /**
+ * Get the effective restriction end time for a connection.
+ * Prefers restriction_until (explicit), falls back to last_connected_at + 24h.
+ * Returns a Date if currently restricted, or null if not restricted.
+ */
+function getEffectiveRestrictionEnd(connection) {
+  if (connection.restriction_lifted) return null;
+  const now = new Date();
+  if (connection.restriction_until) {
+    const until = new Date(connection.restriction_until);
+    if (until > now) return until;
+  }
+  const base = connection.last_connected_at || connection.first_connected_at;
+  if (base) {
+    const end = new Date(new Date(base).getTime() + 24 * 60 * 60 * 1000);
+    if (end > now) return end;
+  }
+  return null;
+}
+
+/**
  * Normalize content structure for frontend display
  * Handles various content formats and ensures file.url exists for media types
  */
@@ -308,17 +328,12 @@ async function getConnection(req, res) {
       restrictionEndsAt = new Date(connection.short_restriction_until);
       restrictionType = 'short';
     } else {
-      // Check full 24-hour restriction
-      const connectionDate = connection.last_connected_at || connection.first_connected_at;
-      if (connectionDate && !connection.restriction_lifted) {
-        const connectedAt = new Date(connectionDate);
-        const restrictionEnd = new Date(connectedAt.getTime() + 24 * 60 * 60 * 1000);
-        
-        if (new Date() < restrictionEnd) {
-          isRestricted = true;
-          restrictionEndsAt = restrictionEnd;
-          restrictionType = 'full';
-        }
+      // Check restriction: prefer restriction_until, fall back to last_connected_at + 24h
+      const restrictionEnd = getEffectiveRestrictionEnd(connection);
+      if (restrictionEnd) {
+        isRestricted = true;
+        restrictionEndsAt = restrictionEnd;
+        restrictionType = 'full';
       }
     }
 
@@ -541,7 +556,95 @@ async function startConnection(req, res) {
       return res.status(400).json({ error: 'לא נמצא מייל למשתמש' });
     }
 
-    // Get WAHA credentials - pick best source for new session
+    const WEBHOOK_EVENTS = [
+      'message', 'message.ack', 'session.status', 'call.received', 'call.accepted', 'call.rejected',
+      'label.upsert', 'label.deleted', 'label.chat.added', 'label.chat.deleted',
+      'poll.vote.failed', 'poll.vote', 'group.leave', 'group.join', 'group.v2.participants',
+      'group.v2.update', 'group.v2.leave', 'group.v2.join', 'presence.update', 'message.reaction',
+      'message.any', 'message.ack.group', 'message.waiting', 'message.revoked', 'message.edited',
+      'chat.archive', 'event.response', 'event.response.failed',
+    ];
+    const webhookUrl = `${process.env.APP_URL}/api/webhook/waha/${userId}`;
+
+    // Step 0: Prefer the user's existing main WhatsApp connection - reuse that session + add proxy
+    const mainConnResult = await db.query(
+      "SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected'",
+      [userId]
+    );
+
+    if (mainConnResult.rows.length > 0) {
+      const mainConn = mainConnResult.rows[0];
+      console.log(`[StatusBot] ✅ Reusing main WhatsApp session: ${mainConn.session_name}`);
+
+      const { baseUrl, apiKey } = await getWahaCredentialsForConnection(mainConn);
+
+      // Add webhook (shared with bots system)
+      try {
+        await wahaSession.addWebhook(baseUrl, apiKey, mainConn.session_name, webhookUrl, WEBHOOK_EVENTS);
+        console.log(`[StatusBot Webhook] ✅ Configured webhook for user ${userId}`);
+      } catch (err) {
+        console.error('[StatusBot Webhook] Setup failed:', err.message);
+      }
+
+      // Assign proxy to the existing session
+      let proxyIp = null;
+      if (mainConn.phone_number) {
+        try {
+          proxyIp = await assignProxy(mainConn.phone_number, { baseUrl, apiKey, sessionName: mainConn.session_name });
+          console.log(`[StatusBot] ✅ Proxy assigned: ${proxyIp}`);
+        } catch (proxyErr) {
+          console.error('[StatusBot] Proxy assignment error:', proxyErr.message);
+        }
+      }
+
+      // Get restriction time for main-bot users (default 30 min)
+      const restrictionMinsResult = await db.query(
+        `SELECT value FROM system_settings WHERE key = 'statusbot_restriction_with_main_bot_minutes'`
+      );
+      const restrictionMins = restrictionMinsResult.rows.length > 0
+        ? parseFloat(JSON.parse(restrictionMinsResult.rows[0].value)) || 30
+        : 30;
+      const newRestrictionUntil = new Date(Date.now() + restrictionMins * 60000);
+
+      // Upsert status_bot_connections referencing the same session
+      const existingStatusConn = await db.query(
+        'SELECT * FROM status_bot_connections WHERE user_id = $1', [userId]
+      );
+      let result;
+      if (existingStatusConn.rows.length > 0) {
+        result = await db.query(`
+          UPDATE status_bot_connections
+          SET session_name = $2, connection_status = 'connected',
+              phone_number = $3, display_name = $4,
+              proxy_ip = COALESCE($5, proxy_ip),
+              waha_source_id = $6,
+              first_connected_at = COALESCE(first_connected_at, NOW()),
+              restriction_until = GREATEST(COALESCE(restriction_until, NOW() - interval '1 second'), $7),
+              updated_at = NOW()
+          WHERE user_id = $1
+          RETURNING *
+        `, [userId, mainConn.session_name, mainConn.phone_number, mainConn.display_name,
+            proxyIp, mainConn.waha_source_id, newRestrictionUntil]);
+      } else {
+        result = await db.query(`
+          INSERT INTO status_bot_connections
+          (user_id, session_name, connection_status, phone_number, display_name, proxy_ip, first_connected_at, waha_source_id, restriction_until)
+          VALUES ($1, $2, 'connected', $3, $4, $5, NOW(), $6, $7)
+          RETURNING *
+        `, [userId, mainConn.session_name, mainConn.phone_number, mainConn.display_name,
+            proxyIp, mainConn.waha_source_id, newRestrictionUntil]);
+      }
+
+      console.log(`[StatusBot] ✅ Saved to DB (reused main session): ${mainConn.session_name}`);
+      return res.json({
+        success: true,
+        connection: result.rows[0],
+        existingSession: true,
+        usedMainConnection: true,
+      });
+    }
+
+    // Step 1: No main connection — fall back to searching WAHA by email or creating new session
     const { pickSourceForNewSession } = require('../../services/waha/sources.service');
     const wahaSource = await pickSourceForNewSession();
     const { baseUrl, apiKey } = wahaSource || { baseUrl: process.env.WAHA_BASE_URL, apiKey: process.env.WAHA_API_KEY };
@@ -553,22 +656,19 @@ async function startConnection(req, res) {
     let sessionName = null;
     let wahaStatus = null;
     let existingSession = null;
-    
-    // Step 1: Search in WAHA by email, preferring sessions with webhook configured
-    // Use main webhook pattern - Status Bot shares the main webhook
-    console.log(`[StatusBot] Searching WAHA for session with email: ${userEmail}`);
+
+    console.log(`[StatusBot] No main connection, searching WAHA for session with email: ${userEmail}`);
     const webhookPattern = `/api/webhook/waha/${userId}`;
-    
+
     try {
       existingSession = await wahaSession.findSessionByEmailWithWebhookPriority(baseUrl, apiKey, userEmail, webhookPattern);
-      
+
       if (existingSession) {
         sessionName = existingSession.name;
         console.log(`[StatusBot] ✅ Found existing session by email: ${sessionName}`);
-        
+
         wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
-        
-        // If stopped or failed, restart it
+
         if (wahaStatus && (wahaStatus.status === 'STOPPED' || wahaStatus.status === 'FAILED')) {
           console.log(`[StatusBot] Session is ${wahaStatus.status}, restarting...`);
           try {
@@ -584,25 +684,18 @@ async function startConnection(req, res) {
     } catch (err) {
       console.log(`[StatusBot] Error searching sessions: ${err.message}`);
     }
-    
+
     // Step 2: If no session found in WAHA, create new one
     if (!sessionName) {
       sessionName = `session_${crypto.randomBytes(4).toString('hex')}`;
-      
-      // Only email in metadata - same as main WhatsApp connection
-      const sessionMetadata = {
-        'user.email': userEmail,
-      };
-      
+      const sessionMetadata = { 'user.email': userEmail };
       console.log(`[StatusBot] Creating new session: ${sessionName}`);
-      
       await wahaSession.createSession(baseUrl, apiKey, sessionName, sessionMetadata);
       await wahaSession.startSession(baseUrl, apiKey, sessionName);
       console.log(`[StatusBot] ✅ Created new session: ${sessionName}`);
-      
       wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
     }
-    
+
     // Map WAHA status to our status
     const statusMap = {
       'WORKING': 'connected',
@@ -612,51 +705,36 @@ async function startConnection(req, res) {
       'FAILED': 'failed',
     };
     const ourStatus = statusMap[wahaStatus?.status] || 'qr_pending';
-    
-    // Extract phone info if connected
+
     let phoneNumber = null;
     let displayName = null;
-    let connectedAt = null;
     let firstConnectedAt = null;
-    
+
     if (ourStatus === 'connected' && wahaStatus?.me) {
       phoneNumber = wahaStatus.me.id?.split('@')[0] || null;
       displayName = wahaStatus.me.pushName || null;
-      connectedAt = new Date();
-      firstConnectedAt = new Date(); // Will be set properly if not exists
+      firstConnectedAt = new Date();
     }
-    
-    // Setup webhook for this user - use main webhook URL (shared with bots system)
-    const webhookUrl = `${process.env.APP_URL}/api/webhook/waha/${userId}`;
-    const WEBHOOK_EVENTS = [
-      'message', 'message.ack', 'session.status', 'call.received', 'call.accepted', 'call.rejected',
-      'label.upsert', 'label.deleted', 'label.chat.added', 'label.chat.deleted',
-      'poll.vote.failed', 'poll.vote', 'group.leave', 'group.join', 'group.v2.participants',
-      'group.v2.update', 'group.v2.leave', 'group.v2.join', 'presence.update', 'message.reaction',
-      'message.any', 'message.ack.group', 'message.waiting', 'message.revoked', 'message.edited',
-      'chat.archive', 'event.response', 'event.response.failed',
-    ];
+
     try {
       await wahaSession.addWebhook(baseUrl, apiKey, sessionName, webhookUrl, WEBHOOK_EVENTS);
       console.log(`[StatusBot Webhook] ✅ Configured main webhook for user ${userId}`);
     } catch (err) {
       console.error('[StatusBot Webhook] Setup failed:', err.message);
     }
-    
-    // Check if connection record exists
+
     const existingConn = await db.query(
       'SELECT * FROM status_bot_connections WHERE user_id = $1',
       [userId]
     );
-    
+
     let result;
     if (existingConn.rows.length > 0) {
-      // Update existing record - preserve first_connected_at and restriction history
       console.log(`[StatusBot] Updating existing connection record`);
       result = await db.query(`
-        UPDATE status_bot_connections 
-        SET session_name = $2, 
-            connection_status = $3, 
+        UPDATE status_bot_connections
+        SET session_name = $2,
+            connection_status = $3,
             phone_number = COALESCE($4, phone_number),
             display_name = COALESCE($5, display_name),
             updated_at = NOW()
@@ -664,7 +742,6 @@ async function startConnection(req, res) {
         RETURNING *
       `, [userId, sessionName, ourStatus, phoneNumber, displayName]);
     } else {
-      // Create new record
       console.log(`[StatusBot] Creating new connection record`);
       result = await db.query(`
         INSERT INTO status_bot_connections
@@ -674,11 +751,11 @@ async function startConnection(req, res) {
       `, [userId, sessionName, ourStatus, phoneNumber, displayName,
           ourStatus === 'connected' ? firstConnectedAt : null, wahaSource?.id || null]);
     }
-    
+
     console.log(`[StatusBot] ✅ Saved to DB: ${sessionName}`);
-    
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       connection: result.rows[0],
       existingSession: !!existingSession,
     });
@@ -802,11 +879,20 @@ async function disconnect(req, res) {
     const connection = result.rows[0];
     const { baseUrl, apiKey } = await getWahaCredentialsForConnection(connection);
 
-    // Stop session in WAHA
-    try {
-      await wahaSession.stopSession(baseUrl, apiKey, connection.session_name);
-    } catch (e) {
-      console.error('[StatusBot] Stop session error:', e.message);
+    // Only stop the WAHA session if it's not shared with the main WhatsApp connection
+    const mainConnCheck = await db.query(
+      "SELECT id FROM whatsapp_connections WHERE user_id = $1 AND session_name = $2",
+      [userId, connection.session_name]
+    );
+    if (mainConnCheck.rows.length === 0) {
+      // Session belongs only to status bot - stop it
+      try {
+        await wahaSession.stopSession(baseUrl, apiKey, connection.session_name);
+      } catch (e) {
+        console.error('[StatusBot] Stop session error:', e.message);
+      }
+    } else {
+      console.log(`[StatusBot] Session ${connection.session_name} is shared with main connection - skipping stop`);
     }
 
     // Remove proxy assignment before clearing phone_number (also clears WAHA session proxy)
@@ -975,22 +1061,20 @@ async function checkCanUpload(connection, userId) {
     return subscriptionCheck;
   }
 
-  // Check 24-hour restriction (based on last_connected_at, not first)
-  const connectionDate = connection.last_connected_at || connection.first_connected_at;
-  if (connectionDate && !connection.restriction_lifted) {
-    const connectedAt = new Date(connectionDate);
-    const restrictionEnd = new Date(connectedAt.getTime() + 24 * 60 * 60 * 1000);
-    
-    if (new Date() < restrictionEnd) {
-      const hoursLeft = Math.ceil((restrictionEnd - new Date()) / (1000 * 60 * 60));
-      const minutesLeft = Math.ceil((restrictionEnd - new Date()) / (1000 * 60)) % 60;
-      return { 
-        canUpload: false, 
-        reason: `יש להמתין ${hoursLeft} שעות ו-${minutesLeft} דקות לאחר החיבור`,
-        restrictionEndsAt: restrictionEnd,
-        isRestricted: true
-      };
-    }
+  // Check restriction: prefer restriction_until, fall back to last_connected_at + 24h
+  const restrictionEnd = getEffectiveRestrictionEnd(connection);
+  if (restrictionEnd) {
+    const msLeft = restrictionEnd - new Date();
+    const hoursLeft = Math.ceil(msLeft / (1000 * 60 * 60));
+    const minutesLeft = Math.ceil(msLeft / (1000 * 60)) % 60;
+    return {
+      canUpload: false,
+      reason: hoursLeft >= 1
+        ? `יש להמתין ${hoursLeft} שעות ו-${minutesLeft} דקות לאחר החיבור`
+        : `יש להמתין עוד ${Math.ceil(msLeft / 60000)} דקות לאחר החיבור`,
+      restrictionEndsAt: restrictionEnd,
+      isRestricted: true
+    };
   }
 
   return { canUpload: true };
@@ -2898,25 +2982,28 @@ async function handleSessionStatus(connection, payload) {
       const wasDisconnected = previousStatus === 'disconnected' || previousStatus === 'failed' || previousStatus === 'qr_pending';
       
       if (!connection.first_connected_at) {
-        // First time connecting - 24h restriction
+        // First time connecting - set restriction_until only if not already set by startConnection
         await db.query(`
-          UPDATE status_bot_connections 
-          SET first_connected_at = NOW(), last_connected_at = NOW(), short_restriction_until = NULL
+          UPDATE status_bot_connections
+          SET first_connected_at = NOW(), last_connected_at = NOW(), short_restriction_until = NULL,
+              restriction_until = COALESCE(restriction_until, NOW() + interval '24 hours')
           WHERE id = $1 AND first_connected_at IS NULL
         `, [connection.id]);
       } else if (wasDisconnected && disconnectionDuration < 60) {
         // Short disconnection (< 1 minute) - use 30 min "system updates" restriction
         const shortRestrictionUntil = new Date(Date.now() + 30 * 60 * 1000);
         await db.query(`
-          UPDATE status_bot_connections 
+          UPDATE status_bot_connections
           SET restriction_lifted = true, short_restriction_until = $2
           WHERE id = $1
         `, [connection.id, shortRestrictionUntil]);
       } else if (requiresReauthentication) {
-        // Re-authentication required (QR scan) with longer disconnection - 24h restriction
+        // Re-authentication required (QR scan) - keep restriction_until if already set (shorter),
+        // otherwise set to 24h from now
         await db.query(`
-          UPDATE status_bot_connections 
-          SET last_connected_at = NOW(), restriction_lifted = false, short_restriction_until = NULL
+          UPDATE status_bot_connections
+          SET last_connected_at = NOW(), restriction_lifted = false, short_restriction_until = NULL,
+              restriction_until = COALESCE(restriction_until, NOW() + interval '24 hours')
           WHERE id = $1
         `, [connection.id]);
       }
@@ -3723,20 +3810,79 @@ async function updateSettings(req, res) {
 const queueService = require('../../services/statusBot/queue.service');
 
 /**
- * Admin: get queue global settings (timeout etc.)
+ * Admin: get queue global settings
  */
 async function adminGetQueueSettings(req, res) {
   try {
-    const result = await db.query(
-      `SELECT value FROM system_settings WHERE key = 'statusbot_upload_timeout_minutes'`
-    );
-    const timeoutMinutes = result.rows.length > 0
-      ? parseFloat(JSON.parse(result.rows[0].value))
-      : 10;
-    res.json({ timeoutMinutes });
+    const keys = [
+      'statusbot_upload_timeout_minutes',
+      'statusbot_max_parallel_total',
+      'statusbot_max_parallel_per_source',
+      'statusbot_delay_between_statuses_seconds',
+      'statusbot_restriction_new_session_hours',
+      'statusbot_restriction_with_main_bot_minutes',
+      'statusbot_delay_on_disconnect_minutes',
+    ];
+    const result = await db.query(`SELECT key, value FROM system_settings WHERE key = ANY($1)`, [keys]);
+    const settings = {
+      timeoutMinutes: 10,
+      maxParallelTotal: 5,
+      maxParallelPerSource: 2,
+      delayBetweenStatusesSeconds: 30,
+      restrictionNewSessionHours: 24,
+      restrictionWithMainBotMinutes: 30,
+      delayOnDisconnectMinutes: 0,
+    };
+    for (const row of result.rows) {
+      const val = parseFloat(JSON.parse(row.value));
+      if (isNaN(val)) continue;
+      if (row.key === 'statusbot_upload_timeout_minutes') settings.timeoutMinutes = val;
+      if (row.key === 'statusbot_max_parallel_total') settings.maxParallelTotal = val;
+      if (row.key === 'statusbot_max_parallel_per_source') settings.maxParallelPerSource = val;
+      if (row.key === 'statusbot_delay_between_statuses_seconds') settings.delayBetweenStatusesSeconds = val;
+      if (row.key === 'statusbot_restriction_new_session_hours') settings.restrictionNewSessionHours = val;
+      if (row.key === 'statusbot_restriction_with_main_bot_minutes') settings.restrictionWithMainBotMinutes = val;
+      if (row.key === 'statusbot_delay_on_disconnect_minutes') settings.delayOnDisconnectMinutes = val;
+    }
+    res.json(settings);
   } catch (error) {
     console.error('[StatusBot] adminGetQueueSettings error:', error);
     res.status(500).json({ error: 'שגיאה' });
+  }
+}
+
+/**
+ * Admin: manually set restriction end time for a connection
+ */
+async function adminSetRestriction(req, res) {
+  try {
+    const { connectionId } = req.params;
+    const { restrictionUntil } = req.body; // ISO timestamp or null/''
+    const adminId = req.user.id;
+
+    if (!restrictionUntil) {
+      // Lift restriction entirely
+      await db.query(`
+        UPDATE status_bot_connections
+        SET restriction_until = NULL, restriction_lifted = true,
+            restriction_lifted_at = NOW(), restriction_lifted_by = $1,
+            short_restriction_until = NULL, updated_at = NOW()
+        WHERE id = $2
+      `, [adminId, connectionId]);
+    } else {
+      const until = new Date(restrictionUntil);
+      if (isNaN(until.getTime())) return res.status(400).json({ error: 'תאריך לא תקין' });
+      await db.query(`
+        UPDATE status_bot_connections
+        SET restriction_until = $1, restriction_lifted = false, updated_at = NOW()
+        WHERE id = $2
+      `, [until, connectionId]);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[StatusBot Admin] Set restriction error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון הגבלה' });
   }
 }
 
@@ -3746,17 +3892,33 @@ async function adminGetQueueSettings(req, res) {
 async function adminUpdateQueueSettings(req, res) {
   try {
     const { timeoutMinutes } = req.body;
-    if (!timeoutMinutes || isNaN(timeoutMinutes) || timeoutMinutes <= 0) {
-      return res.status(400).json({ error: 'ערך לא תקין' });
+    if (timeoutMinutes !== undefined && (isNaN(timeoutMinutes) || timeoutMinutes <= 0)) {
+      return res.status(400).json({ error: 'ערך טיימאאוט לא תקין' });
     }
-    await db.query(
-      `INSERT INTO system_settings (key, value, updated_at, updated_by)
-       VALUES ('statusbot_upload_timeout_minutes', $1, NOW(), $2)
-       ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW(), updated_by = $2`,
-      [JSON.stringify(parseFloat(timeoutMinutes)), req.user.id]
-    );
-    queueService.invalidateTimeoutCache();
-    res.json({ success: true, timeoutMinutes: parseFloat(timeoutMinutes) });
+    const settingsMap = {
+      timeoutMinutes: 'statusbot_upload_timeout_minutes',
+      maxParallelTotal: 'statusbot_max_parallel_total',
+      maxParallelPerSource: 'statusbot_max_parallel_per_source',
+      delayBetweenStatusesSeconds: 'statusbot_delay_between_statuses_seconds',
+      restrictionNewSessionHours: 'statusbot_restriction_new_session_hours',
+      restrictionWithMainBotMinutes: 'statusbot_restriction_with_main_bot_minutes',
+      delayOnDisconnectMinutes: 'statusbot_delay_on_disconnect_minutes',
+    };
+    for (const [field, key] of Object.entries(settingsMap)) {
+      if (req.body[field] !== undefined) {
+        const val = parseFloat(req.body[field]);
+        if (!isNaN(val) && val >= 0) {
+          await db.query(
+            `INSERT INTO system_settings (key, value, updated_at, updated_by)
+             VALUES ($1, $2, NOW(), $3)
+             ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW(), updated_by = $3`,
+            [key, JSON.stringify(val), req.user.id]
+          );
+        }
+      }
+    }
+    queueService.invalidateSettingsCache();
+    res.json({ success: true });
   } catch (error) {
     console.error('[StatusBot] adminUpdateQueueSettings error:', error);
     res.status(500).json({ error: 'שגיאה' });
@@ -3830,6 +3992,7 @@ module.exports = {
   // Admin settings (exported below after function definitions)
   adminGetQueueSettings,
   adminUpdateQueueSettings,
+  adminSetRestriction,
 
   // Webhook
   handleWebhook,

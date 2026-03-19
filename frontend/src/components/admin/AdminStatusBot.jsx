@@ -83,15 +83,26 @@ export default function AdminStatusBot() {
   const socketRef = useRef(null);
 
   // Queue settings
-  const [queueSettings, setQueueSettings] = useState({ timeoutMinutes: 10 });
-  const [editingTimeout, setEditingTimeout] = useState('');
+  const [queueSettings, setQueueSettings] = useState({
+    timeoutMinutes: 10, maxParallelTotal: 5, maxParallelPerSource: 2,
+    delayBetweenStatusesSeconds: 30, restrictionNewSessionHours: 24,
+    restrictionWithMainBotMinutes: 30, delayOnDisconnectMinutes: 0,
+  });
+  const [editingSettings, setEditingSettings] = useState({});
+  const [editingTimeout, setEditingTimeout] = useState(''); // legacy alias
   const [savingSettings, setSavingSettings] = useState(false);
+  const [showQueueSettings, setShowQueueSettings] = useState(false);
+
+  // Restriction management
+  const [settingRestriction, setSettingRestriction] = useState(null);
+  const [restrictionInput, setRestrictionInput] = useState('');
 
   useEffect(() => {
     loadData();
     loadActiveProcesses();
     api.get('/status-bot/admin/queue-settings').then(({ data }) => {
       setQueueSettings(data);
+      setEditingSettings(Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])));
       setEditingTimeout(String(data.timeoutMinutes));
     }).catch(() => {});
     
@@ -318,7 +329,34 @@ export default function AdminStatusBot() {
     }
   };
 
-  const filteredUsers = users.filter(u => 
+  const handleSetRestriction = async (connectionId, restrictionUntil) => {
+    try {
+      await api.patch(`/status-bot/admin/user/${connectionId}/set-restriction`, { restrictionUntil });
+      setSettingRestriction(null);
+      setRestrictionInput('');
+      loadData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בעדכון הגבלה');
+    }
+  };
+
+  const handleSaveAllSettings = async () => {
+    setSavingSettings(true);
+    try {
+      const payload = {};
+      for (const [k, v] of Object.entries(editingSettings)) {
+        const num = parseFloat(v);
+        if (!isNaN(num)) payload[k] = num;
+      }
+      await api.patch('/status-bot/admin/queue-settings', payload);
+      const { data } = await api.get('/status-bot/admin/queue-settings');
+      setQueueSettings(data);
+      setEditingSettings(Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])));
+    } catch { }
+    setSavingSettings(false);
+  };
+
+  const filteredUsers = users.filter(u =>
     !search || 
     u.email?.toLowerCase().includes(search.toLowerCase()) ||
     u.user_name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -330,11 +368,14 @@ export default function AdminStatusBot() {
       return { restricted: true, type: 'short', endsAt: new Date(user.short_restriction_until) };
     }
     if (user.restriction_lifted) return { restricted: false };
+    // Use restriction_until if set
+    if (user.restriction_until && new Date(user.restriction_until) > new Date()) {
+      return { restricted: true, type: 'full', endsAt: new Date(user.restriction_until) };
+    }
+    // Fall back to 24h from last_connected_at
     const connectionDate = user.last_connected_at || user.first_connected_at;
     if (!connectionDate) return { restricted: false };
-    
-    const connectedAt = new Date(connectionDate);
-    const restrictionEnd = new Date(connectedAt.getTime() + 24 * 60 * 60 * 1000);
+    const restrictionEnd = new Date(new Date(connectionDate).getTime() + 24 * 60 * 60 * 1000);
     if (new Date() < restrictionEnd) {
       return { restricted: true, type: 'full', endsAt: restrictionEnd };
     }
@@ -369,36 +410,14 @@ export default function AdminStatusBot() {
             אפס תור
           </button>
           
-          {/* Timeout setting */}
-          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5">
-            <Timer className="w-4 h-4 text-gray-500 flex-shrink-0" />
-            <span className="text-sm text-gray-600 whitespace-nowrap">טיימאאוט:</span>
-            <input
-              type="number"
-              min="0.5"
-              max="60"
-              step="0.5"
-              value={editingTimeout}
-              onChange={e => setEditingTimeout(e.target.value)}
-              className="w-16 text-sm text-center border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:border-blue-400"
-            />
-            <span className="text-sm text-gray-500">דקות</span>
-            <button
-              onClick={async () => {
-                setSavingSettings(true);
-                try {
-                  const { data } = await api.patch('/status-bot/admin/queue-settings', { timeoutMinutes: editingTimeout });
-                  setQueueSettings(data);
-                } catch { }
-                setSavingSettings(false);
-              }}
-              disabled={savingSettings || editingTimeout === String(queueSettings.timeoutMinutes)}
-              className="flex items-center gap-1 px-2 py-0.5 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {savingSettings ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
-              שמור
-            </button>
-          </div>
+          <button
+            onClick={() => setShowQueueSettings(s => !s)}
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+          >
+            <Timer className="w-4 h-4" />
+            הגדרות תור
+            <ChevronDown className={`w-4 h-4 transition-transform ${showQueueSettings ? 'rotate-180' : ''}`} />
+          </button>
 
           <Button variant="ghost" onClick={loadData} className="!p-2">
             <RefreshCw className="w-4 h-4" />
@@ -821,13 +840,44 @@ export default function AdminStatusBot() {
                       <StatBadge icon={Users} value={user.authorized_count || 0} label="מורשים" color="green" />
                       
                       {restriction.restricted && (
+                        <div className="flex items-center gap-1">
+                          {/* Countdown timer */}
+                          <RestrictionCountdown endsAt={restriction.endsAt} now={now} />
+                          {/* Set restriction button */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSettingRestriction(user.id);
+                              setRestrictionInput(restriction.endsAt
+                                ? restriction.endsAt.toISOString().slice(0, 16)
+                                : new Date(Date.now() + 30 * 60000).toISOString().slice(0, 16));
+                            }}
+                            className="p-1 text-amber-600 hover:bg-amber-100 rounded"
+                            title="קבע זמן סיום"
+                          >
+                            <Clock className="w-3.5 h-3.5" />
+                          </button>
+                          {/* Lift restriction */}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleLiftRestriction(user.id); }}
+                            disabled={liftingRestriction === user.id}
+                            className="px-2 py-1 text-xs bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200"
+                          >
+                            {liftingRestriction === user.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'הסר'}
+                          </button>
+                        </div>
+                      )}
+                      {!restriction.restricted && (
                         <button
-                          onClick={(e) => { e.stopPropagation(); handleLiftRestriction(user.id); }}
-                          disabled={liftingRestriction === user.id}
-                          className="px-3 py-1 text-sm bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSettingRestriction(user.id);
+                            setRestrictionInput(new Date(Date.now() + 24 * 60 * 60000).toISOString().slice(0, 16));
+                          }}
+                          className="p-1 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded"
+                          title="הוסף השהיה"
                         >
-                          {liftingRestriction === user.id ? <Loader2 className="w-4 h-4 animate-spin" /> : 
-                            restriction.type === 'short' ? '30 דק׳' : '24 שעות'}
+                          <Clock className="w-3.5 h-3.5" />
                         </button>
                       )}
                     </div>
@@ -909,6 +959,87 @@ export default function AdminStatusBot() {
         </div>
       )}
 
+      {/* Queue Settings Panel */}
+      {showQueueSettings && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
+            <Timer className="w-4 h-4" />
+            הגדרות תור ועיבוד מקביל
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {[
+              { key: 'timeoutMinutes', label: 'טיימאאוט (דקות)', min: 0.5, step: 0.5 },
+              { key: 'maxParallelTotal', label: 'מקסימום מקביל סה"כ', min: 1, step: 1 },
+              { key: 'maxParallelPerSource', label: 'מקסימום מקביל לשרת', min: 1, step: 1 },
+              { key: 'delayBetweenStatusesSeconds', label: 'השהיה בין סטטוסים (שניות)', min: 0, step: 1 },
+              { key: 'restrictionNewSessionHours', label: 'השהיה - סשן חדש (שעות)', min: 0, step: 0.5 },
+              { key: 'restrictionWithMainBotMinutes', label: 'השהיה - בוט רגיל (דקות)', min: 0, step: 5 },
+              { key: 'delayOnDisconnectMinutes', label: 'השהיה בניתוק (דקות)', min: 0, step: 1 },
+            ].map(({ key, label, min, step }) => (
+              <div key={key}>
+                <label className="text-xs text-gray-500 mb-1 block">{label}</label>
+                <input
+                  type="number"
+                  min={min}
+                  step={step}
+                  value={editingSettings[key] ?? String(queueSettings[key] ?? '')}
+                  onChange={e => setEditingSettings(s => ({ ...s, [key]: e.target.value }))}
+                  className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-blue-400 bg-white dark:bg-gray-700"
+                />
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 flex justify-end">
+            <button
+              onClick={handleSaveAllSettings}
+              disabled={savingSettings}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              {savingSettings ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              שמור הגדרות
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Restriction Set Modal */}
+      {settingRestriction && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSettingRestriction(null)}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-5 w-80" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              קבע זמן סיום השהיה
+            </h3>
+            <input
+              type="datetime-local"
+              value={restrictionInput}
+              onChange={e => setRestrictionInput(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:border-blue-400"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleSetRestriction(settingRestriction, restrictionInput)}
+                className="flex-1 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 text-sm font-medium"
+              >
+                קבע
+              </button>
+              <button
+                onClick={() => handleSetRestriction(settingRestriction, null)}
+                className="flex-1 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm font-medium"
+              >
+                הסר לגמרי
+              </button>
+              <button
+                onClick={() => setSettingRestriction(null)}
+                className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 text-sm"
+              >
+                ביטול
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Errors Modal */}
       {showErrorsModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowErrorsModal(null)}>
@@ -966,6 +1097,25 @@ export default function AdminStatusBot() {
         </div>
       )}
     </div>
+  );
+}
+
+function RestrictionCountdown({ endsAt, now }) {
+  if (!endsAt) return null;
+  const secsLeft = Math.max(0, Math.floor((endsAt.getTime() - now) / 1000));
+  if (secsLeft <= 0) return null;
+  const days = Math.floor(secsLeft / 86400);
+  const hrs = Math.floor((secsLeft % 86400) / 3600);
+  const mins = Math.floor((secsLeft % 3600) / 60);
+  const secs = secsLeft % 60;
+  let text;
+  if (days > 0) text = `${days}י ${hrs.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}`;
+  else if (hrs > 0) text = `${hrs}:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
+  else text = `${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
+  return (
+    <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-lg text-xs font-mono font-medium">
+      {text}
+    </span>
   );
 }
 

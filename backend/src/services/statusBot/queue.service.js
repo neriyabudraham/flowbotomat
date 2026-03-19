@@ -22,40 +22,44 @@ function emitToAdmin(event, data) {
 }
 
 const QUEUE_INTERVAL = 5000; // Check queue every 5 seconds
-const STATUS_DELAY = 30000; // 30 seconds between statuses
 const DEFAULT_STATUS_TIMEOUT = 600000; // 10 minutes timeout per status (default)
 
-// Cached timeout value (refreshed every 60 seconds from DB)
-let _cachedTimeout = DEFAULT_STATUS_TIMEOUT;
-let _cacheTime = 0;
+// Generic settings cache (refreshed every 60 seconds from DB)
+const _settingsCache = {};
+const _settingsCacheTime = {};
+
+async function getSettingFloat(key, defaultValue) {
+  const now = Date.now();
+  if (_settingsCacheTime[key] && now - _settingsCacheTime[key] < 60000) {
+    return _settingsCache[key];
+  }
+  try {
+    const result = await db.query(`SELECT value FROM system_settings WHERE key = $1`, [key]);
+    if (result.rows.length > 0) {
+      const val = parseFloat(JSON.parse(result.rows[0].value));
+      if (!isNaN(val) && val >= 0) {
+        _settingsCache[key] = val;
+        _settingsCacheTime[key] = now;
+        return val;
+      }
+    }
+  } catch (e) { /* use default */ }
+  _settingsCache[key] = defaultValue;
+  _settingsCacheTime[key] = now;
+  return defaultValue;
+}
 
 async function getStatusTimeout() {
-  const now = Date.now();
-  if (now - _cacheTime < 60000) return _cachedTimeout;
-  try {
-    const result = await db.query(
-      `SELECT value FROM system_settings WHERE key = 'statusbot_upload_timeout_minutes'`
-    );
-    if (result.rows.length > 0) {
-      const minutes = parseFloat(JSON.parse(result.rows[0].value));
-      if (!isNaN(minutes) && minutes > 0) {
-        _cachedTimeout = minutes * 60000;
-      } else {
-        _cachedTimeout = DEFAULT_STATUS_TIMEOUT;
-      }
-    } else {
-      _cachedTimeout = DEFAULT_STATUS_TIMEOUT;
-    }
-  } catch (e) {
-    _cachedTimeout = DEFAULT_STATUS_TIMEOUT;
-  }
-  _cacheTime = now;
-  return _cachedTimeout;
+  const minutes = await getSettingFloat('statusbot_upload_timeout_minutes', 10);
+  return Math.max(minutes, 0.5) * 60000;
 }
 
-function invalidateTimeoutCache() {
-  _cacheTime = 0;
+function invalidateSettingsCache() {
+  Object.keys(_settingsCacheTime).forEach(k => { _settingsCacheTime[k] = 0; });
 }
+
+// Keep old alias for backward compat
+function invalidateTimeoutCache() { invalidateSettingsCache(); }
 
 /**
  * Extract file URL from various content formats
@@ -119,8 +123,7 @@ function buildFileObject(content, type) {
 
 let isRunning = false;
 let intervalId = null;
-let isCurrentlyProcessing = false;
-let currentProcessingPromise = null;
+const activePromises = new Set(); // tracks all in-flight processItem promises
 let processingPromiseCallback = null;
 let gracefulShutdownRequested = false;
 
@@ -149,17 +152,18 @@ function isGracefulShutdownRequested() {
 }
 
 /**
- * Check if currently processing a status
+ * Check if currently processing any status
  */
 function isProcessing() {
-  return isCurrentlyProcessing;
+  return activePromises.size > 0;
 }
 
 /**
- * Get the current processing promise (for graceful shutdown)
+ * Get a promise that resolves when all active processing completes (for graceful shutdown)
  */
 function getCurrentProcessingPromise() {
-  return currentProcessingPromise;
+  if (activePromises.size === 0) return null;
+  return Promise.all([...activePromises]);
 }
 
 /**
@@ -190,236 +194,218 @@ function stopQueueProcessor() {
 }
 
 /**
- * Process the queue
+ * Process a single queue item asynchronously
+ */
+async function processItem(item) {
+  const createdAt = new Date(item.created_at);
+  const scheduledAt = item.scheduled_for ? new Date(item.scheduled_for) : null;
+  const now = new Date();
+  const scheduledInfo = scheduledAt
+    ? `scheduled=${scheduledAt.toISOString()}, delay=${Math.round((now - scheduledAt) / 1000)}s late`
+    : `created=${createdAt.toISOString()}, queued=${Math.round((now - createdAt) / 1000)}s ago`;
+  const uploaderInfo = item.source_phone ? `uploader=${item.source_phone}` : `source=${item.source || 'web'}`;
+  console.log(`[StatusBot] 🚀 Uploading status id=${item.id} type=${item.status_type} ${uploaderInfo} ${scheduledInfo}`);
+
+  emitToAdmin('statusbot:processing_start', {
+    id: item.id,
+    statusType: item.status_type,
+    connectionId: item.connection_id,
+    source: item.source,
+    sourcePhone: item.source_phone,
+    timestamp: new Date().toISOString()
+  });
+
+  try {
+    const sendResult = await sendStatus(item);
+
+    await db.query(`UPDATE status_bot_queue SET queue_status = 'sent', sent_at = NOW() WHERE id = $1`, [item.id]);
+
+    const uploadDuration = Math.round((Date.now() - now.getTime()) / 1000);
+    if (sendResult?.timeout) {
+      console.log(`[StatusBot] ⏱️ Status id=${item.id} type=${item.status_type} TIMEOUT after ${uploadDuration}s (treating as success)`);
+    } else {
+      console.log(`[StatusBot] ✅ Status id=${item.id} type=${item.status_type} confirmed uploaded in ${uploadDuration}s`);
+    }
+
+    await sendStatusNotification(item, true);
+
+    emitToAdmin('statusbot:processing_end', { id: item.id, success: true, timestamp: new Date().toISOString() });
+
+  } catch (sendError) {
+    const isTimeout = sendError.message?.includes('timeout') || sendError.message?.includes('TIMEOUT');
+    console.error(`[StatusBot] ❌ Status id=${item.id} ${isTimeout ? 'TIMEOUT' : 'ERROR'}: ${sendError.message}`);
+    if (!isTimeout) console.error(sendError.stack || sendError);
+
+    await db.query(`
+      UPDATE status_bot_queue
+      SET queue_status = 'failed', error_message = $1, retry_count = retry_count + 1
+      WHERE id = $2
+    `, [sendError.message, item.id]);
+
+    await sendStatusNotification(item, false, sendError.message);
+
+    emitToAdmin('statusbot:processing_end', { id: item.id, success: false, error: sendError.message, timestamp: new Date().toISOString() });
+  }
+}
+
+/**
+ * Process the queue — supports parallel uploads across multiple WAHA sources
  */
 async function processQueue() {
-  // Don't start new items if graceful shutdown is requested
   if (gracefulShutdownRequested) {
     console.log('[StatusBot Queue] Graceful shutdown in progress, skipping queue check');
     return;
   }
 
   try {
-    // Ensure lock row exists
-    await db.query(`INSERT INTO status_bot_queue_lock (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+    const [maxTotal, maxPerSource, delaySeconds, timeout] = await Promise.all([
+      getSettingFloat('statusbot_max_parallel_total', 5),
+      getSettingFloat('statusbot_max_parallel_per_source', 2),
+      getSettingFloat('statusbot_delay_between_statuses_seconds', 30),
+      getStatusTimeout(),
+    ]);
 
-    // 1. Atomically reset stuck lock (processing started > timeout+60s ago)
+    // 1. Reset stuck items (processing started > timeout+60s ago)
     const stuckReset = await db.query(`
-      UPDATE status_bot_queue_lock
-      SET is_processing = false, processing_started_at = NULL
-      WHERE id = 1
-        AND is_processing = true
-        AND processing_started_at IS NOT NULL
-        AND EXTRACT(EPOCH FROM (NOW() - processing_started_at)) * 1000 > $1
-    `, [await getStatusTimeout() + 60000]);
+      UPDATE status_bot_queue
+      SET queue_status = 'pending', processing_started_at = NULL
+      WHERE queue_status = 'processing'
+        AND processing_started_at < NOW() - ($1 * interval '1 millisecond')
+      RETURNING id
+    `, [timeout + 60000]);
     if (stuckReset.rowCount > 0) {
-      console.log('[StatusBot Queue] Stuck processing detected, resetting...');
+      console.log(`[StatusBot Queue] Reset ${stuckReset.rowCount} stuck item(s)`);
     }
 
-    // 2. Atomically acquire lock — only if not processing AND delay since last send has passed
-    //    Two concurrent workers hitting this will serialize in Postgres; only one gets rowCount=1
-    const lockAcquired = await db.query(`
-      UPDATE status_bot_queue_lock
-      SET is_processing = true, processing_started_at = NOW()
-      WHERE id = 1
-        AND is_processing = false
-        AND (last_sent_at IS NULL OR last_sent_at + ($1 * interval '1 millisecond') <= NOW())
-      RETURNING *
-    `, [STATUS_DELAY]);
-    if (lockAcquired.rowCount === 0) return; // busy or delay not yet passed
-
-    // 3. Get next pending item
-    const queueResult = await db.query(`
-      SELECT q.*, c.session_name, c.connection_status, c.first_connected_at, c.last_connected_at, c.restriction_lifted, c.short_restriction_until, c.waha_source_id
+    // 2. Count currently processing per source
+    const processingResult = await db.query(`
+      SELECT COALESCE(c.waha_source_id::text, '__default__') as source_key, COUNT(*) as cnt
       FROM status_bot_queue q
       JOIN status_bot_connections c ON c.id = q.connection_id
-      WHERE q.queue_status IN ('pending', 'scheduled') 
+      WHERE q.queue_status = 'processing'
+      GROUP BY c.waha_source_id
+    `);
+    const totalProcessing = processingResult.rows.reduce((s, r) => s + parseInt(r.cnt), 0);
+    if (totalProcessing >= maxTotal) return;
+
+    const processingBySource = {};
+    for (const r of processingResult.rows) {
+      processingBySource[r.source_key] = parseInt(r.cnt);
+    }
+
+    // 3. Get candidate items (pending/scheduled, eligible, not already processing their connection)
+    const candidates = await db.query(`
+      SELECT q.*, c.session_name, c.connection_status, c.waha_source_id,
+             c.restriction_lifted, c.short_restriction_until, c.restriction_until,
+             c.first_connected_at, c.last_connected_at
+      FROM status_bot_queue q
+      JOIN status_bot_connections c ON c.id = q.connection_id
+      WHERE q.queue_status IN ('pending', 'scheduled')
         AND c.connection_status = 'connected'
         AND (q.scheduled_for IS NULL OR q.scheduled_for <= NOW())
         AND (c.short_restriction_until IS NULL OR c.short_restriction_until <= NOW())
         AND (
-          c.restriction_lifted = true 
+          c.restriction_lifted = true
           OR c.first_connected_at IS NULL
-          OR (COALESCE(c.last_connected_at, c.first_connected_at) + INTERVAL '24 hours') <= NOW()
+          OR (
+            CASE WHEN c.restriction_until IS NOT NULL
+              THEN c.restriction_until <= NOW()
+              ELSE (COALESCE(c.last_connected_at, c.first_connected_at) + INTERVAL '24 hours') <= NOW()
+            END
+          )
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM status_bot_queue q2
+          WHERE q2.connection_id = q.connection_id AND q2.queue_status = 'processing'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM status_bot_queue q3
+          WHERE q3.connection_id = q.connection_id
+            AND q3.queue_status = 'sent'
+            AND q3.sent_at > NOW() - ($1 * interval '1 second')
         )
       ORDER BY COALESCE(q.scheduled_for, '1970-01-01'::timestamp) ASC, q.created_at ASC
-      LIMIT 1
-    `);
+      LIMIT $2
+    `, [delaySeconds, Math.ceil(maxTotal * 3)]);
 
-    if (queueResult.rows.length === 0) {
-      // Release lock — nothing to process
-      await db.query(`UPDATE status_bot_queue_lock SET is_processing = false, processing_started_at = NULL WHERE id = 1`);
-      // Diagnose why: are there pending items being blocked?
+    if (candidates.rows.length === 0) {
+      // Diagnose blocked items
       const blockedResult = await db.query(`
         SELECT q.id, q.connection_id, q.queue_status, q.created_at,
                c.connection_status, c.restriction_lifted, c.short_restriction_until,
-               c.first_connected_at, c.last_connected_at
+               c.first_connected_at, c.last_connected_at, c.restriction_until
         FROM status_bot_queue q
         JOIN status_bot_connections c ON c.id = q.connection_id
         WHERE q.queue_status IN ('pending', 'scheduled')
           AND (q.scheduled_for IS NULL OR q.scheduled_for <= NOW())
         LIMIT 5
       `);
-      if (blockedResult.rows.length > 0) {
-        for (const row of blockedResult.rows) {
-          const now = new Date();
-          const notConnected = row.connection_status !== 'connected';
-          const shortUntil = row.short_restriction_until ? new Date(row.short_restriction_until) : null;
-          const shortRestriction = shortUntil && shortUntil > now;
-          const restrictionActive = row.restriction_lifted !== true; // false or null
-          const baseTime = row.last_connected_at || row.first_connected_at;
-          const unlocksAt = baseTime ? new Date(new Date(baseTime).getTime() + 24 * 60 * 60 * 1000) : null;
-          const longRestriction = restrictionActive && unlocksAt && unlocksAt > now;
+      for (const row of blockedResult.rows) {
+        const now = new Date();
+        const notConnected = row.connection_status !== 'connected';
+        const shortUntil = row.short_restriction_until ? new Date(row.short_restriction_until) : null;
+        const shortRestriction = shortUntil && shortUntil > now;
+        const restrictionActive = row.restriction_lifted !== true;
 
-          let reason;
-          if (notConnected) {
-            reason = `connection_status=${row.connection_status}`;
-          } else if (shortRestriction) {
-            const minsLeft = Math.ceil((shortUntil - now) / 60000);
-            reason = `short restriction active, unlocks in ${minsLeft}min (${shortUntil.toISOString()})`;
-          } else if (longRestriction) {
-            const hoursLeft = ((unlocksAt - now) / 3600000).toFixed(1);
-            reason = `24h restriction active, unlocks in ${hoursLeft}h (${unlocksAt.toISOString()})`;
-          } else {
-            reason = `unknown — connection_status=${row.connection_status}, restriction_lifted=${row.restriction_lifted}, last_connected_at=${row.last_connected_at}`;
+        let reason;
+        if (notConnected) {
+          reason = `connection_status=${row.connection_status}`;
+        } else if (shortRestriction) {
+          const minsLeft = Math.ceil((shortUntil - now) / 60000);
+          reason = `short restriction active, unlocks in ${minsLeft}min`;
+        } else if (restrictionActive) {
+          if (row.restriction_until) {
+            const left = new Date(row.restriction_until) - now;
+            if (left > 0) reason = `restriction_until active, ${(left / 3600000).toFixed(1)}h left (${row.restriction_until})`;
           }
-          console.log(`[StatusBot] ⏸️ Queue item id=${row.id} conn=${row.connection_id} BLOCKED: ${reason}`);
+          if (!reason) {
+            const base = row.last_connected_at || row.first_connected_at;
+            const unlocks = base ? new Date(new Date(base).getTime() + 24 * 60 * 60 * 1000) : null;
+            if (unlocks && unlocks > now) reason = `24h restriction, ${((unlocks - now) / 3600000).toFixed(1)}h left`;
+          }
+          if (!reason) reason = `restriction_lifted=${row.restriction_lifted}`;
+        } else {
+          reason = `per-connection delay or source limit`;
         }
+        console.log(`[StatusBot] ⏸️ Queue item id=${row.id} conn=${row.connection_id} BLOCKED: ${reason}`);
       }
       return;
     }
 
-    const item = queueResult.rows[0];
+    // 4. Select items respecting per-source and total limits (one per connection)
+    const toProcess = [];
+    const sourceCount = { ...processingBySource };
+    const seenConnections = new Set();
 
-    // 4. Atomically claim the queue item — defense-in-depth against any edge case
-    const claimed = await db.query(`
-      UPDATE status_bot_queue
-      SET queue_status = 'processing', processing_started_at = NOW()
-      WHERE id = $1 AND queue_status IN ('pending', 'scheduled')
-      RETURNING id
-    `, [item.id]);
-    if (claimed.rowCount === 0) {
-      // Item was already claimed (shouldn't happen, but safe to handle)
-      await db.query(`UPDATE status_bot_queue_lock SET is_processing = false, processing_started_at = NULL WHERE id = 1`);
-      return;
+    for (const item of candidates.rows) {
+      if (toProcess.length + totalProcessing >= maxTotal) break;
+      if (seenConnections.has(item.connection_id)) continue;
+      const sourceKey = item.waha_source_id ? item.waha_source_id.toString() : '__default__';
+      if ((sourceCount[sourceKey] || 0) >= maxPerSource) continue;
+      toProcess.push(item);
+      sourceCount[sourceKey] = (sourceCount[sourceKey] || 0) + 1;
+      seenConnections.add(item.connection_id);
     }
 
-    const scheduledAt = item.scheduled_for ? new Date(item.scheduled_for) : null;
-    const createdAt = new Date(item.created_at);
-    const now = new Date();
-    const scheduledInfo = scheduledAt
-      ? `scheduled=${scheduledAt.toISOString()}, delay=${Math.round((now - scheduledAt) / 1000)}s late`
-      : `created=${createdAt.toISOString()}, queued=${Math.round((now - createdAt) / 1000)}s ago`;
-    const uploaderInfo = item.source_phone ? `uploader=${item.source_phone}` : `source=${item.source || 'web'}`;
-    console.log(`[StatusBot] 🚀 Uploading status id=${item.id} type=${item.status_type} ${uploaderInfo} ${scheduledInfo}`);
-
-    // Track processing state for graceful shutdown
-    isCurrentlyProcessing = true;
-    
-    // Emit socket event for admin monitoring
-    emitToAdmin('statusbot:processing_start', {
-      id: item.id,
-      statusType: item.status_type,
-      connectionId: item.connection_id,
-      source: item.source,
-      sourcePhone: item.source_phone,
-      timestamp: new Date().toISOString()
-    });
-    
-    try {
-      // Process the status and track the promise
-      const sendPromise = sendStatus(item);
-      currentProcessingPromise = sendPromise;
-      
-      // Notify callback if set (for worker graceful shutdown)
-      if (processingPromiseCallback) {
-        processingPromiseCallback(sendPromise);
-      }
-      
-      const sendResult = await sendPromise;
-
-      // Mark as sent
-      await db.query(`
-        UPDATE status_bot_queue 
-        SET queue_status = 'sent', sent_at = NOW()
-        WHERE id = $1
+    // 5. Atomically claim and process each item
+    for (const item of toProcess) {
+      const claimed = await db.query(`
+        UPDATE status_bot_queue
+        SET queue_status = 'processing', processing_started_at = NOW()
+        WHERE id = $1 AND queue_status IN ('pending', 'scheduled')
+        RETURNING id
       `, [item.id]);
+      if (claimed.rowCount === 0) continue; // race condition
 
-      // Update lock
-      await db.query(`
-        UPDATE status_bot_queue_lock 
-        SET is_processing = false, processing_started_at = NULL, 
-            last_sent_at = NOW(), last_sent_connection_id = $1
-        WHERE id = 1
-      `, [item.connection_id]);
-
-      const uploadDuration = Math.round((Date.now() - now.getTime()) / 1000);
-      if (sendResult?.timeout) {
-        console.log(`[StatusBot] ⏱️ Status id=${item.id} type=${item.status_type} TIMEOUT after ${uploadDuration}s (treating as success)`);
-      } else {
-        console.log(`[StatusBot] ✅ Status id=${item.id} type=${item.status_type} confirmed uploaded in ${uploadDuration}s`);
-      }
-
-      // Send WhatsApp notification if this was from WhatsApp and was scheduled
-      await sendStatusNotification(item, true);
-      
-      // Emit socket event for admin monitoring
-      emitToAdmin('statusbot:processing_end', {
-        id: item.id,
-        success: true,
-        timestamp: new Date().toISOString()
-      });
-      
-      // Clear processing state
-      isCurrentlyProcessing = false;
-      currentProcessingPromise = null;
-
-    } catch (sendError) {
-      const isTimeout = sendError.message?.includes('timeout') || sendError.message?.includes('TIMEOUT');
-      console.error(`[StatusBot] ❌ Status id=${item.id} ${isTimeout ? 'TIMEOUT' : 'ERROR'}: ${sendError.message}`);
-      if (!isTimeout) console.error(sendError.stack || sendError);
-      
-      // Emit socket event for admin monitoring
-      emitToAdmin('statusbot:processing_end', {
-        id: item.id,
-        success: false,
-        error: sendError.message,
-        timestamp: new Date().toISOString()
-      });
-
-      // Update as failed
-      await db.query(`
-        UPDATE status_bot_queue 
-        SET queue_status = 'failed', error_message = $1, retry_count = retry_count + 1
-        WHERE id = $2
-      `, [sendError.message, item.id]);
-
-      // Release lock
-      await db.query(`
-        UPDATE status_bot_queue_lock 
-        SET is_processing = false, processing_started_at = NULL
-        WHERE id = 1
-      `);
-
-      // Send failure notification if from WhatsApp
-      await sendStatusNotification(item, false, sendError.message);
-      
-      // Clear processing state
-      isCurrentlyProcessing = false;
-      currentProcessingPromise = null;
+      const promise = processItem(item);
+      activePromises.add(promise);
+      // Notify callback (for worker graceful shutdown)
+      if (processingPromiseCallback) processingPromiseCallback(promise);
+      promise.finally(() => activePromises.delete(promise));
     }
 
   } catch (error) {
     console.error('[StatusBot Queue] Process error:', error.message);
-    
-    // Try to release lock on error
-    try {
-      await db.query(`
-        UPDATE status_bot_queue_lock 
-        SET is_processing = false, processing_started_at = NULL
-        WHERE id = 1
-      `);
-    } catch (e) {}
   }
 }
 
@@ -615,22 +601,15 @@ async function addToQueue(connectionId, statusType, content, source = 'web', sou
  */
 async function getQueueStats() {
   const result = await db.query(`
-    SELECT 
+    SELECT
       COUNT(*) FILTER (WHERE queue_status = 'pending') as pending,
       COUNT(*) FILTER (WHERE queue_status = 'processing') as processing,
       COUNT(*) FILTER (WHERE queue_status = 'sent' AND sent_at > NOW() - INTERVAL '24 hours') as sent_today,
-      COUNT(*) FILTER (WHERE queue_status = 'failed' AND created_at > NOW() - INTERVAL '24 hours') as failed_today
+      COUNT(*) FILTER (WHERE queue_status = 'failed' AND created_at > NOW() - INTERVAL '24 hours') as failed_today,
+      MAX(sent_at) FILTER (WHERE queue_status = 'sent') as last_sent_at
     FROM status_bot_queue
   `);
-
-  const lockResult = await db.query(`
-    SELECT last_sent_at FROM status_bot_queue_lock WHERE id = 1
-  `);
-
-  return {
-    ...result.rows[0],
-    lastSentAt: lockResult.rows[0]?.last_sent_at
-  };
+  return result.rows[0];
 }
 
 /**
@@ -724,4 +703,5 @@ module.exports = {
   isGracefulShutdownRequested,
   getStatusTimeout,
   invalidateTimeoutCache,
+  invalidateSettingsCache,
 };

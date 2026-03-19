@@ -400,6 +400,7 @@ server.listen(PORT, () => {
         )
       `);
       await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS proxy_ip VARCHAR(100)`);
+      await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS restriction_until TIMESTAMP WITH TIME ZONE`);
       await dbQuery(`ALTER TABLE proxy_sources ADD COLUMN IF NOT EXISTS proxy_username VARCHAR(100)`);
       await dbQuery(`ALTER TABLE proxy_sources ADD COLUMN IF NOT EXISTS proxy_password_enc TEXT`);
       // Drop FK on billing_queue.subscription_id — it references user_subscriptions but
