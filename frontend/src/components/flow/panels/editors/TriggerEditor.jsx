@@ -8,10 +8,6 @@ const triggerTypes = [
   { id: 'message_content', label: 'תוכן ההודעה', icon: '🔍', hasValue: true, hasOperator: true, category: 'message' },
   { id: 'first_message', label: 'הודעה ראשונה מאיש קשר', icon: '👋', category: 'message' },
   { id: 'no_message_in', label: 'לא שלח הודעה ב-X זמן', icon: '🔕', hasTimeValue: true, category: 'message' },
-  { id: 'image_received', label: 'תמונה נכנסת', icon: '🖼️', category: 'media' },
-  { id: 'video_received', label: 'סרטון נכנס', icon: '🎥', category: 'media' },
-  { id: 'audio_received', label: 'הודעה קולית / שמע', icon: '🎵', category: 'media' },
-  { id: 'file_received', label: 'קובץ נכנס', icon: '📎', category: 'media' },
   { id: 'bot_activated', label: 'בעת הפעלת הבוט', icon: '▶️', category: 'bot' },
   { id: 'contact_field', label: 'שדה באיש קשר', icon: '👤', hasValue: true, hasOperator: true, hasField: true, category: 'contact' },
   { id: 'has_tag', label: 'יש תגית', icon: '🏷️', hasValue: true, category: 'contact' },
@@ -465,11 +461,6 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                             </optgroup>
                             <optgroup label="בוטים">
                               {triggerTypes.filter(t => t.category === 'bot').map(t => (
-                                <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
-                              ))}
-                            </optgroup>
-                            <optgroup label="מדיה (נפרד)">
-                              {triggerTypes.filter(t => t.category === 'media').map(t => (
                                 <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
                               ))}
                             </optgroup>

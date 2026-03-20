@@ -230,7 +230,17 @@ export default function BotsPage() {
 
   const handleToggle = async (e, bot) => {
     e.stopPropagation();
-    await updateBot(bot.id, { is_active: !bot.is_active });
+    try {
+      await updateBot(bot.id, { is_active: !bot.is_active });
+    } catch (err) {
+      const errorData = err.response?.data;
+      if (errorData?.code === 'BOTS_LIMIT_REACHED') {
+        setUpgradeError(errorData);
+        setShowUpgradeModal(true);
+      } else {
+        alert(errorData?.error || 'שגיאה בעדכון בוט');
+      }
+    }
   };
 
   const handleDeleteClick = (e, bot) => {

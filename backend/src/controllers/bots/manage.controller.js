@@ -140,25 +140,20 @@ async function updateBot(req, res) {
       });
     }
     
-    // Enforce active bot limit on activation — auto-deactivate others to stay within limit
+    // Enforce active bot limit on activation
     if (is_active === true) {
       const currentBot = await db.query('SELECT is_active, user_id FROM bots WHERE id = $1', [botId]);
       if (currentBot.rows[0] && !currentBot.rows[0].is_active) {
         const botOwnerId = currentBot.rows[0].user_id;
         const botsLimit = await checkLimit(botOwnerId, 'bots');
 
-        if (botsLimit.limit !== -1) {
-          // Auto-deactivate the oldest active bots to make room (limit - 1 allowed others)
-          const allowedOthers = botsLimit.limit - 1;
-          await db.query(`
-            UPDATE bots SET is_active = false, updated_at = NOW()
-            WHERE id IN (
-              SELECT id FROM bots
-              WHERE user_id = $1 AND is_active = true AND id != $2
-              ORDER BY updated_at ASC NULLS LAST
-              OFFSET $3
-            )
-          `, [botOwnerId, botId, allowedOthers]);
+        if (botsLimit.limit !== -1 && !botsLimit.allowed) {
+          return res.status(403).json({
+            error: `הגעת למגבלת ${botsLimit.limit} בוטים פעילים בתוכנית שלך`,
+            code: 'BOTS_LIMIT_REACHED',
+            limit: botsLimit.limit,
+            used: botsLimit.used
+          });
         }
       }
     }
