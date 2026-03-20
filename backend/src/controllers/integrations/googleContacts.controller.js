@@ -46,7 +46,7 @@ const handleCallback = async (req, res) => {
     console.log(`[GoogleContacts] Connected for user ${userId}: ${result.email}`);
 
     if (from === 'onboarding') {
-      return res.redirect(`${frontendUrl}/connect/${userId}?google_contacts=connected`);
+      return res.redirect(`${frontendUrl}/connect/${userId}/integrations?google_contacts=connected`);
     }
     res.redirect(`${frontendUrl}/settings?tab=integrations&google_contacts=connected`);
   } catch (error) {

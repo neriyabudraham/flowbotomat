@@ -945,7 +945,7 @@ export default function SettingsPage() {
                           {/* Copy connect link for client */}
                           <button
                             onClick={async () => {
-                              const link = `${window.location.origin}/connect/${user.id}`;
+                              const link = `${window.location.origin}/connect/${user.id}/integrations`;
                               try {
                                 if (navigator.clipboard) await navigator.clipboard.writeText(link);
                                 else { const t = document.createElement('textarea'); t.value = link; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t); }
@@ -1056,7 +1056,7 @@ export default function SettingsPage() {
                           {/* Copy connect link for client */}
                           <button
                             onClick={async () => {
-                              const link = `${window.location.origin}/connect/${user.id}`;
+                              const link = `${window.location.origin}/connect/${user.id}/integrations`;
                               try {
                                 if (navigator.clipboard) await navigator.clipboard.writeText(link);
                                 else { const t = document.createElement('textarea'); t.value = link; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t); }

@@ -46,7 +46,7 @@ const handleCallback = async (req, res) => {
     console.log(`[GoogleSheets] Connected for user ${userId}: ${result.email}`);
 
     if (from === 'onboarding') {
-      return res.redirect(`${frontendUrl}/connect/${userId}?google_sheets=connected`);
+      return res.redirect(`${frontendUrl}/connect/${userId}/integrations?google_sheets=connected`);
     }
     res.redirect(`${frontendUrl}/settings?tab=integrations&google_sheets=connected`);
   } catch (error) {

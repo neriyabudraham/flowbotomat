@@ -575,7 +575,7 @@ export default function WhatsappSetupPage() {
                     </button>
                     <button
                       onClick={async () => {
-                        const link = `${window.location.origin}/connect/${user.id}`;
+                        const link = `${window.location.origin}/connect/${user.id}/whatsapp`;
                         try {
                           if (navigator.clipboard) await navigator.clipboard.writeText(link);
                           else { const t = document.createElement('textarea'); t.value = link; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t); }

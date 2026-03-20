@@ -35,6 +35,8 @@ import ViewFilterSubscribePage from './pages/viewFilter/ViewFilterSubscribePage'
 import ViewFilterDashboardPage from './pages/viewFilter/ViewFilterDashboardPage';
 import DirectPaymentPage from './pages/DirectPaymentPage';
 import ConnectPage from './pages/ConnectPage';
+import ConnectWhatsAppPage from './pages/ConnectWhatsAppPage';
+import ConnectIntegrationsPage from './pages/ConnectIntegrationsPage';
 import SystemAlertOverlay from './components/notifications/SystemAlertOverlay';
 import MaintenanceOverlay from './components/MaintenanceOverlay';
 import SocketProvider from './components/providers/SocketProvider';
@@ -146,6 +148,8 @@ function App() {
           <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/add-payment/:token" element={<DirectPaymentPage />} />
           <Route path="/connect/:userId" element={<ConnectPage />} />
+          <Route path="/connect/:userId/whatsapp" element={<ConnectWhatsAppPage />} />
+          <Route path="/connect/:userId/integrations" element={<ConnectIntegrationsPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/affiliate-terms" element={<AffiliateTermsPage />} />
           <Route path="/signup" element={<SignupPage />} />

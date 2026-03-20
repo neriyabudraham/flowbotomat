@@ -1365,6 +1365,8 @@ class BotEngine {
         }
         if (condition.operator === 'is_empty') return !message || message.trim() === '';
         if (condition.operator === 'is_not_empty') return !!(message && message.trim());
+        // hasContentFilter=true but no valid filter configured (e.g. empty value) → don't match
+        return false;
       }
       return true;
     }
@@ -1450,16 +1452,20 @@ class BotEngine {
     
     switch (operator) {
       case 'contains':
+        if (!normalizedValue) return false;
         return normalizedField.includes(normalizedValue);
       case 'not_contains':
+        if (!normalizedValue) return false;
         return !normalizedField.includes(normalizedValue);
       case 'equals':
         return normalizedField === normalizedValue;
       case 'not_equals':
         return normalizedField !== normalizedValue;
       case 'starts_with':
+        if (!normalizedValue) return false;
         return normalizedField.startsWith(normalizedValue);
       case 'ends_with':
+        if (!normalizedValue) return false;
         return normalizedField.endsWith(normalizedValue);
       case 'regex':
         try {
@@ -1473,6 +1479,7 @@ class BotEngine {
       case 'is_not_empty':
         return fieldValue && fieldValue.trim() !== '';
       default:
+        if (!normalizedValue) return false;
         return normalizedField.includes(normalizedValue);
     }
   }
