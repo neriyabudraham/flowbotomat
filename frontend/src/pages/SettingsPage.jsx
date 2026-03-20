@@ -5,7 +5,7 @@ import {
   CreditCard, Crown, Check, Eye, EyeOff, Sparkles, ChevronRight,
   Mail, Phone, Building, Palette, Moon, Sun, Languages, Key, Share2,
   Loader2, MessageSquare, Clock, Bot, Hand, Puzzle, ExternalLink,
-  RefreshCw, Unplug, CheckCircle2, XCircle, AlertTriangle
+  RefreshCw, Unplug, CheckCircle2, XCircle, AlertTriangle, Link2
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
@@ -93,6 +93,8 @@ export default function SettingsPage() {
   const [googleContactsStatus, setGoogleContactsStatus] = useState(null);
   const [sheetsLoading, setSheetsLoading] = useState(false);
   const [contactsLoading, setContactsLoading] = useState(false);
+  const [copiedSheets, setCopiedSheets] = useState(false);
+  const [copiedContacts, setCopiedContacts] = useState(false);
 
   // Live chat settings
   const [liveChatSettings, setLiveChatSettings] = useState({
@@ -939,7 +941,24 @@ export default function SettingsPage() {
                           </div>
                         </div>
                         
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
+                          {/* Copy connect link for client */}
+                          <button
+                            onClick={async () => {
+                              const link = `${window.location.origin}/connect/${user.id}`;
+                              try {
+                                if (navigator.clipboard) await navigator.clipboard.writeText(link);
+                                else { const t = document.createElement('textarea'); t.value = link; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t); }
+                                setCopiedSheets(true);
+                                setTimeout(() => setCopiedSheets(false), 2000);
+                              } catch {}
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors font-medium"
+                            title="העתק לינק חיבור לשליחה ללקוח"
+                          >
+                            {copiedSheets ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <Link2 className="w-4 h-4" />}
+                            {copiedSheets ? 'הועתק!' : 'לינק ללקוח'}
+                          </button>
                           {sheetsLoading ? (
                             <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
                           ) : googleSheetsStatus?.connected ? (
@@ -1033,7 +1052,24 @@ export default function SettingsPage() {
                           </div>
                         </div>
                         
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
+                          {/* Copy connect link for client */}
+                          <button
+                            onClick={async () => {
+                              const link = `${window.location.origin}/connect/${user.id}`;
+                              try {
+                                if (navigator.clipboard) await navigator.clipboard.writeText(link);
+                                else { const t = document.createElement('textarea'); t.value = link; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t); }
+                                setCopiedContacts(true);
+                                setTimeout(() => setCopiedContacts(false), 2000);
+                              } catch {}
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors font-medium"
+                            title="העתק לינק חיבור לשליחה ללקוח"
+                          >
+                            {copiedContacts ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <Link2 className="w-4 h-4" />}
+                            {copiedContacts ? 'הועתק!' : 'לינק ללקוח'}
+                          </button>
                           {contactsLoading ? (
                             <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
                           ) : googleContactsStatus?.connected ? (

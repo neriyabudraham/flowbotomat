@@ -5,7 +5,7 @@ import {
   CheckCircle, XCircle, RefreshCw, Trash2, Wifi, WifiOff,
   Shield, Zap, Clock, AlertCircle, Phone, Settings,
   ChevronLeft, Loader2, ExternalLink, Copy, Check, ChevronDown,
-  Mail, HelpCircle, Hash, CreditCard
+  Mail, HelpCircle, Hash, CreditCard, Link2
 } from 'lucide-react';
 import useWhatsappStore from '../store/whatsappStore';
 import useAuthStore from '../store/authStore';
@@ -40,6 +40,7 @@ export default function WhatsappSetupPage() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [pairingCode, setPairingCode] = useState(null);
   const [codeRequesting, setCodeRequesting] = useState(false);
+  const [copiedConnectLink, setCopiedConnectLink] = useState(false);
   const {
     connection, qrCode, isLoading, error, existingSession,
     fetchStatus, connectManaged, connectExternal, fetchQR, disconnect, deleteConnection, clearError, checkExisting,
@@ -571,6 +572,21 @@ export default function WhatsappSetupPage() {
                     >
                       <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
                       רענן קוד
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const link = `${window.location.origin}/connect/${user.id}`;
+                        try {
+                          if (navigator.clipboard) await navigator.clipboard.writeText(link);
+                          else { const t = document.createElement('textarea'); t.value = link; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t); }
+                          setCopiedConnectLink(true);
+                          setTimeout(() => setCopiedConnectLink(false), 2000);
+                        } catch {}
+                      }}
+                      className="flex-1 py-3 border-2 border-emerald-200 text-emerald-700 rounded-xl font-medium hover:bg-emerald-50 transition-colors flex items-center justify-center gap-2"
+                    >
+                      {copiedConnectLink ? <Check className="w-5 h-5" /> : <Link2 className="w-5 h-5" />}
+                      {copiedConnectLink ? 'הועתק!' : 'לינק ללקוח'}
                     </button>
                     <button
                       onClick={handleDisconnect}
