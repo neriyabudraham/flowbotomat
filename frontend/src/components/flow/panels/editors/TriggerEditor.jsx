@@ -5,7 +5,6 @@ import api from '../../../../services/api';
 const triggerTypes = [
   { id: 'any_message', label: 'כל הודעה נכנסת', icon: '💬', category: 'message' },
   { id: 'message_received', label: 'הודעה נכנסת לפי סוג', icon: '📨', hasMessageType: true, hasOptionalContent: true, category: 'message' },
-  { id: 'message_content', label: 'תוכן ההודעה', icon: '🔍', hasValue: true, hasOperator: true, category: 'message' },
   { id: 'first_message', label: 'הודעה ראשונה מאיש קשר', icon: '👋', category: 'message' },
   { id: 'no_message_in', label: 'לא שלח הודעה ב-X זמן', icon: '🔕', hasTimeValue: true, category: 'message' },
   { id: 'bot_activated', label: 'בעת הפעלת הבוט', icon: '▶️', category: 'bot' },
@@ -85,6 +84,24 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
   const [copiedField, setCopiedField] = useState(null);
 
   const hasWebhookTrigger = groups.some(g => g.conditions?.some(c => c.type === 'webhook'));
+
+  // Migrate legacy message_content conditions → message_received with content filter
+  // Runs once on mount; existing bots keep working without any manual edits
+  useEffect(() => {
+    const hasMigration = groups.some(g => g.conditions?.some(c => c.type === 'message_content'));
+    if (!hasMigration) return;
+    const migratedGroups = groups.map(g => ({
+      ...g,
+      conditions: g.conditions.map(c => c.type !== 'message_content' ? c : {
+        ...c,
+        type: 'message_received',
+        messageType: 'any',
+        hasContentFilter: true,
+      })
+    }));
+    onUpdate({ triggerGroups: migratedGroups });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load webhook secret when webhook trigger is selected
   useEffect(() => {
