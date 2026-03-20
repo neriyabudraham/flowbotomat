@@ -29,21 +29,25 @@ const handleCallback = async (req, res) => {
       return res.redirect(`${frontendUrl}/settings?tab=integrations&error=no_code`);
     }
     
-    let userId;
+    let userId, from;
     if (state) {
       try {
         const stateData = JSON.parse(state);
         userId = stateData.userId;
+        from = stateData.from;
       } catch (e) {}
     }
-    
+
     if (!userId) {
       return res.redirect(`${frontendUrl}/settings?tab=integrations&error=invalid_state`);
     }
-    
+
     const result = await googleSheets.handleCallback(code, userId);
     console.log(`[GoogleSheets] Connected for user ${userId}: ${result.email}`);
-    
+
+    if (from === 'onboarding') {
+      return res.redirect(`${frontendUrl}/connect/${userId}?google_sheets=connected`);
+    }
     res.redirect(`${frontendUrl}/settings?tab=integrations&google_sheets=connected`);
   } catch (error) {
     console.error('[GoogleSheets] Callback error:', error.message);

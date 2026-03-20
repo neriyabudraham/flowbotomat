@@ -37,13 +37,13 @@ function createOAuth2Client() {
 /**
  * Get authorization URL for Google Contacts
  */
-function getAuthUrl(userId) {
+function getAuthUrl(userId, from = null) {
   const oauth2Client = createOAuth2Client();
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
     scope: SCOPES,
-    state: JSON.stringify({ userId }),
+    state: JSON.stringify({ userId, ...(from && { from }) }),
   });
 }
 

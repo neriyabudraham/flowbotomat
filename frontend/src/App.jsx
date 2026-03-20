@@ -34,6 +34,7 @@ import ViewFilterLandingPage from './pages/viewFilter/ViewFilterLandingPage';
 import ViewFilterSubscribePage from './pages/viewFilter/ViewFilterSubscribePage';
 import ViewFilterDashboardPage from './pages/viewFilter/ViewFilterDashboardPage';
 import DirectPaymentPage from './pages/DirectPaymentPage';
+import ConnectPage from './pages/ConnectPage';
 import SystemAlertOverlay from './components/notifications/SystemAlertOverlay';
 import MaintenanceOverlay from './components/MaintenanceOverlay';
 import SocketProvider from './components/providers/SocketProvider';
@@ -144,6 +145,7 @@ function App() {
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/add-payment/:token" element={<DirectPaymentPage />} />
+          <Route path="/connect/:userId" element={<ConnectPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/affiliate-terms" element={<AffiliateTermsPage />} />
           <Route path="/signup" element={<SignupPage />} />

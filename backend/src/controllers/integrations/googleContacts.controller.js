@@ -29,21 +29,25 @@ const handleCallback = async (req, res) => {
       return res.redirect(`${frontendUrl}/settings?tab=integrations&error=no_code`);
     }
     
-    let userId;
+    let userId, from;
     if (state) {
       try {
         const stateData = JSON.parse(state);
         userId = stateData.userId;
+        from = stateData.from;
       } catch (e) {}
     }
-    
+
     if (!userId) {
       return res.redirect(`${frontendUrl}/settings?tab=integrations&error=invalid_state`);
     }
-    
+
     const result = await googleContacts.handleCallback(code, userId);
     console.log(`[GoogleContacts] Connected for user ${userId}: ${result.email}`);
-    
+
+    if (from === 'onboarding') {
+      return res.redirect(`${frontendUrl}/connect/${userId}?google_contacts=connected`);
+    }
     res.redirect(`${frontendUrl}/settings?tab=integrations&google_contacts=connected`);
   } catch (error) {
     console.error('[GoogleContacts] Callback error:', error.message);

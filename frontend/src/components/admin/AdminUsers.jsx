@@ -9,7 +9,7 @@ import {
   Package, Layers, CheckCircle, XCircle, Activity, TrendingUp,
   Smartphone, Mail, Hash, Globe, Shield, Star, Sparkles,
   ArrowUpRight, MoreHorizontal, Wallet, Receipt, History,
-  Lock, Unlock, PlayCircle, PauseCircle, Info
+  Lock, Unlock, PlayCircle, PauseCircle, Info, Wifi
 } from 'lucide-react';
 import api from '../../services/api';
 import useAuthStore from '../../store/authStore';
@@ -516,7 +516,22 @@ function FilterSelect({ label, value, onChange, options }) {
 // User Card Component
 function UserCard({ user, currentUser, onSelect, showToast }) {
   const [copying, setCopying] = useState(false);
+  const [copyingConnect, setCopyingConnect] = useState(false);
   const [switching, setSwitching] = useState(false);
+
+  const handleCopyConnectLink = async (e) => {
+    e.stopPropagation();
+    setCopyingConnect(true);
+    try {
+      const link = `${window.location.origin}/connect/${user.id}`;
+      await copyToClipboard(link);
+      showToast('success', 'לינק חיבור הועתק!');
+    } catch (err) {
+      showToast('error', 'שגיאה בהעתקת לינק');
+    } finally {
+      setCopyingConnect(false);
+    }
+  };
 
   const handleCopyPaymentLink = async (e) => {
     e.stopPropagation();
@@ -666,11 +681,28 @@ function UserCard({ user, currentUser, onSelect, showToast }) {
 
         {/* Action Buttons */}
         <div className="flex gap-2">
-          {/* Payment Link Button - PROMINENT */}
+          {/* Connect Link Button */}
+          <button
+            onClick={handleCopyConnectLink}
+            disabled={copyingConnect}
+            className="flex-1 px-3 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl font-medium text-sm transition-all shadow-md shadow-emerald-500/25 flex items-center justify-center gap-2"
+            title="העתק לינק חיבור חשבונות"
+          >
+            {copyingConnect ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : (
+              <>
+                <Wifi className="w-4 h-4" />
+                <span>לינק חיבור</span>
+              </>
+            )}
+          </button>
+
+          {/* Payment Link Button */}
           <button
             onClick={handleCopyPaymentLink}
             disabled={copying}
-            className="flex-1 px-4 py-2.5 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white rounded-xl font-medium text-sm transition-all shadow-md shadow-violet-500/25 flex items-center justify-center gap-2"
+            className="flex-1 px-3 py-2.5 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white rounded-xl font-medium text-sm transition-all shadow-md shadow-violet-500/25 flex items-center justify-center gap-2"
           >
             {copying ? (
               <RefreshCw className="w-4 h-4 animate-spin" />
@@ -809,7 +841,22 @@ function SortableHeader({ label, column, current, order, onSort }) {
 
 function UserTableRow({ user, currentUser, onSelect, showToast }) {
   const [copying, setCopying] = useState(false);
+  const [copyingConnect, setCopyingConnect] = useState(false);
   const [switching, setSwitching] = useState(false);
+
+  const handleCopyConnectLink = async (e) => {
+    e.stopPropagation();
+    setCopyingConnect(true);
+    try {
+      const link = `${window.location.origin}/connect/${user.id}`;
+      await copyToClipboard(link);
+      showToast('success', 'לינק חיבור הועתק!');
+    } catch (err) {
+      showToast('error', 'שגיאה בהעתקת לינק');
+    } finally {
+      setCopyingConnect(false);
+    }
+  };
 
   const handleCopyPaymentLink = async (e) => {
     e.stopPropagation();
@@ -910,6 +957,14 @@ function UserTableRow({ user, currentUser, onSelect, showToast }) {
       <td className="px-4 py-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-center gap-1">
           <button
+            onClick={handleCopyConnectLink}
+            disabled={copyingConnect}
+            className="p-2 bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:hover:bg-emerald-900/50 rounded-lg transition-colors"
+            title="העתק לינק חיבור"
+          >
+            {copyingConnect ? <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" /> : <Wifi className="w-4 h-4 text-emerald-600" />}
+          </button>
+          <button
             onClick={handleCopyPaymentLink}
             disabled={copying}
             className="p-2 bg-violet-100 hover:bg-violet-200 dark:bg-violet-900/30 dark:hover:bg-violet-900/50 rounded-lg transition-colors"
@@ -947,6 +1002,7 @@ function UserDetailDrawer({ user, onClose, onRefresh, currentUser, showToast }) 
   const [saving, setSaving] = useState(false);
   const [data, setData] = useState({ plans: [], affiliates: [], bots: [], billing: [], featureOverrides: null });
   const [copying, setCopying] = useState(false);
+  const [copyingConnect, setCopyingConnect] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -1042,14 +1098,34 @@ function UserDetailDrawer({ user, onClose, onRefresh, currentUser, showToast }) 
               <X className="w-6 h-6" />
             </button>
             <div className="flex gap-2">
-              {/* MAIN ACTION: Copy Payment Link */}
+              {/* Copy Connect Link */}
+              <button
+                onClick={async () => {
+                  setCopyingConnect(true);
+                  try {
+                    const link = `${window.location.origin}/connect/${user.id}`;
+                    await copyToClipboard(link);
+                    showToast('success', 'לינק חיבור הועתק!');
+                  } catch (err) {
+                    showToast('error', 'שגיאה בהעתקת לינק');
+                  } finally {
+                    setCopyingConnect(false);
+                  }
+                }}
+                disabled={copyingConnect}
+                className="px-4 py-2 bg-emerald-500/30 hover:bg-emerald-500/50 rounded-xl font-medium flex items-center gap-2 transition-colors"
+              >
+                {copyingConnect ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+                לינק חיבור
+              </button>
+              {/* Copy Payment Link */}
               <button
                 onClick={handleCopyPaymentLink}
                 disabled={copying}
                 className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-xl font-medium flex items-center gap-2 transition-colors"
               >
                 {copying ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
-                העתק לינק תשלום
+                לינק תשלום
               </button>
               {user.id !== currentUser.id && (
                 <button

@@ -31,6 +31,7 @@ const servicesRoutes = require('./services.routes');
 const statusBotRoutes = require('./statusBot.routes');
 const broadcastAdminRoutes = require('./broadcastAdmin.routes');
 const viewFilterRoutes = require('./viewFilter.routes');
+const onboardingRoutes = require('./onboarding.routes');
 
 // Mount routes
 router.use('/auth', authRoutes);
@@ -64,6 +65,9 @@ router.use('/view-filter', viewFilterRoutes);
 
 // Public API (v1)
 router.use('/v1', publicApiRoutes);
+
+// Public onboarding routes (no auth required)
+router.use('/onboarding', onboardingRoutes);
 
 // Public site config (no auth required)
 const settingsController = require('../controllers/admin/settings.controller');
