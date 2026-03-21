@@ -1770,17 +1770,22 @@ async function getQueueStatus(req, res) {
       return res.json({ queue: [], scheduled: [], position: null });
     }
 
-    // Get user's pending items (no scheduled_for)
+    // Get user's queue items: immediate items + scheduled items whose time has arrived
     const userQueue = await db.query(`
-      SELECT * FROM status_bot_queue 
-      WHERE connection_id = $1 AND queue_status IN ('pending', 'processing') AND scheduled_for IS NULL
-      ORDER BY created_at ASC
+      SELECT * FROM status_bot_queue
+      WHERE connection_id = $1
+        AND queue_status IN ('pending', 'processing')
+        AND (scheduled_for IS NULL OR scheduled_for <= NOW())
+      ORDER BY COALESCE(scheduled_for, created_at) ASC
     `, [connResult.rows[0].id]);
 
-    // Get user's scheduled items (including 'scheduled' status for backwards compatibility)
+    // Get user's future scheduled items only (time not yet arrived)
     const scheduledQueue = await db.query(`
-      SELECT * FROM status_bot_queue 
-      WHERE connection_id = $1 AND queue_status IN ('pending', 'scheduled') AND scheduled_for IS NOT NULL
+      SELECT * FROM status_bot_queue
+      WHERE connection_id = $1
+        AND queue_status IN ('pending', 'scheduled')
+        AND scheduled_for IS NOT NULL
+        AND scheduled_for > NOW()
       ORDER BY scheduled_for ASC
     `, [connResult.rows[0].id]);
 
@@ -2177,12 +2182,14 @@ async function getInProgressStatuses(req, res) {
       return res.json({ inProgress: [] });
     }
 
-    // Get pending and processing items (not scheduled)
+    // Get pending and processing items (including scheduled ones whose time has arrived)
     const result = await db.query(`
-      SELECT id, status_type, content, queue_status, created_at
-      FROM status_bot_queue 
-      WHERE connection_id = $1 AND queue_status IN ('pending', 'processing') AND scheduled_for IS NULL
-      ORDER BY created_at ASC
+      SELECT id, status_type, content, queue_status, created_at, scheduled_for
+      FROM status_bot_queue
+      WHERE connection_id = $1
+        AND queue_status IN ('pending', 'processing')
+        AND (scheduled_for IS NULL OR scheduled_for <= NOW())
+      ORDER BY COALESCE(scheduled_for, created_at) ASC
     `, [connResult.rows[0].id]);
 
     res.json({ inProgress: normalizeRows(result.rows) });
