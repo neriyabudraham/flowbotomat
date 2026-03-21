@@ -3986,10 +3986,12 @@ class BotEngine {
       if (!expression || !outputVar) continue;
 
       try {
-        // Replace {{variables}} with JSON.stringify'd values so they're valid JS string literals
-        // (raw substitution breaks when values contain newlines, quotes, etc.)
+        // Replace {{variables}} — use numeric literal if value is a number, else quoted string
         const resolvedExpr = expression.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
           const raw = this.replaceVariables(match, contact, message, '', userId);
+          if (raw !== null && raw !== '' && !isNaN(Number(raw)) && String(raw).trim() !== '') {
+            return String(Number(raw));
+          }
           return JSON.stringify(raw);
         });
 
