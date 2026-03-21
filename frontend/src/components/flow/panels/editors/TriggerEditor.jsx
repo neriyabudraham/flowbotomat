@@ -325,7 +325,7 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
       if (g.id === groupId) {
         return {
           ...g,
-          conditions: [...g.conditions, { type: 'message_content', operator: 'contains', value: '', field: '' }]
+          conditions: [...g.conditions, { type: 'any_message', operator: 'contains', value: '', field: '' }]
         };
       }
       return g;

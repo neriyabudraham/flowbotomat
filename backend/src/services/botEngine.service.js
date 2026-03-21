@@ -1352,6 +1352,7 @@ class BotEngine {
     if (type === 'message_received') {
       const msgType = condition.messageType || 'any';
       const mediaType = contact._mediaType || null;
+      console.log('[Trigger] message_received check:', JSON.stringify({ msgType, mediaType, hasContentFilter: condition.hasContentFilter, operator: condition.operator, value: condition.value, message: message?.substring?.(0, 50) }));
       if (msgType === 'text' && mediaType) return false; // text only — no media
       if (msgType === 'image' && mediaType !== 'image') return false;
       if (msgType === 'video' && mediaType !== 'video') return false;
