@@ -136,19 +136,35 @@ async function savePaymentMethod(req, res) {
         }
       });
     } else {
-      // Backend tokenization with card details
-      console.log('[Payment] Using backend tokenization with card details');
-      sumitResult = await sumitService.setPaymentMethodWithCard({
-        customerId: existingSumitCustomerId,
+      // Backend tokenization: two-step flow (single-use token → setforcustomer)
+      console.log('[Payment] Using backend two-step tokenization (card details → single-use token → payment method)');
+
+      // Step 1: Create single-use token from card details using public key
+      const singleUseResult = await sumitService.tokenizeSingleUse({
         cardNumber: cardNumber,
         expiryMonth: expiryMonth,
         expiryYear: expiryYear,
         cvv: cvv,
         citizenId: citizenId,
-        phone: phone,
+      });
+
+      if (!singleUseResult.success) {
+        console.error('[Payment] Failed to create single-use token:', singleUseResult.error);
+        return res.status(400).json({
+          error: singleUseResult.error || 'שגיאה בעיבוד פרטי הכרטיס. אנא נסה שנית.',
+          code: 'TOKENIZE_ERROR',
+        });
+      }
+
+      console.log('[Payment] Single-use token created successfully, setting payment method...');
+
+      // Step 2: Set payment method using the single-use token (private key endpoint)
+      sumitResult = await sumitService.setPaymentMethodForCustomer({
+        customerId: existingSumitCustomerId,
+        singleUseToken: singleUseResult.token,
         customerInfo: {
           name: cardHolderName || user.name || user.email,
-          email: receiptEmail, // Use receipt_email for receipts
+          email: receiptEmail,
           phone: phone,
           companyNumber: companyNumber,
           externalId: `user_${userId}`,

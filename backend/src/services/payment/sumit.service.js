@@ -66,8 +66,8 @@ async function tokenizeSingleUse({ cardNumber, expiryMonth, expiryYear, cvv, cit
       requestBody,
       {
         headers: {
-          'Content-Type': 'application/json',
-          'accept': 'application/json',
+          'Content-Type': 'application/json-patch+json',
+          'accept': 'text/plain',
         },
         timeout: 30000,
       }
