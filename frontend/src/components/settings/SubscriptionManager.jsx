@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { CreditCard, Calendar, AlertCircle, Crown, CheckCircle, XCircle, RotateCcw, Trash2, ShieldAlert, Clock, Info, HelpCircle, ArrowRight, RefreshCw, Package, Upload, ExternalLink, Zap, TrendingUp } from 'lucide-react';
+import { CreditCard, Calendar, AlertCircle, Crown, CheckCircle, XCircle, RotateCcw, Trash2, ShieldAlert, Clock, Info, HelpCircle, ArrowRight, RefreshCw, Package, Upload, ExternalLink, Zap, TrendingUp, X } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
+import CreditCardForm from '../payment/CreditCardForm';
 
 export default function SubscriptionManager() {
   const navigate = useNavigate();
@@ -20,6 +21,7 @@ export default function SubscriptionManager() {
   const [cancellingService, setCancellingService] = useState(false);
   const [allowAutoUpgrade, setAllowAutoUpgrade] = useState(false);
   const [updatingAutoUpgrade, setUpdatingAutoUpgrade] = useState(false);
+  const [showAddCardModal, setShowAddCardModal] = useState(false);
 
   useEffect(() => {
     loadSubscription();
@@ -410,7 +412,7 @@ export default function SubscriptionManager() {
                         </button>
                       ) : (
                         <button
-                          onClick={() => navigate('/pricing')}
+                          onClick={() => setShowAddCardModal(true)}
                           className="flex items-center gap-1.5 px-4 py-1.5 bg-white text-amber-600 hover:bg-white/90 rounded-lg text-sm font-bold transition-colors"
                         >
                           הוסף אשראי וחדש
@@ -498,8 +500,8 @@ export default function SubscriptionManager() {
                     </div>
                   </div>
                 </div>
-                <Button 
-                  onClick={() => navigate('/pricing')} 
+                <Button
+                  onClick={() => setShowAddCardModal(true)}
                   className="mt-3 w-full"
                   size="sm"
                 >
@@ -766,6 +768,40 @@ export default function SubscriptionManager() {
             navigate('/pricing');
           }}
         />
+      )}
+
+      {/* Add Card Modal */}
+      {showAddCardModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowAddCardModal(false)}>
+          <div
+            className="bg-white dark:bg-gray-800 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-5 border-b border-gray-100 dark:border-gray-700">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-purple-600" />
+                הוספת כרטיס אשראי
+              </h2>
+              <button
+                onClick={() => setShowAddCardModal(false)}
+                className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5">
+              <CreditCardForm
+                onSuccess={() => {
+                  setShowAddCardModal(false);
+                  loadPaymentMethod();
+                  loadSubscription();
+                }}
+                onCancel={() => setShowAddCardModal(false)}
+                submitText="שמור כרטיס"
+              />
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
