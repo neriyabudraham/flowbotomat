@@ -5,7 +5,7 @@ import {
   CheckCircle, XCircle, RefreshCw, Trash2, Wifi, WifiOff,
   Shield, Zap, Clock, AlertCircle, Phone, Settings,
   ChevronLeft, Loader2, ExternalLink, Copy, Check, ChevronDown,
-  Mail, HelpCircle, Hash, CreditCard, Link2
+  Hash, CreditCard, Link2
 } from 'lucide-react';
 import useWhatsappStore from '../store/whatsappStore';
 import useAuthStore from '../store/authStore';
@@ -760,36 +760,6 @@ export default function WhatsappSetupPage() {
           )}
         </div>
 
-        {/* Help Section */}
-        <div className="mt-8 p-6 bg-white rounded-2xl border border-gray-100">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
-              <HelpCircle className="w-5 h-5 text-blue-600" />
-            </div>
-            <div>
-              <p className="font-medium text-gray-900">צריכים עזרה?</p>
-              <p className="text-sm text-gray-500">אנחנו כאן בשבילכם</p>
-            </div>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <a 
-              href="https://wa.me/972584254229"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-500 text-white rounded-xl font-medium hover:bg-green-600 transition-colors"
-            >
-              <MessageCircle className="w-5 h-5" />
-              וואטסאפ
-            </a>
-            <a 
-              href="mailto:office@neriyabudraham.co.il"
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
-            >
-              <Mail className="w-5 h-5" />
-              אימייל
-            </a>
-          </div>
-        </div>
       </main>
 
       {/* Payment Required Modal */}
