@@ -2,7 +2,6 @@ const db = require('../../config/database');
 const sumitService = require('../../services/payment/sumit.service');
 const billingQueueService = require('../../services/payment/billingQueue.service');
 const { sendNewSubscriptionEmail, sendRenewalEmail, sendCancellationEmail } = require('../../services/subscription/notification.service');
-
 /** Detects Sumit temporary lockout due to repeated credential failures */
 function isSumitLockoutError(errorMsg) {
   if (!errorMsg) return false;
