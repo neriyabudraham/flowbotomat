@@ -296,11 +296,12 @@ async function detectMissingBillingEntries() {
   const unfinishedResult = await pool.query(`
     SELECT bq.*,
            u.email, u.name as display_name,
-           us.sumit_customer_id,
+           COALESCE(us.sumit_customer_id, upm.sumit_customer_id) as sumit_customer_id,
            sp.name as plan_name, sp.name_he as plan_name_he
     FROM billing_queue bq
     JOIN users u ON u.id = bq.user_id
-    LEFT JOIN user_subscriptions us ON us.user_id = bq.user_id
+    LEFT JOIN user_subscriptions us ON us.id = bq.subscription_id
+    LEFT JOIN user_payment_methods upm ON upm.user_id = bq.user_id AND upm.is_active = true
     LEFT JOIN subscription_plans sp ON sp.id = bq.plan_id
     WHERE bq.status = 'failed'
       AND bq.retry_count >= bq.max_retries
@@ -336,18 +337,18 @@ async function processQueue() {
   
   // Get all pending charges due today or earlier
   const pendingResult = await pool.query(
-    `SELECT bq.*, 
+    `SELECT bq.*,
             u.email, u.name as display_name,
-            us.sumit_customer_id,
+            COALESCE(us.sumit_customer_id, upm.sumit_customer_id) as sumit_customer_id,
             us.invoice_name, us.receipt_email,
             upm.id as payment_method_id,
             sp.name as plan_name, sp.name_he as plan_name_he, sp.price as plan_price
      FROM billing_queue bq
      JOIN users u ON u.id = bq.user_id
-     LEFT JOIN user_subscriptions us ON us.user_id = bq.user_id
+     LEFT JOIN user_subscriptions us ON us.id = bq.subscription_id
      LEFT JOIN user_payment_methods upm ON upm.user_id = bq.user_id AND upm.is_active = true
      LEFT JOIN subscription_plans sp ON sp.id = bq.plan_id
-     WHERE bq.status = 'pending' 
+     WHERE bq.status = 'pending'
        AND bq.charge_date <= CURRENT_DATE
      ORDER BY bq.charge_date ASC
      FOR UPDATE SKIP LOCKED`
@@ -440,16 +441,17 @@ async function retryFailedCharges() {
   
   // Get failed charges that are due for retry
   const failedResult = await pool.query(
-    `SELECT bq.*, 
+    `SELECT bq.*,
             u.email, u.name as display_name,
-            us.sumit_customer_id,
+            COALESCE(us.sumit_customer_id, upm.sumit_customer_id) as sumit_customer_id,
             us.invoice_name, us.receipt_email,
             sp.name as plan_name, sp.name_he as plan_name_he
      FROM billing_queue bq
      JOIN users u ON u.id = bq.user_id
-     LEFT JOIN user_subscriptions us ON us.user_id = bq.user_id
+     LEFT JOIN user_subscriptions us ON us.id = bq.subscription_id
+     LEFT JOIN user_payment_methods upm ON upm.user_id = bq.user_id AND upm.is_active = true
      LEFT JOIN subscription_plans sp ON sp.id = bq.plan_id
-     WHERE bq.status = 'failed' 
+     WHERE bq.status = 'failed'
        AND bq.retry_count < bq.max_retries
        AND bq.next_retry_at <= CURRENT_DATE
      ORDER BY bq.next_retry_at ASC
@@ -1192,14 +1194,14 @@ async function sendDowngradeNotification(charge) {
  */
 async function chargeNow(queueId) {
   const chargeResult = await pool.query(
-    `SELECT bq.*, 
+    `SELECT bq.*,
             u.email, u.name as display_name,
-            us.sumit_customer_id,
+            COALESCE(us.sumit_customer_id, upm.sumit_customer_id) as sumit_customer_id,
             upm.id as payment_method_id,
             sp.name as plan_name, sp.name_he as plan_name_he
      FROM billing_queue bq
      JOIN users u ON u.id = bq.user_id
-     LEFT JOIN user_subscriptions us ON us.user_id = bq.user_id
+     LEFT JOIN user_subscriptions us ON us.id = bq.subscription_id
      LEFT JOIN user_payment_methods upm ON upm.user_id = bq.user_id AND upm.is_active = true
      LEFT JOIN subscription_plans sp ON sp.id = bq.plan_id
      WHERE bq.id = $1`,
