@@ -87,7 +87,7 @@ const getWhatsappQR = async (req, res) => {
     const { userId } = req.params;
 
     const result = await pool.query(
-      `SELECT id, connection_type, session_name, external_base_url, external_api_key, status
+      `SELECT id, connection_type, session_name, external_base_url, external_api_key, waha_source_id, status
        FROM whatsapp_connections WHERE user_id = $1`,
       [userId]
     );

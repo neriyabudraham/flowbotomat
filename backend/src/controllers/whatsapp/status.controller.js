@@ -42,10 +42,10 @@ async function getStatus(req, res) {
     const userId = req.user.id;
     
     const result = await pool.query(
-      `SELECT id, connection_type, session_name, phone_number, 
-              display_name, profile_picture_url, status, 
+      `SELECT id, connection_type, session_name, phone_number,
+              display_name, profile_picture_url, status,
               connected_at, last_seen_at, created_at,
-              external_base_url, external_api_key
+              external_base_url, external_api_key, waha_source_id
        FROM whatsapp_connections WHERE user_id = $1`,
       [userId]
     );
@@ -112,18 +112,18 @@ async function getQR(req, res) {
     const userId = req.user.id;
     
     const result = await pool.query(
-      `SELECT id, connection_type, session_name, external_base_url, external_api_key
+      `SELECT id, connection_type, session_name, external_base_url, external_api_key, waha_source_id
        FROM whatsapp_connections WHERE user_id = $1`,
       [userId]
     );
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'אין חיבור WhatsApp' });
     }
-    
+
     const connection = result.rows[0];
     const { baseUrl, apiKey } = await getCredentials(connection);
-    
+
     // First check session status - if not SCAN_QR_CODE, may need to restart
     try {
       const status = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
@@ -179,18 +179,18 @@ async function requestCode(req, res) {
     phoneNumber = formatPhoneNumber(phoneNumber);
     
     const result = await pool.query(
-      `SELECT id, connection_type, session_name, external_base_url, external_api_key
+      `SELECT id, connection_type, session_name, external_base_url, external_api_key, waha_source_id
        FROM whatsapp_connections WHERE user_id = $1`,
       [userId]
     );
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'אין חיבור WhatsApp' });
     }
-    
+
     const connection = result.rows[0];
     const { baseUrl, apiKey } = await getCredentials(connection);
-    
+
     // First check/start session if needed
     try {
       const status = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
