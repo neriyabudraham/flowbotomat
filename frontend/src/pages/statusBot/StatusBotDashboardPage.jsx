@@ -3403,11 +3403,8 @@ function SourceBadge({ source }) {
   if (source === 'whatsapp') return (
     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium flex-shrink-0">בוט</span>
   );
-  if (source === 'web') return (
-    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium flex-shrink-0">אתר</span>
-  );
   return (
-    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium flex-shrink-0">ידני</span>
+    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium flex-shrink-0">מכשיר מקושר</span>
   );
 }
 
