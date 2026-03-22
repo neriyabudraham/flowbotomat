@@ -127,7 +127,7 @@ function StatusBotDashboardContent() {
   const [pendingStatuses, setPendingStatuses] = useState([]); // Pending statuses from WhatsApp bot
   const [failedStatuses, setFailedStatuses] = useState([]); // Failed/cancelled statuses
   const [inProgressStatuses, setInProgressStatuses] = useState([]); // Statuses in queue (pending/processing)
-  const [scheduledViewMode, setScheduledViewMode] = useState('list'); // 'list' | 'calendar'
+  const [scheduledViewMode, setScheduledViewMode] = useState('calendar'); // 'list' | 'calendar'
   const [qrCode, setQrCode] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -2172,13 +2172,23 @@ function StatusBotDashboardContent() {
           {activeTab === 'scheduled' && (
             <div className="space-y-6">
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className="p-4 border-b border-gray-100 bg-blue-50">
+                <div className="p-4 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-blue-500" />
-                      <h3 className="font-bold text-gray-800">סטטוסים מתוזמנים</h3>
+                      <Calendar className="w-4 h-4 text-blue-500" />
+                      <h3 className="font-bold text-gray-800">מרכז הפעילות</h3>
+                      <span className="text-xs text-gray-400 font-normal">סטטוסים מתוזמנים והיסטוריה</span>
                     </div>
                     <div className="flex items-center gap-1 bg-white rounded-xl border border-gray-200 p-0.5">
+                      <button
+                        onClick={() => setScheduledViewMode('calendar')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                          scheduledViewMode === 'calendar' ? 'bg-blue-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        <Calendar className="w-3.5 h-3.5" />
+                        לוח
+                      </button>
                       <button
                         onClick={() => setScheduledViewMode('list')}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
@@ -2188,15 +2198,6 @@ function StatusBotDashboardContent() {
                         <List className="w-3.5 h-3.5" />
                         רשימה
                       </button>
-                      <button
-                        onClick={() => setScheduledViewMode('calendar')}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                          scheduledViewMode === 'calendar' ? 'bg-blue-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                        }`}
-                      >
-                        <Calendar className="w-3.5 h-3.5" />
-                        לוח שנה
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -2205,7 +2206,21 @@ function StatusBotDashboardContent() {
                   <div className="p-4">
                     <ScheduledCalendar
                       scheduled={scheduled}
-                      onItemClick={(item) => setScheduledDetailsModal({ show: true, item })}
+                      statuses={statuses}
+                      onItemClick={(item) => {
+                        if (item._kind === 'scheduled') {
+                          setScheduledDetailsModal({ show: true, item });
+                        } else {
+                          fetchStatusDetails(item.id, 'content');
+                        }
+                      }}
+                      onDayClick={(day) => {
+                        const dateStr = day.toISOString().split('T')[0];
+                        setScheduleDate(dateStr);
+                        setScheduleTime('09:00');
+                        setScheduleMode('schedule');
+                        setActiveTab('upload');
+                      }}
                       onSendNow={handleSendScheduledNow}
                       onCancel={handleCancelScheduled}
                     />
@@ -3102,100 +3117,156 @@ function TypeButton({ active, onClick, icon: Icon, label }) {
   );
 }
 
-// ─── Shabbat exit time calculator (Jerusalem, sunset + 42 min) ───
+// ─── Israeli DST: last Friday before April → last Sunday in October ───
+function isIsraelDST(date) {
+  const year = date.getFullYear();
+  const dstStart = new Date(year, 2, 31);
+  while (dstStart.getDay() !== 5) dstStart.setDate(dstStart.getDate() - 1);
+  const dstEnd = new Date(year, 9, 31);
+  while (dstEnd.getDay() !== 0) dstEnd.setDate(dstEnd.getDate() - 1);
+  return date >= dstStart && date < dstEnd;
+}
+
+// ─── Shabbat exit time: Jerusalem (lat 31.7683°, lon 35.2137°), sunset + 42 min ───
 function getShabbatEndTime(date) {
   const lat = 31.7683 * Math.PI / 180;
   const lon = 35.2137;
   const year = date.getFullYear();
-  const dayOfYear = Math.floor((date - new Date(year, 0, 0)) / 86400000);
+  const start = new Date(year, 0, 0);
+  const dayOfYear = Math.floor((date - start) / 86400000);
   const D = (2 * Math.PI / 365) * (dayOfYear - 80);
   const decl = Math.asin(0.397748 * Math.sin(D));
   const cosHA = -Math.tan(lat) * Math.tan(decl);
   const HA = Math.acos(Math.max(-1, Math.min(1, cosHA)));
   const sunsetUTC = 12 + (HA * 12 / Math.PI) - lon / 15;
-  const month = date.getMonth() + 1;
-  const isDST = month >= 3 && month <= 10;
-  const shabbatEnd = sunsetUTC + (isDST ? 3 : 2) + 42 / 60;
-  const h = Math.floor(shabbatEnd);
-  const m = Math.round((shabbatEnd - h) * 60);
-  return `${String(h).padStart(2, '0')}:${String(m === 60 ? 0 : m).padStart(2, '0')}`;
+  const offset = isIsraelDST(date) ? 3 : 2;
+  const total = sunsetUTC + offset + 42 / 60;
+  const hRaw = Math.floor(total) % 24;
+  const mRaw = Math.round((total - Math.floor(total)) * 60);
+  const m = mRaw === 60 ? 0 : mRaw;
+  const h = mRaw === 60 ? (hRaw + 1) % 24 : hRaw;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+// ─── Hebrew date helpers ───
 function getHebrewDay(date) {
   try {
-    return new Intl.DateTimeFormat('he-IL-u-ca-hebrew', { day: 'numeric' }).format(date);
-  } catch { return ''; }
+    // 'hebr' numbering system returns Hebrew letters (א, ב, ג...)
+    return new Intl.DateTimeFormat('he-u-ca-hebrew-nu-hebr', { day: 'numeric' }).format(date);
+  } catch {
+    try {
+      return new Intl.DateTimeFormat('he-IL-u-ca-hebrew', { day: 'numeric' }).format(date);
+    } catch { return ''; }
+  }
 }
 
-function getHebrewMonth(date) {
+function getHebrewMonthYear(date) {
   try {
-    return new Intl.DateTimeFormat('he-IL-u-ca-hebrew', { month: 'long' }).format(date);
+    return new Intl.DateTimeFormat('he-u-ca-hebrew', { month: 'long', year: 'numeric' }).format(date);
   } catch { return ''; }
 }
 
-// ─── Calendar component for scheduled statuses ───
-function ScheduledCalendar({ scheduled, onItemClick }) {
+// ─── מרכז הפעילות — Premium activity calendar ───
+function ScheduledCalendar({ scheduled, statuses, onItemClick, onDayClick, onSendNow, onCancel }) {
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
+  const today = new Date();
 
-  const DAY_LABELS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
+  const DAY_HEADERS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
 
   function getCalendarDays(month) {
-    const year = month.getFullYear();
-    const m = month.getMonth();
-    const firstDow = new Date(year, m, 1).getDay();
-    const daysInMonth = new Date(year, m + 1, 0).getDate();
-    const days = Array(firstDow).fill(null);
-    for (let d = 1; d <= daysInMonth; d++) days.push(new Date(year, m, d));
+    const y = month.getFullYear(), m = month.getMonth();
+    const first = new Date(y, m, 1).getDay();
+    const count = new Date(y, m + 1, 0).getDate();
+    const days = Array(first).fill(null);
+    for (let d = 1; d <= count; d++) days.push(new Date(y, m, d));
     return days;
   }
 
   const days = getCalendarDays(currentMonth);
-  const today = new Date();
 
-  // Group scheduled items by date key
-  const byDate = {};
-  scheduled.forEach(item => {
+  // dateKey helper
+  const dk = d => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+
+  // Group scheduled items by date
+  const scheduledByDate = {};
+  (scheduled || []).forEach(item => {
     if (!item.scheduled_for) return;
-    const d = new Date(item.scheduled_for);
-    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    if (!byDate[key]) byDate[key] = [];
-    byDate[key].push(item);
+    const key = dk(new Date(item.scheduled_for));
+    (scheduledByDate[key] = scheduledByDate[key] || []).push({ ...item, _kind: 'scheduled' });
   });
 
-  const TYPE_COLORS = {
-    text: 'bg-purple-100 text-purple-700',
-    image: 'bg-blue-100 text-blue-700',
-    video: 'bg-pink-100 text-pink-700',
-    voice: 'bg-green-100 text-green-700',
-  };
-  const TYPE_EMOJI = { text: 'T', image: '🖼', video: '🎬', voice: '🎤' };
+  // Group sent history items by date
+  const sentByDate = {};
+  (statuses || []).forEach(item => {
+    if (!item.sent_at) return;
+    const key = dk(new Date(item.sent_at));
+    (sentByDate[key] = sentByDate[key] || []).push({ ...item, _kind: 'sent' });
+  });
 
   const prevMonth = () => setCurrentMonth(p => new Date(p.getFullYear(), p.getMonth() - 1, 1));
   const nextMonth = () => setCurrentMonth(p => new Date(p.getFullYear(), p.getMonth() + 1, 1));
 
   const gregTitle = currentMonth.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' });
-  const hebrewTitle = getHebrewMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 15));
+  const hebTitle = getHebrewMonthYear(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 15));
+
+  const TYPE_ICON = { text: 'T', image: '🖼', video: '🎬', voice: '🎤' };
+
+  // Count total activity this month
+  const monthKey = `${currentMonth.getFullYear()}-${currentMonth.getMonth()}`;
+  const totalScheduled = (scheduled || []).filter(i => {
+    const d = new Date(i.scheduled_for);
+    return `${d.getFullYear()}-${d.getMonth()}` === monthKey;
+  }).length;
+  const totalSent = (statuses || []).filter(i => {
+    const d = new Date(i.sent_at);
+    return `${d.getFullYear()}-${d.getMonth()}` === monthKey;
+  }).length;
 
   return (
-    <div dir="rtl">
-      {/* Month navigation */}
-      <div className="flex items-center justify-between mb-4">
-        <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-gray-100">
-          <ChevronRight className="w-5 h-5 text-gray-600" />
+    <div dir="rtl" className="select-none">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5">
+        <button
+          onClick={nextMonth}
+          className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-gray-100 transition-colors"
+        >
+          <ChevronRight className="w-5 h-5 text-gray-500" />
         </button>
+
         <div className="text-center">
-          <div className="font-bold text-gray-800">{gregTitle}</div>
-          <div className="text-xs text-gray-400">{hebrewTitle}</div>
+          <div className="font-bold text-gray-900 text-lg leading-tight">{gregTitle}</div>
+          <div className="text-xs text-gray-400 mt-0.5">{hebTitle}</div>
+          <div className="flex items-center justify-center gap-3 mt-1.5">
+            {totalScheduled > 0 && (
+              <span className="text-[11px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">
+                {totalScheduled} מתוזמן{totalScheduled !== 1 ? 'ים' : ''}
+              </span>
+            )}
+            {totalSent > 0 && (
+              <span className="text-[11px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+                {totalSent} נשלח{totalSent !== 1 ? 'ו' : ''}
+              </span>
+            )}
+          </div>
         </div>
-        <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-gray-100">
-          <ChevronLeft className="w-5 h-5 text-gray-600" />
+
+        <button
+          onClick={prevMonth}
+          className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-gray-100 transition-colors"
+        >
+          <ChevronLeft className="w-5 h-5 text-gray-500" />
         </button>
       </div>
 
-      {/* Day headers: א-ש (RTL: Sun on right, Sat on left) */}
-      <div className="grid grid-cols-7 mb-1">
-        {DAY_LABELS.map((label, i) => (
-          <div key={i} className={`text-center text-xs font-semibold py-2 ${i === 6 ? 'text-blue-600' : 'text-gray-500'}`}>
+      {/* Day-of-week headers */}
+      <div className="grid grid-cols-7 mb-2">
+        {DAY_HEADERS.map((label, i) => (
+          <div
+            key={i}
+            className={`text-center text-xs font-semibold py-1.5 ${
+              i === 6 ? 'text-purple-500' : i === 5 ? 'text-blue-400' : 'text-gray-400'
+            }`}
+          >
             {label}
           </div>
         ))}
@@ -3204,48 +3275,94 @@ function ScheduledCalendar({ scheduled, onItemClick }) {
       {/* Calendar grid */}
       <div className="grid grid-cols-7 gap-1">
         {days.map((day, i) => {
-          if (!day) return <div key={i} />;
-          const key = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
-          const items = byDate[key] || [];
+          if (!day) return <div key={i} className="min-h-[90px]" />;
+
+          const key = dk(day);
+          const schItems = scheduledByDate[key] || [];
+          const sentItems = sentByDate[key] || [];
+          const allItems = [...schItems, ...sentItems];
           const isToday = day.toDateString() === today.toDateString();
           const isSat = day.getDay() === 6;
+          const isFri = day.getDay() === 5;
           const isPast = day < today && !isToday;
+          const isFuture = day > today;
+          const hasActivity = allItems.length > 0;
 
           return (
             <div
               key={i}
-              className={`min-h-[76px] rounded-xl p-1.5 border text-right transition-colors ${
-                isToday ? 'border-blue-400 bg-blue-50' :
-                isSat ? 'border-purple-200 bg-purple-50' :
-                'border-gray-100 bg-white hover:bg-gray-50'
-              } ${isPast ? 'opacity-55' : ''}`}
+              onClick={() => !isPast && onDayClick && onDayClick(day)}
+              className={`min-h-[90px] rounded-xl p-1.5 border text-right transition-all ${
+                isToday
+                  ? 'border-blue-400 bg-blue-50 shadow-sm'
+                  : isSat
+                  ? 'border-purple-200 bg-purple-50/60'
+                  : isFri
+                  ? 'border-blue-100 bg-blue-50/30'
+                  : hasActivity
+                  ? 'border-gray-200 bg-white'
+                  : 'border-gray-100 bg-white'
+              } ${isPast ? 'opacity-50' : ''} ${isFuture || isToday ? 'cursor-pointer hover:border-blue-300 hover:shadow-sm' : 'cursor-default'}`}
             >
-              {/* Gregorian day + Hebrew day */}
-              <div className="flex flex-col gap-0 mb-1">
-                <span className={`text-sm font-bold leading-tight ${isToday ? 'text-blue-600' : isSat ? 'text-purple-700' : 'text-gray-700'}`}>
+              {/* Day number + Hebrew letter */}
+              <div className="flex items-start justify-between mb-1">
+                <span className={`text-xs font-bold leading-tight ${
+                  isToday ? 'text-blue-600' : isSat ? 'text-purple-600' : isFri ? 'text-blue-500' : 'text-gray-700'
+                }`}>
                   {day.getDate()}
                 </span>
-                <span className="text-[10px] text-gray-400 leading-tight">{getHebrewDay(day)}</span>
-                {isSat && (
-                  <span className="text-[9px] text-purple-500 leading-tight mt-0.5">
-                    צאת: {getShabbatEndTime(day)}
-                  </span>
-                )}
+                <span className="text-[9px] text-gray-400 leading-tight font-medium">{getHebrewDay(day)}</span>
               </div>
 
-              {/* Scheduled items */}
-              {items.slice(0, 3).map((item, idx) => (
-                <div
-                  key={idx}
-                  onClick={() => onItemClick(item)}
-                  className={`text-[10px] truncate px-1 py-0.5 rounded mb-0.5 cursor-pointer ${TYPE_COLORS[item.status_type] || 'bg-gray-100 text-gray-600'}`}
-                >
-                  {new Date(item.scheduled_for).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
-                  {' '}{TYPE_EMOJI[item.status_type] || ''}
+              {/* Shabbat exit time on Saturday */}
+              {isSat && (
+                <div className="text-[8.5px] text-purple-500 font-medium leading-tight mb-1">
+                  מוצ"ש {getShabbatEndTime(day)}
                 </div>
-              ))}
-              {items.length > 3 && (
-                <div className="text-[9px] text-gray-400 text-center">+{items.length - 3}</div>
+              )}
+
+              {/* Activity items: scheduled first, then sent */}
+              {allItems.slice(0, 3).map((item, idx) => {
+                const isSch = item._kind === 'scheduled';
+                const time = isSch
+                  ? new Date(item.scheduled_for).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
+                  : new Date(item.sent_at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+
+                return (
+                  <div
+                    key={idx}
+                    onClick={e => { e.stopPropagation(); onItemClick && onItemClick(item); }}
+                    title={isSch ? 'מתוזמן — לחץ לפרטים' : 'נשלח — לחץ לפרטים'}
+                    className={`text-[9.5px] truncate px-1 py-0.5 rounded mb-0.5 cursor-pointer flex items-center gap-0.5 ${
+                      isSch
+                        ? 'bg-orange-100 text-orange-800 border border-orange-200'
+                        : item.status_type === 'text'
+                        ? 'bg-purple-50 text-purple-700'
+                        : item.status_type === 'image'
+                        ? 'bg-blue-50 text-blue-700'
+                        : item.status_type === 'video'
+                        ? 'bg-pink-50 text-pink-700'
+                        : 'bg-green-50 text-green-700'
+                    }`}
+                  >
+                    <span className="flex-shrink-0">{isSch ? '⏰' : '✓'}</span>
+                    <span>{time}</span>
+                    <span className="flex-shrink-0">{TYPE_ICON[item.status_type] || ''}</span>
+                  </div>
+                );
+              })}
+
+              {allItems.length > 3 && (
+                <div className="text-[8.5px] text-gray-400 text-center font-medium">
+                  +{allItems.length - 3} עוד
+                </div>
+              )}
+
+              {/* "+" hint for future empty days */}
+              {(isFuture || isToday) && allItems.length === 0 && (
+                <div className="flex items-end justify-center h-8">
+                  <span className="text-[10px] text-gray-300">+</span>
+                </div>
               )}
             </div>
           );
@@ -3253,12 +3370,30 @@ function ScheduledCalendar({ scheduled, onItemClick }) {
       </div>
 
       {/* Legend */}
-      <div className="mt-4 flex flex-wrap gap-2 justify-center text-xs text-gray-500">
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-purple-100 inline-block" />טקסט</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-100 inline-block" />תמונה</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-pink-100 inline-block" />סרטון</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-100 inline-block" />הקלטה</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-purple-50 border border-purple-200 inline-block" />שבת</span>
+      <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap gap-3 justify-center text-[11px] text-gray-500">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded bg-orange-100 border border-orange-200 inline-block" />
+          מתוזמן
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded bg-purple-50 inline-block" />
+          טקסט נשלח
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded bg-blue-50 inline-block" />
+          תמונה נשלחה
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded bg-pink-50 inline-block" />
+          סרטון נשלח
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded bg-purple-50/60 border border-purple-200 inline-block" />
+          שבת
+        </span>
+        <span className="flex items-center gap-1.5 text-blue-500">
+          לחץ על יום עתידי ליצירת סטטוס מתוזמן
+        </span>
       </div>
     </div>
   );
