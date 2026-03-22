@@ -2020,7 +2020,7 @@ function StatusBotDashboardContent() {
                                  item.status_type === 'image' ? 'תמונה' :
                                  item.status_type === 'video' ? 'סרטון' : 'הקלטה'}
                               </p>
-                              <SourceBadge source={item.source} />
+                              <SourceBadge source={item.source} queueId={item.id} />
                             </div>
                             <p className="text-xs text-blue-600">
                               {item.queue_status === 'processing' ? 'שולח עכשיו...' : 'ממתין בתור'}
@@ -2258,7 +2258,7 @@ function StatusBotDashboardContent() {
                                    item.status_type === 'image' ? 'תמונה' :
                                    item.status_type === 'video' ? 'סרטון' : 'הקלטה'}
                                 </p>
-                                <SourceBadge source={item.source} />
+                                <SourceBadge source={item.source} queueId={item.id} />
                                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium flex-shrink-0">מתוזמן</span>
                               </div>
                               <p className="text-sm text-gray-500 truncate">
@@ -3399,8 +3399,11 @@ function ScheduledCalendar({ scheduled, statuses, onItemClick, onDayClick, onSen
   );
 }
 
-function SourceBadge({ source }) {
-  if (source === 'whatsapp') return (
+// isOurBot: true only when source='whatsapp' AND queueId is present (went through our queue system).
+// This prevents false "בוט" labels on statuses from external bots or other linked devices.
+function SourceBadge({ source, queueId }) {
+  const isOurBot = source === 'whatsapp' && !!queueId;
+  if (isOurBot) return (
     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium flex-shrink-0">בוט</span>
   );
   return (
@@ -3450,7 +3453,7 @@ function StatusRow({ status, onDelete, isActive, onShowDetails }) {
                 : `סטטוס ${status.status_type === 'image' ? 'תמונה' : status.status_type === 'video' ? 'סרטון' : status.status_type === 'voice' ? 'קול' : status.status_type}`
               }
             </p>
-            <SourceBadge source={status.source} />
+            <SourceBadge source={status.source} queueId={status.queue_id} />
             {statusLabel && (
               <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${statusLabel.color} ${
                 status.queue_status === 'pending' ? 'bg-yellow-50' :
