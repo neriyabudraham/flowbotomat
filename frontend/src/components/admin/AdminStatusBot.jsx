@@ -4,7 +4,8 @@ import {
   Clock, Check, X, AlertCircle, Shield, Wifi, WifiOff,
   Phone, Search, ChevronDown, ChevronUp, Activity, MessageCircle, Loader2,
   RotateCcw, PhoneCall, XCircle, AlertTriangle, BarChart3, TrendingUp,
-  Trash2, RotateCw, FileText, Calendar, Zap, Timer, ChevronRight, ExternalLink
+  Trash2, RotateCw, FileText, Calendar, Zap, Timer, ChevronRight, ExternalLink,
+  PauseCircle, PlayCircle, Ban, ListX
 } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
@@ -68,6 +69,16 @@ export default function AdminStatusBot() {
   const [cancellingItem, setCancellingItem] = useState(null);
   const [clearingErrors, setClearingErrors] = useState(null);
   const [retryingErrors, setRetryingErrors] = useState(null);
+
+  // Bulk queue controls
+  const [bulkCancelling, setBulkCancelling] = useState(false);
+  const [pauseModal, setPauseModal] = useState(false);
+  const [pauseMinutes, setPauseMinutes] = useState('30');
+  const [pausing, setPausing] = useState(false);
+  const [queuePauseStatus, setQueuePauseStatus] = useState({ paused: false });
+  const [restrictModal, setRestrictModal] = useState(false);
+  const [restrictMinutes, setRestrictMinutes] = useState('60');
+  const [restricting, setRestricting] = useState(false);
   
   const [activeProcesses, setActiveProcesses] = useState({
     activeConversations: [],
@@ -400,8 +411,80 @@ export default function AdminStatusBot() {
     setSavingSettings(false);
   };
 
+  // Load queue pause status on mount
+  useEffect(() => {
+    api.get('/status-bot/admin/queue/pause').then(({ data }) => setQueuePauseStatus(data)).catch(() => {});
+  }, []);
+
+  const handleAdminCancelItem = async (queueId) => {
+    if (!confirm('לבטל פריט זה מהתור?')) return;
+    setCancellingItem(queueId);
+    try {
+      await api.delete(`/status-bot/admin/queue/${queueId}`);
+      loadActiveProcesses();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בביטול');
+    } finally {
+      setCancellingItem(null);
+    }
+  };
+
+  const handleBulkCancel = async () => {
+    const total = (activeProcesses.pendingQueue?.length || 0) + (activeProcesses.scheduledStatuses?.length || 0);
+    if (!confirm(`לבטל את כל ${total} הפריטים הממתינים והמתוזמנים?`)) return;
+    setBulkCancelling(true);
+    try {
+      const { data } = await api.post('/status-bot/admin/queue/bulk-cancel', { statuses: ['pending', 'scheduled'] });
+      alert(`בוטלו ${data.cancelled} פריטים בהצלחה`);
+      loadActiveProcesses();
+      loadData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בביטול גורף');
+    } finally {
+      setBulkCancelling(false);
+    }
+  };
+
+  const handlePauseQueue = async () => {
+    setPausing(true);
+    try {
+      const { data } = await api.post('/status-bot/admin/queue/pause', { minutes: parseFloat(pauseMinutes) || 30 });
+      setQueuePauseStatus({ paused: true, pausedUntil: data.pausedUntil });
+      setPauseModal(false);
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בהשהיית התור');
+    } finally {
+      setPausing(false);
+    }
+  };
+
+  const handleResumeQueue = async () => {
+    try {
+      await api.delete('/status-bot/admin/queue/pause');
+      setQueuePauseStatus({ paused: false });
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה');
+    }
+  };
+
+  const handleRestrictAllUsers = async () => {
+    const mins = parseFloat(restrictMinutes) || 60;
+    if (!confirm(`לחסום את כל המשתמשים המחוברים למשך ${mins} דקות?`)) return;
+    setRestricting(true);
+    try {
+      const { data } = await api.post('/status-bot/admin/restrict-all-users', { minutes: mins });
+      alert(`נחסמו ${data.restricted} משתמשים עד ${new Date(data.until).toLocaleTimeString('he-IL')}`);
+      setRestrictModal(false);
+      loadData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בחסימה');
+    } finally {
+      setRestricting(false);
+    }
+  };
+
   const filteredUsers = users.filter(u =>
-    !search || 
+    !search ||
     u.email?.toLowerCase().includes(search.toLowerCase()) ||
     u.user_name?.toLowerCase().includes(search.toLowerCase()) ||
     u.phone_number?.includes(search)
@@ -633,6 +716,125 @@ export default function AdminStatusBot() {
         </div>
       )}
       
+      {/* Bulk Queue Controls */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-medium text-gray-800 dark:text-white flex items-center gap-2">
+            <ListX className="w-4 h-4 text-red-600" />
+            ניהול תור גורף
+          </h3>
+          {queuePauseStatus.paused && (
+            <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+              <PauseCircle className="w-3 h-3" />
+              התור מושהה עד {new Date(queuePauseStatus.pausedUntil).toLocaleTimeString('he-IL')}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {/* Pause / Resume */}
+          {queuePauseStatus.paused ? (
+            <button
+              onClick={handleResumeQueue}
+              className="flex items-center gap-2 px-3 py-2 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200"
+            >
+              <PlayCircle className="w-4 h-4" />
+              חדש תור
+            </button>
+          ) : (
+            <button
+              onClick={() => setPauseModal(true)}
+              className="flex items-center gap-2 px-3 py-2 text-sm bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200"
+            >
+              <PauseCircle className="w-4 h-4" />
+              השהה תור
+            </button>
+          )}
+
+          {/* Bulk cancel */}
+          <button
+            onClick={handleBulkCancel}
+            disabled={bulkCancelling}
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 disabled:opacity-50"
+          >
+            {bulkCancelling ? <Loader2 className="w-4 h-4 animate-spin" /> : <ListX className="w-4 h-4" />}
+            ביטול גורף ממתינים+מתוזמנים
+          </button>
+
+          {/* Restrict all users */}
+          <button
+            onClick={() => setRestrictModal(true)}
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200"
+          >
+            <Ban className="w-4 h-4" />
+            חסום כלל הלקוחות
+          </button>
+        </div>
+      </div>
+
+      {/* Pause Modal */}
+      {pauseModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-sm shadow-xl">
+            <h3 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
+              <PauseCircle className="w-5 h-5 text-orange-500" />
+              השהיית תור
+            </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+              לכמה דקות להשהות את עיבוד התור? (לא יבוטלו סטטוסים, רק לא יתחילו חדשים)
+            </p>
+            <div className="flex items-center gap-2 mb-5">
+              <input
+                type="number"
+                value={pauseMinutes}
+                onChange={e => setPauseMinutes(e.target.value)}
+                min="1" max="1440"
+                className="flex-1 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400 bg-white dark:bg-gray-700 text-gray-800 dark:text-white"
+              />
+              <span className="text-sm text-gray-500">דקות</span>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setPauseModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">ביטול</button>
+              <button onClick={handlePauseQueue} disabled={pausing} className="px-4 py-2 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50 flex items-center gap-2">
+                {pausing ? <Loader2 className="w-4 h-4 animate-spin" /> : <PauseCircle className="w-4 h-4" />}
+                השהה
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Restrict All Modal */}
+      {restrictModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-sm shadow-xl">
+            <h3 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
+              <Ban className="w-5 h-5 text-purple-500" />
+              חסימת כלל הלקוחות
+            </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+              חסימה זמנית של כל המשתמשים המחוברים מהעלאת סטטוסים למשך:
+            </p>
+            <div className="flex items-center gap-2 mb-5">
+              <input
+                type="number"
+                value={restrictMinutes}
+                onChange={e => setRestrictMinutes(e.target.value)}
+                min="1" max="10080"
+                className="flex-1 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-400 bg-white dark:bg-gray-700 text-gray-800 dark:text-white"
+              />
+              <span className="text-sm text-gray-500">דקות</span>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setRestrictModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">ביטול</button>
+              <button onClick={handleRestrictAllUsers} disabled={restricting} className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2">
+                {restricting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />}
+                חסום
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Real-time Active Processes */}
       <div className="bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 rounded-xl p-4 border border-green-200 dark:border-green-800">
         <div className="flex items-center justify-between mb-4">
@@ -806,10 +1008,18 @@ export default function AdminStatusBot() {
                             <p className="text-sm text-gray-500">{item.userName || item.userEmail}</p>
                           </div>
                         </div>
-                        <div className="text-left">
+                        <div className="flex items-center gap-2">
                           <p className="text-xs text-gray-400">
                             נוסף: {new Date(item.createdAt).toLocaleTimeString('he-IL')}
                           </p>
+                          <button
+                            onClick={() => handleAdminCancelItem(item.id)}
+                            disabled={cancellingItem === item.id}
+                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg disabled:opacity-50"
+                            title="בטל פריט"
+                          >
+                            {cancellingItem === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -870,13 +1080,23 @@ export default function AdminStatusBot() {
                               <p className="text-sm text-gray-500">{item.userName || item.userEmail}</p>
                             </div>
                           </div>
-                          <div className="text-left">
-                            <div className={`text-lg font-mono font-bold ${isNear ? 'text-indigo-600' : 'text-gray-600'}`}>
-                              {countdownText}
+                          <div className="flex items-center gap-2 text-left">
+                            <div>
+                              <div className={`text-lg font-mono font-bold ${isNear ? 'text-indigo-600' : 'text-gray-600'}`}>
+                                {countdownText}
+                              </div>
+                              <p className="text-xs text-gray-400">
+                                {scheduledTime.toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric' })}
+                              </p>
                             </div>
-                            <p className="text-xs text-gray-400">
-                              {scheduledTime.toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric' })}
-                            </p>
+                            <button
+                              onClick={() => handleAdminCancelItem(item.id)}
+                              disabled={cancellingItem === item.id}
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg disabled:opacity-50"
+                              title="בטל מתוזמן"
+                            >
+                              {cancellingItem === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
+                            </button>
                           </div>
                         </div>
                       </div>

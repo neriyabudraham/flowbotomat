@@ -293,6 +293,17 @@ async function processQueue() {
   }
 
   try {
+    // Check global pause
+    try {
+      const pauseRes = await db.query(`SELECT value FROM system_settings WHERE key = 'statusbot_global_pause_until'`);
+      if (pauseRes.rows.length > 0) {
+        const pauseUntil = new Date(JSON.parse(pauseRes.rows[0].value));
+        if (pauseUntil > new Date()) {
+          return; // Queue is globally paused by admin
+        }
+      }
+    } catch { /* non-fatal */ }
+
     const [maxTotal, maxPerSource, delaySeconds, timeout] = await Promise.all([
       getSettingFloat('statusbot_max_parallel_total', 5),
       getSettingFloat('statusbot_max_parallel_per_source', 2),

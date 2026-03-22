@@ -88,6 +88,7 @@ router.get('/queue', authMiddleware, statusBotController.getQueueStatus);
 router.delete('/queue/:queueId', authMiddleware, statusBotController.deleteQueueItem);
 router.post('/queue/:queueId/send-now', authMiddleware, statusBotController.sendQueueItemNow);
 router.patch('/queue/:queueId', authMiddleware, statusBotController.updateQueueItem);
+router.post('/queue/reorder', authMiddleware, statusBotController.reorderQueueItems);
 
 // Failed/cancelled statuses
 router.get('/failed', authMiddleware, statusBotController.getFailedStatuses);
@@ -125,6 +126,15 @@ router.post('/admin/sync-phones', authMiddleware, adminMiddleware, statusBotCont
 router.get('/admin/queue-settings', authMiddleware, adminMiddleware, statusBotController.adminGetQueueSettings);
 router.patch('/admin/queue-settings', authMiddleware, adminMiddleware, statusBotController.adminUpdateQueueSettings);
 router.patch('/admin/user/:connectionId/set-restriction', authMiddleware, superadminMiddleware, statusBotController.adminSetRestriction);
+
+// Admin queue management
+router.get('/admin/queue/all', authMiddleware, adminMiddleware, statusBotController.adminGetAllQueueItems);
+router.delete('/admin/queue/:queueId', authMiddleware, adminMiddleware, statusBotController.adminCancelQueueItem);
+router.post('/admin/queue/bulk-cancel', authMiddleware, adminMiddleware, statusBotController.adminBulkCancelQueue);
+router.get('/admin/queue/pause', authMiddleware, adminMiddleware, statusBotController.adminGetQueuePauseStatus);
+router.post('/admin/queue/pause', authMiddleware, adminMiddleware, statusBotController.adminPauseQueue);
+router.delete('/admin/queue/pause', authMiddleware, adminMiddleware, statusBotController.adminResumeQueue);
+router.post('/admin/restrict-all-users', authMiddleware, superadminMiddleware, statusBotController.adminRestrictAllUsers);
 
 // User-specific admin routes
 router.get('/admin/user/:connectionId/errors', authMiddleware, adminMiddleware, statusBotController.adminGetUserErrors);

@@ -4,7 +4,7 @@ import {
   Smartphone, Upload, Clock, Users, ArrowLeft, RefreshCw,
   Check, Plus, Trash2, Eye, Heart, MessageCircle, Image,
   Video, Mic, Type, Palette, Send, AlertCircle, X, Loader,
-  QrCode, Wifi, WifiOff, Phone, ChevronDown, List, ChevronLeft, ChevronRight,
+  QrCode, Wifi, WifiOff, Phone, ChevronDown, ChevronUp, List, ChevronLeft, ChevronRight,
   Loader2, Shield, Zap, HelpCircle, Mail, Home, Settings, Crown,
   CheckCircle, BarChart, Play, Pause, Volume2, History, Calendar
 } from 'lucide-react';
@@ -945,6 +945,25 @@ function StatusBotDashboardContent() {
       fetchQueueStatus();
     } catch (err) {
       toast.error(err.response?.data?.error || 'שגיאה בעדכון התזמון');
+    }
+  };
+
+  const handleCancelQueueItem = async (queueId) => {
+    try {
+      await api.delete(`/status-bot/queue/${queueId}`);
+      setQueue(prev => prev.filter(q => q.id !== queueId));
+      toast.success('הוסר מהתור');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'שגיאה בהסרה מהתור');
+    }
+  };
+
+  const handleReorderQueue = async (itemId, direction) => {
+    try {
+      const { data } = await api.post('/status-bot/queue/reorder', { itemId, direction });
+      if (data.changed) fetchQueueStatus();
+    } catch (err) {
+      toast.error('שגיאה בשינוי סדר');
     }
   };
 
@@ -2309,6 +2328,71 @@ function StatusBotDashboardContent() {
                   </div>
                 )}
               </div>
+
+              {/* Immediate Queue (pending / processing items, not yet scheduled) */}
+              {queue.length > 0 && (
+                <div className="border-t border-gray-100 p-4">
+                  <h4 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-blue-500" />
+                    בתור לשליחה ({queue.length})
+                  </h4>
+                  <div className="space-y-2">
+                    {queue.map((item, idx) => (
+                      <div key={item.id} className={`flex items-center gap-3 p-3 rounded-xl border ${
+                        item.queue_status === 'processing'
+                          ? 'border-green-200 bg-green-50'
+                          : 'border-blue-100 bg-blue-50'
+                      }`}>
+                        <span className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                          #{idx + 1}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800">
+                            {item.status_type === 'text' ? '📝 טקסט' :
+                             item.status_type === 'image' ? '🖼️ תמונה' :
+                             item.status_type === 'video' ? '🎬 סרטון' : '🎤 קול'}
+                            {item.queue_status === 'processing' && (
+                              <span className="mr-2 text-xs text-green-600 font-normal">בשליחה...</span>
+                            )}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            {new Date(item.created_at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {item.queue_status !== 'processing' && (
+                            <>
+                              <button
+                                onClick={() => handleReorderQueue(item.id, 'up')}
+                                disabled={idx === 0}
+                                className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-100 rounded-lg disabled:opacity-20"
+                                title="העלה למעלה"
+                              >
+                                <ChevronUp className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleReorderQueue(item.id, 'down')}
+                                disabled={idx === queue.length - 1}
+                                className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-100 rounded-lg disabled:opacity-20"
+                                title="הורד למטה"
+                              >
+                                <ChevronDown className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleCancelQueueItem(item.id)}
+                                className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                                title="הסר מהתור"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

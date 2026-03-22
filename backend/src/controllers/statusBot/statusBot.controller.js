@@ -3967,6 +3967,198 @@ async function adminGetUploadStats(req, res) {
   }
 }
 
+/**
+ * Admin: list all pending + scheduled queue items across all users
+ */
+async function adminGetAllQueueItems(req, res) {
+  try {
+    const result = await db.query(`
+      SELECT q.id, q.queue_status, q.status_type, q.created_at, q.scheduled_for,
+             q.processing_started_at, q.content,
+             sbc.phone_number, u.email, u.name as user_name, u.id as user_id
+      FROM status_bot_queue q
+      JOIN status_bot_connections sbc ON sbc.id = q.connection_id
+      JOIN users u ON u.id = sbc.user_id
+      WHERE q.queue_status IN ('pending', 'processing', 'scheduled')
+      ORDER BY COALESCE(q.scheduled_for, q.created_at) ASC
+    `);
+    res.json({ items: result.rows });
+  } catch (e) {
+    console.error('[StatusBot Admin] adminGetAllQueueItems error:', e);
+    res.status(500).json({ error: 'שגיאה בטעינת תור' });
+  }
+}
+
+/**
+ * Admin: cancel (delete) any queue item regardless of owner
+ */
+async function adminCancelQueueItem(req, res) {
+  try {
+    const { queueId } = req.params;
+    const result = await db.query(
+      `UPDATE status_bot_queue SET queue_status = 'cancelled', error_message = 'בוטל על ידי מנהל'
+       WHERE id = $1 AND queue_status IN ('pending', 'processing', 'scheduled')
+       RETURNING id, queue_status`,
+      [queueId]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'פריט לא נמצא או כבר בוטל' });
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[StatusBot Admin] adminCancelQueueItem error:', e);
+    res.status(500).json({ error: 'שגיאה בביטול' });
+  }
+}
+
+/**
+ * Admin: bulk cancel all pending + scheduled items (optionally filtered by status)
+ */
+async function adminBulkCancelQueue(req, res) {
+  try {
+    const { statuses = ['pending', 'scheduled'] } = req.body; // which statuses to cancel
+    const validStatuses = ['pending', 'scheduled', 'processing'];
+    const toCancel = statuses.filter(s => validStatuses.includes(s));
+    if (toCancel.length === 0) return res.status(400).json({ error: 'לא צוינו סטטוסים לביטול' });
+
+    const result = await db.query(
+      `UPDATE status_bot_queue SET queue_status = 'cancelled', error_message = 'ביטול גורף על ידי מנהל'
+       WHERE queue_status = ANY($1::text[])
+       RETURNING id`,
+      [toCancel]
+    );
+    console.log(`[StatusBot Admin] Bulk cancelled ${result.rowCount} items`);
+    res.json({ success: true, cancelled: result.rowCount });
+  } catch (e) {
+    console.error('[StatusBot Admin] adminBulkCancelQueue error:', e);
+    res.status(500).json({ error: 'שגיאה בביטול גורף' });
+  }
+}
+
+/**
+ * Admin: set global queue pause until a specific time (stores in system_settings)
+ * Body: { minutes } — pause for X minutes from now
+ */
+async function adminPauseQueue(req, res) {
+  try {
+    const minutes = parseFloat(req.body.minutes) || 30;
+    const pauseUntil = new Date(Date.now() + minutes * 60000).toISOString();
+    await db.query(`
+      INSERT INTO system_settings (key, value, updated_at)
+      VALUES ('statusbot_global_pause_until', $1, NOW())
+      ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()
+    `, [JSON.stringify(pauseUntil)]);
+    console.log(`[StatusBot Admin] Queue paused until ${pauseUntil}`);
+    res.json({ success: true, pausedUntil: pauseUntil });
+  } catch (e) {
+    console.error('[StatusBot Admin] adminPauseQueue error:', e);
+    res.status(500).json({ error: 'שגיאה בהשהיית התור' });
+  }
+}
+
+/**
+ * Admin: remove global queue pause
+ */
+async function adminResumeQueue(req, res) {
+  try {
+    await db.query(`DELETE FROM system_settings WHERE key = 'statusbot_global_pause_until'`);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[StatusBot Admin] adminResumeQueue error:', e);
+    res.status(500).json({ error: 'שגיאה בהסרת ההשהייה' });
+  }
+}
+
+/**
+ * Admin: get current global pause status
+ */
+async function adminGetQueuePauseStatus(req, res) {
+  try {
+    const result = await db.query(`SELECT value FROM system_settings WHERE key = 'statusbot_global_pause_until'`);
+    if (result.rows.length === 0) return res.json({ paused: false });
+    const pauseUntil = JSON.parse(result.rows[0].value);
+    const paused = new Date(pauseUntil) > new Date();
+    res.json({ paused, pausedUntil: paused ? pauseUntil : null });
+  } catch (e) {
+    res.json({ paused: false });
+  }
+}
+
+/**
+ * Admin: restrict ALL users from uploading for X minutes
+ */
+async function adminRestrictAllUsers(req, res) {
+  try {
+    const minutes = parseFloat(req.body.minutes) || 60;
+    const restrictUntil = new Date(Date.now() + minutes * 60000);
+    const result = await db.query(`
+      UPDATE status_bot_connections
+      SET short_restriction_until = $1, updated_at = NOW()
+      WHERE connection_status = 'connected'
+      RETURNING id
+    `, [restrictUntil]);
+    console.log(`[StatusBot Admin] Restricted ${result.rowCount} users until ${restrictUntil}`);
+    res.json({ success: true, restricted: result.rowCount, until: restrictUntil });
+  } catch (e) {
+    console.error('[StatusBot Admin] adminRestrictAllUsers error:', e);
+    res.status(500).json({ error: 'שגיאה בחסימה' });
+  }
+}
+
+/**
+ * User: reorder two adjacent queue items by swapping their created_at
+ */
+async function reorderQueueItems(req, res) {
+  try {
+    const userId = req.user.id;
+    const { itemId, direction } = req.body; // direction: 'up' | 'down'
+
+    // Get user's connection
+    const connResult = await db.query(
+      `SELECT id FROM status_bot_connections WHERE user_id = $1`, [userId]
+    );
+    if (connResult.rows.length === 0) return res.status(404).json({ error: 'חיבור לא נמצא' });
+    const connectionId = connResult.rows[0].id;
+
+    // Get the target item
+    const itemResult = await db.query(
+      `SELECT id, created_at FROM status_bot_queue
+       WHERE id = $1 AND connection_id = $2 AND queue_status IN ('pending', 'scheduled')`,
+      [itemId, connectionId]
+    );
+    if (itemResult.rows.length === 0) return res.status(404).json({ error: 'פריט לא נמצא' });
+
+    const item = itemResult.rows[0];
+
+    // Find adjacent item
+    const adjacentResult = await db.query(
+      direction === 'up'
+        ? `SELECT id, created_at FROM status_bot_queue
+           WHERE connection_id = $1 AND queue_status IN ('pending', 'scheduled')
+             AND (scheduled_for IS NULL OR scheduled_for <= NOW())
+             AND created_at < $2
+           ORDER BY created_at DESC LIMIT 1`
+        : `SELECT id, created_at FROM status_bot_queue
+           WHERE connection_id = $1 AND queue_status IN ('pending', 'scheduled')
+             AND (scheduled_for IS NULL OR scheduled_for <= NOW())
+             AND created_at > $2
+           ORDER BY created_at ASC LIMIT 1`,
+      [connectionId, item.created_at]
+    );
+
+    if (adjacentResult.rows.length === 0) return res.json({ success: true, changed: false });
+
+    const adjacent = adjacentResult.rows[0];
+
+    // Swap created_at values
+    await db.query(`UPDATE status_bot_queue SET created_at = $1 WHERE id = $2`, [adjacent.created_at, item.id]);
+    await db.query(`UPDATE status_bot_queue SET created_at = $1 WHERE id = $2`, [item.created_at, adjacent.id]);
+
+    res.json({ success: true, changed: true });
+  } catch (e) {
+    console.error('[StatusBot] reorderQueueItems error:', e);
+    res.status(500).json({ error: 'שגיאה בשינוי סדר' });
+  }
+}
+
 module.exports = {
   // Connection
   getConnection,
@@ -4036,6 +4228,14 @@ module.exports = {
   adminGetQueueSettings,
   adminUpdateQueueSettings,
   adminSetRestriction,
+  adminGetAllQueueItems,
+  adminCancelQueueItem,
+  adminBulkCancelQueue,
+  adminPauseQueue,
+  adminResumeQueue,
+  adminGetQueuePauseStatus,
+  adminRestrictAllUsers,
+  reorderQueueItems,
 
   // Webhook
   handleWebhook,
