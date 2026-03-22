@@ -43,6 +43,7 @@ router.get('/plans', usersController.getPlans);
 
 // WAHA sources management
 router.get('/waha-sources', wahaSourcesController.list);
+router.get('/waha-sources/sync', superadminMiddleware, wahaSourcesController.syncLiveCounts);
 router.post('/waha-sources/re-encrypt-from-env', superadminMiddleware, wahaSourcesController.reEncryptFromEnv);
 router.post('/waha-sources', superadminMiddleware, wahaSourcesController.create);
 router.put('/waha-sources/:id', superadminMiddleware, wahaSourcesController.update);

@@ -11,6 +11,7 @@ export default function AdminWahaSources() {
   const [form, setForm] = useState({ base_url: '', api_key: '', webhook_base_url: '', priority: 0 });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     load();
@@ -25,6 +26,18 @@ export default function AdminWahaSources() {
       console.error('Failed to load WAHA sources:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const syncLive = async () => {
+    setSyncing(true);
+    try {
+      const { data } = await api.get('/admin/waha-sources/sync');
+      setSources(data.sources || []);
+    } catch (err) {
+      console.error('Failed to sync WAHA sources:', err);
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -140,8 +153,14 @@ export default function AdminWahaSources() {
           </div>
         </div>
         <div className="flex gap-2">
-          <button onClick={load} className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
-            <RefreshCw size={18} />
+          <button
+            onClick={syncLive}
+            disabled={syncing}
+            title="סנכרן ספירת סשנים חיה מהשרתים"
+            className="flex items-center gap-1.5 px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors text-sm disabled:opacity-50"
+          >
+            <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
+            {syncing ? 'מסנכרן...' : 'רענן'}
           </button>
 <button
             onClick={openCreate}
@@ -183,9 +202,15 @@ export default function AdminWahaSources() {
                     )}
                   </div>
                   <div className="grid grid-cols-2 gap-x-6 gap-y-1 mt-2 text-sm">
-                    <div className="text-gray-500">
+                    <div className="text-gray-500 flex items-center gap-1.5">
                       <span className="font-medium">סשנים פעילים: </span>
                       <span className="text-gray-900">{src.session_count ?? '—'}</span>
+                      {src.reachable === false && (
+                        <span className="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">לא נגיש</span>
+                      )}
+                      {src.reachable === true && (
+                        <span className="text-xs bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full">חי</span>
+                      )}
                     </div>
                     {src.webhook_base_url && (
                       <div className="text-gray-500 truncate">

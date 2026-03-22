@@ -1,4 +1,6 @@
 const sourcesService = require('../../services/waha/sources.service');
+const wahaSession = require('../../services/waha/session.service');
+const { decrypt } = require('../../services/crypto/encrypt.service');
 const db = require('../../config/database');
 
 async function list(req, res) {
@@ -113,4 +115,36 @@ async function reEncryptFromEnv(req, res) {
   }
 }
 
-module.exports = { list, create, update, deactivate, reEncryptFromEnv };
+/**
+ * Sync session counts by querying each WAHA server directly.
+ * Returns sources with live session counts from the actual servers.
+ */
+async function syncLiveCounts(req, res) {
+  try {
+    const sourcesRes = await db.query(
+      `SELECT id, name, base_url, api_key_enc, webhook_base_url, is_active, priority, created_at, updated_at
+       FROM waha_sources ORDER BY priority ASC, created_at ASC`
+    );
+
+    const results = await Promise.all(sourcesRes.rows.map(async (src) => {
+      let liveCount = null;
+      let reachable = false;
+      try {
+        const apiKey = decrypt(src.api_key_enc);
+        const sessions = await wahaSession.getAllSessions(src.base_url, apiKey);
+        liveCount = sessions.filter(s => s.status === 'WORKING' || s.status === 'SCAN_QR_CODE' || s.status === 'STARTING').length;
+        reachable = true;
+      } catch {
+        // server unreachable or decrypt error
+      }
+      return { ...src, session_count: liveCount, reachable };
+    }));
+
+    res.json({ sources: results });
+  } catch (e) {
+    console.error('[WahaSources] syncLiveCounts error:', e);
+    res.status(500).json({ error: 'שגיאה בסנכרון' });
+  }
+}
+
+module.exports = { list, create, update, deactivate, reEncryptFromEnv, syncLiveCounts };
