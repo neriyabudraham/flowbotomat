@@ -9,6 +9,21 @@ const crypto = require('crypto');
 // In-memory state for pending edit operations: "userId:normalizedPhone" -> jobId
 const pendingEdits = new Map();
 
+// Deduplication cache for list responses — WAHA sometimes sends the same event 2-3x
+// key: selectedRowId, value: timestamp of first processing
+const processedListResponses = new Map();
+const LIST_RESPONSE_DEDUP_MS = 15000; // ignore duplicates within 15 seconds
+function isListResponseDuplicate(rowId) {
+  const now = Date.now();
+  // Purge old entries
+  for (const [key, ts] of processedListResponses) {
+    if (now - ts > LIST_RESPONSE_DEDUP_MS) processedListResponses.delete(key);
+  }
+  if (processedListResponses.has(rowId)) return true;
+  processedListResponses.set(rowId, now);
+  return false;
+}
+
 /**
  * Download media from URL and save locally to uploads folder
  * Returns the local URL or the original URL if download fails
@@ -724,6 +739,13 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
     const isKnownRowId = selectedRowId?.startsWith('fwd_') ||
                          selectedRowId?.startsWith('admin_approve_') ||
                          selectedRowId?.startsWith('admin_reject_');
+
+    // Deduplicate: WAHA sometimes fires the same list_response 2-3 times within seconds
+    if (isKnownRowId && isListResponseDuplicate(selectedRowId)) {
+      console.log(`[GroupForwards] Skipping duplicate list response: ${selectedRowId}`);
+      return true;
+    }
+
     if (isKnownRowId) {
       console.log(`[GroupForwards] Processing list response: ${selectedRowId}`);
     }
@@ -948,7 +970,7 @@ async function handleConfirm(userId, senderPhone, jobId) {
   // Check if job is in pending status
   if (existingJob.status !== 'pending') {
     
-    if (existingJob.status === 'sending') {
+    if (existingJob.status === 'sending' || existingJob.status === 'confirmed') {
       await sendNotificationMessage(userId, senderPhone, '⏳ המשימה כבר בתהליך שליחה.');
     } else if (existingJob.status === 'completed') {
       await sendNotificationMessage(userId, senderPhone, '✅ המשימה כבר הושלמה.');
