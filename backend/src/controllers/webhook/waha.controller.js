@@ -208,31 +208,48 @@ async function autoUpdateWebhookEvents(userId) {
   const lastUpdate = webhookUpdatedAt.get(userId);
   if (lastUpdate && Date.now() - lastUpdate < WEBHOOK_UPDATE_INTERVAL_MS) return;
   webhookUpdatedAt.set(userId, Date.now());
-  
+
+  const REQUIRED_EVENTS = [
+    'message', 'message.ack', 'session.status', 'call.received', 'call.accepted', 'call.rejected',
+    'label.upsert', 'label.deleted', 'label.chat.added', 'label.chat.deleted',
+    'poll.vote.failed', 'poll.vote', 'group.leave', 'group.join', 'group.v2.participants',
+    'group.v2.update', 'group.v2.leave', 'group.v2.join', 'presence.update', 'message.reaction',
+    'message.any', 'message.ack.group', 'message.waiting', 'message.revoked', 'message.edited',
+    'chat.archive', 'event.response', 'event.response.failed',
+  ];
+
+  const appUrl = process.env.APP_URL || 'https://botomat.co.il';
+  const webhookUrl = `${appUrl}/api/webhook/waha/${userId}`;
+
   try {
     const connResult = await pool.query(
       `SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' ORDER BY connected_at DESC LIMIT 1`,
       [userId]
     );
-    
-    if (connResult.rows.length === 0) return;
-    
-    const conn = connResult.rows[0];
-    const { baseUrl, apiKey } = await getWahaCredentialsForConnection(conn);
 
-    const REQUIRED_EVENTS = [
-      'message', 'message.ack', 'session.status', 'call.received', 'call.accepted', 'call.rejected',
-      'label.upsert', 'label.deleted', 'label.chat.added', 'label.chat.deleted',
-      'poll.vote.failed', 'poll.vote', 'group.leave', 'group.join', 'group.v2.participants',
-      'group.v2.update', 'group.v2.leave', 'group.v2.join', 'presence.update', 'message.reaction',
-      'message.any', 'message.ack.group', 'message.waiting', 'message.revoked', 'message.edited',
-      'chat.archive', 'event.response', 'event.response.failed',
-    ];
-    
-    const appUrl = process.env.APP_URL || 'https://botomat.co.il';
-    const webhookUrl = `${appUrl}/api/webhook/waha/${userId}`;
-    
-    await wahaSession.addWebhook(baseUrl, apiKey, conn.session_name, webhookUrl, REQUIRED_EVENTS);
+    if (connResult.rows.length === 0) return;
+
+    const conn = connResult.rows[0];
+    let { baseUrl, apiKey } = await getWahaCredentialsForConnection(conn);
+    let sessionName = conn.session_name;
+
+    try {
+      await wahaSession.addWebhook(baseUrl, apiKey, sessionName, webhookUrl, REQUIRED_EVENTS);
+    } catch (firstErr) {
+      // 404 means session not found on this server — heal by scanning all servers
+      const isNotFound = firstErr.message?.includes('404') || firstErr.response?.status === 404 ||
+                         firstErr.message?.includes('422') || firstErr.response?.status === 422;
+      if (isNotFound) {
+        const { healWahaConnectionByUserId } = require('../../services/waha/heal.service');
+        const healed = await healWahaConnectionByUserId(userId);
+        if (healed) {
+          await wahaSession.addWebhook(healed.baseUrl, healed.apiKey, healed.sessionName, webhookUrl, REQUIRED_EVENTS);
+        }
+        // If heal failed, silently skip (session truly doesn't exist yet)
+      } else {
+        throw firstErr;
+      }
+    }
   } catch (err) {
     console.log(`[Webhook] Auto-update webhook events failed for ${userId}:`, err.message);
   }
