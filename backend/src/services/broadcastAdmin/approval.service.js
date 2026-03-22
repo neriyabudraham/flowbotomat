@@ -492,8 +492,32 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
     if (!wahaConnection) return false;
 
     const wahaService = require('../waha/session.service');
+    const { healWahaConnectionByUserId } = require('../waha/heal.service');
 
     console.log(`[BroadcastAdmin] Cascade delete for job ${jobId} (${jobType}), delay ${delayMs}ms`);
+
+    // activeConnection may be upgraded to healed connection on first 422/404 failure
+    let activeConnection = wahaConnection;
+
+    async function tryDeleteMessage(chatId, messageId) {
+      try {
+        await wahaService.deleteMessage(activeConnection, chatId, messageId);
+      } catch (e) {
+        const isSessionMissing = e.message?.includes('422') || e.message?.includes('404') ||
+                                 e.response?.status === 422 || e.response?.status === 404;
+        if (isSessionMissing && activeConnection === wahaConnection) {
+          // Session may have migrated to a different WAHA server — heal once and retry
+          const healed = await healWahaConnectionByUserId(userId);
+          if (healed) {
+            activeConnection = { base_url: healed.baseUrl, api_key: healed.apiKey, session_name: healed.sessionName };
+            console.log(`[BroadcastAdmin] Healed to ${healed.baseUrl} — retrying delete`);
+            await wahaService.deleteMessage(activeConnection, chatId, messageId);
+            return; // retry succeeded
+          }
+        }
+        throw e;
+      }
+    }
 
     const failedGroups = [];
 
@@ -511,7 +535,7 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
       for (const msg of msgs.rows) {
         await new Promise(r => setTimeout(r, delayMs));
         try {
-          await wahaService.deleteMessage(wahaConnection, msg.group_id, msg.whatsapp_message_id);
+          await tryDeleteMessage(msg.group_id, msg.whatsapp_message_id);
           await db.query(`
             UPDATE forward_job_messages SET status = 'deleted', deleted_at = NOW()
             WHERE job_id = $1 AND whatsapp_message_id = $2
@@ -544,7 +568,7 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
       for (const msg of msgs.rows) {
         await new Promise(r => setTimeout(r, delayMs));
         try {
-          await wahaService.deleteMessage(wahaConnection, msg.group_id, msg.message_id);
+          await tryDeleteMessage(msg.group_id, msg.message_id);
           await db.query(`
             UPDATE transfer_job_messages SET status = 'deleted', deleted_at = NOW()
             WHERE job_id = $1 AND message_id = $2
@@ -563,7 +587,7 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
         const adminChatId = adminPhone.includes('@') ? adminPhone : `${adminPhone.replace(/\D/g, '')}@s.whatsapp.net`;
         const groupList = failedGroups.map(g => `• ${g}`).join('\n');
         const notifyText = `⚠️ *מחיקה נכשלה בקבוצות הבאות:*\n${groupList}\n\n_ייתכן שהבוט אינו מנהל בקבוצות אלו._`;
-        await wahaService.sendMessage(wahaConnection, adminChatId, notifyText);
+        await wahaService.sendMessage(activeConnection, adminChatId, notifyText);
         console.log(`[BroadcastAdmin] Notified admin about ${failedGroups.length} failed deletions`);
       } catch (notifyErr) {
         console.error('[BroadcastAdmin] Failed to notify admin:', notifyErr.message);
