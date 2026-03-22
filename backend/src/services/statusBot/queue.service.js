@@ -489,7 +489,7 @@ async function healSessionFromMainConnection(connectionId) {
 
     // Also update status_bot_connections with the discovered session
     await db.query(`
-      SELECT id, waha_source_id FROM waha_sources WHERE base_url = $1 LIMIT 1
+      SELECT id FROM waha_sources WHERE base_url = $1 LIMIT 1
     `, [healed.baseUrl]).then(async srcRes => {
       const sourceId = srcRes.rows[0]?.id;
       if (sourceId) {
