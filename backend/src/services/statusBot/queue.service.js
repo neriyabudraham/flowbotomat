@@ -216,7 +216,39 @@ async function processItem(item) {
   });
 
   try {
-    const sendResult = await sendStatus(item);
+    let sendResult;
+    try {
+      sendResult = await sendStatus(item);
+    } catch (firstError) {
+      // 422 "Session does not exist" → user was migrated to a different WAHA server.
+      // Attempt to auto-heal from the main whatsapp_connections record, then retry once.
+      const isSessionMissing =
+        firstError.message?.includes('422') ||
+        firstError.message?.includes('does not exist') ||
+        firstError.response?.status === 422;
+
+      if (isSessionMissing) {
+        console.log(`[StatusBot] ⚠️ Session not found (422) for item ${item.id} — attempting auto-heal...`);
+        const healed = await healSessionFromMainConnection(item.connection_id);
+
+        if (healed) {
+          // Rebuild item with updated credentials and session name
+          const healedItem = {
+            ...item,
+            session_name: healed.sessionName,
+            // waha_source_id will be read from DB on next queue cycle; for sendStatus we pass creds inline
+            _healedBaseUrl: healed.baseUrl,
+            _healedApiKey: healed.apiKey,
+          };
+          console.log(`[StatusBot] 🔄 Retrying item ${item.id} with healed session ${healed.sessionName}`);
+          sendResult = await sendStatus(healedItem);
+        } else {
+          throw firstError; // Can't heal — propagate original error
+        }
+      } else {
+        throw firstError;
+      }
+    }
 
     await db.query(
       `UPDATE status_bot_queue SET queue_status = 'sent', sent_at = NOW(), sent_timed_out = $2 WHERE id = $1`,
@@ -426,10 +458,63 @@ async function processQueue() {
 }
 
 /**
+ * Sync status_bot_connections session_name + waha_source_id from the main
+ * whatsapp_connections record for the same user.
+ * Called when WAHA returns 422 "Session does not exist" — this means the user
+ * was migrated to a different WAHA server and the status bot record is stale.
+ * Returns updated { baseUrl, apiKey, sessionName } or null if cannot heal.
+ */
+async function healSessionFromMainConnection(connectionId) {
+  try {
+    const res = await db.query(`
+      SELECT wc.session_name, wc.waha_source_id
+      FROM status_bot_connections sbc
+      JOIN whatsapp_connections wc ON wc.user_id = sbc.user_id
+      WHERE sbc.id = $1
+        AND wc.status = 'connected'
+      LIMIT 1
+    `, [connectionId]);
+
+    if (!res.rows.length) {
+      console.log(`[StatusBot Queue] ⚠️ No active main connection found for status_bot connection ${connectionId}`);
+      return null;
+    }
+
+    const { session_name: newSessionName, waha_source_id: newSourceId } = res.rows[0];
+
+    // Update status_bot_connections with current session info
+    await db.query(`
+      UPDATE status_bot_connections
+      SET session_name = $1, waha_source_id = $2, updated_at = NOW()
+      WHERE id = $3
+    `, [newSessionName, newSourceId, connectionId]);
+
+    console.log(`[StatusBot Queue] 🔄 Healed session for conn ${connectionId}: ${newSessionName} (source: ${newSourceId})`);
+
+    // Build updated queueItem-like object to get credentials
+    const { getWahaCredentialsForConnection: getCreds } = require('../../services/settings/system.service');
+    const creds = await getCreds({ waha_source_id: newSourceId });
+    return { ...creds, sessionName: newSessionName };
+  } catch (err) {
+    console.error(`[StatusBot Queue] Failed to heal session: ${err.message}`);
+    return null;
+  }
+}
+
+/**
  * Send a status via WAHA
  */
 async function sendStatus(queueItem) {
-  const { baseUrl, apiKey } = await getWahaCredentialsForConnection(queueItem);
+  // Allow caller to inject healed credentials directly (after a 422 auto-heal)
+  let baseUrl, apiKey;
+  if (queueItem._healedBaseUrl && queueItem._healedApiKey) {
+    baseUrl = queueItem._healedBaseUrl;
+    apiKey  = queueItem._healedApiKey;
+  } else {
+    const creds = await getWahaCredentialsForConnection(queueItem);
+    baseUrl = creds.baseUrl;
+    apiKey  = creds.apiKey;
+  }
   const sessionName = queueItem.session_name;
   const content = queueItem.content;
 
