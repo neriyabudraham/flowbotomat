@@ -555,30 +555,45 @@ class BotEngine {
         } else if (session.waiting_for === 'reply') {
           // Waiting for reply - check if text-only is required
           const waitingData = session.waiting_data ? (typeof session.waiting_data === 'string' ? JSON.parse(session.waiting_data) : session.waiting_data) : {};
-          
-          // Check if text-only reply is required
-          if (waitingData.textOnly && messageType !== 'text') {
-            
-            // Send error message
-            const connection = await this.getConnection(userId);
-            if (connection) {
-              const errorMsg = waitingData.invalidReplyMessage || 'התגובה לא תקינה. אנא שלח הודעת טקסט בלבד.';
-              try {
-                await wahaService.sendMessage(connection.session_name, contact.phone, errorMsg);
-              } catch (e) {
-                console.error('[BotEngine] Failed to send invalid reply message:', e.message);
+
+          // Check that the message comes from the same source (direct chat vs group) as the session was started in.
+          // sourceGroupId === null means the session was started in a direct chat; a group ID means it was started in that group.
+          const sessionSourceGroupId = waitingData.sourceGroupId !== undefined ? waitingData.sourceGroupId : null;
+          const currentGroupId = contact._groupId || null;
+          if (sessionSourceGroupId !== currentGroupId) {
+            // Message came from a different source (e.g. group message while session is in direct chat) - ignore, fall through to trigger check
+          } else {
+            // Check if text-only reply is required
+            if (waitingData.textOnly && messageType !== 'text') {
+
+              // Send error message
+              const connection = await this.getConnection(userId);
+              if (connection) {
+                const errorMsg = waitingData.invalidReplyMessage || 'התגובה לא תקינה. אנא שלח הודעת טקסט בלבד.';
+                try {
+                  await wahaService.sendMessage(connection.session_name, contact.phone, errorMsg);
+                } catch (e) {
+                  console.error('[BotEngine] Failed to send invalid reply message:', e.message);
+                }
               }
+              // Don't continue the flow - wait for valid text reply
+              return;
             }
-            // Don't continue the flow - wait for valid text reply
+
+            await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId, null);
             return;
           }
-          
-          await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId, null);
-          return;
         } else if (session.waiting_for === 'registration') {
           // Waiting for registration answer - this BLOCKS new triggers
-          await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId, null);
-          return;
+          const waitingData = session.waiting_data ? (typeof session.waiting_data === 'string' ? JSON.parse(session.waiting_data) : session.waiting_data) : {};
+          const sessionSourceGroupId = waitingData.sourceGroupId !== undefined ? waitingData.sourceGroupId : null;
+          const currentGroupId = contact._groupId || null;
+          if (sessionSourceGroupId !== currentGroupId) {
+            // Message came from a different source - ignore, fall through to trigger check
+          } else {
+            await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId, null);
+            return;
+          }
         }
       }
       
@@ -1852,6 +1867,7 @@ class BotEngine {
                 variableName: action.variableName || '',
                 textOnly: action.textOnly !== false, // Default true - only accept text replies
                 invalidReplyMessage: action.invalidReplyMessage || 'התגובה לא תקינה. אנא שלח הודעת טקסט בלבד.',
+                sourceGroupId: contact._groupId || null, // Track message source so only same-source replies continue the session
               };
               await this.saveSession(botId, contact.id, node.id, 'reply', waitData, waitTimeout);
               return true;
@@ -1876,6 +1892,7 @@ class BotEngine {
       const waitData = {
         textOnly: node.data.textOnly !== false, // Default true
         invalidReplyMessage: node.data.invalidReplyMessage || 'התגובה לא תקינה. אנא שלח הודעת טקסט בלבד.',
+        sourceGroupId: contact._groupId || null, // Track message source so only same-source replies continue the session
       };
       await this.saveSession(botId, contact.id, node.id, 'reply', waitData, timeout);
       return true;
@@ -3368,7 +3385,8 @@ class BotEngine {
           questions: filteredQuestions, // Use filtered questions
           answers: {},
           cancelKeyword: cancelKeyword.toLowerCase(),
-          triggerMessage: triggerMessage // Save original message for variable replacement
+          triggerMessage: triggerMessage, // Save original message for variable replacement
+          sourceGroupId: contact._groupId || null, // Track message source so only same-source replies continue the session
         },
         timeoutSeconds
       );
