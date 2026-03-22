@@ -458,19 +458,17 @@ async function processQueue() {
 }
 
 /**
- * Deep-heal a stale status_bot_connections session by scanning ALL WAHA servers
- * for a live session that belongs to this user (matched by email).
- * Also updates whatsapp_connections if it has the wrong session name.
- * Called when WAHA returns 422 "Session does not exist".
- * Returns updated { baseUrl, apiKey, sessionName } or null if cannot heal.
+ * Deep-heal a stale status_bot_connections session.
+ * Delegates cross-server scan + whatsapp_connections update to the shared heal service,
+ * then also updates status_bot_connections with the discovered session.
  */
 async function healSessionFromMainConnection(connectionId) {
   try {
-    const { decrypt } = require('../../services/crypto/encrypt.service');
+    const { healWahaConnectionByEmail } = require('../waha/heal.service');
 
-    // Get user email + current connection info
+    // Get user email + whatsapp_connections id for the shared healer
     const res = await db.query(`
-      SELECT sbc.user_id, u.email, wc.id as wc_id, wc.session_name as wc_session_name
+      SELECT u.email, wc.id as wc_id
       FROM status_bot_connections sbc
       JOIN users u ON u.id = sbc.user_id
       LEFT JOIN whatsapp_connections wc ON wc.user_id = sbc.user_id AND wc.status = 'connected'
@@ -485,55 +483,25 @@ async function healSessionFromMainConnection(connectionId) {
 
     const { email, wc_id } = res.rows[0];
 
-    // Scan all active WAHA sources for the user's live session
-    const sourcesRes = await db.query(
-      `SELECT id, base_url, api_key_enc FROM waha_sources WHERE is_active = true ORDER BY priority ASC, created_at ASC`
-    );
+    // Shared healer scans all servers + updates whatsapp_connections
+    const healed = await healWahaConnectionByEmail(email, wc_id);
+    if (!healed) return null;
 
-    let foundSession = null, foundSourceId = null, foundBaseUrl = null, foundApiKey = null;
-
-    for (const src of sourcesRes.rows) {
-      let srcApiKey;
-      try { srcApiKey = decrypt(src.api_key_enc); } catch { continue; }
-
-      try {
-        const session = await wahaSession.findSessionByEmail(src.base_url, srcApiKey, email);
-        if (session) {
-          foundSession = session;
-          foundSourceId = src.id;
-          foundBaseUrl = src.base_url;
-          foundApiKey = srcApiKey;
-          break;
-        }
-      } catch { /* server unreachable, try next */ }
-    }
-
-    if (!foundSession) {
-      console.log(`[StatusBot Queue] ⚠️ No live WAHA session found for user ${email} on any server`);
-      return null;
-    }
-
-    const newSessionName = foundSession.name;
-    console.log(`[StatusBot Queue] 🔄 Found live session for ${email}: ${newSessionName} on source ${foundSourceId}`);
-
-    // Update status_bot_connections
+    // Also update status_bot_connections with the discovered session
     await db.query(`
-      UPDATE status_bot_connections
-      SET session_name = $1, waha_source_id = $2, updated_at = NOW()
-      WHERE id = $3
-    `, [newSessionName, foundSourceId, connectionId]);
+      SELECT id, waha_source_id FROM waha_sources WHERE base_url = $1 LIMIT 1
+    `, [healed.baseUrl]).then(async srcRes => {
+      const sourceId = srcRes.rows[0]?.id;
+      if (sourceId) {
+        await db.query(
+          `UPDATE status_bot_connections SET session_name = $1, waha_source_id = $2, updated_at = NOW() WHERE id = $3`,
+          [healed.sessionName, sourceId, connectionId]
+        );
+        console.log(`[StatusBot Queue] 🔄 Updated status_bot_connections ${connectionId}: ${healed.sessionName}`);
+      }
+    });
 
-    // Also fix whatsapp_connections if it has a stale session name
-    if (wc_id) {
-      await db.query(`
-        UPDATE whatsapp_connections
-        SET session_name = $1, waha_source_id = $2, updated_at = NOW()
-        WHERE id = $3
-      `, [newSessionName, foundSourceId, wc_id]);
-      console.log(`[StatusBot Queue] 🔄 Also updated whatsapp_connections ${wc_id}: ${newSessionName}`);
-    }
-
-    return { baseUrl: foundBaseUrl, apiKey: foundApiKey, sessionName: newSessionName };
+    return healed;
   } catch (err) {
     console.error(`[StatusBot Queue] Failed to heal session: ${err.message}`);
     return null;

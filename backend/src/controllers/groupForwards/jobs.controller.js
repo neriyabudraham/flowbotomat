@@ -738,17 +738,33 @@ async function startForwardJob(jobId) {
           } catch (attemptError) {
             lastError = attemptError;
             const isTimeout = attemptError.message?.includes('timeout') || attemptError.code === 'ECONNABORTED';
-            
+            const isSessionMissing = attemptError.message?.includes('422') || attemptError.message?.includes('does not exist');
+
             if (isTimeout && attempt < maxRetries) {
               console.log(`[GroupForwards] Timeout on attempt ${attempt + 1} for ${message.group_id}, will retry...`);
               continue; // Try again
             }
-            
-            // Non-timeout error or max retries reached - break
+
+            // 422 "Session does not exist" — attempt one-time heal by scanning all WAHA servers
+            if (isSessionMissing && attempt === 0) {
+              console.log(`[GroupForwards] ⚠️ Session not found (422) for job ${jobId} — attempting auto-heal...`);
+              const { healWahaConnectionByUserId } = require('../../services/waha/heal.service');
+              const healed = await healWahaConnectionByUserId(job.user_id);
+              if (healed) {
+                console.log(`[GroupForwards] 🔄 Healed session for job ${jobId}: ${healed.sessionName}`);
+                wahaConnection.base_url = healed.baseUrl;
+                wahaConnection.api_key = healed.apiKey;
+                wahaConnection.session_name = healed.sessionName;
+                lastError = null;
+                continue; // Retry with healed connection (no delay needed)
+              }
+            }
+
+            // Non-timeout/non-422 error or max retries reached - break
             break;
           }
         }
-        
+
         // If we still have an error after all retries, throw it
         if (lastError) {
           throw lastError;
