@@ -277,58 +277,106 @@ async function createManaged(req, res) {
       return res.status(400).json({ error: 'לא נמצא מייל למשתמש' });
     }
     
-    // Pick WAHA source with fewest active sessions (load balancing)
-    // Falls back to env vars if no sources defined yet
-    let wahaSource = await pickSourceForNewSession();
     let baseUrl, apiKey, wahaSourceId;
-    if (wahaSource) {
-      baseUrl = wahaSource.baseUrl;
-      apiKey = wahaSource.apiKey;
-      wahaSourceId = wahaSource.id;
-    } else {
-      const envCreds = getWahaCredentials();
-      baseUrl = envCreds.baseUrl;
-      apiKey = envCreds.apiKey;
-      wahaSourceId = null;
+    let sessionName = null;
+    let wahaStatus = null;
+    let existingSession = null;
+
+    // Step 1: Search ALL active WAHA sources for a session with this email
+    // This prevents creating duplicate sessions when the user has one on a different server
+    console.log(`[WhatsApp] Searching ALL WAHA sources for existing session with email: ${userEmail}`);
+    try {
+      const allSourcesResult = await pool.query(
+        `SELECT id, base_url, api_key_enc, webhook_base_url FROM waha_sources WHERE is_active = true ORDER BY priority ASC, created_at ASC`
+      );
+
+      for (const src of allSourcesResult.rows) {
+        let srcBaseUrl, srcApiKey;
+        try {
+          srcBaseUrl = src.base_url;
+          srcApiKey = decrypt(src.api_key_enc);
+        } catch { continue; }
+
+        try {
+          const found = await wahaSession.findSessionByEmail(srcBaseUrl, srcApiKey, userEmail);
+          if (found) {
+            console.log(`[WhatsApp] ✅ Found existing session "${found.name}" on source "${srcBaseUrl}"`);
+            existingSession = found;
+            sessionName = found.name;
+            baseUrl = srcBaseUrl;
+            apiKey = srcApiKey;
+            wahaSourceId = src.id;
+            break;
+          }
+        } catch (err) {
+          console.log(`[WhatsApp] Could not search source ${srcBaseUrl}: ${err.message}`);
+        }
+      }
+
+      // Also search env-based WAHA if no DB sources found a session
+      if (!existingSession) {
+        const envCreds = getWahaCredentials();
+        if (envCreds.baseUrl && envCreds.apiKey) {
+          try {
+            const found = await wahaSession.findSessionByEmail(envCreds.baseUrl, envCreds.apiKey, userEmail);
+            if (found) {
+              console.log(`[WhatsApp] ✅ Found existing session "${found.name}" on env WAHA`);
+              existingSession = found;
+              sessionName = found.name;
+              baseUrl = envCreds.baseUrl;
+              apiKey = envCreds.apiKey;
+              wahaSourceId = null;
+            }
+          } catch (err) {
+            console.log(`[WhatsApp] Could not search env WAHA: ${err.message}`);
+          }
+        }
+      }
+    } catch (err) {
+      console.log(`[WhatsApp] Error during cross-source session search: ${err.message}`);
+    }
+
+    // If session found on a specific source, use that source
+    // Otherwise pick the source with fewest sessions (load balancing)
+    if (!existingSession) {
+      const wahaSource = await pickSourceForNewSession();
+      if (wahaSource) {
+        baseUrl = wahaSource.baseUrl;
+        apiKey = wahaSource.apiKey;
+        wahaSourceId = wahaSource.id;
+      } else {
+        const envCreds = getWahaCredentials();
+        baseUrl = envCreds.baseUrl;
+        apiKey = envCreds.apiKey;
+        wahaSourceId = null;
+      }
     }
 
     if (!baseUrl || !apiKey) {
       return res.status(500).json({ error: 'WAHA לא מוגדר במערכת' });
     }
 
-    let sessionName = null;
-    let wahaStatus = null;
-    let existingSession = null;
-    
-    // Step 1: Search in WAHA by email (single source of truth)
-    console.log(`[WhatsApp] Searching WAHA for session with email: ${userEmail}`);
-    
-    try {
-      existingSession = await wahaSession.findSessionByEmail(baseUrl, apiKey, userEmail);
-      
-      if (existingSession) {
-        sessionName = existingSession.name;
-        console.log(`[WhatsApp] ✅ Found existing session by email: ${sessionName}`);
-        
+    if (existingSession) {
+      console.log(`[WhatsApp] ✅ Found existing session by email: ${sessionName}`);
+
+      try {
         wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
-        
+
         // If stopped or failed, restart it
         if (wahaStatus.status === 'STOPPED' || wahaStatus.status === 'FAILED') {
           console.log(`[WhatsApp] Session is ${wahaStatus.status}, restarting...`);
-          try {
-            await wahaSession.stopSession(baseUrl, apiKey, sessionName);
-          } catch (e) { /* ignore */ }
+          try { await wahaSession.stopSession(baseUrl, apiKey, sessionName); } catch (e) { /* ignore */ }
           await wahaSession.startSession(baseUrl, apiKey, sessionName);
           console.log(`[WhatsApp] ✅ Restarted session: ${sessionName}`);
           wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
         } else {
           console.log(`[WhatsApp] Session status: ${wahaStatus.status}`);
         }
+      } catch (err) {
+        console.log(`[WhatsApp] Error getting/restarting existing session: ${err.message}`);
       }
-    } catch (err) {
-      console.log(`[WhatsApp] Error searching sessions: ${err.message}`);
     }
-    
+
     // Step 2: If no session found in WAHA, create new one
     if (!sessionName) {
       // Check subscription for WAHA creation permission
