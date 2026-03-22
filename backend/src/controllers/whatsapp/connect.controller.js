@@ -277,7 +277,7 @@ async function createManaged(req, res) {
       return res.status(400).json({ error: 'לא נמצא מייל למשתמש' });
     }
     
-    let baseUrl, apiKey, wahaSourceId;
+    let baseUrl, apiKey, wahaSourceId, wahaWebhookBaseUrl;
     let sessionName = null;
     let wahaStatus = null;
     let existingSession = null;
@@ -306,6 +306,7 @@ async function createManaged(req, res) {
             baseUrl = srcBaseUrl;
             apiKey = srcApiKey;
             wahaSourceId = src.id;
+            wahaWebhookBaseUrl = src.webhook_base_url || null;
             break;
           }
         } catch (err) {
@@ -339,16 +340,18 @@ async function createManaged(req, res) {
     // If session found on a specific source, use that source
     // Otherwise pick the source with fewest sessions (load balancing)
     if (!existingSession) {
-      const wahaSource = await pickSourceForNewSession();
-      if (wahaSource) {
-        baseUrl = wahaSource.baseUrl;
-        apiKey = wahaSource.apiKey;
-        wahaSourceId = wahaSource.id;
+      const pickedSource = await pickSourceForNewSession();
+      if (pickedSource) {
+        baseUrl = pickedSource.baseUrl;
+        apiKey = pickedSource.apiKey;
+        wahaSourceId = pickedSource.id;
+        wahaWebhookBaseUrl = pickedSource.webhookBaseUrl || null;
       } else {
         const envCreds = getWahaCredentials();
         baseUrl = envCreds.baseUrl;
         apiKey = envCreds.apiKey;
         wahaSourceId = null;
+        wahaWebhookBaseUrl = null;
       }
     }
 
@@ -446,7 +449,7 @@ async function createManaged(req, res) {
     
     // Setup webhook for this user (adds/updates webhooks with all required events)
     // Use source's webhookBaseUrl if set (for internal routing), otherwise use APP_URL
-    const webhookBase = wahaSource?.webhookBaseUrl || null;
+    const webhookBase = wahaWebhookBaseUrl || null;
     const webhookUrl = webhookBase
       ? `${webhookBase}/api/webhook/waha/${userId}`
       : getWebhookUrl(userId);
