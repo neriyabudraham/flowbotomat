@@ -29,13 +29,23 @@ export default function AdminWahaSources() {
     }
   };
 
+  const [syncMsg, setSyncMsg] = useState('');
+
   const syncLive = async () => {
     setSyncing(true);
+    setSyncMsg('');
     try {
       const { data } = await api.get('/admin/waha-sources/sync');
       setSources(data.sources || []);
+      if (data.reconciledCount > 0) {
+        setSyncMsg(`✓ סונכרן — תוקנו ${data.reconciledCount} חיבורות`);
+      } else {
+        setSyncMsg('✓ סונכרן');
+      }
+      setTimeout(() => setSyncMsg(''), 4000);
     } catch (err) {
       console.error('Failed to sync WAHA sources:', err);
+      setSyncMsg('שגיאה בסנכרון');
     } finally {
       setSyncing(false);
     }
@@ -152,11 +162,14 @@ export default function AdminWahaSources() {
             <p className="text-sm text-gray-500">ניהול שרתי WAHA — תמיכה במספר שרתים עם איזון עומסים</p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {syncMsg && (
+            <span className="text-xs text-green-600 font-medium">{syncMsg}</span>
+          )}
           <button
             onClick={syncLive}
             disabled={syncing}
-            title="סנכרן ספירת סשנים חיה מהשרתים"
+            title="סנכרן ספירת סשנים חיה מהשרתים ותקן את הDB"
             className="flex items-center gap-1.5 px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors text-sm disabled:opacity-50"
           >
             <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />

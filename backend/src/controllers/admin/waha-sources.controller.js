@@ -117,6 +117,8 @@ async function reEncryptFromEnv(req, res) {
 
 /**
  * Sync session counts by querying each WAHA server directly.
+ * Also reconciles whatsapp_connections.waha_source_id in the DB so that
+ * subsequent page loads show the correct counts without needing another sync.
  * Returns sources with live session counts from the actual servers.
  */
 async function syncLiveCounts(req, res) {
@@ -126,21 +128,55 @@ async function syncLiveCounts(req, res) {
        FROM waha_sources ORDER BY priority ASC, created_at ASC`
     );
 
-    const results = await Promise.all(sourcesRes.rows.map(async (src) => {
-      let liveCount = null;
-      let reachable = false;
+    // Step 1: Collect all sessions from all servers
+    const liveSessionsBySource = {}; // sourceId → [session, ...]
+    const sessionNameToSource = {};  // session_name → { sourceId, baseUrl, apiKey }
+
+    await Promise.all(sourcesRes.rows.map(async (src) => {
+      let apiKey;
+      try { apiKey = decrypt(src.api_key_enc); } catch { return; }
       try {
-        const apiKey = decrypt(src.api_key_enc);
         const sessions = await wahaSession.getAllSessions(src.base_url, apiKey);
-        liveCount = sessions.filter(s => s.status === 'WORKING' || s.status === 'SCAN_QR_CODE' || s.status === 'STARTING').length;
-        reachable = true;
-      } catch {
-        // server unreachable or decrypt error
-      }
-      return { ...src, session_count: liveCount, reachable };
+        liveSessionsBySource[src.id] = sessions;
+        for (const s of sessions) {
+          sessionNameToSource[s.name] = { sourceId: src.id, baseUrl: src.base_url, apiKey };
+        }
+      } catch { /* server unreachable */ }
     }));
 
-    res.json({ sources: results });
+    // Step 2: Reconcile DB — update whatsapp_connections where waha_source_id is stale
+    let reconciledCount = 0;
+    try {
+      const wcRes = await db.query(
+        `SELECT id, session_name, waha_source_id FROM whatsapp_connections WHERE session_name IS NOT NULL`
+      );
+      for (const wc of wcRes.rows) {
+        const live = sessionNameToSource[wc.session_name];
+        if (live && live.sourceId !== wc.waha_source_id) {
+          await db.query(
+            `UPDATE whatsapp_connections SET waha_source_id = $1, updated_at = NOW() WHERE id = $2`,
+            [live.sourceId, wc.id]
+          );
+          reconciledCount++;
+        }
+      }
+      if (reconciledCount > 0) {
+        console.log(`[WahaSources] Reconciled ${reconciledCount} whatsapp_connections to correct source`);
+      }
+    } catch (reconcileErr) {
+      console.error('[WahaSources] Reconcile error (non-fatal):', reconcileErr.message);
+    }
+
+    // Step 3: Build response with live counts
+    const activeStatuses = new Set(['WORKING', 'SCAN_QR_CODE', 'STARTING']);
+    const results = sourcesRes.rows.map(src => {
+      const sessions = liveSessionsBySource[src.id];
+      const reachable = sessions !== undefined;
+      const liveCount = reachable ? sessions.filter(s => activeStatuses.has(s.status)).length : null;
+      return { ...src, session_count: liveCount, reachable };
+    });
+
+    res.json({ sources: results, reconciledCount });
   } catch (e) {
     console.error('[WahaSources] syncLiveCounts error:', e);
     res.status(500).json({ error: 'שגיאה בסנכרון' });
