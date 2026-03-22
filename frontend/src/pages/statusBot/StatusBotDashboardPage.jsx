@@ -2014,13 +2014,16 @@ function StatusBotDashboardContent() {
                             )}
                           </div>
                           <div className="flex-1">
-                            <p className="font-medium text-blue-800">
-                              {item.status_type === 'text' ? 'טקסט' : 
-                               item.status_type === 'image' ? 'תמונה' : 
-                               item.status_type === 'video' ? 'סרטון' : 'הקלטה'}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium text-blue-800">
+                                {item.status_type === 'text' ? 'טקסט' :
+                                 item.status_type === 'image' ? 'תמונה' :
+                                 item.status_type === 'video' ? 'סרטון' : 'הקלטה'}
+                              </p>
+                              <SourceBadge source={item.source} />
+                            </div>
                             <p className="text-xs text-blue-600">
-                              {item.status === 'processing' ? 'שולח עכשיו...' : 'ממתין בתור'}
+                              {item.queue_status === 'processing' ? 'שולח עכשיו...' : 'ממתין בתור'}
                             </p>
                           </div>
                         </div>
@@ -2234,11 +2237,15 @@ function StatusBotDashboardContent() {
                               {item.status_type === 'voice' && <Mic className="w-5 h-5 text-green-600" />}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="font-medium text-gray-800">
-                                {item.status_type === 'text' ? 'טקסט' : 
-                                 item.status_type === 'image' ? 'תמונה' : 
-                                 item.status_type === 'video' ? 'סרטון' : 'הקלטה'}
-                              </p>
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium text-gray-800">
+                                  {item.status_type === 'text' ? 'טקסט' :
+                                   item.status_type === 'image' ? 'תמונה' :
+                                   item.status_type === 'video' ? 'סרטון' : 'הקלטה'}
+                                </p>
+                                <SourceBadge source={item.source} />
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium flex-shrink-0">מתוזמן</span>
+                              </div>
                               <p className="text-sm text-gray-500 truncate">
                                 {item.content?.text?.substring(0, 50) || item.content?.caption?.substring(0, 50) || ''}
                                 {(item.content?.text?.length > 50 || item.content?.caption?.length > 50) && '...'}
@@ -3257,6 +3264,18 @@ function ScheduledCalendar({ scheduled, onItemClick }) {
   );
 }
 
+function SourceBadge({ source }) {
+  if (source === 'whatsapp') return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium flex-shrink-0">בוט</span>
+  );
+  if (source === 'web') return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium flex-shrink-0">אתר</span>
+  );
+  return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium flex-shrink-0">ידני</span>
+  );
+}
+
 function StatusRow({ status, onDelete, isActive, onShowDetails }) {
   const typeIcons = {
     text: Type,
@@ -3292,13 +3311,14 @@ function StatusRow({ status, onDelete, isActive, onShowDetails }) {
           <Icon className={`w-5 h-5 ${isDeleted ? 'text-gray-400' : isActive ? 'text-green-600' : 'text-gray-600'}`} />
         </div>
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <p className={`font-medium truncate ${isDeleted ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
-              {status.status_type === 'text' 
+              {status.status_type === 'text'
                 ? (status.content?.text?.substring(0, 40) || 'סטטוס טקסט') + (status.content?.text?.length > 40 ? '...' : '')
                 : `סטטוס ${status.status_type === 'image' ? 'תמונה' : status.status_type === 'video' ? 'סרטון' : status.status_type === 'voice' ? 'קול' : status.status_type}`
               }
             </p>
+            <SourceBadge source={status.source} />
             {statusLabel && (
               <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${statusLabel.color} ${
                 status.queue_status === 'pending' ? 'bg-yellow-50' :

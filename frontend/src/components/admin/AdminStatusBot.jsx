@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { 
+import {
   Smartphone, RefreshCw, Users, Upload, Eye, Heart,
   Clock, Check, X, AlertCircle, Shield, Wifi, WifiOff,
   Phone, Search, ChevronDown, ChevronUp, Activity, MessageCircle, Loader2,
   RotateCcw, PhoneCall, XCircle, AlertTriangle, BarChart3, TrendingUp,
-  Trash2, RotateCw, FileText, Calendar, Zap, Timer, ChevronRight
+  Trash2, RotateCw, FileText, Calendar, Zap, Timer, ChevronRight, ExternalLink
 } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
@@ -95,6 +95,12 @@ export default function AdminStatusBot() {
   const [editingTimeout, setEditingTimeout] = useState(''); // legacy alias
   const [savingSettings, setSavingSettings] = useState(false);
   const [showQueueSettings, setShowQueueSettings] = useState(false);
+
+  // Upload stats
+  const [uploadStats, setUploadStats] = useState([]);
+  const [showUploadStats, setShowUploadStats] = useState(false);
+  const [loadingUploadStats, setLoadingUploadStats] = useState(false);
+  const [switchingUser, setSwitchingUser] = useState(null);
 
   // Restriction management
   const [settingRestriction, setSettingRestriction] = useState(null);
@@ -238,6 +244,41 @@ export default function AdminStatusBot() {
   const handleShowErrors = async (user) => {
     setShowErrorsModal(user);
     await loadUserErrors(user.id);
+  };
+
+  const handleSwitchToUser = async (e, userId) => {
+    e.stopPropagation();
+    setSwitchingUser(userId);
+    try {
+      const currentToken = localStorage.getItem('accessToken');
+      if (currentToken && !localStorage.getItem('originalAccessToken')) {
+        localStorage.setItem('originalAccessToken', currentToken);
+      }
+      const { data } = await api.post(`/experts/switch/${userId}`);
+      if (data?.token) {
+        localStorage.setItem('accessToken', data.token);
+        window.location.href = '/status-bot';
+      }
+    } catch (err) {
+      alert('שגיאה במעבר לחשבון');
+    } finally {
+      setSwitchingUser(null);
+    }
+  };
+
+  const handleLoadUploadStats = async () => {
+    setShowUploadStats(s => !s);
+    if (!uploadStats.length) {
+      setLoadingUploadStats(true);
+      try {
+        const { data } = await api.get('/status-bot/admin/upload-stats');
+        setUploadStats(data.stats || []);
+      } catch (err) {
+        alert('שגיאה בטעינת סטטיסטיקות');
+      } finally {
+        setLoadingUploadStats(false);
+      }
+    }
   };
 
   const handleLiftRestriction = async (connectionId) => {
@@ -422,11 +463,74 @@ export default function AdminStatusBot() {
             <ChevronDown className={`w-4 h-4 transition-transform ${showQueueSettings ? 'rotate-180' : ''}`} />
           </button>
 
+          <button
+            onClick={handleLoadUploadStats}
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200"
+          >
+            {loadingUploadStats ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}
+            זמני העלאה
+            <ChevronDown className={`w-4 h-4 transition-transform ${showUploadStats ? 'rotate-180' : ''}`} />
+          </button>
+
           <Button variant="ghost" onClick={loadData} className="!p-2">
             <RefreshCw className="w-4 h-4" />
           </Button>
         </div>
       </div>
+
+      {/* Upload Stats Panel */}
+      {showUploadStats && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+          <h3 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
+            <BarChart3 className="w-4 h-4" />
+            זמן העלאה ממוצע למשתמש (בשניות)
+          </h3>
+          {loadingUploadStats ? (
+            <div className="flex justify-center py-6"><Loader2 className="w-6 h-6 animate-spin text-purple-500" /></div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-500 border-b border-gray-200">
+                    <th className="text-right pb-2 font-medium">משתמש</th>
+                    <th className="text-center pb-2 font-medium">טקסט</th>
+                    <th className="text-center pb-2 font-medium">תמונה</th>
+                    <th className="text-center pb-2 font-medium">סרטון</th>
+                    <th className="text-center pb-2 font-medium">קול</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {uploadStats.map(row => (
+                    <tr key={row.connection_id} className="hover:bg-gray-50">
+                      <td className="py-2 pr-2">
+                        <p className="font-medium text-gray-800">{row.user_name || '—'}</p>
+                        <p className="text-xs text-gray-500">{row.email}</p>
+                      </td>
+                      {['text', 'image', 'video', 'voice'].map(type => {
+                        const avg = row[`avg_${type}_seconds`];
+                        const count = parseInt(row[`${type}_count`] || 0);
+                        return (
+                          <td key={type} className="py-2 text-center">
+                            {avg != null ? (
+                              <div>
+                                <span className="font-medium text-gray-800">{Math.round(avg)}ש׳</span>
+                                <span className="text-xs text-gray-400 block">({count})</span>
+                              </div>
+                            ) : <span className="text-gray-300">—</span>}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                  {uploadStats.length === 0 && (
+                    <tr><td colSpan={5} className="py-6 text-center text-gray-400">אין נתונים</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Queue Settings Panel */}
       {showQueueSettings && (
@@ -874,6 +978,16 @@ export default function AdminStatusBot() {
                     
                     {/* Stats Badges */}
                     <div className="flex items-center gap-3">
+                      {/* Switch to user account */}
+                      <button
+                        onClick={(e) => handleSwitchToUser(e, user.user_id)}
+                        disabled={switchingUser === user.user_id}
+                        className="flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 text-xs font-medium"
+                        title="עבור לחשבון המשתמש"
+                      >
+                        {switchingUser === user.user_id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5" />}
+                        כניסה
+                      </button>
                       <StatBadge icon={Upload} value={user.statuses_today || 0} label="היום" color="purple" />
                       <StatBadge icon={Clock} value={user.pending_count || 0} label="בתור" color="blue" />
                       {hasErrors && (

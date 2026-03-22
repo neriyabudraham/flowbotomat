@@ -115,6 +115,7 @@ router.delete('/colors', authMiddleware, settingsController.resetStatusBotColors
 // ============================================
 
 router.get('/admin/users', authMiddleware, adminMiddleware, statusBotController.adminGetUsers);
+router.get('/admin/upload-stats', authMiddleware, adminMiddleware, statusBotController.adminGetUploadStats);
 router.get('/admin/stats', authMiddleware, adminMiddleware, statusBotController.adminGetStats);
 router.get('/admin/active-processes', authMiddleware, adminMiddleware, statusBotController.adminGetActiveProcesses);
 router.post('/admin/lift-restriction/:connectionId', authMiddleware, superadminMiddleware, statusBotController.adminLiftRestriction);

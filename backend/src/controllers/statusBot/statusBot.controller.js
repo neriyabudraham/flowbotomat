@@ -3932,6 +3932,41 @@ async function adminUpdateQueueSettings(req, res) {
   }
 }
 
+/**
+ * Admin: get average upload duration per user per status type
+ * Returns avg seconds from queue creation to sent_at, grouped by user and type
+ */
+async function adminGetUploadStats(req, res) {
+  try {
+    const result = await db.query(`
+      SELECT
+        sbc.id as connection_id,
+        u.id as user_id,
+        u.email,
+        u.name as user_name,
+        sbc.phone_number,
+        AVG(EXTRACT(EPOCH FROM (sbq.sent_at - sbq.created_at))) FILTER (WHERE sbq.status_type = 'text' AND sbq.sent_at IS NOT NULL) as avg_text_seconds,
+        AVG(EXTRACT(EPOCH FROM (sbq.sent_at - sbq.created_at))) FILTER (WHERE sbq.status_type = 'image' AND sbq.sent_at IS NOT NULL) as avg_image_seconds,
+        AVG(EXTRACT(EPOCH FROM (sbq.sent_at - sbq.created_at))) FILTER (WHERE sbq.status_type = 'video' AND sbq.sent_at IS NOT NULL) as avg_video_seconds,
+        AVG(EXTRACT(EPOCH FROM (sbq.sent_at - sbq.created_at))) FILTER (WHERE sbq.status_type = 'voice' AND sbq.sent_at IS NOT NULL) as avg_voice_seconds,
+        COUNT(*) FILTER (WHERE sbq.status_type = 'text' AND sbq.queue_status = 'sent') as text_count,
+        COUNT(*) FILTER (WHERE sbq.status_type = 'image' AND sbq.queue_status = 'sent') as image_count,
+        COUNT(*) FILTER (WHERE sbq.status_type = 'video' AND sbq.queue_status = 'sent') as video_count,
+        COUNT(*) FILTER (WHERE sbq.status_type = 'voice' AND sbq.queue_status = 'sent') as voice_count
+      FROM status_bot_connections sbc
+      JOIN users u ON u.id = sbc.user_id
+      LEFT JOIN status_bot_queue sbq ON sbq.connection_id = sbc.id AND sbq.queue_status = 'sent'
+      GROUP BY sbc.id, u.id, u.email, u.name, sbc.phone_number
+      HAVING COUNT(sbq.id) > 0
+      ORDER BY (COUNT(*) FILTER (WHERE sbq.queue_status = 'sent')) DESC
+    `);
+    res.json({ stats: result.rows });
+  } catch (error) {
+    console.error('[StatusBot Admin] Get upload stats error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת סטטיסטיקות' });
+  }
+}
+
 module.exports = {
   // Connection
   getConnection,
@@ -3985,6 +4020,7 @@ module.exports = {
   adminLiftRestriction,
   adminGetStats,
   adminGetActiveProcesses,
+  adminGetUploadStats,
   adminResetQueueLock,
   adminForceCancelItem,
   adminSyncPhoneNumbers,
