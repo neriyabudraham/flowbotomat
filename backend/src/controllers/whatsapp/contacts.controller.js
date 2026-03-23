@@ -672,6 +672,84 @@ async function importGroupParticipants(req, res) {
 }
 
 /**
+ * Internal: pull all WhatsApp contacts and upsert into contacts table.
+ * Called in background — does not require req/res.
+ */
+async function backgroundImportContacts(userId) {
+  try {
+    const connResult = await pool.query(
+      `SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' LIMIT 1`,
+      [userId]
+    );
+    if (connResult.rows.length === 0) return;
+
+    const dbConnection = connResult.rows[0];
+    const connection = await prepareConnection(dbConnection);
+
+    const waContacts = await wahaService.getWhatsAppContacts(connection);
+    if (!waContacts || waContacts.length === 0) return;
+
+    let imported = 0;
+    for (const waContact of waContacts) {
+      const waId = waContact.id || '';
+      const phone = waId.replace(/@.*$/, '');
+      if (!phone || waId.includes('lid') || waId.includes('@g.us')) continue;
+
+      const displayName = (waContact.name || waContact.pushname || '').substring(0, 100);
+      if (!displayName) continue;
+
+      try {
+        await pool.query(
+          `INSERT INTO contacts (user_id, phone, wa_id, display_name)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (user_id, phone)
+           DO UPDATE SET display_name = CASE
+             WHEN contacts.display_name IS NULL OR contacts.display_name = '' OR contacts.display_name = contacts.phone
+             THEN EXCLUDED.display_name
+             ELSE contacts.display_name
+           END`,
+          [userId, phone, waId, displayName]
+        );
+        imported++;
+      } catch {}
+    }
+
+    await pool.query(`UPDATE users SET wa_contacts_synced_at = NOW() WHERE id = $1`, [userId]);
+    console.log(`[Contacts] backgroundImport: ${imported} contacts for user ${userId}`);
+  } catch (err) {
+    console.error('[Contacts] backgroundImport error:', err.message);
+  }
+}
+
+/**
+ * Auto-import contacts on view filter load.
+ * Fires in background if not synced in the last 12 hours.
+ */
+async function autoImportContacts(req, res) {
+  try {
+    const userId = req.user.id;
+
+    const userResult = await pool.query(
+      `SELECT wa_contacts_synced_at FROM users WHERE id = $1`,
+      [userId]
+    );
+    const lastSync = userResult.rows[0]?.wa_contacts_synced_at;
+    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000);
+
+    if (lastSync && new Date(lastSync) > twelveHoursAgo) {
+      return res.json({ started: false, message: 'synced recently' });
+    }
+
+    // Fire and forget
+    backgroundImportContacts(userId).catch(() => {});
+    return res.json({ started: true });
+  } catch (err) {
+    console.error('[Contacts] autoImportContacts error:', err.message);
+    return res.json({ started: false });
+  }
+}
+
+/**
  * Sync contact names from WhatsApp WITHOUT adding new phone numbers.
  * Only updates display_name for contacts that already exist in the contacts table.
  */
@@ -731,6 +809,7 @@ module.exports = {
   needsSync,
   pullWhatsAppContacts,
   syncNamesOnly,
+  autoImportContacts,
   getGroupParticipants,
   importGroupParticipants
 };

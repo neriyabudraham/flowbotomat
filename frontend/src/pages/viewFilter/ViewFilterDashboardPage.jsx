@@ -78,6 +78,9 @@ export default function ViewFilterDashboardPage() {
   }, [search, sortBy, sortDir, page]);
 
   const loadAll = async () => {
+    // Trigger background contact import (fire & forget — max once per 12h)
+    api.get('/whatsapp/contacts/auto-import').catch(() => {});
+
     setLoading(true);
     setLoadingProgress(10);
     setLoadingStep('טוען פרטי מעקב...');
@@ -317,8 +320,8 @@ export default function ViewFilterDashboardPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-violet-50" dir="rtl">
       {/* Header */}
-      <header className="bg-white/80 backdrop-blur-xl border-b border-purple-100 sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto px-6 py-4">
+      <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
@@ -330,8 +333,6 @@ export default function ViewFilterDashboardPage() {
               </button>
               <div className="h-8 w-px bg-gray-200" />
               <Logo />
-              <div className="h-8 w-px bg-gray-200" />
-              <span className="text-lg font-bold text-gray-800">בוט סינון צפיות</span>
             </div>
             <div className="flex items-center gap-3">
               {isAdmin && (
