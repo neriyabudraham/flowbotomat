@@ -660,6 +660,7 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   const BATCH_SIZE = 500;
   const CALL_TIMEOUT_MS = 40000;  // 40 seconds per individual WAHA call
   const PAUSE_MS = 60000;         // 1 minute pause after first timeout
+  const PARALLEL_BATCHES = 3;     // Number of batches to send in parallel
   const LOG_PREFIX = `[StatusBot Contacts | queue=${queueItem.id} | conn=${queueItem.connection_id}]`;
 
   console.log(`${LOG_PREFIX} ▶️ Starting contacts-format send. type=${queueItem.status_type} messageId=${messageId} historyId=${historyId}`);
@@ -764,64 +765,88 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   const totalBatches = Math.ceil(orderedContacts.length / BATCH_SIZE);
   console.log(`${LOG_PREFIX} 📋 Contact order built: ${orderedContacts.length} total (skipped ${alreadySentPhones.size} already-sent) | viewers:${viewers.length} non-viewers:${nonViewers.length} | batches:${totalBatches} (BATCH_SIZE=${BATCH_SIZE})`);
 
-  // 5. Send in batches
+  // 5. Send in parallel batches
   let totalSent = 0;
   let consecutiveTimeouts = 0;
   let stoppedEarly = false;
   const startTime = Date.now();
 
+  // Build all batches upfront
+  const allBatches = [];
   for (let i = 0; i < orderedContacts.length; i += BATCH_SIZE) {
-    const batch = orderedContacts.slice(i, i + BATCH_SIZE);
-    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-    const endpoint = `/api/${sessionName}/status/${queueItem.status_type}`;
-    const body = buildStatusBody(messageId, batch, queueItem.status_type, content, preConvertedFile);
+    allBatches.push({
+      contacts: orderedContacts.slice(i, i + BATCH_SIZE),
+      batchNum: Math.floor(i / BATCH_SIZE) + 1,
+    });
+  }
 
-    console.log(`${LOG_PREFIX} 📤 Batch ${batchNum}/${totalBatches} — sending to ${batch.length} contacts (contacts: ${batch.slice(0,3).join(', ')}${batch.length > 3 ? ` ...+${batch.length - 3}` : ''}) timeout=${CALL_TIMEOUT_MS}ms`);
+  console.log(`${LOG_PREFIX} 🚀 Sending ${allBatches.length} batches with parallelism=${PARALLEL_BATCHES}`);
 
-    let batchTimedOut = false;
-    const batchStart = Date.now();
-    try {
-      const sendPromise = wahaSession.makeRequest(baseUrl, apiKey, 'POST', endpoint, body);
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('BATCH_TIMEOUT')), CALL_TIMEOUT_MS)
-      );
-      const wahaResponse = await Promise.race([sendPromise, timeoutPromise]);
-      const batchDurationMs = Date.now() - batchStart;
-      totalSent += batch.length;
-      consecutiveTimeouts = 0; // reset on success
-      console.log(`${LOG_PREFIX} ✅ Batch ${batchNum}/${totalBatches} OK in ${batchDurationMs}ms — cumulative sent: ${totalSent}/${orderedContacts.length} | WAHA resp id: ${wahaResponse?.id || 'n/a'}`);
-      await logContactSends(historyId, queueItem.id, batch, batchNum, true, null);
-      // Heartbeat: keep processing_started_at fresh so stuck-item detector doesn't reset us
-      await db.query(`UPDATE status_bot_queue SET processing_started_at = NOW() WHERE id = $1`, [queueItem.id]).catch(() => {});
-    } catch (err) {
-      const batchDurationMs = Date.now() - batchStart;
-      if (err.message === 'BATCH_TIMEOUT') {
-        batchTimedOut = true;
-        consecutiveTimeouts++;
-        totalSent += batch.length; // assume the call reached WhatsApp before timeout
-        console.warn(`${LOG_PREFIX} ⏱️ Batch ${batchNum}/${totalBatches} TIMEOUT after ${batchDurationMs}ms (consecutive #${consecutiveTimeouts}) — assuming delivered, cumulative: ${totalSent}/${orderedContacts.length}`);
-        await logContactSends(historyId, queueItem.id, batch, batchNum, true, 'TIMEOUT — assumed delivered');
-        // Heartbeat on timeout too — batch took a long time, refresh the lock
-        await db.query(`UPDATE status_bot_queue SET processing_started_at = NOW() WHERE id = $1`, [queueItem.id]).catch(() => {});
-      } else {
-        console.error(`${LOG_PREFIX} ❌ Batch ${batchNum}/${totalBatches} ERROR after ${batchDurationMs}ms: ${err.message}`);
-        // Non-timeout error: skip batch, log as failed, continue
-        await logContactSends(historyId, queueItem.id, batch, batchNum, false, err.message);
+  // Process batches in waves of PARALLEL_BATCHES
+  for (let waveStart = 0; waveStart < allBatches.length; waveStart += PARALLEL_BATCHES) {
+    if (stoppedEarly) break;
+
+    const wave = allBatches.slice(waveStart, waveStart + PARALLEL_BATCHES);
+    console.log(`${LOG_PREFIX} 🌊 Wave ${Math.floor(waveStart / PARALLEL_BATCHES) + 1} — sending batches ${wave[0].batchNum}-${wave[wave.length - 1].batchNum} in parallel`);
+
+    const waveResults = await Promise.allSettled(wave.map(async ({ contacts: batch, batchNum }) => {
+      const endpoint = `/api/${sessionName}/status/${queueItem.status_type}`;
+      const body = buildStatusBody(messageId, batch, queueItem.status_type, content, preConvertedFile);
+
+      console.log(`${LOG_PREFIX} 📤 Batch ${batchNum}/${totalBatches} — sending to ${batch.length} contacts (contacts: ${batch.slice(0,3).join(', ')}${batch.length > 3 ? ` ...+${batch.length - 3}` : ''}) timeout=${CALL_TIMEOUT_MS}ms`);
+
+      const batchStart = Date.now();
+      try {
+        const sendPromise = wahaSession.makeRequest(baseUrl, apiKey, 'POST', endpoint, body);
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('BATCH_TIMEOUT')), CALL_TIMEOUT_MS)
+        );
+        const wahaResponse = await Promise.race([sendPromise, timeoutPromise]);
+        const batchDurationMs = Date.now() - batchStart;
+        console.log(`${LOG_PREFIX} ✅ Batch ${batchNum}/${totalBatches} OK in ${batchDurationMs}ms | WAHA resp id: ${wahaResponse?.id || 'n/a'}`);
+        await logContactSends(historyId, queueItem.id, batch, batchNum, true, null);
+        return { batchNum, sent: batch.length, timedOut: false, error: false };
+      } catch (err) {
+        const batchDurationMs = Date.now() - batchStart;
+        if (err.message === 'BATCH_TIMEOUT') {
+          console.warn(`${LOG_PREFIX} ⏱️ Batch ${batchNum}/${totalBatches} TIMEOUT after ${batchDurationMs}ms — assuming delivered`);
+          await logContactSends(historyId, queueItem.id, batch, batchNum, true, 'TIMEOUT — assumed delivered');
+          return { batchNum, sent: batch.length, timedOut: true, error: false };
+        } else {
+          console.error(`${LOG_PREFIX} ❌ Batch ${batchNum}/${totalBatches} ERROR after ${batchDurationMs}ms: ${err.message}`);
+          await logContactSends(historyId, queueItem.id, batch, batchNum, false, err.message);
+          return { batchNum, sent: 0, timedOut: false, error: true };
+        }
       }
+    }));
+
+    // Heartbeat: keep processing_started_at fresh so stuck-item detector doesn't reset us
+    await db.query(`UPDATE status_bot_queue SET processing_started_at = NOW() WHERE id = $1`, [queueItem.id]).catch(() => {});
+
+    // Analyze wave results
+    let waveTimeouts = 0;
+    for (const result of waveResults) {
+      const val = result.status === 'fulfilled' ? result.value : { sent: 0, timedOut: false, error: true };
+      totalSent += val.sent;
+      if (val.timedOut) waveTimeouts++;
     }
 
-    if (batchTimedOut) {
+    console.log(`${LOG_PREFIX} 🌊 Wave done — cumulative sent: ${totalSent}/${orderedContacts.length} | timeouts in wave: ${waveTimeouts}/${wave.length}`);
+
+    // Timeout handling: if ALL batches in this wave timed out, it counts as consecutive
+    if (waveTimeouts === wave.length) {
+      consecutiveTimeouts++;
       if (consecutiveTimeouts === 1) {
-        console.log(`${LOG_PREFIX} ⏸️ First consecutive timeout — pausing ${PAUSE_MS / 1000}s before continuing...`);
+        console.log(`${LOG_PREFIX} ⏸️ Entire wave timed out — pausing ${PAUSE_MS / 1000}s before continuing...`);
         await new Promise(resolve => setTimeout(resolve, PAUSE_MS));
         console.log(`${LOG_PREFIX} ▶️ Resuming after pause`);
       } else {
-        // Two consecutive timeouts — WAHA is likely overwhelmed, stop to avoid blocking
-        const remaining = orderedContacts.length - (i + BATCH_SIZE);
-        console.warn(`${LOG_PREFIX} 🛑 Two consecutive timeouts — stopping early. totalSent=${totalSent}/${orderedContacts.length} remaining≈${remaining} elapsed=${Math.round((Date.now() - startTime) / 1000)}s`);
+        const remaining = orderedContacts.length - totalSent;
+        console.warn(`${LOG_PREFIX} 🛑 Two consecutive full-wave timeouts — stopping early. totalSent=${totalSent}/${orderedContacts.length} remaining≈${remaining} elapsed=${Math.round((Date.now() - startTime) / 1000)}s`);
         stoppedEarly = true;
-        break;
       }
+    } else {
+      consecutiveTimeouts = 0; // reset if at least one batch succeeded without timeout
     }
   }
 
