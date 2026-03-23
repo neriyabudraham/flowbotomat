@@ -3907,6 +3907,10 @@ async function adminGetQueueSettings(req, res) {
       'statusbot_restriction_with_main_bot_minutes',
       'statusbot_delay_on_disconnect_minutes',
       'statusbot_contacts_parallel_batches',
+      'statusbot_contacts_batch_size',
+      'statusbot_contacts_timeout_ms',
+      'statusbot_contacts_pause_ms',
+      'statusbot_contacts_max_consecutive_timeouts',
     ];
     const result = await db.query(`SELECT key, value FROM system_settings WHERE key = ANY($1)`, [keys]);
     const settings = {
@@ -3918,6 +3922,10 @@ async function adminGetQueueSettings(req, res) {
       restrictionWithMainBotMinutes: 30,
       delayOnDisconnectMinutes: 0,
       contactsParallelBatches: 3,
+      contactsBatchSize: 500,
+      contactsTimeoutMs: 120000,
+      contactsPauseMs: 60000,
+      contactsMaxConsecutiveTimeouts: 4,
     };
     for (const row of result.rows) {
       const val = parseFloat(JSON.parse(row.value));
@@ -3930,6 +3938,10 @@ async function adminGetQueueSettings(req, res) {
       if (row.key === 'statusbot_restriction_with_main_bot_minutes') settings.restrictionWithMainBotMinutes = val;
       if (row.key === 'statusbot_delay_on_disconnect_minutes') settings.delayOnDisconnectMinutes = val;
       if (row.key === 'statusbot_contacts_parallel_batches') settings.contactsParallelBatches = val;
+      if (row.key === 'statusbot_contacts_batch_size') settings.contactsBatchSize = val;
+      if (row.key === 'statusbot_contacts_timeout_ms') settings.contactsTimeoutMs = val;
+      if (row.key === 'statusbot_contacts_pause_ms') settings.contactsPauseMs = val;
+      if (row.key === 'statusbot_contacts_max_consecutive_timeouts') settings.contactsMaxConsecutiveTimeouts = val;
     }
     res.json(settings);
   } catch (error) {
@@ -4039,6 +4051,10 @@ async function adminUpdateQueueSettings(req, res) {
       restrictionWithMainBotMinutes: 'statusbot_restriction_with_main_bot_minutes',
       delayOnDisconnectMinutes: 'statusbot_delay_on_disconnect_minutes',
       contactsParallelBatches: 'statusbot_contacts_parallel_batches',
+      contactsBatchSize: 'statusbot_contacts_batch_size',
+      contactsTimeoutMs: 'statusbot_contacts_timeout_ms',
+      contactsPauseMs: 'statusbot_contacts_pause_ms',
+      contactsMaxConsecutiveTimeouts: 'statusbot_contacts_max_consecutive_timeouts',
     };
     for (const [field, key] of Object.entries(settingsMap)) {
       if (req.body[field] !== undefined) {

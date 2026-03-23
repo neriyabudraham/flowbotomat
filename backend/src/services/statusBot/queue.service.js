@@ -258,13 +258,36 @@ async function processItem(item) {
       }
     }
 
+    // If stopped early due to timeouts, re-queue to continue with remaining contacts
+    const MAX_SEND_RETRIES = 3;
+    if (sendResult?.stoppedEarly && (item.retry_count || 0) < MAX_SEND_RETRIES) {
+      const retryPauseMinutes = await getSettingFloat('statusbot_contacts_retry_pause_minutes', 3);
+      console.log(`[StatusBot] ⏸️ Status id=${item.id} stopped early (${sendResult.contactsSent}/${sendResult.totalContacts} sent, retry ${(item.retry_count || 0) + 1}/${MAX_SEND_RETRIES}) — re-queuing in ${retryPauseMinutes}min`);
+      await db.query(
+        `UPDATE status_bot_queue
+         SET queue_status = 'pending', processing_started_at = NULL,
+             scheduled_for = NOW() + ($2 * interval '1 minute'),
+             retry_count = COALESCE(retry_count, 0) + 1
+         WHERE id = $1`,
+        [item.id, retryPauseMinutes]
+      );
+      emitToAdmin('statusbot:processing_end', {
+        id: item.id, success: true, stoppedEarly: true,
+        contactsSent: sendResult.contactsSent, totalContacts: sendResult.totalContacts,
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
     await db.query(
       `UPDATE status_bot_queue SET queue_status = 'sent', sent_at = NOW(), sent_timed_out = $2 WHERE id = $1`,
       [item.id, !!sendResult?.timeout]
     );
 
     const uploadDuration = Math.round((Date.now() - now.getTime()) / 1000);
-    if (sendResult?.timeout) {
+    if (sendResult?.stoppedEarly) {
+      console.log(`[StatusBot] ⚠️ Status id=${item.id} type=${item.status_type} completed with partial send (${sendResult.contactsSent}/${sendResult.totalContacts}) in ${uploadDuration}s`);
+    } else if (sendResult?.timeout) {
       console.log(`[StatusBot] ⏱️ Status id=${item.id} type=${item.status_type} TIMEOUT after ${uploadDuration}s (treating as success)`);
     } else {
       console.log(`[StatusBot] ✅ Status id=${item.id} type=${item.status_type} confirmed uploaded in ${uploadDuration}s`);
@@ -724,7 +747,30 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   const viewerPhones = new Set(viewersResult.rows.map(r => r.phone));
   console.log(`${LOG_PREFIX} 👁️ Found ${viewerPhones.size} unique engaged contacts (views + reactions + replies)`);
 
-  // 3b. On retry: find contacts that were already successfully sent
+  // 3b. Resolve LID contacts to phone numbers for accurate viewer matching
+  const lidContacts = allContacts.filter(c => c.id && c.id.includes('@lid'));
+  const lidToPhone = new Map();
+  if (lidContacts.length > 0) {
+    try {
+      const connUserRes = await db.query(`SELECT user_id FROM status_bot_connections WHERE id = $1`, [queueItem.connection_id]);
+      const userId = connUserRes.rows[0]?.user_id;
+      if (userId) {
+        const lids = lidContacts.map(c => c.id.replace(/@.*/, ''));
+        const lidResult = await db.query(
+          `SELECT lid, phone FROM whatsapp_lid_mapping WHERE user_id = $1 AND lid = ANY($2)`,
+          [userId, lids]
+        );
+        for (const row of lidResult.rows) {
+          lidToPhone.set(row.lid, row.phone);
+        }
+        console.log(`${LOG_PREFIX} 🔗 Resolved ${lidToPhone.size}/${lidContacts.length} LID contacts to phone numbers`);
+      }
+    } catch (lidErr) {
+      console.warn(`${LOG_PREFIX} LID resolution error (non-fatal): ${lidErr.message}`);
+    }
+  }
+
+  // 3c. On retry: find contacts that were already successfully sent
   const alreadySentPhones = new Set();
   if (historyId) {
     const sentResult = await db.query(
@@ -753,9 +799,11 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     const id = c.id;
     if (!id || id === ownId || seen.has(id)) continue;
     seen.add(id);
-    const phone = id.replace(/@.*/, '');
+    const rawId = id.replace(/@.*/, '');
+    // Resolve LID to phone number for accurate viewer matching
+    const phone = (id.includes('@lid') && lidToPhone.has(rawId)) ? lidToPhone.get(rawId) : rawId;
     // Skip contacts already sent on previous attempt
-    if (alreadySentPhones.has(phone)) continue;
+    if (alreadySentPhones.has(phone) || alreadySentPhones.has(rawId)) continue;
     if (viewerPhones.has(phone)) {
       viewers.push(id);
     } else {
