@@ -1725,19 +1725,32 @@ async function getStatusHistory(req, res) {
       WHERE connection_id = $1
     `, [connResult.rows[0].id]);
 
-    // Get statuses with queue status
+    // Get statuses with queue status + new viewer count
+    const connectionId = connResult.rows[0].id;
     const result = await db.query(`
-      SELECT 
+      SELECT
         s.*,
         s.deleted_at IS NOT NULL as is_deleted,
-        q.queue_status
+        q.queue_status,
+        (
+          SELECT COUNT(*) FROM status_bot_views v
+          WHERE v.status_id = s.id
+            AND NOT EXISTS (
+              SELECT 1 FROM status_bot_views v2
+              JOIN status_bot_statuses s2 ON s2.id = v2.status_id
+              WHERE v2.viewer_phone = v.viewer_phone
+                AND s2.connection_id = $1
+                AND s2.id != s.id
+                AND COALESCE(s2.sent_at, s2.created_at) < COALESCE(s.sent_at, s.created_at)
+            )
+        ) as new_viewer_count
       FROM status_bot_statuses s
       LEFT JOIN status_bot_queue q ON q.id = s.queue_id
       WHERE s.connection_id = $1
         AND NOT (s.uncertain_upload = true AND s.view_count = 0)
       ORDER BY COALESCE(s.sent_at, s.created_at) DESC
       LIMIT $2 OFFSET $3
-    `, [connResult.rows[0].id, limit, offset]);
+    `, [connectionId, limit, offset]);
 
     res.json({ 
       statuses: normalizeRows(result.rows),
@@ -1767,18 +1780,44 @@ async function getStatusDetails(req, res) {
       return res.status(404).json({ error: 'לא נמצא חיבור' });
     }
 
+    const connectionId = connResult.rows[0].id;
     const statusResult = await db.query(`
-      SELECT * FROM status_bot_statuses 
-      WHERE id = $1 AND connection_id = $2
-    `, [statusId, connResult.rows[0].id]);
+      SELECT s.*,
+        (
+          SELECT COUNT(*) FROM status_bot_views v
+          WHERE v.status_id = s.id
+            AND NOT EXISTS (
+              SELECT 1 FROM status_bot_views v2
+              JOIN status_bot_statuses s2 ON s2.id = v2.status_id
+              WHERE v2.viewer_phone = v.viewer_phone
+                AND s2.connection_id = $2
+                AND s2.id != s.id
+                AND COALESCE(s2.sent_at, s2.created_at) < COALESCE(s.sent_at, s.created_at)
+            )
+        ) as new_viewer_count
+      FROM status_bot_statuses s
+      WHERE s.id = $1 AND s.connection_id = $2
+    `, [statusId, connectionId]);
 
     if (statusResult.rows.length === 0) {
       return res.status(404).json({ error: 'סטטוס לא נמצא' });
     }
 
+    const statusSentAt = statusResult.rows[0].sent_at || statusResult.rows[0].created_at;
     const viewsResult = await db.query(`
-      SELECT * FROM status_bot_views WHERE status_id = $1 ORDER BY viewed_at DESC
-    `, [statusId]);
+      SELECT v.*,
+        NOT EXISTS (
+          SELECT 1 FROM status_bot_views v2
+          JOIN status_bot_statuses s2 ON s2.id = v2.status_id
+          WHERE v2.viewer_phone = v.viewer_phone
+            AND s2.connection_id = $2
+            AND s2.id != $1
+            AND COALESCE(s2.sent_at, s2.created_at) < $3
+        ) as is_new_viewer
+      FROM status_bot_views v
+      WHERE v.status_id = $1
+      ORDER BY v.viewed_at DESC
+    `, [statusId, connectionId, statusSentAt]);
 
     const reactionsResult = await db.query(`
       SELECT * FROM status_bot_reactions WHERE status_id = $1 ORDER BY reacted_at DESC

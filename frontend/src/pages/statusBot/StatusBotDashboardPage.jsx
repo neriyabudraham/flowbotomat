@@ -6,7 +6,7 @@ import {
   Video, Mic, Type, Palette, Send, AlertCircle, X, Loader,
   QrCode, Wifi, WifiOff, Phone, ChevronDown, ChevronUp, List, ChevronLeft, ChevronRight,
   Loader2, Shield, Zap, HelpCircle, Mail, Home, Settings, Crown,
-  CheckCircle, BarChart, Play, Pause, Volume2, History, Calendar
+  CheckCircle, BarChart, Play, Pause, Volume2, History, Calendar, UserPlus
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
 import useWhatsappStore from '../../store/whatsappStore';
@@ -2870,6 +2870,12 @@ function StatusBotDashboardContent() {
                           <p className="text-2xl font-bold text-gray-800">{statusDetailsModal.status.view_count || 0}</p>
                           <p className="text-sm text-gray-500">צפיות</p>
                         </div>
+                        {(statusDetailsModal.status.new_viewer_count > 0) && (
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-emerald-600">+{statusDetailsModal.status.new_viewer_count}</p>
+                            <p className="text-sm text-gray-500">צופים חדשים</p>
+                          </div>
+                        )}
                         <div className="text-center">
                           <p className="text-2xl font-bold text-red-500">{statusDetailsModal.status.reaction_count || 0}</p>
                           <p className="text-sm text-gray-500">לבבות</p>
@@ -2890,15 +2896,27 @@ function StatusBotDashboardContent() {
                           <Eye className="w-10 h-10 mx-auto mb-2 opacity-50" />
                           <p>אין צפיות עדיין</p>
                         </div>
-                      ) : (
+                      ) : (<>
+                        {(() => {
+                          const newCount = statusDetailsModal.views.filter(v => v.is_new_viewer).length;
+                          return newCount > 0 ? (
+                            <div className="flex items-center gap-2 p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700">
+                              <UserPlus className="w-4 h-4" />
+                              <span><strong>{newCount}</strong> צופים חדשים מתוך {statusDetailsModal.views.length} צפיות</span>
+                            </div>
+                          ) : null;
+                        })()}
                         statusDetailsModal.views.map((view, i) => (
-                          <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <div key={i} className={`flex items-center justify-between p-3 rounded-lg ${view.is_new_viewer ? 'bg-emerald-50 border border-emerald-200' : 'bg-gray-50'}`}>
                             <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                                <Users className="w-5 h-5 text-green-600" />
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${view.is_new_viewer ? 'bg-emerald-100' : 'bg-green-100'}`}>
+                                {view.is_new_viewer ? <UserPlus className="w-5 h-5 text-emerald-600" /> : <Users className="w-5 h-5 text-green-600" />}
                               </div>
                               <div>
-                                <ClickablePhone phone={view.viewer_phone} className="font-medium text-gray-800" />
+                                <div className="flex items-center gap-2">
+                                  <ClickablePhone phone={view.viewer_phone} className="font-medium text-gray-800" />
+                                  {view.is_new_viewer && <span className="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-medium">חדש</span>}
+                                </div>
                                 {view.viewer_name && <p className="text-sm text-gray-500">{view.viewer_name}</p>}
                               </div>
                             </div>
@@ -2907,7 +2925,7 @@ function StatusBotDashboardContent() {
                             </span>
                           </div>
                         ))
-                      )}
+                      </>)}
                     </div>
                   )}
 
@@ -3625,13 +3643,18 @@ function StatusRow({ status, onDelete, isActive, onShowDetails }) {
         {/* Stats - show even for deleted statuses */}
         {canShowStats && (
           <div className="flex items-center gap-3 text-sm text-gray-500">
-            <button 
+            <button
               onClick={() => onShowDetails(status.id, 'views')}
               className="flex items-center gap-1 hover:text-gray-700 hover:bg-gray-100 px-2 py-1 rounded transition-colors"
               title="צפיות - לחץ לפרטים"
             >
               <Eye className="w-4 h-4" />
               {status.view_count || 0}
+              {(status.new_viewer_count > 0) && (
+                <span className="flex items-center gap-0.5 text-emerald-600 font-medium" title="צופים חדשים">
+                  <UserPlus className="w-3.5 h-3.5" />+{status.new_viewer_count}
+                </span>
+              )}
             </button>
             <button 
               onClick={() => onShowDetails(status.id, 'reactions')}
