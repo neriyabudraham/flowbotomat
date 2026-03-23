@@ -109,7 +109,6 @@ services:
     networks:
       - flowbotomat_network
     command: node src/workers/queueProcessor.js
-    stop_grace_period: 60s
 
   frontend:
     build:
