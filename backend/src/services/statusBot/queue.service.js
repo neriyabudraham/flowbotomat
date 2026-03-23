@@ -225,15 +225,18 @@ async function processItem(item) {
     try {
       sendResult = await sendStatus(item);
     } catch (firstError) {
-      // 422 "Session does not exist" → user was migrated to a different WAHA server.
+      // 422/404 "Session does not exist" → user was migrated to a different WAHA server.
       // Attempt to auto-heal from the main whatsapp_connections record, then retry once.
       const isSessionMissing =
         firstError.message?.includes('422') ||
+        firstError.message?.includes('404') ||
         firstError.message?.includes('does not exist') ||
-        firstError.response?.status === 422;
+        firstError.message?.includes("didn't find a session") ||
+        firstError.response?.status === 422 ||
+        firstError.response?.status === 404;
 
       if (isSessionMissing) {
-        console.log(`[StatusBot] ⚠️ Session not found (422) for item ${item.id} — attempting auto-heal...`);
+        console.log(`[StatusBot] ⚠️ Session not found for item ${item.id} — attempting auto-heal...`);
         const healed = await healSessionFromMainConnection(item.connection_id);
 
         if (healed) {
