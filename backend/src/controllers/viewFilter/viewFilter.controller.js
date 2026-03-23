@@ -198,36 +198,85 @@ async function getDashboardStats(req, res) {
 
     // Use all user connections for queries (not limited to campaign's connection_id)
     const [totalViewers, newToday, newThisWeek, totalStatuses, avgViews, totalGrayCheckmarks] = await Promise.all([
-      // Total unique viewers (all time, all connections)
+      // Total unique engaged contacts (views + reactions + replies, all time, all connections)
+      // This matches the queue service's viewer list and the getViewers total count
       db.query(`
-        SELECT COUNT(DISTINCT sbv.viewer_phone) as count
-        FROM status_bot_views sbv
-        JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
-        WHERE conn.user_id = $1
-      `, [userId]),
-
-      // New viewers today (first seen today, all connections)
-      db.query(`
-        SELECT COUNT(DISTINCT viewer_phone) as count FROM (
-          SELECT sbv.viewer_phone, MIN(sbv.viewed_at) as first_seen
+        SELECT COUNT(DISTINCT phone) as count FROM (
+          SELECT sbv.viewer_phone AS phone
           FROM status_bot_views sbv
           JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
           JOIN status_bot_connections conn ON sbs.connection_id = conn.id
           WHERE conn.user_id = $1
-          GROUP BY sbv.viewer_phone
+          UNION
+          SELECT sbr.reactor_phone AS phone
+          FROM status_bot_reactions sbr
+          JOIN status_bot_statuses sbs ON sbr.status_id = sbs.id
+          JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+          WHERE conn.user_id = $1
+          UNION
+          SELECT sbrep.replier_phone AS phone
+          FROM status_bot_replies sbrep
+          JOIN status_bot_statuses sbs ON sbrep.status_id = sbs.id
+          JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+          WHERE conn.user_id = $1
+        ) all_engaged
+      `, [userId]),
+
+      // New engaged contacts today (first interaction today, all connections)
+      db.query(`
+        SELECT COUNT(DISTINCT phone) as count FROM (
+          SELECT phone, MIN(first_seen) as first_seen FROM (
+            SELECT sbv.viewer_phone AS phone, MIN(sbv.viewed_at) AS first_seen
+            FROM status_bot_views sbv
+            JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
+            JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+            WHERE conn.user_id = $1
+            GROUP BY sbv.viewer_phone
+            UNION ALL
+            SELECT sbr.reactor_phone AS phone, MIN(sbr.reacted_at) AS first_seen
+            FROM status_bot_reactions sbr
+            JOIN status_bot_statuses sbs ON sbr.status_id = sbs.id
+            JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+            WHERE conn.user_id = $1
+            GROUP BY sbr.reactor_phone
+            UNION ALL
+            SELECT sbrep.replier_phone AS phone, MIN(sbrep.replied_at) AS first_seen
+            FROM status_bot_replies sbrep
+            JOIN status_bot_statuses sbs ON sbrep.status_id = sbs.id
+            JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+            WHERE conn.user_id = $1
+            GROUP BY sbrep.replier_phone
+          ) all_interactions
+          GROUP BY phone
         ) t WHERE t.first_seen >= $2
       `, [userId, todayStart]),
 
-      // New viewers this week (first seen in last 7 days, all connections)
+      // New engaged contacts this week (first interaction in last 7 days, all connections)
       db.query(`
-        SELECT COUNT(DISTINCT viewer_phone) as count FROM (
-          SELECT sbv.viewer_phone, MIN(sbv.viewed_at) as first_seen
-          FROM status_bot_views sbv
-          JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-          JOIN status_bot_connections conn ON sbs.connection_id = conn.id
-          WHERE conn.user_id = $1
-          GROUP BY sbv.viewer_phone
+        SELECT COUNT(DISTINCT phone) as count FROM (
+          SELECT phone, MIN(first_seen) as first_seen FROM (
+            SELECT sbv.viewer_phone AS phone, MIN(sbv.viewed_at) AS first_seen
+            FROM status_bot_views sbv
+            JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
+            JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+            WHERE conn.user_id = $1
+            GROUP BY sbv.viewer_phone
+            UNION ALL
+            SELECT sbr.reactor_phone AS phone, MIN(sbr.reacted_at) AS first_seen
+            FROM status_bot_reactions sbr
+            JOIN status_bot_statuses sbs ON sbr.status_id = sbs.id
+            JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+            WHERE conn.user_id = $1
+            GROUP BY sbr.reactor_phone
+            UNION ALL
+            SELECT sbrep.replier_phone AS phone, MIN(sbrep.replied_at) AS first_seen
+            FROM status_bot_replies sbrep
+            JOIN status_bot_statuses sbs ON sbrep.status_id = sbs.id
+            JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+            WHERE conn.user_id = $1
+            GROUP BY sbrep.replier_phone
+          ) all_interactions
+          GROUP BY phone
         ) t WHERE t.first_seen >= $2
       `, [userId, weekAgo]),
 
