@@ -3011,7 +3011,7 @@ async function handleSessionStatus(connection, payload) {
         if (!connection.contacts_cache_synced_at) {
           setImmediate(async () => {
             try {
-              const { getWahaCredentialsForConnection } = require('../services/settings/system.service');
+              const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
               const creds = await getWahaCredentialsForConnection(connection);
               const { fetchAndCacheContacts } = require('../../services/statusBot/queue.service');
               const contacts = await fetchAndCacheContacts(creds.baseUrl, creds.apiKey, connection.session_name, connection.id);
@@ -3934,7 +3934,7 @@ async function refreshContactsCache(req, res) {
     if (connection.connection_status !== 'connected') {
       return res.status(400).json({ error: 'הסשן אינו מחובר' });
     }
-    const { getWahaCredentialsForConnection } = require('../services/settings/system.service');
+    const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
     const creds = await getWahaCredentialsForConnection(connection);
     const { fetchAndCacheContacts } = require('../../services/statusBot/queue.service');
     const contacts = await fetchAndCacheContacts(creds.baseUrl, creds.apiKey, connection.session_name, connection.id);
