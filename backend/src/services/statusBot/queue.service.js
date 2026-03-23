@@ -655,7 +655,7 @@ async function logContactSends(historyId, queueId, contacts, batchNum, success, 
 async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile }) {
   const content = queueItem.content;
   const BATCH_SIZE = 500;
-  const CALL_TIMEOUT_MS = 30000;  // 30 seconds per individual WAHA call
+  const CALL_TIMEOUT_MS = 40000;  // 40 seconds per individual WAHA call
   const PAUSE_MS = 60000;         // 1 minute pause after first timeout
   const LOG_PREFIX = `[StatusBot Contacts | queue=${queueItem.id} | conn=${queueItem.connection_id}]`;
 
