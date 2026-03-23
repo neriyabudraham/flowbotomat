@@ -23,6 +23,7 @@ function emitToAdmin(event, data) {
 
 const QUEUE_INTERVAL = 5000; // Check queue every 5 seconds
 const DEFAULT_STATUS_TIMEOUT = 600000; // 10 minutes timeout per status (default)
+const activeItemTokens = new Map(); // queueId -> token (prevents duplicate processing after stuck reset)
 
 // Generic settings cache (refreshed every 60 seconds from DB)
 const _settingsCache = {};
@@ -271,6 +272,7 @@ async function processItem(item) {
          WHERE id = $1`,
         [item.id, retryPauseMinutes]
       );
+      activeItemTokens.delete(item.id);
       emitToAdmin('statusbot:processing_end', {
         id: item.id, success: true, stoppedEarly: true,
         contactsSent: sendResult.contactsSent, totalContacts: sendResult.totalContacts,
@@ -295,9 +297,16 @@ async function processItem(item) {
 
     await sendStatusNotification(item, true);
 
+    activeItemTokens.delete(item.id);
     emitToAdmin('statusbot:processing_end', { id: item.id, success: true, timestamp: new Date().toISOString() });
 
   } catch (sendError) {
+    // If this process was superseded by a new processing instance, abort silently
+    if (sendError.message === 'PROCESSING_SUPERSEDED') {
+      console.log(`[StatusBot] 🛑 Item ${item.id} was superseded by a new processing instance — aborting old one`);
+      return;
+    }
+
     const isTimeout = sendError.message?.includes('timeout') || sendError.message?.includes('TIMEOUT');
     console.error(`[StatusBot] ❌ Status id=${item.id} ${isTimeout ? 'TIMEOUT' : 'ERROR'}: ${sendError.message}`);
     if (!isTimeout) console.error(sendError.stack || sendError);
@@ -310,6 +319,7 @@ async function processItem(item) {
 
     await sendStatusNotification(item, false, sendError.message);
 
+    activeItemTokens.delete(item.id);
     emitToAdmin('statusbot:processing_end', { id: item.id, success: false, error: sendError.message, timestamp: new Date().toISOString() });
   }
 }
@@ -343,15 +353,18 @@ async function processQueue() {
     ]);
 
     // 1. Reset stuck items (processing started > timeout+60s ago)
+    // Exclude items actively being processed by this instance (prevents resetting our own in-flight work)
+    const activeIds = [...activeItemTokens.keys()];
     const stuckReset = await db.query(`
       UPDATE status_bot_queue
       SET queue_status = 'pending', processing_started_at = NULL
       WHERE queue_status = 'processing'
         AND processing_started_at < NOW() - ($1 * interval '1 millisecond')
+        ${activeIds.length > 0 ? `AND id != ALL($2)` : ''}
       RETURNING id
-    `, [timeout + 60000]);
+    `, activeIds.length > 0 ? [timeout + 60000, activeIds] : [timeout + 60000]);
     if (stuckReset.rowCount > 0) {
-      console.log(`[StatusBot Queue] Reset ${stuckReset.rowCount} stuck item(s)`);
+      console.log(`[StatusBot Queue] Reset ${stuckReset.rowCount} stuck item(s) (skipped ${activeIds.length} active in this process)`);
     }
 
     // 2. Count currently processing per source
@@ -496,6 +509,11 @@ async function processQueue() {
         RETURNING id
       `, [item.id]);
       if (claimed.rowCount === 0) continue; // race condition
+
+      // Generate a unique token so we can detect if this item was reset and reclaimed
+      const token = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      activeItemTokens.set(item.id, token);
+      item._processingToken = token;
 
       const promise = processItem(item);
       activePromises.add(promise);
@@ -678,7 +696,7 @@ async function logContactSends(historyId, queueId, contacts, batchNum, success, 
  * - First timeout → wait 1 minute → continue
  * - Second timeout → stop, save total contacts reached
  */
-async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile }) {
+async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile, processingToken }) {
   const content = queueItem.content;
   const BATCH_SIZE = await getSettingFloat('statusbot_contacts_batch_size', 500);
   const CALL_TIMEOUT_MS = await getSettingFloat('statusbot_contacts_timeout_ms', 120000);  // 2 minutes per batch
@@ -857,6 +875,12 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   for (let waveStart = 0; waveStart < allBatches.length; waveStart += PARALLEL_BATCHES) {
     if (stoppedEarly) break;
 
+    // Ownership check: if this item was reset and reclaimed by another process, abort
+    if (processingToken && activeItemTokens.get(queueItem.id) !== processingToken) {
+      console.warn(`${LOG_PREFIX} 🛑 Processing token mismatch — item was reclaimed by another process. Aborting.`);
+      throw new Error('PROCESSING_SUPERSEDED');
+    }
+
     const wave = allBatches.slice(waveStart, waveStart + PARALLEL_BATCHES);
 
     // Add 30s delay between non-viewer waves (not the first one right after viewers)
@@ -914,8 +938,9 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     console.log(`${LOG_PREFIX} 🌊 Wave done — cumulative sent: ${totalSent}/${orderedContacts.length} (${progressPct}%) | timeouts in wave: ${waveTimeouts}/${wave.length}`);
 
     // Heartbeat + progress: keep processing_started_at fresh and update send progress
+    // Only update if still in 'processing' state (prevents fighting with stuck reset)
     await db.query(
-      `UPDATE status_bot_queue SET processing_started_at = NOW(), contacts_sent = $2, contacts_total = $3 WHERE id = $1`,
+      `UPDATE status_bot_queue SET processing_started_at = NOW(), contacts_sent = $2, contacts_total = $3 WHERE id = $1 AND queue_status = 'processing'`,
       [queueItem.id, totalSent, orderedContacts.length]
     ).catch(() => {});
 
@@ -1054,6 +1079,7 @@ async function sendStatus(queueItem) {
   if (queueItem.status_send_format === 'contacts') {
     const result = await sendStatusWithContacts(queueItem, {
       baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile,
+      processingToken: queueItem._processingToken,
     });
     const actualId = result?.id;
     if (actualId && actualId !== historyMessageId && historyId) {
