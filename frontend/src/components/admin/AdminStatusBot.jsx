@@ -306,6 +306,18 @@ export default function AdminStatusBot() {
     }
   };
 
+  const handleSetSendFormat = async (e, connectionId, format) => {
+    e.stopPropagation();
+    const label = format === 'contacts' ? 'פורמט אנשי קשר' : 'פורמט ברירת מחדל';
+    if (!confirm(`לעבור ל-${label} עבור משתמש זה?`)) return;
+    try {
+      await api.patch(`/status-bot/admin/user/${connectionId}/send-format`, { format });
+      setUsers(prev => prev.map(u => u.id === connectionId ? { ...u, status_send_format: format } : u));
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בעדכון פורמט');
+    }
+  };
+
   const handleSyncPhones = async () => {
     if (!confirm('לסנכרן מספרי טלפון מכל החיבורים?')) return;
     
@@ -1228,6 +1240,18 @@ export default function AdminStatusBot() {
                         {switchingUser === user.user_id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5" />}
                         כניסה
                       </button>
+                      {/* Send format toggle */}
+                      <button
+                        onClick={(e) => handleSetSendFormat(e, user.id, user.status_send_format === 'contacts' ? 'default' : 'contacts')}
+                        className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium ${
+                          user.status_send_format === 'contacts'
+                            ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                        title={user.status_send_format === 'contacts' ? 'פורמט: אנשי קשר — לחץ לעבור לברירת מחדל' : 'פורמט: ברירת מחדל — לחץ לעבור לאנשי קשר'}
+                      >
+                        {user.status_send_format === 'contacts' ? '👥 אנשי קשר' : '📡 רגיל'}
+                      </button>
                       <StatBadge icon={Upload} value={user.statuses_today || 0} label="היום" color="purple" />
                       <StatBadge icon={Clock} value={user.pending_count || 0} label="בתור" color="blue" />
                       {hasErrors && (
@@ -1291,6 +1315,9 @@ export default function AdminStatusBot() {
                     <span>צפיות היום: <strong className="text-cyan-600">{user.views_today || 0}</strong></span>
                     <span>לבבות היום: <strong className="text-pink-600">{user.reactions_today || 0}</strong></span>
                     <span>תגובות היום: <strong className="text-blue-600">{user.replies_today || 0}</strong></span>
+                    {user.status_send_format === 'contacts' && user.contacts_send_total > 0 && (
+                      <span>נשלח ל: <strong className="text-purple-600">{user.contacts_send_total.toLocaleString()} אנשי קשר</strong></span>
+                    )}
                     {user.last_status_sent && (
                       <span>שליחה אחרונה: <strong>{formatDate(user.last_status_sent)}</strong></span>
                     )}

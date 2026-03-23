@@ -3894,6 +3894,27 @@ async function adminSetRestriction(req, res) {
 }
 
 /**
+ * Admin: set status send format for a connection ('default' | 'contacts')
+ */
+async function adminSetSendFormat(req, res) {
+  try {
+    const { connectionId } = req.params;
+    const { format } = req.body;
+    if (!['default', 'contacts'].includes(format)) {
+      return res.status(400).json({ error: 'פורמט לא תקין — allowed: default, contacts' });
+    }
+    await db.query(
+      `UPDATE status_bot_connections SET status_send_format = $1, updated_at = NOW() WHERE id = $2`,
+      [format, connectionId]
+    );
+    res.json({ success: true, format });
+  } catch (error) {
+    console.error('[StatusBot Admin] Set send format error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון פורמט שליחה' });
+  }
+}
+
+/**
  * Admin: update queue global settings
  */
 async function adminUpdateQueueSettings(req, res) {
@@ -4248,6 +4269,7 @@ module.exports = {
   adminGetQueueSettings,
   adminUpdateQueueSettings,
   adminSetRestriction,
+  adminSetSendFormat,
   adminGetAllQueueItems,
   adminCancelQueueItem,
   adminBulkCancelQueue,

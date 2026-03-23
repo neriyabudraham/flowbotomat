@@ -126,6 +126,7 @@ router.post('/admin/sync-phones', authMiddleware, adminMiddleware, statusBotCont
 router.get('/admin/queue-settings', authMiddleware, adminMiddleware, statusBotController.adminGetQueueSettings);
 router.patch('/admin/queue-settings', authMiddleware, adminMiddleware, statusBotController.adminUpdateQueueSettings);
 router.patch('/admin/user/:connectionId/set-restriction', authMiddleware, superadminMiddleware, statusBotController.adminSetRestriction);
+router.patch('/admin/user/:connectionId/send-format', authMiddleware, superadminMiddleware, statusBotController.adminSetSendFormat);
 
 // Admin queue management (specific routes MUST come before :queueId param route)
 router.get('/admin/queue/all', authMiddleware, adminMiddleware, statusBotController.adminGetAllQueueItems);

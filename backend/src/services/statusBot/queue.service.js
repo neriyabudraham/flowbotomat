@@ -343,7 +343,7 @@ async function processQueue() {
     const candidates = await db.query(`
       SELECT q.*, c.session_name, c.connection_status, c.waha_source_id,
              c.restriction_lifted, c.short_restriction_until, c.restriction_until,
-             c.first_connected_at, c.last_connected_at
+             c.first_connected_at, c.last_connected_at, c.status_send_format
       FROM status_bot_queue q
       JOIN status_bot_connections c ON c.id = q.connection_id
       WHERE q.queue_status IN ('pending', 'scheduled')
@@ -520,6 +520,184 @@ async function healSessionFromMainConnection(connectionId) {
 }
 
 /**
+ * Pre-convert video/voice using WAHA's convert API.
+ * Returns { mimetype, data } (base64) or null if conversion fails (caller falls back to convert:true).
+ */
+async function preConvertMedia(baseUrl, apiKey, sessionName, type, content) {
+  const fileUrl = getFileUrl(content);
+  if (!fileUrl) return null;
+  const endpoint = type === 'video'
+    ? `/api/${sessionName}/media/convert/video`
+    : `/api/${sessionName}/media/convert/voice`;
+  try {
+    console.log(`[StatusBot] 🔄 Pre-converting ${type} via WAHA...`);
+    const result = await wahaSession.makeRequest(baseUrl, apiKey, 'POST', endpoint, { url: fileUrl });
+    if (result?.data && result?.mimetype) {
+      console.log(`[StatusBot] ✅ Pre-converted ${type}: ${result.mimetype}`);
+      return { mimetype: result.mimetype, data: result.data };
+    }
+  } catch (err) {
+    console.warn(`[StatusBot] ⚠️ Pre-conversion failed for ${type}, falling back to convert:true — ${err.message}`);
+  }
+  return null;
+}
+
+/**
+ * Build WAHA status request body for a given type.
+ */
+function buildStatusBody(messageId, contacts, statusType, content, preConvertedFile) {
+  switch (statusType) {
+    case 'text':
+      return {
+        id: messageId, contacts,
+        text: content.text,
+        backgroundColor: content.backgroundColor || '#38b42f',
+        font: content.font || 0,
+        linkPreview: content.linkPreview !== false,
+        linkPreviewHighQuality: false,
+      };
+    case 'image':
+      return {
+        id: messageId, contacts,
+        file: buildFileObject(content, 'image'),
+        caption: content.caption || '',
+      };
+    case 'video':
+      return {
+        id: messageId, contacts,
+        file: preConvertedFile || buildFileObject(content, 'video'),
+        ...(preConvertedFile ? {} : { convert: true }),
+        caption: content.caption || '',
+      };
+    case 'voice':
+      return {
+        id: messageId, contacts,
+        file: preConvertedFile || buildFileObject(content, 'voice'),
+        ...(preConvertedFile ? {} : { convert: true }),
+        backgroundColor: content.backgroundColor || '#38b42f',
+      };
+    default:
+      throw new Error(`Unknown status type: ${statusType}`);
+  }
+}
+
+/**
+ * Send status using the "contacts" format:
+ * - Fetches own phone + all contacts from WAHA
+ * - Orders: own phone first, then viewers (from status_bot_views), then non-viewers
+ * - Sends in batches of 500 with a 30s per-call timeout
+ * - First timeout → wait 1 minute → continue
+ * - Second timeout → stop, save total contacts reached
+ */
+async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile }) {
+  const content = queueItem.content;
+  const BATCH_SIZE = 500;
+  const CALL_TIMEOUT_MS = 30000;  // 30 seconds per individual WAHA call
+  const PAUSE_MS = 60000;         // 1 minute pause after first timeout
+
+  // 1. Get own ID
+  let ownId = null;
+  try {
+    const me = await wahaSession.makeRequest(baseUrl, apiKey, 'GET', `/api/${sessionName}/me`);
+    ownId = me?.id;
+    console.log(`[StatusBot Contacts] Own ID: ${ownId}`);
+  } catch (err) {
+    console.warn(`[StatusBot Contacts] Could not get own ID: ${err.message}`);
+  }
+
+  // 2. Get all contacts
+  let allContacts = [];
+  try {
+    const contactsResp = await wahaSession.makeRequest(baseUrl, apiKey, 'GET', `/api/contacts/all?session=${sessionName}`);
+    allContacts = Array.isArray(contactsResp) ? contactsResp : [];
+    console.log(`[StatusBot Contacts] Got ${allContacts.length} contacts from WAHA`);
+  } catch (err) {
+    console.warn(`[StatusBot Contacts] Could not get contacts: ${err.message}`);
+  }
+
+  // 3. Get viewer phone numbers for this connection (people who viewed any previous status)
+  const viewersResult = await db.query(`
+    SELECT DISTINCT sbv.viewer_phone
+    FROM status_bot_views sbv
+    JOIN status_bot_statuses sbs ON sbs.id = sbv.status_id
+    WHERE sbs.connection_id = $1
+  `, [queueItem.connection_id]);
+  const viewerPhones = new Set(viewersResult.rows.map(r => r.viewer_phone));
+
+  // 4. Build ordered contact list: own phone → viewers → non-viewers (dedup)
+  const seen = new Set();
+  if (ownId) seen.add(ownId);
+  const orderedContacts = ownId ? [ownId] : [];
+
+  const viewers = [], nonViewers = [];
+  for (const c of allContacts) {
+    const id = c.id;
+    if (!id || id === ownId || seen.has(id)) continue;
+    seen.add(id);
+    const phone = id.replace(/@.*/, '');
+    if (viewerPhones.has(phone)) {
+      viewers.push(id);
+    } else {
+      nonViewers.push(id);
+    }
+  }
+  orderedContacts.push(...viewers, ...nonViewers);
+  console.log(`[StatusBot Contacts] Ordered contacts: ${orderedContacts.length} total (${viewers.length} viewers, ${nonViewers.length} non-viewers)`);
+
+  // 5. Send in batches
+  let totalSent = 0;
+  let timeoutCount = 0;
+
+  for (let i = 0; i < orderedContacts.length; i += BATCH_SIZE) {
+    const batch = orderedContacts.slice(i, i + BATCH_SIZE);
+    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+    const endpoint = `/api/${sessionName}/status/${queueItem.status_type}`;
+    const body = buildStatusBody(messageId, batch, queueItem.status_type, content, preConvertedFile);
+
+    let batchTimedOut = false;
+    try {
+      const sendPromise = wahaSession.makeRequest(baseUrl, apiKey, 'POST', endpoint, body);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('BATCH_TIMEOUT')), CALL_TIMEOUT_MS)
+      );
+      await Promise.race([sendPromise, timeoutPromise]);
+      totalSent += batch.length;
+      console.log(`[StatusBot Contacts] Batch ${batchNum} OK — total so far: ${totalSent}/${orderedContacts.length}`);
+    } catch (err) {
+      if (err.message === 'BATCH_TIMEOUT') {
+        batchTimedOut = true;
+        timeoutCount++;
+        totalSent += batch.length; // assume the call reached WhatsApp
+        console.warn(`[StatusBot Contacts] Batch ${batchNum} TIMEOUT #${timeoutCount} — total so far: ${totalSent}`);
+      } else {
+        console.error(`[StatusBot Contacts] Batch ${batchNum} error: ${err.message}`);
+        // Non-timeout error: skip batch, continue
+      }
+    }
+
+    if (batchTimedOut) {
+      if (timeoutCount === 1) {
+        console.log(`[StatusBot Contacts] First timeout — waiting 1 minute before continuing...`);
+        await new Promise(resolve => setTimeout(resolve, PAUSE_MS));
+      } else {
+        // Second timeout — stop
+        console.log(`[StatusBot Contacts] Second timeout — stopping. Total sent: ${totalSent}/${orderedContacts.length}`);
+        break;
+      }
+    }
+  }
+
+  // Save total contacts reached to connection row
+  await db.query(
+    `UPDATE status_bot_connections SET contacts_send_total = $1 WHERE id = $2`,
+    [totalSent, queueItem.connection_id]
+  ).catch(e => console.error('[StatusBot Contacts] Failed to save total:', e.message));
+
+  console.log(`[StatusBot Contacts] Done. Sent to ${totalSent} contacts.`);
+  return { success: true, id: messageId, contactsSent: totalSent };
+}
+
+/**
  * Send a status via WAHA
  */
 async function sendStatus(queueItem) {
@@ -604,60 +782,30 @@ async function sendStatus(queueItem) {
     historyId = historyResult.rows[0]?.id;
   }
 
-  // Build request body based on status type
-  // WAHA uses /api/{session}/status/... format
-  let endpoint;
-  let body;
-
-  switch (queueItem.status_type) {
-    case 'text':
-      endpoint = `/api/${sessionName}/status/text`;
-      body = {
-        id: messageId,
-        contacts: null,
-        text: content.text,
-        backgroundColor: content.backgroundColor || '#38b42f',
-        font: content.font || 0,
-        linkPreview: content.linkPreview !== false,
-        linkPreviewHighQuality: false
-      };
-      break;
-
-    case 'image':
-      endpoint = `/api/${sessionName}/status/image`;
-      body = {
-        id: messageId,
-        contacts: null,
-        file: buildFileObject(content, 'image'),
-        caption: content.caption || ''
-      };
-      break;
-
-    case 'video':
-      endpoint = `/api/${sessionName}/status/video`;
-      body = {
-        id: messageId,
-        contacts: null,
-        file: buildFileObject(content, 'video'),
-        convert: true,
-        caption: content.caption || ''
-      };
-      break;
-
-    case 'voice':
-      endpoint = `/api/${sessionName}/status/voice`;
-      body = {
-        id: messageId,
-        contacts: null,
-        file: buildFileObject(content, 'voice'),
-        convert: true,
-        backgroundColor: content.backgroundColor || '#38b42f'
-      };
-      break;
-
-    default:
-      throw new Error(`Unknown status type: ${queueItem.status_type}`);
+  // Pre-convert video/voice once (reused for all batches in contacts format too)
+  let preConvertedFile = null;
+  if (['video', 'voice'].includes(queueItem.status_type)) {
+    preConvertedFile = await preConvertMedia(baseUrl, apiKey, sessionName, queueItem.status_type, content);
   }
+
+  // Contacts format: send in batches with explicit contact list
+  if (queueItem.status_send_format === 'contacts') {
+    const result = await sendStatusWithContacts(queueItem, {
+      baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile,
+    });
+    const actualId = result?.id;
+    if (actualId && actualId !== historyMessageId && historyId) {
+      await db.query(
+        `UPDATE status_bot_statuses SET waha_message_id = $1, updated_at = NOW() WHERE id = $2`,
+        [actualId, historyId]
+      );
+    }
+    return result;
+  }
+
+  // Default format: single call, no explicit contacts
+  const endpoint = `/api/${sessionName}/status/${queueItem.status_type}`;
+  const body = buildStatusBody(messageId, null, queueItem.status_type, content, preConvertedFile);
 
   // Send the status with timeout
   const timeoutMs = await getStatusTimeout();
