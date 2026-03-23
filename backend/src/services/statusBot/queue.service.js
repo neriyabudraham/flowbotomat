@@ -765,6 +765,8 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       totalSent += batch.length;
       console.log(`${LOG_PREFIX} ✅ Batch ${batchNum}/${totalBatches} OK in ${batchDurationMs}ms — cumulative sent: ${totalSent}/${orderedContacts.length} | WAHA resp id: ${wahaResponse?.id || 'n/a'}`);
       await logContactSends(historyId, queueItem.id, batch, batchNum, true, null);
+      // Heartbeat: keep processing_started_at fresh so stuck-item detector doesn't reset us
+      await db.query(`UPDATE status_bot_queue SET processing_started_at = NOW() WHERE id = $1`, [queueItem.id]).catch(() => {});
     } catch (err) {
       const batchDurationMs = Date.now() - batchStart;
       if (err.message === 'BATCH_TIMEOUT') {
@@ -773,6 +775,8 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
         totalSent += batch.length; // assume the call reached WhatsApp before timeout
         console.warn(`${LOG_PREFIX} ⏱️ Batch ${batchNum}/${totalBatches} TIMEOUT after ${batchDurationMs}ms (timeout #${timeoutCount}) — assuming delivered, cumulative: ${totalSent}/${orderedContacts.length}`);
         await logContactSends(historyId, queueItem.id, batch, batchNum, true, 'TIMEOUT — assumed delivered');
+        // Heartbeat on timeout too — batch took a long time, refresh the lock
+        await db.query(`UPDATE status_bot_queue SET processing_started_at = NOW() WHERE id = $1`, [queueItem.id]).catch(() => {});
       } else {
         console.error(`${LOG_PREFIX} ❌ Batch ${batchNum}/${totalBatches} ERROR after ${batchDurationMs}ms: ${err.message}`);
         // Non-timeout error: skip batch, log as failed, continue
