@@ -85,8 +85,9 @@ CREATE TABLE IF NOT EXISTS coupon_usage (
   subscription_id UUID REFERENCES user_subscriptions(id),
   
   discount_applied DECIMAL(10,2),
-  
+
   created_at TIMESTAMPTZ DEFAULT NOW(),
+  used_at TIMESTAMPTZ DEFAULT NOW(),
   
   UNIQUE(coupon_id, user_id)
 );
