@@ -882,7 +882,13 @@ async function sendStatus(queueItem) {
 
     } catch (e) {
       console.error('[StatusBot Queue] Failed to get message ID:', e.message);
-      // Continue without message ID
+      // If session doesn't exist, throw immediately so auto-heal can kick in
+      const isSessionError = e.message?.includes('422') || e.message?.includes('404') ||
+        e.message?.includes('does not exist') || e.message?.includes("didn't find a session");
+      if (isSessionError) {
+        throw e;
+      }
+      // Other errors (network glitch etc.) — continue without message ID
     }
   } else {
     console.log(`[StatusBot Queue] 🆔 Using existing message ID: ${messageId} for queue item ${queueItem.id}`);

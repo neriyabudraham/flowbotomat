@@ -440,6 +440,7 @@ server.listen(PORT, () => {
       await dbQuery(`ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS coupon_discount_percent DECIMAL(5,2) DEFAULT NULL`);
       await dbQuery(`ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS coupon_duration_type VARCHAR(20) DEFAULT NULL`);
       await dbQuery(`ALTER TABLE coupon_usage ADD COLUMN IF NOT EXISTS used_at TIMESTAMPTZ DEFAULT NOW()`);
+      await dbQuery(`ALTER TABLE status_bot_statuses ADD COLUMN IF NOT EXISTS contacts_sent INT`);
       // Backfill billing_queue failed entries for payment_history failures that have no billing_queue entry
       // This ensures legacy failures (from billing.service.js direct charging) appear in the admin failed tab
       await dbQuery(`
