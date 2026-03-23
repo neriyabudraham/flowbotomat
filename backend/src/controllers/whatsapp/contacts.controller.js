@@ -703,7 +703,7 @@ async function syncNamesOnly(req, res) {
       const phone = waContact.id?.replace(/@.*$/, '');
       if (!phone || waContact.id?.includes('lid') || waContact.id?.includes('@g.us')) continue;
 
-      const displayName = waContact.name || waContact.pushname || '';
+      const displayName = (waContact.name || waContact.pushname || '').substring(0, 100);
       if (!displayName) continue;
 
       const result = await pool.query(
