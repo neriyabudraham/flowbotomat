@@ -719,10 +719,29 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   const viewerPhones = new Set(viewersResult.rows.map(r => r.phone));
   console.log(`${LOG_PREFIX} 👁️ Found ${viewerPhones.size} unique engaged contacts (views + reactions + replies)`);
 
+  // 3b. On retry: find contacts that were already successfully sent
+  const alreadySentPhones = new Set();
+  if (historyId) {
+    const sentResult = await db.query(
+      `SELECT DISTINCT phone FROM status_bot_contact_sends WHERE history_id = $1 AND success = true`,
+      [historyId]
+    );
+    for (const row of sentResult.rows) {
+      alreadySentPhones.add(row.phone);
+    }
+    if (alreadySentPhones.size > 0) {
+      console.log(`${LOG_PREFIX} 🔄 Retry mode: skipping ${alreadySentPhones.size} already-sent contacts`);
+    }
+  }
+
   // 4. Build ordered contact list: own phone → viewers → non-viewers (dedup)
   const seen = new Set();
   if (ownId) seen.add(ownId);
-  const orderedContacts = ownId ? [ownId] : [];
+  const orderedContacts = [];
+  // On retry, skip own phone if already sent
+  if (ownId && !alreadySentPhones.has(ownId.replace(/@.*/, ''))) {
+    orderedContacts.push(ownId);
+  }
 
   const viewers = [], nonViewers = [];
   for (const c of allContacts) {
@@ -730,6 +749,8 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     if (!id || id === ownId || seen.has(id)) continue;
     seen.add(id);
     const phone = id.replace(/@.*/, '');
+    // Skip contacts already sent on previous attempt
+    if (alreadySentPhones.has(phone)) continue;
     if (viewerPhones.has(phone)) {
       viewers.push(id);
     } else {
@@ -738,11 +759,12 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   }
   orderedContacts.push(...viewers, ...nonViewers);
   const totalBatches = Math.ceil(orderedContacts.length / BATCH_SIZE);
-  console.log(`${LOG_PREFIX} 📋 Contact order built: ${orderedContacts.length} total | own:1 viewers:${viewers.length} non-viewers:${nonViewers.length} | batches:${totalBatches} (BATCH_SIZE=${BATCH_SIZE})`);
+  console.log(`${LOG_PREFIX} 📋 Contact order built: ${orderedContacts.length} total (skipped ${alreadySentPhones.size} already-sent) | viewers:${viewers.length} non-viewers:${nonViewers.length} | batches:${totalBatches} (BATCH_SIZE=${BATCH_SIZE})`);
 
   // 5. Send in batches
   let totalSent = 0;
-  let timeoutCount = 0;
+  let consecutiveTimeouts = 0;
+  let stoppedEarly = false;
   const startTime = Date.now();
 
   for (let i = 0; i < orderedContacts.length; i += BATCH_SIZE) {
@@ -763,6 +785,7 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       const wahaResponse = await Promise.race([sendPromise, timeoutPromise]);
       const batchDurationMs = Date.now() - batchStart;
       totalSent += batch.length;
+      consecutiveTimeouts = 0; // reset on success
       console.log(`${LOG_PREFIX} ✅ Batch ${batchNum}/${totalBatches} OK in ${batchDurationMs}ms — cumulative sent: ${totalSent}/${orderedContacts.length} | WAHA resp id: ${wahaResponse?.id || 'n/a'}`);
       await logContactSends(historyId, queueItem.id, batch, batchNum, true, null);
       // Heartbeat: keep processing_started_at fresh so stuck-item detector doesn't reset us
@@ -771,9 +794,9 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       const batchDurationMs = Date.now() - batchStart;
       if (err.message === 'BATCH_TIMEOUT') {
         batchTimedOut = true;
-        timeoutCount++;
+        consecutiveTimeouts++;
         totalSent += batch.length; // assume the call reached WhatsApp before timeout
-        console.warn(`${LOG_PREFIX} ⏱️ Batch ${batchNum}/${totalBatches} TIMEOUT after ${batchDurationMs}ms (timeout #${timeoutCount}) — assuming delivered, cumulative: ${totalSent}/${orderedContacts.length}`);
+        console.warn(`${LOG_PREFIX} ⏱️ Batch ${batchNum}/${totalBatches} TIMEOUT after ${batchDurationMs}ms (consecutive #${consecutiveTimeouts}) — assuming delivered, cumulative: ${totalSent}/${orderedContacts.length}`);
         await logContactSends(historyId, queueItem.id, batch, batchNum, true, 'TIMEOUT — assumed delivered');
         // Heartbeat on timeout too — batch took a long time, refresh the lock
         await db.query(`UPDATE status_bot_queue SET processing_started_at = NOW() WHERE id = $1`, [queueItem.id]).catch(() => {});
@@ -785,29 +808,35 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     }
 
     if (batchTimedOut) {
-      if (timeoutCount === 1) {
-        console.log(`${LOG_PREFIX} ⏸️ First timeout — pausing ${PAUSE_MS / 1000}s before continuing with next batch...`);
+      if (consecutiveTimeouts === 1) {
+        console.log(`${LOG_PREFIX} ⏸️ First consecutive timeout — pausing ${PAUSE_MS / 1000}s before continuing...`);
         await new Promise(resolve => setTimeout(resolve, PAUSE_MS));
         console.log(`${LOG_PREFIX} ▶️ Resuming after pause`);
       } else {
-        // Second timeout — stop
+        // Two consecutive timeouts — WAHA is likely overwhelmed, stop to avoid blocking
         const remaining = orderedContacts.length - (i + BATCH_SIZE);
-        console.log(`${LOG_PREFIX} 🛑 Second timeout — stopping. totalSent=${totalSent} remaining≈${remaining} elapsed=${Math.round((Date.now() - startTime) / 1000)}s`);
+        console.warn(`${LOG_PREFIX} 🛑 Two consecutive timeouts — stopping early. totalSent=${totalSent}/${orderedContacts.length} remaining≈${remaining} elapsed=${Math.round((Date.now() - startTime) / 1000)}s`);
+        stoppedEarly = true;
         break;
       }
     }
   }
 
   const totalElapsedSec = Math.round((Date.now() - startTime) / 1000);
+  const totalContacts = orderedContacts.length;
 
-  // Save total contacts reached to connection row
-  await db.query(
-    `UPDATE status_bot_connections SET contacts_send_total = $1 WHERE id = $2`,
-    [totalSent, queueItem.connection_id]
-  ).catch(e => console.error(`${LOG_PREFIX} Failed to save total: ${e.message}`));
+  // Save total contacts reached to connection row and history row
+  await Promise.all([
+    db.query(`UPDATE status_bot_connections SET contacts_send_total = $1 WHERE id = $2`, [totalSent, queueItem.connection_id])
+      .catch(e => console.error(`${LOG_PREFIX} Failed to save connection total: ${e.message}`)),
+    historyId
+      ? db.query(`UPDATE status_bot_statuses SET contacts_sent = $1 WHERE id = $2`, [totalSent, historyId])
+          .catch(e => console.error(`${LOG_PREFIX} Failed to save history contacts_sent: ${e.message}`))
+      : Promise.resolve(),
+  ]);
 
-  console.log(`${LOG_PREFIX} 🏁 Done. totalSent=${totalSent}/${orderedContacts.length} timeouts=${timeoutCount} elapsed=${totalElapsedSec}s`);
-  return { success: true, id: messageId, contactsSent: totalSent };
+  console.log(`${LOG_PREFIX} 🏁 Done. totalSent=${totalSent}/${totalContacts} stoppedEarly=${stoppedEarly} elapsed=${totalElapsedSec}s`);
+  return { success: true, id: messageId, contactsSent: totalSent, totalContacts, stoppedEarly };
 }
 
 /**
@@ -1005,20 +1034,20 @@ async function sendStatusNotification(item, success, errorMessage = null) {
       return;
     }
 
-    // Check if this was a scheduled status - we only notify for scheduled ones
+    // For success notifications: only notify for scheduled statuses
     // "Send now" statuses already got immediate feedback
-    if (!item.scheduled_for) {
-      return;
-    }
-
-    // Check if scheduled was within 24 hours (we can notify within WhatsApp window)
-    const scheduledTime = new Date(item.scheduled_for);
-    const createdTime = new Date(item.created_at);
-    const hoursUntilScheduled = (scheduledTime - createdTime) / (1000 * 60 * 60);
-
-    // If scheduled >24h ahead, don't notify (outside WhatsApp window)
-    if (hoursUntilScheduled > 24) {
-      return;
+    // For failure notifications: always notify (user needs the retry button)
+    if (success) {
+      if (!item.scheduled_for) {
+        return;
+      }
+      // Check if scheduled was within 24 hours (we can notify within WhatsApp window)
+      const scheduledTime = new Date(item.scheduled_for);
+      const createdTime = new Date(item.created_at);
+      const hoursUntilScheduled = (scheduledTime - createdTime) / (1000 * 60 * 60);
+      if (hoursUntilScheduled > 24) {
+        return;
+      }
     }
 
     const phone = item.source_phone;
@@ -1057,11 +1086,20 @@ async function sendStatusNotification(item, success, errorMessage = null) {
       `, [JSON.stringify({ queuedStatusId: statusId }), item.connection_id, phone]);
 
     } else {
-      // Send failure notification
-      await cloudApi.sendTextMessage(
+      // Send failure notification with retry button
+      const statusId = item.status_message_id || item.id;
+      await cloudApi.sendButtonMessage(
         phone,
-        `❌ שגיאה בהעלאת הסטטוס המתוזמן\n\n${errorMessage || 'שגיאה לא ידועה'}`
+        `❌ שגיאה בהעלאת הסטטוס${item.scheduled_for ? ' המתוזמן' : ''}\n\n${errorMessage || 'שגיאה לא ידועה'}\n\nלחץ למטה כדי לנסות שוב:`,
+        [{ id: `queued_retry_${item.id}`, title: '🔄 העלה מחדש' }]
       );
+
+      // Update conversation state so the button click is handled
+      await db.query(`
+        UPDATE cloud_api_conversation_states
+        SET state = 'after_send_menu', state_data = $1, last_message_at = NOW(), connection_id = $2
+        WHERE phone_number = $3
+      `, [JSON.stringify({ queuedStatusId: statusId }), item.connection_id, phone]);
     }
 
     console.log(`[StatusBot Queue] Sent notification to ${phone} for status ${item.id} (success: ${success})`);
@@ -1069,6 +1107,20 @@ async function sendStatusNotification(item, success, errorMessage = null) {
     // Don't fail the whole process if notification fails
     console.error(`[StatusBot Queue] Failed to send notification:`, notifyError.message);
   }
+}
+
+/**
+ * Retry a failed queue item — resets it to 'pending' with the same message ID
+ * For contacts format, already-sent contacts will be skipped on next processing
+ */
+async function retryQueueItem(queueId) {
+  const result = await db.query(`
+    UPDATE status_bot_queue
+    SET queue_status = 'pending', error_message = NULL, processing_started_at = NULL
+    WHERE id = $1 AND queue_status = 'failed'
+    RETURNING *
+  `, [queueId]);
+  return result.rows[0] || null;
 }
 
 module.exports = {
@@ -1085,4 +1137,5 @@ module.exports = {
   getStatusTimeout,
   invalidateTimeoutCache,
   invalidateSettingsCache,
+  retryQueueItem,
 };

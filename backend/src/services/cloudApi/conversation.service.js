@@ -3190,13 +3190,16 @@ async function handleSelectScheduleTimeState(phone, message, state) {
  * Handle after send menu state
  */
 async function handleAfterSendMenuState(phone, message, state) {
-  if (message.type !== 'interactive' || message.interactive.type !== 'list_reply') {
+  // Handle both list_reply (menu actions) and button_reply (retry button)
+  if (message.type !== 'interactive' || (message.interactive.type !== 'list_reply' && message.interactive.type !== 'button_reply')) {
     // User sent new content - treat as new status, go back to idle flow
     await setState(phone, 'idle', null, null);
     return await handleIdleState(phone, message, { state: 'idle' });
   }
-  
-  const selectedId = message.interactive.list_reply.id;
+
+  const selectedId = message.interactive.type === 'button_reply'
+    ? message.interactive.button_reply.id
+    : message.interactive.list_reply.id;
   const stateData = state.state_data || {};
   
   // Extract status ID from action
@@ -3208,7 +3211,31 @@ async function handleAfterSendMenuState(phone, message, state) {
       statusId = lastPart;
     }
   }
-  
+
+  // Retry failed status
+  if (selectedId.startsWith('queued_retry_')) {
+    const retryQueueId = selectedId.replace('queued_retry_', '');
+    const { retryQueueItem } = require('../statusBot/queue.service');
+    const retried = await retryQueueItem(retryQueueId);
+    if (retried) {
+      // Check how many contacts were already sent (for contacts format)
+      const alreadySent = await db.query(
+        `SELECT COUNT(DISTINCT phone) as cnt FROM status_bot_contact_sends
+         WHERE queue_id = $1 AND success = true`,
+        [retryQueueId]
+      );
+      const sentCount = parseInt(alreadySent.rows[0]?.cnt || 0);
+      const retryMsg = sentCount > 0
+        ? `🔄 הסטטוס נוסף מחדש לתור השליחה!\n\nהסטטוס יישלח רק למי שעוד לא קיבל אותו (${sentCount} אנשי קשר כבר קיבלו).`
+        : '🔄 הסטטוס נוסף מחדש לתור השליחה!\n\nיישלח בקרוב.';
+      await cloudApi.sendTextMessage(phone, retryMsg);
+    } else {
+      await cloudApi.sendTextMessage(phone, '❌ לא ניתן לשלוח מחדש — הסטטוס אינו במצב שגיאה');
+    }
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+
   // Delete group action (video split parts)
   if (selectedId.startsWith('queued_delete_group_')) {
     const groupId = selectedId.replace('queued_delete_group_', '');
