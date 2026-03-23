@@ -432,12 +432,16 @@ async function processQueue() {
           WHERE q2.connection_id = q.connection_id AND q2.queue_status = 'processing'
             AND (q2.viewers_done IS NOT TRUE)
         )
+        AND (
+          SELECT COUNT(*) FROM status_bot_queue q2b
+          WHERE q2b.connection_id = q.connection_id AND q2b.queue_status = 'processing'
+        ) < 2
         AND NOT EXISTS (
           SELECT 1 FROM status_bot_queue q4
           WHERE q4.connection_id = q.connection_id
             AND q4.queue_status IN ('pending', 'scheduled')
-            AND (q4.scheduled_for IS NULL OR q4.scheduled_for <= NOW())
             AND q4.created_at < q.created_at
+            AND (q4.retry_count > 0 OR q4.scheduled_for IS NULL OR q4.scheduled_for <= NOW())
         )
         AND NOT EXISTS (
           SELECT 1 FROM status_bot_queue q3
