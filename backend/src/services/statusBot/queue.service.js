@@ -437,7 +437,7 @@ async function processQueue() {
           WHERE q4.connection_id = q.connection_id
             AND q4.queue_status IN ('pending', 'scheduled')
             AND (q4.scheduled_for IS NULL OR q4.scheduled_for <= NOW())
-            AND COALESCE(q4.scheduled_for, q4.created_at) < COALESCE(q.scheduled_for, q.created_at)
+            AND q4.created_at < q.created_at
         )
         AND NOT EXISTS (
           SELECT 1 FROM status_bot_queue q3
@@ -458,7 +458,7 @@ async function processQueue() {
               )
             )
         )
-      ORDER BY COALESCE(q.scheduled_for, '1970-01-01'::timestamp) ASC, q.created_at ASC
+      ORDER BY q.created_at ASC
       LIMIT $2
     `, [delaySeconds, Math.ceil(maxTotal * 3)]);
 
