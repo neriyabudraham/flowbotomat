@@ -656,14 +656,12 @@ function buildStatusBody(messageId, contacts, statusType, content, preConvertedF
       return {
         id: messageId, contacts,
         file: preConvertedFile || buildFileObject(content, 'video'),
-        ...(preConvertedFile ? {} : { convert: true }),
         caption: content.caption || '',
       };
     case 'voice':
       return {
         id: messageId, contacts,
         file: preConvertedFile || buildFileObject(content, 'voice'),
-        ...(preConvertedFile ? {} : { convert: true }),
         backgroundColor: content.backgroundColor || '#38b42f',
       };
     default:
