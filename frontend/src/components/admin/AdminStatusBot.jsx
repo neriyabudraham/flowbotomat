@@ -99,6 +99,7 @@ export default function AdminStatusBot() {
     delayBetweenStatusesSeconds: 30, restrictionNewSessionHours: 24,
     restrictionWithMainBotMinutes: 30, delayOnDisconnectMinutes: 0, contactsParallelBatches: 3,
     contactsBatchSize: 500, contactsTimeoutMs: 120000, contactsPauseMs: 60000, contactsMaxConsecutiveTimeouts: 4,
+    contactsViewerBatchCap: 5000, contactsWaveDelayMs: 30000,
   };
   const [queueSettings, setQueueSettings] = useState(defaultQueueSettings);
   const [editingSettings, setEditingSettings] = useState(
@@ -660,6 +661,8 @@ export default function AdminStatusBot() {
               { key: 'contactsTimeoutMs', label: 'טיימאאוט לחבילה (ms)', min: 5000, step: 5000 },
               { key: 'contactsPauseMs', label: 'הפסקה אחרי timeout (ms)', min: 0, step: 5000 },
               { key: 'contactsMaxConsecutiveTimeouts', label: 'מקסימום timeouts רצופים', min: 1, step: 1 },
+              { key: 'contactsViewerBatchCap', label: 'מקסימום צופים בבאצ׳ ראשון', min: 500, step: 500 },
+              { key: 'contactsWaveDelayMs', label: 'השהיה בין waves (ms)', min: 0, step: 5000 },
             ].map(({ key, label, min, step }) => (
               <div key={key}>
                 <label className="text-xs text-gray-500 mb-1 block">{label}</label>

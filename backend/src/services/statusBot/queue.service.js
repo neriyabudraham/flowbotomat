@@ -811,32 +811,65 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     }
   }
   orderedContacts.push(...viewers, ...nonViewers);
-  const totalBatches = Math.ceil(orderedContacts.length / BATCH_SIZE);
-  console.log(`${LOG_PREFIX} 📋 Contact order built: ${orderedContacts.length} total (skipped ${alreadySentPhones.size} already-sent) | viewers:${viewers.length} non-viewers:${nonViewers.length} | batches:${totalBatches} (BATCH_SIZE=${BATCH_SIZE})`);
+  const VIEWER_MEGA_BATCH_CAP = await getSettingFloat('statusbot_contacts_viewer_batch_cap', 5000);
+  const WAVE_DELAY_MS = await getSettingFloat('statusbot_contacts_wave_delay_ms', 30000); // 30s between non-viewer waves
 
-  // 5. Send in parallel batches
+  // 5. Build batches: viewers first in mega-batches, then non-viewers in regular batches
   let totalSent = 0;
   let consecutiveTimeouts = 0;
   let stoppedEarly = false;
   const startTime = Date.now();
 
-  // Build all batches upfront
   const allBatches = [];
-  for (let i = 0; i < orderedContacts.length; i += BATCH_SIZE) {
+  let batchNum = 0;
+
+  // Viewer mega-batches (all viewers at once, capped at VIEWER_MEGA_BATCH_CAP per batch)
+  // ownId is at index 0, followed by viewers, then non-viewers
+  const viewerEndIdx = (ownId && !alreadySentPhones.has(ownId.replace(/@.*/, '')) ? 1 : 0) + viewers.length;
+  const viewerContacts = orderedContacts.slice(0, viewerEndIdx);
+  const nonViewerContacts = orderedContacts.slice(viewerEndIdx);
+
+  // Split viewers into mega-batches (up to cap)
+  for (let i = 0; i < viewerContacts.length; i += VIEWER_MEGA_BATCH_CAP) {
+    batchNum++;
     allBatches.push({
-      contacts: orderedContacts.slice(i, i + BATCH_SIZE),
-      batchNum: Math.floor(i / BATCH_SIZE) + 1,
+      contacts: viewerContacts.slice(i, i + VIEWER_MEGA_BATCH_CAP),
+      batchNum,
+      isViewerBatch: true,
+    });
+  }
+  // Split non-viewers into regular batches
+  for (let i = 0; i < nonViewerContacts.length; i += BATCH_SIZE) {
+    batchNum++;
+    allBatches.push({
+      contacts: nonViewerContacts.slice(i, i + BATCH_SIZE),
+      batchNum,
+      isViewerBatch: false,
     });
   }
 
-  console.log(`${LOG_PREFIX} 🚀 Sending ${allBatches.length} batches with parallelism=${PARALLEL_BATCHES}`);
+  const totalBatches = allBatches.length;
+  console.log(`${LOG_PREFIX} 📋 Contact order built: ${orderedContacts.length} total (skipped ${alreadySentPhones.size} already-sent) | viewers:${viewers.length} non-viewers:${nonViewers.length} | batches:${totalBatches} (viewer batches: ${allBatches.filter(b => b.isViewerBatch).length}, BATCH_SIZE=${BATCH_SIZE})`);
+  console.log(`${LOG_PREFIX} 🚀 Sending ${totalBatches} batches with parallelism=${PARALLEL_BATCHES}`);
 
   // Process batches in waves of PARALLEL_BATCHES
+  let isFirstNonViewerWave = true;
   for (let waveStart = 0; waveStart < allBatches.length; waveStart += PARALLEL_BATCHES) {
     if (stoppedEarly) break;
 
     const wave = allBatches.slice(waveStart, waveStart + PARALLEL_BATCHES);
-    console.log(`${LOG_PREFIX} 🌊 Wave ${Math.floor(waveStart / PARALLEL_BATCHES) + 1} — sending batches ${wave[0].batchNum}-${wave[wave.length - 1].batchNum} in parallel`);
+
+    // Add 30s delay between non-viewer waves (not the first one right after viewers)
+    if (!wave[0].isViewerBatch) {
+      if (isFirstNonViewerWave) {
+        isFirstNonViewerWave = false;
+      } else if (WAVE_DELAY_MS > 0) {
+        console.log(`${LOG_PREFIX} ⏳ Waiting ${WAVE_DELAY_MS / 1000}s before next wave...`);
+        await new Promise(resolve => setTimeout(resolve, WAVE_DELAY_MS));
+      }
+    }
+
+    console.log(`${LOG_PREFIX} 🌊 Wave ${Math.floor(waveStart / PARALLEL_BATCHES) + 1} — sending batches ${wave[0].batchNum}-${wave[wave.length - 1].batchNum} in parallel${wave[0].isViewerBatch ? ' (viewers)' : ''}`);
 
     const waveResults = await Promise.allSettled(wave.map(async ({ contacts: batch, batchNum }) => {
       const endpoint = `/api/${sessionName}/status/${queueItem.status_type}`;
