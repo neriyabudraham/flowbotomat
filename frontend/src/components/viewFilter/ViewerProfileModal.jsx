@@ -51,7 +51,7 @@ export default function ViewerProfileModal({ viewer, onClose }) {
             <p className="text-white/80 text-sm" dir="ltr">{phone}</p>
           </div>
           <div className="flex items-center gap-2">
-            <
+            <a
               href={whatsappLink}
               target="_blank"
               rel="noopener noreferrer"
