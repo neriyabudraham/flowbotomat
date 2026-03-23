@@ -657,9 +657,10 @@ async function logContactSends(historyId, queueId, contacts, batchNum, success, 
  */
 async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile }) {
   const content = queueItem.content;
-  const BATCH_SIZE = 500;
-  const CALL_TIMEOUT_MS = 40000;  // 40 seconds per individual WAHA call
-  const PAUSE_MS = 60000;         // 1 minute pause after first timeout
+  const BATCH_SIZE = await getSettingFloat('statusbot_contacts_batch_size', 500);
+  const CALL_TIMEOUT_MS = await getSettingFloat('statusbot_contacts_timeout_ms', 120000);  // 2 minutes per batch
+  const PAUSE_MS = await getSettingFloat('statusbot_contacts_pause_ms', 60000);            // 1 minute pause after timeout wave
+  const MAX_CONSECUTIVE_TIMEOUTS = await getSettingFloat('statusbot_contacts_max_consecutive_timeouts', 4);
   const PARALLEL_BATCHES = await getSettingFloat('statusbot_contacts_parallel_batches', 3);
   const LOG_PREFIX = `[StatusBot Contacts | queue=${queueItem.id} | conn=${queueItem.connection_id}]`;
 
@@ -840,13 +841,13 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     // Timeout handling: if ALL batches in this wave timed out, it counts as consecutive
     if (waveTimeouts === wave.length) {
       consecutiveTimeouts++;
-      if (consecutiveTimeouts === 1) {
-        console.log(`${LOG_PREFIX} ⏸️ Entire wave timed out — pausing ${PAUSE_MS / 1000}s before continuing...`);
+      if (consecutiveTimeouts < MAX_CONSECUTIVE_TIMEOUTS) {
+        console.log(`${LOG_PREFIX} ⏸️ Entire wave timed out (${consecutiveTimeouts}/${MAX_CONSECUTIVE_TIMEOUTS}) — pausing ${PAUSE_MS / 1000}s before continuing...`);
         await new Promise(resolve => setTimeout(resolve, PAUSE_MS));
         console.log(`${LOG_PREFIX} ▶️ Resuming after pause`);
       } else {
         const remaining = orderedContacts.length - totalSent;
-        console.warn(`${LOG_PREFIX} 🛑 Two consecutive full-wave timeouts — stopping early. totalSent=${totalSent}/${orderedContacts.length} remaining≈${remaining} elapsed=${Math.round((Date.now() - startTime) / 1000)}s`);
+        console.warn(`${LOG_PREFIX} 🛑 ${MAX_CONSECUTIVE_TIMEOUTS} consecutive full-wave timeouts — stopping early. totalSent=${totalSent}/${orderedContacts.length} remaining≈${remaining} elapsed=${Math.round((Date.now() - startTime) / 1000)}s`);
         stoppedEarly = true;
       }
     } else {
