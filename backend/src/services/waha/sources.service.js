@@ -92,6 +92,22 @@ async function getCredentialsForSource(sourceId) {
   }
 }
 
+/**
+ * Get credentials for ALL active WAHA sources (for cross-server session search)
+ */
+async function getAllSourceCredentials() {
+  const result = await db.query(
+    `SELECT id, base_url, api_key_enc, webhook_base_url FROM waha_sources WHERE is_active = true ORDER BY priority ASC, created_at ASC`
+  );
+  const sources = [];
+  for (const src of result.rows) {
+    try {
+      sources.push({ id: src.id, baseUrl: src.base_url, apiKey: decrypt(src.api_key_enc), webhookBaseUrl: src.webhook_base_url });
+    } catch { /* skip sources with bad encryption */ }
+  }
+  return sources;
+}
+
 module.exports = {
   listSources,
   getSourceById,
@@ -101,4 +117,5 @@ module.exports = {
   getSessionCountForSource,
   pickSourceForNewSession,
   getCredentialsForSource,
+  getAllSourceCredentials,
 };

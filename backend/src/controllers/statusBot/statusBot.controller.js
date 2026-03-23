@@ -646,39 +646,49 @@ async function startConnection(req, res) {
       });
     }
 
-    // Step 1: No main connection — fall back to searching WAHA by email or creating new session
-    const { pickSourceForNewSession } = require('../../services/waha/sources.service');
-    const wahaSource = await pickSourceForNewSession();
-    const { baseUrl, apiKey } = wahaSource || { baseUrl: process.env.WAHA_BASE_URL, apiKey: process.env.WAHA_API_KEY };
-
-    if (!baseUrl || !apiKey) {
-      return res.status(500).json({ error: 'WAHA לא מוגדר במערכת' });
-    }
+    // Step 1: No main connection — search ALL WAHA servers for existing session by email
+    const { pickSourceForNewSession, getAllSourceCredentials } = require('../../services/waha/sources.service');
 
     let sessionName = null;
     let wahaStatus = null;
     let existingSession = null;
+    let foundBaseUrl = null;
+    let foundApiKey = null;
+    let foundSourceId = null;
 
-    console.log(`[StatusBot] No main connection, searching WAHA for session with email: ${userEmail}`);
+    console.log(`[StatusBot] No main connection, searching ALL WAHA servers for session with email: ${userEmail}`);
     const webhookPattern = `/api/webhook/waha/${userId}`;
 
     try {
-      existingSession = await wahaSession.findSessionByEmailWithWebhookPriority(baseUrl, apiKey, userEmail, webhookPattern);
+      const allSources = await getAllSourceCredentials();
+      for (const src of allSources) {
+        try {
+          const session = await wahaSession.findSessionByEmailWithWebhookPriority(src.baseUrl, src.apiKey, userEmail, webhookPattern);
+          if (session) {
+            existingSession = session;
+            foundBaseUrl = src.baseUrl;
+            foundApiKey = src.apiKey;
+            foundSourceId = src.id;
+            sessionName = session.name;
+            console.log(`[StatusBot] ✅ Found existing session by email on source ${src.id}: ${sessionName}`);
+            break;
+          }
+        } catch (err) {
+          console.log(`[StatusBot] Source ${src.id} unreachable: ${err.message}`);
+        }
+      }
 
-      if (existingSession) {
-        sessionName = existingSession.name;
-        console.log(`[StatusBot] ✅ Found existing session by email: ${sessionName}`);
-
-        wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+      if (existingSession && foundBaseUrl) {
+        wahaStatus = await wahaSession.getSessionStatus(foundBaseUrl, foundApiKey, sessionName);
 
         if (wahaStatus && (wahaStatus.status === 'STOPPED' || wahaStatus.status === 'FAILED')) {
           console.log(`[StatusBot] Session is ${wahaStatus.status}, restarting...`);
           try {
-            await wahaSession.stopSession(baseUrl, apiKey, sessionName);
+            await wahaSession.stopSession(foundBaseUrl, foundApiKey, sessionName);
           } catch (e) { /* ignore */ }
-          await wahaSession.startSession(baseUrl, apiKey, sessionName);
+          await wahaSession.startSession(foundBaseUrl, foundApiKey, sessionName);
           console.log(`[StatusBot] ✅ Restarted session: ${sessionName}`);
-          wahaStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, sessionName);
+          wahaStatus = await wahaSession.getSessionStatus(foundBaseUrl, foundApiKey, sessionName);
         } else {
           console.log(`[StatusBot] Session status: ${wahaStatus?.status}`);
         }
@@ -687,7 +697,22 @@ async function startConnection(req, res) {
       console.log(`[StatusBot] Error searching sessions: ${err.message}`);
     }
 
-    // Step 2: If no session found in WAHA, create new one
+    // Pick a source for new session creation (fallback)
+    if (!foundBaseUrl) {
+      const wahaSource = await pickSourceForNewSession();
+      foundBaseUrl = wahaSource?.baseUrl || process.env.WAHA_BASE_URL;
+      foundApiKey = wahaSource?.apiKey || process.env.WAHA_API_KEY;
+      foundSourceId = wahaSource?.id || null;
+    }
+
+    const baseUrl = foundBaseUrl;
+    const apiKey = foundApiKey;
+
+    if (!baseUrl || !apiKey) {
+      return res.status(500).json({ error: 'WAHA לא מוגדר במערכת' });
+    }
+
+    // Step 2: If no session found on ANY server, create new one
     if (!sessionName) {
       sessionName = `session_${crypto.randomBytes(4).toString('hex')}`;
       const sessionMetadata = { 'user.email': userEmail };
@@ -739,10 +764,11 @@ async function startConnection(req, res) {
             connection_status = $3,
             phone_number = COALESCE($4, phone_number),
             display_name = COALESCE($5, display_name),
+            waha_source_id = COALESCE($6, waha_source_id),
             updated_at = NOW()
         WHERE user_id = $1
         RETURNING *
-      `, [userId, sessionName, ourStatus, phoneNumber, displayName]);
+      `, [userId, sessionName, ourStatus, phoneNumber, displayName, foundSourceId]);
     } else {
       console.log(`[StatusBot] Creating new connection record`);
       result = await db.query(`
@@ -751,7 +777,7 @@ async function startConnection(req, res) {
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *
       `, [userId, sessionName, ourStatus, phoneNumber, displayName,
-          ourStatus === 'connected' ? firstConnectedAt : null, wahaSource?.id || null]);
+          ourStatus === 'connected' ? firstConnectedAt : null, foundSourceId]);
     }
 
     console.log(`[StatusBot] ✅ Saved to DB: ${sessionName}`);
@@ -791,16 +817,42 @@ async function getQR(req, res) {
       return res.json({ status: 'connected' });
     }
 
-    const { baseUrl, apiKey } = await getWahaCredentialsForConnection(connection);
+    let { baseUrl, apiKey } = await getWahaCredentialsForConnection(connection);
 
-    // First check if session exists
-    const sessionStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
-    
+    // First check if session exists on the known server
+    let sessionStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
+
     if (!sessionStatus) {
-      // Session doesn't exist in WAHA - clean up stale DB record
-      console.log(`[StatusBot] Session ${connection.session_name} not found in WAHA, cleaning up DB`);
-      await db.query('DELETE FROM status_bot_connections WHERE id = $1', [connection.id]);
-      return res.json({ status: 'need_connect' });
+      // Session not found on known server — search ALL servers before giving up
+      console.log(`[StatusBot] Session ${connection.session_name} not found on known server, searching all WAHA servers...`);
+      const { healWahaConnectionByEmail } = require('../../services/waha/heal.service');
+      const userRes = await db.query('SELECT email FROM users WHERE id = $1', [userId]);
+      const email = userRes.rows[0]?.email;
+
+      if (email) {
+        const healed = await healWahaConnectionByEmail(email);
+        if (healed) {
+          console.log(`[StatusBot] ✅ Found session on another server: ${healed.sessionName}`);
+          // Update status_bot_connections with the correct server
+          const srcRes = await db.query('SELECT id FROM waha_sources WHERE base_url = $1 LIMIT 1', [healed.baseUrl]);
+          const sourceId = srcRes.rows[0]?.id;
+          await db.query(
+            `UPDATE status_bot_connections SET session_name = $1, waha_source_id = $2, updated_at = NOW() WHERE id = $3`,
+            [healed.sessionName, sourceId, connection.id]
+          );
+          baseUrl = healed.baseUrl;
+          apiKey = healed.apiKey;
+          connection.session_name = healed.sessionName;
+          sessionStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, healed.sessionName);
+        }
+      }
+
+      if (!sessionStatus) {
+        // Truly not found on any server - clean up stale DB record
+        console.log(`[StatusBot] Session ${connection.session_name} not found on ANY WAHA server, cleaning up DB`);
+        await db.query('DELETE FROM status_bot_connections WHERE id = $1', [connection.id]);
+        return res.json({ status: 'need_connect' });
+      }
     }
 
     // Check session status
