@@ -356,7 +356,7 @@ export default function ContactsTab({ onRefresh }) {
     try {
       setPullingWhatsApp(true);
       setPullResult(null);
-      const { data } = await api.post('/whatsapp/contacts/pull');
+      const { data } = await api.post('/whatsapp/contacts/pull', {}, { timeout: 300000 });
       setPullResult({ success: true, ...data });
       if (data.imported > 0) {
         loadContacts();

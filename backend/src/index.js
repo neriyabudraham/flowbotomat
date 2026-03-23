@@ -218,6 +218,7 @@ if (enableQueueProcessor) {
 
 // Start server
 const PORT = process.env.PORT || 4000;
+server.timeout = 300000; // 5 minutes — allows long-running ops like contacts pull
 server.listen(PORT, () => {
   console.log(`🚀 Botomat Backend running on port ${PORT}`);
 

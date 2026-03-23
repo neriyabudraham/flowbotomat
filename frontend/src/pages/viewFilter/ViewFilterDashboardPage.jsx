@@ -247,7 +247,7 @@ export default function ViewFilterDashboardPage() {
     setSyncingContacts(true);
     setContactSyncResult(null);
     try {
-      const { data } = await api.post('/whatsapp/contacts/pull');
+      const { data } = await api.post('/whatsapp/contacts/pull', {}, { timeout: 300000 });
       setContactSyncResult({ success: true, imported: data.imported ?? 0, updated: data.updated ?? 0 });
       loadViewers();
     } catch (err) {
