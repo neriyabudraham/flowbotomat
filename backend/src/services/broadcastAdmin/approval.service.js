@@ -509,7 +509,7 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
           // Session may have migrated to a different WAHA server — heal once and retry
           const healed = await healWahaConnectionByUserId(userId);
           if (healed) {
-            activeConnection = { base_url: healed.baseUrl, api_key: healed.apiKey, session_name: healed.sessionName };
+            activeConnection = { ...wahaConnection, session_name: healed.sessionName, waha_base_url: healed.baseUrl, waha_source_id: healed.sourceId || null };
             console.log(`[BroadcastAdmin] Healed to ${healed.baseUrl} — retrying delete`);
             await wahaService.deleteMessage(activeConnection, chatId, messageId);
             return; // retry succeeded

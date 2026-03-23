@@ -1146,16 +1146,9 @@ async function deleteMessage(connectionOrUserId, chatId, messageId) {
       throw new Error(`Connection not found for ${connectionOrUserId}`);
     }
 
-    const conn = result.rows[0];
-    const { baseUrl, apiKey } = await getWahaCredentialsForConnection(conn);
-
-    connection = {
-      base_url: baseUrl,
-      api_key: apiKey,
-      session_name: conn.session_name
-    };
+    connection = result.rows[0];
   }
-  
+
   const client = await getClientForConnection(connection);
 
   // DELETE /api/{session}/chats/{chatId}/messages/{messageId}
@@ -1190,9 +1183,7 @@ async function resolveConnection(connectionOrUserId) {
     throw new Error(`Connection not found for ${connectionOrUserId}`);
   }
 
-  const conn = result.rows[0];
-  const { baseUrl, apiKey } = await getWahaCredentialsForConnection(conn);
-  return { base_url: baseUrl, api_key: apiKey, session_name: conn.session_name };
+  return result.rows[0];
 }
 
 /**

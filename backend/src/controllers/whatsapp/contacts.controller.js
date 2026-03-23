@@ -1,17 +1,12 @@
 const pool = require('../../config/database');
 const wahaService = require('../../services/waha/session.service');
-const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
 
 /**
  * Helper to prepare WAHA connection object from database row
  */
 async function prepareConnection(dbConnection) {
-  const { baseUrl, apiKey } = await getWahaCredentialsForConnection(dbConnection);
-  return {
-    base_url: baseUrl,
-    api_key: apiKey,
-    session_name: dbConnection.session_name
-  };
+  // Return full connection object — getClientForConnection resolves credentials internally
+  return dbConnection;
 }
 
 // Ensure the whatsapp_contacts table exists

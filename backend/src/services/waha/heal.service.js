@@ -88,13 +88,13 @@ async function healWahaConnectionByEmail(email, wc_id = null) {
     // Update whatsapp_connections if we have the row id
     if (wc_id) {
       await db.query(
-        `UPDATE whatsapp_connections SET session_name = $1, waha_source_id = $2, updated_at = NOW() WHERE id = $3`,
-        [sessionName, foundSourceId, wc_id]
+        `UPDATE whatsapp_connections SET session_name = $1, waha_source_id = $2, waha_base_url = $3, updated_at = NOW() WHERE id = $4`,
+        [sessionName, foundSourceId, foundBaseUrl, wc_id]
       );
       console.log(`[Heal] Updated whatsapp_connections ${wc_id}: ${sessionName} → source ${foundSourceId}`);
     }
 
-    return { baseUrl: foundBaseUrl, apiKey: foundApiKey, sessionName };
+    return { baseUrl: foundBaseUrl, apiKey: foundApiKey, sessionName, sourceId: foundSourceId };
   } catch (err) {
     console.error(`[Heal] healWahaConnectionByEmail error: ${err.message}`);
     return null;
