@@ -725,7 +725,7 @@ async function logContactSends(historyId, queueId, contacts, batchNum, success, 
  * - First timeout → wait 1 minute → continue
  * - Second timeout → stop, save total contacts reached
  */
-async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile, processingToken }) {
+async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile, processingToken, viewersOnly = false }) {
   const content = queueItem.content;
   const BATCH_SIZE = await getSettingFloat('statusbot_contacts_batch_size', 500);
   const CALL_TIMEOUT_MS = await getSettingFloat('statusbot_contacts_timeout_ms', 120000);  // 2 minutes per batch
@@ -857,7 +857,12 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       nonViewers.push(id);
     }
   }
-  orderedContacts.push(...viewers, ...nonViewers);
+  if (viewersOnly) {
+    orderedContacts.push(...viewers);
+    console.log(`${LOG_PREFIX} 👁️ viewersOnly mode — sending to ${viewers.length} viewers only (skipping ${nonViewers.length} non-viewers)`);
+  } else {
+    orderedContacts.push(...viewers, ...nonViewers);
+  }
   const VIEWER_MEGA_BATCH_CAP = await getSettingFloat('statusbot_contacts_viewer_batch_cap', 5000);
   const WAVE_DELAY_MS = await getSettingFloat('statusbot_contacts_wave_delay_ms', 30000); // 30s between non-viewer waves
 
@@ -1162,15 +1167,31 @@ async function sendStatus(queueItem) {
 
   const response = await Promise.race([sendPromise, timeoutPromise]);
 
-  // Handle timeout or uncertain (500) as success
-  if (response?.timeout || response?.uncertain) {
-    if (response.uncertain && historyId) {
+  // Handle uncertain (500) as success
+  if (response?.uncertain) {
+    if (historyId) {
       await db.query(`UPDATE status_bot_statuses SET uncertain_upload = true WHERE id = $1`, [historyId]);
-      console.log(`[StatusBot] ⚠️ Status id=${queueItem.id} uncertain upload (WAHA 5xx) - awaiting first view`);
-    } else {
-      console.log(`[StatusBot] ⏱️ Status id=${queueItem.id} TIMEOUT - treating as successful, msgId=${messageId}`);
     }
-    return { success: true, timeout: !!response.timeout, uncertain: !!response.uncertain, id: messageId };
+    console.log(`[StatusBot] ⚠️ Status id=${queueItem.id} uncertain upload (WAHA 5xx) - awaiting first view`);
+    return { success: true, uncertain: true, id: messageId };
+  }
+
+  // Handle timeout: fallback to sending with viewer contacts in batches
+  if (response?.timeout) {
+    console.log(`[StatusBot] ⏱️ Status id=${queueItem.id} TIMEOUT on default format — falling back to viewers-only batch send`);
+    const fallbackResult = await sendStatusWithContacts(queueItem, {
+      baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile,
+      processingToken: queueItem._processingToken,
+      viewersOnly: true,
+    });
+    const actualId = fallbackResult?.id;
+    if (actualId && actualId !== historyMessageId && historyId) {
+      await db.query(
+        `UPDATE status_bot_statuses SET waha_message_id = $1, updated_at = NOW() WHERE id = $2`,
+        [actualId, historyId]
+      );
+    }
+    return { ...fallbackResult, timeout: true };
   }
   
   // Update history with actual message ID if different
