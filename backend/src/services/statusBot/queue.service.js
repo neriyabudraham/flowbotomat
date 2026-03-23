@@ -696,16 +696,28 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     console.log(`${LOG_PREFIX} ✅ Fetched ${allContacts.length} contacts from WAHA and saved to cache`);
   }
 
-  // 3. Get viewer phone numbers for this connection (people who viewed any previous status)
-  console.log(`${LOG_PREFIX} 👁️ Querying previous viewers for priority ordering...`);
+  // 3. Get engaged phone numbers for this connection (viewers + gray-checkmark: reactors/repliers)
+  console.log(`${LOG_PREFIX} 👁️ Querying previous viewers (incl. gray-checkmark) for priority ordering...`);
   const viewersResult = await db.query(`
-    SELECT DISTINCT sbv.viewer_phone
-    FROM status_bot_views sbv
-    JOIN status_bot_statuses sbs ON sbs.id = sbv.status_id
-    WHERE sbs.connection_id = $1
+    SELECT DISTINCT phone FROM (
+      SELECT sbv.viewer_phone AS phone
+      FROM status_bot_views sbv
+      JOIN status_bot_statuses sbs ON sbs.id = sbv.status_id
+      WHERE sbs.connection_id = $1
+      UNION
+      SELECT sbr.reactor_phone AS phone
+      FROM status_bot_reactions sbr
+      JOIN status_bot_statuses sbs ON sbs.id = sbr.status_id
+      WHERE sbs.connection_id = $1
+      UNION
+      SELECT sbrep.replier_phone AS phone
+      FROM status_bot_replies sbrep
+      JOIN status_bot_statuses sbs ON sbs.id = sbrep.status_id
+      WHERE sbs.connection_id = $1
+    ) engaged
   `, [queueItem.connection_id]);
-  const viewerPhones = new Set(viewersResult.rows.map(r => r.viewer_phone));
-  console.log(`${LOG_PREFIX} 👁️ Found ${viewerPhones.size} unique viewers from past statuses`);
+  const viewerPhones = new Set(viewersResult.rows.map(r => r.phone));
+  console.log(`${LOG_PREFIX} 👁️ Found ${viewerPhones.size} unique engaged contacts (views + reactions + replies)`);
 
   // 4. Build ordered contact list: own phone → viewers → non-viewers (dedup)
   const seen = new Set();
