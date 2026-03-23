@@ -992,6 +992,18 @@ export default function AdminStatusBot() {
                             </div>
                           </div>
                           <div className="flex items-center gap-3">
+                            {upload.contactsTotal > 0 && (
+                              <div className="text-left min-w-[80px]">
+                                <div className="text-lg font-mono font-bold text-purple-600">
+                                  {Math.round((upload.contactsSent / upload.contactsTotal) * 100)}%
+                                </div>
+                                <p className="text-xs text-gray-400">{upload.contactsSent}/{upload.contactsTotal} אנשי קשר</p>
+                                <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+                                  <div className="bg-purple-500 h-1.5 rounded-full transition-all duration-500"
+                                    style={{ width: `${Math.round((upload.contactsSent / upload.contactsTotal) * 100)}%` }} />
+                                </div>
+                              </div>
+                            )}
                             <div className="text-left">
                               <div className={`text-lg font-mono font-bold ${
                                 isStuck ? 'text-red-600' : isWarning ? 'text-amber-600' : 'text-green-600'
@@ -1359,6 +1371,11 @@ export default function AdminStatusBot() {
                                     item.queue_status === 'scheduled' ? 'bg-indigo-100 text-indigo-700' :
                                     'bg-blue-100 text-blue-700'
                                   }`}>{item.queue_status}</span>
+                                  {item.contacts_total > 0 && (
+                                    <span className="text-purple-600 text-xs font-medium">
+                                      {Math.round(((item.contacts_sent || 0) / item.contacts_total) * 100)}% ({item.contacts_sent || 0}/{item.contacts_total})
+                                    </span>
+                                  )}
                                   {item.error_message && <span className="text-red-600 text-xs truncate max-w-[200px]">{item.error_message}</span>}
                                 </div>
                                 <span className="text-gray-400 text-xs">{formatDate(item.created_at)}</span>

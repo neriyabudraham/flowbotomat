@@ -2480,7 +2480,7 @@ async function adminGetActiveProcesses(req, res) {
 
     // Get currently processing queue items
     const processingResult = await db.query(`
-      SELECT 
+      SELECT
         q.id,
         q.status_type,
         q.content,
@@ -2489,6 +2489,8 @@ async function adminGetActiveProcesses(req, res) {
         q.source_phone,
         q.part_number,
         q.total_parts,
+        q.contacts_sent,
+        q.contacts_total,
         conn.display_name,
         conn.phone_number as bot_phone,
         u.name as user_name,
@@ -2587,6 +2589,8 @@ async function adminGetActiveProcesses(req, res) {
         sourcePhone: p.source_phone,
         partNumber: p.part_number,
         totalParts: p.total_parts,
+        contactsSent: p.contacts_sent || 0,
+        contactsTotal: p.contacts_total || 0,
         displayName: p.display_name,
         botPhone: p.bot_phone,
         userName: p.user_name,
@@ -2776,10 +2780,11 @@ async function adminGetUserDetails(req, res) {
 
     // Get queue items
     const queueResult = await db.query(`
-      SELECT 
+      SELECT
         id, status_type, content, queue_status, error_message,
         created_at, processing_started_at, sent_at, scheduled_for,
-        source, source_phone, part_number, total_parts
+        source, source_phone, part_number, total_parts,
+        contacts_sent, contacts_total
       FROM status_bot_queue
       WHERE connection_id = $1
       ORDER BY created_at DESC
@@ -4106,6 +4111,7 @@ async function adminGetAllQueueItems(req, res) {
     const result = await db.query(`
       SELECT q.id, q.queue_status, q.status_type, q.created_at, q.scheduled_for,
              q.processing_started_at, q.content,
+             q.contacts_sent, q.contacts_total,
              sbc.phone_number, u.email, u.name as user_name, u.id as user_id
       FROM status_bot_queue q
       JOIN status_bot_connections sbc ON sbc.id = q.connection_id

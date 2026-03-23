@@ -79,7 +79,12 @@ async function updateGroupForward(req, res) {
       notify_sender_on_pending,
       poll_multiple_answers
     } = req.body;
-    
+
+    // Log suffix changes for debugging truncation issues
+    if (message_suffix !== undefined) {
+      console.log(`[GroupForwards] updateGroupForward ${forwardId}: message_suffix length=${message_suffix?.length ?? 'null'}, value=${JSON.stringify(message_suffix)?.substring(0, 200)}`);
+    }
+
     // Verify ownership
     const ownerCheck = await db.query(
       'SELECT id FROM group_forwards WHERE id = $1 AND user_id = $2',
@@ -109,7 +114,7 @@ async function updateGroupForward(req, res) {
         delay_min = $7,
         delay_max = $8,
         require_confirmation = COALESCE($9, require_confirmation),
-        message_suffix = $11,
+        message_suffix = COALESCE($11, message_suffix),
         suffix_enabled = COALESCE($12, suffix_enabled),
         notify_sender_on_pending = COALESCE($13, notify_sender_on_pending),
         poll_multiple_answers = COALESCE($14, poll_multiple_answers),
@@ -127,7 +132,7 @@ async function updateGroupForward(req, res) {
       validDelayMax,
       require_confirmation,
       forwardId,
-      message_suffix || null,
+      message_suffix !== undefined ? (message_suffix || '') : null,
       suffix_enabled,
       notify_sender_on_pending !== undefined ? notify_sender_on_pending : null,
       poll_multiple_answers !== undefined ? poll_multiple_answers : null
@@ -230,12 +235,19 @@ async function updateTargets(req, res) {
     try {
       await client.query('BEGIN');
       
+      // Log custom suffixes for debugging truncation issues
+      const suffixTargets = targets.filter(t => t.custom_suffix);
+      if (suffixTargets.length > 0) {
+        console.log(`[GroupForwards] updateTargets ${forwardId}: ${suffixTargets.length} targets with custom_suffix:`,
+          suffixTargets.map(t => ({ group: t.group_name, suffix_len: t.custom_suffix?.length })));
+      }
+
       // Delete existing targets
       await client.query(
         'DELETE FROM group_forward_targets WHERE forward_id = $1',
         [forwardId]
       );
-      
+
       // Insert new targets
       for (let i = 0; i < targets.length; i++) {
         const target = targets[i];
