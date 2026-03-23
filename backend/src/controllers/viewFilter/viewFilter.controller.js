@@ -187,89 +187,92 @@ async function getDashboardStats(req, res) {
     }
 
     const campaign = campaignResult.rows[0];
-    const { connection_id, started_at, ends_at } = campaign;
+    const { started_at, ends_at } = campaign;
     const now = new Date();
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
     const weekAgo = new Date(now.getTime() - 7 * 86400000);
     const daysRemaining = Math.max(0, Math.ceil((new Date(ends_at) - now) / 86400000));
 
+    // Use all user connections for queries (not limited to campaign's connection_id)
     const [totalViewers, newToday, newThisWeek, totalStatuses, avgViews, totalGrayCheckmarks] = await Promise.all([
-      // Total unique viewers in period
+      // Total unique viewers (all time, all connections)
       db.query(`
         SELECT COUNT(DISTINCT sbv.viewer_phone) as count
         FROM status_bot_views sbv
         JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-        WHERE sbs.connection_id = $1
-          AND sbv.viewed_at >= $2 AND sbv.viewed_at <= $3
-      `, [connection_id, started_at, ends_at]),
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
+      `, [userId]),
 
-      // New viewers today (first seen today)
+      // New viewers today (first seen today, all connections)
       db.query(`
         SELECT COUNT(DISTINCT viewer_phone) as count FROM (
-          SELECT sbv.viewer_phone,
-                 MIN(sbv.viewed_at) as first_seen
+          SELECT sbv.viewer_phone, MIN(sbv.viewed_at) as first_seen
           FROM status_bot_views sbv
           JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-          WHERE sbs.connection_id = $1
-            AND sbv.viewed_at >= $2 AND sbv.viewed_at <= $3
+          JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+          WHERE conn.user_id = $1
           GROUP BY sbv.viewer_phone
-        ) t WHERE t.first_seen >= $4
-      `, [connection_id, started_at, ends_at, todayStart]),
+        ) t WHERE t.first_seen >= $2
+      `, [userId, todayStart]),
 
-      // New viewers this week (first seen in last 7 days)
+      // New viewers this week (first seen in last 7 days, all connections)
       db.query(`
         SELECT COUNT(DISTINCT viewer_phone) as count FROM (
-          SELECT sbv.viewer_phone,
-                 MIN(sbv.viewed_at) as first_seen
+          SELECT sbv.viewer_phone, MIN(sbv.viewed_at) as first_seen
           FROM status_bot_views sbv
           JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-          WHERE sbs.connection_id = $1
-            AND sbv.viewed_at >= $2 AND sbv.viewed_at <= $3
+          JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+          WHERE conn.user_id = $1
           GROUP BY sbv.viewer_phone
-        ) t WHERE t.first_seen >= $4
-      `, [connection_id, started_at, ends_at, weekAgo]),
+        ) t WHERE t.first_seen >= $2
+      `, [userId, weekAgo]),
 
-      // Total statuses uploaded during period
+      // Total statuses (all connections)
       db.query(`
-        SELECT COUNT(*) as count FROM status_bot_statuses
-        WHERE connection_id = $1 AND sent_at >= $2 AND sent_at <= $3
-          AND deleted_at IS NULL
-      `, [connection_id, started_at, ends_at]),
+        SELECT COUNT(*) as count FROM status_bot_statuses sbs
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1 AND sbs.deleted_at IS NULL
+      `, [userId]),
 
-      // Average views per status
+      // Average views per status (all connections)
       db.query(`
-        SELECT COALESCE(AVG(view_count), 0)::numeric(10,1) as avg
-        FROM status_bot_statuses
-        WHERE connection_id = $1 AND sent_at >= $2 AND sent_at <= $3
-          AND deleted_at IS NULL
-      `, [connection_id, started_at, ends_at]),
+        SELECT COALESCE(AVG(sbs.view_count), 0)::numeric(10,1) as avg
+        FROM status_bot_statuses sbs
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1 AND sbs.deleted_at IS NULL
+      `, [userId]),
 
-      // Gray checkmarks (reacted or replied but no view)
+      // Gray checkmarks (reacted or replied but no view, all connections)
       db.query(`
         SELECT COUNT(DISTINCT phone) as count FROM (
           SELECT sbr.reactor_phone as phone
           FROM status_bot_reactions sbr
           JOIN status_bot_statuses sbs ON sbr.status_id = sbs.id
-          WHERE sbs.connection_id = $1 AND sbr.reacted_at >= $2 AND sbr.reacted_at <= $3
+          JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+          WHERE conn.user_id = $1
             AND sbr.reactor_phone NOT IN (
               SELECT DISTINCT sbv2.viewer_phone
               FROM status_bot_views sbv2
               JOIN status_bot_statuses sbs2 ON sbv2.status_id = sbs2.id
-              WHERE sbs2.connection_id = $1
+              JOIN status_bot_connections conn2 ON sbs2.connection_id = conn2.id
+              WHERE conn2.user_id = $1
             )
           UNION
           SELECT sbr2.replier_phone as phone
           FROM status_bot_replies sbr2
           JOIN status_bot_statuses sbs2 ON sbr2.status_id = sbs2.id
-          WHERE sbs2.connection_id = $1 AND sbr2.replied_at >= $2 AND sbr2.replied_at <= $3
+          JOIN status_bot_connections conn2 ON sbs2.connection_id = conn2.id
+          WHERE conn2.user_id = $1
             AND sbr2.replier_phone NOT IN (
               SELECT DISTINCT sbv3.viewer_phone
               FROM status_bot_views sbv3
               JOIN status_bot_statuses sbs3 ON sbv3.status_id = sbs3.id
-              WHERE sbs3.connection_id = $1
+              JOIN status_bot_connections conn3 ON sbs3.connection_id = conn3.id
+              WHERE conn3.user_id = $1
             )
         ) gc
-      `, [connection_id, started_at, ends_at]),
+      `, [userId]),
     ]);
 
     return res.json({
@@ -316,8 +319,6 @@ async function getViewers(req, res) {
       return res.json({ viewers: [] });
     }
 
-    const { connection_id, started_at, ends_at } = campaignResult.rows[0];
-
     // Pagination + filtering
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(200, parseInt(req.query.limit) || 50);
@@ -327,16 +328,19 @@ async function getViewers(req, res) {
       ? req.query.sort : 'statuses_viewed';
     const sortDir = req.query.dir === 'asc' ? 'ASC' : 'DESC';
 
+    // Query across ALL user connections (not limited to campaign's connection_id)
+    // This ensures historical views from previous connections are included
     const totalStatusesResult = await db.query(`
-      SELECT COUNT(*) as count FROM status_bot_statuses
-      WHERE connection_id = $1 AND sent_at >= $2 AND sent_at <= $3 AND deleted_at IS NULL
-    `, [connection_id, started_at, ends_at]);
+      SELECT COUNT(*) as count
+      FROM status_bot_statuses sbs
+      JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+      WHERE conn.user_id = $1 AND sbs.deleted_at IS NULL
+    `, [userId]);
     const totalStatuses = parseInt(totalStatusesResult.rows[0].count) || 1;
 
-    const params = [connection_id, started_at, ends_at, totalStatuses, userId];
-    // $5 = userId, $6 = search (if provided)
+    const params = [userId, totalStatuses];
     const searchClause = search
-      ? `AND (sbv.viewer_phone ILIKE $6 OR COALESCE(MAX(c.display_name), MAX(sbv.viewer_name)) ILIKE $6)`
+      ? `AND (sbv.viewer_phone ILIKE $3 OR COALESCE(MAX(c.display_name), MAX(sbv.viewer_name)) ILIKE $3)`
       : '';
     if (search) params.push(`%${search}%`);
 
@@ -345,28 +349,30 @@ async function getViewers(req, res) {
         sbv.viewer_phone,
         COALESCE(MAX(c.display_name), MAX(sbv.viewer_name)) as viewer_name,
         COUNT(DISTINCT sbv.status_id) as statuses_viewed,
-        $4::int as total_statuses,
-        ROUND(COUNT(DISTINCT sbv.status_id)::numeric / $4 * 100) as view_percentage,
+        $2::int as total_statuses,
+        ROUND(COUNT(DISTINCT sbv.status_id)::numeric / $2 * 100) as view_percentage,
         MIN(sbv.viewed_at) as first_seen,
         MAX(sbv.viewed_at) as last_seen,
         EXISTS(
           SELECT 1 FROM status_bot_reactions sbr2
           JOIN status_bot_statuses sbs2 ON sbr2.status_id = sbs2.id
-          WHERE sbs2.connection_id = $1 AND sbr2.reactor_phone = sbv.viewer_phone
+          JOIN status_bot_connections conn2 ON sbs2.connection_id = conn2.id
+          WHERE conn2.user_id = $1 AND sbr2.reactor_phone = sbv.viewer_phone
         ) as has_reaction,
         EXISTS(
           SELECT 1 FROM status_bot_replies sbr3
           JOIN status_bot_statuses sbs3 ON sbr3.status_id = sbs3.id
-          WHERE sbs3.connection_id = $1 AND sbr3.replier_phone = sbv.viewer_phone
+          JOIN status_bot_connections conn3 ON sbs3.connection_id = conn3.id
+          WHERE conn3.user_id = $1 AND sbr3.replier_phone = sbv.viewer_phone
         ) as has_reply
       FROM status_bot_views sbv
       JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-      LEFT JOIN contacts c ON c.user_id = $5
+      JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+      LEFT JOIN contacts c ON c.user_id = $1
         AND (c.phone = sbv.viewer_phone
           OR c.wa_id = sbv.viewer_phone
           OR c.wa_id = sbv.viewer_phone || '@s.whatsapp.net')
-      WHERE sbs.connection_id = $1
-        AND sbv.viewed_at >= $2 AND sbv.viewed_at <= $3
+      WHERE conn.user_id = $1
         ${searchClause}
       GROUP BY sbv.viewer_phone
       ORDER BY ${sortBy} ${sortDir} NULLS LAST
@@ -378,8 +384,9 @@ async function getViewers(req, res) {
       SELECT COUNT(DISTINCT sbv.viewer_phone) as count
       FROM status_bot_views sbv
       JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-      WHERE sbs.connection_id = $1 AND sbv.viewed_at >= $2 AND sbv.viewed_at <= $3
-    `, [connection_id, started_at, ends_at]);
+      JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+      WHERE conn.user_id = $1
+    `, [userId]);
 
     return res.json({
       viewers: viewersResult.rows,
@@ -410,8 +417,6 @@ async function getGrayCheckmarks(req, res) {
     );
     if (campaignResult.rows.length === 0) return res.json({ grayCheckmarks: [] });
 
-    const { connection_id, started_at, ends_at } = campaignResult.rows[0];
-
     const result = await db.query(`
       SELECT phone, name, type FROM (
         SELECT DISTINCT
@@ -420,12 +425,14 @@ async function getGrayCheckmarks(req, res) {
           'reaction' as type
         FROM status_bot_reactions sbr
         JOIN status_bot_statuses sbs ON sbr.status_id = sbs.id
-        WHERE sbs.connection_id = $1 AND sbr.reacted_at >= $2 AND sbr.reacted_at <= $3
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
           AND sbr.reactor_phone NOT IN (
             SELECT DISTINCT sbv.viewer_phone
             FROM status_bot_views sbv
             JOIN status_bot_statuses sbs2 ON sbv.status_id = sbs2.id
-            WHERE sbs2.connection_id = $1
+            JOIN status_bot_connections conn2 ON sbs2.connection_id = conn2.id
+            WHERE conn2.user_id = $1
           )
         GROUP BY sbr.reactor_phone
         UNION
@@ -435,17 +442,19 @@ async function getGrayCheckmarks(req, res) {
           'reply' as type
         FROM status_bot_replies sbr2
         JOIN status_bot_statuses sbs2 ON sbr2.status_id = sbs2.id
-        WHERE sbs2.connection_id = $1 AND sbr2.replied_at >= $2 AND sbr2.replied_at <= $3
+        JOIN status_bot_connections conn2 ON sbs2.connection_id = conn2.id
+        WHERE conn2.user_id = $1
           AND sbr2.replier_phone NOT IN (
             SELECT DISTINCT sbv2.viewer_phone
             FROM status_bot_views sbv2
             JOIN status_bot_statuses sbs3 ON sbv2.status_id = sbs3.id
-            WHERE sbs3.connection_id = $1
+            JOIN status_bot_connections conn3 ON sbs3.connection_id = conn3.id
+            WHERE conn3.user_id = $1
           )
         GROUP BY sbr2.replier_phone
       ) gc
       ORDER BY name ASC
-    `, [connection_id, started_at, ends_at]);
+    `, [userId]);
 
     return res.json({ grayCheckmarks: result.rows });
   } catch (err) {
@@ -472,53 +481,53 @@ async function getViewerProfile(req, res) {
     );
     if (campaignResult.rows.length === 0) return res.status(404).json({ error: 'אין קמפיין' });
 
-    const { connection_id, started_at, ends_at } = campaignResult.rows[0];
-
-    const [totalStatuses, viewedStatuses, reactions, replies] = await Promise.all([
+    // Query across ALL user connections
+    const [totalStatuses, viewedStatuses, reactions, replies, nameResult] = await Promise.all([
       db.query(`
-        SELECT COUNT(*) as count FROM status_bot_statuses
-        WHERE connection_id = $1 AND sent_at >= $2 AND sent_at <= $3 AND deleted_at IS NULL
-      `, [connection_id, started_at, ends_at]),
+        SELECT COUNT(*) as count FROM status_bot_statuses sbs
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1 AND sbs.deleted_at IS NULL
+      `, [userId]),
 
       db.query(`
         SELECT
           sbs.id, sbs.status_type, sbs.sent_at, sbs.content,
-          sbv.viewed_at,
-          sbs.view_count, sbs.reaction_count, sbs.reply_count
+          sbv.viewed_at, sbs.view_count, sbs.reaction_count, sbs.reply_count
         FROM status_bot_views sbv
         JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-        WHERE sbs.connection_id = $1
-          AND sbv.viewer_phone = $2
-          AND sbv.viewed_at >= $3 AND sbv.viewed_at <= $4
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1 AND sbv.viewer_phone = $2
         ORDER BY sbv.viewed_at DESC
-      `, [connection_id, phone, started_at, ends_at]),
+      `, [userId, phone]),
 
       db.query(`
         SELECT sbr.reaction, sbr.reacted_at, sbs.id as status_id
         FROM status_bot_reactions sbr
         JOIN status_bot_statuses sbs ON sbr.status_id = sbs.id
-        WHERE sbs.connection_id = $1 AND sbr.reactor_phone = $2
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1 AND sbr.reactor_phone = $2
         ORDER BY sbr.reacted_at DESC
-      `, [connection_id, phone]),
+      `, [userId, phone]),
 
       db.query(`
         SELECT sbr.reply_text, sbr.replied_at, sbs.id as status_id
         FROM status_bot_replies sbr
         JOIN status_bot_statuses sbs ON sbr.status_id = sbs.id
-        WHERE sbs.connection_id = $1 AND sbr.replier_phone = $2
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1 AND sbr.replier_phone = $2
         ORDER BY sbr.replied_at DESC
-      `, [connection_id, phone]),
+      `, [userId, phone]),
+
+      db.query(`
+        SELECT MAX(sbv.viewer_name) as name FROM status_bot_views sbv
+        JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1 AND sbv.viewer_phone = $2
+      `, [userId, phone]),
     ]);
 
     const total = parseInt(totalStatuses.rows[0].count) || 0;
     const viewed = viewedStatuses.rows.length;
-
-    // Get viewer name from most recent view
-    const nameResult = await db.query(`
-      SELECT MAX(sbv.viewer_name) as name FROM status_bot_views sbv
-      JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-      WHERE sbs.connection_id = $1 AND sbv.viewer_phone = $2
-    `, [connection_id, phone]);
 
     return res.json({
       phone,
@@ -552,19 +561,14 @@ async function getDailyGrowth(req, res) {
     );
     if (campaignResult.rows.length === 0) return res.json({ days: [] });
 
-    const { connection_id, started_at, ends_at } = campaignResult.rows[0];
-    // Optional: custom start date from query
-    const customStart = req.query.from ? new Date(req.query.from) : new Date(started_at);
-    const effectiveStart = customStart > new Date(started_at) ? customStart : new Date(started_at);
-
-    // Optimized: find each viewer's first appearance (single pass, no correlated subquery)
+    // Optimized: find each viewer's first appearance across ALL user connections
     const result = await db.query(`
       WITH first_views AS (
         SELECT sbv.viewer_phone, DATE(MIN(sbv.viewed_at)) AS day
         FROM status_bot_views sbv
         JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-        WHERE sbs.connection_id = $1
-          AND sbv.viewed_at >= $2 AND sbv.viewed_at <= $3
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
         GROUP BY sbv.viewer_phone
       )
       SELECT
@@ -574,7 +578,7 @@ async function getDailyGrowth(req, res) {
       FROM first_views
       GROUP BY day
       ORDER BY day ASC
-    `, [connection_id, effectiveStart, ends_at]);
+    `, [userId]);
 
     return res.json({ days: result.rows });
   } catch (err) {
@@ -604,8 +608,6 @@ async function downloadContacts(req, res) {
     );
     if (campaignResult.rows.length === 0) return res.status(404).json({ error: 'אין קמפיין' });
 
-    const { connection_id, started_at, ends_at } = campaignResult.rows[0];
-
     const viewers = await db.query(`
       SELECT
         sbv.viewer_phone,
@@ -613,10 +615,11 @@ async function downloadContacts(req, res) {
         COUNT(DISTINCT sbv.status_id) as statuses_viewed
       FROM status_bot_views sbv
       JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-      WHERE sbs.connection_id = $1 AND sbv.viewed_at >= $2 AND sbv.viewed_at <= $3
+      JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+      WHERE conn.user_id = $1
       GROUP BY sbv.viewer_phone
       ORDER BY statuses_viewed DESC
-    `, [connection_id, started_at, ends_at]);
+    `, [userId]);
 
     const date = new Date().toISOString().split('T')[0];
 
@@ -673,36 +676,36 @@ async function downloadReport(req, res) {
     );
     if (campaignResult.rows.length === 0) return res.status(404).json({ error: 'אין קמפיין' });
 
-    const { connection_id, started_at, ends_at } = campaignResult.rows[0];
-    const customFrom = req.query.from ? new Date(req.query.from) : new Date(started_at);
-    const effectiveStart = customFrom > new Date(started_at) ? customFrom : new Date(started_at);
-
+    // Query across all user connections
     const [statuses, dailyGrowth, viewers] = await Promise.all([
       db.query(`
-        SELECT id, status_type, sent_at, view_count, reaction_count, reply_count, content
-        FROM status_bot_statuses
-        WHERE connection_id = $1 AND sent_at >= $2 AND sent_at <= $3 AND deleted_at IS NULL
-        ORDER BY sent_at ASC
-      `, [connection_id, effectiveStart, ends_at]),
+        SELECT sbs.id, sbs.status_type, sbs.sent_at, sbs.view_count, sbs.reaction_count, sbs.reply_count, sbs.content
+        FROM status_bot_statuses sbs
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1 AND sbs.deleted_at IS NULL
+        ORDER BY sbs.sent_at ASC
+      `, [userId]),
 
       db.query(`
         SELECT DATE(sbv.viewed_at) as day, COUNT(DISTINCT sbv.viewer_phone) as new_viewers
         FROM status_bot_views sbv
         JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-        WHERE sbs.connection_id = $1 AND sbv.viewed_at >= $2 AND sbv.viewed_at <= $3
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
         GROUP BY DATE(sbv.viewed_at)
         ORDER BY day ASC
-      `, [connection_id, effectiveStart, ends_at]),
+      `, [userId]),
 
       db.query(`
         SELECT sbv.viewer_phone, MAX(sbv.viewer_name) as name,
                COUNT(DISTINCT sbv.status_id) as viewed
         FROM status_bot_views sbv
         JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-        WHERE sbs.connection_id = $1 AND sbv.viewed_at >= $2 AND sbv.viewed_at <= $3
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
         GROUP BY sbv.viewer_phone
         ORDER BY viewed DESC
-      `, [connection_id, effectiveStart, ends_at]),
+      `, [userId]),
     ]);
 
     const date = new Date().toISOString().split('T')[0];
@@ -710,7 +713,7 @@ async function downloadReport(req, res) {
     // Build CSV with multiple sections
     const rows = [
       ['דוח סינון צפיות - בוט Botomat'],
-      [`תקופה: ${effectiveStart.toLocaleDateString('he-IL')} עד ${new Date(ends_at).toLocaleDateString('he-IL')}`],
+      [`הופק: ${new Date().toLocaleDateString('he-IL')}`],
       [],
       ['=== סיכום כללי ==='],
       ['סה"כ סטטוסים', statuses.rows.length],
@@ -779,17 +782,16 @@ async function syncToGoogle(req, res) {
     );
     if (campaignResult.rows.length === 0) return res.status(404).json({ error: 'אין קמפיין' });
 
-    const { connection_id, started_at, ends_at } = campaignResult.rows[0];
-
-    // Get all viewers
+    // Get all viewers across ALL user connections
     const viewers = await db.query(`
       SELECT sbv.viewer_phone, MAX(sbv.viewer_name) as viewer_name,
              COUNT(DISTINCT sbv.status_id) as statuses_viewed
       FROM status_bot_views sbv
       JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-      WHERE sbs.connection_id = $1 AND sbv.viewed_at >= $2 AND sbv.viewed_at <= $3
+      JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+      WHERE conn.user_id = $1
       GROUP BY sbv.viewer_phone
-    `, [connection_id, started_at, ends_at]);
+    `, [userId]);
 
     if (viewers.rows.length === 0) {
       return res.json({ success: true, synced: 0, message: 'אין צופים לסנכרן' });
@@ -865,6 +867,211 @@ async function syncToGoogle(req, res) {
   } catch (err) {
     console.error('[ViewFilter] syncToGoogle error:', err);
     res.status(500).json({ error: 'שגיאה בסנכרון ל-Google Contacts' });
+  }
+}
+
+// ─────────────────────────────────────────────
+// GOOGLE AUTH URL (for connecting additional accounts)
+// ─────────────────────────────────────────────
+
+async function getGoogleAuthUrl(req, res) {
+  try {
+    const userId = req.user.id;
+
+    // Find next available slot
+    const slotResult = await db.query(
+      `SELECT COALESCE(MAX(slot) + 1, 0) as next_slot FROM user_integrations WHERE user_id = $1 AND integration_type = 'google_contacts'`,
+      [userId]
+    );
+    const nextSlot = slotResult.rows[0].next_slot;
+
+    const googleContactsService = require('../../services/googleContacts.service');
+    const url = googleContactsService.getAuthUrl(userId, 'view-filter', nextSlot);
+    res.json({ url, slot: nextSlot });
+  } catch (err) {
+    console.error('[ViewFilter] getGoogleAuthUrl error:', err);
+    res.status(500).json({ error: 'שגיאה ביצירת קישור חיבור' });
+  }
+}
+
+// ─────────────────────────────────────────────
+// VIEWER CERTIFICATE (HTML)
+// ─────────────────────────────────────────────
+
+async function downloadViewerCertificate(req, res) {
+  try {
+    const userId = req.user.id;
+    const access = await checkSubscription(userId);
+    if (!access.hasAccess) return res.status(403).json({ error: 'אין גישה לשירות', ...access });
+
+    const { phone } = req.params;
+
+    const campaignResult = await db.query(
+      `SELECT * FROM status_viewer_campaigns WHERE user_id = $1 AND is_primary = true ORDER BY created_at DESC LIMIT 1`,
+      [userId]
+    );
+    if (campaignResult.rows.length === 0) return res.status(404).json({ error: 'אין קמפיין' });
+
+    // Query across ALL user connections
+    const [totalResult, viewedResult, nameResult] = await Promise.all([
+      db.query(`
+        SELECT COUNT(*) as count FROM status_bot_statuses sbs
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1 AND sbs.deleted_at IS NULL
+      `, [userId]),
+
+      db.query(`
+        SELECT COUNT(DISTINCT sbv.status_id) as count, MIN(sbv.viewed_at) as first_seen, MAX(sbv.viewed_at) as last_seen
+        FROM status_bot_views sbv
+        JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1 AND sbv.viewer_phone = $2
+      `, [userId, phone]),
+
+      db.query(`
+        SELECT MAX(sbv.viewer_name) as name FROM status_bot_views sbv
+        JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1 AND sbv.viewer_phone = $2
+      `, [userId, phone]),
+    ]);
+
+    const total = parseInt(totalResult.rows[0].count) || 0;
+    const viewed = parseInt(viewedResult.rows[0].count) || 0;
+    const viewPercentage = total > 0 ? Math.round((viewed / total) * 100) : 0;
+    const name = nameResult.rows[0]?.name || phone;
+    const firstSeen = viewedResult.rows[0]?.first_seen;
+    const lastSeen = viewedResult.rows[0]?.last_seen;
+    const issueDate = new Date().toLocaleDateString('he-IL');
+
+    const html = `<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>תעודת צפיות - ${name}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;900&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Heebo', Arial, sans-serif; background: #f3f4f6; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+  .certificate { background: white; width: 800px; padding: 50px 60px; position: relative; box-shadow: 0 20px 60px rgba(0,0,0,0.15); border-radius: 16px; overflow: hidden; }
+  .top-bar { position: absolute; top: 0; left: 0; right: 0; height: 8px; background: linear-gradient(90deg, #7c3aed, #8b5cf6, #a78bfa); }
+  .bg-circle1 { position: absolute; top: -80px; left: -80px; width: 250px; height: 250px; border-radius: 50%; background: rgba(139,92,246,0.05); pointer-events: none; }
+  .bg-circle2 { position: absolute; bottom: -60px; right: -60px; width: 200px; height: 200px; border-radius: 50%; background: rgba(139,92,246,0.05); pointer-events: none; }
+  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 36px; }
+  .logo { font-size: 22px; font-weight: 900; color: #7c3aed; letter-spacing: -0.5px; }
+  .logo span { color: #a78bfa; }
+  .badge { background: linear-gradient(135deg, #7c3aed, #8b5cf6); color: white; padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .title-section { text-align: center; margin-bottom: 28px; }
+  .title-en { font-size: 12px; color: #9ca3af; font-weight: 400; letter-spacing: 4px; margin-bottom: 8px; }
+  .title-main { font-size: 38px; font-weight: 900; color: #1f2937; }
+  .title-sub { font-size: 14px; color: #6b7280; margin-top: 6px; }
+  hr { border: none; height: 1px; background: linear-gradient(90deg, transparent, #e5e7eb, transparent); margin: 24px 0; }
+  .viewer-section { text-align: center; margin-bottom: 28px; }
+  .viewer-label { font-size: 11px; color: #9ca3af; font-weight: 500; letter-spacing: 3px; margin-bottom: 8px; }
+  .viewer-name { font-size: 30px; font-weight: 700; color: #7c3aed; margin-bottom: 4px; }
+  .viewer-phone { font-size: 14px; color: #9ca3af; direction: ltr; }
+  .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 24px 0; }
+  .stat-box { background: #f5f3ff; border-radius: 12px; padding: 20px; text-align: center; border: 1px solid #ede9fe; }
+  .stat-value { font-size: 34px; font-weight: 900; color: #7c3aed; line-height: 1; }
+  .stat-label { font-size: 11px; color: #6b7280; margin-top: 6px; font-weight: 500; }
+  .dates-row { display: flex; justify-content: center; gap: 48px; margin: 20px 0; }
+  .date-item { text-align: center; }
+  .date-label { font-size: 11px; color: #9ca3af; margin-bottom: 4px; }
+  .date-value { font-size: 14px; font-weight: 600; color: #374151; }
+  .footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 32px; }
+  .footer-left { display: flex; flex-direction: column; gap: 8px; }
+  .verified { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 8px 14px; display: inline-flex; align-items: center; gap: 6px; }
+  .verified-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex-shrink: 0; }
+  .verified-text { font-size: 11px; color: #15803d; font-weight: 500; }
+  .issue-date { font-size: 11px; color: #9ca3af; }
+  .seal { text-align: center; }
+  .seal-circle { width: 72px; height: 72px; border-radius: 50%; border: 2px solid #e5e7eb; display: flex; align-items: center; justify-content: center; margin: 0 auto 6px; }
+  .seal-text { font-size: 9px; color: #9ca3af; text-align: center; line-height: 1.4; }
+  @media print { body { background: white; padding: 0; } .certificate { box-shadow: none; border-radius: 0; } }
+</style>
+</head>
+<body>
+<div class="certificate">
+  <div class="top-bar"></div>
+  <div class="bg-circle1"></div>
+  <div class="bg-circle2"></div>
+
+  <div class="header">
+    <div class="logo">בוט<span>ומט</span></div>
+    <div class="badge">תעודה מאומתת</div>
+  </div>
+
+  <div class="title-section">
+    <div class="title-en">CERTIFICATE OF VIEWS</div>
+    <div class="title-main">תעודת צפיות</div>
+    <div class="title-sub">מאשר בזאת צפייה בסטטוסי WhatsApp</div>
+  </div>
+
+  <hr>
+
+  <div class="viewer-section">
+    <div class="viewer-label">הוענקה ל</div>
+    <div class="viewer-name">${name}</div>
+    <div class="viewer-phone">${phone}</div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-box">
+      <div class="stat-value">${viewed}</div>
+      <div class="stat-label">סטטוסים שנצפו</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-value">${viewPercentage}%</div>
+      <div class="stat-label">מסך הסטטוסים</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-value">${total}</div>
+      <div class="stat-label">סה"כ סטטוסים</div>
+    </div>
+  </div>
+
+  <div class="dates-row">
+    <div class="date-item">
+      <div class="date-label">צפייה ראשונה</div>
+      <div class="date-value">${firstSeen ? new Date(firstSeen).toLocaleDateString('he-IL') : '—'}</div>
+    </div>
+    <div class="date-item">
+      <div class="date-label">צפייה אחרונה</div>
+      <div class="date-value">${lastSeen ? new Date(lastSeen).toLocaleDateString('he-IL') : '—'}</div>
+    </div>
+  </div>
+
+  <hr>
+
+  <div class="footer">
+    <div class="footer-left">
+      <div class="verified">
+        <div class="verified-dot"></div>
+        <div class="verified-text">מאומת על ידי מערכת Botomat</div>
+      </div>
+      <div class="issue-date">הונפקה: ${issueDate}</div>
+    </div>
+    <div class="seal">
+      <div class="seal-circle">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <path d="m9 12 2 2 4-4"/>
+        </svg>
+      </div>
+      <div class="seal-text">BOTOMAT<br>VERIFIED</div>
+    </div>
+  </div>
+</div>
+<script>window.onload = () => window.print();</script>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(html);
+  } catch (err) {
+    console.error('[ViewFilter] downloadViewerCertificate error:', err);
+    res.status(500).json({ error: 'שגיאה ביצירת התעודה' });
   }
 }
 
@@ -983,7 +1190,9 @@ module.exports = {
   downloadContacts,
   downloadReport,
   getGoogleAccounts,
+  getGoogleAuthUrl,
   syncToGoogle,
+  downloadViewerCertificate,
   getRenewalInfo,
   getCampaigns,
   setPrimary,

@@ -37,27 +37,27 @@ function createOAuth2Client() {
 /**
  * Get authorization URL for Google Contacts
  */
-function getAuthUrl(userId, from = null) {
+function getAuthUrl(userId, from = null, slot = 0) {
   const oauth2Client = createOAuth2Client();
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
     scope: SCOPES,
-    state: JSON.stringify({ userId, ...(from && { from }) }),
+    state: JSON.stringify({ userId, slot, ...(from && { from }) }),
   });
 }
 
 /**
  * Exchange authorization code for tokens and store them
  */
-async function handleCallback(code, userId) {
+async function handleCallback(code, userId, slot = 0) {
   const axios = require('axios');
   const oauth2Client = createOAuth2Client();
-  
+
   console.log('[GoogleContacts] Exchanging code for tokens...');
   const { tokens } = await oauth2Client.getToken(code);
   console.log('[GoogleContacts] Token exchange success.');
-  
+
   // Get user email for display
   let userInfo = { email: null, name: null };
   try {
@@ -69,15 +69,15 @@ async function handleCallback(code, userId) {
   } catch (infoErr) {
     console.warn('[GoogleContacts] Could not get user info (non-fatal):', infoErr.message);
   }
-  
+
   // Encrypt tokens
   const encryptedAccess = encrypt(tokens.access_token);
   const encryptedRefresh = tokens.refresh_token ? encrypt(tokens.refresh_token) : null;
-  
-  // Store in database
+
+  // Store in database (slot-aware)
   await db.query(`
     INSERT INTO user_integrations (user_id, integration_type, slot, access_token, refresh_token, token_expiry, account_email, account_name, status)
-    VALUES ($1, 'google_contacts', 0, $2, $3, $4, $5, $6, 'connected')
+    VALUES ($1, 'google_contacts', $7, $2, $3, $4, $5, $6, 'connected')
     ON CONFLICT (user_id, integration_type, slot) DO UPDATE SET
       access_token = EXCLUDED.access_token,
       refresh_token = COALESCE(EXCLUDED.refresh_token, user_integrations.refresh_token),
@@ -92,9 +92,10 @@ async function handleCallback(code, userId) {
     encryptedRefresh,
     tokens.expiry_date ? new Date(tokens.expiry_date) : null,
     userInfo.email,
-    userInfo.name
+    userInfo.name,
+    slot,
   ]);
-  
+
   return { email: userInfo.email, name: userInfo.name };
 }
 

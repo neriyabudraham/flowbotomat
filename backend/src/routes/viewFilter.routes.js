@@ -10,11 +10,12 @@ router.get('/campaign',       c.getCampaign);
 router.post('/campaign/start', c.startCampaign);
 
 // Stats & viewers
-router.get('/stats',                 c.getDashboardStats);
-router.get('/viewers',               c.getViewers);
-router.get('/viewers/:phone',        c.getViewerProfile);
-router.get('/gray-checkmarks',       c.getGrayCheckmarks);
-router.get('/daily-growth',          c.getDailyGrowth);
+router.get('/stats',                         c.getDashboardStats);
+router.get('/viewers',                       c.getViewers);
+router.get('/viewers/:phone/certificate',    c.downloadViewerCertificate);
+router.get('/viewers/:phone',                c.getViewerProfile);
+router.get('/gray-checkmarks',               c.getGrayCheckmarks);
+router.get('/daily-growth',                  c.getDailyGrowth);
 
 // Downloads
 router.get('/download/contacts',     c.downloadContacts);
@@ -22,6 +23,7 @@ router.get('/download/report',       c.downloadReport);
 
 // Google Contacts sync
 router.get('/google/accounts',       c.getGoogleAccounts);
+router.get('/google/auth-url',       c.getGoogleAuthUrl);
 router.post('/google/sync',          c.syncToGoogle);
 
 // Renewal pricing

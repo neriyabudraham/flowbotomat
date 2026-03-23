@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Eye, Users, TrendingUp, Download, Smartphone, Search,
   ChevronDown, ChevronUp, Filter, RefreshCw, Play,
   AlertCircle, CheckCircle, Clock, BarChart2, FileText,
-  ArrowUpRight, User, Heart, ArrowLeft, Shield, Plus, Trash2
+  ArrowUpRight, User, Heart, ArrowLeft, Shield, Plus, ExternalLink, X
 } from 'lucide-react';
 import Logo from '../../components/atoms/Logo';
 import NotificationsDropdown from '../../components/notifications/NotificationsDropdown';
@@ -15,6 +15,7 @@ import ViewerProfileModal from '../../components/viewFilter/ViewerProfileModal';
 
 export default function ViewFilterDashboardPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user, logout } = useAuthStore();
 
   const isAdmin = (() => {
@@ -38,14 +39,13 @@ export default function ViewFilterDashboardPage() {
   const [viewersMeta, setViewersMeta] = useState({ total: 0, page: 1, pages: 1 });
   const [grayCheckmarks, setGrayCheckmarks] = useState([]);
   const [dailyGrowth, setDailyGrowth] = useState([]);
-  const [campaigns, setCampaigns] = useState([]);
-  const [showNewCampaign, setShowNewCampaign] = useState(false);
-  const [newCampaignType, setNewCampaignType] = useState('today'); // 'today' | 'all_time'
   const [startingCampaign, setStartingCampaign] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
   const [error, setError] = useState(null);
   const [selectedViewer, setSelectedViewer] = useState(null);
+  const [googleAccounts, setGoogleAccounts] = useState([]);
+  const [connectingGoogle, setConnectingGoogle] = useState(false);
 
   // Viewers filter/sort
   const [search, setSearch] = useState('');
@@ -54,6 +54,15 @@ export default function ViewFilterDashboardPage() {
   const [page, setPage] = useState(1);
   const [showGray, setShowGray] = useState(false);
   const [downloading, setDownloading] = useState(false);
+
+  // Handle Google OAuth return
+  useEffect(() => {
+    if (searchParams.get('google') === 'connected') {
+      loadGoogleAccounts();
+      setSyncResult({ message: 'חשבון Google חובר בהצלחה' });
+      navigate('/view-filter', { replace: true });
+    }
+  }, []);
 
   useEffect(() => {
     loadAll();
@@ -90,11 +99,11 @@ export default function ViewFilterDashboardPage() {
         await Promise.all([
           loadGrayCheckmarks(),
           loadDailyGrowth(),
-          loadCampaigns(),
+          loadGoogleAccounts(),
         ]);
         setLoadingProgress(90);
       } else {
-        await loadCampaigns();
+        await loadGoogleAccounts();
         setLoadingProgress(90);
       }
     } catch (err) {
@@ -110,7 +119,6 @@ export default function ViewFilterDashboardPage() {
     const activeCampaign = campaignArg || campaign;
     if (!activeCampaign) return;
     try {
-      // Map frontend sort keys to backend column names
       const sortMap = { view_count: 'statuses_viewed', view_percentage: 'view_percentage', last_view: 'last_seen', first_view: 'first_seen', name: 'viewer_name' };
       const backendSort = sortMap[sortBy] || sortBy;
       const params = new URLSearchParams({
@@ -121,7 +129,6 @@ export default function ViewFilterDashboardPage() {
         ...(search && { search }),
       });
       const { data } = await api.get(`/view-filter/viewers?${params}`);
-      // Normalize field names from backend
       const normalized = (data.viewers || []).map(v => ({
         ...v,
         name: v.viewer_name || v.name || '',
@@ -149,19 +156,18 @@ export default function ViewFilterDashboardPage() {
     } catch {}
   };
 
-  const loadCampaigns = async () => {
+  const loadGoogleAccounts = async () => {
     try {
-      const { data } = await api.get('/view-filter/campaigns');
-      setCampaigns(data.campaigns || []);
+      const { data } = await api.get('/view-filter/google/accounts');
+      setGoogleAccounts(data.accounts || []);
     } catch {}
   };
 
-  const handleStartCampaign = async (trackSince = null) => {
+  const handleStartCampaign = async () => {
     setStartingCampaign(true);
     setError(null);
-    setShowNewCampaign(false);
     try {
-      const { data } = await api.post('/view-filter/campaign/start', { trackSince });
+      const { data } = await api.post('/view-filter/campaign/start', { trackSince: 'all_time' });
       setCampaign(data.campaign);
       await loadAll();
     } catch (err) {
@@ -175,12 +181,23 @@ export default function ViewFilterDashboardPage() {
     setSyncing(true);
     setSyncResult(null);
     try {
-      const { data } = await api.post('/view-filter/sync-google');
+      const { data } = await api.post('/view-filter/google/sync');
       setSyncResult(data);
     } catch (err) {
       setError(err.response?.data?.error || 'שגיאה בסנכרון');
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleConnectGoogle = async () => {
+    setConnectingGoogle(true);
+    try {
+      const { data } = await api.get('/view-filter/google/auth-url');
+      window.location.href = data.url;
+    } catch (err) {
+      setError('שגיאה ביצירת קישור חיבור Google');
+      setConnectingGoogle(false);
     }
   };
 
@@ -319,7 +336,6 @@ export default function ViewFilterDashboardPage() {
         {/* Campaign Status Card */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="p-6">
-            {/* Header row: status badge + "מעקב חדש" button */}
             <div className="flex items-center justify-between mb-4">
               <div>
                 {campaign?.status === 'active' ? (
@@ -334,16 +350,8 @@ export default function ViewFilterDashboardPage() {
                   <span className="text-sm text-gray-500">אין מעקב פעיל</span>
                 )}
               </div>
-              <button
-                onClick={() => setShowNewCampaign(v => !v)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-600"
-              >
-                <Plus className="w-4 h-4" />
-                מעקב חדש
-              </button>
             </div>
 
-            {/* Campaign progress or empty state */}
             {campaign ? (
               <div>
                 <p className="text-sm text-gray-500 mb-3">
@@ -362,96 +370,34 @@ export default function ViewFilterDashboardPage() {
                 </div>
               </div>
             ) : (
-              <div className="text-center py-4 text-gray-400">
-                <Play className="w-10 h-10 mx-auto mb-2 text-gray-200" />
-                <p className="text-sm">לחץ על "מעקב חדש" כדי להתחיל לעקוב</p>
-              </div>
-            )}
-
-            {/* New campaign popup */}
-            {showNewCampaign && (
-              <div className="mt-4 p-4 bg-purple-50 border border-purple-100 rounded-xl">
-                <p className="text-sm font-medium text-purple-800 mb-3">
-                  {campaign ? 'התחל מעקב חדש — הנוכחי ישמר ברקע' : 'בחר נקודת התחלה'}
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleStartCampaign(null)}
-                    disabled={startingCampaign}
-                    className="flex-1 py-2 px-3 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors disabled:opacity-50"
-                  >
-                    {startingCampaign ? <RefreshCw className="w-3 h-3 animate-spin mx-auto" /> : 'מהיום'}
-                  </button>
-                  <button
-                    onClick={() => handleStartCampaign('all_time')}
-                    disabled={startingCampaign}
-                    className="flex-1 py-2 px-3 border border-purple-300 text-purple-700 rounded-lg text-sm font-medium hover:bg-purple-100 transition-colors disabled:opacity-50"
-                  >
-                    מתחילת הנתונים
-                  </button>
-                  <button
-                    onClick={() => setShowNewCampaign(false)}
-                    className="py-2 px-3 text-gray-500 hover:text-gray-700 rounded-lg text-sm"
-                  >
-                    ביטול
-                  </button>
-                </div>
+              <div className="text-center py-6">
+                <Play className="w-10 h-10 mx-auto mb-3 text-gray-200" />
+                <p className="text-sm text-gray-500 mb-4">לחץ כדי להתחיל לעקוב אחרי הצופים שלך</p>
+                <button
+                  onClick={handleStartCampaign}
+                  disabled={startingCampaign}
+                  className="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-purple-500 to-violet-600 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50"
+                >
+                  {startingCampaign
+                    ? <><RefreshCw className="w-4 h-4 animate-spin" /> מפעיל מעקב...</>
+                    : <><Play className="w-4 h-4" /> התחל מעקב</>
+                  }
+                </button>
               </div>
             )}
           </div>
-
-          {/* Past campaigns list */}
-          {campaigns.length > 1 && (
-            <div className="border-t border-gray-50 px-6 pb-4">
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mt-4 mb-2">מעקבים נוספים</p>
-              <div className="space-y-2">
-                {campaigns.filter(c => !c.is_primary).map(c => (
-                  <div key={c.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg text-sm">
-                    <div>
-                      <span className="text-gray-700">{new Date(c.started_at).toLocaleDateString('he-IL')} — {new Date(c.ends_at).toLocaleDateString('he-IL')}</span>
-                      <span className={`mr-2 text-xs px-2 py-0.5 rounded-full ${c.status === 'active' ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'}`}>
-                        {c.status === 'active' ? 'פעיל' : 'הסתיים'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={async () => {
-                          await api.post(`/view-filter/campaigns/${c.id}/set-primary`);
-                          loadAll();
-                        }}
-                        className="text-xs text-purple-600 hover:text-purple-800 hover:underline"
-                      >
-                        הצג
-                      </button>
-                      <button
-                        onClick={async () => {
-                          if (!window.confirm('למחוק את המעקב?')) return;
-                          await api.delete(`/view-filter/campaigns/${c.id}`);
-                          loadCampaigns();
-                        }}
-                        className="p-1 text-gray-300 hover:text-red-500 transition-colors rounded"
-                        title="מחק מעקב"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Stats Cards */}
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             {[
-              { label: 'צופים ייחודיים', value: stats.totalViewers ?? 0, icon: <Users className="w-5 h-5 text-purple-500" />, color: 'purple' },
-              { label: 'חדשים היום', value: stats.newToday ?? 0, icon: <TrendingUp className="w-5 h-5 text-violet-500" />, color: 'violet' },
-              { label: 'חדשים השבוע', value: stats.newThisWeek ?? 0, icon: <BarChart2 className="w-5 h-5 text-indigo-500" />, color: 'indigo' },
-              { label: 'סטטוסים סה"כ', value: stats.totalStatuses ?? 0, icon: <Eye className="w-5 h-5 text-blue-500" />, color: 'blue' },
-              { label: 'ממוצע צפיות', value: stats.avgViewsPerStatus ?? 0, icon: <ArrowUpRight className="w-5 h-5 text-emerald-500" />, color: 'emerald' },
-              { label: 'וי אפור', value: stats.grayCheckmarks ?? 0, icon: <Heart className="w-5 h-5 text-rose-400" />, color: 'rose' },
+              { label: 'צופים ייחודיים', value: stats.totalViewers ?? 0, icon: <Users className="w-5 h-5 text-purple-500" /> },
+              { label: 'חדשים היום', value: stats.newToday ?? 0, icon: <TrendingUp className="w-5 h-5 text-violet-500" /> },
+              { label: 'חדשים השבוע', value: stats.newThisWeek ?? 0, icon: <BarChart2 className="w-5 h-5 text-indigo-500" /> },
+              { label: 'סטטוסים סה"כ', value: stats.totalStatuses ?? 0, icon: <Eye className="w-5 h-5 text-blue-500" /> },
+              { label: 'ממוצע צפיות', value: stats.avgViewsPerStatus ?? 0, icon: <ArrowUpRight className="w-5 h-5 text-emerald-500" /> },
+              { label: 'וי אפור', value: stats.grayCheckmarks ?? 0, icon: <Heart className="w-5 h-5 text-rose-400" /> },
             ].map((s, i) => (
               <div key={i} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
                 <div className="flex items-center gap-2 mb-2">{s.icon}</div>
@@ -462,7 +408,7 @@ export default function ViewFilterDashboardPage() {
           </div>
         )}
 
-        {/* Daily Growth Chart (simple bar) */}
+        {/* Daily Growth Chart */}
         {dailyGrowth.length > 0 && (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
             <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
@@ -527,7 +473,6 @@ export default function ViewFilterDashboardPage() {
                 </div>
               </div>
 
-              {/* Filters */}
               <div className="flex flex-wrap gap-3">
                 <div className="relative flex-1 min-w-48">
                   <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -542,7 +487,6 @@ export default function ViewFilterDashboardPage() {
               </div>
             </div>
 
-            {/* Table */}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -615,7 +559,6 @@ export default function ViewFilterDashboardPage() {
               </table>
             </div>
 
-            {/* Pagination */}
             {viewersMeta.pages > 1 && (
               <div className="px-4 py-3 border-t border-gray-50 flex items-center justify-between">
                 <button
@@ -680,31 +623,61 @@ export default function ViewFilterDashboardPage() {
         {/* Google Sync */}
         {campaign && (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
+            <h3 className="font-bold text-gray-900 mb-1 flex items-center gap-2">
               <Smartphone className="w-5 h-5 text-purple-500" />
               סנכרון ל-Google Contacts
             </h3>
-            <p className="text-sm text-gray-600 mb-4">
-              סנכרן את כל הצופים כאנשי קשר ב-Google Contacts. תומך במספר חשבונות.
-            </p>
+            <p className="text-sm text-gray-500 mb-4">סנכרן את כל הצופים כאנשי קשר ב-Google Contacts. תומך במספר חשבונות.</p>
 
             {syncResult && (
-              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-xl text-sm text-green-700">
-                סנכרון הושלם — {syncResult.synced} אנשי קשר סונכרנו
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-xl text-sm text-green-700 flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                {syncResult.message || `סנכרון הושלם — ${syncResult.synced} אנשי קשר`}
               </div>
             )}
 
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-500 to-violet-600 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50"
-            >
-              {syncing ? (
-                <><RefreshCw className="w-4 h-4 animate-spin" /> מסנכרן...</>
-              ) : (
-                <><Smartphone className="w-4 h-4" /> סנכרן עכשיו</>
-              )}
-            </button>
+            {/* Connected accounts */}
+            {googleAccounts.length > 0 && (
+              <div className="mb-4 space-y-2">
+                <p className="text-xs font-medium text-gray-500 mb-2">חשבונות מחוברים:</p>
+                {googleAccounts.map((acc, i) => (
+                  <div key={i} className="flex items-center gap-3 px-3 py-2 bg-gray-50 rounded-lg text-sm">
+                    <div className="w-6 h-6 bg-white rounded-full border border-gray-200 flex items-center justify-center flex-shrink-0">
+                      <svg width="14" height="14" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                    </div>
+                    <span className="text-gray-700 flex-1">{acc.account_email || `חשבון ${i + 1}`}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${acc.status === 'connected' ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'}`}>
+                      {acc.status === 'connected' ? 'מחובר' : 'מנותק'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={handleSync}
+                disabled={syncing || googleAccounts.filter(a => a.status === 'connected').length === 0}
+                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-500 to-violet-600 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50"
+                title={googleAccounts.filter(a => a.status === 'connected').length === 0 ? 'יש לחבר חשבון Google תחילה' : ''}
+              >
+                {syncing
+                  ? <><RefreshCw className="w-4 h-4 animate-spin" /> מסנכרן...</>
+                  : <><Smartphone className="w-4 h-4" /> סנכרן עכשיו</>
+                }
+              </button>
+
+              <button
+                onClick={handleConnectGoogle}
+                disabled={connectingGoogle}
+                className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-600 rounded-xl font-medium hover:bg-gray-50 transition-colors disabled:opacity-50 text-sm"
+              >
+                {connectingGoogle
+                  ? <><RefreshCw className="w-4 h-4 animate-spin" /> מחבר...</>
+                  : <><Plus className="w-4 h-4" /> {googleAccounts.length > 0 ? 'הוסף חשבון' : 'חבר חשבון Google'}</>
+                }
+              </button>
+            </div>
           </div>
         )}
       </main>

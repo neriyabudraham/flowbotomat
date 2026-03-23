@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { X, User, Eye, Heart, MessageCircle, ExternalLink, Loader } from 'lucide-react';
+import { X, User, Eye, Heart, MessageCircle, ExternalLink, Loader, Award } from 'lucide-react';
 import api from '../../services/api';
 
 export default function ViewerProfileModal({ viewer, onClose }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [generatingCert, setGeneratingCert] = useState(false);
 
   // Normalize field names (backend returns viewer_phone/viewer_name)
   const phone = viewer.viewer_phone || viewer.phone || '';
@@ -33,6 +34,22 @@ export default function ViewerProfileModal({ viewer, onClose }) {
 
   const whatsappLink = `https://wa.me/${phone.replace(/\D/g, '')}`;
 
+  const handleOpenCertificate = async () => {
+    setGeneratingCert(true);
+    try {
+      const res = await api.get(`/view-filter/viewers/${encodeURIComponent(phone)}/certificate`);
+      const win = window.open('', '_blank');
+      if (win) {
+        win.document.write(res.data);
+        win.document.close();
+      }
+    } catch {
+      // silent fail
+    } finally {
+      setGeneratingCert(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div
@@ -50,6 +67,14 @@ export default function ViewerProfileModal({ viewer, onClose }) {
             <p className="text-white/80 text-sm" dir="ltr">{phone}</p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleOpenCertificate}
+              disabled={generatingCert}
+              className="p-2 bg-white/20 rounded-lg hover:bg-white/30 transition-colors disabled:opacity-60"
+              title="הורד תעודת צפיות"
+            >
+              {generatingCert ? <Loader className="w-4 h-4 animate-spin" /> : <Award className="w-4 h-4" />}
+            </button>
             <a
               href={whatsappLink}
               target="_blank"

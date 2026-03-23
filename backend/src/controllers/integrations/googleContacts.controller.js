@@ -29,12 +29,13 @@ const handleCallback = async (req, res) => {
       return res.redirect(`${frontendUrl}/settings?tab=integrations&error=no_code`);
     }
     
-    let userId, from;
+    let userId, from, slot = 0;
     if (state) {
       try {
         const stateData = JSON.parse(state);
         userId = stateData.userId;
         from = stateData.from;
+        slot = stateData.slot ?? 0;
       } catch (e) {}
     }
 
@@ -42,9 +43,12 @@ const handleCallback = async (req, res) => {
       return res.redirect(`${frontendUrl}/settings?tab=integrations&error=invalid_state`);
     }
 
-    const result = await googleContacts.handleCallback(code, userId);
-    console.log(`[GoogleContacts] Connected for user ${userId}: ${result.email}`);
+    const result = await googleContacts.handleCallback(code, userId, slot);
+    console.log(`[GoogleContacts] Connected for user ${userId} slot ${slot}: ${result.email}`);
 
+    if (from === 'view-filter') {
+      return res.redirect(`${frontendUrl}/view-filter?google=connected`);
+    }
     if (from === 'onboarding') {
       return res.redirect(`${frontendUrl}/connect/${userId}/integrations?google_contacts=connected`);
     }
