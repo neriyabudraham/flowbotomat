@@ -671,12 +671,66 @@ async function importGroupParticipants(req, res) {
   }
 }
 
+/**
+ * Sync contact names from WhatsApp WITHOUT adding new phone numbers.
+ * Only updates display_name for contacts that already exist in the contacts table.
+ */
+async function syncNamesOnly(req, res) {
+  try {
+    const userId = req.user.id;
+
+    const connResult = await pool.query(
+      `SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' LIMIT 1`,
+      [userId]
+    );
+
+    if (connResult.rows.length === 0) {
+      return res.status(400).json({ error: 'אין חיבור וואטסאפ פעיל' });
+    }
+
+    const dbConnection = connResult.rows[0];
+    const connection = await prepareConnection(dbConnection);
+
+    console.log(`[Contacts] Syncing names for user ${userId}`);
+    const waContacts = await wahaService.getWhatsAppContacts(connection);
+
+    if (!waContacts || waContacts.length === 0) {
+      return res.json({ updated: 0, message: 'לא נמצאו אנשי קשר בוואטסאפ' });
+    }
+
+    let updated = 0;
+    for (const waContact of waContacts) {
+      const phone = waContact.id?.replace(/@.*$/, '');
+      if (!phone || waContact.id?.includes('lid') || waContact.id?.includes('@g.us')) continue;
+
+      const displayName = waContact.name || waContact.pushname || '';
+      if (!displayName) continue;
+
+      const result = await pool.query(
+        `UPDATE contacts
+         SET display_name = $2
+         WHERE user_id = $1 AND phone = $3 AND (display_name IS NULL OR display_name = '' OR display_name = phone)
+         RETURNING id`,
+        [userId, displayName, phone]
+      );
+      updated += result.rowCount;
+    }
+
+    console.log(`[Contacts] syncNamesOnly: updated ${updated} names for user ${userId}`);
+    res.json({ updated, message: updated > 0 ? `עודכנו ${updated} שמות` : 'לא נמצאו שמות לעדכון' });
+  } catch (error) {
+    console.error('[Contacts] syncNamesOnly error:', error);
+    res.status(500).json({ error: 'שגיאה בסנכרון שמות' });
+  }
+}
+
 module.exports = {
   checkAndSync,
   syncContactsForUser,
   getContactName,
   needsSync,
   pullWhatsAppContacts,
+  syncNamesOnly,
   getGroupParticipants,
   importGroupParticipants
 };

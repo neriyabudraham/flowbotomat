@@ -144,7 +144,7 @@ export default function AccountSwitcher() {
               </div>
             )}
             <div className="hidden sm:block text-right">
-              <p className="text-sm font-medium text-gray-900">{user?.name || 'משתמש'}</p>
+              <p className="text-sm font-medium text-gray-900">{user?.name || user?.phone || user?.email || 'משתמש'}</p>
               <p className="text-xs text-gray-500">{user?.email}</p>
             </div>
           </div>

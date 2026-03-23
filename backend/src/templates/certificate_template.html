@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Botomat - Platinum Signature Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@200;300;400;500;700;800&family=Noto+Serif+Hebrew:wght@200;400;700;900&family=Heebo:wght@100;400;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --platinum: #e5e7eb;
+            --slate-deep: #0f172a;
+            --paper-tint: #fbf9f4;
+            --accent-gold: #c5a059;
+        }
+
+        /* הגדרות גוף הדף - מאפשר גלילה בתצוגה אך שומר על קואורדינטות אפס */
+        body {
+            font-family: 'Assistant', sans-serif;
+            background-color: #020617;
+            margin: 0;
+            padding: 0;
+            color: var(--slate-deep);
+            overflow-y: auto; 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .master-canvas {
+            width: 800px;
+            height: 1131px; /* יחס A4 אנכי מדויק */
+            background-color: var(--paper-tint);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            padding: 80px;
+            overflow: hidden;
+            background-image: url("https://www.transparenttextures.com/patterns/linen-paper.png");
+            box-sizing: border-box;
+            flex-shrink: 0; 
+        }
+
+        /* מסגרות פנימיות */
+        .outer-frame {
+            position: absolute;
+            inset: 30px;
+            border: 0.5px solid rgba(197, 160, 89, 0.2);
+            pointer-events: none;
+        }
+
+        .inner-frame {
+            position: absolute;
+            inset: 50px;
+            border: 1px solid rgba(15, 23, 42, 0.03);
+            pointer-events: none;
+        }
+
+        /* עיטורי פינות */
+        .corner-accent {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border: 1px solid var(--accent-gold);
+            opacity: 0.6;
+        }
+        .c-tl { top: 50px; left: 50px; border-right: none; border-bottom: none; }
+        .c-br { bottom: 50px; right: 50px; border-left: none; border-top: none; }
+
+        .title-font {
+            font-family: 'Noto Serif Hebrew', serif;
+            font-weight: 200;
+            letter-spacing: 0.05em;
+        }
+
+        .name-font {
+            font-family: 'Heebo', sans-serif;
+            font-weight: 900;
+            letter-spacing: -0.02em;
+            font-size: clamp(1.8rem, 5vw, 3.8rem); 
+            line-height: 1.1;
+            word-wrap: break-word;
+            max-width: 100%;
+        }
+
+        .hairline {
+            height: 0.5px;
+            background-color: rgba(197, 160, 89, 0.3);
+            width: 100%;
+        }
+
+        .verified-tag {
+            font-size: 9px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            color: var(--accent-gold);
+            padding: 2px 10px;
+            border: 0.5px solid rgba(197, 160, 89, 0.3);
+        }
+
+        .name-container {
+            height: 150px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 2rem;
+            width: 100%;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="certificate" class="master-canvas">
+        <div class="outer-frame"></div>
+        <div class="inner-frame"></div>
+        <div class="corner-accent c-tl"></div>
+        <div class="corner-accent c-br"></div>
+
+        <!-- Header -->
+        <header class="relative z-10 flex flex-col items-center mb-16">
+            <div class="mb-8">
+                <img src="https://files.neriyabudraham.co.il/files/save_logo_20260112_1lxgb.jpg" alt="בוטומט לוגו" class="h-16 grayscale opacity-80 mix-blend-multiply">
+            </div>
+            <div class="flex items-center gap-6 w-full px-10">
+                <div class="hairline"></div>
+                <div class="verified-tag whitespace-nowrap">Botomat Verified Recognition</div>
+                <div class="hairline"></div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="relative z-10 flex flex-col items-center text-center flex-grow">
+            <h1 class="text-5xl title-font text-slate-800 mb-6">אישור צפיות רשמי</h1>
+            <p class="text-base font-light text-slate-400 mb-16 tracking-wide uppercase">Official Validation Document</p>
+
+            <!-- Name Section -->
+            <div class="name-container relative">
+                <span class="text-[10px] font-bold text-slate-300 uppercase tracking-[0.4em] mb-4 block">Presented to</span>
+                <h2 class="name-font text-slate-900 px-4">{{NAME}}</h2>
+                <div class="w-16 h-[2px] bg-slate-900 mx-auto opacity-20 mt-4"></div>
+            </div>
+
+            <!-- Narrative -->
+            <p class="text-lg text-slate-500 max-w-lg mb-16 leading-relaxed font-light italic">
+                הישגי חשיפה אלו משקפים נוכחות דיגיטלית בולטת ומעורבות קהל איכותית, כפי שאומתו ותועדו במערכות של בוטומט.
+            </p>
+
+            <!-- Unified Stats Engine - Simplified version without split breakdown -->
+            <div class="w-full max-w-md border border-slate-100 rounded-xl overflow-hidden bg-white/40 backdrop-blur-sm shadow-sm mx-auto p-12 flex flex-col items-center">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Total Impressions</span>
+                <span class="text-7xl font-extralight text-slate-900 mb-4 tracking-tighter">{{TOTAL}}</span>
+                
+                <div class="flex items-center gap-2 mt-2">
+                    <div class="flex items-center -space-x-1">
+                        <div class="w-2.5 h-2.5 rounded-full bg-blue-500 border border-white"></div>
+                        <div class="w-2.5 h-2.5 rounded-full bg-slate-300 border border-white"></div>
+                    </div>
+                    <span class="text-sm font-bold text-slate-500">וי כחול + וי אפור</span>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="relative z-10 w-full flex justify-between items-end border-t border-slate-100 pt-10 pb-4">
+            <div class="flex flex-col gap-2">
+                <div class="flex flex-col">
+                    <span class="text-[8px] font-bold text-slate-300 uppercase tracking-widest">Validation Date</span>
+                    <span class="text-xs font-bold text-slate-800">{{DATE}}</span>
+                </div>
+            </div>
+            
+            <div class="text-left">
+                <span class="text-4xl name-font text-slate-900 block leading-none mb-2" style="font-size: 2.25rem;">בוטומט.</span>
+                <span class="text-[9px] font-bold text-slate-400 uppercase tracking-[0.4em]">Building bots for businesses</span>
+            </div>
+        </footer>
+    </div>
+
+</body>
+</html>

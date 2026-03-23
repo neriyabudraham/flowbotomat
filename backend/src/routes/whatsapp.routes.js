@@ -7,7 +7,7 @@ const { disconnect, deleteConnection } = require('../controllers/whatsapp/discon
 const { getGroups } = require('../controllers/whatsapp/groups.controller');
 const { getChannels } = require('../controllers/whatsapp/channels.controller');
 const { getLabels } = require('../controllers/whatsapp/labels.controller');
-const { checkAndSync, pullWhatsAppContacts, getGroupParticipants, importGroupParticipants } = require('../controllers/whatsapp/contacts.controller');
+const { checkAndSync, pullWhatsAppContacts, syncNamesOnly, getGroupParticipants, importGroupParticipants } = require('../controllers/whatsapp/contacts.controller');
 
 // All routes require authentication
 router.use(authMiddleware);
@@ -20,6 +20,9 @@ router.get('/contacts/check-sync', checkAndSync);
 
 // Pull WhatsApp contacts and import to system
 router.post('/contacts/pull', pullWhatsAppContacts);
+
+// Sync contact names only (no new contacts added)
+router.post('/contacts/sync-names', syncNamesOnly);
 
 // Get group participants
 router.get('/groups/:groupId/participants', getGroupParticipants);

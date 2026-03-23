@@ -1,5 +1,8 @@
 const db = require('../../config/database');
 const googleContacts = require('../../services/googleContacts.service');
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
 // ─────────────────────────────────────────────
 // INTERNAL HELPERS
@@ -1224,126 +1227,41 @@ async function downloadUserCertificate(req, res) {
 
     const phone = connResult.rows[0]?.phone_number || '';
     const displayName = connResult.rows[0]?.display_name || phone || 'משתמש';
-    const maxViews = parseInt(topStatusResult.rows[0]?.max_views) || 0;
-    const totalStatuses = parseInt(topStatusResult.rows[0]?.total_statuses) || 0;
     const totalViewers = parseInt(totalViewersResult.rows[0]?.count) || 0;
     const grayCount = parseInt(grayResult.rows[0]?.count) || 0;
+    const totalImpressions = totalViewers + grayCount;
     const issueDate = new Date().toLocaleDateString('he-IL');
 
-    const html = `<!DOCTYPE html>
-<html dir="rtl" lang="he">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>תעודת צפיות - ${displayName}</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;900&display=swap');
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Heebo', Arial, sans-serif; background: #f3f4f6; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
-  .certificate { background: white; width: 800px; padding: 50px 60px; position: relative; box-shadow: 0 20px 60px rgba(0,0,0,0.15); border-radius: 16px; overflow: hidden; }
-  .top-bar { position: absolute; top: 0; left: 0; right: 0; height: 8px; background: linear-gradient(90deg, #7c3aed, #8b5cf6, #a78bfa); }
-  .bg-circle1 { position: absolute; top: -80px; left: -80px; width: 250px; height: 250px; border-radius: 50%; background: rgba(139,92,246,0.05); pointer-events: none; }
-  .bg-circle2 { position: absolute; bottom: -60px; right: -60px; width: 200px; height: 200px; border-radius: 50%; background: rgba(139,92,246,0.05); pointer-events: none; }
-  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 36px; }
-  .logo { font-size: 22px; font-weight: 900; color: #7c3aed; letter-spacing: -0.5px; }
-  .logo span { color: #a78bfa; }
-  .badge { background: linear-gradient(135deg, #7c3aed, #8b5cf6); color: white; padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-  .title-section { text-align: center; margin-bottom: 28px; }
-  .title-en { font-size: 12px; color: #9ca3af; font-weight: 400; letter-spacing: 4px; margin-bottom: 8px; }
-  .title-main { font-size: 38px; font-weight: 900; color: #1f2937; }
-  .title-sub { font-size: 14px; color: #6b7280; margin-top: 6px; }
-  hr { border: none; height: 1px; background: linear-gradient(90deg, transparent, #e5e7eb, transparent); margin: 24px 0; }
-  .viewer-section { text-align: center; margin-bottom: 28px; }
-  .viewer-label { font-size: 11px; color: #9ca3af; font-weight: 500; letter-spacing: 3px; margin-bottom: 8px; }
-  .viewer-name { font-size: 30px; font-weight: 700; color: #7c3aed; margin-bottom: 4px; }
-  .viewer-phone { font-size: 14px; color: #9ca3af; direction: ltr; }
-  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 24px 0; }
-  .stat-box { background: #f5f3ff; border-radius: 12px; padding: 20px; text-align: center; border: 1px solid #ede9fe; }
-  .stat-value { font-size: 34px; font-weight: 900; color: #7c3aed; line-height: 1; }
-  .stat-label { font-size: 11px; color: #6b7280; margin-top: 6px; font-weight: 500; }
-  .footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 32px; }
-  .footer-left { display: flex; flex-direction: column; gap: 8px; }
-  .verified { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 8px 14px; display: inline-flex; align-items: center; gap: 6px; }
-  .verified-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex-shrink: 0; }
-  .verified-text { font-size: 11px; color: #15803d; font-weight: 500; }
-  .issue-date { font-size: 11px; color: #9ca3af; }
-  .seal { text-align: center; }
-  .seal-circle { width: 72px; height: 72px; border-radius: 50%; border: 2px solid #e5e7eb; display: flex; align-items: center; justify-content: center; margin: 0 auto 6px; }
-  .seal-text { font-size: 9px; color: #9ca3af; text-align: center; line-height: 1.4; }
-  @media print { body { background: white; padding: 0; } .certificate { box-shadow: none; border-radius: 0; } }
-</style>
-</head>
-<body>
-<div class="certificate">
-  <div class="top-bar"></div>
-  <div class="bg-circle1"></div>
-  <div class="bg-circle2"></div>
+    // Load platinum template and replace placeholders
+    const templatePath = path.join(__dirname, '../../templates/certificate_template.html');
+    let html = fs.readFileSync(templatePath, 'utf-8');
+    html = html
+      .replace(/\{\{NAME\}\}/g, displayName)
+      .replace(/\{\{TOTAL\}\}/g, totalImpressions.toLocaleString('he-IL'))
+      .replace(/\{\{DATE\}\}/g, issueDate);
 
-  <div class="header">
-    <div class="logo">בוט<span>ומט</span></div>
-    <div class="badge">תעודה מאומתת</div>
-  </div>
+    // Generate PNG via external API
+    const pngResponse = await axios.post(
+      'https://files2.neriyabudraham.co.il/html2png/coordinates',
+      html,
+      {
+        headers: {
+          'Content-Type': 'text/html',
+          'X-Screen-Width': '800',
+          'X-Screen-Height': '1131',
+          'X-Start-Right-X': '0',
+          'X-Start-Right-Y': '0',
+          'X-End-Left-X': '800',
+          'X-End-Left-Y': '1131',
+        },
+        responseType: 'arraybuffer',
+        timeout: 30000,
+      }
+    );
 
-  <div class="title-section">
-    <div class="title-en">CERTIFICATE OF STATUS VIEWS</div>
-    <div class="title-main">תעודת צפיות סטטוסים</div>
-    <div class="title-sub">מאשר בזאת את נתוני הצפיות של</div>
-  </div>
-
-  <hr>
-
-  <div class="viewer-section">
-    <div class="viewer-label">הוענקה ל</div>
-    <div class="viewer-name">${displayName}</div>
-    <div class="viewer-phone">${phone}</div>
-  </div>
-
-  <div class="stats-grid">
-    <div class="stat-box">
-      <div class="stat-value">${maxViews}</div>
-      <div class="stat-label">שיא צפיות בסטטוס בודד</div>
-    </div>
-    <div class="stat-box">
-      <div class="stat-value">${totalViewers}</div>
-      <div class="stat-label">צופים ייחודיים סה"כ</div>
-    </div>
-    <div class="stat-box">
-      <div class="stat-value">${totalStatuses}</div>
-      <div class="stat-label">סטטוסים שפורסמו</div>
-    </div>
-    <div class="stat-box">
-      <div class="stat-value">${grayCount}</div>
-      <div class="stat-label">וי אפור (ללא צפייה גלויה)</div>
-    </div>
-  </div>
-
-  <hr>
-
-  <div class="footer">
-    <div class="footer-left">
-      <div class="verified">
-        <div class="verified-dot"></div>
-        <div class="verified-text">מאומת על ידי מערכת Botomat</div>
-      </div>
-      <div class="issue-date">הונפקה: ${issueDate}</div>
-    </div>
-    <div class="seal">
-      <div class="seal-circle">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-          <path d="m9 12 2 2 4-4"/>
-        </svg>
-      </div>
-      <div class="seal-text">BOTOMAT<br>VERIFIED</div>
-    </div>
-  </div>
-</div>
-<script>window.onload = () => window.print();</script>
-</body>
-</html>`;
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    return res.send(html);
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', `attachment; filename="certificate_${displayName}.png"`);
+    return res.send(Buffer.from(pngResponse.data));
   } catch (err) {
     console.error('[ViewFilter] downloadUserCertificate error:', err);
     res.status(500).json({ error: 'שגיאה ביצירת התעודה' });

@@ -247,9 +247,13 @@ export default function ViewFilterDashboardPage() {
   const handleOpenUserCertificate = async () => {
     setGeneratingCert(true);
     try {
-      const res = await api.get('/view-filter/certificate');
-      const win = window.open('', '_blank');
-      if (win) { win.document.write(res.data); win.document.close(); }
+      const res = await api.get('/view-filter/certificate', { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'certificate.png';
+      a.click();
+      URL.revokeObjectURL(url);
     } catch { setError('שגיאה ביצירת התעודה'); }
     finally { setGeneratingCert(false); }
   };
@@ -258,8 +262,8 @@ export default function ViewFilterDashboardPage() {
     setSyncingContacts(true);
     setContactSyncResult(null);
     try {
-      const { data } = await api.post('/whatsapp/contacts/pull', {}, { timeout: 300000 });
-      setContactSyncResult({ success: true, imported: data.imported ?? 0, updated: data.updated ?? 0 });
+      const { data } = await api.post('/whatsapp/contacts/sync-names', {}, { timeout: 300000 });
+      setContactSyncResult({ success: true, imported: 0, updated: data.updated ?? 0 });
       loadViewers();
     } catch (err) {
       setContactSyncResult({ success: false, error: err.response?.data?.error || 'שגיאה בסנכרון אנשי קשר' });
@@ -426,7 +430,7 @@ export default function ViewFilterDashboardPage() {
               { label: 'חדשים היום', value: stats.newToday ?? 0, icon: <TrendingUp className="w-5 h-5 text-violet-500" /> },
               { label: 'חדשים השבוע', value: stats.newThisWeek ?? 0, icon: <BarChart2 className="w-5 h-5 text-indigo-500" /> },
               { label: 'סטטוסים סה"כ', value: stats.totalStatuses ?? 0, icon: <Eye className="w-5 h-5 text-blue-500" /> },
-              { label: 'ממוצע צפיות', value: stats.avgViewsPerStatus ?? 0, icon: <ArrowUpRight className="w-5 h-5 text-emerald-500" /> },
+              { label: 'ממוצע צפיות', value: Math.floor(stats.avgViewsPerStatus ?? 0), icon: <ArrowUpRight className="w-5 h-5 text-emerald-500" /> },
               { label: 'וי אפור', value: stats.grayCheckmarks ?? 0, icon: <Heart className="w-5 h-5 text-rose-400" /> },
             ].map((s, i) => (
               <div key={i} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
@@ -537,7 +541,7 @@ export default function ViewFilterDashboardPage() {
               {contactSyncResult && (
                 <div className={`mb-3 px-3 py-2 rounded-lg text-sm flex items-center gap-2 ${contactSyncResult.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
                   {contactSyncResult.success
-                    ? <><CheckCircle className="w-4 h-4 flex-shrink-0" /> סנכרון הושלם — {contactSyncResult.imported ?? 0} נוספו, {contactSyncResult.updated ?? 0} עודכנו</>
+                    ? <><CheckCircle className="w-4 h-4 flex-shrink-0" /> סנכרון הושלם — {contactSyncResult.updated ?? 0} שמות עודכנו</>
                     : <><AlertCircle className="w-4 h-4 flex-shrink-0" /> {contactSyncResult.error}</>
                   }
                   <button onClick={() => setContactSyncResult(null)} className="mr-auto text-xs opacity-60 hover:opacity-100">✕</button>
