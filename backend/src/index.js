@@ -489,3 +489,34 @@ server.listen(PORT, () => {
     }
   }, 5000);
 });
+
+// Graceful shutdown: stop accepting new connections, drain in-flight requests, close DB
+let isShuttingDown = false;
+async function shutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  console.log(`\n📛 [Backend] Received ${signal}, shutting down gracefully...`);
+
+  // Stop accepting new HTTP/WS connections
+  await new Promise(resolve => {
+    server.close(resolve);
+    // Safety net: force-resolve after 30s if requests are still in flight
+    setTimeout(resolve, 30000);
+  });
+  console.log('✅ [Backend] HTTP server closed');
+
+  // Close DB pool
+  try {
+    await db.end();
+    console.log('✅ [Backend] Database connection closed');
+  } catch (err) {
+    console.error('⚠️ [Backend] Error closing database:', err.message);
+  }
+
+  console.log('👋 [Backend] Shutdown complete');
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
