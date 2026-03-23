@@ -4,7 +4,7 @@ import {
   Eye, Users, TrendingUp, Download, Smartphone, Search,
   ChevronDown, ChevronUp, Filter, RefreshCw, Play,
   AlertCircle, CheckCircle, Clock, BarChart2, FileText,
-  ArrowUpRight, User, Heart, ArrowLeft, Shield, Plus, ExternalLink, X
+  ArrowUpRight, User, Heart, ArrowLeft, Shield, Plus, ExternalLink, X, Award, Loader
 } from 'lucide-react';
 import Logo from '../../components/atoms/Logo';
 import NotificationsDropdown from '../../components/notifications/NotificationsDropdown';
@@ -54,6 +54,7 @@ export default function ViewFilterDashboardPage() {
   const [page, setPage] = useState(1);
   const [showGray, setShowGray] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [generatingCert, setGeneratingCert] = useState(false);
   const [syncingContacts, setSyncingContacts] = useState(false);
   const [contactSyncResult, setContactSyncResult] = useState(null);
 
@@ -241,6 +242,16 @@ export default function ViewFilterDashboardPage() {
     } finally {
       setDownloading(false);
     }
+  };
+
+  const handleOpenUserCertificate = async () => {
+    setGeneratingCert(true);
+    try {
+      const res = await api.get('/view-filter/certificate');
+      const win = window.open('', '_blank');
+      if (win) { win.document.write(res.data); win.document.close(); }
+    } catch { setError('שגיאה ביצירת התעודה'); }
+    finally { setGeneratingCert(false); }
   };
 
   const handleSyncContacts = async () => {
@@ -434,22 +445,34 @@ export default function ViewFilterDashboardPage() {
               <TrendingUp className="w-5 h-5 text-purple-500" />
               צמיחת צופים יומית (30 ימים אחרונים)
             </h3>
-            <div className="flex items-end gap-1 h-24">
-              {dailyGrowth.slice(-30).map((d, i) => {
-                const max = Math.max(...dailyGrowth.slice(-30).map(x => x.new_viewers));
-                const height = max > 0 ? (d.new_viewers / max) * 100 : 0;
-                return (
-                  <div
-                    key={i}
-                    className="flex-1 bg-gradient-to-t from-purple-500 to-violet-400 rounded-t opacity-80 hover:opacity-100 transition-opacity cursor-default min-w-0"
-                    style={{ height: `${Math.max(height, 2)}%` }}
-                    title={`${new Date(d.day || d.date).toLocaleDateString('he-IL')}: ${d.new_viewers} חדשים`}
-                  />
-                );
-              })}
+            <div className="overflow-x-auto cursor-grab active:cursor-grabbing select-none" ref={el => {
+              if (!el) return;
+              el.onmousedown = (e) => {
+                const startX = e.pageX - el.offsetLeft;
+                const scrollLeft = el.scrollLeft;
+                const onMove = (me) => { el.scrollLeft = scrollLeft - (me.pageX - el.offsetLeft - startX); };
+                const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+              };
+            }}>
+              <div className="flex items-end gap-1 h-24" style={{ minWidth: `${Math.max(dailyGrowth.length * 18, 100)}px` }}>
+                {dailyGrowth.map((d, i) => {
+                  const max = Math.max(...dailyGrowth.map(x => x.new_viewers));
+                  const height = max > 0 ? (d.new_viewers / max) * 100 : 0;
+                  return (
+                    <div
+                      key={i}
+                      className="flex-1 bg-gradient-to-t from-purple-500 to-violet-400 rounded-t opacity-80 hover:opacity-100 transition-opacity cursor-default"
+                      style={{ height: `${Math.max(height, 2)}%`, minWidth: '14px' }}
+                      title={`${new Date(d.day || d.date).toLocaleDateString('he-IL')}: ${d.new_viewers} חדשים`}
+                    />
+                  );
+                })}
+              </div>
             </div>
             <div className="flex justify-between text-xs text-gray-400 mt-2">
-              <span>{dailyGrowth.length > 0 ? new Date(dailyGrowth[Math.max(0, dailyGrowth.length - 30)].day || dailyGrowth[Math.max(0, dailyGrowth.length - 30)].date).toLocaleDateString('he-IL') : ''}</span>
+              <span>{dailyGrowth.length > 0 ? new Date(dailyGrowth[0].day || dailyGrowth[0].date).toLocaleDateString('he-IL') : ''}</span>
               <span>{dailyGrowth.length > 0 ? new Date(dailyGrowth[dailyGrowth.length - 1].day || dailyGrowth[dailyGrowth.length - 1].date).toLocaleDateString('he-IL') : ''}</span>
             </div>
           </div>
@@ -466,6 +489,14 @@ export default function ViewFilterDashboardPage() {
                   {viewersMeta.total > 0 && (
                     <span className="text-sm font-normal text-gray-500">({viewersMeta.total.toLocaleString()} סה"כ)</span>
                   )}
+                  <button
+                    onClick={handleOpenUserCertificate}
+                    disabled={generatingCert}
+                    title="הפק תעודת צפיות"
+                    className="mr-1 p-1.5 bg-purple-50 text-purple-600 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors disabled:opacity-50"
+                  >
+                    {generatingCert ? <Loader className="w-4 h-4 animate-spin" /> : <Award className="w-4 h-4" />}
+                  </button>
                 </h3>
                 <div className="flex items-center gap-2 flex-wrap">
                   <button
@@ -587,9 +618,19 @@ export default function ViewFilterDashboardPage() {
                           {v.last_view ? new Date(v.last_view).toLocaleDateString('he-IL') : '—'}
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            {v.has_reaction && <Heart className="w-4 h-4 text-red-400" title="תגובה" />}
-                            {v.has_reply && <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">הגיב</span>}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {v.is_gray_checkmark && (
+                              <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full border border-gray-200">וי אפור</span>
+                            )}
+                            {parseInt(v.reaction_count) > 0 && (
+                              <span className="flex items-center gap-1 text-xs text-red-500">
+                                <Heart className="w-3.5 h-3.5 fill-red-400 text-red-400" />
+                                {parseInt(v.reaction_count) > 1 ? `×${v.reaction_count}` : ''}
+                              </span>
+                            )}
+                            {v.is_gray_checkmark && v.has_reply && parseInt(v.reaction_count) === 0 && (
+                              <span className="text-xs bg-blue-50 text-blue-500 px-2 py-0.5 rounded-full">הגיב</span>
+                            )}
                           </div>
                         </td>
                       </tr>

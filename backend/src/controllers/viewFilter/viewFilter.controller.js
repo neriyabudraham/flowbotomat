@@ -324,12 +324,10 @@ async function getViewers(req, res) {
     const limit = Math.min(200, parseInt(req.query.limit) || 50);
     const offset = (page - 1) * limit;
     const search = req.query.search?.trim() || '';
-    const sortBy = ['statuses_viewed', 'view_percentage', 'first_seen', 'last_seen', 'viewer_name'].includes(req.query.sort)
+    const sortBy = ['statuses_viewed', 'view_percentage', 'first_seen', 'last_seen', 'viewer_name', 'reaction_count'].includes(req.query.sort)
       ? req.query.sort : 'statuses_viewed';
-    const sortDir = req.query.dir === 'asc' ? 'ASC' : 'DESC';
+    const sortDir = req.query.dir?.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
-    // Query across ALL user connections (not limited to campaign's connection_id)
-    // This ensures historical views from previous connections are included
     const totalStatusesResult = await db.query(`
       SELECT COUNT(*) as count
       FROM status_bot_statuses sbs
@@ -339,51 +337,142 @@ async function getViewers(req, res) {
     const totalStatuses = parseInt(totalStatusesResult.rows[0].count) || 1;
 
     const params = [userId, totalStatuses];
-    const havingClause = search
-      ? `HAVING (sbv.viewer_phone ILIKE $3 OR MAX(sbv.viewer_name) ILIKE $3)`
-      : '';
+    const searchFilter = search ? `AND (ap.phone ILIKE $3 OR COALESCE(c.display_name, vs.wa_name, rs.wa_name, rps.wa_name) ILIKE $3)` : '';
     if (search) params.push(`%${search}%`);
 
+    // CTE: gather all people — viewers + gray checkmarks (reactors/repliers with no views)
     const viewersResult = await db.query(`
+      WITH viewer_phones AS (
+        SELECT DISTINCT sbv.viewer_phone AS phone
+        FROM status_bot_views sbv
+        JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
+      ),
+      reactor_phones AS (
+        SELECT DISTINCT sbr.reactor_phone AS phone
+        FROM status_bot_reactions sbr
+        JOIN status_bot_statuses sbs ON sbr.status_id = sbs.id
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
+          AND sbr.reactor_phone NOT IN (SELECT phone FROM viewer_phones)
+      ),
+      replier_phones AS (
+        SELECT DISTINCT sbr.replier_phone AS phone
+        FROM status_bot_replies sbr
+        JOIN status_bot_statuses sbs ON sbr.status_id = sbs.id
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
+          AND sbr.replier_phone NOT IN (SELECT phone FROM viewer_phones)
+          AND sbr.replier_phone NOT IN (SELECT phone FROM reactor_phones)
+      ),
+      all_people AS (
+        SELECT phone, false AS is_gray FROM viewer_phones
+        UNION ALL
+        SELECT phone, true  AS is_gray FROM reactor_phones
+        UNION ALL
+        SELECT phone, true  AS is_gray FROM replier_phones
+      ),
+      view_stats AS (
+        SELECT
+          sbv.viewer_phone,
+          COUNT(DISTINCT sbv.status_id) AS statuses_viewed,
+          MIN(sbv.viewed_at) AS first_seen,
+          MAX(sbv.viewed_at) AS last_seen,
+          MAX(sbv.viewer_name) AS wa_name
+        FROM status_bot_views sbv
+        JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
+        GROUP BY sbv.viewer_phone
+      ),
+      reaction_stats AS (
+        SELECT sbr.reactor_phone, COUNT(*) AS reaction_count, MAX(sbr.reactor_name) AS wa_name
+        FROM status_bot_reactions sbr
+        JOIN status_bot_statuses sbs ON sbr.status_id = sbs.id
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
+        GROUP BY sbr.reactor_phone
+      ),
+      reply_stats AS (
+        SELECT sbr.replier_phone, MAX(sbr.replier_name) AS wa_name
+        FROM status_bot_replies sbr
+        JOIN status_bot_statuses sbs ON sbr.status_id = sbs.id
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
+        GROUP BY sbr.replier_phone
+      ),
+      has_reply_cte AS (
+        SELECT DISTINCT sbr.replier_phone
+        FROM status_bot_replies sbr
+        JOIN status_bot_statuses sbs ON sbr.status_id = sbs.id
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
+      )
       SELECT
-        sbv.viewer_phone,
-        COALESCE(MAX(c.display_name), MAX(sbv.viewer_name)) as viewer_name,
-        COUNT(DISTINCT sbv.status_id) as statuses_viewed,
-        $2::int as total_statuses,
-        ROUND(COUNT(DISTINCT sbv.status_id)::numeric / $2 * 100) as view_percentage,
-        MIN(sbv.viewed_at) as first_seen,
-        MAX(sbv.viewed_at) as last_seen,
-        EXISTS(
-          SELECT 1 FROM status_bot_reactions sbr2
-          JOIN status_bot_statuses sbs2 ON sbr2.status_id = sbs2.id
-          JOIN status_bot_connections conn2 ON sbs2.connection_id = conn2.id
-          WHERE conn2.user_id = $1 AND sbr2.reactor_phone = sbv.viewer_phone
-        ) as has_reaction,
-        EXISTS(
-          SELECT 1 FROM status_bot_replies sbr3
-          JOIN status_bot_statuses sbs3 ON sbr3.status_id = sbs3.id
-          JOIN status_bot_connections conn3 ON sbs3.connection_id = conn3.id
-          WHERE conn3.user_id = $1 AND sbr3.replier_phone = sbv.viewer_phone
-        ) as has_reply
-      FROM status_bot_views sbv
-      JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-      JOIN status_bot_connections conn ON sbs.connection_id = conn.id
-      LEFT JOIN contacts c ON c.user_id = $1
-        AND c.phone = sbv.viewer_phone
-      WHERE conn.user_id = $1
-      GROUP BY sbv.viewer_phone
-      ${havingClause}
+        ap.phone AS viewer_phone,
+        COALESCE(c.display_name, vs.wa_name, rs.wa_name, rps.wa_name) AS viewer_name,
+        COALESCE(vs.statuses_viewed, 0) AS statuses_viewed,
+        $2::int AS total_statuses,
+        ROUND(COALESCE(vs.statuses_viewed, 0)::numeric / NULLIF($2, 0) * 100) AS view_percentage,
+        vs.first_seen,
+        vs.last_seen,
+        ap.is_gray AS is_gray_checkmark,
+        COALESCE(rs.reaction_count, 0) AS reaction_count,
+        (hr.replier_phone IS NOT NULL) AS has_reply
+      FROM all_people ap
+      LEFT JOIN view_stats vs ON vs.viewer_phone = ap.phone
+      LEFT JOIN reaction_stats rs ON rs.reactor_phone = ap.phone
+      LEFT JOIN reply_stats rps ON rps.replier_phone = ap.phone
+      LEFT JOIN has_reply_cte hr ON hr.replier_phone = ap.phone
+      LEFT JOIN contacts c ON c.user_id = $1 AND c.phone = ap.phone
+      WHERE true ${searchFilter}
       ORDER BY ${sortBy} ${sortDir} NULLS LAST
       LIMIT ${limit} OFFSET ${offset}
     `, params);
 
-    // Total count for pagination
+    // Total count: viewers + gray checkmarks
     const countResult = await db.query(`
-      SELECT COUNT(DISTINCT sbv.viewer_phone) as count
-      FROM status_bot_views sbv
-      JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-      JOIN status_bot_connections conn ON sbs.connection_id = conn.id
-      WHERE conn.user_id = $1
+      SELECT (
+        SELECT COUNT(DISTINCT sbv.viewer_phone)
+        FROM status_bot_views sbv
+        JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
+      ) + (
+        SELECT COUNT(DISTINCT sbr.reactor_phone)
+        FROM status_bot_reactions sbr
+        JOIN status_bot_statuses sbs ON sbr.status_id = sbs.id
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
+          AND sbr.reactor_phone NOT IN (
+            SELECT DISTINCT sbv2.viewer_phone
+            FROM status_bot_views sbv2
+            JOIN status_bot_statuses sbs2 ON sbv2.status_id = sbs2.id
+            JOIN status_bot_connections conn2 ON sbs2.connection_id = conn2.id
+            WHERE conn2.user_id = $1
+          )
+      ) + (
+        SELECT COUNT(DISTINCT sbr2.replier_phone)
+        FROM status_bot_replies sbr2
+        JOIN status_bot_statuses sbs ON sbr2.status_id = sbs.id
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
+          AND sbr2.replier_phone NOT IN (
+            SELECT DISTINCT sbv3.viewer_phone
+            FROM status_bot_views sbv3
+            JOIN status_bot_statuses sbs3 ON sbv3.status_id = sbs3.id
+            JOIN status_bot_connections conn3 ON sbs3.connection_id = conn3.id
+            WHERE conn3.user_id = $1
+          )
+          AND sbr2.replier_phone NOT IN (
+            SELECT DISTINCT sbr3.reactor_phone
+            FROM status_bot_reactions sbr3
+            JOIN status_bot_statuses sbs4 ON sbr3.status_id = sbs4.id
+            JOIN status_bot_connections conn4 ON sbs4.connection_id = conn4.id
+            WHERE conn4.user_id = $1
+          )
+      ) AS count
     `, [userId]);
 
     return res.json({
@@ -1074,6 +1163,194 @@ async function downloadViewerCertificate(req, res) {
 }
 
 // ─────────────────────────────────────────────
+// USER CERTIFICATE (for the subscriber)
+// ─────────────────────────────────────────────
+
+async function downloadUserCertificate(req, res) {
+  try {
+    const userId = req.user.id;
+    const access = await checkSubscription(userId);
+    if (!access.hasAccess) return res.status(403).json({ error: 'אין גישה לשירות', ...access });
+
+    const [connResult, topStatusResult, totalViewersResult, grayResult] = await Promise.all([
+      db.query(
+        `SELECT phone_number, display_name FROM status_bot_connections WHERE user_id = $1 ORDER BY is_active DESC, created_at DESC LIMIT 1`,
+        [userId]
+      ),
+      db.query(`
+        SELECT MAX(sbs.view_count) as max_views,
+               COUNT(*) FILTER (WHERE sbs.deleted_at IS NULL) as total_statuses
+        FROM status_bot_statuses sbs
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
+      `, [userId]),
+      db.query(`
+        SELECT COUNT(DISTINCT sbv.viewer_phone) as count
+        FROM status_bot_views sbv
+        JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
+        JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+        WHERE conn.user_id = $1
+      `, [userId]),
+      db.query(`
+        SELECT COUNT(*) as count FROM (
+          SELECT DISTINCT sbr.reactor_phone
+          FROM status_bot_reactions sbr
+          JOIN status_bot_statuses sbs ON sbr.status_id = sbs.id
+          JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+          WHERE conn.user_id = $1
+            AND sbr.reactor_phone NOT IN (
+              SELECT DISTINCT sbv2.viewer_phone
+              FROM status_bot_views sbv2
+              JOIN status_bot_statuses sbs2 ON sbv2.status_id = sbs2.id
+              JOIN status_bot_connections conn2 ON sbs2.connection_id = conn2.id
+              WHERE conn2.user_id = $1
+            )
+          UNION
+          SELECT DISTINCT sbr2.replier_phone
+          FROM status_bot_replies sbr2
+          JOIN status_bot_statuses sbs2 ON sbr2.status_id = sbs2.id
+          JOIN status_bot_connections conn2 ON sbs2.connection_id = conn2.id
+          WHERE conn2.user_id = $1
+            AND sbr2.replier_phone NOT IN (
+              SELECT DISTINCT sbv3.viewer_phone
+              FROM status_bot_views sbv3
+              JOIN status_bot_statuses sbs3 ON sbv3.status_id = sbs3.id
+              JOIN status_bot_connections conn3 ON sbs3.connection_id = conn3.id
+              WHERE conn3.user_id = $1
+            )
+        ) gc
+      `, [userId]),
+    ]);
+
+    const phone = connResult.rows[0]?.phone_number || '';
+    const displayName = connResult.rows[0]?.display_name || phone || 'משתמש';
+    const maxViews = parseInt(topStatusResult.rows[0]?.max_views) || 0;
+    const totalStatuses = parseInt(topStatusResult.rows[0]?.total_statuses) || 0;
+    const totalViewers = parseInt(totalViewersResult.rows[0]?.count) || 0;
+    const grayCount = parseInt(grayResult.rows[0]?.count) || 0;
+    const issueDate = new Date().toLocaleDateString('he-IL');
+
+    const html = `<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>תעודת צפיות - ${displayName}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;900&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Heebo', Arial, sans-serif; background: #f3f4f6; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+  .certificate { background: white; width: 800px; padding: 50px 60px; position: relative; box-shadow: 0 20px 60px rgba(0,0,0,0.15); border-radius: 16px; overflow: hidden; }
+  .top-bar { position: absolute; top: 0; left: 0; right: 0; height: 8px; background: linear-gradient(90deg, #7c3aed, #8b5cf6, #a78bfa); }
+  .bg-circle1 { position: absolute; top: -80px; left: -80px; width: 250px; height: 250px; border-radius: 50%; background: rgba(139,92,246,0.05); pointer-events: none; }
+  .bg-circle2 { position: absolute; bottom: -60px; right: -60px; width: 200px; height: 200px; border-radius: 50%; background: rgba(139,92,246,0.05); pointer-events: none; }
+  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 36px; }
+  .logo { font-size: 22px; font-weight: 900; color: #7c3aed; letter-spacing: -0.5px; }
+  .logo span { color: #a78bfa; }
+  .badge { background: linear-gradient(135deg, #7c3aed, #8b5cf6); color: white; padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .title-section { text-align: center; margin-bottom: 28px; }
+  .title-en { font-size: 12px; color: #9ca3af; font-weight: 400; letter-spacing: 4px; margin-bottom: 8px; }
+  .title-main { font-size: 38px; font-weight: 900; color: #1f2937; }
+  .title-sub { font-size: 14px; color: #6b7280; margin-top: 6px; }
+  hr { border: none; height: 1px; background: linear-gradient(90deg, transparent, #e5e7eb, transparent); margin: 24px 0; }
+  .viewer-section { text-align: center; margin-bottom: 28px; }
+  .viewer-label { font-size: 11px; color: #9ca3af; font-weight: 500; letter-spacing: 3px; margin-bottom: 8px; }
+  .viewer-name { font-size: 30px; font-weight: 700; color: #7c3aed; margin-bottom: 4px; }
+  .viewer-phone { font-size: 14px; color: #9ca3af; direction: ltr; }
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 24px 0; }
+  .stat-box { background: #f5f3ff; border-radius: 12px; padding: 20px; text-align: center; border: 1px solid #ede9fe; }
+  .stat-value { font-size: 34px; font-weight: 900; color: #7c3aed; line-height: 1; }
+  .stat-label { font-size: 11px; color: #6b7280; margin-top: 6px; font-weight: 500; }
+  .footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 32px; }
+  .footer-left { display: flex; flex-direction: column; gap: 8px; }
+  .verified { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 8px 14px; display: inline-flex; align-items: center; gap: 6px; }
+  .verified-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex-shrink: 0; }
+  .verified-text { font-size: 11px; color: #15803d; font-weight: 500; }
+  .issue-date { font-size: 11px; color: #9ca3af; }
+  .seal { text-align: center; }
+  .seal-circle { width: 72px; height: 72px; border-radius: 50%; border: 2px solid #e5e7eb; display: flex; align-items: center; justify-content: center; margin: 0 auto 6px; }
+  .seal-text { font-size: 9px; color: #9ca3af; text-align: center; line-height: 1.4; }
+  @media print { body { background: white; padding: 0; } .certificate { box-shadow: none; border-radius: 0; } }
+</style>
+</head>
+<body>
+<div class="certificate">
+  <div class="top-bar"></div>
+  <div class="bg-circle1"></div>
+  <div class="bg-circle2"></div>
+
+  <div class="header">
+    <div class="logo">בוט<span>ומט</span></div>
+    <div class="badge">תעודה מאומתת</div>
+  </div>
+
+  <div class="title-section">
+    <div class="title-en">CERTIFICATE OF STATUS VIEWS</div>
+    <div class="title-main">תעודת צפיות סטטוסים</div>
+    <div class="title-sub">מאשר בזאת את נתוני הצפיות של</div>
+  </div>
+
+  <hr>
+
+  <div class="viewer-section">
+    <div class="viewer-label">הוענקה ל</div>
+    <div class="viewer-name">${displayName}</div>
+    <div class="viewer-phone">${phone}</div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-box">
+      <div class="stat-value">${maxViews}</div>
+      <div class="stat-label">שיא צפיות בסטטוס בודד</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-value">${totalViewers}</div>
+      <div class="stat-label">צופים ייחודיים סה"כ</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-value">${totalStatuses}</div>
+      <div class="stat-label">סטטוסים שפורסמו</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-value">${grayCount}</div>
+      <div class="stat-label">וי אפור (ללא צפייה גלויה)</div>
+    </div>
+  </div>
+
+  <hr>
+
+  <div class="footer">
+    <div class="footer-left">
+      <div class="verified">
+        <div class="verified-dot"></div>
+        <div class="verified-text">מאומת על ידי מערכת Botomat</div>
+      </div>
+      <div class="issue-date">הונפקה: ${issueDate}</div>
+    </div>
+    <div class="seal">
+      <div class="seal-circle">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <path d="m9 12 2 2 4-4"/>
+        </svg>
+      </div>
+      <div class="seal-text">BOTOMAT<br>VERIFIED</div>
+    </div>
+  </div>
+</div>
+<script>window.onload = () => window.print();</script>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(html);
+  } catch (err) {
+    console.error('[ViewFilter] downloadUserCertificate error:', err);
+    res.status(500).json({ error: 'שגיאה ביצירת התעודה' });
+  }
+}
+
+// ─────────────────────────────────────────────
 // RENEWAL PRICING
 // ─────────────────────────────────────────────
 
@@ -1191,6 +1468,7 @@ module.exports = {
   getGoogleAuthUrl,
   syncToGoogle,
   downloadViewerCertificate,
+  downloadUserCertificate,
   getRenewalInfo,
   getCampaigns,
   setPrimary,

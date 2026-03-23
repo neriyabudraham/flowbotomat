@@ -11,6 +11,7 @@ router.post('/campaign/start', c.startCampaign);
 
 // Stats & viewers
 router.get('/stats',                         c.getDashboardStats);
+router.get('/certificate',                   c.downloadUserCertificate);
 router.get('/viewers',                       c.getViewers);
 router.get('/viewers/:phone/certificate',    c.downloadViewerCertificate);
 router.get('/viewers/:phone',                c.getViewerProfile);
