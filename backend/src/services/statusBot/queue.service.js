@@ -127,6 +127,11 @@ const activePromises = new Set(); // tracks all in-flight processItem promises
 let processingPromiseCallback = null;
 let gracefulShutdownRequested = false;
 
+// Dedup cache for BLOCKED log lines: key = "itemId:reason", value = last-logged timestamp
+// Prevents the same reason from being logged more than once per 5 minutes
+const _blockedLogCache = new Map();
+const BLOCKED_LOG_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
 /**
  * Set a callback to be notified when processing starts/ends
  * Used by the worker for graceful shutdown
@@ -426,7 +431,17 @@ async function processQueue() {
         } else {
           reason = `per-connection delay or source limit`;
         }
-        console.log(`[StatusBot] ⏸️ Queue item id=${row.id} conn=${row.connection_id} BLOCKED: ${reason}`);
+        // Only log if reason changed or hasn't been logged in the last 5 minutes
+        const cacheKey = `${row.id}:${reason}`;
+        const lastLogged = _blockedLogCache.get(cacheKey) || 0;
+        if (Date.now() - lastLogged >= BLOCKED_LOG_INTERVAL_MS) {
+          console.log(`[StatusBot] ⏸️ Queue item id=${row.id} conn=${row.connection_id} BLOCKED: ${reason}`);
+          _blockedLogCache.set(cacheKey, Date.now());
+          // Clean up stale entries for other reasons for this item
+          for (const key of _blockedLogCache.keys()) {
+            if (key.startsWith(`${row.id}:`) && key !== cacheKey) _blockedLogCache.delete(key);
+          }
+        }
       }
       return;
     }
