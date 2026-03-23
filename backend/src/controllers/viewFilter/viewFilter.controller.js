@@ -339,15 +339,15 @@ async function getViewers(req, res) {
     const totalStatuses = parseInt(totalStatusesResult.rows[0].count) || 1;
 
     const params = [userId, totalStatuses];
-    const searchClause = search
-      ? `AND (sbv.viewer_phone ILIKE $3 OR COALESCE(MAX(c.display_name), MAX(sbv.viewer_name)) ILIKE $3)`
+    const havingClause = search
+      ? `HAVING (sbv.viewer_phone ILIKE $3 OR MAX(sbv.viewer_name) ILIKE $3)`
       : '';
     if (search) params.push(`%${search}%`);
 
     const viewersResult = await db.query(`
       SELECT
         sbv.viewer_phone,
-        COALESCE(MAX(c.display_name), MAX(sbv.viewer_name)) as viewer_name,
+        MAX(sbv.viewer_name) as viewer_name,
         COUNT(DISTINCT sbv.status_id) as statuses_viewed,
         $2::int as total_statuses,
         ROUND(COUNT(DISTINCT sbv.status_id)::numeric / $2 * 100) as view_percentage,
@@ -368,13 +368,9 @@ async function getViewers(req, res) {
       FROM status_bot_views sbv
       JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
       JOIN status_bot_connections conn ON sbs.connection_id = conn.id
-      LEFT JOIN contacts c ON c.user_id = $1
-        AND (c.phone = sbv.viewer_phone
-          OR c.wa_id = sbv.viewer_phone
-          OR c.wa_id = sbv.viewer_phone || '@s.whatsapp.net')
       WHERE conn.user_id = $1
-        ${searchClause}
       GROUP BY sbv.viewer_phone
+      ${havingClause}
       ORDER BY ${sortBy} ${sortDir} NULLS LAST
       LIMIT ${limit} OFFSET ${offset}
     `, params);

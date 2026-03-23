@@ -139,7 +139,10 @@ export default function ViewFilterDashboardPage() {
       }));
       setViewers(normalized);
       setViewersMeta({ total: data.total || 0, page: data.page || 1, pages: Math.ceil((data.total || 0) / 20) });
-    } catch {}
+    } catch (err) {
+      console.error('[loadViewers]', err?.response?.data || err?.message);
+      setError(`שגיאה בטעינת הצופים: ${err?.response?.data?.error || err?.message || 'שגיאה לא ידועה'}`);
+    }
   };
 
   const loadGrayCheckmarks = async () => {

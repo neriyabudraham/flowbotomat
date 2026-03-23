@@ -80,6 +80,46 @@ INSERT INTO additional_services (
   2
 ) ON CONFLICT (slug) DO NOTHING;
 
+-- =============================================
+-- ADD is_primary + track_since TO status_viewer_campaigns
+-- Required for multi-campaign support and all-time tracking
+-- =============================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'status_viewer_campaigns' AND column_name = 'is_primary'
+  ) THEN
+    ALTER TABLE status_viewer_campaigns ADD COLUMN is_primary BOOLEAN DEFAULT false;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'status_viewer_campaigns' AND column_name = 'track_since'
+  ) THEN
+    ALTER TABLE status_viewer_campaigns ADD COLUMN track_since TIMESTAMP;
+  END IF;
+END $$;
+
+-- Drop the old UNIQUE(user_id) constraint so multiple campaigns can exist per user
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'status_viewer_campaigns_user_id_key') THEN
+    ALTER TABLE status_viewer_campaigns DROP CONSTRAINT status_viewer_campaigns_user_id_key;
+  END IF;
+END $$;
+
+-- Mark each user's most recent campaign as primary (migrate existing data)
+UPDATE status_viewer_campaigns svc
+SET is_primary = true
+WHERE svc.id IN (
+  SELECT DISTINCT ON (user_id) id
+  FROM status_viewer_campaigns
+  ORDER BY user_id, created_at DESC
+) AND svc.is_primary = false;
+
+CREATE INDEX IF NOT EXISTS idx_svc_primary ON status_viewer_campaigns(user_id, is_primary);
+
 DO $$
 BEGIN
   RAISE NOTICE '✅ View Filter Bot migration complete!';
