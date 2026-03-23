@@ -67,6 +67,13 @@ async function update(req, res) {
     // Since sessions reference waha_source_id (the row ID), updating base_url on the row
     // automatically affects all sessions linked to this source — no data migration needed.
     const source = await sourcesService.updateSource(id, { name, baseUrl, apiKey, webhookBaseUrl, priority });
+    // Also update the cached waha_base_url on all sessions for this source
+    if (baseUrlChanged) {
+      await db.query(
+        `UPDATE whatsapp_connections SET waha_base_url = $1 WHERE waha_source_id = $2`,
+        [baseUrl, id]
+      );
+    }
     res.json({ success: true, source });
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'כתובת זו כבר קיימת במערכת' });
@@ -154,8 +161,8 @@ async function syncLiveCounts(req, res) {
         const live = sessionNameToSource[wc.session_name];
         if (live && live.sourceId !== wc.waha_source_id) {
           await db.query(
-            `UPDATE whatsapp_connections SET waha_source_id = $1, updated_at = NOW() WHERE id = $2`,
-            [live.sourceId, wc.id]
+            `UPDATE whatsapp_connections SET waha_source_id = $1, waha_base_url = $2, updated_at = NOW() WHERE id = $3`,
+            [live.sourceId, live.baseUrl, wc.id]
           );
           reconciledCount++;
         }
@@ -163,6 +170,14 @@ async function syncLiveCounts(req, res) {
       if (reconciledCount > 0) {
         console.log(`[WahaSources] Reconciled ${reconciledCount} whatsapp_connections to correct source`);
       }
+      // Bulk-stamp waha_base_url on all sessions that already have the correct waha_source_id
+      await db.query(`
+        UPDATE whatsapp_connections wc
+        SET waha_base_url = ws.base_url
+        FROM waha_sources ws
+        WHERE wc.waha_source_id = ws.id
+          AND (wc.waha_base_url IS DISTINCT FROM ws.base_url)
+      `);
     } catch (reconcileErr) {
       console.error('[WahaSources] Reconcile error (non-fatal):', reconcileErr.message);
     }

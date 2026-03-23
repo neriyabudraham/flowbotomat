@@ -28,11 +28,19 @@ async function getWahaCredentialsForConnection(connection) {
     }
   }
 
-  // Managed connection — use waha_source_id if available
+  // Managed connection — if base_url is already cached on the connection row, use it directly
   if (connection.waha_source_id) {
     const { getCredentialsForSource } = require('../waha/sources.service');
     const creds = await getCredentialsForSource(connection.waha_source_id);
-    if (creds) return creds;
+    if (creds) {
+      // Prefer the cached base_url stamped by sync (more up-to-date for moved sessions)
+      if (connection.waha_base_url) creds.baseUrl = connection.waha_base_url;
+      return creds;
+    }
+  }
+  // Fast-path: waha_base_url set but no source row (shouldn't happen, but handle gracefully)
+  if (connection.waha_base_url) {
+    return { baseUrl: connection.waha_base_url, apiKey: process.env.WAHA_API_KEY, webhookBaseUrl: null };
   }
 
   // Fallback to env vars
