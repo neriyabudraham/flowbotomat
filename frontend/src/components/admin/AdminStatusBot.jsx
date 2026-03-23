@@ -120,6 +120,9 @@ export default function AdminStatusBot() {
   const [settingRestriction, setSettingRestriction] = useState(null);
   const [restrictionInput, setRestrictionInput] = useState('');
 
+  // Status detail modal (like user panel)
+  const [statusDetailModal, setStatusDetailModal] = useState({ show: false, status: null, views: [], reactions: [], replies: [], loading: false, activeTab: 'content' });
+
   useEffect(() => {
     loadData();
     loadActiveProcesses();
@@ -437,6 +440,45 @@ export default function AdminStatusBot() {
       setEditingSettings(Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])));
     } catch { }
     setSavingSettings(false);
+  };
+
+  // Fetch status details for the detail modal (admin)
+  const fetchStatusDetails = async (statusId, initialTab = 'content') => {
+    setStatusDetailModal(prev => ({ ...prev, show: true, loading: true, activeTab: initialTab, views: [], reactions: [], replies: [], status: null }));
+    try {
+      const { data } = await api.get(`/status-bot/admin/status/${statusId}/details`);
+      setStatusDetailModal(prev => ({
+        ...prev,
+        status: data.status,
+        views: data.views || [],
+        reactions: data.reactions || [],
+        replies: data.replies || [],
+        loading: false,
+      }));
+    } catch (err) {
+      console.error('Failed to load status details:', err);
+      setStatusDetailModal(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  // Open detail modal from queue item (find linked status by queue_id)
+  const openQueueItemDetails = async (queueId, initialTab = 'content') => {
+    setStatusDetailModal(prev => ({ ...prev, show: true, loading: true, activeTab: initialTab, views: [], reactions: [], replies: [], status: null }));
+    try {
+      const { data } = await api.get(`/status-bot/admin/queue-item/${queueId}/details`);
+      setStatusDetailModal(prev => ({
+        ...prev,
+        status: data.status,
+        queueItem: data.queueItem,
+        views: data.views || [],
+        reactions: data.reactions || [],
+        replies: data.replies || [],
+        loading: false,
+      }));
+    } catch (err) {
+      console.error('Failed to load queue item details:', err);
+      setStatusDetailModal(prev => ({ ...prev, loading: false }));
+    }
   };
 
   // Load queue pause status on mount
@@ -979,16 +1021,19 @@ export default function AdminStatusBot() {
                 <div className="space-y-2">
                   {activeProcesses.processingUploads.map((upload, idx) => {
                     const startTime = new Date(upload.startedAt);
+                    const queueTime = upload.createdAt ? new Date(upload.createdAt) : startTime;
                     const processingSeconds = Math.round((now - startTime.getTime()) / 1000);
                     const isStuck = processingSeconds > 600; // 10 minutes
                     const isWarning = processingSeconds > 180; // 3 minutes
-                    
+
                     return (
-                      <div key={idx} className={`bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border ${
-                        isStuck ? 'border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20' : 
-                        isWarning ? 'border-amber-300 dark:border-amber-700' : 
+                      <div key={idx} className={`bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border cursor-pointer hover:ring-1 hover:ring-blue-300 transition-all ${
+                        isStuck ? 'border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20' :
+                        isWarning ? 'border-amber-300 dark:border-amber-700' :
                         'border-green-200 dark:border-green-800'
-                      }`}>
+                      }`}
+                        onClick={() => openQueueItemDetails(upload.id)}
+                      >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
@@ -1000,8 +1045,8 @@ export default function AdminStatusBot() {
                             </div>
                             <div>
                               <p className="font-medium text-gray-800 dark:text-white">
-                                {upload.statusType === 'text' ? '📝 טקסט' : 
-                                 upload.statusType === 'image' ? '🖼️ תמונה' : 
+                                {upload.statusType === 'text' ? '📝 טקסט' :
+                                 upload.statusType === 'image' ? '🖼️ תמונה' :
                                  upload.statusType === 'video' ? '🎬 סרטון' : '🎤 קול'}
                                 {upload.totalParts > 1 && ` (חלק ${upload.partNumber}/${upload.totalParts})`}
                               </p>
@@ -1012,6 +1057,26 @@ export default function AdminStatusBot() {
                             </div>
                           </div>
                           <div className="flex items-center gap-3">
+                            {/* Engagement stats */}
+                            {(upload.viewCount > 0 || upload.reactionCount > 0 || upload.replyCount > 0) && (
+                              <div className="flex items-center gap-2 text-xs">
+                                {upload.viewCount > 0 && (
+                                  <span className="flex items-center gap-0.5 text-cyan-600" title="צפיות">
+                                    <Eye className="w-3.5 h-3.5" />{upload.viewCount}
+                                  </span>
+                                )}
+                                {upload.reactionCount > 0 && (
+                                  <span className="flex items-center gap-0.5 text-pink-500" title="לבבות">
+                                    <Heart className="w-3.5 h-3.5" />{upload.reactionCount}
+                                  </span>
+                                )}
+                                {upload.replyCount > 0 && (
+                                  <span className="flex items-center gap-0.5 text-blue-500" title="תגובות">
+                                    <MessageCircle className="w-3.5 h-3.5" />{upload.replyCount}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                             {upload.contactsTotal > 0 && (
                               <div className="text-left min-w-[80px]">
                                 <div className="text-lg font-mono font-bold text-purple-600">
@@ -1031,10 +1096,10 @@ export default function AdminStatusBot() {
                                 <Timer className="w-4 h-4 inline mr-1" />
                                 {formatTime(processingSeconds)}
                               </div>
-                              <p className="text-xs text-gray-400">התחיל: {startTime.toLocaleTimeString('he-IL')}</p>
+                              <p className="text-xs text-gray-400">נכנס לתור: {queueTime.toLocaleTimeString('he-IL')}</p>
                             </div>
                             <button
-                              onClick={() => handleCancelItem(upload.id)}
+                              onClick={(e) => { e.stopPropagation(); handleCancelItem(upload.id); }}
                               disabled={cancellingItem === upload.id}
                               className="p-2 text-red-600 hover:bg-red-100 rounded-lg disabled:opacity-50"
                             >
@@ -1062,7 +1127,9 @@ export default function AdminStatusBot() {
                 </h4>
                 <div className="space-y-2">
                   {activeProcesses.pendingQueue.map((item, idx) => (
-                    <div key={item.id} className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border border-blue-100 dark:border-blue-800">
+                    <div key={item.id} className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border border-blue-100 dark:border-blue-800 cursor-pointer hover:ring-1 hover:ring-blue-300 transition-all"
+                      onClick={() => openQueueItemDetails(item.id)}
+                    >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <span className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-sm font-bold">
@@ -1070,8 +1137,8 @@ export default function AdminStatusBot() {
                           </span>
                           <div>
                             <p className="font-medium text-gray-800 dark:text-white">
-                              {item.statusType === 'text' ? '📝 טקסט' : 
-                               item.statusType === 'image' ? '🖼️ תמונה' : 
+                              {item.statusType === 'text' ? '📝 טקסט' :
+                               item.statusType === 'image' ? '🖼️ תמונה' :
                                item.statusType === 'video' ? '🎬 סרטון' : '🎤 קול'}
                               {item.totalParts > 1 && ` (חלק ${item.partNumber}/${item.totalParts})`}
                             </p>
@@ -1080,10 +1147,10 @@ export default function AdminStatusBot() {
                         </div>
                         <div className="flex items-center gap-2">
                           <p className="text-xs text-gray-400">
-                            נוסף: {new Date(item.createdAt).toLocaleTimeString('he-IL')}
+                            נכנס לתור: {new Date(item.createdAt).toLocaleTimeString('he-IL')}
                           </p>
                           <button
-                            onClick={() => handleAdminCancelItem(item.id)}
+                            onClick={(e) => { e.stopPropagation(); handleAdminCancelItem(item.id); }}
                             disabled={cancellingItem === item.id}
                             className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg disabled:opacity-50"
                             title="בטל פריט"
@@ -1130,9 +1197,11 @@ export default function AdminStatusBot() {
                     const isNear = timeUntil < 5 * 60 * 1000; // Less than 5 minutes
                     
                     return (
-                      <div key={item.id} className={`bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border ${
+                      <div key={item.id} className={`bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border cursor-pointer hover:ring-1 hover:ring-indigo-300 transition-all ${
                         isNear ? 'border-indigo-300 bg-indigo-50 dark:bg-indigo-900/20' : 'border-indigo-100 dark:border-indigo-800'
-                      }`}>
+                      }`}
+                        onClick={() => openQueueItemDetails(item.id)}
+                      >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
@@ -1142,8 +1211,8 @@ export default function AdminStatusBot() {
                             </div>
                             <div>
                               <p className="font-medium text-gray-800 dark:text-white">
-                                {item.statusType === 'text' ? '📝 טקסט' : 
-                                 item.statusType === 'image' ? '🖼️ תמונה' : 
+                                {item.statusType === 'text' ? '📝 טקסט' :
+                                 item.statusType === 'image' ? '🖼️ תמונה' :
                                  item.statusType === 'video' ? '🎬 סרטון' : '🎤 קול'}
                                 {item.totalParts > 1 && ` (חלק ${item.partNumber}/${item.totalParts})`}
                               </p>
@@ -1160,7 +1229,7 @@ export default function AdminStatusBot() {
                               </p>
                             </div>
                             <button
-                              onClick={() => handleAdminCancelItem(item.id)}
+                              onClick={(e) => { e.stopPropagation(); handleAdminCancelItem(item.id); }}
                               disabled={cancellingItem === item.id}
                               className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg disabled:opacity-50"
                               title="בטל מתוזמן"
@@ -1387,36 +1456,74 @@ export default function AdminStatusBot() {
                       <div className="space-y-4">
                         {/* Recent Queue Items */}
                         <div>
-                          <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2">פריטים בתור</h4>
-                          <div className="space-y-1 max-h-48 overflow-y-auto">
-                            {userDetails.queueItems?.slice(0, 10).map(item => (
-                              <div key={item.id} className={`flex items-center justify-between p-2 rounded text-sm ${
-                                item.queue_status === 'sent' ? 'bg-green-50' :
-                                item.queue_status === 'failed' ? 'bg-red-50' :
-                                item.queue_status === 'processing' ? 'bg-amber-50' :
-                                'bg-white'
-                              }`}>
-                                <div className="flex items-center gap-2">
-                                  <span>{item.status_type === 'text' ? '📝' : item.status_type === 'image' ? '🖼️' : item.status_type === 'video' ? '🎬' : '🎤'}</span>
-                                  <span className={`px-2 py-0.5 rounded text-xs ${
-                                    item.queue_status === 'sent' ? 'bg-green-100 text-green-700' :
-                                    item.queue_status === 'failed' ? 'bg-red-100 text-red-700' :
-                                    item.queue_status === 'processing' ? 'bg-amber-100 text-amber-700' :
-                                    item.queue_status === 'scheduled' ? 'bg-indigo-100 text-indigo-700' :
-                                    'bg-blue-100 text-blue-700'
-                                  }`}>{item.queue_status}</span>
-                                  {item.contacts_total > 0 && (
-                                    <span className="text-purple-600 text-xs font-medium">
-                                      {Math.round(((item.contacts_sent || 0) / item.contacts_total) * 100)}% ({item.contacts_sent || 0}/{item.contacts_total})
-                                    </span>
-                                  )}
-                                  {item.error_message && <span className="text-red-600 text-xs truncate max-w-[200px]">{item.error_message}</span>}
+                          <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2">היסטוריית סטטוסים</h4>
+                          <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                            {userDetails.queueItems?.slice(0, 15).map(item => {
+                              const statusLabels = {
+                                sent: 'נשלח', failed: 'נכשל', processing: 'בשליחה...',
+                                scheduled: 'מתוזמן', pending: 'בתור', cancelled: 'בוטל'
+                              };
+                              // Find matching status record for engagement counts
+                              const linkedStatus = userDetails.recentStatuses?.find(s => s.queue_id === item.id);
+                              return (
+                                <div
+                                  key={item.id}
+                                  className={`flex items-center justify-between p-2.5 rounded-lg text-sm cursor-pointer hover:ring-1 hover:ring-blue-300 transition-all ${
+                                    item.queue_status === 'sent' ? 'bg-green-50 dark:bg-green-900/20' :
+                                    item.queue_status === 'failed' ? 'bg-red-50 dark:bg-red-900/20' :
+                                    item.queue_status === 'processing' ? 'bg-amber-50 dark:bg-amber-900/20' :
+                                    'bg-white dark:bg-gray-800'
+                                  }`}
+                                  onClick={() => openQueueItemDetails(item.id)}
+                                >
+                                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                                    <span className="text-lg">{item.status_type === 'text' ? '📝' : item.status_type === 'image' ? '🖼️' : item.status_type === 'video' ? '🎬' : '🎤'}</span>
+                                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                      item.queue_status === 'sent' ? 'bg-green-100 text-green-700' :
+                                      item.queue_status === 'failed' ? 'bg-red-100 text-red-700' :
+                                      item.queue_status === 'processing' ? 'bg-amber-100 text-amber-700' :
+                                      item.queue_status === 'scheduled' ? 'bg-indigo-100 text-indigo-700' :
+                                      item.queue_status === 'cancelled' ? 'bg-gray-100 text-gray-500' :
+                                      'bg-blue-100 text-blue-700'
+                                    }`}>{statusLabels[item.queue_status] || item.queue_status}</span>
+                                    {item.contacts_total > 0 && (
+                                      <div className="flex items-center gap-1">
+                                        <div className="w-16 bg-gray-200 rounded-full h-1.5">
+                                          <div className="bg-purple-500 h-1.5 rounded-full" style={{ width: `${Math.round(((item.contacts_sent || 0) / item.contacts_total) * 100)}%` }} />
+                                        </div>
+                                        <span className="text-purple-600 text-xs font-medium">{item.contacts_sent || 0}/{item.contacts_total}</span>
+                                      </div>
+                                    )}
+                                    {item.error_message && <span className="text-red-500 text-xs truncate max-w-[150px]" title={item.error_message}>{item.error_message}</span>}
+                                  </div>
+                                  <div className="flex items-center gap-3 shrink-0">
+                                    {/* Engagement stats */}
+                                    {linkedStatus && (
+                                      <div className="flex items-center gap-2 text-xs">
+                                        {(linkedStatus.view_count || 0) > 0 && (
+                                          <span className="flex items-center gap-0.5 text-cyan-600" title="צפיות">
+                                            <Eye className="w-3 h-3" />{linkedStatus.view_count}
+                                          </span>
+                                        )}
+                                        {(linkedStatus.reaction_count || 0) > 0 && (
+                                          <span className="flex items-center gap-0.5 text-pink-500" title="לבבות">
+                                            <Heart className="w-3 h-3" />{linkedStatus.reaction_count}
+                                          </span>
+                                        )}
+                                        {(linkedStatus.reply_count || 0) > 0 && (
+                                          <span className="flex items-center gap-0.5 text-blue-500" title="תגובות">
+                                            <MessageCircle className="w-3 h-3" />{linkedStatus.reply_count}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                    <span className="text-gray-400 text-xs whitespace-nowrap">{formatDate(item.created_at)}</span>
+                                  </div>
                                 </div>
-                                <span className="text-gray-400 text-xs">{formatDate(item.created_at)}</span>
-                              </div>
-                            ))}
+                              );
+                            })}
                             {(!userDetails.queueItems || userDetails.queueItems.length === 0) && (
-                              <p className="text-gray-400 text-sm">אין פריטים בתור</p>
+                              <p className="text-gray-400 text-sm">אין פריטים</p>
                             )}
                           </div>
                         </div>
@@ -1535,6 +1642,181 @@ export default function AdminStatusBot() {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Status Detail Modal */}
+      {statusDetailModal.show && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setStatusDetailModal(prev => ({ ...prev, show: false }))}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl max-w-2xl w-full max-h-[85vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-lg">פרטי סטטוס</h3>
+                {statusDetailModal.status && (
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                    statusDetailModal.status.status_type === 'text' ? 'bg-purple-100 text-purple-700' :
+                    statusDetailModal.status.status_type === 'image' ? 'bg-blue-100 text-blue-700' :
+                    statusDetailModal.status.status_type === 'video' ? 'bg-pink-100 text-pink-700' :
+                    'bg-green-100 text-green-700'
+                  }`}>{statusDetailModal.status.status_type === 'text' ? 'טקסט' : statusDetailModal.status.status_type === 'image' ? 'תמונה' : statusDetailModal.status.status_type === 'video' ? 'סרטון' : 'הקלטה'}</span>
+                )}
+              </div>
+              <button onClick={() => setStatusDetailModal(prev => ({ ...prev, show: false }))} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-gray-200 dark:border-gray-700 px-4">
+              {[
+                { key: 'content', label: 'תוכן', icon: FileText },
+                { key: 'views', label: `צפיות (${statusDetailModal.views.length})`, icon: Eye, color: 'text-cyan-600' },
+                { key: 'reactions', label: `לבבות (${statusDetailModal.reactions.length})`, icon: Heart, color: 'text-pink-500' },
+                { key: 'replies', label: `תגובות (${statusDetailModal.replies.length})`, icon: MessageCircle, color: 'text-blue-500' },
+              ].map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => setStatusDetailModal(prev => ({ ...prev, activeTab: tab.key }))}
+                  className={`flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                    statusDetailModal.activeTab === tab.key
+                      ? `border-blue-500 ${tab.color || 'text-blue-600'}`
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <tab.icon className="w-4 h-4" />{tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="p-4 overflow-y-auto max-h-[60vh]">
+              {statusDetailModal.loading ? (
+                <div className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></div>
+              ) : statusDetailModal.activeTab === 'content' ? (
+                <div className="space-y-4">
+                  {/* Queue item info */}
+                  {statusDetailModal.queueItem && (
+                    <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 text-sm space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">סטטוס תור:</span>
+                        <span className="font-medium">{statusDetailModal.queueItem.queue_status}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">הגיע לתור:</span>
+                        <span>{formatDate(statusDetailModal.queueItem.created_at)}</span>
+                      </div>
+                      {statusDetailModal.queueItem.sent_at && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">נשלח:</span>
+                          <span>{formatDate(statusDetailModal.queueItem.sent_at)}</span>
+                        </div>
+                      )}
+                      {statusDetailModal.queueItem.contacts_total > 0 && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-500">התקדמות שליחה:</span>
+                          <div className="flex items-center gap-2">
+                            <div className="w-24 bg-gray-200 rounded-full h-2">
+                              <div className="bg-purple-500 h-2 rounded-full" style={{ width: `${Math.round(((statusDetailModal.queueItem.contacts_sent || 0) / statusDetailModal.queueItem.contacts_total) * 100)}%` }} />
+                            </div>
+                            <span className="text-purple-600 font-medium">{statusDetailModal.queueItem.contacts_sent || 0}/{statusDetailModal.queueItem.contacts_total}</span>
+                          </div>
+                        </div>
+                      )}
+                      {statusDetailModal.queueItem.source_phone && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">מקור:</span>
+                          <span dir="ltr">{statusDetailModal.queueItem.source_phone}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {/* Content preview */}
+                  {(() => {
+                    const s = statusDetailModal.status || statusDetailModal.queueItem;
+                    if (!s) return <p className="text-gray-400 text-center py-8">אין תוכן להצגה</p>;
+                    const content = typeof s.content === 'string' ? (() => { try { return JSON.parse(s.content); } catch { return s.content; } })() : s.content;
+                    const type = s.status_type;
+                    const fileUrl = content?.file?.url || content?.file || content?.url;
+                    return (
+                      <div className="space-y-3">
+                        {type === 'text' && content?.text && (
+                          <div className="rounded-xl p-4 text-white text-center text-lg font-medium" style={{ backgroundColor: content.backgroundColor || '#38b42f' }}>
+                            {content.text}
+                          </div>
+                        )}
+                        {type === 'image' && fileUrl && (
+                          <img src={fileUrl} alt="Status" className="rounded-xl max-h-80 mx-auto" />
+                        )}
+                        {type === 'video' && fileUrl && (
+                          <video src={fileUrl} controls className="rounded-xl max-h-80 mx-auto w-full" />
+                        )}
+                        {type === 'voice' && fileUrl && (
+                          <div className="rounded-xl p-4" style={{ backgroundColor: content?.backgroundColor || '#38b42f' }}>
+                            <audio src={fileUrl} controls className="w-full" />
+                          </div>
+                        )}
+                        {content?.caption && <p className="text-gray-600 dark:text-gray-400 text-sm">{content.caption}</p>}
+                        {/* Engagement summary */}
+                        {statusDetailModal.status && (
+                          <div className="flex items-center gap-4 text-sm pt-2 border-t border-gray-200 dark:border-gray-700">
+                            <span className="flex items-center gap-1 text-cyan-600"><Eye className="w-4 h-4" />{statusDetailModal.status.view_count || 0} צפיות</span>
+                            <span className="flex items-center gap-1 text-pink-500"><Heart className="w-4 h-4" />{statusDetailModal.status.reaction_count || 0} לבבות</span>
+                            <span className="flex items-center gap-1 text-blue-500"><MessageCircle className="w-4 h-4" />{statusDetailModal.status.reply_count || 0} תגובות</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : statusDetailModal.activeTab === 'views' ? (
+                <div className="space-y-1.5">
+                  {statusDetailModal.views.length === 0 ? (
+                    <p className="text-center text-gray-400 py-8">אין צפיות עדיין</p>
+                  ) : statusDetailModal.views.map((v, i) => (
+                    <div key={i} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-900/30 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 bg-cyan-100 rounded-full flex items-center justify-center"><Eye className="w-3.5 h-3.5 text-cyan-600" /></div>
+                        <span className="text-sm font-medium" dir="ltr">{v.viewer_phone}</span>
+                        {v.viewer_name && <span className="text-xs text-gray-500">{v.viewer_name}</span>}
+                      </div>
+                      <span className="text-xs text-gray-400">{new Date(v.viewed_at).toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric' })}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : statusDetailModal.activeTab === 'reactions' ? (
+                <div className="space-y-1.5">
+                  {statusDetailModal.reactions.length === 0 ? (
+                    <p className="text-center text-gray-400 py-8">אין לבבות עדיין</p>
+                  ) : statusDetailModal.reactions.map((r, i) => (
+                    <div key={i} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-900/30 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 bg-pink-100 rounded-full flex items-center justify-center"><Heart className="w-3.5 h-3.5 text-pink-500" /></div>
+                        <span className="text-sm font-medium" dir="ltr">{r.reactor_phone}</span>
+                        {r.reaction && <span className="text-lg">{r.reaction}</span>}
+                      </div>
+                      <span className="text-xs text-gray-400">{new Date(r.reacted_at).toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric' })}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : statusDetailModal.activeTab === 'replies' ? (
+                <div className="space-y-1.5">
+                  {statusDetailModal.replies.length === 0 ? (
+                    <p className="text-center text-gray-400 py-8">אין תגובות עדיין</p>
+                  ) : statusDetailModal.replies.map((r, i) => (
+                    <div key={i} className="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-gray-900/30 rounded-lg">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 bg-blue-100 rounded-full flex items-center justify-center"><MessageCircle className="w-3.5 h-3.5 text-blue-500" /></div>
+                          <span className="text-sm font-medium" dir="ltr">{r.replier_phone}</span>
+                        </div>
+                        <p className="text-sm text-gray-700 dark:text-gray-300 mt-1 mr-9">{r.reply_text}</p>
+                      </div>
+                      <span className="text-xs text-gray-400 shrink-0">{new Date(r.replied_at).toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric' })}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>

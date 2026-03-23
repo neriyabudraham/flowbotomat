@@ -2478,13 +2478,14 @@ async function adminGetActiveProcesses(req, res) {
       ORDER BY c.last_message_at DESC
     `);
 
-    // Get currently processing queue items
+    // Get currently processing queue items with linked status engagement data
     const processingResult = await db.query(`
       SELECT
         q.id,
         q.status_type,
         q.content,
         q.processing_started_at,
+        q.created_at,
         q.source,
         q.source_phone,
         q.part_number,
@@ -2494,10 +2495,14 @@ async function adminGetActiveProcesses(req, res) {
         conn.display_name,
         conn.phone_number as bot_phone,
         u.name as user_name,
-        u.email as user_email
+        u.email as user_email,
+        s.view_count,
+        s.reaction_count,
+        s.reply_count
       FROM status_bot_queue q
       JOIN status_bot_connections conn ON conn.id = q.connection_id
       JOIN users u ON conn.user_id = u.id
+      LEFT JOIN status_bot_statuses s ON s.queue_id = q.id
       WHERE q.queue_status = 'processing'
       ORDER BY q.processing_started_at ASC
     `);
@@ -2585,6 +2590,7 @@ async function adminGetActiveProcesses(req, res) {
         statusType: p.status_type,
         content: p.content,
         startedAt: p.processing_started_at,
+        createdAt: p.created_at,
         source: p.source,
         sourcePhone: p.source_phone,
         partNumber: p.part_number,
@@ -2594,7 +2600,10 @@ async function adminGetActiveProcesses(req, res) {
         displayName: p.display_name,
         botPhone: p.bot_phone,
         userName: p.user_name,
-        userEmail: p.user_email
+        userEmail: p.user_email,
+        viewCount: p.view_count || 0,
+        reactionCount: p.reaction_count || 0,
+        replyCount: p.reply_count || 0
       })),
       queueLock: lockResult.rows[0] || null,
       pendingCount: parseInt(pendingResult.rows[0].count),
@@ -2770,12 +2779,12 @@ async function adminGetUserDetails(req, res) {
     // Get recent statuses
     const statusesResult = await db.query(`
       SELECT 
-        id, status_type, content, sent_at, 
+        id, queue_id, status_type, content, sent_at, created_at,
         view_count, reaction_count, reply_count, waha_message_id
       FROM status_bot_statuses
       WHERE connection_id = $1
-      ORDER BY sent_at DESC
-      LIMIT 20
+      ORDER BY created_at DESC
+      LIMIT 30
     `, [connectionId]);
 
     // Get queue items
@@ -2819,6 +2828,67 @@ async function adminGetUserDetails(req, res) {
   } catch (error) {
     console.error('[StatusBot Admin] Get user details:', error);
     res.status(500).json({ error: 'שגיאה בטעינת פרטי משתמש' });
+  }
+}
+
+/**
+ * Admin: Get status details (views/reactions/replies) by status ID
+ */
+async function adminGetStatusDetails(req, res) {
+  try {
+    const { statusId } = req.params;
+    const statusResult = await db.query(`SELECT * FROM status_bot_statuses WHERE id = $1`, [statusId]);
+    if (statusResult.rows.length === 0) return res.status(404).json({ error: 'סטטוס לא נמצא' });
+
+    const [viewsRes, reactionsRes, repliesRes] = await Promise.all([
+      db.query(`SELECT * FROM status_bot_views WHERE status_id = $1 ORDER BY viewed_at DESC`, [statusId]),
+      db.query(`SELECT * FROM status_bot_reactions WHERE status_id = $1 ORDER BY reacted_at DESC`, [statusId]),
+      db.query(`SELECT * FROM status_bot_replies WHERE status_id = $1 ORDER BY replied_at DESC`, [statusId]),
+    ]);
+
+    const status = normalizeRow(statusResult.rows[0]);
+    res.json({ status, views: viewsRes.rows, reactions: reactionsRes.rows, replies: repliesRes.rows });
+  } catch (error) {
+    console.error('[StatusBot Admin] Get status details:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת פרטי סטטוס' });
+  }
+}
+
+/**
+ * Admin: Get queue item details (content + linked status engagement data)
+ */
+async function adminGetQueueItemDetails(req, res) {
+  try {
+    const { queueId } = req.params;
+    const queueResult = await db.query(`SELECT * FROM status_bot_queue WHERE id = $1`, [queueId]);
+    if (queueResult.rows.length === 0) return res.status(404).json({ error: 'פריט לא נמצא' });
+
+    const queueItem = queueResult.rows[0];
+    // Parse content if it's a string
+    if (typeof queueItem.content === 'string') {
+      try { queueItem.content = JSON.parse(queueItem.content); } catch {}
+    }
+
+    // Find linked status record
+    const statusResult = await db.query(`SELECT * FROM status_bot_statuses WHERE queue_id = $1`, [queueId]);
+    let status = statusResult.rows.length > 0 ? normalizeRow(statusResult.rows[0]) : null;
+
+    let views = [], reactions = [], replies = [];
+    if (status) {
+      const [viewsRes, reactionsRes, repliesRes] = await Promise.all([
+        db.query(`SELECT * FROM status_bot_views WHERE status_id = $1 ORDER BY viewed_at DESC`, [status.id]),
+        db.query(`SELECT * FROM status_bot_reactions WHERE status_id = $1 ORDER BY reacted_at DESC`, [status.id]),
+        db.query(`SELECT * FROM status_bot_replies WHERE status_id = $1 ORDER BY replied_at DESC`, [status.id]),
+      ]);
+      views = viewsRes.rows;
+      reactions = reactionsRes.rows;
+      replies = repliesRes.rows;
+    }
+
+    res.json({ queueItem, status, views, reactions, replies });
+  } catch (error) {
+    console.error('[StatusBot Admin] Get queue item details:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת פרטי פריט' });
   }
 }
 
@@ -4413,6 +4483,8 @@ module.exports = {
   adminSyncPhoneNumbers,
   adminGetUserErrors,
   adminGetUserDetails,
+  adminGetStatusDetails,
+  adminGetQueueItemDetails,
   adminClearUserErrors,
   adminRetryUserErrors,
   

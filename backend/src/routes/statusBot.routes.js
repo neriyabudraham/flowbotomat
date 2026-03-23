@@ -132,6 +132,10 @@ router.patch('/admin/user/:connectionId/set-restriction', authMiddleware, supera
 router.patch('/admin/user/:connectionId/send-format', authMiddleware, superadminMiddleware, statusBotController.adminSetSendFormat);
 router.patch('/admin/user/:connectionId/viewers-first', authMiddleware, superadminMiddleware, statusBotController.adminSetViewersFirstMode);
 
+// Admin status detail endpoints
+router.get('/admin/status/:statusId/details', authMiddleware, adminMiddleware, statusBotController.adminGetStatusDetails);
+router.get('/admin/queue-item/:queueId/details', authMiddleware, adminMiddleware, statusBotController.adminGetQueueItemDetails);
+
 // Admin queue management (specific routes MUST come before :queueId param route)
 router.get('/admin/queue/all', authMiddleware, adminMiddleware, statusBotController.adminGetAllQueueItems);
 router.post('/admin/queue/bulk-cancel', authMiddleware, adminMiddleware, statusBotController.adminBulkCancelQueue);
