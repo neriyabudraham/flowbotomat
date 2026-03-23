@@ -443,6 +443,16 @@ server.listen(PORT, () => {
       await dbQuery(`ALTER TABLE status_bot_statuses ADD COLUMN IF NOT EXISTS contacts_sent INT`);
       await dbQuery(`ALTER TABLE status_bot_queue ADD COLUMN IF NOT EXISTS contacts_sent INT DEFAULT 0`);
       await dbQuery(`ALTER TABLE status_bot_queue ADD COLUMN IF NOT EXISTS contacts_total INT DEFAULT 0`);
+      // Store group_id/group_name directly on job messages so they survive target re-creation
+      await dbQuery(`ALTER TABLE forward_job_messages ADD COLUMN IF NOT EXISTS group_id VARCHAR(100)`);
+      await dbQuery(`ALTER TABLE forward_job_messages ADD COLUMN IF NOT EXISTS group_name VARCHAR(255)`);
+      // Backfill existing messages that don't have group_id yet
+      await dbQuery(`
+        UPDATE forward_job_messages fjm
+        SET group_id = gft.group_id, group_name = gft.group_name
+        FROM group_forward_targets gft
+        WHERE fjm.target_id = gft.id AND fjm.group_id IS NULL
+      `);
       // Backfill billing_queue failed entries for payment_history failures that have no billing_queue entry
       // This ensures legacy failures (from billing.service.js direct charging) appear in the admin failed tab
       await dbQuery(`
@@ -488,6 +498,18 @@ server.listen(PORT, () => {
 
       await resumeStuckForwardJobs();
       await resumeStuckBroadcastCampaigns();
+
+      // Reset status bot items stuck in 'processing' from before this restart
+      const { query: dbResetQ } = require('./config/database');
+      const resetResult = await dbResetQ(`
+        UPDATE status_bot_queue
+        SET queue_status = 'pending', processing_started_at = NULL
+        WHERE queue_status = 'processing'
+        RETURNING id
+      `);
+      if (resetResult.rowCount > 0) {
+        console.log(`[Startup] Reset ${resetResult.rowCount} stuck status bot queue item(s) to pending`);
+      }
     } catch (err) {
       console.error('[Startup] Error resuming stuck jobs:', err.message);
     }
