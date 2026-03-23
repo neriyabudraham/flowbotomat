@@ -1259,8 +1259,9 @@ async function downloadUserCertificate(req, res) {
       }
     );
 
+    const safeFilename = `certificate_${phone || 'botomat'}.png`;
     res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Content-Disposition', `attachment; filename="certificate_${displayName}.png"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
     return res.send(Buffer.from(pngResponse.data));
   } catch (err) {
     console.error('[ViewFilter] downloadUserCertificate error:', err);
