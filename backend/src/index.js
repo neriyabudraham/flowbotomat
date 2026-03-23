@@ -151,10 +151,7 @@ console.log('📅 Scheduled forwards processor started (every minute)');
 
 // Schedule session timeout checker - run every 30 seconds
 const db = require('./config/database');
-const BotEngine = require('./services/botEngine.service');
-
-// Reuse a single BotEngine instance instead of creating one every 30 seconds
-const sharedBotEngine = new BotEngine();
+const sharedBotEngine = require('./services/botEngine.service');
 
 // Cron overlap guard — prevents a slow cron from stacking on itself
 const _cronRunning = {};
