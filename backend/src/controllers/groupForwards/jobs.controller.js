@@ -513,7 +513,15 @@ async function getAllJobHistory(req, res) {
 /**
  * Start processing a forward job
  */
+const _activeForwardJobs = new Set();
 async function startForwardJob(jobId) {
+  // Prevent duplicate concurrent execution of the same job
+  if (_activeForwardJobs.has(jobId)) {
+    console.log(`[GroupForwards] startForwardJob SKIPPED for job ${jobId} — already running`);
+    return;
+  }
+  _activeForwardJobs.add(jobId);
+
   const wahaService = require('../../services/waha/session.service');
   const triggerService = require('../../services/groupForwards/trigger.service');
 
@@ -993,16 +1001,16 @@ async function startForwardJob(jobId) {
     }
     
     console.log(`[GroupForwards] Job ${jobId} ${finalStatus}: ${sentCount}/${totalTargets} sent, ${failedCount} failed`);
-    
+
   } catch (error) {
     console.error(`[GroupForwards] Job ${jobId} error:`, error);
-    
+
     await db.query(`
-      UPDATE forward_jobs 
+      UPDATE forward_jobs
       SET status = 'error', error_message = $2, updated_at = NOW()
       WHERE id = $1
     `, [jobId, error.message]);
-    
+
     // Get user_id for socket emission
     const jobData = await db.query('SELECT user_id FROM forward_jobs WHERE id = $1', [jobId]);
     if (jobData.rows.length > 0) {
@@ -1012,6 +1020,8 @@ async function startForwardJob(jobId) {
         error: error.message
       });
     }
+  } finally {
+    _activeForwardJobs.delete(jobId);
   }
 }
 

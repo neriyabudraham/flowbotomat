@@ -158,6 +158,7 @@ async function saveOutgoingMessage(userId, chatId, messageType, content, mediaUr
       contact = await db.query(
         `INSERT INTO contacts (user_id, phone, wa_id, display_name)
          VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id, phone) DO UPDATE SET wa_id = COALESCE(EXCLUDED.wa_id, contacts.wa_id)
          RETURNING *`,
         [userId, phone, chatId, contactName]
       );

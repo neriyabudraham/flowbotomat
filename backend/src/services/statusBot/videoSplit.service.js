@@ -22,13 +22,27 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 }
 
 /**
+ * Convert external URL to local file path (Docker can't resolve external hostnames)
+ */
+function urlToLocalPath(urlOrPath) {
+  if (urlOrPath && urlOrPath.match(/^https?:\/\//)) {
+    return urlOrPath.replace(
+      /^https?:\/\/[^\/]+\/api\/uploads\//,
+      path.join(__dirname, '../../..', 'uploads') + '/'
+    );
+  }
+  return urlOrPath;
+}
+
+/**
  * Get video duration in seconds
  * @param {string} filePath - Path to video file or URL
  * @returns {Promise<number>} Duration in seconds
  */
 async function getVideoDuration(filePath) {
+  const localPath = urlToLocalPath(filePath);
   return new Promise((resolve, reject) => {
-    ffmpeg.ffprobe(filePath, (err, metadata) => {
+    ffmpeg.ffprobe(localPath, (err, metadata) => {
       if (err) {
         reject(err);
         return;
@@ -134,12 +148,18 @@ async function splitVideo(inputPath, partDuration, partCount) {
 async function processVideo(videoSource) {
   let localPath = videoSource;
   let isDownloaded = false;
-  
-  // Download if URL
+
+  // Convert URL to local path if it's our own uploads URL (Docker can't resolve external hostname)
   if (videoSource.startsWith('http://') || videoSource.startsWith('https://')) {
-    console.log(`[VideoSplit] Downloading video from URL...`);
-    localPath = await downloadVideo(videoSource);
-    isDownloaded = true;
+    const converted = urlToLocalPath(videoSource);
+    if (converted !== videoSource && fs.existsSync(converted)) {
+      localPath = converted;
+      console.log(`[VideoSplit] Using local path: ${localPath}`);
+    } else {
+      console.log(`[VideoSplit] Downloading video from URL...`);
+      localPath = await downloadVideo(videoSource);
+      isDownloaded = true;
+    }
   }
   
   try {

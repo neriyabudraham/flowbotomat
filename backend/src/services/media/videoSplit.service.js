@@ -21,13 +21,27 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 }
 
 /**
+ * Convert external URL to local file path (Docker can't resolve external hostnames)
+ */
+function urlToLocalPath(urlOrPath) {
+  if (urlOrPath && urlOrPath.match(/^https?:\/\//)) {
+    return urlOrPath.replace(
+      /^https?:\/\/[^\/]+\/api\/uploads\//,
+      path.join(__dirname, '../../..', 'uploads') + '/'
+    );
+  }
+  return urlOrPath;
+}
+
+/**
  * Get video duration in seconds
  * @param {string} inputPath - Path to video file or URL
  * @returns {Promise<number>} - Duration in seconds
  */
 async function getVideoDuration(inputPath) {
+  const localPath = urlToLocalPath(inputPath);
   return new Promise((resolve, reject) => {
-    ffmpeg.ffprobe(inputPath, (err, metadata) => {
+    ffmpeg.ffprobe(localPath, (err, metadata) => {
       if (err) {
         reject(err);
         return;
