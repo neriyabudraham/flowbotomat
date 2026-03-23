@@ -147,6 +147,8 @@ async function syncLiveCounts(req, res) {
         liveSessionsBySource[src.id] = sessions;
         for (const s of sessions) {
           sessionNameToSource[s.name] = { sourceId: src.id, baseUrl: src.base_url, apiKey };
+          // Populate in-memory session cache for instant lookups
+          wahaSession.setCachedSession(s.name, src.base_url, apiKey);
         }
       } catch { /* server unreachable */ }
     }));

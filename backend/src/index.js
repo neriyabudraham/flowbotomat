@@ -492,6 +492,32 @@ server.listen(PORT, () => {
       console.error('[Startup] Error resuming stuck jobs:', err.message);
     }
   }, 5000);
+
+  // Warm up session→server cache from all WAHA sources
+  setTimeout(async () => {
+    try {
+      const { query: dbQ } = require('./config/database');
+      const { decrypt: dec } = require('./services/crypto/encrypt.service');
+      const wahaSession = require('./services/waha/session.service');
+
+      const srcRes = await dbQ(`SELECT base_url, api_key_enc FROM waha_sources WHERE is_active = true`);
+      let total = 0;
+      await Promise.all(srcRes.rows.map(async (src) => {
+        let apiKey;
+        try { apiKey = dec(src.api_key_enc); } catch { return; }
+        try {
+          const sessions = await wahaSession.getAllSessions(src.base_url, apiKey);
+          for (const s of sessions) {
+            wahaSession.setCachedSession(s.name, src.base_url, apiKey);
+            total++;
+          }
+        } catch { /* server unreachable */ }
+      }));
+      if (total > 0) console.log(`[Startup] Cached ${total} WAHA sessions from active sources`);
+    } catch (err) {
+      console.error('[Startup] Session cache warm-up error:', err.message);
+    }
+  }, 6000);
 });
 
 // Graceful shutdown: stop accepting new connections, drain in-flight requests, close DB

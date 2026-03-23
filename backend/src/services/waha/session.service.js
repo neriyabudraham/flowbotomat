@@ -1,20 +1,63 @@
 const { createClient } = require('./client.service');
 const { getWahaCredentialsForConnection } = require('../settings/system.service');
 
+// ── Session-to-server cache ──────────────────────────────────────────
+// In-memory map: sessionName → { baseUrl, apiKey, ts }
+// Populated on first miss or after heal, used for instant lookups.
+const _sessionCache = new Map();
+const SESSION_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+function getCachedSession(sessionName) {
+  const entry = _sessionCache.get(sessionName);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > SESSION_CACHE_TTL) {
+    _sessionCache.delete(sessionName);
+    return null;
+  }
+  return entry;
+}
+
+function setCachedSession(sessionName, baseUrl, apiKey) {
+  _sessionCache.set(sessionName, { baseUrl, apiKey, ts: Date.now() });
+}
+
+function invalidateCachedSession(sessionName) {
+  _sessionCache.delete(sessionName);
+}
+
 // Track connections that are currently being healed to avoid infinite loops
 const _healingInProgress = new Set();
 
 async function getClientForConnection(connection) {
+  const sessionName = connection.session_name;
+
+  // 1. Check in-memory cache first (instant)
+  if (sessionName && connection.connection_type !== 'external') {
+    const cached = getCachedSession(sessionName);
+    if (cached) {
+      return createClient(cached.baseUrl, cached.apiKey);
+    }
+  }
+
+  // 2. Resolve via DB / waha_sources
   const creds = await getWahaCredentialsForConnection(connection);
   const client = createClient(creds.baseUrl, creds.apiKey);
 
-  // Add auto-heal interceptor: on 422 "session does not exist", scan all WAHA sources
+  // Cache the resolved credentials
+  if (sessionName && connection.connection_type !== 'external') {
+    setCachedSession(sessionName, creds.baseUrl, creds.apiKey);
+  }
+
+  // 3. Auto-heal interceptor: on 422 "session does not exist"
   if (connection.user_id && connection.connection_type !== 'external') {
     client.interceptors.response.use(null, async (error) => {
       const is422 = error.response?.status === 422;
       const isSessionMissing = is422 && JSON.stringify(error.response?.data || '').includes('does not exist');
 
       if (!isSessionMissing) throw error;
+
+      // Invalidate stale cache entry
+      if (sessionName) invalidateCachedSession(sessionName);
 
       const healKey = connection.user_id;
       if (_healingInProgress.has(healKey)) throw error;
@@ -26,13 +69,16 @@ async function getClientForConnection(connection) {
         if (!healed) throw error;
 
         console.log(`[WAHA] Auto-healed session for user ${connection.user_id}: ${healed.sessionName} → ${healed.baseUrl}`);
+
+        // Update cache with healed info
+        setCachedSession(healed.sessionName, healed.baseUrl, healed.apiKey);
+
         // Update the connection object in-place so callers see the fix
         connection.session_name = healed.sessionName;
 
         // Retry the original request with the healed server
         const healedClient = createClient(healed.baseUrl, healed.apiKey);
         const cfg = error.config;
-        // Replace old session name in url/data
         if (cfg.url) cfg.url = cfg.url.replace(/(\/api\/)[^/]+/, `$1${healed.sessionName}`);
         if (cfg.data && typeof cfg.data === 'string') {
           cfg.data = cfg.data.replace(/"session":"[^"]*"/, `"session":"${healed.sessionName}"`);
@@ -1281,6 +1327,8 @@ async function makeRequest(baseUrl, apiKey, method, endpoint, data = null) {
 
 module.exports = {
   getClientForConnection,
+  setCachedSession,
+  invalidateCachedSession,
   makeRequest,
   createSession,
   startSession,
