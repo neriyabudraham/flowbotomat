@@ -8,6 +8,16 @@ const crypto = require('crypto');
 
 // In-memory state for pending edit operations: "userId:normalizedPhone" -> jobId
 const pendingEdits = new Map();
+// Safety: cap the map size to prevent unbounded growth (each entry has its own setTimeout cleanup)
+const PENDING_EDITS_MAX = 500;
+function safePendingEditsSet(key, value) {
+  if (pendingEdits.size >= PENDING_EDITS_MAX) {
+    // Remove oldest entry (first inserted)
+    const firstKey = pendingEdits.keys().next().value;
+    pendingEdits.delete(firstKey);
+  }
+  pendingEdits.set(key, value);
+}
 
 // Deduplication cache for list responses — WAHA sometimes sends the same event 2-3x
 // key: selectedRowId, value: timestamp of first processing
@@ -1122,7 +1132,7 @@ async function handleEditPrompt(userId, senderPhone, jobId) {
 
   // Store pending edit state
   const pendingKey = `${userId}:${normalizePhoneNumber(senderPhone)}`;
-  pendingEdits.set(pendingKey, jobId);
+  safePendingEditsSet(pendingKey, jobId);
 
   // Clear after 10 minutes to avoid stale state
   setTimeout(() => {

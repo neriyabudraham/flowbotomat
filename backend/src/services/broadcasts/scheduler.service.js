@@ -8,11 +8,14 @@ const { calculateNextRun, getNowInIsraelFromDB, storeNextRunAt } = require('../.
  */
 
 let schedulerInterval = null;
+let _schedulerRunning = false;
 
 /**
  * Check and run due campaigns + resume waiting executions
  */
 async function checkAndRunCampaigns() {
+  if (_schedulerRunning) return;
+  _schedulerRunning = true;
   try {
     // 1. Find campaigns that are due to run (check next_run_at)
     // Only start new execution if there's no running/waiting execution for same campaign
@@ -75,6 +78,8 @@ async function checkAndRunCampaigns() {
     }
   } catch (error) {
     console.error('[Scheduler] Check error:', error);
+  } finally {
+    _schedulerRunning = false;
   }
 }
 

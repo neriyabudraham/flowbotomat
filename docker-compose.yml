@@ -58,6 +58,7 @@ services:
       CLOUD_API_VERIFY_TOKEN: ${CLOUD_API_VERIFY_TOKEN}
       CLOUD_API_APP_SECRET: ${CLOUD_API_APP_SECRET}
       ENABLE_QUEUE_PROCESSOR: "false"
+      DB_POOL_MAX: "50"
     ports:
       - "3749:4000"
     volumes:
@@ -76,6 +77,8 @@ services:
       retries: 3
       start_period: 40s
     stop_grace_period: 30s
+    mem_limit: 3g
+    memswap_limit: 3g
 
   queue-processor:
     build:
@@ -97,6 +100,7 @@ services:
       WAHA_API_KEY: ${WAHA_API_KEY}
       CLOUD_API_PHONE_ID: ${CLOUD_API_PHONE_ID}
       CLOUD_API_ACCESS_TOKEN: ${CLOUD_API_ACCESS_TOKEN}
+      DB_POOL_MAX: "30"
     volumes:
       - ./backend:/app
       - /app/node_modules
@@ -108,6 +112,8 @@ services:
         condition: service_healthy
     networks:
       - flowbotomat_network
+    mem_limit: 2g
+    memswap_limit: 2g
     command: node src/workers/queueProcessor.js
 
   frontend:
