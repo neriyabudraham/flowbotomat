@@ -1,4 +1,10 @@
 const { createClient } = require('./client.service');
+const { getWahaCredentialsForConnection } = require('../settings/system.service');
+
+async function getClientForConnection(connection) {
+  const creds = await getWahaCredentialsForConnection(connection);
+  return createClient(creds.baseUrl, creds.apiKey);
+}
 
 /**
  * Create a new WAHA session
@@ -292,7 +298,7 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
  * @param {Array} mentions - Optional array of phone numbers to mention (format: ["972...@c.us"])
  */
 async function sendMessage(connection, phone, text, mentions = null) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const payload = {
@@ -321,7 +327,7 @@ async function sendMessage(connection, phone, text, mentions = null) {
  * @param {Array} mentions - Optional array of phone numbers to mention
  */
 async function sendImage(connection, phone, imageUrl, caption = '', mentions = null) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   console.log(`[WAHA] Sending image to ${chatId}, url: ${imageUrl?.substring(0, 80)}, caption: ${caption?.substring(0, 30)}`);
@@ -383,7 +389,7 @@ async function sendImage(connection, phone, imageUrl, caption = '', mentions = n
  * @param {Array} mentions - Optional array of phone numbers to mention
  */
 async function sendFile(connection, phone, fileUrl, filename = 'file', mimetype = null, caption = '', mentions = null) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   console.log(`[WAHA] Sending file to ${chatId}, url: ${fileUrl?.substring(0, 80)}, filename: ${filename}`);
@@ -449,7 +455,7 @@ async function sendFile(connection, phone, fileUrl, filename = 'file', mimetype 
  * @param {Array} mentions - Optional array of phone numbers to mention
  */
 async function sendVideo(connection, phone, videoUrl, caption = '', mentions = null) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   console.log(`[WAHA] Sending video to ${chatId}, url: ${videoUrl?.substring(0, 80)}`);
@@ -502,7 +508,7 @@ async function sendVideo(connection, phone, videoUrl, caption = '', mentions = n
  * Send list message
  */
 async function sendList(connection, phone, listData) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const rows = (listData.buttons || []).map((btn, i) => {
@@ -541,7 +547,7 @@ async function sendList(connection, phone, listData) {
  * Send voice message
  */
 async function sendVoice(connection, phone, audioUrl, convert = true) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   // Determine mimetype - prefer opus for voice messages
@@ -573,7 +579,7 @@ async function sendVoice(connection, phone, audioUrl, convert = true) {
  * Send file with custom mimetype
  */
 async function sendFileAdvanced(connection, phone, fileData, caption = '') {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const payload = {
@@ -605,7 +611,7 @@ async function sendFileAdvanced(connection, phone, fileData, caption = '') {
  * Mark messages as seen
  */
 async function sendSeen(connection, phone, messageIds = []) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const response = await client.post(`/api/sendSeen`, {
@@ -622,7 +628,7 @@ async function sendSeen(connection, phone, messageIds = []) {
  * Start typing indicator
  */
 async function startTyping(connection, phone) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const response = await client.post(`/api/startTyping`, {
@@ -637,7 +643,7 @@ async function startTyping(connection, phone) {
  * Stop typing indicator
  */
 async function stopTyping(connection, phone) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const response = await client.post(`/api/stopTyping`, {
@@ -652,7 +658,7 @@ async function stopTyping(connection, phone) {
  * Send reaction to message
  */
 async function sendReaction(connection, messageId, reaction) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   
   // WAHA expects PUT to /api/reaction with session in body
   const response = await client.put(`/api/reaction`, {
@@ -669,7 +675,7 @@ async function sendReaction(connection, messageId, reaction) {
  * Send location
  */
 async function sendLocation(connection, phone, latitude, longitude, title = '') {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const response = await client.post(`/api/sendLocation`, {
@@ -750,7 +756,7 @@ function buildVcardString(contactName, contactPhone, contactOrg = '') {
  * Send contact vCard - supports single contact or array of contacts
  */
 async function sendContactVcard(connection, phone, contactName, contactPhone, contactOrg = '', additionalContacts = []) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   // Build contacts array using raw vCard strings
@@ -787,7 +793,7 @@ async function sendContactVcard(connection, phone, contactName, contactPhone, co
  * Send raw vCard string directly
  */
 async function sendRawVcard(connection, phone, vcardString) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   console.log(`[WAHA] Sending raw vCard to ${chatId}`);
@@ -806,7 +812,7 @@ async function sendRawVcard(connection, phone, vcardString) {
  * Send link with custom preview
  */
 async function sendLinkPreview(connection, phone, text, preview) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
   
   const response = await client.post(`/api/send/link-custom-preview`, {
@@ -828,7 +834,7 @@ async function sendLinkPreview(connection, phone, text, preview) {
  * @param {String} messageId - The message ID to forward
  */
 async function forwardMessage(connection, chatId, messageId) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const targetChatId = chatId.includes('@') ? chatId : `${chatId}@c.us`;
   
   console.log(`[WAHA] Forwarding message ${messageId} to ${targetChatId}`);
@@ -849,7 +855,7 @@ async function forwardMessage(connection, chatId, messageId) {
  * Add participants to group
  */
 async function addGroupParticipants(connection, groupId, participantIds) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   
   const participants = participantIds.map(id => ({ id: id.includes('@') ? id : `${id}@c.us` }));
   
@@ -865,7 +871,7 @@ async function addGroupParticipants(connection, groupId, participantIds) {
  * Remove participants from group
  */
 async function removeGroupParticipants(connection, groupId, participantIds) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   
   const participants = participantIds.map(id => ({ id: id.includes('@') ? id : `${id}@c.us` }));
   
@@ -881,7 +887,7 @@ async function removeGroupParticipants(connection, groupId, participantIds) {
  * Send poll to a group
  */
 async function sendPoll(connection, chatId, pollName, options, multipleAnswers = false) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const normalizedChatId = chatId.includes('@') ? chatId : `${chatId}@g.us`;
 
   const payload = {
@@ -903,7 +909,7 @@ async function sendPoll(connection, chatId, pollName, options, multipleAnswers =
  * Get group participants
  */
 async function getGroupParticipants(connection, groupId) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
 
   try {
     const response = await client.get(`/api/${connection.session_name}/groups/${groupId}/participants`);
@@ -923,7 +929,7 @@ async function getGroupParticipants(connection, groupId) {
  * Set group admin-only messages
  */
 async function setGroupAdminOnly(connection, groupId, adminsOnly = true) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   
   const response = await client.put(`/api/${connection.session_name}/groups/${groupId}/settings/security/messages-admin-only`, {
     adminsOnly: adminsOnly,
@@ -937,7 +943,7 @@ async function setGroupAdminOnly(connection, groupId, adminsOnly = true) {
  * Update group subject (name)
  */
 async function updateGroupSubject(connection, groupId, subject) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   
   const response = await client.put(`/api/${connection.session_name}/groups/${groupId}/subject`, {
     subject: subject,
@@ -951,7 +957,7 @@ async function updateGroupSubject(connection, groupId, subject) {
  * Update group description
  */
 async function updateGroupDescription(connection, groupId, description) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   
   const response = await client.put(`/api/${connection.session_name}/groups/${groupId}/description`, {
     description: description,
@@ -989,7 +995,7 @@ async function getGroups(sessionName) {
     };
   }
   
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   
   try {
     // Try the groups endpoint
@@ -1014,7 +1020,7 @@ async function getGroups(sessionName) {
  * Get all channels (newsletters) for a session
  */
 async function getChannels(connection) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const sessionName = connection.session_name || 'default';
   
   try {
@@ -1061,7 +1067,7 @@ async function deleteMessage(connectionOrUserId, chatId, messageId) {
     };
   }
   
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
 
   // DELETE /api/{session}/chats/{chatId}/messages/{messageId}
   const encodedChatId = encodeURIComponent(chatId);
@@ -1109,7 +1115,7 @@ async function resolveConnection(connectionOrUserId) {
  */
 async function pinMessage(connectionOrUserId, chatId, messageId, duration = 86400) {
   const connection = await resolveConnection(connectionOrUserId);
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const encodedChatId = encodeURIComponent(chatId);
   const encodedMessageId = encodeURIComponent(messageId);
 
@@ -1136,7 +1142,7 @@ async function pinMessage(connectionOrUserId, chatId, messageId, duration = 8640
  */
 async function editMessage(connectionOrUserId, chatId, messageId, newText) {
   const connection = await resolveConnection(connectionOrUserId);
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const encodedChatId = encodeURIComponent(chatId);
   const encodedMessageId = encodeURIComponent(messageId);
 
@@ -1155,7 +1161,7 @@ async function editMessage(connectionOrUserId, chatId, messageId, newText) {
  * Get all labels
  */
 async function getLabels(connection) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   
   const response = await client.get(`/api/${connection.session_name}/labels`);
   return response.data;
@@ -1165,7 +1171,7 @@ async function getLabels(connection) {
  * Set labels for chat
  */
 async function setChatLabels(connection, chatId, labelIds) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   
   const labels = labelIds.map(id => ({ id: String(id) }));
   
@@ -1181,7 +1187,7 @@ async function setChatLabels(connection, chatId, labelIds) {
  * Get chats by label
  */
 async function getChatsByLabel(connection, labelId) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   
   const response = await client.get(`/api/${connection.session_name}/labels/${labelId}/chats`);
   return response.data;
@@ -1296,7 +1302,7 @@ module.exports = {
  * @returns {Object} Group info with id, subject, description, etc.
  */
 async function getGroupInfo(connection, groupId) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const sessionName = connection.session_name || 'default';
   
   try {
@@ -1332,7 +1338,7 @@ async function getGroupInfo(connection, groupId) {
     
     // Fallback 2: try to find in the groups list
     try {
-      const groups = await getGroups({ base_url: connection.base_url, api_key: connection.api_key, session_name: sessionName });
+      const groups = await getGroups(connection);
       const group = groups.find(g => g.id === groupId);
       if (group) {
         console.log(`[WAHA] Found group in list: ${group.subject || group.name}`);
@@ -1350,7 +1356,7 @@ async function getGroupInfo(connection, groupId) {
  * Get all WhatsApp contacts from device
  */
 async function getWhatsAppContacts(connection) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const sessionName = connection.session_name || 'default';
   
   try {
@@ -1367,7 +1373,7 @@ async function getWhatsAppContacts(connection) {
  * Get LID to phone number mappings
  */
 async function getLidMappings(connection, limit = 999999, offset = 0) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const sessionName = connection.session_name || 'default';
   
   try {
@@ -1388,7 +1394,7 @@ async function getLidMappings(connection, limit = 999999, offset = 0) {
  * @returns {string|null} Phone number or null if not found
  */
 async function resolveLid(connection, lid) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const sessionName = connection.session_name || 'default';
   
   // Ensure LID has @lid suffix
@@ -1422,7 +1428,7 @@ async function resolveLid(connection, lid) {
  * Returns array with JID, Name, Participants etc.
  */
 async function getSessionGroups(connection) {
-  const client = createClient(connection.base_url, connection.api_key);
+  const client = await getClientForConnection(connection);
   const sessionName = connection.session_name || 'default';
   
   try {
