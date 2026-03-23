@@ -729,6 +729,8 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   const content = queueItem.content;
   const BATCH_SIZE = await getSettingFloat('statusbot_contacts_batch_size', 500);
   const CALL_TIMEOUT_MS = await getSettingFloat('statusbot_contacts_timeout_ms', 120000);  // 2 minutes per batch
+  const VIEWER_CALL_TIMEOUT_MS = await getSettingFloat('statusbot_viewer_timeout_ms', 180000);  // 3 minutes per viewer batch (longer — viewers are priority)
+  const VIEWER_TIMEOUT_RETRIES = await getSettingFloat('statusbot_viewer_timeout_retries', 2);  // retry viewer batches up to N times on timeout
   const PAUSE_MS = await getSettingFloat('statusbot_contacts_pause_ms', 60000);            // 1 minute pause after timeout wave
   const MAX_CONSECUTIVE_TIMEOUTS = await getSettingFloat('statusbot_contacts_max_consecutive_timeouts', 4);
   const PARALLEL_BATCHES = await getSettingFloat('statusbot_contacts_parallel_batches', 3);
@@ -938,33 +940,41 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
 
     console.log(`${LOG_PREFIX} 🌊 Wave ${Math.floor(waveStart / PARALLEL_BATCHES) + 1} — sending batches ${wave[0].batchNum}-${wave[wave.length - 1].batchNum} in parallel${wave[0].isViewerBatch ? ' (viewers)' : ''}`);
 
-    const waveResults = await Promise.allSettled(wave.map(async ({ contacts: batch, batchNum }) => {
+    const waveResults = await Promise.allSettled(wave.map(async ({ contacts: batch, batchNum, isViewerBatch }) => {
       const endpoint = `/api/${sessionName}/status/${queueItem.status_type}`;
       const body = buildStatusBody(messageId, batch, queueItem.status_type, content, preConvertedFile);
+      const batchTimeoutMs = isViewerBatch ? VIEWER_CALL_TIMEOUT_MS : CALL_TIMEOUT_MS;
+      const maxRetries = isViewerBatch ? VIEWER_TIMEOUT_RETRIES : 0;
 
-      console.log(`${LOG_PREFIX} 📤 Batch ${batchNum}/${totalBatches} — sending to ${batch.length} contacts (contacts: ${batch.slice(0,3).join(', ')}${batch.length > 3 ? ` ...+${batch.length - 3}` : ''}) timeout=${CALL_TIMEOUT_MS}ms`);
+      console.log(`${LOG_PREFIX} 📤 Batch ${batchNum}/${totalBatches} — sending to ${batch.length} contacts (contacts: ${batch.slice(0,3).join(', ')}${batch.length > 3 ? ` ...+${batch.length - 3}` : ''}) timeout=${batchTimeoutMs}ms${isViewerBatch ? ` retries=${maxRetries}` : ''}`);
 
-      const batchStart = Date.now();
-      try {
-        const sendPromise = wahaSession.makeRequest(baseUrl, apiKey, 'POST', endpoint, body);
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('BATCH_TIMEOUT')), CALL_TIMEOUT_MS)
-        );
-        const wahaResponse = await Promise.race([sendPromise, timeoutPromise]);
-        const batchDurationMs = Date.now() - batchStart;
-        console.log(`${LOG_PREFIX} ✅ Batch ${batchNum}/${totalBatches} OK in ${batchDurationMs}ms | WAHA resp id: ${wahaResponse?.id || 'n/a'}`);
-        await logContactSends(historyId, queueItem.id, batch, batchNum, true, null);
-        return { batchNum, sent: batch.length, timedOut: false, error: false };
-      } catch (err) {
-        const batchDurationMs = Date.now() - batchStart;
-        if (err.message === 'BATCH_TIMEOUT') {
-          console.warn(`${LOG_PREFIX} ⏱️ Batch ${batchNum}/${totalBatches} TIMEOUT after ${batchDurationMs}ms — assuming delivered`);
-          await logContactSends(historyId, queueItem.id, batch, batchNum, true, 'TIMEOUT — assumed delivered');
-          return { batchNum, sent: batch.length, timedOut: true, error: false };
-        } else {
-          console.error(`${LOG_PREFIX} ❌ Batch ${batchNum}/${totalBatches} ERROR after ${batchDurationMs}ms: ${err.message}`);
-          await logContactSends(historyId, queueItem.id, batch, batchNum, false, err.message);
-          return { batchNum, sent: 0, timedOut: false, error: true };
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        const batchStart = Date.now();
+        try {
+          const sendPromise = wahaSession.makeRequest(baseUrl, apiKey, 'POST', endpoint, body);
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('BATCH_TIMEOUT')), batchTimeoutMs)
+          );
+          const wahaResponse = await Promise.race([sendPromise, timeoutPromise]);
+          const batchDurationMs = Date.now() - batchStart;
+          console.log(`${LOG_PREFIX} ✅ Batch ${batchNum}/${totalBatches} OK in ${batchDurationMs}ms${attempt > 0 ? ` (attempt ${attempt + 1})` : ''} | WAHA resp id: ${wahaResponse?.id || 'n/a'}`);
+          await logContactSends(historyId, queueItem.id, batch, batchNum, true, null);
+          return { batchNum, sent: batch.length, timedOut: false, error: false };
+        } catch (err) {
+          const batchDurationMs = Date.now() - batchStart;
+          if (err.message === 'BATCH_TIMEOUT') {
+            if (isViewerBatch && attempt < maxRetries) {
+              console.warn(`${LOG_PREFIX} ⏱️ Batch ${batchNum}/${totalBatches} TIMEOUT after ${batchDurationMs}ms (attempt ${attempt + 1}/${maxRetries + 1}) — retrying viewer batch...`);
+              continue;
+            }
+            console.warn(`${LOG_PREFIX} ⏱️ Batch ${batchNum}/${totalBatches} TIMEOUT after ${batchDurationMs}ms${isViewerBatch ? ` (all ${maxRetries + 1} attempts exhausted)` : ''} — assuming delivered`);
+            await logContactSends(historyId, queueItem.id, batch, batchNum, true, 'TIMEOUT — assumed delivered');
+            return { batchNum, sent: batch.length, timedOut: true, error: false };
+          } else {
+            console.error(`${LOG_PREFIX} ❌ Batch ${batchNum}/${totalBatches} ERROR after ${batchDurationMs}ms: ${err.message}`);
+            await logContactSends(historyId, queueItem.id, batch, batchNum, false, err.message);
+            return { batchNum, sent: 0, timedOut: false, error: true };
+          }
         }
       }
     }));

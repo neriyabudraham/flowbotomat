@@ -3905,6 +3905,8 @@ async function adminGetQueueSettings(req, res) {
       'statusbot_contacts_viewer_batch_cap',
       'statusbot_contacts_wave_delay_ms',
       'statusbot_contacts_retry_pause_minutes',
+      'statusbot_viewer_timeout_ms',
+      'statusbot_viewer_timeout_retries',
     ];
     const result = await db.query(`SELECT key, value FROM system_settings WHERE key = ANY($1)`, [keys]);
     const settings = {
@@ -3923,6 +3925,8 @@ async function adminGetQueueSettings(req, res) {
       contactsViewerBatchCap: 5000,
       contactsWaveDelayMs: 30000,
       contactsRetryPauseMinutes: 3,
+      viewerTimeoutMs: 180000,
+      viewerTimeoutRetries: 2,
     };
     for (const row of result.rows) {
       const val = parseFloat(JSON.parse(row.value));
@@ -3942,6 +3946,8 @@ async function adminGetQueueSettings(req, res) {
       if (row.key === 'statusbot_contacts_viewer_batch_cap') settings.contactsViewerBatchCap = val;
       if (row.key === 'statusbot_contacts_wave_delay_ms') settings.contactsWaveDelayMs = val;
       if (row.key === 'statusbot_contacts_retry_pause_minutes') settings.contactsRetryPauseMinutes = val;
+      if (row.key === 'statusbot_viewer_timeout_ms') settings.viewerTimeoutMs = val;
+      if (row.key === 'statusbot_viewer_timeout_retries') settings.viewerTimeoutRetries = val;
     }
     res.json(settings);
   } catch (error) {
@@ -4076,6 +4082,8 @@ async function adminUpdateQueueSettings(req, res) {
       contactsViewerBatchCap: 'statusbot_contacts_viewer_batch_cap',
       contactsWaveDelayMs: 'statusbot_contacts_wave_delay_ms',
       contactsRetryPauseMinutes: 'statusbot_contacts_retry_pause_minutes',
+      viewerTimeoutMs: 'statusbot_viewer_timeout_ms',
+      viewerTimeoutRetries: 'statusbot_viewer_timeout_retries',
     };
     for (const [field, key] of Object.entries(settingsMap)) {
       if (req.body[field] !== undefined) {
