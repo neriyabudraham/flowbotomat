@@ -157,9 +157,9 @@ async function createForwardJob(req, res) {
     
     for (const target of targets.rows) {
       await db.query(`
-        INSERT INTO forward_job_messages (job_id, target_id, status)
-        VALUES ($1, $2, 'pending')
-      `, [job.id, target.id]);
+        INSERT INTO forward_job_messages (job_id, target_id, group_id, group_name, status)
+        VALUES ($1, $2, $3, $4, 'pending')
+      `, [job.id, target.id, target.group_id, target.group_name]);
     }
     
     console.log(`[GroupForwards] Created job ${job.id} for forward ${forwardId} with ${forward.target_count} targets`);
@@ -333,9 +333,9 @@ async function getJobStatus(req, res) {
     
     // Get message details if needed
     const messages = await db.query(`
-      SELECT fjm.*, gft.group_name
+      SELECT fjm.*, COALESCE(gft.group_name, fjm.group_name) as group_name
       FROM forward_job_messages fjm
-      JOIN group_forward_targets gft ON fjm.target_id = gft.id
+      LEFT JOIN group_forward_targets gft ON fjm.target_id = gft.id
       WHERE fjm.job_id = $1
       ORDER BY fjm.created_at ASC
     `, [jobId]);
@@ -373,11 +373,12 @@ async function getActiveJobs(req, res) {
       if (job.status === 'sending' && job.current_target_index > 0) {
         // Get the current target being sent to
         const currentTargetResult = await db.query(`
-          SELECT gft.group_name, gft.group_id
+          SELECT COALESCE(gft.group_name, fjm.group_name) as group_name,
+                 COALESCE(gft.group_id, fjm.group_id) as group_id
           FROM forward_job_messages fjm
-          JOIN group_forward_targets gft ON fjm.target_id = gft.id
+          LEFT JOIN group_forward_targets gft ON fjm.target_id = gft.id
           WHERE fjm.job_id = $1 AND fjm.status = 'pending'
-          ORDER BY gft.sort_order ASC
+          ORDER BY gft.sort_order ASC NULLS LAST
           LIMIT 1
         `, [job.id]);
         
@@ -469,13 +470,13 @@ async function getAllJobHistory(req, res) {
         (SELECT json_agg(json_build_object(
           'id', fjm.id,
           'target_id', fjm.target_id,
-          'group_id', gft.group_id,
-          'group_name', COALESCE(gft.group_name, REPLACE(gft.group_id, '@g.us', '')),
+          'group_id', COALESCE(gft.group_id, fjm.group_id),
+          'group_name', COALESCE(gft.group_name, fjm.group_name, 'קבוצה לא ידועה'),
           'status', fjm.status,
           'sent_at', fjm.sent_at,
           'deleted_at', fjm.deleted_at,
           'error_message', fjm.error_message
-        ) ORDER BY gft.sort_order)
+        ) ORDER BY gft.sort_order NULLS LAST)
         FROM forward_job_messages fjm
         LEFT JOIN group_forward_targets gft ON fjm.target_id = gft.id
         WHERE fjm.job_id = fj.id
@@ -590,14 +591,19 @@ async function startForwardJob(jobId) {
     `, [jobId]);
     
     // Get all pending messages with custom suffix per target
+    // Use LEFT JOIN + COALESCE because target_id may be NULL (targets were re-created with new IDs)
     const messagesResult = await db.query(`
-      SELECT fjm.*, gft.group_id, gft.group_name, gft.custom_suffix, gft.no_suffix
+      SELECT fjm.*,
+        COALESCE(gft.group_id, fjm.group_id) as group_id,
+        COALESCE(gft.group_name, fjm.group_name) as group_name,
+        gft.custom_suffix, gft.no_suffix
       FROM forward_job_messages fjm
-      JOIN group_forward_targets gft ON fjm.target_id = gft.id
+      LEFT JOIN group_forward_targets gft ON fjm.target_id = gft.id
       WHERE fjm.job_id = $1 AND fjm.status = 'pending'
-      ORDER BY gft.sort_order ASC
+        AND (gft.group_id IS NOT NULL OR fjm.group_id IS NOT NULL)
+      ORDER BY gft.sort_order ASC NULLS LAST
     `, [jobId]);
-    
+
     const messages = messagesResult.rows;
     const totalTargets = job.total_targets || messages.length;
     
@@ -1074,11 +1080,12 @@ async function deleteJobMessages(jobId, senderPhone = null) {
     try {
       // Get messages that haven't been deleted yet
       const messagesResult = await db.query(`
-        SELECT fjm.*, gft.group_id, gft.group_name
+        SELECT fjm.*, COALESCE(gft.group_id, fjm.group_id) as group_id,
+               COALESCE(gft.group_name, fjm.group_name) as group_name
         FROM forward_job_messages fjm
-        JOIN group_forward_targets gft ON fjm.target_id = gft.id
-        WHERE fjm.job_id = $1 
-          AND fjm.status = 'sent' 
+        LEFT JOIN group_forward_targets gft ON fjm.target_id = gft.id
+        WHERE fjm.job_id = $1
+          AND fjm.status = 'sent'
           AND fjm.whatsapp_message_id IS NOT NULL
       `, [jobId]);
       
@@ -1191,9 +1198,10 @@ async function pinJobMessages(jobId, senderPhone = null, duration = 86400) {
     const userId = job.user_id;
 
     const messagesResult = await db.query(`
-      SELECT fjm.*, gft.group_id, gft.group_name
+      SELECT fjm.*, COALESCE(gft.group_id, fjm.group_id) as group_id,
+             COALESCE(gft.group_name, fjm.group_name) as group_name
       FROM forward_job_messages fjm
-      JOIN group_forward_targets gft ON fjm.target_id = gft.id
+      LEFT JOIN group_forward_targets gft ON fjm.target_id = gft.id
       WHERE fjm.job_id = $1
         AND fjm.status IN ('sent', 'pinned')
         AND fjm.whatsapp_message_id IS NOT NULL
@@ -1275,9 +1283,11 @@ async function editJobMessages(jobId, newText, senderPhone = null) {
     const userId = job.user_id;
 
     const messagesResult = await db.query(`
-      SELECT fjm.*, gft.group_id, gft.group_name, gft.custom_suffix, gft.no_suffix
+      SELECT fjm.*, COALESCE(gft.group_id, fjm.group_id) as group_id,
+             COALESCE(gft.group_name, fjm.group_name) as group_name,
+             gft.custom_suffix, gft.no_suffix
       FROM forward_job_messages fjm
-      JOIN group_forward_targets gft ON fjm.target_id = gft.id
+      LEFT JOIN group_forward_targets gft ON fjm.target_id = gft.id
       WHERE fjm.job_id = $1
         AND fjm.status = 'sent'
         AND fjm.whatsapp_message_id IS NOT NULL

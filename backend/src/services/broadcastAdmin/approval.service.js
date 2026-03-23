@@ -434,10 +434,10 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
       const recentForwardJob = await db.query(`
         SELECT fjm.job_id, fj.forward_id
         FROM forward_job_messages fjm
-        JOIN group_forward_targets gft ON gft.id = fjm.target_id
+        LEFT JOIN group_forward_targets gft ON gft.id = fjm.target_id
         JOIN forward_jobs fj ON fj.id = fjm.job_id
         WHERE fj.user_id = $1
-          AND gft.group_id = $2
+          AND COALESCE(gft.group_id, fjm.group_id) = $2
           AND fjm.status = 'sent'
           AND fjm.whatsapp_message_id IS NOT NULL
         ORDER BY fjm.sent_at DESC
@@ -523,9 +523,11 @@ async function cascadeDeleteBroadcastMessage(userId, deletedMessageId, sourceGro
 
     if (jobType === 'forward') {
       const msgs = await db.query(`
-        SELECT fjm.whatsapp_message_id, gft.group_id, gft.group_name
+        SELECT fjm.whatsapp_message_id,
+               COALESCE(gft.group_id, fjm.group_id) as group_id,
+               COALESCE(gft.group_name, fjm.group_name) as group_name
         FROM forward_job_messages fjm
-        JOIN group_forward_targets gft ON gft.id = fjm.target_id
+        LEFT JOIN group_forward_targets gft ON gft.id = fjm.target_id
         WHERE fjm.job_id = $1
           AND fjm.status = 'sent'
           AND fjm.whatsapp_message_id IS NOT NULL

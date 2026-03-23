@@ -418,9 +418,9 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
     
     for (const target of targets.rows) {
       await db.query(`
-        INSERT INTO forward_job_messages (job_id, target_id, status)
-        VALUES ($1, $2, 'pending')
-      `, [job.id, target.id]);
+        INSERT INTO forward_job_messages (job_id, target_id, group_id, group_name, status)
+        VALUES ($1, $2, $3, $4, 'pending')
+      `, [job.id, target.id, target.group_id, target.group_name]);
     }
     
     // Job created

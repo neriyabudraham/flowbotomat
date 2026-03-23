@@ -247,7 +247,7 @@ async function processScheduledForwards() {
         
         // Get targets for this forward
         const targetsResult = await db.query(`
-          SELECT id FROM group_forward_targets WHERE forward_id = $1 AND is_active = true
+          SELECT id, group_id, group_name FROM group_forward_targets WHERE forward_id = $1 AND is_active = true
         `, [schedule.forward_id]);
         
         if (targetsResult.rows.length === 0) {
@@ -280,9 +280,9 @@ async function processScheduledForwards() {
         // Create job messages for each target
         for (const target of targetsResult.rows) {
           await db.query(`
-            INSERT INTO forward_job_messages (job_id, target_id, status)
-            VALUES ($1, $2, 'pending')
-          `, [job.id, target.id]);
+            INSERT INTO forward_job_messages (job_id, target_id, group_id, group_name, status)
+            VALUES ($1, $2, $3, $4, 'pending')
+          `, [job.id, target.id, target.group_id, target.group_name]);
         }
         
         // Send start notification to user
