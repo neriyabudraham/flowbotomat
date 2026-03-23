@@ -1,9 +1,52 @@
 const { createClient } = require('./client.service');
 const { getWahaCredentialsForConnection } = require('../settings/system.service');
 
+// Track connections that are currently being healed to avoid infinite loops
+const _healingInProgress = new Set();
+
 async function getClientForConnection(connection) {
   const creds = await getWahaCredentialsForConnection(connection);
-  return createClient(creds.baseUrl, creds.apiKey);
+  const client = createClient(creds.baseUrl, creds.apiKey);
+
+  // Add auto-heal interceptor: on 422 "session does not exist", scan all WAHA sources
+  if (connection.user_id && connection.connection_type !== 'external') {
+    client.interceptors.response.use(null, async (error) => {
+      const is422 = error.response?.status === 422;
+      const isSessionMissing = is422 && JSON.stringify(error.response?.data || '').includes('does not exist');
+
+      if (!isSessionMissing) throw error;
+
+      const healKey = connection.user_id;
+      if (_healingInProgress.has(healKey)) throw error;
+
+      _healingInProgress.add(healKey);
+      try {
+        const { healWahaConnectionByUserId } = require('./heal.service');
+        const healed = await healWahaConnectionByUserId(connection.user_id);
+        if (!healed) throw error;
+
+        console.log(`[WAHA] Auto-healed session for user ${connection.user_id}: ${healed.sessionName} → ${healed.baseUrl}`);
+        // Update the connection object in-place so callers see the fix
+        connection.session_name = healed.sessionName;
+
+        // Retry the original request with the healed server
+        const healedClient = createClient(healed.baseUrl, healed.apiKey);
+        const cfg = error.config;
+        // Replace old session name in url/data
+        if (cfg.url) cfg.url = cfg.url.replace(/(\/api\/)[^/]+/, `$1${healed.sessionName}`);
+        if (cfg.data && typeof cfg.data === 'string') {
+          cfg.data = cfg.data.replace(/"session":"[^"]*"/, `"session":"${healed.sessionName}"`);
+        }
+        cfg.baseURL = healed.baseUrl;
+        cfg.headers['X-Api-Key'] = healed.apiKey;
+        return healedClient.request(cfg);
+      } finally {
+        _healingInProgress.delete(healKey);
+      }
+    });
+  }
+
+  return client;
 }
 
 /**
@@ -1237,6 +1280,7 @@ async function makeRequest(baseUrl, apiKey, method, endpoint, data = null) {
 }
 
 module.exports = {
+  getClientForConnection,
   makeRequest,
   createSession,
   startSession,

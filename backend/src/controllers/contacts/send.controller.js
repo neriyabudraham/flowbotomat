@@ -1,6 +1,5 @@
 const pool = require('../../config/database');
-const { getWahaCredentialsForConnection } = require('../../services/settings/system.service');
-const { createClient } = require('../../services/waha/client.service');
+const { getClientForConnection } = require('../../services/waha/session.service');
 
 /**
  * Send message to contact
@@ -40,11 +39,8 @@ async function sendMessage(req, res) {
     
     const connection = connectionResult.rows[0];
     
-    // Get WAHA credentials
-    const { baseUrl, apiKey } = await getWahaCredentialsForConnection(connection);
-    
-    // Send via WAHA
-    const client = createClient(baseUrl, apiKey);
+    // Get WAHA client with auto-heal
+    const client = await getClientForConnection(connection);
     const chatId = contact.wa_id || `${contact.phone}@s.whatsapp.net`;
     
     let wahaResponse;
