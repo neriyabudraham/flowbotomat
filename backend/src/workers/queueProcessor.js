@@ -44,12 +44,12 @@ async function shutdown(signal) {
   stopQueueProcessor();
   setGracefulShutdown(true);
 
-  // Wait for any active status send to finish (up to 3 minutes).
-  // If exceeded, the item stays in queue_status='processing' and the stuck-reset
-  // logic in processQueue() will reset it to 'pending' ~60s after restart.
+  // Wait for any active status send to finish completely (up to 12 minutes).
+  // 12min covers: default-format 10min WAHA timeout + buffer, and contacts-format batches.
+  // Pending queue items are NOT affected — they simply wait for the worker to restart.
   if (isProcessing()) {
-    const MAX_WAIT_MS = 3 * 60 * 1000;
-    console.log('⏳ Active send in progress — waiting for it to finish (max 3min)...');
+    const MAX_WAIT_MS = 12 * 60 * 1000;
+    console.log('⏳ Active send in progress — waiting for it to finish (max 12min)...');
     const processingPromise = getCurrentProcessingPromise();
     if (processingPromise) {
       const timeoutPromise = new Promise(resolve => setTimeout(resolve, MAX_WAIT_MS));
