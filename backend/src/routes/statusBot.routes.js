@@ -106,6 +106,9 @@ router.post('/pending-statuses/:statusId/send', authMiddleware, statusBotControl
 router.post('/pending-statuses/:statusId/schedule', authMiddleware, statusBotController.schedulePendingStatus);
 router.delete('/pending-statuses/:statusId', authMiddleware, statusBotController.cancelPendingStatus);
 
+// Contacts cache refresh
+router.post('/contacts/refresh', authMiddleware, statusBotController.refreshContactsCache);
+
 // User colors management
 router.get('/colors', authMiddleware, settingsController.getStatusBotColors);
 router.put('/colors', authMiddleware, settingsController.updateStatusBotColors);

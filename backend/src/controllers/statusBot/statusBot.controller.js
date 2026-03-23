@@ -382,9 +382,11 @@ async function getConnection(req, res) {
       }
     }
 
+    // Exclude large contacts_cache blob from connection response
+    const { contacts_cache, ...connectionData } = connection;
     res.json({
       connection: {
-        ...connection,
+        ...connectionData,
         isRestricted,
         restrictionEndsAt,
         restrictionType, // 'full' (24h) or 'short' (30 min system updates)
@@ -2996,6 +2998,20 @@ async function handleSessionStatus(connection, payload) {
               restriction_until = COALESCE(restriction_until, NOW() + interval '24 hours')
           WHERE id = $1 AND first_connected_at IS NULL
         `, [connection.id]);
+        // Trigger background contacts cache sync on first connect
+        if (!connection.contacts_cache_synced_at) {
+          setImmediate(async () => {
+            try {
+              const { getWahaCredentialsForConnection } = require('../services/settings/system.service');
+              const creds = await getWahaCredentialsForConnection(connection);
+              const { fetchAndCacheContacts } = require('../../services/statusBot/queue.service');
+              const contacts = await fetchAndCacheContacts(creds.baseUrl, creds.apiKey, connection.session_name, connection.id);
+              console.log(`[StatusBot] 📞 Initial contacts cache: ${contacts.length} contacts for connection ${connection.id}`);
+            } catch (err) {
+              console.error('[StatusBot] Background contacts sync error:', err.message);
+            }
+          });
+        }
       } else if (wasDisconnected && disconnectionDuration < 60) {
         // Short disconnection (< 1 minute) - use 30 min "system updates" restriction
         const shortRestrictionUntil = new Date(Date.now() + 30 * 60 * 1000);
@@ -3894,6 +3910,33 @@ async function adminSetRestriction(req, res) {
 }
 
 /**
+ * POST /status-bot/contacts/refresh
+ * Fetch all contacts from WAHA and persist in DB cache. Returns { count, synced_at }.
+ */
+async function refreshContactsCache(req, res) {
+  try {
+    const userId = req.user.id;
+    const connRes = await db.query(
+      `SELECT * FROM status_bot_connections WHERE user_id = $1`,
+      [userId]
+    );
+    if (!connRes.rows.length) return res.status(404).json({ error: 'אין חיבור' });
+    const connection = connRes.rows[0];
+    if (connection.connection_status !== 'connected') {
+      return res.status(400).json({ error: 'הסשן אינו מחובר' });
+    }
+    const { getWahaCredentialsForConnection } = require('../services/settings/system.service');
+    const creds = await getWahaCredentialsForConnection(connection);
+    const { fetchAndCacheContacts } = require('../../services/statusBot/queue.service');
+    const contacts = await fetchAndCacheContacts(creds.baseUrl, creds.apiKey, connection.session_name, connection.id);
+    res.json({ count: contacts.length, synced_at: new Date().toISOString() });
+  } catch (error) {
+    console.error('[StatusBot] Refresh contacts cache error:', error);
+    res.status(500).json({ error: 'שגיאה בסנכרון אנשי הקשר' });
+  }
+}
+
+/**
  * Admin: set status send format for a connection ('default' | 'contacts')
  */
 async function adminSetSendFormat(req, res) {
@@ -4270,6 +4313,7 @@ module.exports = {
   adminUpdateQueueSettings,
   adminSetRestriction,
   adminSetSendFormat,
+  refreshContactsCache,
   adminGetAllQueueItems,
   adminCancelQueueItem,
   adminBulkCancelQueue,

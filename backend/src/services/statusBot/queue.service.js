@@ -582,6 +582,28 @@ function buildStatusBody(messageId, contacts, statusType, content, preConvertedF
 }
 
 /**
+ * Fetch all contacts from WAHA and persist in DB cache.
+ * Called on first use and when cache is stale (>24h).
+ */
+async function fetchAndCacheContacts(baseUrl, apiKey, sessionName, connectionId) {
+  let contacts = [];
+  try {
+    const res = await wahaSession.makeRequest(baseUrl, apiKey, 'GET', `/api/contacts/all?session=${sessionName}`);
+    contacts = Array.isArray(res) ? res : [];
+    console.log(`[StatusBot Contacts] Fetched ${contacts.length} contacts from WAHA`);
+  } catch (err) {
+    console.warn(`[StatusBot Contacts] Could not fetch contacts from WAHA: ${err.message}`);
+  }
+  await db.query(
+    `UPDATE status_bot_connections
+     SET contacts_cache = $1, contacts_cache_synced_at = NOW(), contacts_cache_count = $2
+     WHERE id = $3`,
+    [JSON.stringify(contacts), contacts.length, connectionId]
+  ).catch(e => console.error('[StatusBot Contacts] Cache save error:', e.message));
+  return contacts;
+}
+
+/**
  * Send status using the "contacts" format:
  * - Fetches own phone + all contacts from WAHA
  * - Orders: own phone first, then viewers (from status_bot_views), then non-viewers
@@ -605,14 +627,23 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     console.warn(`[StatusBot Contacts] Could not get own ID: ${err.message}`);
   }
 
-  // 2. Get all contacts
-  let allContacts = [];
-  try {
-    const contactsResp = await wahaSession.makeRequest(baseUrl, apiKey, 'GET', `/api/contacts/all?session=${sessionName}`);
-    allContacts = Array.isArray(contactsResp) ? contactsResp : [];
-    console.log(`[StatusBot Contacts] Got ${allContacts.length} contacts from WAHA`);
-  } catch (err) {
-    console.warn(`[StatusBot Contacts] Could not get contacts: ${err.message}`);
+  // 2. Get contacts — use DB cache if fresh (<24h), otherwise fetch from WAHA + save cache
+  const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+  const connCacheRes = await db.query(
+    `SELECT contacts_cache, contacts_cache_synced_at FROM status_bot_connections WHERE id = $1`,
+    [queueItem.connection_id]
+  );
+  const connCache = connCacheRes.rows[0];
+  const cacheAgeMs = connCache?.contacts_cache_synced_at
+    ? Date.now() - new Date(connCache.contacts_cache_synced_at).getTime()
+    : Infinity;
+
+  let allContacts;
+  if (connCache?.contacts_cache && cacheAgeMs < CACHE_TTL_MS) {
+    allContacts = Array.isArray(connCache.contacts_cache) ? connCache.contacts_cache : [];
+    console.log(`[StatusBot Contacts] Using cached contacts: ${allContacts.length} (${Math.round(cacheAgeMs / 3600000)}h old)`);
+  } else {
+    allContacts = await fetchAndCacheContacts(baseUrl, apiKey, sessionName, queueItem.connection_id);
   }
 
   // 3. Get viewer phone numbers for this connection (people who viewed any previous status)
@@ -963,6 +994,7 @@ module.exports = {
   stopQueueProcessor,
   addToQueue,
   getQueueStats,
+  fetchAndCacheContacts,
   isProcessing,
   getCurrentProcessingPromise,
   setProcessingPromiseCallback,

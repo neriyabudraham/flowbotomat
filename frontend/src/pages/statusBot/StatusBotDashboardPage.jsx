@@ -176,6 +176,10 @@ function StatusBotDashboardContent() {
   // Split video caption mode setting
   const [splitVideoCaptionMode, setSplitVideoCaptionMode] = useState('first'); // 'first' or 'all'
   const [savingCaptionMode, setSavingCaptionMode] = useState(false);
+
+  // Contacts cache sync
+  const [refreshingContacts, setRefreshingContacts] = useState(false);
+  const [contactsSyncResult, setContactsSyncResult] = useState(null);
   
   // Add number modal
   const [showAddNumber, setShowAddNumber] = useState(false);
@@ -379,6 +383,20 @@ function StatusBotDashboardContent() {
       toast.error(err.response?.data?.error || 'שגיאה בשמירת הגדרה');
     } finally {
       setSavingCaptionMode(false);
+    }
+  };
+
+  const handleRefreshContacts = async () => {
+    setRefreshingContacts(true);
+    setContactsSyncResult(null);
+    try {
+      const { data } = await api.post('/status-bot/contacts/refresh');
+      setContactsSyncResult({ count: data.count, synced_at: data.synced_at });
+      setConnection(prev => prev ? { ...prev, contacts_cache_count: data.count, contacts_cache_synced_at: data.synced_at } : prev);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'שגיאה בסנכרון אנשי הקשר');
+    } finally {
+      setRefreshingContacts(false);
     }
   };
 
@@ -1551,6 +1569,31 @@ function StatusBotDashboardContent() {
               color="red"
             />
           </div>
+
+          {/* Contacts sync block — visible only in contacts format */}
+          {connection?.status_send_format === 'contacts' && (
+            <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-6 flex items-center justify-between">
+              <div>
+                <p className="font-medium text-purple-800">אנשי קשר מסונכרנים</p>
+                <p className="text-sm text-purple-600">
+                  {contactsSyncResult
+                    ? `✓ ${contactsSyncResult.count.toLocaleString()} אנשי קשר — עודכן זה עתה`
+                    : connection.contacts_cache_count
+                      ? `${connection.contacts_cache_count.toLocaleString()} אנשי קשר${connection.contacts_cache_synced_at ? ` — עודכן ${new Date(connection.contacts_cache_synced_at).toLocaleString('he-IL')}` : ''}`
+                      : 'לא סונכרן עדיין'
+                  }
+                </p>
+              </div>
+              <button
+                onClick={handleRefreshContacts}
+                disabled={refreshingContacts}
+                className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 text-sm"
+              >
+                {refreshingContacts ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                רענן רשימה
+              </button>
+            </div>
+          )}
 
           {/* Tabs */}
           <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
