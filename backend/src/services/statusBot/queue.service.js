@@ -740,45 +740,25 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   const PARALLEL_BATCHES = await getSettingFloat('statusbot_contacts_parallel_batches', 3);
   const LOG_PREFIX = `[StatusBot Contacts | queue=${queueItem.id} | conn=${queueItem.connection_id}]`;
 
-  console.log(`${LOG_PREFIX} ▶️ Starting contacts-format send. type=${queueItem.status_type} messageId=${messageId} historyId=${historyId}`);
+  console.log(`${LOG_PREFIX} ▶️ Starting contacts-format send. type=${queueItem.status_type} messageId=${messageId} historyId=${historyId} viewersOnly=${viewersOnly}`);
 
-  // 1. Get own ID
-  let ownId = null;
-  try {
-    console.log(`${LOG_PREFIX} 🔍 Fetching own session ID from WAHA...`);
-    const me = await wahaSession.makeRequest(baseUrl, apiKey, 'GET', `/api/sessions/${sessionName}/me`);
-    ownId = me?.id;
-    console.log(`${LOG_PREFIX} ✅ Own ID: ${ownId}`);
-  } catch (err) {
-    console.warn(`${LOG_PREFIX} ⚠️ Could not get own ID — will proceed without it. Error: ${err.message}`);
+  // 0. On retry: find contacts that were already successfully sent
+  const alreadySentPhones = new Set();
+  if (historyId) {
+    const sentResult = await db.query(
+      `SELECT DISTINCT phone FROM status_bot_contact_sends WHERE history_id = $1 AND success = true`,
+      [historyId]
+    );
+    for (const row of sentResult.rows) {
+      alreadySentPhones.add(row.phone);
+    }
+    if (alreadySentPhones.size > 0) {
+      console.log(`${LOG_PREFIX} 🔄 Retry mode: skipping ${alreadySentPhones.size} already-sent contacts`);
+    }
   }
 
-  // 2. Get contacts — use DB cache if fresh (<24h), otherwise fetch from WAHA + save cache
-  const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-  console.log(`${LOG_PREFIX} 📦 Checking contacts cache...`);
-  const connCacheRes = await db.query(
-    `SELECT contacts_cache, contacts_cache_synced_at FROM status_bot_connections WHERE id = $1`,
-    [queueItem.connection_id]
-  );
-  const connCache = connCacheRes.rows[0];
-  const cacheAgeMs = connCache?.contacts_cache_synced_at
-    ? Date.now() - new Date(connCache.contacts_cache_synced_at).getTime()
-    : Infinity;
-
-  let allContacts;
-  if (connCache?.contacts_cache && cacheAgeMs < CACHE_TTL_MS) {
-    allContacts = Array.isArray(connCache.contacts_cache) ? connCache.contacts_cache : [];
-    const cacheAgeHours = (cacheAgeMs / 3600000).toFixed(1);
-    console.log(`${LOG_PREFIX} ✅ Using DB cache: ${allContacts.length} contacts (${cacheAgeHours}h old, synced at ${connCache.contacts_cache_synced_at})`);
-  } else {
-    const reason = cacheAgeMs === Infinity ? 'never synced' : `cache ${(cacheAgeMs / 3600000).toFixed(1)}h old (>24h)`;
-    console.log(`${LOG_PREFIX} 🔄 Cache stale — fetching fresh contacts from WAHA. Reason: ${reason}`);
-    allContacts = await fetchAndCacheContacts(baseUrl, apiKey, sessionName, queueItem.connection_id);
-    console.log(`${LOG_PREFIX} ✅ Fetched ${allContacts.length} contacts from WAHA and saved to cache`);
-  }
-
-  // 3. Get engaged phone numbers for this connection (viewers + gray-checkmark: reactors/repliers)
-  console.log(`${LOG_PREFIX} 👁️ Querying previous viewers (incl. gray-checkmark) for priority ordering...`);
+  // 1. Get engaged phone numbers for this connection (viewers + gray-checkmark: reactors/repliers)
+  console.log(`${LOG_PREFIX} 👁️ Querying engaged contacts from DB (views + reactions + replies)...`);
   const viewersResult = await db.query(`
     SELECT DISTINCT phone FROM (
       SELECT sbv.viewer_phone AS phone
@@ -798,81 +778,122 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     ) engaged
   `, [queueItem.connection_id]);
   const viewerPhones = new Set(viewersResult.rows.map(r => r.phone));
-  console.log(`${LOG_PREFIX} 👁️ Found ${viewerPhones.size} unique engaged contacts (views + reactions + replies)`);
+  console.log(`${LOG_PREFIX} 👁️ Found ${viewerPhones.size} unique engaged contacts`);
 
-  // 3b. Resolve LID contacts to phone numbers for accurate viewer matching
-  const lidContacts = allContacts.filter(c => c.id && c.id.includes('@lid'));
-  const lidToPhone = new Map();
-  if (lidContacts.length > 0) {
-    try {
-      const connUserRes = await db.query(`SELECT user_id FROM status_bot_connections WHERE id = $1`, [queueItem.connection_id]);
-      const userId = connUserRes.rows[0]?.user_id;
-      if (userId) {
-        const lids = lidContacts.map(c => c.id.replace(/@.*/, ''));
-        const lidResult = await db.query(
-          `SELECT lid, phone FROM whatsapp_lid_mapping WHERE user_id = $1 AND lid = ANY($2)`,
-          [userId, lids]
-        );
-        for (const row of lidResult.rows) {
-          lidToPhone.set(row.lid, row.phone);
-        }
-        console.log(`${LOG_PREFIX} 🔗 Resolved ${lidToPhone.size}/${lidContacts.length} LID contacts to phone numbers`);
-      }
-    } catch (lidErr) {
-      console.warn(`${LOG_PREFIX} LID resolution error (non-fatal): ${lidErr.message}`);
-    }
-  }
+  let orderedContacts;
 
-  // 3c. On retry: find contacts that were already successfully sent
-  const alreadySentPhones = new Set();
-  if (historyId) {
-    const sentResult = await db.query(
-      `SELECT DISTINCT phone FROM status_bot_contact_sends WHERE history_id = $1 AND success = true`,
-      [historyId]
-    );
-    for (const row of sentResult.rows) {
-      alreadySentPhones.add(row.phone);
-    }
-    if (alreadySentPhones.size > 0) {
-      console.log(`${LOG_PREFIX} 🔄 Retry mode: skipping ${alreadySentPhones.size} already-sent contacts`);
-    }
-  }
-
-  // 4. Build ordered contact list: own phone → viewers → non-viewers (dedup)
-  const seen = new Set();
-  if (ownId) seen.add(ownId);
-  const orderedContacts = [];
-  // On retry, skip own phone if already sent
-  if (ownId && !alreadySentPhones.has(ownId.replace(/@.*/, ''))) {
-    orderedContacts.push(ownId);
-  }
-
-  const viewers = [], nonViewers = [];
-  for (const c of allContacts) {
-    const id = c.id;
-    if (!id || id === ownId || seen.has(id)) continue;
-    seen.add(id);
-    const rawId = id.replace(/@.*/, '');
-    // Resolve LID to phone number for accurate viewer matching
-    const phone = (id.includes('@lid') && lidToPhone.has(rawId)) ? lidToPhone.get(rawId) : rawId;
-    // Skip contacts already sent on previous attempt
-    if (alreadySentPhones.has(phone) || alreadySentPhones.has(rawId)) continue;
-    if (viewerPhones.has(phone)) {
-      viewers.push(id);
-    } else {
-      nonViewers.push(id);
-    }
-  }
   if (viewersOnly) {
-    orderedContacts.push(...viewers);
-    console.log(`${LOG_PREFIX} 👁️ viewersOnly mode — sending to ${viewers.length} viewers only (skipping ${nonViewers.length} non-viewers)`);
+    // ── viewersOnly: use viewer phones from DB directly — no WAHA contacts fetch needed ──
+    console.log(`${LOG_PREFIX} 👁️ viewersOnly mode — using ${viewerPhones.size} viewer phones directly from DB`);
+
+    // Get own ID for first position
+    let ownId = null;
+    try {
+      const me = await wahaSession.makeRequest(baseUrl, apiKey, 'GET', `/api/sessions/${sessionName}/me`);
+      ownId = me?.id;
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} ⚠️ Could not get own ID: ${err.message}`);
+    }
+
+    orderedContacts = [];
+    const ownPhone = ownId ? ownId.replace(/@.*/, '') : null;
+    if (ownPhone && !alreadySentPhones.has(ownPhone)) {
+      orderedContacts.push(`${ownPhone}@c.us`);
+    }
+    for (const phone of viewerPhones) {
+      if (phone === ownPhone) continue;
+      if (alreadySentPhones.has(phone)) continue;
+      orderedContacts.push(`${phone}@c.us`);
+    }
+    console.log(`${LOG_PREFIX} 👁️ viewersOnly: ${orderedContacts.length} contacts to send (skipped ${alreadySentPhones.size} already-sent)`);
+
   } else {
+    // ── Full contacts mode: fetch WAHA contacts, order viewers first ──
+    let ownId = null;
+    try {
+      console.log(`${LOG_PREFIX} 🔍 Fetching own session ID from WAHA...`);
+      const me = await wahaSession.makeRequest(baseUrl, apiKey, 'GET', `/api/sessions/${sessionName}/me`);
+      ownId = me?.id;
+      console.log(`${LOG_PREFIX} ✅ Own ID: ${ownId}`);
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} ⚠️ Could not get own ID — will proceed without it. Error: ${err.message}`);
+    }
+
+    // Get contacts from WAHA cache
+    const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+    console.log(`${LOG_PREFIX} 📦 Checking contacts cache...`);
+    const connCacheRes = await db.query(
+      `SELECT contacts_cache, contacts_cache_synced_at FROM status_bot_connections WHERE id = $1`,
+      [queueItem.connection_id]
+    );
+    const connCache = connCacheRes.rows[0];
+    const cacheAgeMs = connCache?.contacts_cache_synced_at
+      ? Date.now() - new Date(connCache.contacts_cache_synced_at).getTime()
+      : Infinity;
+
+    let allContacts;
+    if (connCache?.contacts_cache && cacheAgeMs < CACHE_TTL_MS) {
+      allContacts = Array.isArray(connCache.contacts_cache) ? connCache.contacts_cache : [];
+      const cacheAgeHours = (cacheAgeMs / 3600000).toFixed(1);
+      console.log(`${LOG_PREFIX} ✅ Using DB cache: ${allContacts.length} contacts (${cacheAgeHours}h old)`);
+    } else {
+      const reason = cacheAgeMs === Infinity ? 'never synced' : `cache ${(cacheAgeMs / 3600000).toFixed(1)}h old (>24h)`;
+      console.log(`${LOG_PREFIX} 🔄 Cache stale — fetching fresh contacts from WAHA. Reason: ${reason}`);
+      allContacts = await fetchAndCacheContacts(baseUrl, apiKey, sessionName, queueItem.connection_id);
+      console.log(`${LOG_PREFIX} ✅ Fetched ${allContacts.length} contacts from WAHA and saved to cache`);
+    }
+
+    // Resolve LID contacts to phone numbers for accurate viewer matching
+    const lidContacts = allContacts.filter(c => c.id && c.id.includes('@lid'));
+    const lidToPhone = new Map();
+    if (lidContacts.length > 0) {
+      try {
+        const connUserRes = await db.query(`SELECT user_id FROM status_bot_connections WHERE id = $1`, [queueItem.connection_id]);
+        const userId = connUserRes.rows[0]?.user_id;
+        if (userId) {
+          const lids = lidContacts.map(c => c.id.replace(/@.*/, ''));
+          const lidResult = await db.query(
+            `SELECT lid, phone FROM whatsapp_lid_mapping WHERE user_id = $1 AND lid = ANY($2)`,
+            [userId, lids]
+          );
+          for (const row of lidResult.rows) {
+            lidToPhone.set(row.lid, row.phone);
+          }
+          console.log(`${LOG_PREFIX} 🔗 Resolved ${lidToPhone.size}/${lidContacts.length} LID contacts to phone numbers`);
+        }
+      } catch (lidErr) {
+        console.warn(`${LOG_PREFIX} LID resolution error (non-fatal): ${lidErr.message}`);
+      }
+    }
+
+    // Build ordered contact list: own phone → viewers → non-viewers (dedup)
+    const seen = new Set();
+    if (ownId) seen.add(ownId);
+    orderedContacts = [];
+    if (ownId && !alreadySentPhones.has(ownId.replace(/@.*/, ''))) {
+      orderedContacts.push(ownId);
+    }
+
+    const viewers = [], nonViewers = [];
+    for (const c of allContacts) {
+      const id = c.id;
+      if (!id || id === ownId || seen.has(id)) continue;
+      seen.add(id);
+      const rawId = id.replace(/@.*/, '');
+      const phone = (id.includes('@lid') && lidToPhone.has(rawId)) ? lidToPhone.get(rawId) : rawId;
+      if (alreadySentPhones.has(phone) || alreadySentPhones.has(rawId)) continue;
+      if (viewerPhones.has(phone)) {
+        viewers.push(id);
+      } else {
+        nonViewers.push(id);
+      }
+    }
     orderedContacts.push(...viewers, ...nonViewers);
   }
   const VIEWER_MEGA_BATCH_CAP = await getSettingFloat('statusbot_contacts_viewer_batch_cap', 5000);
   const WAVE_DELAY_MS = await getSettingFloat('statusbot_contacts_wave_delay_ms', 30000); // 30s between non-viewer waves
 
-  // 5. Build batches: viewers first in mega-batches, then non-viewers in regular batches
+  // 5. Build batches
   const previouslySent = alreadySentPhones.size; // contacts sent in prior attempts
   let totalSent = 0;
   let consecutiveTimeouts = 0;
@@ -882,34 +903,56 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   const allBatches = [];
   let batchNum = 0;
 
-  // Viewer mega-batches (all viewers at once, capped at VIEWER_MEGA_BATCH_CAP per batch)
-  // ownId is at index 0, followed by viewers, then non-viewers
-  const viewerEndIdx = (ownId && !alreadySentPhones.has(ownId.replace(/@.*/, '')) ? 1 : 0) + viewers.length;
-  const viewerContacts = orderedContacts.slice(0, viewerEndIdx);
-  const nonViewerContacts = orderedContacts.slice(viewerEndIdx);
+  if (viewersOnly) {
+    // viewersOnly: all contacts are viewers — split into regular batches
+    for (let i = 0; i < orderedContacts.length; i += BATCH_SIZE) {
+      batchNum++;
+      allBatches.push({
+        contacts: orderedContacts.slice(i, i + BATCH_SIZE),
+        batchNum,
+        isViewerBatch: true,
+      });
+    }
+  } else {
+    // Full contacts mode: viewers in mega-batches, then non-viewers in regular batches
+    // In orderedContacts: [ownId?, ...viewers, ...nonViewers]
+    // We know viewerPhones set, so count how many of the first entries are viewers
+    let viewerEndIdx = 0;
+    for (let i = 0; i < orderedContacts.length; i++) {
+      const phone = orderedContacts[i].replace(/@.*/, '');
+      if (viewerPhones.has(phone) || i === 0) { // i===0 is ownId which is a viewer
+        viewerEndIdx = i + 1;
+      } else {
+        break;
+      }
+    }
+    const viewerContacts = orderedContacts.slice(0, viewerEndIdx);
+    const nonViewerContacts = orderedContacts.slice(viewerEndIdx);
 
-  // Split viewers into batches — use mega-batch cap normally, but regular BATCH_SIZE for viewersOnly (timeout fallback)
-  const viewerBatchSize = viewersOnly ? BATCH_SIZE : VIEWER_MEGA_BATCH_CAP;
-  for (let i = 0; i < viewerContacts.length; i += viewerBatchSize) {
-    batchNum++;
-    allBatches.push({
-      contacts: viewerContacts.slice(i, i + viewerBatchSize),
-      batchNum,
-      isViewerBatch: true,
-    });
-  }
-  // Split non-viewers into regular batches
-  for (let i = 0; i < nonViewerContacts.length; i += BATCH_SIZE) {
-    batchNum++;
-    allBatches.push({
-      contacts: nonViewerContacts.slice(i, i + BATCH_SIZE),
-      batchNum,
-      isViewerBatch: false,
-    });
+    // Viewers in mega-batches
+    for (let i = 0; i < viewerContacts.length; i += VIEWER_MEGA_BATCH_CAP) {
+      batchNum++;
+      allBatches.push({
+        contacts: viewerContacts.slice(i, i + VIEWER_MEGA_BATCH_CAP),
+        batchNum,
+        isViewerBatch: true,
+      });
+    }
+    // Non-viewers in regular batches
+    for (let i = 0; i < nonViewerContacts.length; i += BATCH_SIZE) {
+      batchNum++;
+      allBatches.push({
+        contacts: nonViewerContacts.slice(i, i + BATCH_SIZE),
+        batchNum,
+        isViewerBatch: false,
+      });
+    }
   }
 
   const totalBatches = allBatches.length;
-  console.log(`${LOG_PREFIX} 📋 Contact order built: ${orderedContacts.length} total (skipped ${alreadySentPhones.size} already-sent) | viewers:${viewers.length} non-viewers:${nonViewers.length} | batches:${totalBatches} (viewer batches: ${allBatches.filter(b => b.isViewerBatch).length}, BATCH_SIZE=${BATCH_SIZE})`);
+  const viewerBatchCount = allBatches.filter(b => b.isViewerBatch).length;
+  const nonViewerBatchCount = totalBatches - viewerBatchCount;
+  console.log(`${LOG_PREFIX} 📋 Contact order built: ${orderedContacts.length} total (skipped ${alreadySentPhones.size} already-sent) | viewerBatches:${viewerBatchCount} nonViewerBatches:${nonViewerBatchCount} | BATCH_SIZE=${BATCH_SIZE}`);
   console.log(`${LOG_PREFIX} 🚀 Sending ${totalBatches} batches with parallelism=${PARALLEL_BATCHES}`);
 
   // Process batches in waves of PARALLEL_BATCHES
