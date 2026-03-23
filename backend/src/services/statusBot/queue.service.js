@@ -311,6 +311,29 @@ async function processItem(item) {
     console.error(`[StatusBot] ❌ Status id=${item.id} ${isTimeout ? 'TIMEOUT' : 'ERROR'}: ${sendError.message}`);
     if (!isTimeout) console.error(sendError.stack || sendError);
 
+    // For contacts-format: re-queue to continue from where we left off (progress tracked in status_bot_contact_sends)
+    const MAX_ERROR_RETRIES = 5;
+    const currentRetry = item.retry_count || 0;
+    if (item.status_send_format === 'contacts' && currentRetry < MAX_ERROR_RETRIES) {
+      const retryPauseMinutes = await getSettingFloat('statusbot_contacts_retry_pause_minutes', 3);
+      console.log(`[StatusBot] 🔄 Contacts-format error — re-queuing item ${item.id} (retry ${currentRetry + 1}/${MAX_ERROR_RETRIES}) in ${retryPauseMinutes}min to continue with remaining contacts`);
+      await db.query(
+        `UPDATE status_bot_queue
+         SET queue_status = 'pending', processing_started_at = NULL,
+             scheduled_for = NOW() + ($2 * interval '1 minute'),
+             retry_count = COALESCE(retry_count, 0) + 1,
+             error_message = $3
+         WHERE id = $1`,
+        [item.id, retryPauseMinutes, sendError.message]
+      );
+      activeItemTokens.delete(item.id);
+      emitToAdmin('statusbot:processing_end', {
+        id: item.id, success: false, requeued: true, error: sendError.message,
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
     await db.query(`
       UPDATE status_bot_queue
       SET queue_status = 'failed', error_message = $1, retry_count = retry_count + 1
@@ -407,6 +430,14 @@ async function processQueue() {
         AND NOT EXISTS (
           SELECT 1 FROM status_bot_queue q2
           WHERE q2.connection_id = q.connection_id AND q2.queue_status = 'processing'
+            AND (q2.viewers_done IS NOT TRUE)
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM status_bot_queue q4
+          WHERE q4.connection_id = q.connection_id
+            AND q4.queue_status IN ('pending', 'scheduled')
+            AND (q4.scheduled_for IS NULL OR q4.scheduled_for <= NOW())
+            AND COALESCE(q4.scheduled_for, q4.created_at) < COALESCE(q.scheduled_for, q.created_at)
         )
         AND NOT EXISTS (
           SELECT 1 FROM status_bot_queue q3
@@ -887,6 +918,13 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     if (!wave[0].isViewerBatch) {
       if (isFirstNonViewerWave) {
         isFirstNonViewerWave = false;
+        // Mark viewers_done so next status in queue can start its viewers
+        await db.query(
+          `UPDATE status_bot_queue SET viewers_done = true WHERE id = $1`,
+          [queueItem.id]
+        ).catch(() => {});
+        console.log(`${LOG_PREFIX} ✅ Viewers phase complete — connection unblocked for next status`);
+        emitToAdmin('statusbot:viewers_done', { id: queueItem.id, connectionId: queueItem.connection_id });
       } else if (WAVE_DELAY_MS > 0) {
         console.log(`${LOG_PREFIX} ⏳ Waiting ${WAVE_DELAY_MS / 1000}s before next wave...`);
         await new Promise(resolve => setTimeout(resolve, WAVE_DELAY_MS));
@@ -959,6 +997,13 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     } else {
       consecutiveTimeouts = 0; // reset if at least one batch succeeded without timeout
     }
+  }
+
+  // If we never hit non-viewer wave (all contacts were viewers or skipped), mark viewers_done now
+  if (isFirstNonViewerWave) {
+    await db.query(`UPDATE status_bot_queue SET viewers_done = true WHERE id = $1`, [queueItem.id]).catch(() => {});
+    console.log(`${LOG_PREFIX} ✅ All contacts were viewers — viewers_done marked`);
+    emitToAdmin('statusbot:viewers_done', { id: queueItem.id, connectionId: queueItem.connection_id });
   }
 
   const totalElapsedSec = Math.round((Date.now() - startTime) / 1000);

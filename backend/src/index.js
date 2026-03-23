@@ -443,6 +443,7 @@ server.listen(PORT, () => {
       await dbQuery(`ALTER TABLE status_bot_statuses ADD COLUMN IF NOT EXISTS contacts_sent INT`);
       await dbQuery(`ALTER TABLE status_bot_queue ADD COLUMN IF NOT EXISTS contacts_sent INT DEFAULT 0`);
       await dbQuery(`ALTER TABLE status_bot_queue ADD COLUMN IF NOT EXISTS contacts_total INT DEFAULT 0`);
+      await dbQuery(`ALTER TABLE status_bot_queue ADD COLUMN IF NOT EXISTS viewers_done BOOLEAN DEFAULT false`);
       // Store group_id/group_name directly on job messages so they survive target re-creation
       await dbQuery(`ALTER TABLE forward_job_messages ADD COLUMN IF NOT EXISTS group_id VARCHAR(100)`);
       await dbQuery(`ALTER TABLE forward_job_messages ADD COLUMN IF NOT EXISTS group_name VARCHAR(255)`);
