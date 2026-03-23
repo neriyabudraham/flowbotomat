@@ -665,7 +665,7 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   let ownId = null;
   try {
     console.log(`${LOG_PREFIX} 🔍 Fetching own session ID from WAHA...`);
-    const me = await wahaSession.makeRequest(baseUrl, apiKey, 'GET', `/api/${sessionName}/me`);
+    const me = await wahaSession.makeRequest(baseUrl, apiKey, 'GET', `/api/sessions/${sessionName}/me`);
     ownId = me?.id;
     console.log(`${LOG_PREFIX} ✅ Own ID: ${ownId}`);
   } catch (err) {
