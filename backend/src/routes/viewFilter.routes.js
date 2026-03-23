@@ -24,6 +24,7 @@ router.get('/download/report',       c.downloadReport);
 
 // Google Contacts sync
 router.get('/google/accounts',       c.getGoogleAccounts);
+router.get('/google/contact-counts', c.getGoogleContactCounts);
 router.get('/google/auth-url',       c.getGoogleAuthUrl);
 router.post('/google/sync',          c.syncToGoogle);
 

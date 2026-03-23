@@ -742,6 +742,21 @@ async function findOrCreateBySlot(userId, slot = 0, { name, phone, notes }) {
   return { created: true, resourceName: contact.data.resourceName };
 }
 
+/**
+ * Get total contact count for a specific Google account slot
+ */
+async function getContactCountBySlot(userId, slot = 0) {
+  const google = getGoogle();
+  const auth = await getAuthenticatedClientBySlot(userId, slot);
+  const people = google.people({ version: 'v1', auth });
+  const response = await people.people.connections.list({
+    resourceName: 'people/me',
+    pageSize: 1,
+    personFields: 'names',
+  });
+  return response.data.totalPeople || 0;
+}
+
 module.exports = {
   // Auth
   getAuthUrl,
@@ -772,4 +787,5 @@ module.exports = {
   // Multi-account (slot-based) for View Filter Bot
   getAuthenticatedClientBySlot,
   findOrCreateBySlot,
+  getContactCountBySlot,
 };

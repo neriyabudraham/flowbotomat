@@ -858,6 +858,31 @@ async function getGoogleAccounts(req, res) {
   }
 }
 
+async function getGoogleContactCounts(req, res) {
+  try {
+    const userId = req.user.id;
+    const result = await db.query(`
+      SELECT slot, account_email FROM user_integrations
+      WHERE user_id = $1 AND integration_type = 'google_contacts' AND status = 'connected'
+      ORDER BY slot ASC
+    `, [userId]);
+
+    const counts = await Promise.all(result.rows.map(async (acc) => {
+      try {
+        const count = await googleContacts.getContactCountBySlot(userId, acc.slot);
+        return { slot: acc.slot, email: acc.account_email, count };
+      } catch {
+        return { slot: acc.slot, email: acc.account_email, count: null };
+      }
+    }));
+
+    res.json({ counts });
+  } catch (err) {
+    console.error('[ViewFilter] getGoogleContactCounts error:', err);
+    res.status(500).json({ error: 'שגיאה בטעינת ספירת אנשי קשר' });
+  }
+}
+
 async function syncToGoogle(req, res) {
   try {
     const userId = req.user.id;
@@ -1384,6 +1409,7 @@ module.exports = {
   downloadContacts,
   downloadReport,
   getGoogleAccounts,
+  getGoogleContactCounts,
   getGoogleAuthUrl,
   syncToGoogle,
   downloadViewerCertificate,
