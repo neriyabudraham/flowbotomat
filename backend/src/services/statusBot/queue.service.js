@@ -372,7 +372,7 @@ async function processQueue() {
 
     // 3. Get candidate items (pending/scheduled, eligible, not already processing their connection)
     const candidates = await db.query(`
-      SELECT q.*, c.session_name, c.connection_status, c.waha_source_id,
+      SELECT q.*, c.session_name, c.connection_status, c.waha_source_id, c.waha_base_url,
              c.restriction_lifted, c.short_restriction_until, c.restriction_until,
              c.first_connected_at, c.last_connected_at, c.status_send_format
       FROM status_bot_queue q
@@ -546,8 +546,8 @@ async function healSessionFromMainConnection(connectionId) {
       const sourceId = srcRes.rows[0]?.id;
       if (sourceId) {
         await db.query(
-          `UPDATE status_bot_connections SET session_name = $1, waha_source_id = $2, updated_at = NOW() WHERE id = $3`,
-          [healed.sessionName, sourceId, connectionId]
+          `UPDATE status_bot_connections SET session_name = $1, waha_source_id = $2, waha_base_url = $3, updated_at = NOW() WHERE id = $4`,
+          [healed.sessionName, sourceId, healed.baseUrl, connectionId]
         );
         console.log(`[StatusBot Queue] 🔄 Updated status_bot_connections ${connectionId}: ${healed.sessionName}`);
       }

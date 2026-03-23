@@ -351,6 +351,7 @@ server.listen(PORT, () => {
       await dbQuery(`ALTER TABLE whatsapp_connections ADD COLUMN IF NOT EXISTS waha_base_url TEXT`);
       await dbQuery(`CREATE INDEX IF NOT EXISTS idx_wc_waha_source ON whatsapp_connections(waha_source_id)`);
       await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS waha_source_id UUID REFERENCES waha_sources(id) ON DELETE SET NULL`);
+      await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS waha_base_url TEXT`);
       await dbQuery(`CREATE INDEX IF NOT EXISTS idx_sbc_waha_source ON status_bot_connections(waha_source_id)`);
       await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS status_send_format VARCHAR(20) DEFAULT 'default'`);
       await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS contacts_send_total INT DEFAULT 0`);

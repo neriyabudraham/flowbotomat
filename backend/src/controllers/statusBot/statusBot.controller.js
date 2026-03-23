@@ -837,8 +837,8 @@ async function getQR(req, res) {
           const srcRes = await db.query('SELECT id FROM waha_sources WHERE base_url = $1 LIMIT 1', [healed.baseUrl]);
           const sourceId = srcRes.rows[0]?.id;
           await db.query(
-            `UPDATE status_bot_connections SET session_name = $1, waha_source_id = $2, updated_at = NOW() WHERE id = $3`,
-            [healed.sessionName, sourceId, connection.id]
+            `UPDATE status_bot_connections SET session_name = $1, waha_source_id = $2, waha_base_url = $3, updated_at = NOW() WHERE id = $4`,
+            [healed.sessionName, sourceId, healed.baseUrl, connection.id]
           );
           baseUrl = healed.baseUrl;
           apiKey = healed.apiKey;

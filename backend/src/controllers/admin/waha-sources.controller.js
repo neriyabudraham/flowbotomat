@@ -190,8 +190,8 @@ async function syncLiveCounts(req, res) {
         const live = sessionNameToSource[sbc.session_name];
         if (live && live.sourceId !== sbc.waha_source_id) {
           await db.query(
-            `UPDATE status_bot_connections SET waha_source_id = $1, updated_at = NOW() WHERE id = $2`,
-            [live.sourceId, sbc.id]
+            `UPDATE status_bot_connections SET waha_source_id = $1, waha_base_url = $2, updated_at = NOW() WHERE id = $3`,
+            [live.sourceId, live.baseUrl, sbc.id]
           );
           sbcReconciledCount++;
         }
@@ -199,6 +199,14 @@ async function syncLiveCounts(req, res) {
       if (sbcReconciledCount > 0) {
         console.log(`[WahaSources] Reconciled ${sbcReconciledCount} status_bot_connections to correct source`);
       }
+      // Bulk-stamp waha_base_url on status_bot_connections with correct waha_source_id
+      await db.query(`
+        UPDATE status_bot_connections sbc
+        SET waha_base_url = ws.base_url
+        FROM waha_sources ws
+        WHERE sbc.waha_source_id = ws.id
+          AND (sbc.waha_base_url IS DISTINCT FROM ws.base_url)
+      `);
       reconciledCount += sbcReconciledCount;
     } catch (reconcileErr) {
       console.error('[WahaSources] Reconcile error (non-fatal):', reconcileErr.message);
