@@ -16,7 +16,7 @@ import ViewerProfileModal from '../../components/viewFilter/ViewerProfileModal';
 export default function ViewFilterDashboardPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { user, logout } = useAuthStore();
+  const { user, fetchMe, logout } = useAuthStore();
 
   const isAdmin = (() => {
     if (user && ['admin', 'superadmin'].includes(user.role)) return true;
@@ -83,6 +83,7 @@ export default function ViewFilterDashboardPage() {
     // Trigger background contact import (fire & forget — max once per 12h)
     api.get('/whatsapp/contacts/auto-import').catch(() => {});
 
+    fetchMe();
     setLoading(true);
     setLoadingProgress(10);
     setLoadingStep('טוען פרטי מעקב...');
