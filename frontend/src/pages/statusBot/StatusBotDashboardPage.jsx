@@ -3486,10 +3486,15 @@ function ScheduledCalendar({ scheduled, statuses, onItemClick, onDayClick, onSen
 // isOurBot: true only when source='whatsapp' AND queueId is present (went through our queue system).
 // This prevents false "בוט" labels on statuses from external bots or other linked devices.
 function SourceBadge({ source, queueId }) {
-  const isOurBot = source === 'whatsapp' && !!queueId;
-  if (isOurBot) return (
-    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium flex-shrink-0">בוט</span>
-  );
+  if (source === 'whatsapp' && !!queueId) {
+    return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium flex-shrink-0">בוט</span>;
+  }
+  if (source === 'web') {
+    return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium flex-shrink-0">אתר</span>;
+  }
+  if (source === 'manual' || source === 'device') {
+    return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium flex-shrink-0">מכשיר</span>;
+  }
   return (
     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium flex-shrink-0">מכשיר מקושר</span>
   );
