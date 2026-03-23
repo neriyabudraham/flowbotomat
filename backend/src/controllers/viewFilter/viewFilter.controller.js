@@ -347,7 +347,7 @@ async function getViewers(req, res) {
     const viewersResult = await db.query(`
       SELECT
         sbv.viewer_phone,
-        MAX(sbv.viewer_name) as viewer_name,
+        COALESCE(MAX(c.display_name), MAX(sbv.viewer_name)) as viewer_name,
         COUNT(DISTINCT sbv.status_id) as statuses_viewed,
         $2::int as total_statuses,
         ROUND(COUNT(DISTINCT sbv.status_id)::numeric / $2 * 100) as view_percentage,
@@ -368,6 +368,8 @@ async function getViewers(req, res) {
       FROM status_bot_views sbv
       JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
       JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+      LEFT JOIN contacts c ON c.user_id = $1
+        AND c.phone = sbv.viewer_phone
       WHERE conn.user_id = $1
       GROUP BY sbv.viewer_phone
       ${havingClause}

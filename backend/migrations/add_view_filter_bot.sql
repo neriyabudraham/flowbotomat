@@ -43,9 +43,16 @@ UPDATE user_integrations SET slot = 0 WHERE slot IS NULL;
 ALTER TABLE user_integrations
   DROP CONSTRAINT IF EXISTS user_integrations_user_id_integration_type_key;
 
-ALTER TABLE user_integrations
-  ADD CONSTRAINT IF NOT EXISTS user_integrations_user_integration_slot_unique
-  UNIQUE (user_id, integration_type, slot);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'user_integrations_user_integration_slot_unique'
+  ) THEN
+    ALTER TABLE user_integrations
+      ADD CONSTRAINT user_integrations_user_integration_slot_unique
+      UNIQUE (user_id, integration_type, slot);
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_user_integrations_slot
   ON user_integrations(user_id, integration_type, slot);
