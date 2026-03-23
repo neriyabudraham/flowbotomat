@@ -734,10 +734,10 @@ async function autoImportContacts(req, res) {
       [userId]
     );
     const lastSync = userResult.rows[0]?.wa_contacts_synced_at;
-    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000);
 
-    if (lastSync && new Date(lastSync) > twelveHoursAgo) {
-      return res.json({ started: false, message: 'synced recently' });
+    // Only run on first-ever load (wa_contacts_synced_at is null)
+    if (lastSync) {
+      return res.json({ started: false, message: 'already synced' });
     }
 
     // Fire and forget
