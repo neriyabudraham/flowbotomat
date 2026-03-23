@@ -7,7 +7,7 @@
 require('dotenv').config();
 
 const db = require('../config/database');
-const { startQueueProcessor, stopQueueProcessor, setGracefulShutdown } = require('../services/statusBot/queue.service');
+const { startQueueProcessor, stopQueueProcessor, setGracefulShutdown, isProcessing, getCurrentProcessingPromise } = require('../services/statusBot/queue.service');
 
 let isShuttingDown = false;
 
@@ -40,15 +40,27 @@ async function shutdown(signal) {
   
   console.log(`\n📛 Received ${signal}, shutting down gracefully...`);
   
-  // Tell the queue service to finish current work
-  setGracefulShutdown(true);
-  
   // Stop accepting new work
   stopQueueProcessor();
-  
-  // Wait a bit for current status to finish
-  console.log('⏳ Waiting for current status upload to complete...');
-  await new Promise(resolve => setTimeout(resolve, 5000));
+  setGracefulShutdown(true);
+
+  // Wait for any active status send to finish (up to 15 minutes)
+  if (isProcessing()) {
+    const MAX_WAIT_MS = 15 * 60 * 1000;
+    console.log('⏳ Active send in progress — waiting for it to finish (max 15min)...');
+    const processingPromise = getCurrentProcessingPromise();
+    if (processingPromise) {
+      const timeoutPromise = new Promise(resolve => setTimeout(resolve, MAX_WAIT_MS));
+      await Promise.race([processingPromise, timeoutPromise]);
+      if (isProcessing()) {
+        console.log('⚠️ Timed out waiting for processing to finish — forcing shutdown');
+      } else {
+        console.log('✅ Active send completed cleanly');
+      }
+    }
+  } else {
+    console.log('✅ No active sends — shutting down immediately');
+  }
   
   // Release any locks
   try {
