@@ -283,6 +283,8 @@ async function initializeTables() {
     // Create indexes
     await db.query(`CREATE INDEX IF NOT EXISTS idx_status_bot_queue_status ON status_bot_queue(queue_status)`);
     await db.query(`CREATE INDEX IF NOT EXISTS idx_status_bot_statuses_waha_id ON status_bot_statuses(waha_message_id)`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_status_bot_statuses_conn_sent ON status_bot_statuses(connection_id, COALESCE(sent_at, created_at))`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_status_bot_views_phone_status ON status_bot_views(viewer_phone, status_id)`);
     await db.query(`CREATE INDEX IF NOT EXISTS idx_cloud_api_conv_phone ON cloud_api_conversation_states(phone_number)`);
 
     console.log('✅ Status Bot tables initialized');
@@ -1725,27 +1727,29 @@ async function getStatusHistory(req, res) {
       WHERE connection_id = $1
     `, [connResult.rows[0].id]);
 
-    // Get statuses with queue status + new viewer count
+    // Get statuses with queue status + new viewer count (optimized with CTE)
     const connectionId = connResult.rows[0].id;
     const result = await db.query(`
+      WITH first_views AS (
+        SELECT DISTINCT ON (v.viewer_phone) v.viewer_phone, v.status_id AS first_status_id
+        FROM status_bot_views v
+        JOIN status_bot_statuses s ON s.id = v.status_id
+        WHERE s.connection_id = $1
+        ORDER BY v.viewer_phone, COALESCE(s.sent_at, s.created_at) ASC
+      ),
+      new_counts AS (
+        SELECT fv.first_status_id AS status_id, COUNT(*) AS new_viewer_count
+        FROM first_views fv
+        GROUP BY fv.first_status_id
+      )
       SELECT
         s.*,
         s.deleted_at IS NOT NULL as is_deleted,
         q.queue_status,
-        (
-          SELECT COUNT(*) FROM status_bot_views v
-          WHERE v.status_id = s.id
-            AND NOT EXISTS (
-              SELECT 1 FROM status_bot_views v2
-              JOIN status_bot_statuses s2 ON s2.id = v2.status_id
-              WHERE v2.viewer_phone = v.viewer_phone
-                AND s2.connection_id = $1
-                AND s2.id != s.id
-                AND COALESCE(s2.sent_at, s2.created_at) < COALESCE(s.sent_at, s.created_at)
-            )
-        ) as new_viewer_count
+        COALESCE(nc.new_viewer_count, 0) as new_viewer_count
       FROM status_bot_statuses s
       LEFT JOIN status_bot_queue q ON q.id = s.queue_id
+      LEFT JOIN new_counts nc ON nc.status_id = s.id
       WHERE s.connection_id = $1
         AND NOT (s.uncertain_upload = true AND s.view_count = 0)
       ORDER BY COALESCE(s.sent_at, s.created_at) DESC
@@ -1781,43 +1785,39 @@ async function getStatusDetails(req, res) {
     }
 
     const connectionId = connResult.rows[0].id;
-    const statusResult = await db.query(`
-      SELECT s.*,
-        (
-          SELECT COUNT(*) FROM status_bot_views v
-          WHERE v.status_id = s.id
-            AND NOT EXISTS (
-              SELECT 1 FROM status_bot_views v2
-              JOIN status_bot_statuses s2 ON s2.id = v2.status_id
-              WHERE v2.viewer_phone = v.viewer_phone
-                AND s2.connection_id = $2
-                AND s2.id != s.id
-                AND COALESCE(s2.sent_at, s2.created_at) < COALESCE(s.sent_at, s.created_at)
-            )
-        ) as new_viewer_count
-      FROM status_bot_statuses s
-      WHERE s.id = $1 AND s.connection_id = $2
-    `, [statusId, connectionId]);
+
+    // Pre-compute each viewer's first status for this connection (one query, reused for count + per-viewer flag)
+    const [statusResult, firstViewsResult] = await Promise.all([
+      db.query(`SELECT * FROM status_bot_statuses WHERE id = $1 AND connection_id = $2`, [statusId, connectionId]),
+      db.query(`
+        SELECT DISTINCT ON (v.viewer_phone) v.viewer_phone, v.status_id AS first_status_id
+        FROM status_bot_views v
+        JOIN status_bot_statuses s ON s.id = v.status_id
+        WHERE s.connection_id = $1
+        ORDER BY v.viewer_phone, COALESCE(s.sent_at, s.created_at) ASC
+      `, [connectionId]),
+    ]);
 
     if (statusResult.rows.length === 0) {
       return res.status(404).json({ error: 'סטטוס לא נמצא' });
     }
 
-    const statusSentAt = statusResult.rows[0].sent_at || statusResult.rows[0].created_at;
+    // Build a set of phones whose first-ever view is this status
+    const firstViewPhones = new Set();
+    for (const row of firstViewsResult.rows) {
+      if (row.first_status_id === parseInt(statusId)) {
+        firstViewPhones.add(row.viewer_phone);
+      }
+    }
+    statusResult.rows[0].new_viewer_count = firstViewPhones.size;
+
     const viewsResult = await db.query(`
-      SELECT v.*,
-        NOT EXISTS (
-          SELECT 1 FROM status_bot_views v2
-          JOIN status_bot_statuses s2 ON s2.id = v2.status_id
-          WHERE v2.viewer_phone = v.viewer_phone
-            AND s2.connection_id = $2
-            AND s2.id != $1
-            AND COALESCE(s2.sent_at, s2.created_at) < $3
-        ) as is_new_viewer
-      FROM status_bot_views v
-      WHERE v.status_id = $1
-      ORDER BY v.viewed_at DESC
-    `, [statusId, connectionId, statusSentAt]);
+      SELECT * FROM status_bot_views WHERE status_id = $1 ORDER BY viewed_at DESC
+    `, [statusId]);
+    // Mark each view with is_new_viewer flag
+    for (const view of viewsResult.rows) {
+      view.is_new_viewer = firstViewPhones.has(view.viewer_phone);
+    }
 
     const reactionsResult = await db.query(`
       SELECT * FROM status_bot_reactions WHERE status_id = $1 ORDER BY reacted_at DESC
