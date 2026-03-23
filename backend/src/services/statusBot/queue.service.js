@@ -864,6 +864,7 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   const WAVE_DELAY_MS = await getSettingFloat('statusbot_contacts_wave_delay_ms', 30000); // 30s between non-viewer waves
 
   // 5. Build batches: viewers first in mega-batches, then non-viewers in regular batches
+  const previouslySent = alreadySentPhones.size; // contacts sent in prior attempts
   let totalSent = 0;
   let consecutiveTimeouts = 0;
   let stoppedEarly = false;
@@ -976,10 +977,13 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     console.log(`${LOG_PREFIX} 🌊 Wave done — cumulative sent: ${totalSent}/${orderedContacts.length} (${progressPct}%) | timeouts in wave: ${waveTimeouts}/${wave.length}`);
 
     // Heartbeat + progress: keep processing_started_at fresh and update send progress
+    // Report cumulative totals (including contacts sent in prior retry attempts)
     // Only update if still in 'processing' state (prevents fighting with stuck reset)
+    const cumulativeSent = previouslySent + totalSent;
+    const cumulativeTotal = previouslySent + orderedContacts.length;
     await db.query(
       `UPDATE status_bot_queue SET processing_started_at = NOW(), contacts_sent = $2, contacts_total = $3 WHERE id = $1 AND queue_status = 'processing'`,
-      [queueItem.id, totalSent, orderedContacts.length]
+      [queueItem.id, cumulativeSent, cumulativeTotal]
     ).catch(() => {});
 
     // Timeout handling: if ALL batches in this wave timed out, it counts as consecutive
@@ -1007,20 +1011,21 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   }
 
   const totalElapsedSec = Math.round((Date.now() - startTime) / 1000);
-  const totalContacts = orderedContacts.length;
+  const cumulativeFinalSent = previouslySent + totalSent;
+  const cumulativeFinalTotal = previouslySent + orderedContacts.length;
 
-  // Save total contacts reached to connection row and history row
+  // Save cumulative total contacts reached to connection row and history row
   await Promise.all([
-    db.query(`UPDATE status_bot_connections SET contacts_send_total = $1 WHERE id = $2`, [totalSent, queueItem.connection_id])
+    db.query(`UPDATE status_bot_connections SET contacts_send_total = $1 WHERE id = $2`, [cumulativeFinalSent, queueItem.connection_id])
       .catch(e => console.error(`${LOG_PREFIX} Failed to save connection total: ${e.message}`)),
     historyId
-      ? db.query(`UPDATE status_bot_statuses SET contacts_sent = $1 WHERE id = $2`, [totalSent, historyId])
+      ? db.query(`UPDATE status_bot_statuses SET contacts_sent = $1 WHERE id = $2`, [cumulativeFinalSent, historyId])
           .catch(e => console.error(`${LOG_PREFIX} Failed to save history contacts_sent: ${e.message}`))
       : Promise.resolve(),
   ]);
 
-  console.log(`${LOG_PREFIX} 🏁 Done. totalSent=${totalSent}/${totalContacts} stoppedEarly=${stoppedEarly} elapsed=${totalElapsedSec}s`);
-  return { success: true, id: messageId, contactsSent: totalSent, totalContacts, stoppedEarly };
+  console.log(`${LOG_PREFIX} 🏁 Done. totalSent=${cumulativeFinalSent}/${cumulativeFinalTotal} (this attempt: ${totalSent}, prior: ${previouslySent}) stoppedEarly=${stoppedEarly} elapsed=${totalElapsedSec}s`);
+  return { success: true, id: messageId, contactsSent: cumulativeFinalSent, totalContacts: cumulativeFinalTotal, stoppedEarly };
 }
 
 /**
