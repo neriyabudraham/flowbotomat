@@ -3257,14 +3257,7 @@ async function handleStatusView(connection, payload) {
     if (isLid) {
       // Try to resolve LID to phone number
       try {
-        const { baseUrl: lidBaseUrl, apiKey: lidApiKey } = await getWahaCredentialsForConnection(connection);
-        const wahaConnection = {
-          base_url: lidBaseUrl,
-          api_key: lidApiKey,
-          session_name: connection.session_name
-        };
-
-        const resolvedPhone = await wahaSession.resolveLid(wahaConnection, viewerPhone);
+        const resolvedPhone = await wahaSession.resolveLid(connection, viewerPhone);
         if (resolvedPhone) {
           viewerPhone = resolvedPhone;
         }
@@ -3362,14 +3355,7 @@ async function handleStatusReaction(connection, payload) {
     
     if (isLid) {
       try {
-        const { baseUrl: lidBaseUrl, apiKey: lidApiKey } = await getWahaCredentialsForConnection(connection);
-        const wahaConnection = {
-          base_url: lidBaseUrl,
-          api_key: lidApiKey,
-          session_name: connection.session_name
-        };
-
-        const resolvedPhone = await wahaSession.resolveLid(wahaConnection, reactorPhone);
+        const resolvedPhone = await wahaSession.resolveLid(connection, reactorPhone);
         if (resolvedPhone) {
           reactorPhone = resolvedPhone;
         }

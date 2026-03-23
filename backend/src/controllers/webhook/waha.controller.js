@@ -86,14 +86,8 @@ async function resolveLidToPhone(userId, lid) {
     
     if (connResult.rows.length > 0) {
       const conn = connResult.rows[0];
-      const { baseUrl, apiKey } = await getWahaCredentialsForConnection(conn);
-      const connection = {
-        base_url: baseUrl,
-        api_key: apiKey,
-        session_name: conn.session_name
-      };
-      
-      const phone = await wahaSession.resolveLid(connection, cleanLid);
+
+      const phone = await wahaSession.resolveLid(conn, cleanLid);
       
       if (phone) {
         // Save to DB for future lookups
