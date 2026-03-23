@@ -483,6 +483,17 @@ export default function AdminStatusBot() {
     }
   };
 
+  const handleUnrestrictAllUsers = async () => {
+    if (!confirm('להסיר את ההגבלה מכל המשתמשים?')) return;
+    try {
+      const { data } = await api.post('/status-bot/admin/unrestrict-all-users');
+      alert(`הוסרה ההגבלה מ-${data.unrestricted} משתמשים`);
+      loadData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בהסרת הגבלה');
+    }
+  };
+
   const filteredUsers = users.filter(u =>
     !search ||
     u.email?.toLowerCase().includes(search.toLowerCase()) ||
@@ -767,6 +778,15 @@ export default function AdminStatusBot() {
           >
             <Ban className="w-4 h-4" />
             חסום כלל הלקוחות
+          </button>
+
+          {/* Unrestrict all users */}
+          <button
+            onClick={handleUnrestrictAllUsers}
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200"
+          >
+            <Check className="w-4 h-4" />
+            אישור כלל הלקוחות
           </button>
         </div>
       </div>

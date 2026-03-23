@@ -127,14 +127,15 @@ router.get('/admin/queue-settings', authMiddleware, adminMiddleware, statusBotCo
 router.patch('/admin/queue-settings', authMiddleware, adminMiddleware, statusBotController.adminUpdateQueueSettings);
 router.patch('/admin/user/:connectionId/set-restriction', authMiddleware, superadminMiddleware, statusBotController.adminSetRestriction);
 
-// Admin queue management
+// Admin queue management (specific routes MUST come before :queueId param route)
 router.get('/admin/queue/all', authMiddleware, adminMiddleware, statusBotController.adminGetAllQueueItems);
-router.delete('/admin/queue/:queueId', authMiddleware, adminMiddleware, statusBotController.adminCancelQueueItem);
 router.post('/admin/queue/bulk-cancel', authMiddleware, adminMiddleware, statusBotController.adminBulkCancelQueue);
 router.get('/admin/queue/pause', authMiddleware, adminMiddleware, statusBotController.adminGetQueuePauseStatus);
 router.post('/admin/queue/pause', authMiddleware, adminMiddleware, statusBotController.adminPauseQueue);
 router.delete('/admin/queue/pause', authMiddleware, adminMiddleware, statusBotController.adminResumeQueue);
+router.delete('/admin/queue/:queueId', authMiddleware, adminMiddleware, statusBotController.adminCancelQueueItem);
 router.post('/admin/restrict-all-users', authMiddleware, superadminMiddleware, statusBotController.adminRestrictAllUsers);
+router.post('/admin/unrestrict-all-users', authMiddleware, superadminMiddleware, statusBotController.adminUnrestrictAllUsers);
 
 // User-specific admin routes
 router.get('/admin/user/:connectionId/errors', authMiddleware, adminMiddleware, statusBotController.adminGetUserErrors);

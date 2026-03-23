@@ -4104,6 +4104,26 @@ async function adminRestrictAllUsers(req, res) {
 }
 
 /**
+ * Admin: remove restriction from all connected users
+ */
+async function adminUnrestrictAllUsers(req, res) {
+  try {
+    const result = await db.query(`
+      UPDATE status_bot_connections
+      SET short_restriction_until = NULL, updated_at = NOW()
+      WHERE connection_status = 'connected'
+        AND short_restriction_until IS NOT NULL
+      RETURNING id
+    `);
+    console.log(`[StatusBot Admin] Unrestricted ${result.rowCount} users`);
+    res.json({ success: true, unrestricted: result.rowCount });
+  } catch (e) {
+    console.error('[StatusBot Admin] adminUnrestrictAllUsers error:', e);
+    res.status(500).json({ error: 'שגיאה בהסרת חסימה' });
+  }
+}
+
+/**
  * User: reorder two adjacent queue items by swapping their created_at
  */
 async function reorderQueueItems(req, res) {
@@ -4235,6 +4255,7 @@ module.exports = {
   adminResumeQueue,
   adminGetQueuePauseStatus,
   adminRestrictAllUsers,
+  adminUnrestrictAllUsers,
   reorderQueueItems,
 
   // Webhook
