@@ -355,6 +355,23 @@ server.listen(PORT, () => {
       await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS contacts_cache JSONB`);
       await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS contacts_cache_synced_at TIMESTAMP`);
       await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS contacts_cache_count INT DEFAULT 0`);
+
+      // Per-contact send log (contacts format only)
+      await dbQuery(`
+        CREATE TABLE IF NOT EXISTS status_bot_contact_sends (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          history_id UUID NOT NULL REFERENCES status_bot_statuses(id) ON DELETE CASCADE,
+          queue_id UUID NOT NULL,
+          phone VARCHAR(50) NOT NULL,
+          batch_number INT NOT NULL DEFAULT 1,
+          success BOOLEAN NOT NULL DEFAULT true,
+          error_message TEXT,
+          sent_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `);
+      await dbQuery(`CREATE INDEX IF NOT EXISTS idx_sbcs_history ON status_bot_contact_sends(history_id)`);
+      await dbQuery(`CREATE INDEX IF NOT EXISTS idx_sbcs_queue ON status_bot_contact_sends(queue_id)`);
+
       // Seed default source from env vars and backfill existing connections
       try {
         const { encrypt: encryptForSeed } = require('./services/crypto/encrypt.service');

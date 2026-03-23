@@ -604,6 +604,32 @@ async function fetchAndCacheContacts(baseUrl, apiKey, sessionName, connectionId)
 }
 
 /**
+ * Bulk-insert per-contact send log rows into status_bot_contact_sends.
+ * success=true for all contacts in a successful/timeout batch, false for error batch.
+ */
+async function logContactSends(historyId, queueId, contacts, batchNum, success, errorMessage) {
+  if (!historyId || !contacts || contacts.length === 0) return;
+  try {
+    // Build VALUES list: (historyId, queueId, phone, batchNum, success, errorMessage, NOW())
+    const values = [];
+    const params = [];
+    let paramIdx = 1;
+    for (const contactId of contacts) {
+      const phone = typeof contactId === 'string' ? contactId.replace(/@.*/, '') : String(contactId);
+      values.push(`($${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, NOW())`);
+      params.push(historyId, queueId, phone, batchNum, success, errorMessage || null);
+    }
+    await db.query(
+      `INSERT INTO status_bot_contact_sends (history_id, queue_id, phone, batch_number, success, error_message, sent_at)
+       VALUES ${values.join(',')}`,
+      params
+    );
+  } catch (e) {
+    console.error(`[StatusBot Contacts] Failed to log contact sends: ${e.message}`);
+  }
+}
+
+/**
  * Send status using the "contacts" format:
  * - Fetches own phone + all contacts from WAHA
  * - Orders: own phone first, then viewers (from status_bot_views), then non-viewers
@@ -616,19 +642,24 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   const BATCH_SIZE = 500;
   const CALL_TIMEOUT_MS = 30000;  // 30 seconds per individual WAHA call
   const PAUSE_MS = 60000;         // 1 minute pause after first timeout
+  const LOG_PREFIX = `[StatusBot Contacts | queue=${queueItem.id} | conn=${queueItem.connection_id}]`;
+
+  console.log(`${LOG_PREFIX} ▶️ Starting contacts-format send. type=${queueItem.status_type} messageId=${messageId} historyId=${historyId}`);
 
   // 1. Get own ID
   let ownId = null;
   try {
+    console.log(`${LOG_PREFIX} 🔍 Fetching own session ID from WAHA...`);
     const me = await wahaSession.makeRequest(baseUrl, apiKey, 'GET', `/api/${sessionName}/me`);
     ownId = me?.id;
-    console.log(`[StatusBot Contacts] Own ID: ${ownId}`);
+    console.log(`${LOG_PREFIX} ✅ Own ID: ${ownId}`);
   } catch (err) {
-    console.warn(`[StatusBot Contacts] Could not get own ID: ${err.message}`);
+    console.warn(`${LOG_PREFIX} ⚠️ Could not get own ID — will proceed without it. Error: ${err.message}`);
   }
 
   // 2. Get contacts — use DB cache if fresh (<24h), otherwise fetch from WAHA + save cache
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+  console.log(`${LOG_PREFIX} 📦 Checking contacts cache...`);
   const connCacheRes = await db.query(
     `SELECT contacts_cache, contacts_cache_synced_at FROM status_bot_connections WHERE id = $1`,
     [queueItem.connection_id]
@@ -641,12 +672,17 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   let allContacts;
   if (connCache?.contacts_cache && cacheAgeMs < CACHE_TTL_MS) {
     allContacts = Array.isArray(connCache.contacts_cache) ? connCache.contacts_cache : [];
-    console.log(`[StatusBot Contacts] Using cached contacts: ${allContacts.length} (${Math.round(cacheAgeMs / 3600000)}h old)`);
+    const cacheAgeHours = (cacheAgeMs / 3600000).toFixed(1);
+    console.log(`${LOG_PREFIX} ✅ Using DB cache: ${allContacts.length} contacts (${cacheAgeHours}h old, synced at ${connCache.contacts_cache_synced_at})`);
   } else {
+    const reason = cacheAgeMs === Infinity ? 'never synced' : `cache ${(cacheAgeMs / 3600000).toFixed(1)}h old (>24h)`;
+    console.log(`${LOG_PREFIX} 🔄 Cache stale — fetching fresh contacts from WAHA. Reason: ${reason}`);
     allContacts = await fetchAndCacheContacts(baseUrl, apiKey, sessionName, queueItem.connection_id);
+    console.log(`${LOG_PREFIX} ✅ Fetched ${allContacts.length} contacts from WAHA and saved to cache`);
   }
 
   // 3. Get viewer phone numbers for this connection (people who viewed any previous status)
+  console.log(`${LOG_PREFIX} 👁️ Querying previous viewers for priority ordering...`);
   const viewersResult = await db.query(`
     SELECT DISTINCT sbv.viewer_phone
     FROM status_bot_views sbv
@@ -654,6 +690,7 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     WHERE sbs.connection_id = $1
   `, [queueItem.connection_id]);
   const viewerPhones = new Set(viewersResult.rows.map(r => r.viewer_phone));
+  console.log(`${LOG_PREFIX} 👁️ Found ${viewerPhones.size} unique viewers from past statuses`);
 
   // 4. Build ordered contact list: own phone → viewers → non-viewers (dedup)
   const seen = new Set();
@@ -673,11 +710,13 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     }
   }
   orderedContacts.push(...viewers, ...nonViewers);
-  console.log(`[StatusBot Contacts] Ordered contacts: ${orderedContacts.length} total (${viewers.length} viewers, ${nonViewers.length} non-viewers)`);
+  const totalBatches = Math.ceil(orderedContacts.length / BATCH_SIZE);
+  console.log(`${LOG_PREFIX} 📋 Contact order built: ${orderedContacts.length} total | own:1 viewers:${viewers.length} non-viewers:${nonViewers.length} | batches:${totalBatches} (BATCH_SIZE=${BATCH_SIZE})`);
 
   // 5. Send in batches
   let totalSent = 0;
   let timeoutCount = 0;
+  const startTime = Date.now();
 
   for (let i = 0; i < orderedContacts.length; i += BATCH_SIZE) {
     const batch = orderedContacts.slice(i, i + BATCH_SIZE);
@@ -685,46 +724,58 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     const endpoint = `/api/${sessionName}/status/${queueItem.status_type}`;
     const body = buildStatusBody(messageId, batch, queueItem.status_type, content, preConvertedFile);
 
+    console.log(`${LOG_PREFIX} 📤 Batch ${batchNum}/${totalBatches} — sending to ${batch.length} contacts (contacts: ${batch.slice(0,3).join(', ')}${batch.length > 3 ? ` ...+${batch.length - 3}` : ''}) timeout=${CALL_TIMEOUT_MS}ms`);
+
     let batchTimedOut = false;
+    const batchStart = Date.now();
     try {
       const sendPromise = wahaSession.makeRequest(baseUrl, apiKey, 'POST', endpoint, body);
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('BATCH_TIMEOUT')), CALL_TIMEOUT_MS)
       );
-      await Promise.race([sendPromise, timeoutPromise]);
+      const wahaResponse = await Promise.race([sendPromise, timeoutPromise]);
+      const batchDurationMs = Date.now() - batchStart;
       totalSent += batch.length;
-      console.log(`[StatusBot Contacts] Batch ${batchNum} OK — total so far: ${totalSent}/${orderedContacts.length}`);
+      console.log(`${LOG_PREFIX} ✅ Batch ${batchNum}/${totalBatches} OK in ${batchDurationMs}ms — cumulative sent: ${totalSent}/${orderedContacts.length} | WAHA resp id: ${wahaResponse?.id || 'n/a'}`);
+      await logContactSends(historyId, queueItem.id, batch, batchNum, true, null);
     } catch (err) {
+      const batchDurationMs = Date.now() - batchStart;
       if (err.message === 'BATCH_TIMEOUT') {
         batchTimedOut = true;
         timeoutCount++;
-        totalSent += batch.length; // assume the call reached WhatsApp
-        console.warn(`[StatusBot Contacts] Batch ${batchNum} TIMEOUT #${timeoutCount} — total so far: ${totalSent}`);
+        totalSent += batch.length; // assume the call reached WhatsApp before timeout
+        console.warn(`${LOG_PREFIX} ⏱️ Batch ${batchNum}/${totalBatches} TIMEOUT after ${batchDurationMs}ms (timeout #${timeoutCount}) — assuming delivered, cumulative: ${totalSent}/${orderedContacts.length}`);
+        await logContactSends(historyId, queueItem.id, batch, batchNum, true, 'TIMEOUT — assumed delivered');
       } else {
-        console.error(`[StatusBot Contacts] Batch ${batchNum} error: ${err.message}`);
-        // Non-timeout error: skip batch, continue
+        console.error(`${LOG_PREFIX} ❌ Batch ${batchNum}/${totalBatches} ERROR after ${batchDurationMs}ms: ${err.message}`);
+        // Non-timeout error: skip batch, log as failed, continue
+        await logContactSends(historyId, queueItem.id, batch, batchNum, false, err.message);
       }
     }
 
     if (batchTimedOut) {
       if (timeoutCount === 1) {
-        console.log(`[StatusBot Contacts] First timeout — waiting 1 minute before continuing...`);
+        console.log(`${LOG_PREFIX} ⏸️ First timeout — pausing ${PAUSE_MS / 1000}s before continuing with next batch...`);
         await new Promise(resolve => setTimeout(resolve, PAUSE_MS));
+        console.log(`${LOG_PREFIX} ▶️ Resuming after pause`);
       } else {
         // Second timeout — stop
-        console.log(`[StatusBot Contacts] Second timeout — stopping. Total sent: ${totalSent}/${orderedContacts.length}`);
+        const remaining = orderedContacts.length - (i + BATCH_SIZE);
+        console.log(`${LOG_PREFIX} 🛑 Second timeout — stopping. totalSent=${totalSent} remaining≈${remaining} elapsed=${Math.round((Date.now() - startTime) / 1000)}s`);
         break;
       }
     }
   }
 
+  const totalElapsedSec = Math.round((Date.now() - startTime) / 1000);
+
   // Save total contacts reached to connection row
   await db.query(
     `UPDATE status_bot_connections SET contacts_send_total = $1 WHERE id = $2`,
     [totalSent, queueItem.connection_id]
-  ).catch(e => console.error('[StatusBot Contacts] Failed to save total:', e.message));
+  ).catch(e => console.error(`${LOG_PREFIX} Failed to save total: ${e.message}`));
 
-  console.log(`[StatusBot Contacts] Done. Sent to ${totalSent} contacts.`);
+  console.log(`${LOG_PREFIX} 🏁 Done. totalSent=${totalSent}/${orderedContacts.length} timeouts=${timeoutCount} elapsed=${totalElapsedSec}s`);
   return { success: true, id: messageId, contactsSent: totalSent };
 }
 

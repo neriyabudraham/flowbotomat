@@ -1736,6 +1736,14 @@ async function getStatusDetails(req, res) {
       SELECT * FROM status_bot_replies WHERE status_id = $1 ORDER BY replied_at DESC
     `, [statusId]);
 
+    // Per-contact send log (contacts format only — empty for default format)
+    const contactSendsResult = await db.query(`
+      SELECT phone, batch_number, success, error_message, sent_at
+      FROM status_bot_contact_sends
+      WHERE history_id = $1
+      ORDER BY batch_number ASC, sent_at ASC
+    `, [statusId]).catch(() => ({ rows: [] }));
+
     // Normalize status content for frontend
     const status = normalizeRow(statusResult.rows[0]);
 
@@ -1743,7 +1751,8 @@ async function getStatusDetails(req, res) {
       status: status,
       views: viewsResult.rows,
       reactions: reactionsResult.rows,
-      replies: repliesResult.rows
+      replies: repliesResult.rows,
+      contactSends: contactSendsResult.rows,
     });
 
   } catch (error) {
