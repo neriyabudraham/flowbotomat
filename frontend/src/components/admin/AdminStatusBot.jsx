@@ -320,6 +320,19 @@ export default function AdminStatusBot() {
     }
   };
 
+  const handleToggleViewersFirst = async (e, connectionId, currentValue) => {
+    e.stopPropagation();
+    const newValue = !currentValue;
+    const label = newValue ? 'צופים קודם' : 'רגיל קודם (צופים רק בטיימאאוט)';
+    if (!confirm(`לעבור ל-${label} עבור משתמש זה?`)) return;
+    try {
+      await api.patch(`/status-bot/admin/user/${connectionId}/viewers-first`, { enabled: newValue });
+      setUsers(prev => prev.map(u => u.id === connectionId ? { ...u, viewers_first_mode: newValue } : u));
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בעדכון');
+    }
+  };
+
   const handleSyncPhones = async () => {
     if (!confirm('לסנכרן מספרי טלפון מכל החיבורים?')) return;
     
@@ -649,16 +662,16 @@ export default function AdminStatusBot() {
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {[
-              { key: 'timeoutMinutes', label: 'טיימאאוט (דקות)', min: 0.5, step: 0.5 },
-              { key: 'maxParallelTotal', label: 'מקסימום מקביל סה"כ', min: 1, step: 1 },
-              { key: 'maxParallelPerSource', label: 'מקסימום מקביל לשרת', min: 1, step: 1 },
-              { key: 'delayBetweenStatusesSeconds', label: 'השהיה בין סטטוסים (שניות)', min: 0, step: 1 },
+              { key: 'maxParallelTotal', label: 'לקוחות מקבילים סה"כ (כל השרתים)', min: 1, step: 1 },
+              { key: 'maxParallelPerSource', label: 'לקוחות מקבילים לשרת WAHA', min: 1, step: 1 },
+              { key: 'delayBetweenStatusesSeconds', label: 'השהיה בין סטטוסים של אותו לקוח (שניות)', min: 0, step: 1 },
+              { key: 'timeoutMinutes', label: 'טיימאאוט להעלאה (דקות)', min: 0.5, step: 0.5 },
               { key: 'restrictionNewSessionHours', label: 'השהיה - סשן חדש (שעות)', min: 0, step: 0.5 },
               { key: 'restrictionWithMainBotMinutes', label: 'השהיה - בוט רגיל (דקות)', min: 0, step: 5 },
               { key: 'delayOnDisconnectMinutes', label: 'השהיה בניתוק (דקות)', min: 0, step: 1 },
-              { key: 'contactsParallelBatches', label: 'חבילות מקבילות (contacts)', min: 1, step: 1 },
-              { key: 'contactsBatchSize', label: 'גודל חבילה (אנשי קשר)', min: 50, step: 50 },
-              { key: 'contactsTimeoutMs', label: 'טיימאאוט לחבילה (ms)', min: 5000, step: 5000 },
+              { key: 'contactsParallelBatches', label: 'באצ׳ים מקבילים בתוך העלאה אחת', min: 1, step: 1 },
+              { key: 'contactsBatchSize', label: 'אנשי קשר לכל באצ׳', min: 50, step: 50 },
+              { key: 'contactsTimeoutMs', label: 'טיימאאוט לבאצ׳ (ms)', min: 5000, step: 5000 },
               { key: 'contactsPauseMs', label: 'הפסקה אחרי timeout (ms)', min: 0, step: 5000 },
               { key: 'contactsMaxConsecutiveTimeouts', label: 'מקסימום timeouts רצופים', min: 1, step: 1 },
               { key: 'contactsViewerBatchCap', label: 'מקסימום צופים בבאצ׳ ראשון', min: 500, step: 500 },
@@ -1274,6 +1287,20 @@ export default function AdminStatusBot() {
                       >
                         {user.status_send_format === 'contacts' ? '👥 אנשי קשר' : '📡 רגיל'}
                       </button>
+                      {/* Viewers-first toggle (only for default format) */}
+                      {user.status_send_format !== 'contacts' && (
+                        <button
+                          onClick={(e) => handleToggleViewersFirst(e, user.id, user.viewers_first_mode)}
+                          className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium ${
+                            user.viewers_first_mode
+                              ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                          }`}
+                          title={user.viewers_first_mode ? 'צופים קודם — לחץ לעבור לרגיל (צופים רק בטיימאאוט)' : 'רגיל (צופים רק בטיימאאוט) — לחץ לעבור לצופים קודם'}
+                        >
+                          {user.viewers_first_mode ? '👁️ צופים קודם' : '⏱️ צופים בטיימאאוט'}
+                        </button>
+                      )}
                       <StatBadge icon={Upload} value={user.statuses_today || 0} label="היום" color="purple" />
                       <StatBadge icon={Clock} value={user.pending_count || 0} label="בתור" color="blue" />
                       {hasErrors && (

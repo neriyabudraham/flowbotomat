@@ -4034,6 +4034,24 @@ async function adminSetSendFormat(req, res) {
 }
 
 /**
+ * Admin: toggle viewers-first mode for a connection
+ */
+async function adminSetViewersFirstMode(req, res) {
+  try {
+    const { connectionId } = req.params;
+    const { enabled } = req.body;
+    await db.query(
+      `UPDATE status_bot_connections SET viewers_first_mode = $1, updated_at = NOW() WHERE id = $2`,
+      [!!enabled, connectionId]
+    );
+    res.json({ success: true, viewers_first_mode: !!enabled });
+  } catch (error) {
+    console.error('[StatusBot Admin] Set viewers-first mode error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון מצב צופים קודם' });
+  }
+}
+
+/**
  * Admin: update queue global settings
  */
 async function adminUpdateQueueSettings(req, res) {
@@ -4398,6 +4416,7 @@ module.exports = {
   adminUpdateQueueSettings,
   adminSetRestriction,
   adminSetSendFormat,
+  adminSetViewersFirstMode,
   refreshContactsCache,
   adminGetAllQueueItems,
   adminCancelQueueItem,

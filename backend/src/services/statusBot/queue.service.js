@@ -410,7 +410,7 @@ async function processQueue() {
     const candidates = await db.query(`
       SELECT q.*, c.session_name, c.connection_status, c.waha_source_id, c.waha_base_url,
              c.restriction_lifted, c.short_restriction_until, c.restriction_until,
-             c.first_connected_at, c.last_connected_at, c.status_send_format
+             c.first_connected_at, c.last_connected_at, c.status_send_format, c.viewers_first_mode
       FROM status_bot_queue q
       JOIN status_bot_connections c ON c.id = q.connection_id
       WHERE q.queue_status IN ('pending', 'scheduled')
@@ -1145,18 +1145,57 @@ async function sendStatus(queueItem) {
     return result;
   }
 
-  // Default format: first send to viewers in batches, then broadcast to all (no contacts)
-  // Step 1: Send to viewers in small batches so they see the status first
-  console.log(`[StatusBot] 📋 Default format: sending to viewers first, then broadcasting to all`);
-  const viewersResult = await sendStatusWithContacts(queueItem, {
-    baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile,
-    processingToken: queueItem._processingToken,
-    viewersOnly: true,
-  });
-  const viewersSent = viewersResult?.contactsSent || 0;
-  console.log(`[StatusBot] ✅ Viewers batch done: ${viewersSent} viewers sent`);
+  // Default format logic depends on viewers_first_mode (per-connection setting)
+  const viewersFirst = queueItem.viewers_first_mode === true || queueItem.viewers_first_mode === 'true';
 
-  // Step 2: Broadcast to all remaining contacts (classic single call, no contacts list)
+  if (viewersFirst) {
+    // ── Viewers-first mode: send to viewers in batches, then broadcast to all ──
+    console.log(`[StatusBot] 📋 Viewers-first mode: sending to viewers, then broadcasting`);
+    const viewersResult = await sendStatusWithContacts(queueItem, {
+      baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile,
+      processingToken: queueItem._processingToken,
+      viewersOnly: true,
+    });
+    const viewersSent = viewersResult?.contactsSent || 0;
+    console.log(`[StatusBot] ✅ Viewers done: ${viewersSent} sent — now broadcasting to all`);
+
+    const broadcastResult = await sendDefaultBroadcast(queueItem, {
+      baseUrl, apiKey, sessionName, messageId, historyId, historyMessageId, content, preConvertedFile,
+    });
+    return { ...broadcastResult, contactsSent: viewersSent };
+
+  } else {
+    // ── Classic mode (default): broadcast to all first, on timeout → send to viewers ──
+    console.log(`[StatusBot] 📡 Classic mode: broadcasting to all first`);
+    const broadcastResult = await sendDefaultBroadcast(queueItem, {
+      baseUrl, apiKey, sessionName, messageId, historyId, historyMessageId, content, preConvertedFile,
+    });
+
+    if (broadcastResult?.timeout) {
+      console.log(`[StatusBot] ⏱️ Broadcast TIMEOUT — falling back to viewers-only batch send`);
+      const fallbackResult = await sendStatusWithContacts(queueItem, {
+        baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile,
+        processingToken: queueItem._processingToken,
+        viewersOnly: true,
+      });
+      const actualId = fallbackResult?.id;
+      if (actualId && actualId !== historyMessageId && historyId) {
+        await db.query(
+          `UPDATE status_bot_statuses SET waha_message_id = $1, updated_at = NOW() WHERE id = $2`,
+          [actualId, historyId]
+        );
+      }
+      return { ...fallbackResult, timeout: true };
+    }
+
+    return broadcastResult;
+  }
+}
+
+/**
+ * Send a single broadcast call (no contacts list) with timeout handling
+ */
+async function sendDefaultBroadcast(queueItem, { baseUrl, apiKey, sessionName, messageId, historyId, historyMessageId, content, preConvertedFile }) {
   const endpoint = `/api/${sessionName}/status/${queueItem.status_type}`;
   const body = buildStatusBody(messageId, null, queueItem.status_type, content, preConvertedFile);
 
@@ -1165,7 +1204,6 @@ async function sendStatus(queueItem) {
     setTimeout(() => resolve({ timeout: true, id: messageId }), timeoutMs);
   });
 
-  console.log(`[StatusBot] 📡 Broadcasting to all contacts (no contact list)...`);
   const sendPromise = wahaSession.makeRequest(baseUrl, apiKey, 'POST', endpoint, body)
     .catch(err => {
       const status = err.response?.status;
@@ -1182,13 +1220,13 @@ async function sendStatus(queueItem) {
     if (historyId) {
       await db.query(`UPDATE status_bot_statuses SET uncertain_upload = true WHERE id = $1`, [historyId]);
     }
-    console.log(`[StatusBot] ⚠️ Status id=${queueItem.id} broadcast uncertain (WAHA 5xx) - awaiting first view`);
-    return { success: true, uncertain: true, id: messageId, contactsSent: viewersSent };
+    console.log(`[StatusBot] ⚠️ Status id=${queueItem.id} broadcast uncertain (WAHA 5xx)`);
+    return { success: true, uncertain: true, id: messageId };
   }
 
   if (response?.timeout) {
-    console.log(`[StatusBot] ⏱️ Status id=${queueItem.id} broadcast TIMEOUT — viewers were already sent (${viewersSent})`);
-    return { success: true, timeout: true, id: messageId, contactsSent: viewersSent };
+    console.log(`[StatusBot] ⏱️ Status id=${queueItem.id} broadcast TIMEOUT`);
+    return { success: true, timeout: true, id: messageId };
   }
 
   // Update history with actual message ID if different
@@ -1201,7 +1239,7 @@ async function sendStatus(queueItem) {
     `, [actualMessageId, historyId]);
   }
 
-  return { ...response, contactsSent: viewersSent };
+  return response;
 }
 
 /**
