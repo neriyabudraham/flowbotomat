@@ -308,7 +308,24 @@ function StatusBotDashboardContent() {
       socket.disconnect();
     };
   }, [step]);
-  
+
+  // Poll in-progress statuses every 5 seconds when there are processing items
+  useEffect(() => {
+    if (step !== 'dashboard') return;
+    const hasProcessing = inProgressStatuses.some(s => s.queue_status === 'processing');
+    if (!hasProcessing) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await api.get('/status-bot/in-progress');
+        setInProgressStatuses(res.data.inProgress || []);
+        // If no more processing items, reload full dashboard
+        const stillProcessing = (res.data.inProgress || []).some(s => s.queue_status === 'processing');
+        if (!stillProcessing) loadDashboardData();
+      } catch {}
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [step, JSON.stringify(inProgressStatuses.map(s => s.id + s.queue_status))]);
+
   // Load available colors from settings
   const loadAvailableColors = async () => {
     try {
@@ -4290,9 +4307,26 @@ function FailedStatusesTab({ failedStatuses, setFailedStatuses, toast, loadDashb
                         }`}>
                           {status.queue_status === 'processing' ? 'בשליחה...' : 'בתור'}
                         </span>
+                        {status.queue_status === 'processing' && status.contacts_total > 0 && (
+                          <span className="text-xs font-medium text-yellow-700">
+                            {Math.round((status.contacts_sent / status.contacts_total) * 100)}%
+                          </span>
+                        )}
                         <span className="text-xs text-gray-400">{formatDate(status.created_at)}</span>
                       </div>
-                      <p className="text-gray-800 truncate text-sm mt-1">{getStatusPreview(status)}</p>
+                      {status.queue_status === 'processing' && status.contacts_total > 0 ? (
+                        <div className="mt-1.5">
+                          <div className="w-full bg-gray-200 rounded-full h-1.5">
+                            <div
+                              className="bg-yellow-500 h-1.5 rounded-full transition-all duration-500"
+                              style={{ width: `${Math.round((status.contacts_sent / status.contacts_total) * 100)}%` }}
+                            />
+                          </div>
+                          <p className="text-xs text-gray-500 mt-0.5">{status.contacts_sent.toLocaleString()} / {status.contacts_total.toLocaleString()} אנשי קשר</p>
+                        </div>
+                      ) : (
+                        <p className="text-gray-800 truncate text-sm mt-1">{getStatusPreview(status)}</p>
+                      )}
                     </div>
                     {status.queue_status === 'processing' && (
                       <Loader2 className="w-5 h-5 text-yellow-600 animate-spin" />

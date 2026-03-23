@@ -660,7 +660,7 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   const BATCH_SIZE = 500;
   const CALL_TIMEOUT_MS = 40000;  // 40 seconds per individual WAHA call
   const PAUSE_MS = 60000;         // 1 minute pause after first timeout
-  const PARALLEL_BATCHES = 3;     // Number of batches to send in parallel
+  const PARALLEL_BATCHES = await getSettingFloat('statusbot_contacts_parallel_batches', 3);
   const LOG_PREFIX = `[StatusBot Contacts | queue=${queueItem.id} | conn=${queueItem.connection_id}]`;
 
   console.log(`${LOG_PREFIX} ▶️ Starting contacts-format send. type=${queueItem.status_type} messageId=${messageId} historyId=${historyId}`);
@@ -820,9 +820,6 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       }
     }));
 
-    // Heartbeat: keep processing_started_at fresh so stuck-item detector doesn't reset us
-    await db.query(`UPDATE status_bot_queue SET processing_started_at = NOW() WHERE id = $1`, [queueItem.id]).catch(() => {});
-
     // Analyze wave results
     let waveTimeouts = 0;
     for (const result of waveResults) {
@@ -831,7 +828,14 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       if (val.timedOut) waveTimeouts++;
     }
 
-    console.log(`${LOG_PREFIX} 🌊 Wave done — cumulative sent: ${totalSent}/${orderedContacts.length} | timeouts in wave: ${waveTimeouts}/${wave.length}`);
+    const progressPct = orderedContacts.length > 0 ? Math.round((totalSent / orderedContacts.length) * 100) : 100;
+    console.log(`${LOG_PREFIX} 🌊 Wave done — cumulative sent: ${totalSent}/${orderedContacts.length} (${progressPct}%) | timeouts in wave: ${waveTimeouts}/${wave.length}`);
+
+    // Heartbeat + progress: keep processing_started_at fresh and update send progress
+    await db.query(
+      `UPDATE status_bot_queue SET processing_started_at = NOW(), contacts_sent = $2, contacts_total = $3 WHERE id = $1`,
+      [queueItem.id, totalSent, orderedContacts.length]
+    ).catch(() => {});
 
     // Timeout handling: if ALL batches in this wave timed out, it counts as consecutive
     if (waveTimeouts === wave.length) {

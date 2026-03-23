@@ -97,7 +97,7 @@ export default function AdminStatusBot() {
   const defaultQueueSettings = {
     timeoutMinutes: 10, maxParallelTotal: 5, maxParallelPerSource: 2,
     delayBetweenStatusesSeconds: 30, restrictionNewSessionHours: 24,
-    restrictionWithMainBotMinutes: 30, delayOnDisconnectMinutes: 0,
+    restrictionWithMainBotMinutes: 30, delayOnDisconnectMinutes: 0, contactsParallelBatches: 3,
   };
   const [queueSettings, setQueueSettings] = useState(defaultQueueSettings);
   const [editingSettings, setEditingSettings] = useState(
@@ -654,6 +654,7 @@ export default function AdminStatusBot() {
               { key: 'restrictionNewSessionHours', label: 'השהיה - סשן חדש (שעות)', min: 0, step: 0.5 },
               { key: 'restrictionWithMainBotMinutes', label: 'השהיה - בוט רגיל (דקות)', min: 0, step: 5 },
               { key: 'delayOnDisconnectMinutes', label: 'השהיה בניתוק (דקות)', min: 0, step: 1 },
+              { key: 'contactsParallelBatches', label: 'חבילות מקבילות (contacts)', min: 1, step: 1 },
             ].map(({ key, label, min, step }) => (
               <div key={key}>
                 <label className="text-xs text-gray-500 mb-1 block">{label}</label>

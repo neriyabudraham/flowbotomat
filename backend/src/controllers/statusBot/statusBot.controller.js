@@ -2247,7 +2247,7 @@ async function getInProgressStatuses(req, res) {
 
     // Get pending and processing items (including scheduled ones whose time has arrived)
     const result = await db.query(`
-      SELECT id, status_type, content, queue_status, created_at, scheduled_for
+      SELECT id, status_type, content, queue_status, created_at, scheduled_for, contacts_sent, contacts_total
       FROM status_bot_queue
       WHERE connection_id = $1
         AND queue_status IN ('pending', 'processing')
@@ -3906,6 +3906,7 @@ async function adminGetQueueSettings(req, res) {
       'statusbot_restriction_new_session_hours',
       'statusbot_restriction_with_main_bot_minutes',
       'statusbot_delay_on_disconnect_minutes',
+      'statusbot_contacts_parallel_batches',
     ];
     const result = await db.query(`SELECT key, value FROM system_settings WHERE key = ANY($1)`, [keys]);
     const settings = {
@@ -3916,6 +3917,7 @@ async function adminGetQueueSettings(req, res) {
       restrictionNewSessionHours: 24,
       restrictionWithMainBotMinutes: 30,
       delayOnDisconnectMinutes: 0,
+      contactsParallelBatches: 3,
     };
     for (const row of result.rows) {
       const val = parseFloat(JSON.parse(row.value));
@@ -3927,6 +3929,7 @@ async function adminGetQueueSettings(req, res) {
       if (row.key === 'statusbot_restriction_new_session_hours') settings.restrictionNewSessionHours = val;
       if (row.key === 'statusbot_restriction_with_main_bot_minutes') settings.restrictionWithMainBotMinutes = val;
       if (row.key === 'statusbot_delay_on_disconnect_minutes') settings.delayOnDisconnectMinutes = val;
+      if (row.key === 'statusbot_contacts_parallel_batches') settings.contactsParallelBatches = val;
     }
     res.json(settings);
   } catch (error) {
@@ -4035,6 +4038,7 @@ async function adminUpdateQueueSettings(req, res) {
       restrictionNewSessionHours: 'statusbot_restriction_new_session_hours',
       restrictionWithMainBotMinutes: 'statusbot_restriction_with_main_bot_minutes',
       delayOnDisconnectMinutes: 'statusbot_delay_on_disconnect_minutes',
+      contactsParallelBatches: 'statusbot_contacts_parallel_batches',
     };
     for (const [field, key] of Object.entries(settingsMap)) {
       if (req.body[field] !== undefined) {
