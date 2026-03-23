@@ -54,6 +54,8 @@ export default function ViewFilterDashboardPage() {
   const [page, setPage] = useState(1);
   const [showGray, setShowGray] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [syncingContacts, setSyncingContacts] = useState(false);
+  const [contactSyncResult, setContactSyncResult] = useState(null);
 
   // Handle Google OAuth return
   useEffect(() => {
@@ -238,6 +240,20 @@ export default function ViewFilterDashboardPage() {
       setError('שגיאה בהורדת הדוח');
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleSyncContacts = async () => {
+    setSyncingContacts(true);
+    setContactSyncResult(null);
+    try {
+      const { data } = await api.post('/whatsapp/contacts/pull');
+      setContactSyncResult({ success: true, imported: data.imported ?? 0, updated: data.updated ?? 0 });
+      loadViewers();
+    } catch (err) {
+      setContactSyncResult({ success: false, error: err.response?.data?.error || 'שגיאה בסנכרון אנשי קשר' });
+    } finally {
+      setSyncingContacts(false);
     }
   };
 
@@ -451,7 +467,18 @@ export default function ViewFilterDashboardPage() {
                     <span className="text-sm font-normal text-gray-500">({viewersMeta.total.toLocaleString()} סה"כ)</span>
                   )}
                 </h3>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={handleSyncContacts}
+                    disabled={syncingContacts}
+                    title="משוך שמות אנשי קשר מהוואטסאפ ועדכן את הרשימה"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-violet-50 text-violet-700 border border-violet-200 rounded-lg hover:bg-violet-100 transition-colors disabled:opacity-50"
+                  >
+                    {syncingContacts
+                      ? <><RefreshCw className="w-4 h-4 animate-spin" /> מסנכרן...</>
+                      : <><RefreshCw className="w-4 h-4" /> סנכרן שמות</>
+                    }
+                  </button>
                   <button
                     onClick={() => handleDownload('vcf')}
                     disabled={downloading}
@@ -475,6 +502,16 @@ export default function ViewFilterDashboardPage() {
                   </button>
                 </div>
               </div>
+
+              {contactSyncResult && (
+                <div className={`mb-3 px-3 py-2 rounded-lg text-sm flex items-center gap-2 ${contactSyncResult.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                  {contactSyncResult.success
+                    ? <><CheckCircle className="w-4 h-4 flex-shrink-0" /> סנכרון הושלם — {contactSyncResult.imported ?? 0} נוספו, {contactSyncResult.updated ?? 0} עודכנו</>
+                    : <><AlertCircle className="w-4 h-4 flex-shrink-0" /> {contactSyncResult.error}</>
+                  }
+                  <button onClick={() => setContactSyncResult(null)} className="mr-auto text-xs opacity-60 hover:opacity-100">✕</button>
+                </div>
+              )}
 
               <div className="flex flex-wrap gap-3">
                 <div className="relative flex-1 min-w-48">
