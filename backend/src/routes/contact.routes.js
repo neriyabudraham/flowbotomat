@@ -55,10 +55,23 @@ router.post('/submit', async (req, res) => {
       return res.status(400).json({ error: 'נא להזין מספר טלפון תקין' });
     }
 
-    // Get admin email from system settings
-    const result = await db.query(`SELECT value FROM system_settings WHERE key = 'site_config'`);
-    const siteConfig = typeof result.rows[0]?.value === 'string' ? JSON.parse(result.rows[0].value) : (result.rows[0]?.value || {});
-    const adminEmail = siteConfig.admin_email || process.env.ADMIN_EMAIL;
+    // Get admin email: site_config → env → first superadmin/admin user
+    let adminEmail = process.env.ADMIN_EMAIL;
+    if (!adminEmail) {
+      try {
+        const cfgResult = await db.query(`SELECT value FROM system_settings WHERE key = 'site_config'`);
+        const siteConfig = typeof cfgResult.rows[0]?.value === 'string' ? JSON.parse(cfgResult.rows[0].value) : (cfgResult.rows[0]?.value || {});
+        adminEmail = siteConfig.admin_email;
+      } catch { /* ignore */ }
+    }
+    if (!adminEmail) {
+      try {
+        const adminResult = await db.query(
+          `SELECT email FROM users WHERE role IN ('superadmin', 'admin') ORDER BY CASE role WHEN 'superadmin' THEN 0 ELSE 1 END, created_at ASC LIMIT 1`
+        );
+        adminEmail = adminResult.rows[0]?.email;
+      } catch { /* ignore */ }
+    }
 
     if (!adminEmail) {
       console.error('[Contact] No admin email configured');
