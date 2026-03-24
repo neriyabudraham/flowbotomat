@@ -1001,31 +1001,31 @@ async function completeLinking(userId, linkCode) {
  * Email template for access request
  */
 function getAccessRequestEmail(expertName, expertEmail, message) {
-  return `
-    <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-      <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
-        <h1 style="color: white; margin: 0;">בקשת גישה לחשבון</h1>
-      </div>
-      <div style="background: #f9fafb; padding: 30px; border-radius: 0 0 12px 12px;">
-        <p style="font-size: 16px; color: #111827;">
-          <strong>${expertName}</strong> (${expertEmail}) מבקש/ת גישה לנהל את החשבון שלך ב-Botomat.
-        </p>
-        ${message ? `
-        <div style="background: white; padding: 15px; border-radius: 8px; margin: 20px 0; border-right: 4px solid #6366f1;">
-          <p style="color: #374151; margin: 0;"><strong>הודעה:</strong></p>
-          <p style="color: #6b7280; margin: 10px 0 0 0;">${message}</p>
-        </div>
-        ` : ''}
-        <p style="color: #6b7280;">
-          היכנס להגדרות החשבון שלך כדי לאשר או לדחות את הבקשה.
-        </p>
-        <a href="${process.env.APP_URL || 'https://botomat.co.il'}/settings?tab=experts" 
-           style="display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; margin-top: 15px;">
-          צפה בבקשה
-        </a>
-      </div>
-    </div>
+  const {
+    wrapInLayout, ctaButton, infoCard, paragraph, COLORS, FRONTEND_URL,
+  } = require('../../services/mail/emailLayout.service');
+
+  const content = `
+    ${paragraph(`<strong>${expertName}</strong> (${expertEmail}) מבקש/ת גישה לנהל את החשבון שלך ב-Botomat.`)}
+
+    ${message ? infoCard(`
+      <p style="color:${COLORS.textMedium};margin:0 0 8px;font-weight:600;">הודעה:</p>
+      <p style="color:${COLORS.textLight};margin:0;">${message}</p>
+    `, '#ffffff', '#6366f1') : ''}
+
+    ${paragraph('היכנס להגדרות החשבון שלך כדי לאשר או לדחות את הבקשה.', { color: COLORS.textLight })}
+    ${ctaButton('צפה בבקשה', `${FRONTEND_URL}/settings?tab=experts`, '#6366f1', '#8b5cf6')}
   `;
+
+  return wrapInLayout({
+    content,
+    headerTitle: 'בקשת גישה לחשבון',
+    headerIcon: '🔗',
+    headerColor: '#6366f1',
+    headerColorEnd: '#8b5cf6',
+    preheader: `${expertName} מבקש/ת גישה לחשבון שלך`,
+    showUnsubscribe: false,
+  });
 }
 
 module.exports = {

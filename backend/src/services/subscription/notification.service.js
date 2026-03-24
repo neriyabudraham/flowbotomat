@@ -7,9 +7,20 @@ const {
   getSubscriptionAdminEmail 
 } = require('../mail/templates.service');
 
-// Admin email - you can also move this to environment variables
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'neriyabu100@gmail.com';
 const APP_URL = process.env.APP_URL || 'https://botomat.co.il';
+
+/**
+ * Get admin email from system settings or env
+ */
+async function getAdminEmail() {
+  try {
+    const result = await db.query(`SELECT config FROM system_settings WHERE key = 'site_config'`);
+    const siteConfig = result.rows[0]?.config || {};
+    return siteConfig.admin_email || process.env.ADMIN_EMAIL || null;
+  } catch {
+    return process.env.ADMIN_EMAIL || null;
+  }
+}
 
 /**
  * Send email notification for new subscription
@@ -40,6 +51,8 @@ async function sendNewSubscriptionEmail(userId, planName, amount, paymentDetails
 
     // Send to admin
     try {
+      const adminEmail = await getAdminEmail();
+      if (!adminEmail) throw new Error('No admin email configured');
       const adminHtml = getSubscriptionAdminEmail('new', {
         userName: user.name,
         userEmail: user.email,
@@ -49,7 +62,7 @@ async function sendNewSubscriptionEmail(userId, planName, amount, paymentDetails
         referredBy,
         eventDetails: paymentDetails.documentNumber ? `מס׳ מסמך: ${paymentDetails.documentNumber}` : null
       });
-      await sendMail(ADMIN_EMAIL, `🆕 מנוי חדש: ${user.email}`, adminHtml);
+      await sendMail(adminEmail, `🆕 מנוי חדש: ${user.email}`, adminHtml);
       console.log(`[SubNotification] New subscription email sent to admin`);
     } catch (e) {
       console.error('[SubNotification] Failed to send admin email:', e.message);
@@ -86,6 +99,8 @@ async function sendRenewalEmail(userId, planName, amount, nextChargeDate, paymen
 
     // Send to admin
     try {
+      const adminEmail = await getAdminEmail();
+      if (!adminEmail) throw new Error('No admin email configured');
       const adminHtml = getSubscriptionAdminEmail('renewal', {
         userName: user.name,
         userEmail: user.email,
@@ -95,7 +110,7 @@ async function sendRenewalEmail(userId, planName, amount, nextChargeDate, paymen
         referredBy,
         eventDetails: paymentDetails.documentNumber ? `מס׳ מסמך: ${paymentDetails.documentNumber}` : null
       });
-      await sendMail(ADMIN_EMAIL, `🔄 חידוש מנוי: ${user.email}`, adminHtml);
+      await sendMail(adminEmail, `🔄 חידוש מנוי: ${user.email}`, adminHtml);
       console.log(`[SubNotification] Renewal email sent to admin`);
     } catch (e) {
       console.error('[SubNotification] Failed to send admin email:', e.message);
@@ -133,6 +148,8 @@ async function sendCancellationEmail(userId, planName, expiresAt) {
 
     // Send to admin
     try {
+      const adminEmail = await getAdminEmail();
+      if (!adminEmail) throw new Error('No admin email configured');
       const adminHtml = getSubscriptionAdminEmail('cancellation', {
         userName: user.name,
         userEmail: user.email,
@@ -141,7 +158,7 @@ async function sendCancellationEmail(userId, planName, expiresAt) {
         referredBy,
         eventDetails: expiresAt ? `פעיל עד: ${new Date(expiresAt).toLocaleDateString('he-IL')}` : null
       });
-      await sendMail(ADMIN_EMAIL, `❌ ביטול מנוי: ${user.email}`, adminHtml);
+      await sendMail(adminEmail, `❌ ביטול מנוי: ${user.email}`, adminHtml);
       console.log(`[SubNotification] Cancellation email sent to admin`);
     } catch (e) {
       console.error('[SubNotification] Failed to send admin email:', e.message);

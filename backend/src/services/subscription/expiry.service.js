@@ -2,6 +2,10 @@ const db = require('../../config/database');
 const { getWahaCredentialsForConnection } = require('../settings/system.service');
 const wahaSession = require('../waha/session.service');
 const { sendMail } = require('../mail/transport.service');
+const {
+  wrapInLayout, ctaButton, alertBox, paragraph, greeting, dataTable,
+  COLORS, FRONTEND_URL,
+} = require('../mail/emailLayout.service');
 
 /**
  * Check and handle expired subscriptions
@@ -329,41 +333,38 @@ async function sendTrialExpiryReminders() {
         
         // Send email
         if (sub.user_email) {
-          const urgencyColor = daysLeft <= 1 ? '#e74c3c' : '#f39c12';
-          
+          const trialEmailSubject = daysLeft <= 1
+            ? `⏰ תקופת הניסיון שלך מסתיימת מחר!`
+            : `תקופת הניסיון שלך מסתיימת בעוד ${daysLeft} ימים`;
+
+          const trialEmailContent = `
+            ${greeting(sub.user_name)}
+            ${paragraph(`תקופת הניסיון שלך בתוכנית "<strong>${sub.plan_name}</strong>" מסתיימת ב-<strong>${formattedDate}</strong>.`)}
+
+            ${sub.has_payment_method
+              ? alertBox(`יש לך אמצעי תשלום שמור. לאחר סיום הניסיון תחויב אוטומטית ב-<strong>₪${chargeAmount}${discountDescription}</strong>.`, 'success')
+              : alertBox('לא הוספת עדיין אמצעי תשלום. לאחר סיום הניסיון החשבון שלך יעבור לתוכנית החינמית.', 'warning')
+            }
+
+            ${sub.has_payment_method
+              ? ctaButton('נהל מנוי', `${FRONTEND_URL}/settings?tab=subscription`, COLORS.warning, '#b45309')
+              : ctaButton('הוסף אמצעי תשלום', `${FRONTEND_URL}/settings?tab=subscription`, COLORS.primary, COLORS.primaryDark)
+            }
+
+            ${paragraph('יש לך שאלות? אנחנו כאן לעזור - פשוט השב למייל הזה.', { color: COLORS.textLight, size: '13' })}
+          `;
+
           await sendMail(
             sub.user_email,
-            daysLeft <= 1 
-              ? `⏰ תקופת הניסיון שלך מסתיימת מחר!`
-              : `תקופת הניסיון שלך מסתיימת בעוד ${daysLeft} ימים`,
-            `
-              <div dir="rtl" style="font-family: Arial, sans-serif;">
-                <h2 style="color: ${urgencyColor};">שלום ${sub.user_name || ''},</h2>
-                <p>תקופת הניסיון שלך בתוכנית "${sub.plan_name}" מסתיימת ב-<strong>${formattedDate}</strong>.</p>
-                
-                ${sub.has_payment_method ? `
-                  <div style="background: #e8f5e9; padding: 15px; border-radius: 8px; margin: 15px 0;">
-                    <p style="margin: 0; color: #2e7d32;">
-                      ✅ יש לך אמצעי תשלום שמור. לאחר סיום הניסיון תחויב אוטומטית ב-<strong>₪${chargeAmount}${discountDescription}</strong>.
-                    </p>
-                  </div>
-                  <p>אם אינך מעוניין להמשיך, תוכל לבטל את המנוי לפני סיום הניסיון:</p>
-                  <p><a href="${process.env.FRONTEND_URL}/settings/billing" style="background: #f44336; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">בטל מנוי</a></p>
-                ` : `
-                  <div style="background: #fff3e0; padding: 15px; border-radius: 8px; margin: 15px 0;">
-                    <p style="margin: 0; color: #e65100;">
-                      ⚠️ לא הוספת עדיין אמצעי תשלום. לאחר סיום הניסיון החשבון שלך יעבור לתוכנית החינמית.
-                    </p>
-                  </div>
-                  <p>כדי להמשיך ליהנות מכל היתרונות, הוסף אמצעי תשלום עכשיו:</p>
-                  <p><a href="${process.env.FRONTEND_URL}/settings/billing" style="background: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">הוסף אמצעי תשלום</a></p>
-                `}
-                
-                <p style="color: #666; font-size: 12px; margin-top: 30px;">
-                  יש לך שאלות? אנחנו כאן לעזור - פשוט השב למייל הזה.
-                </p>
-              </div>
-            `
+            trialEmailSubject,
+            wrapInLayout({
+              content: trialEmailContent,
+              headerTitle: daysLeft <= 1 ? 'הניסיון מסתיים מחר!' : `הניסיון מסתיים בעוד ${daysLeft} ימים`,
+              headerIcon: '⏰',
+              headerColor: daysLeft <= 1 ? COLORS.error : COLORS.warning,
+              headerColorEnd: daysLeft <= 1 ? '#b91c1c' : '#b45309',
+              preheader: trialEmailSubject,
+            })
           );
         }
         
@@ -477,48 +478,62 @@ async function handleExpiringManualSubscriptions() {
             VALUES ($1, $2, $3, $4::date, 'pending', 'renewal', $5, $6)
             ON CONFLICT DO NOTHING
           `, [
-            sub.user_id, 
-            sub.id, 
-            chargeAmount, 
+            sub.user_id,
+            sub.id,
+            chargeAmount,
             sub.expires_at,
             sub.plan_id,
             `חידוש מנוי - ${sub.plan_name}${discountDescription}`
           ]);
-          
+
           scheduled++;
           console.log(`[Manual Expiry] Scheduled renewal charge for ${sub.user_email}: ₪${chargeAmount}${discountDescription} on ${expiresAt.toISOString().split('T')[0]}`);
-          
+
           // Send notification about upcoming charge
+          const renewalContent = `
+            ${greeting(sub.user_name)}
+            ${paragraph(`המנוי שלך לתכנית "<strong>${sub.plan_name}</strong>" יסתיים ב-<strong>${formattedDate}</strong>.`)}
+            ${alertBox(`יש לך אמצעי תשלום שמור. המנוי יחודש אוטומטית ותחויב ב-<strong>₪${chargeAmount}${discountDescription}</strong>.`, 'info')}
+            ${paragraph('אם אינך מעוניין בחידוש, ניתן לבטל את המנוי עד למועד זה:')}
+            ${ctaButton('נהל מנוי', `${FRONTEND_URL}/settings?tab=subscription`, COLORS.warning, '#b45309')}
+          `;
+
           await sendMail(
             sub.user_email,
             `המנוי שלך יחודש אוטומטית ב-${formattedDate}`,
-            `
-              <div dir="rtl" style="font-family: Arial, sans-serif;">
-                <h2>שלום ${sub.user_name || ''},</h2>
-                <p>המנוי שלך לתכנית "${sub.plan_name}" יסתיים ב-${formattedDate}.</p>
-                <p>מכיוון שיש לך אמצעי תשלום שמור, המנוי יחודש אוטומטית ותחויב ב-₪${chargeAmount}${discountDescription}.</p>
-                <p>אם אינך מעוניין בחידוש, ניתן לבטל את המנוי עד למועד זה:</p>
-                <p><a href="${process.env.FRONTEND_URL}/settings/billing" style="background: #f59e0b; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">נהל מנוי</a></p>
-              </div>
-            `
+            wrapInLayout({
+              content: renewalContent,
+              headerTitle: 'חידוש מנוי אוטומטי',
+              headerIcon: '🔄',
+              headerColor: COLORS.info,
+              headerColorEnd: '#1d4ed8',
+              preheader: `המנוי שלך יחודש אוטומטית ב-${formattedDate}`,
+            })
           );
-          
+
         } else {
           // No payment method - just notify about expiry
+          const expiryContent = `
+            ${greeting(sub.user_name)}
+            ${paragraph(`המנוי שלך לתכנית "<strong>${sub.plan_name}</strong>" יסתיים ב-<strong>${formattedDate}</strong>.`)}
+            ${alertBox('לאחר תאריך זה, החשבון שלך יעבור לתכנית החינמית.', 'warning')}
+            ${paragraph('כדי להמשיך ליהנות מהיתרונות של התכנית הנוכחית, הוסף אמצעי תשלום:')}
+            ${ctaButton('הוסף אמצעי תשלום', `${FRONTEND_URL}/settings?tab=subscription`, COLORS.primary, COLORS.primaryDark)}
+          `;
+
           await sendMail(
             sub.user_email,
             `המנוי שלך מסתיים ב-${formattedDate}`,
-            `
-              <div dir="rtl" style="font-family: Arial, sans-serif;">
-                <h2>שלום ${sub.user_name || ''},</h2>
-                <p>המנוי שלך לתכנית "${sub.plan_name}" יסתיים ב-${formattedDate}.</p>
-                <p>לאחר תאריך זה, החשבון שלך יעבור לתכנית החינמית.</p>
-                <p>כדי להמשיך ליהנות מהיתרונות של התכנית הנוכחית, הוסף אמצעי תשלום:</p>
-                <p><a href="${process.env.FRONTEND_URL}/settings/billing" style="background: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">הוסף אמצעי תשלום</a></p>
-              </div>
-            `
+            wrapInLayout({
+              content: expiryContent,
+              headerTitle: 'המנוי שלך מסתיים בקרוב',
+              headerIcon: '⏰',
+              headerColor: COLORS.warning,
+              headerColorEnd: '#b45309',
+              preheader: `המנוי שלך מסתיים ב-${formattedDate}`,
+            })
           );
-          
+
           console.log(`[Manual Expiry] Notified ${sub.user_email} about expiring subscription (no payment method)`);
         }
         
@@ -640,17 +655,23 @@ async function handleExpiredServiceSubscriptions() {
         
         // Send email notification
         if (sub.user_email) {
+          const serviceExpiredContent = `
+            ${greeting(sub.user_name)}
+            ${paragraph(`המנוי שלך לשירות "<strong>${sub.service_name}</strong>" הסתיים.`)}
+            ${alertBox('כדי להמשיך להשתמש בשירות, חדש את המנוי שלך.', 'warning')}
+            ${ctaButton('חדש מנוי', `${FRONTEND_URL}/services`, COLORS.primary, COLORS.primaryDark)}
+          `;
+
           await sendMail(
             sub.user_email,
             `המנוי שלך ל${sub.service_name} הסתיים`,
-            `
-              <div dir="rtl" style="font-family: Arial, sans-serif;">
-                <h2>שלום ${sub.user_name || ''},</h2>
-                <p>המנוי שלך לשירות "<strong>${sub.service_name}</strong>" הסתיים.</p>
-                <p>כדי להמשיך להשתמש בשירות, חדש את המנוי:</p>
-                <p><a href="${process.env.FRONTEND_URL}/services" style="background: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">חדש מנוי</a></p>
-              </div>
-            `
+            wrapInLayout({
+              content: serviceExpiredContent,
+              headerTitle: `המנוי ל${sub.service_name} הסתיים`,
+              headerColor: COLORS.warning,
+              headerColorEnd: '#b45309',
+              preheader: `המנוי שלך ל${sub.service_name} הסתיים - חדש עכשיו`,
+            })
           );
         }
         

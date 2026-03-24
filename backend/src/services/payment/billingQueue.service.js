@@ -1,6 +1,10 @@
 const { pool } = require('../../config/database');
 const sumitService = require('./sumit.service');
 const { sendMail } = require('../mail/transport.service');
+const {
+  wrapInLayout, ctaButton, alertBox, paragraph, greeting, dataTable,
+  COLORS, FRONTEND_URL,
+} = require('../mail/emailLayout.service');
 
 /**
  * Schedule a charge in the billing queue
@@ -817,35 +821,35 @@ async function sendSuccessNotification(charge, chargeResult) {
     
     // Send email notification
     if (userEmail) {
+      const successContent = `
+        ${greeting(userName)}
+        ${alertBox('התשלום שלך בוצע בהצלחה!', 'success')}
+
+        ${dataTable([
+          ['סכום:', `₪${charge.amount}`, true],
+          ['תיאור:', charge.description || charge.plan_name_he],
+          ['חיוב הבא:', formattedNextDate],
+        ])}
+
+        ${chargeResult.documentURL
+          ? ctaButton('צפה בקבלה', chargeResult.documentURL, COLORS.success, '#047857')
+          : ''
+        }
+
+        ${paragraph(`<a href="${FRONTEND_URL}/settings?tab=subscription" style="color:${COLORS.primary};text-decoration:underline;">לניהול המנוי שלך</a>`, { size: '13', color: COLORS.textLight })}
+      `;
+
       await sendMail(
         userEmail,
         `התשלום בוצע בהצלחה - ₪${charge.amount}`,
-        `
-          <div dir="rtl" style="font-family: Arial, sans-serif;">
-            <h2>שלום ${userName},</h2>
-            <p>התשלום שלך בוצע בהצלחה! 🎉</p>
-            <table style="border-collapse: collapse; margin: 20px 0;">
-              <tr>
-                <td style="padding: 8px 16px; border: 1px solid #ddd; background: #f9f9f9;"><strong>סכום:</strong></td>
-                <td style="padding: 8px 16px; border: 1px solid #ddd;">₪${charge.amount}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 16px; border: 1px solid #ddd; background: #f9f9f9;"><strong>תיאור:</strong></td>
-                <td style="padding: 8px 16px; border: 1px solid #ddd;">${charge.description || charge.plan_name_he}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 16px; border: 1px solid #ddd; background: #f9f9f9;"><strong>חיוב הבא:</strong></td>
-                <td style="padding: 8px 16px; border: 1px solid #ddd;">${formattedNextDate}</td>
-              </tr>
-            </table>
-            ${chargeResult.documentURL ? `
-              <p><a href="${chargeResult.documentURL}" style="background: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">צפה בקבלה</a></p>
-            ` : ''}
-            <p style="color: #666; font-size: 12px; margin-top: 20px;">
-              לניהול המנוי שלך: <a href="${process.env.FRONTEND_URL}/settings/billing">לחץ כאן</a>
-            </p>
-          </div>
-        `
+        wrapInLayout({
+          content: successContent,
+          headerTitle: 'התשלום בוצע בהצלחה',
+          headerIcon: '✅',
+          headerColor: '#10b981',
+          headerColorEnd: COLORS.success,
+          preheader: `התשלום על סך ₪${charge.amount} בוצע בהצלחה`,
+        })
       );
     }
     
@@ -1081,56 +1085,71 @@ async function sendFailureNotifications(charge, errorCode, errorMessage, retryCo
     );
     const siteConfig = settingsResult.rows[0]?.config || {};
     const adminEmail = siteConfig.admin_email || process.env.ADMIN_EMAIL;
-    
+
+    const isLastRetry = retryCount >= maxRetries;
+
     // Send to admin
     if (adminEmail) {
+      const adminContent = `
+        ${dataTable([
+          ['משתמש:', charge.display_name || 'לא ידוע'],
+          ['אימייל:', charge.email],
+          ['סכום:', `₪${charge.amount}`],
+          ['סוג חיוב:', charge.billing_type],
+          ['קוד שגיאה:', errorCode],
+          ['הודעת שגיאה:', errorMessage],
+          ['ניסיון:', `${retryCount} מתוך ${maxRetries}`],
+        ])}
+        ${isLastRetry
+          ? alertBox('זהו הניסיון האחרון - המשתמש יורד לתוכנית חינמית!', 'error')
+          : alertBox('יבוצע ניסיון נוסף מחר.', 'warning')
+        }
+        ${ctaButton('צפה בפרופיל המשתמש', `${FRONTEND_URL}/admin?tab=users`, COLORS.primary, COLORS.primaryDark)}
+      `;
+
       await sendMail(
         adminEmail,
         `⚠️ כשלון בחיוב - ${charge.display_name || charge.email}`,
-        `
-          <div dir="rtl" style="font-family: Arial, sans-serif;">
-            <h2>כשלון בחיוב אוטומטי</h2>
-            <table style="border-collapse: collapse; width: 100%;">
-              <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>משתמש:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${charge.display_name || 'לא ידוע'}</td></tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>אימייל:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${charge.email}</td></tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>סכום:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">₪${charge.amount}</td></tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>סוג חיוב:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${charge.billing_type}</td></tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>קוד שגיאה:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${errorCode}</td></tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>הודעת שגיאה:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${errorMessage}</td></tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>ניסיון:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${retryCount} מתוך ${maxRetries}</td></tr>
-            </table>
-            ${retryCount < maxRetries ? 
-              `<p style="color: orange;">יבוצע ניסיון נוסף מחר.</p>` : 
-              `<p style="color: red;"><strong>זהו הניסיון האחרון - המשתמש יורד לתוכנית חינמית!</strong></p>`
-            }
-            <p><a href="${process.env.FRONTEND_URL}/admin?tab=users">צפה בפרופיל המשתמש</a></p>
-          </div>
-        `
+        wrapInLayout({
+          content: adminContent,
+          headerTitle: 'כשלון בחיוב אוטומטי',
+          headerIcon: '⚠️',
+          headerColor: COLORS.error,
+          headerColorEnd: '#b91c1c',
+          showUnsubscribe: false,
+        })
       );
     }
-    
+
     // Send to user (use receipt_email if set, otherwise user's email)
     const userEmail = charge.receipt_email || charge.email;
     if (userEmail) {
+      const userContent = `
+        ${greeting(charge.display_name)}
+        ${paragraph('לא הצלחנו לחייב את אמצעי התשלום שלך עבור המנוי.')}
+        ${alertBox(`<strong>סיבה:</strong> ${errorMessage}`, 'error')}
+        ${isLastRetry
+          ? alertBox('זהו הניסיון האחרון - אם החיוב יכשל שוב, תועבר לתוכנית החינמית.', 'error')
+          : alertBox('ננסה לחייב שוב מחר.', 'warning')
+        }
+        ${paragraph('אנא עדכן את פרטי התשלום שלך כדי למנוע הפסקת שירות:')}
+        ${ctaButton('עדכן פרטי תשלום', `${FRONTEND_URL}/settings?tab=subscription`, COLORS.primary, COLORS.primaryDark)}
+      `;
+
       await sendMail(
         userEmail,
         'בעיה בחיוב החודשי שלך - נדרשת פעולה',
-        `
-          <div dir="rtl" style="font-family: Arial, sans-serif;">
-            <h2>שלום ${charge.display_name || ''},</h2>
-            <p>לא הצלחנו לחייב את אמצעי התשלום שלך עבור המנוי.</p>
-            <p><strong>סיבה:</strong> ${errorMessage}</p>
-            <p>אנא עדכן את פרטי התשלום שלך כדי למנוע הפסקת שירות:</p>
-            <p><a href="${process.env.FRONTEND_URL}/settings/billing" style="background: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">עדכן פרטי תשלום</a></p>
-            ${retryCount < maxRetries ? 
-              `<p style="color: orange;">ננסה לחייב שוב מחר.</p>` : 
-              `<p style="color: red;"><strong>זהו הניסיון האחרון - אם החיוב יכשל שוב, תועבר לתוכנית החינמית.</strong></p>`
-            }
-          </div>
-        `
+        wrapInLayout({
+          content: userContent,
+          headerTitle: 'בעיה בחיוב',
+          headerIcon: '💳',
+          headerColor: COLORS.error,
+          headerColorEnd: '#b91c1c',
+          preheader: 'לא הצלחנו לחייב את אמצעי התשלום שלך',
+        })
       );
     }
-    
+
   } catch (error) {
     console.error('[BillingQueue] Error sending failure notifications:', error);
   }
@@ -1147,43 +1166,55 @@ async function sendDowngradeNotification(charge) {
     );
     const siteConfig = settingsResult.rows[0]?.config || {};
     const adminEmail = siteConfig.admin_email || process.env.ADMIN_EMAIL;
-    
+
     // Notify admin
     if (adminEmail) {
+      const adminContent = `
+        ${alertBox(`לאחר ${charge.max_retries || 2} ניסיונות חיוב כושלים, המשתמש הועבר לתוכנית החינמית.`, 'error')}
+        ${dataTable([
+          ['משתמש:', charge.display_name || 'לא ידוע'],
+          ['אימייל:', charge.email],
+          ['שגיאה אחרונה:', charge.last_error],
+        ])}
+      `;
+
       await sendMail(
         adminEmail,
         `🔻 משתמש הורד לתוכנית חינמית - ${charge.email}`,
-        `
-          <div dir="rtl" style="font-family: Arial, sans-serif;">
-            <h2>משתמש הורד לתוכנית חינמית</h2>
-            <p>לאחר ${charge.max_retries || 2} ניסיונות חיוב כושלים, המשתמש הועבר לתוכנית החינמית.</p>
-            <table style="border-collapse: collapse;">
-              <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>משתמש:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${charge.display_name || 'לא ידוע'}</td></tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>אימייל:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${charge.email}</td></tr>
-              <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>שגיאה אחרונה:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${charge.last_error}</td></tr>
-            </table>
-          </div>
-        `
+        wrapInLayout({
+          content: adminContent,
+          headerTitle: 'משתמש הורד לתוכנית חינמית',
+          headerIcon: '🔻',
+          headerColor: COLORS.error,
+          headerColorEnd: '#b91c1c',
+          showUnsubscribe: false,
+        })
       );
     }
-    
+
     // Notify user
     if (charge.email) {
+      const userContent = `
+        ${greeting(charge.display_name)}
+        ${paragraph('לצערנו, לא הצלחנו לחייב את אמצעי התשלום שלך למרות מספר ניסיונות.')}
+        ${alertBox('המנוי שלך הועבר לתוכנית החינמית.', 'warning')}
+        ${paragraph('אם ברצונך לחדש את המנוי, אנא עדכן את פרטי התשלום ובחר תוכנית חדשה:')}
+        ${ctaButton('צפה בתוכניות', `${FRONTEND_URL}/pricing`, COLORS.primary, COLORS.primaryDark)}
+      `;
+
       await sendMail(
         charge.email,
         'המנוי שלך הועבר לתוכנית החינמית',
-        `
-          <div dir="rtl" style="font-family: Arial, sans-serif;">
-            <h2>שלום ${charge.display_name || ''},</h2>
-            <p>לצערנו, לא הצלחנו לחייב את אמצעי התשלום שלך למרות מספר ניסיונות.</p>
-            <p>המנוי שלך הועבר לתוכנית החינמית.</p>
-            <p>אם ברצונך לחדש את המנוי, אנא עדכן את פרטי התשלום ובחר תוכנית חדשה:</p>
-            <p><a href="${process.env.FRONTEND_URL}/pricing" style="background: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">צפה בתוכניות</a></p>
-          </div>
-        `
+        wrapInLayout({
+          content: userContent,
+          headerTitle: 'המנוי שלך הועבר לתוכנית חינמית',
+          headerColor: COLORS.warning,
+          headerColorEnd: '#b45309',
+          preheader: 'המנוי שלך הועבר לתוכנית החינמית עקב בעיה בחיוב',
+        })
       );
     }
-    
+
   } catch (error) {
     console.error('[BillingQueue] Error sending downgrade notification:', error);
   }

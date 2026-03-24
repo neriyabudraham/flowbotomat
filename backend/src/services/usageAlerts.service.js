@@ -1,5 +1,9 @@
 const db = require('../config/database');
 const { sendMail } = require('./mail/transport.service');
+const {
+  wrapInLayout, ctaButton, infoCard, alertBox, paragraph, greeting, progressBar,
+  COLORS, FRONTEND_URL,
+} = require('./mail/emailLayout.service');
 
 /**
  * Usage alert thresholds
@@ -178,59 +182,44 @@ async function createAlertIfNeeded(user, usageData, threshold, currentPercentage
 async function sendUsageAlertEmail(user, usageData, percentage, planName) {
   try {
     const isAtLimit = percentage >= 100;
-    
-    const subject = isAtLimit 
+
+    const subject = isAtLimit
       ? `⚠️ הגעת למגבלת ${usageData.label} - Botomat`
       : `📊 ${percentage}% מ${usageData.label} נוצלו - Botomat`;
-    
-    const html = `
-      <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="color: #4F46E5; margin: 0;">Botomat</h1>
-        </div>
-        
-        <div style="background: ${isAtLimit ? '#FEE2E2' : '#FEF3C7'}; border-radius: 16px; padding: 24px; margin-bottom: 24px;">
-          <h2 style="color: ${isAtLimit ? '#DC2626' : '#D97706'}; margin: 0 0 12px 0;">
-            ${isAtLimit ? '⚠️ הגעת למגבלה' : '📊 התראת שימוש'}
-          </h2>
-          <p style="color: #1F2937; margin: 0;">
-            שלום ${user.name || 'משתמש'},<br><br>
-            ${isAtLimit 
-              ? `הגעת למגבלת ${usageData.label} בחבילת "${planName}".`
-              : `ניצלת ${percentage}% מ${usageData.label} בחבילת "${planName}".`
-            }
-          </p>
-        </div>
-        
-        <div style="background: #F3F4F6; border-radius: 16px; padding: 24px; margin-bottom: 24px;">
-          <h3 style="color: #374151; margin: 0 0 16px 0;">📈 סטטוס השימוש שלך</h3>
-          <div style="background: white; border-radius: 12px; padding: 16px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-              <span style="color: #6B7280;">${usageData.label}</span>
-              <span style="font-weight: bold; color: #1F2937;">${usageData.used} / ${usageData.limit}</span>
-            </div>
-            <div style="background: #E5E7EB; border-radius: 9999px; height: 12px; overflow: hidden;">
-              <div style="background: ${percentage >= 100 ? '#DC2626' : percentage >= 80 ? '#F59E0B' : '#10B981'}; height: 100%; width: ${Math.min(percentage, 100)}%; border-radius: 9999px;"></div>
-            </div>
-          </div>
-        </div>
-        
-        <div style="text-align: center;">
-          <a href="https://botomat.co.il/pricing" 
-             style="display: inline-block; background: linear-gradient(135deg, #4F46E5, #7C3AED); color: white; padding: 16px 32px; text-decoration: none; border-radius: 12px; font-weight: bold;">
-            🚀 שדרג את החבילה שלך
-          </a>
-        </div>
-        
-        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #E5E7EB; text-align: center; color: #9CA3AF; font-size: 12px;">
-          <p>© ${new Date().getFullYear()} Botomat. כל הזכויות שמורות.</p>
-        </div>
-      </div>
+
+    const content = `
+      ${greeting(user.name)}
+      ${isAtLimit
+        ? alertBox(`הגעת למגבלת ${usageData.label} בחבילת "${planName}". שדרג את החבילה כדי להמשיך.`, 'error')
+        : alertBox(`ניצלת ${percentage}% מ${usageData.label} בחבילת "${planName}".`, 'warning')
+      }
+
+      ${infoCard(`
+        <h3 style="margin:0 0 12px;color:${COLORS.textDark};font-size:15px;">סטטוס השימוש שלך</h3>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="color:${COLORS.textLight};font-size:14px;">${usageData.label}</td>
+            <td style="text-align:left;font-weight:600;color:${COLORS.textDark};font-size:14px;">${usageData.used} / ${usageData.limit}</td>
+          </tr>
+        </table>
+        ${progressBar(percentage)}
+      `)}
+
+      ${ctaButton('שדרג את החבילה שלך', `${FRONTEND_URL}/pricing`, COLORS.primary, COLORS.primaryDark)}
     `;
-    
+
+    const html = wrapInLayout({
+      content,
+      headerTitle: isAtLimit ? 'הגעת למגבלה' : 'התראת שימוש',
+      headerIcon: isAtLimit ? '⚠️' : '📊',
+      headerColor: isAtLimit ? COLORS.error : COLORS.warning,
+      headerColorEnd: isAtLimit ? '#b91c1c' : '#b45309',
+      preheader: subject,
+    });
+
     await sendMail(user.email, subject, html);
     console.log(`[UsageAlerts] Sent email to ${user.email}`);
-    
+
   } catch (error) {
     console.error('[UsageAlerts] Send email error:', error);
   }
@@ -412,50 +401,31 @@ function shouldSendNotification(userPrefs, notificationType, channel) {
  */
 async function sendBroadcastEmail(user, subject, message, type) {
   try {
-    const typeColors = {
-      promo: { bg: '#FDF2F8', color: '#BE185D', icon: '🎁' },
-      update: { bg: '#ECFDF5', color: '#059669', icon: '✨' },
-      subscription: { bg: '#EFF6FF', color: '#2563EB', icon: '💳' },
-      critical: { bg: '#FEF2F2', color: '#DC2626', icon: '⚠️' },
-      broadcast: { bg: '#F5F3FF', color: '#7C3AED', icon: '📢' },
+    const typeConfig = {
+      promo: { color: '#be185d', colorEnd: '#9d174d', icon: '🎁' },
+      update: { color: COLORS.success, colorEnd: '#047857', icon: '✨' },
+      subscription: { color: COLORS.info, colorEnd: '#1d4ed8', icon: '💳' },
+      critical: { color: COLORS.error, colorEnd: '#b91c1c', icon: '⚠️' },
+      broadcast: { color: '#7c3aed', colorEnd: '#6d28d9', icon: '📢' },
     };
-    
-    const colors = typeColors[type] || typeColors.broadcast;
-    
-    const html = `
-      <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="color: #4F46E5; margin: 0;">Botomat</h1>
-        </div>
-        
-        <div style="background: ${colors.bg}; border-radius: 16px; padding: 24px; margin-bottom: 24px;">
-          <h2 style="color: ${colors.color}; margin: 0 0 12px 0;">
-            ${colors.icon} ${subject}
-          </h2>
-          <p style="color: #1F2937; margin: 0; line-height: 1.6;">
-            שלום ${user.name || 'משתמש'},<br><br>
-            ${message}
-          </p>
-        </div>
-        
-        <div style="text-align: center;">
-          <a href="https://botomat.co.il/dashboard" 
-             style="display: inline-block; background: linear-gradient(135deg, #4F46E5, #7C3AED); color: white; padding: 16px 32px; text-decoration: none; border-radius: 12px; font-weight: bold;">
-            כניסה למערכת
-          </a>
-        </div>
-        
-        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #E5E7EB; text-align: center; color: #9CA3AF; font-size: 12px;">
-          <p>© ${new Date().getFullYear()} Botomat. כל הזכויות שמורות.</p>
-          <p style="margin-top: 8px;">
-            <a href="https://botomat.co.il/settings?tab=notifications" style="color: #6B7280;">
-              ניהול העדפות התראות
-            </a>
-          </p>
-        </div>
-      </div>
+
+    const config = typeConfig[type] || typeConfig.broadcast;
+
+    const content = `
+      ${greeting(user.name)}
+      ${paragraph(message)}
+      ${ctaButton('כניסה למערכת', `${FRONTEND_URL}/dashboard`, COLORS.primary, COLORS.primaryDark)}
     `;
-    
+
+    const html = wrapInLayout({
+      content,
+      headerTitle: subject,
+      headerIcon: config.icon,
+      headerColor: config.color,
+      headerColorEnd: config.colorEnd,
+      preheader: message.substring(0, 100),
+    });
+
     await sendMail(user.email, subject, html);
   } catch (error) {
     console.error('[UsageAlerts] Send broadcast email error:', error);
@@ -778,63 +748,39 @@ async function chargeProrata(userId, amount, currentSub, newPlan) {
 async function sendAutoUpgradeEmail(user, oldSub, upgradeResult) {
   try {
     const subject = `✅ המנוי שלך שודרג אוטומטית - Botomat`;
-    
-    const html = `
-      <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="color: #4F46E5; margin: 0;">Botomat</h1>
-        </div>
-        
-        <div style="background: #ECFDF5; border-radius: 16px; padding: 24px; margin-bottom: 24px;">
-          <h2 style="color: #059669; margin: 0 0 12px 0;">
-            ✅ המנוי שלך שודרג!
-          </h2>
-          <p style="color: #1F2937; margin: 0;">
-            שלום ${user.name || 'משתמש'},<br><br>
-            הגעת למגבלת ההרצות החודשית, ולכן המנוי שלך שודרג אוטומטית לתוכנית <strong>${upgradeResult.newPlan}</strong>.
-          </p>
-        </div>
-        
-        <div style="background: #F3F4F6; border-radius: 16px; padding: 24px; margin-bottom: 24px;">
-          <h3 style="color: #374151; margin: 0 0 16px 0;">📋 פרטי השדרוג</h3>
-          <table style="width: 100%; border-collapse: collapse;">
-            <tr>
-              <td style="padding: 8px 0; color: #6B7280;">תוכנית קודמת:</td>
-              <td style="padding: 8px 0; text-align: left; font-weight: bold;">${oldSub.plan_name}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; color: #6B7280;">תוכנית חדשה:</td>
-              <td style="padding: 8px 0; text-align: left; font-weight: bold; color: #059669;">${upgradeResult.newPlan}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; color: #6B7280;">הרצות חדשות:</td>
-              <td style="padding: 8px 0; text-align: left; font-weight: bold;">${upgradeResult.newLimit === -1 ? 'ללא הגבלה' : upgradeResult.newLimit.toLocaleString()}</td>
-            </tr>
-            ${upgradeResult.chargedAmount > 0 ? `
-            <tr>
-              <td style="padding: 8px 0; color: #6B7280;">חיוב יחסי:</td>
-              <td style="padding: 8px 0; text-align: left; font-weight: bold;">₪${upgradeResult.chargedAmount}</td>
-            </tr>
-            ` : ''}
-          </table>
-        </div>
-        
-        <div style="text-align: center;">
-          <a href="https://botomat.co.il/settings?tab=subscription" 
-             style="display: inline-block; background: linear-gradient(135deg, #4F46E5, #7C3AED); color: white; padding: 16px 32px; text-decoration: none; border-radius: 12px; font-weight: bold;">
-            צפה בהגדרות המנוי
-          </a>
-        </div>
-        
-        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #E5E7EB; text-align: center; color: #9CA3AF; font-size: 12px;">
-          <p>ניתן לבטל את השדרוג האוטומטי בהגדרות המנוי.</p>
-          <p>© ${new Date().getFullYear()} Botomat. כל הזכויות שמורות.</p>
-        </div>
-      </div>
+
+    const { dataTable } = require('./mail/emailLayout.service');
+
+    const rows = [
+      ['תוכנית קודמת:', oldSub.plan_name],
+      ['תוכנית חדשה:', upgradeResult.newPlan, true],
+      ['הרצות חדשות:', upgradeResult.newLimit === -1 ? 'ללא הגבלה' : upgradeResult.newLimit.toLocaleString()],
+    ];
+    if (upgradeResult.chargedAmount > 0) {
+      rows.push(['חיוב יחסי:', `₪${upgradeResult.chargedAmount}`]);
+    }
+
+    const content = `
+      ${greeting(user.name)}
+      ${alertBox(`הגעת למגבלת ההרצות החודשית, ולכן המנוי שלך שודרג אוטומטית לתוכנית <strong>${upgradeResult.newPlan}</strong>.`, 'success')}
+
+      ${dataTable(rows)}
+
+      ${ctaButton('צפה בהגדרות המנוי', `${FRONTEND_URL}/settings?tab=subscription`, COLORS.primary, COLORS.primaryDark)}
     `;
-    
+
+    const html = wrapInLayout({
+      content,
+      headerTitle: 'המנוי שלך שודרג!',
+      headerIcon: '✅',
+      headerColor: '#10b981',
+      headerColorEnd: COLORS.success,
+      preheader: `המנוי שודרג לתוכנית ${upgradeResult.newPlan}`,
+      footerExtra: `<p style="color:${COLORS.textMuted};font-size:12px;margin:0;">ניתן לבטל את השדרוג האוטומטי בהגדרות המנוי.</p>`,
+    });
+
     await sendMail(user.email, subject, html);
-    
+
     // Also create system notification
     await db.query(`
       INSERT INTO system_notifications (user_id, notification_type, title, message, alert_level, metadata)
@@ -850,9 +796,9 @@ async function sendAutoUpgradeEmail(user, oldSub, upgradeResult) {
         charged_amount: upgradeResult.chargedAmount
       })
     ]);
-    
+
     console.log(`[AutoUpgrade] Sent notification to ${user.email}`);
-    
+
   } catch (error) {
     console.error('[AutoUpgrade] Send email error:', error);
   }
