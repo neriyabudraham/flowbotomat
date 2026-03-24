@@ -430,12 +430,7 @@ async function processQueue() {
         AND NOT EXISTS (
           SELECT 1 FROM status_bot_queue q2
           WHERE q2.connection_id = q.connection_id AND q2.queue_status = 'processing'
-            AND (q2.viewers_done IS NOT TRUE)
         )
-        AND (
-          SELECT COUNT(*) FROM status_bot_queue q2b
-          WHERE q2b.connection_id = q.connection_id AND q2b.queue_status = 'processing'
-        ) < 2
         AND NOT EXISTS (
           SELECT 1 FROM status_bot_queue q4
           WHERE q4.connection_id = q.connection_id
