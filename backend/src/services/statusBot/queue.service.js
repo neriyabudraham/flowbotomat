@@ -696,6 +696,91 @@ async function fetchAndCacheContacts(baseUrl, apiKey, sessionName, connectionId)
 }
 
 /**
+ * Fetch LID-to-phone mappings from WAHA and cache them in whatsapp_lid_mapping.
+ * Returns a Map of lid (without suffix) → phone (without suffix).
+ * Only calls the API if there are unmapped LIDs in the DB cache.
+ */
+async function resolveLidMappings(baseUrl, apiKey, sessionName, userId, lidIds) {
+  if (!lidIds || lidIds.length === 0) return new Map();
+
+  const LOG = '[StatusBot LID]';
+  const lidToPhone = new Map();
+
+  // Strip suffixes: "12345@lid@c.us" or "12345@lid" → "12345"
+  const rawLids = lidIds.map(id => id.replace(/@.*/, ''));
+
+  // 1. Check DB cache first
+  try {
+    const cached = await db.query(
+      `SELECT lid, phone FROM whatsapp_lid_mapping WHERE user_id = $1 AND lid = ANY($2)`,
+      [userId, rawLids]
+    );
+    for (const row of cached.rows) {
+      if (row.phone) lidToPhone.set(row.lid, row.phone);
+    }
+  } catch (e) {
+    console.warn(`${LOG} DB cache lookup error: ${e.message}`);
+  }
+
+  // 2. Find unresolved LIDs
+  const unresolved = rawLids.filter(lid => !lidToPhone.has(lid));
+  if (unresolved.length === 0) {
+    console.log(`${LOG} All ${rawLids.length} LIDs resolved from DB cache`);
+    return lidToPhone;
+  }
+
+  // 3. Fetch from WAHA /lids API
+  console.log(`${LOG} ${lidToPhone.size}/${rawLids.length} resolved from cache, fetching ${unresolved.length} from WAHA...`);
+  try {
+    const lidsData = await wahaSession.makeRequest(
+      baseUrl, apiKey, 'GET',
+      `/api/${sessionName}/lids?limit=999999&offset=0`
+    );
+
+    if (Array.isArray(lidsData) && lidsData.length > 0) {
+      console.log(`${LOG} WAHA returned ${lidsData.length} LID mappings`);
+
+      // Build bulk upsert to cache all mappings
+      const values = [];
+      const params = [];
+      let idx = 1;
+      for (const entry of lidsData) {
+        const lid = entry.lid?.replace(/@.*/, '');
+        const phone = entry.pn?.replace(/@.*/, '');
+        if (!lid || !phone) continue;
+
+        // Populate return map
+        lidToPhone.set(lid, phone);
+
+        // Prepare DB upsert
+        values.push(`($${idx++}, $${idx++}, $${idx++}, NOW(), NOW())`);
+        params.push(userId, lid, phone);
+      }
+
+      // Bulk upsert into whatsapp_lid_mapping
+      if (values.length > 0) {
+        await db.query(
+          `INSERT INTO whatsapp_lid_mapping (user_id, lid, phone, created_at, updated_at)
+           VALUES ${values.join(',')}
+           ON CONFLICT (user_id, lid) DO UPDATE SET phone = EXCLUDED.phone, updated_at = NOW()`,
+          params
+        ).catch(e => console.warn(`${LOG} DB cache save error: ${e.message}`));
+      }
+    }
+  } catch (e) {
+    console.warn(`${LOG} WAHA /lids API error: ${e.message}`);
+  }
+
+  const stillUnresolved = rawLids.filter(lid => !lidToPhone.has(lid));
+  if (stillUnresolved.length > 0) {
+    console.warn(`${LOG} ⚠️ ${stillUnresolved.length} LIDs could not be resolved — will be excluded from status send`);
+  }
+  console.log(`${LOG} Final: ${lidToPhone.size}/${rawLids.length} LIDs resolved`);
+
+  return lidToPhone;
+}
+
+/**
  * Bulk-insert per-contact send log rows into status_bot_contact_sends.
  * success=true for all contacts in a successful/timeout batch, false for error batch.
  */
@@ -843,50 +928,66 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       console.log(`${LOG_PREFIX} ✅ Fetched ${allContacts.length} contacts from WAHA and saved to cache`);
     }
 
-    // Resolve LID contacts to phone numbers for accurate viewer matching
+    // Resolve LID contacts to phone numbers (LIDs cannot receive statuses)
     const lidContacts = allContacts.filter(c => c.id && c.id.includes('@lid'));
-    const lidToPhone = new Map();
+    let lidToPhone = new Map();
     if (lidContacts.length > 0) {
       try {
         const connUserRes = await db.query(`SELECT user_id FROM status_bot_connections WHERE id = $1`, [queueItem.connection_id]);
         const userId = connUserRes.rows[0]?.user_id;
         if (userId) {
-          const lids = lidContacts.map(c => c.id.replace(/@.*/, ''));
-          const lidResult = await db.query(
-            `SELECT lid, phone FROM whatsapp_lid_mapping WHERE user_id = $1 AND lid = ANY($2)`,
-            [userId, lids]
-          );
-          for (const row of lidResult.rows) {
-            lidToPhone.set(row.lid, row.phone);
-          }
-          console.log(`${LOG_PREFIX} 🔗 Resolved ${lidToPhone.size}/${lidContacts.length} LID contacts to phone numbers`);
+          lidToPhone = await resolveLidMappings(baseUrl, apiKey, sessionName, userId, lidContacts.map(c => c.id));
         }
       } catch (lidErr) {
         console.warn(`${LOG_PREFIX} LID resolution error (non-fatal): ${lidErr.message}`);
       }
+      console.log(`${LOG_PREFIX} 🔗 Resolved ${lidToPhone.size}/${lidContacts.length} LID contacts to phone numbers`);
     }
 
     // Build ordered contact list: own phone → viewers → non-viewers (dedup)
+    // IMPORTANT: Convert all LID contacts to phone@c.us format — LIDs cannot receive statuses
     const seen = new Set();
-    if (ownId) seen.add(ownId);
+    const ownPhone = ownId ? ownId.replace(/@.*/, '') : null;
+    if (ownPhone) seen.add(ownPhone);
     orderedContacts = [];
-    if (ownId && !alreadySentPhones.has(ownId.replace(/@.*/, ''))) {
+    if (ownPhone && !alreadySentPhones.has(ownPhone)) {
       orderedContacts.push(ownId);
     }
 
+    let skippedLids = 0;
     const viewers = [], nonViewers = [];
     for (const c of allContacts) {
       const id = c.id;
-      if (!id || id === ownId || seen.has(id)) continue;
-      seen.add(id);
-      const rawId = id.replace(/@.*/, '');
-      const phone = (id.includes('@lid') && lidToPhone.has(rawId)) ? lidToPhone.get(rawId) : rawId;
-      if (alreadySentPhones.has(phone) || alreadySentPhones.has(rawId)) continue;
-      if (viewerPhones.has(phone)) {
-        viewers.push(id);
+      if (!id) continue;
+
+      // Convert LID to phone@c.us or skip if unresolvable
+      let contactJid = id;
+      let phone;
+      if (id.includes('@lid')) {
+        const rawLid = id.replace(/@.*/, '');
+        const resolvedPhone = lidToPhone.get(rawLid);
+        if (!resolvedPhone) {
+          skippedLids++;
+          continue; // Cannot send status to unresolved LID
+        }
+        contactJid = `${resolvedPhone}@c.us`;
+        phone = resolvedPhone;
       } else {
-        nonViewers.push(id);
+        phone = id.replace(/@.*/, '');
       }
+
+      if (phone === ownPhone || seen.has(phone)) continue;
+      seen.add(phone);
+      if (alreadySentPhones.has(phone)) continue;
+
+      if (viewerPhones.has(phone)) {
+        viewers.push(contactJid);
+      } else {
+        nonViewers.push(contactJid);
+      }
+    }
+    if (skippedLids > 0) {
+      console.log(`${LOG_PREFIX} ⚠️ Skipped ${skippedLids} unresolvable LID contacts`);
     }
     orderedContacts.push(...viewers, ...nonViewers);
   }
