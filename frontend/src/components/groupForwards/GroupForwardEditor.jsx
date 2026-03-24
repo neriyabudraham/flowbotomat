@@ -47,7 +47,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
   const [senders, setSenders] = useState([]);
   const [newSenderPhone, setNewSenderPhone] = useState('');
   const [newSenderName, setNewSenderName] = useState('');
-  const [allowAllSenders, setAllowAllSenders] = useState(true);
+  const [allowAllSenders, setAllowAllSenders] = useState(false);
   const [loadingMembers, setLoadingMembers] = useState(false);
   
   // Error modal

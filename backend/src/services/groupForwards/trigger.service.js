@@ -313,10 +313,13 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
       let isAuthorized = false;
       let senderCanSendWithoutApproval = false;
 
-      if (totalAuthSenders === 0) {
-        // No senders defined — everyone can send (open mode)
+      if (totalAuthSenders === 0 && forward.allow_all_senders) {
+        // No senders defined + allow_all enabled — everyone can send
         isAuthorized = true;
         senderCanSendWithoutApproval = true;
+      } else if (totalAuthSenders === 0) {
+        // No senders defined + allow_all disabled — blocked
+        continue;
       } else if (forward.allow_all_senders) {
         // Allow all senders mode — everyone can send, but check if sender has specific capabilities
         isAuthorized = true;
