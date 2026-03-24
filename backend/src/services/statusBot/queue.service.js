@@ -842,28 +842,36 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     }
   }
 
-  // 1. Get engaged phone numbers for this connection (viewers + gray-checkmark: reactors/repliers)
-  console.log(`${LOG_PREFIX} 👁️ Querying engaged contacts from DB (views + reactions + replies)...`);
+  // 1. Get engaged phone numbers ranked by total engagement (views + reactions + replies)
+  //    Most active viewers first, least active last.
+  console.log(`${LOG_PREFIX} 👁️ Querying engaged contacts ranked by engagement...`);
   const viewersResult = await db.query(`
-    SELECT DISTINCT phone FROM (
-      SELECT sbv.viewer_phone AS phone
+    SELECT phone, SUM(cnt) AS total_engagement FROM (
+      SELECT sbv.viewer_phone AS phone, COUNT(*) AS cnt
       FROM status_bot_views sbv
       JOIN status_bot_statuses sbs ON sbs.id = sbv.status_id
       WHERE sbs.connection_id = $1
-      UNION
-      SELECT sbr.reactor_phone AS phone
+      GROUP BY sbv.viewer_phone
+      UNION ALL
+      SELECT sbr.reactor_phone AS phone, COUNT(*) AS cnt
       FROM status_bot_reactions sbr
       JOIN status_bot_statuses sbs ON sbs.id = sbr.status_id
       WHERE sbs.connection_id = $1
-      UNION
-      SELECT sbrep.replier_phone AS phone
+      GROUP BY sbr.reactor_phone
+      UNION ALL
+      SELECT sbrep.replier_phone AS phone, COUNT(*) AS cnt
       FROM status_bot_replies sbrep
       JOIN status_bot_statuses sbs ON sbs.id = sbrep.status_id
       WHERE sbs.connection_id = $1
+      GROUP BY sbrep.replier_phone
     ) engaged
+    GROUP BY phone
+    ORDER BY total_engagement DESC
   `, [queueItem.connection_id]);
   const viewerPhones = new Set(viewersResult.rows.map(r => r.phone));
-  console.log(`${LOG_PREFIX} 👁️ Found ${viewerPhones.size} unique engaged contacts`);
+  // Ordered array: most engaged first
+  const viewerPhonesRanked = viewersResult.rows.map(r => r.phone);
+  console.log(`${LOG_PREFIX} 👁️ Found ${viewerPhones.size} unique engaged contacts (ranked by engagement)`);
 
   let orderedContacts;
 
@@ -885,7 +893,7 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     if (ownPhone && !alreadySentPhones.has(ownPhone)) {
       orderedContacts.push(`${ownPhone}@c.us`);
     }
-    for (const phone of viewerPhones) {
+    for (const phone of viewerPhonesRanked) {
       if (phone === ownPhone) continue;
       if (alreadySentPhones.has(phone)) continue;
       orderedContacts.push(`${phone}@c.us`);
@@ -944,7 +952,7 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       console.log(`${LOG_PREFIX} 🔗 Resolved ${lidToPhone.size}/${lidContacts.length} LID contacts to phone numbers`);
     }
 
-    // Build ordered contact list: own phone → viewers → non-viewers (dedup)
+    // Build ordered contact list: own phone → viewers (ranked by engagement) → non-viewers
     // IMPORTANT: Convert all LID contacts to phone@c.us format — LIDs cannot receive statuses
     const seen = new Set();
     const ownPhone = ownId ? ownId.replace(/@.*/, '') : null;
@@ -954,13 +962,14 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       orderedContacts.push(ownId);
     }
 
+    // First pass: build phone → JID map from all WAHA contacts
     let skippedLids = 0;
-    const viewers = [], nonViewers = [];
+    const phoneToJid = new Map();
+    const nonViewers = [];
     for (const c of allContacts) {
       const id = c.id;
       if (!id) continue;
 
-      // Convert LID to phone@c.us or skip if unresolvable
       let contactJid = id;
       let phone;
       if (id.includes('@lid')) {
@@ -968,7 +977,7 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
         const resolvedPhone = lidToPhone.get(rawLid);
         if (!resolvedPhone) {
           skippedLids++;
-          continue; // Cannot send status to unresolved LID
+          continue;
         }
         contactJid = `${resolvedPhone}@c.us`;
         phone = resolvedPhone;
@@ -980,16 +989,22 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       seen.add(phone);
       if (alreadySentPhones.has(phone)) continue;
 
-      if (viewerPhones.has(phone)) {
-        viewers.push(contactJid);
-      } else {
+      phoneToJid.set(phone, contactJid);
+      if (!viewerPhones.has(phone)) {
         nonViewers.push(contactJid);
       }
     }
+
+    // Add viewers in engagement-ranked order (most active first)
+    for (const phone of viewerPhonesRanked) {
+      const jid = phoneToJid.get(phone);
+      if (jid) orderedContacts.push(jid);
+    }
+
     if (skippedLids > 0) {
       console.log(`${LOG_PREFIX} ⚠️ Skipped ${skippedLids} unresolvable LID contacts`);
     }
-    orderedContacts.push(...viewers, ...nonViewers);
+    orderedContacts.push(...nonViewers);
   }
   const VIEWER_MEGA_BATCH_CAP = await getSettingFloat('statusbot_contacts_viewer_batch_cap', 5000);
   const WAVE_DELAY_MS = await getSettingFloat('statusbot_contacts_wave_delay_ms', 30000); // 30s between non-viewer waves
