@@ -108,10 +108,8 @@ async function startCampaign(req, res) {
 
     const { trackSince } = req.body; // null | 'all_time'
 
+    // connection_id is optional — view filter works independently of status bot
     const connectionId = await getConnectionId(userId);
-    if (!connectionId) {
-      return res.status(400).json({ error: 'נדרש חיבור לבוט סטטוסים. אנא הגדר חיבור תחילה.' });
-    }
 
     const now = new Date();
     let startedAt = now;
@@ -124,8 +122,9 @@ async function startCampaign(req, res) {
           SELECT MIN(sbv.viewed_at) as earliest
           FROM status_bot_views sbv
           JOIN status_bot_statuses sbs ON sbv.status_id = sbs.id
-          WHERE sbs.connection_id = $1
-        `, [connectionId]),
+          JOIN status_bot_connections conn ON sbs.connection_id = conn.id
+          WHERE conn.user_id = $1
+        `, [userId]),
       ]);
       const candidates = [earliestCampaign.rows[0]?.earliest, earliestView.rows[0]?.earliest]
         .filter(Boolean).map(d => new Date(d));

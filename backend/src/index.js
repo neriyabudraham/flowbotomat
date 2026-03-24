@@ -250,6 +250,10 @@ server.listen(PORT, () => {
         )
       `);
       await dbQuery(`CREATE INDEX IF NOT EXISTS idx_svc_user ON status_viewer_campaigns(user_id)`);
+      // Make connection_id optional — view filter works independently of status bot
+      await dbQuery(`ALTER TABLE status_viewer_campaigns ALTER COLUMN connection_id DROP NOT NULL`);
+      await dbQuery(`ALTER TABLE status_viewer_campaigns DROP CONSTRAINT IF EXISTS status_viewer_campaigns_connection_id_fkey`);
+      await dbQuery(`ALTER TABLE status_viewer_campaigns ADD CONSTRAINT status_viewer_campaigns_connection_id_fkey FOREIGN KEY (connection_id) REFERENCES status_bot_connections(id) ON DELETE SET NULL`);
       await dbQuery(`ALTER TABLE additional_services ADD COLUMN IF NOT EXISTS renewal_price DECIMAL(10,2) DEFAULT NULL`);
       await dbQuery(`ALTER TABLE user_integrations ADD COLUMN IF NOT EXISTS slot INTEGER DEFAULT 0`);
       await dbQuery(`UPDATE user_integrations SET slot = 0 WHERE slot IS NULL`);
