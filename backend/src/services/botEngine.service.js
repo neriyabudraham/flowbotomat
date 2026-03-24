@@ -590,6 +590,10 @@ class BotEngine {
           const currentGroupId = contact._groupId || null;
           if (sessionSourceGroupId !== currentGroupId) {
             // Message came from a different source - ignore, fall through to trigger check
+          } else if (messageType === 'list_response') {
+            // List response during registration — silently stop registration and let list handler process it
+            await this.clearSession(bot.id, contact.id);
+            // Fall through to normal trigger/list handling below
           } else {
             await this.continueSession(session, flowData, contact, message, userId, bot, messageType, selectedRowId, null);
             return;
