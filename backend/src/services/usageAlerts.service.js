@@ -111,25 +111,25 @@ async function createAlertIfNeeded(user, usageData, threshold, currentPercentage
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth() + 1;
-    
+
     // Check if alert already sent for this threshold this month
     const existingAlert = await db.query(`
-      SELECT id FROM system_notifications 
-      WHERE user_id = $1 
+      SELECT id FROM system_notifications
+      WHERE user_id = $1
         AND notification_type = 'usage_alert'
         AND metadata->>'usage_type' = $2
         AND metadata->>'threshold' = $3
         AND EXTRACT(YEAR FROM created_at) = $4
         AND EXTRACT(MONTH FROM created_at) = $5
     `, [user.id, usageData.type, threshold.toString(), year, month]);
-    
+
     if (existingAlert.rows.length > 0) return; // Already sent
-    
+
     // Determine alert level
     let alertLevel = 'info';
     let title = '';
     let message = '';
-    
+
     if (threshold >= 100) {
       alertLevel = 'error';
       title = `⚠️ הגעת למגבלת ${usageData.label}`;
@@ -143,7 +143,7 @@ async function createAlertIfNeeded(user, usageData, threshold, currentPercentage
       title = `📈 ${currentPercentage}% מ${usageData.label} נוצלו`;
       message = `נשארו לך ${usageData.limit - usageData.used} ${usageData.label}.`;
     }
-    
+
     // Create notification in DB
     await db.query(`
       INSERT INTO system_notifications (user_id, notification_type, title, message, alert_level, metadata)
@@ -155,14 +155,18 @@ async function createAlertIfNeeded(user, usageData, threshold, currentPercentage
       used: usageData.used,
       limit: usageData.limit
     })]);
-    
+
     // Send email for 80% and 100% alerts
-    if (threshold >= 80) {
+    // Skip contact/bot limit emails for free plan users (planName 'חינם' or 'Free')
+    const isFreePlan = !planName || planName === 'חינם' || planName.toLowerCase() === 'free';
+    const skipEmail = isFreePlan && (usageData.type === 'contacts' || usageData.type === 'bots');
+
+    if (threshold >= 80 && !skipEmail) {
       await sendUsageAlertEmail(user, usageData, currentPercentage, planName);
     }
-    
-    console.log(`[UsageAlerts] Created alert for user ${user.id}: ${usageData.type} at ${threshold}%`);
-    
+
+    console.log(`[UsageAlerts] Created alert for user ${user.id}: ${usageData.type} at ${threshold}%${skipEmail ? ' (email skipped - free plan)' : ''}`);
+
   } catch (error) {
     console.error('[UsageAlerts] Create alert error:', error);
   }

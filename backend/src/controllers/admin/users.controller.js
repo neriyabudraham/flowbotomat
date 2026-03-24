@@ -1,5 +1,6 @@
 const db = require('../../config/database');
 const sumitService = require('../../services/payment/sumit.service');
+const { hashPassword } = require('../../services/auth/hash.service');
 
 /**
  * Get all users with pagination and filters
@@ -1217,6 +1218,104 @@ async function adminRegisterPaymentMethod(req, res) {
   }
 }
 
+/**
+ * Approve (verify) an unverified user, optionally setting a password
+ */
+async function approveUser(req, res) {
+  try {
+    const { id } = req.params;
+    const { password } = req.body;
+
+    const check = await db.query('SELECT id, is_verified, email FROM users WHERE id = $1', [id]);
+    if (check.rows.length === 0) {
+      return res.status(404).json({ error: 'משתמש לא נמצא' });
+    }
+
+    const updates = ['is_verified = true'];
+    const values = [];
+    let paramIndex = 1;
+
+    if (password) {
+      const passwordHash = await hashPassword(password);
+      updates.push(`password_hash = $${paramIndex++}`);
+      values.push(passwordHash);
+    }
+
+    values.push(id);
+
+    await db.query(
+      `UPDATE users SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramIndex}`,
+      values
+    );
+
+    console.log(`[Admin] User ${check.rows[0].email} approved by admin ${req.user.id}`);
+
+    res.json({ success: true, message: 'המשתמש אומת בהצלחה' });
+  } catch (error) {
+    console.error('[Admin] Approve user error:', error);
+    res.status(500).json({ error: 'שגיאה באימות משתמש' });
+  }
+}
+
+/**
+ * Create a new verified user with a default password
+ */
+async function createUser(req, res) {
+  try {
+    const { email, name, password = '12345678', phone } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'נדרש אימייל' });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'סיסמה חייבת להיות לפחות 8 תווים' });
+    }
+
+    // Check if user exists
+    const existing = await db.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ error: 'אימייל כבר קיים במערכת' });
+    }
+
+    // Create user (verified by default)
+    const passwordHash = await hashPassword(password);
+    const result = await db.query(
+      `INSERT INTO users (email, password_hash, name, phone, is_verified, is_active)
+       VALUES ($1, $2, $3, $4, true, true) RETURNING id, email, name`,
+      [email.toLowerCase(), passwordHash, name || null, phone || null]
+    );
+
+    const userId = result.rows[0].id;
+
+    // Create Free subscription
+    try {
+      const planResult = await db.query(
+        `SELECT id FROM subscription_plans WHERE name = 'Free' AND is_active = true LIMIT 1`
+      );
+      if (planResult.rows.length > 0) {
+        await db.query(`
+          INSERT INTO user_subscriptions (user_id, plan_id, status, is_trial, billing_period)
+          VALUES ($1, $2, 'active', false, 'monthly')
+        `, [userId, planResult.rows[0].id]);
+      }
+    } catch (subError) {
+      console.error('[Admin] Failed to create subscription for new user:', subError);
+    }
+
+    console.log(`[Admin] User ${email} created by admin ${req.user.id}`);
+
+    res.status(201).json({
+      success: true,
+      user: result.rows[0],
+      message: 'המשתמש נוצר בהצלחה'
+    });
+  } catch (error) {
+    console.error('[Admin] Create user error:', error);
+    res.status(500).json({ error: 'שגיאה ביצירת משתמש' });
+  }
+}
+
 module.exports = {
   getUsers,
   getUser,
@@ -1235,5 +1334,7 @@ module.exports = {
   toggleCreditCardExempt,
   getUserBillingHistory,
   syncPaymentMethodFromSumit,
-  adminRegisterPaymentMethod
+  adminRegisterPaymentMethod,
+  approveUser,
+  createUser
 };

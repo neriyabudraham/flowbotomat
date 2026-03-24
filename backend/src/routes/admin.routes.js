@@ -33,6 +33,8 @@ router.post('/users/:id/sync-payment-from-sumit', superadminMiddleware, usersCon
 router.post('/users/:id/register-payment-method', superadminMiddleware, usersController.adminRegisterPaymentMethod);
 router.post('/users/:id/payment-link', usersController.generatePaymentLink);
 router.put('/users/:id/credit-card-exempt', superadminMiddleware, usersController.toggleCreditCardExempt);
+router.post('/users/:id/approve', usersController.approveUser);
+router.post('/users/create', usersController.createUser);
 router.delete('/users/:id', superadminMiddleware, usersController.deleteUser);
 
 // Bot locking management (admin can lock/unlock any bot)

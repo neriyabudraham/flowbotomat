@@ -2906,7 +2906,7 @@ function StatusBotDashboardContent() {
                             </div>
                           ) : null;
                         })()}
-                        statusDetailsModal.views.map((view, i) => (
+                        {statusDetailsModal.views.map((view, i) => (
                           <div key={i} className={`flex items-center justify-between p-3 rounded-lg ${view.is_new_viewer ? 'bg-emerald-50 border border-emerald-200' : 'bg-gray-50'}`}>
                             <div className="flex items-center gap-3">
                               <div className={`w-10 h-10 rounded-full flex items-center justify-center ${view.is_new_viewer ? 'bg-emerald-100' : 'bg-green-100'}`}>
@@ -2924,7 +2924,7 @@ function StatusBotDashboardContent() {
                               {new Date(view.viewed_at).toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
                             </span>
                           </div>
-                        ))
+                        ))}
                       </>)}
                     </div>
                   )}

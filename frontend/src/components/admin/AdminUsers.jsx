@@ -1,15 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
-import { 
+import {
   Search, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Check, X, RefreshCw, Eye, CreditCard, Calendar, AlertCircle,
-  ExternalLink, Users, Phone, BarChart3, Send, ArrowRightLeft, 
+  ExternalLink, Users, Phone, BarChart3, Send, ArrowRightLeft,
   MessageSquare, Bot, Filter, Copy, Link2, AlertTriangle,
   Settings, Zap, Crown, Clock, DollarSign, Trash2, Edit,
   SlidersHorizontal, Download, MoreVertical, UserCheck, UserX,
   Package, Layers, CheckCircle, XCircle, Activity, TrendingUp,
   Smartphone, Mail, Hash, Globe, Shield, Star, Sparkles,
   ArrowUpRight, MoreHorizontal, Wallet, Receipt, History,
-  Lock, Unlock, PlayCircle, PauseCircle, Info, Wifi
+  Lock, Unlock, PlayCircle, PauseCircle, Info, Wifi, UserPlus
 } from 'lucide-react';
 import api from '../../services/api';
 import useAuthStore from '../../store/authStore';
@@ -55,6 +55,7 @@ export default function AdminUsers() {
   const [toast, setToast] = useState(null);
   const [showFilters, setShowFilters] = useState(true);
   const [stats, setStats] = useState(null);
+  const [showCreateUser, setShowCreateUser] = useState(false);
 
   const loadUsers = useCallback(async (page = 1) => {
     setLoading(true);
@@ -192,8 +193,16 @@ export default function AdminUsers() {
               </button>
             </div>
 
-            <button 
-              onClick={() => loadUsers(pagination.page)} 
+            <button
+              onClick={() => setShowCreateUser(true)}
+              className="px-4 py-3 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white rounded-xl shadow-sm font-medium text-sm transition-all flex items-center gap-2"
+            >
+              <UserPlus className="w-5 h-5" />
+              יצירת משתמש
+            </button>
+
+            <button
+              onClick={() => loadUsers(pagination.page)}
               className="p-3 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 transition-all"
               title="רענון"
             >
@@ -303,6 +312,7 @@ export default function AdminUsers() {
                 { value: 'trial', label: '⏳ ניסיון' },
                 { value: 'cancelled', label: '✕ מבוטל' },
                 { value: 'free', label: '○ חינם' },
+                { value: 'unverified', label: '🔒 לא מאומת' },
               ]}
             />
             <FilterSelect
@@ -465,6 +475,19 @@ export default function AdminUsers() {
           showToast={showToast}
         />
       )}
+
+      {/* Create User Modal */}
+      {showCreateUser && (
+        <CreateUserModal
+          onClose={() => setShowCreateUser(false)}
+          onCreated={() => {
+            setShowCreateUser(false);
+            loadUsers(1);
+            showToast('success', 'המשתמש נוצר בהצלחה!');
+          }}
+          showToast={showToast}
+        />
+      )}
     </div>
   );
 }
@@ -495,6 +518,114 @@ function StatCard({ icon: Icon, label, value, color, highlight }) {
   );
 }
 
+// Create User Modal
+function CreateUserModal({ onClose, onCreated, showToast }) {
+  const [form, setForm] = useState({ email: '', name: '', phone: '', password: '12345678' });
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.email) return showToast('error', 'נדרש אימייל');
+    setSaving(true);
+    try {
+      await api.post('/admin/users/create', form);
+      onCreated();
+    } catch (err) {
+      showToast('error', err?.response?.data?.error || 'שגיאה ביצירת משתמש');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <UserPlus className="w-6 h-6 text-emerald-500" />
+              יצירת משתמש חדש
+            </h3>
+            <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">אימייל *</label>
+              <input
+                type="email"
+                required
+                value={form.email}
+                onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700/50 border-0 rounded-xl text-gray-800 dark:text-white focus:ring-2 focus:ring-emerald-500"
+                placeholder="user@example.com"
+                dir="ltr"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">שם</label>
+              <input
+                type="text"
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700/50 border-0 rounded-xl text-gray-800 dark:text-white focus:ring-2 focus:ring-emerald-500"
+                placeholder="שם מלא"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">טלפון</label>
+              <input
+                type="text"
+                value={form.phone}
+                onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700/50 border-0 rounded-xl text-gray-800 dark:text-white focus:ring-2 focus:ring-emerald-500"
+                placeholder="05x-xxxxxxx"
+                dir="ltr"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">סיסמה</label>
+              <input
+                type="text"
+                value={form.password}
+                onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700/50 border-0 rounded-xl text-gray-800 dark:text-white focus:ring-2 focus:ring-emerald-500 font-mono"
+                dir="ltr"
+              />
+              <p className="text-xs text-gray-400 mt-1">ברירת מחדל: 12345678</p>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="submit"
+                disabled={saving}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white rounded-xl font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {saving ? <RefreshCw className="w-5 h-5 animate-spin" /> : <UserPlus className="w-5 h-5" />}
+                {saving ? 'יוצר...' : 'צור משתמש'}
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-6 py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-all"
+              >
+                ביטול
+              </button>
+            </div>
+          </form>
+
+          <p className="text-xs text-gray-400 text-center mt-4">
+            המשתמש יהיה מאומת ופעיל מיד עם היצירה
+          </p>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // Filter Select Component
 function FilterSelect({ label, value, onChange, options }) {
   return (
@@ -518,6 +649,21 @@ function UserCard({ user, currentUser, onSelect, showToast }) {
   const [copying, setCopying] = useState(false);
   const [copyingConnect, setCopyingConnect] = useState(false);
   const [switching, setSwitching] = useState(false);
+  const [approving, setApproving] = useState(false);
+
+  const handleApprove = async (e) => {
+    e.stopPropagation();
+    setApproving(true);
+    try {
+      await api.post(`/admin/users/${user.id}/approve`);
+      user.is_verified = true;
+      showToast('success', 'המשתמש אומת בהצלחה!');
+    } catch (err) {
+      showToast('error', err?.response?.data?.error || 'שגיאה באימות');
+    } finally {
+      setApproving(false);
+    }
+  };
 
   const handleCopyConnectLink = async (e) => {
     e.stopPropagation();
@@ -607,6 +753,11 @@ function UserCard({ user, currentUser, onSelect, showToast }) {
                   {user.role === 'superadmin' ? 'סופר' : user.role === 'admin' ? 'אדמין' : 'מומחה'}
                 </span>
               )}
+              {user.is_verified === false && (
+                <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-yellow-100 text-yellow-700">
+                  לא מאומת
+                </span>
+              )}
             </div>
             <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{user.email}</p>
             {user.phone && (
@@ -614,6 +765,18 @@ function UserCard({ user, currentUser, onSelect, showToast }) {
             )}
           </div>
         </div>
+
+        {/* Approve Button for unverified users */}
+        {user.is_verified === false && (
+          <button
+            onClick={handleApprove}
+            disabled={approving}
+            className="w-full mb-4 px-3 py-2 bg-yellow-50 hover:bg-yellow-100 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 text-yellow-700 dark:text-yellow-400 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2"
+          >
+            {approving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}
+            {approving ? 'מאמת...' : 'אשר משתמש'}
+          </button>
+        )}
 
         {/* Quick Info Grid */}
         <div className="grid grid-cols-3 gap-3 mb-4">
@@ -843,6 +1006,21 @@ function UserTableRow({ user, currentUser, onSelect, showToast }) {
   const [copying, setCopying] = useState(false);
   const [copyingConnect, setCopyingConnect] = useState(false);
   const [switching, setSwitching] = useState(false);
+  const [approving, setApproving] = useState(false);
+
+  const handleApprove = async (e) => {
+    e.stopPropagation();
+    setApproving(true);
+    try {
+      await api.post(`/admin/users/${user.id}/approve`);
+      user.is_verified = true;
+      showToast('success', 'המשתמש אומת בהצלחה!');
+    } catch (err) {
+      showToast('error', err?.response?.data?.error || 'שגיאה באימות');
+    } finally {
+      setApproving(false);
+    }
+  };
 
   const handleCopyConnectLink = async (e) => {
     e.stopPropagation();
@@ -908,7 +1086,12 @@ function UserTableRow({ user, currentUser, onSelect, showToast }) {
             {(user.name || user.email || '?')[0].toUpperCase()}
           </div>
           <div>
-            <div className="font-medium text-gray-900 dark:text-white">{user.name || 'ללא שם'}</div>
+            <div className="flex items-center gap-1.5">
+              <span className="font-medium text-gray-900 dark:text-white">{user.name || 'ללא שם'}</span>
+              {user.is_verified === false && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-yellow-100 text-yellow-700">לא מאומת</span>
+              )}
+            </div>
             <div className="text-sm text-gray-500">{user.email}</div>
           </div>
         </div>
@@ -956,6 +1139,16 @@ function UserTableRow({ user, currentUser, onSelect, showToast }) {
       </td>
       <td className="px-4 py-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-center gap-1">
+          {user.is_verified === false && (
+            <button
+              onClick={handleApprove}
+              disabled={approving}
+              className="p-2 bg-yellow-100 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50 rounded-lg transition-colors"
+              title="אשר משתמש"
+            >
+              {approving ? <RefreshCw className="w-4 h-4 animate-spin text-yellow-600" /> : <UserCheck className="w-4 h-4 text-yellow-600" />}
+            </button>
+          )}
           <button
             onClick={handleCopyConnectLink}
             disabled={copyingConnect}
