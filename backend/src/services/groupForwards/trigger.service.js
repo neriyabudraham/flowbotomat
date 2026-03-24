@@ -305,25 +305,38 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
       const normalizedPhone = normalizePhoneNumber(senderPhone);
       
       const authSendersResult = await db.query(`
-        SELECT phone_number, can_send_without_approval FROM forward_authorized_senders WHERE forward_id = $1
+        SELECT phone_number, is_admin, can_send_without_approval, can_delete_from_all_groups FROM forward_authorized_senders WHERE forward_id = $1
       `, [forward.id]);
 
       const totalAuthSenders = authSendersResult.rows.length;
 
-      // Only authorized if explicitly in the list - if no senders defined, no one can trigger
-      if (totalAuthSenders === 0) {
-        console.log(`[GroupForwards] Forward ${forward.id} has no authorized senders defined - skipping`);
-        continue;
-      }
-
       let isAuthorized = false;
       let senderCanSendWithoutApproval = false;
-      for (const auth of authSendersResult.rows) {
-        const normalizedAuth = normalizePhoneNumber(auth.phone_number);
-        if (normalizedPhone === normalizedAuth) {
-          isAuthorized = true;
-          senderCanSendWithoutApproval = auth.can_send_without_approval === true;
-          break;
+
+      if (totalAuthSenders === 0) {
+        // No senders defined — everyone can send (open mode)
+        isAuthorized = true;
+        senderCanSendWithoutApproval = true;
+      } else if (forward.allow_all_senders) {
+        // Allow all senders mode — everyone can send, but check if sender has specific capabilities
+        isAuthorized = true;
+        senderCanSendWithoutApproval = false; // Default: needs approval if admin is configured
+        for (const auth of authSendersResult.rows) {
+          const normalizedAuth = normalizePhoneNumber(auth.phone_number);
+          if (normalizedPhone === normalizedAuth) {
+            senderCanSendWithoutApproval = auth.can_send_without_approval === true;
+            break;
+          }
+        }
+      } else {
+        // Restricted mode — only listed senders can trigger
+        for (const auth of authSendersResult.rows) {
+          const normalizedAuth = normalizePhoneNumber(auth.phone_number);
+          if (normalizedPhone === normalizedAuth) {
+            isAuthorized = true;
+            senderCanSendWithoutApproval = auth.can_send_without_approval === true;
+            break;
+          }
         }
       }
 

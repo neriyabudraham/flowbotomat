@@ -47,6 +47,8 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
   const [senders, setSenders] = useState([]);
   const [newSenderPhone, setNewSenderPhone] = useState('');
   const [newSenderName, setNewSenderName] = useState('');
+  const [allowAllSenders, setAllowAllSenders] = useState(true);
+  const [loadingMembers, setLoadingMembers] = useState(false);
   
   // Error modal
   const [errorMessage, setErrorMessage] = useState(null);
@@ -80,6 +82,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
       setPollMultipleAnswers(f.poll_multiple_answers || false);
       setTargets(f.targets || []);
       setSenders(f.authorized_senders || []);
+      setAllowAllSenders(f.allow_all_senders !== false);
       
       // Set target limit (-1 means unlimited)
       const limit = limitRes.data.targetLimit;
@@ -126,7 +129,8 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
         message_suffix: messageSuffix,
         suffix_enabled: suffixEnabled,
         notify_sender_on_pending: notifySenderOnPending,
-        poll_multiple_answers: pollMultipleAnswers
+        poll_multiple_answers: pollMultipleAnswers,
+        allow_all_senders: allowAllSenders
       });
       
       onSave?.(data.forward);
@@ -308,6 +312,45 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
     setSenders(senders.map(s =>
       s.phone_number === phone ? { ...s, [capKey]: !s[capKey] } : s
     ));
+  };
+
+  const pullGroupMembers = async () => {
+    if (!triggerGroupId) {
+      setErrorMessage('יש לבחור קבוצת טריגר קודם');
+      return;
+    }
+    try {
+      setLoadingMembers(true);
+      const { data } = await api.get(`/whatsapp/groups/${encodeURIComponent(triggerGroupId)}/participants`);
+      const participants = data.participants || [];
+      let added = 0;
+      const existingPhones = new Set(senders.map(s => normalizePhoneNumber(s.phone_number)));
+      const newSendersList = [...senders];
+      for (const p of participants) {
+        const phone = p.phone || p.id?.split('@')[0];
+        if (!phone) continue;
+        const normalized = normalizePhoneNumber(phone);
+        if (existingPhones.has(normalized)) continue;
+        newSendersList.push({
+          phone_number: normalized,
+          name: p.displayName || p.name || null,
+          is_admin: false,
+          can_send_without_approval: false,
+          can_delete_from_all_groups: false,
+        });
+        existingPhones.add(normalized);
+        added++;
+      }
+      setSenders(newSendersList);
+      if (added === 0) {
+        setErrorMessage('כל חברי הקבוצה כבר קיימים ברשימה');
+      }
+    } catch (e) {
+      console.error('Error pulling group members:', e);
+      setErrorMessage(e.response?.data?.error || 'שגיאה בשליפת חברי הקבוצה');
+    } finally {
+      setLoadingMembers(false);
+    }
   };
 
   // Format delay for display
@@ -669,9 +712,63 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-gray-900">שולחים מורשים</h2>
-                  <p className="text-gray-500 mt-1">רק הודעות ממספרים אלו יופעלו להעברה לקבוצות. אם הרשימה ריקה — כל מספר שישלח הודעה לבוט יכול להפעיל שליחה. מומלץ להגביל לשולחים מורשים בלבד.</p>
+                  <p className="text-gray-500 mt-1">
+                    {allowAllSenders
+                      ? 'כל מי ששולח הודעה יכול להפעיל שליחה. הוסף שולחים כדי לתת להם הרשאות מיוחדות (מנהל, מחיקה וכו׳).'
+                      : 'רק הודעות ממספרים ברשימה יופעלו להעברה.'}
+                  </p>
                 </div>
               </div>
+
+              {/* Allow all senders toggle */}
+              <div className="p-5 bg-white rounded-2xl border border-gray-200 shadow-sm mb-6">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
+                      <Users className="w-5 h-5 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">אפשר לכולם לשלוח</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {allowAllSenders
+                          ? 'כל מי ששולח הודעה לטריגר יכול להפעיל שליחה לקבוצות'
+                          : 'רק שולחים ברשימה יכולים להפעיל שליחה'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAllowAllSenders(!allowAllSenders)}
+                    className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer flex-shrink-0 ${
+                      allowAllSenders ? 'bg-green-500' : 'bg-gray-300'
+                    }`}
+                  >
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${
+                      allowAllSenders ? 'right-1' : 'left-1'
+                    }`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Pull group members button */}
+              {triggerType === 'group' && triggerGroupId && (
+                <div className="mb-6">
+                  <button
+                    onClick={pullGroupMembers}
+                    disabled={loadingMembers}
+                    className="w-full px-4 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl text-blue-700 font-medium hover:border-blue-300 hover:shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {loadingMembers ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> טוען חברי קבוצה...</>
+                    ) : (
+                      <><Users className="w-4 h-4" /> ייבא את כל חברי הקבוצה כשולחים מורשים</>
+                    )}
+                  </button>
+                  {triggerGroupName && (
+                    <p className="text-xs text-gray-500 mt-1 text-center">מקבוצת: {triggerGroupName}</p>
+                  )}
+                </div>
+              )}
 
               {/* Add Sender Form */}
               <div className="p-5 bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl border border-green-100 mb-6">
@@ -714,8 +811,8 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                   <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-green-100 to-emerald-100 rounded-3xl flex items-center justify-center">
                     <UserCheck className="w-10 h-10 text-green-400" />
                   </div>
-                  <h3 className="text-lg font-bold text-gray-800 mb-2">לא הוגדרו שולחים מורשים</h3>
-                  <p className="text-gray-500">כל הודעה שתתקבל תופעל (אם הרשימה ריקה)</p>
+                  <h3 className="text-lg font-bold text-gray-800 mb-2">לא הוגדרו שולחים</h3>
+                  <p className="text-gray-500">כל מי ששולח הודעה יכול להפעיל שליחה לקבוצות</p>
                 </div>
               ) : (
                 <div className="space-y-3">

@@ -77,7 +77,8 @@ async function updateGroupForward(req, res) {
       message_suffix,
       suffix_enabled,
       notify_sender_on_pending,
-      poll_multiple_answers
+      poll_multiple_answers,
+      allow_all_senders
     } = req.body;
 
     // Log suffix changes for debugging truncation issues
@@ -118,6 +119,7 @@ async function updateGroupForward(req, res) {
         suffix_enabled = COALESCE($12, suffix_enabled),
         notify_sender_on_pending = COALESCE($13, notify_sender_on_pending),
         poll_multiple_answers = COALESCE($14, poll_multiple_answers),
+        allow_all_senders = COALESCE($15, allow_all_senders),
         updated_at = NOW()
       WHERE id = $10
       RETURNING *
@@ -135,7 +137,8 @@ async function updateGroupForward(req, res) {
       message_suffix !== undefined ? (message_suffix || '') : null,
       suffix_enabled,
       notify_sender_on_pending !== undefined ? notify_sender_on_pending : null,
-      poll_multiple_answers !== undefined ? poll_multiple_answers : null
+      poll_multiple_answers !== undefined ? poll_multiple_answers : null,
+      allow_all_senders !== undefined ? allow_all_senders : null
     ]);
     
     res.json({
