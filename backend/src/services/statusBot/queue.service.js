@@ -768,7 +768,8 @@ async function resolveLidMappings(baseUrl, apiKey, sessionName, userId, lidIds) 
       }
     }
   } catch (e) {
-    console.warn(`${LOG} WAHA /lids API error: ${e.message}`);
+    console.error(`${LOG} ❌ WAHA /lids API error (session=${sessionName}): ${e.message}`);
+    if (e.response?.data) console.error(`${LOG} Response:`, JSON.stringify(e.response.data).slice(0, 500));
   }
 
   const stillUnresolved = rawLids.filter(lid => !lidToPhone.has(lid));
@@ -1006,6 +1007,13 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     }
     orderedContacts.push(...nonViewers);
   }
+  // Safety filter: remove any LID contacts that slipped through (LIDs cannot receive statuses)
+  const preFilterCount = orderedContacts.length;
+  orderedContacts = orderedContacts.filter(jid => !jid.includes('@lid'));
+  if (orderedContacts.length < preFilterCount) {
+    console.warn(`${LOG_PREFIX} ⚠️ Safety filter removed ${preFilterCount - orderedContacts.length} LID contacts from final list`);
+  }
+
   const VIEWER_MEGA_BATCH_CAP = await getSettingFloat('statusbot_contacts_viewer_batch_cap', 5000);
   const WAVE_DELAY_MS = await getSettingFloat('statusbot_contacts_wave_delay_ms', 30000); // 30s between non-viewer waves
 
