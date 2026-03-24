@@ -96,7 +96,7 @@ router.post('/submit', async (req, res) => {
           ['אימייל', userEmail],
           ['מזהה משתמש', String(req.user.id)],
         ])}
-        ${cleanMessage ? alertBox(cleanMessage, 'info', '💬 הודעה') : ''}
+        ${cleanMessage ? alertBox(cleanMessage.replace(/\n/g, '<br>'), 'info', '💬 הודעה') : ''}
       `,
     });
 

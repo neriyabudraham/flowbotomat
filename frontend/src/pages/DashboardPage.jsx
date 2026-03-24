@@ -1510,9 +1510,6 @@ function ContactSupport({ userEmail }) {
             rows={3}
             className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none transition-all resize-none"
           />
-          {userEmail && (
-            <p className="text-xs text-gray-400">המייל {userEmail} יצורף לפנייה אוטומטית</p>
-          )}
           <button
             type="submit"
             disabled={sending}
