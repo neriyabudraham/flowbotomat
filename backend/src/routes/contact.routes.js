@@ -91,10 +91,10 @@ router.post('/submit', async (req, res) => {
         ${greeting(`פנייה חדשה מ-${cleanName}`)}
         ${paragraph('התקבלה פנייה חדשה ממשתמש במערכת:')}
         ${dataTable([
-          { label: 'שם', value: cleanName },
-          { label: 'טלפון', value: cleanPhone },
-          { label: 'אימייל', value: userEmail },
-          { label: 'מזהה משתמש', value: String(req.user.id) },
+          ['שם', cleanName],
+          ['טלפון', cleanPhone],
+          ['אימייל', userEmail],
+          ['מזהה משתמש', String(req.user.id)],
         ])}
         ${cleanMessage ? alertBox(cleanMessage, 'info', '💬 הודעה') : ''}
       `,
