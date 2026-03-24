@@ -60,6 +60,7 @@ async function healWahaConnectionByEmail(email, wc_id = null) {
     );
 
     let foundSession = null, foundSourceId = null, foundBaseUrl = null, foundApiKey = null;
+    let stoppedSession = null, stoppedSourceId = null, stoppedBaseUrl = null, stoppedApiKey = null;
 
     for (const src of sourcesRes.rows) {
       let srcApiKey;
@@ -68,13 +69,43 @@ async function healWahaConnectionByEmail(email, wc_id = null) {
       try {
         const session = await wahaSession.findSessionByEmail(src.base_url, srcApiKey, email);
         if (session) {
-          foundSession = session;
-          foundSourceId = src.id;
-          foundBaseUrl = src.base_url;
-          foundApiKey = srcApiKey;
-          break;
+          if (session.status === 'WORKING') {
+            // Prefer WORKING sessions
+            foundSession = session;
+            foundSourceId = src.id;
+            foundBaseUrl = src.base_url;
+            foundApiKey = srcApiKey;
+            break;
+          } else if (!stoppedSession) {
+            // Remember first non-working session as fallback
+            stoppedSession = session;
+            stoppedSourceId = src.id;
+            stoppedBaseUrl = src.base_url;
+            stoppedApiKey = srcApiKey;
+          }
         }
       } catch { /* server unreachable, try next */ }
+    }
+
+    // If no WORKING session found, try to restart a STOPPED/FAILED one
+    if (!foundSession && stoppedSession) {
+      console.log(`[Heal] No WORKING session found for ${email}, attempting restart of ${stoppedSession.name} (${stoppedSession.status}) on ${stoppedBaseUrl}`);
+      try {
+        await wahaSession.startSession(stoppedBaseUrl, stoppedApiKey, stoppedSession.name);
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        const status = await wahaSession.getSessionStatus(stoppedBaseUrl, stoppedApiKey, stoppedSession.name);
+        if (status.status === 'WORKING' || status.status === 'SCAN_QR_CODE') {
+          console.log(`[Heal] ✅ Restarted session ${stoppedSession.name} — now ${status.status}`);
+          foundSession = stoppedSession;
+          foundSourceId = stoppedSourceId;
+          foundBaseUrl = stoppedBaseUrl;
+          foundApiKey = stoppedApiKey;
+        } else {
+          console.log(`[Heal] Restart didn't recover session ${stoppedSession.name} — status: ${status.status}`);
+        }
+      } catch (restartErr) {
+        console.log(`[Heal] Restart failed for ${stoppedSession.name}: ${restartErr.message}`);
+      }
     }
 
     if (!foundSession) {
