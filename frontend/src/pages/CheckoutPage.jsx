@@ -26,6 +26,7 @@ export default function CheckoutPage() {
   const [plan, setPlan] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState(null);
   const [currentSubscription, setCurrentSubscription] = useState(null);
+  const [serverProration, setServerProration] = useState(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState(null);
@@ -115,7 +116,19 @@ export default function CheckoutPage() {
       
       setPlan(planRes.data.plan);
       setCurrentSubscription(subRes.data.subscription);
-      
+
+      // Fetch server-side proration if user has active subscription
+      const sub = subRes.data.subscription;
+      if (sub && ['active', 'cancelled'].includes(sub.status) && sub.plan_id !== planId) {
+        try {
+          const prorationRes = await api.post('/payment/plan/calculate', {
+            targetPlanId: planId,
+            billingPeriod,
+          });
+          setServerProration(prorationRes.data);
+        } catch { /* fallback to client-side calculation */ }
+      }
+
       // Auto-fill form with user defaults and WhatsApp phone
       const defaults = defaultsRes.data || {};
       const waConnection = waRes.data?.connection;
@@ -185,39 +198,40 @@ export default function CheckoutPage() {
     let proratedTotal = total;
     let daysRemaining = 0;
     let currentPlanPrice = 0;
-    
-    if (currentSubscription && currentSubscription.status === 'active' && currentSubscription.plan_id !== plan.id) {
+
+    // Use server-side proration if available (most accurate)
+    if (serverProration && serverProration.type !== 'new') {
+      isUpgrade = serverProration.type === 'upgrade';
+      proratedCredit = serverProration.calculation.creditAmount || 0;
+      daysRemaining = serverProration.calculation.daysRemaining || 0;
+      currentPlanPrice = serverProration.currentPlan?.paidAmount || serverProration.currentPlan?.price || 0;
+      proratedTotal = Math.max(0, total - proratedCredit);
+    }
+    // Fallback: client-side calculation
+    else if (currentSubscription && ['active', 'cancelled'].includes(currentSubscription.status) && currentSubscription.plan_id !== plan.id) {
       isUpgrade = true;
-      
-      // Calculate remaining value from current subscription
-      const nextCharge = currentSubscription.next_charge_date 
-        ? new Date(currentSubscription.next_charge_date) 
-        : new Date();
+
+      const nextCharge = currentSubscription.next_charge_date
+        ? new Date(currentSubscription.next_charge_date)
+        : (currentSubscription.expires_at ? new Date(currentSubscription.expires_at) : new Date());
       const now = new Date();
-      
-      // Calculate days remaining in current period
+
       const currentBillingPeriod = currentSubscription.billing_period || 'monthly';
       const periodDays = currentBillingPeriod === 'yearly' ? 365 : 30;
-      
-      // Calculate what user paid for current period
-      currentPlanPrice = parseFloat(currentSubscription.plan_price || 0);
-      if (currentBillingPeriod === 'yearly') {
-        currentPlanPrice = currentPlanPrice * 12 * 0.8; // Yearly price with discount
+
+      // Use actual paid amount if available, otherwise calculate from plan price
+      if (currentSubscription.last_charge_amount && parseFloat(currentSubscription.last_charge_amount) > 0) {
+        currentPlanPrice = parseFloat(currentSubscription.last_charge_amount);
+      } else {
+        currentPlanPrice = parseFloat(currentSubscription.plan_price || 0);
+        if (currentBillingPeriod === 'yearly') {
+          currentPlanPrice = currentPlanPrice * 12 * 0.8;
+        }
       }
-      
-      // Calculate days since last charge
-      const lastCharge = currentSubscription.last_charge_date 
-        ? new Date(currentSubscription.last_charge_date) 
-        : new Date(currentSubscription.started_at);
-      
+
       daysRemaining = Math.max(0, Math.ceil((nextCharge - now) / (1000 * 60 * 60 * 24)));
-      const daysUsed = periodDays - daysRemaining;
-      
-      // Calculate unused credit
       const dailyRate = currentPlanPrice / periodDays;
       proratedCredit = Math.floor(dailyRate * daysRemaining);
-      
-      // Final price to pay = new plan price - unused credit
       proratedTotal = Math.max(0, total - proratedCredit);
     }
     

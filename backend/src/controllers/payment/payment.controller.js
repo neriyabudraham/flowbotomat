@@ -2118,10 +2118,11 @@ async function calculatePlanChange(req, res) {
       return res.status(400).json({ error: 'נדרש מזהה תכנית יעד' });
     }
     
-    // Get current subscription
+    // Get current subscription + last actual payment amount
     const currentSubResult = await db.query(`
       SELECT us.*, sp.price as current_price, sp.name_he as current_plan_name,
-             sp.billing_period as current_billing_period
+             us.billing_period as current_billing_period,
+             (SELECT ph.amount FROM payment_history ph WHERE ph.user_id = us.user_id AND ph.status = 'success' ORDER BY ph.created_at DESC LIMIT 1) as last_charge_amount
       FROM user_subscriptions us
       JOIN subscription_plans sp ON us.plan_id = sp.id
       WHERE us.user_id = $1 AND us.status IN ('active', 'cancelled')
@@ -2168,13 +2169,26 @@ async function calculatePlanChange(req, res) {
     }
     
     const currentSub = currentSubResult.rows[0];
-    const currentPrice = currentSub.current_price;
-    const isUpgrade = targetPrice > currentPrice;
-    
+    const currentMonthlyPrice = parseFloat(currentSub.current_price);
+    const currentBillingPeriod = currentSub.current_billing_period || 'monthly';
+
+    // Calculate what the user actually paid for their current period
+    // Use last_charge_amount if available, otherwise calculate from plan price
+    let actualPaidForPeriod;
+    if (currentSub.last_charge_amount && parseFloat(currentSub.last_charge_amount) > 0) {
+      actualPaidForPeriod = parseFloat(currentSub.last_charge_amount);
+    } else if (currentBillingPeriod === 'yearly') {
+      actualPaidForPeriod = Math.floor(currentMonthlyPrice * 12 * 0.8);
+    } else {
+      actualPaidForPeriod = currentMonthlyPrice;
+    }
+
+    const isUpgrade = targetPrice > (currentBillingPeriod === 'yearly' ? Math.floor(currentMonthlyPrice * 12 * 0.8) : currentMonthlyPrice);
+
     // Calculate remaining days and value
     const now = new Date();
     const endDate = currentSub.expires_at ? new Date(currentSub.expires_at) : null;
-    
+
     if (!endDate || endDate <= now) {
       // Subscription already expired
       return res.json({
@@ -2182,7 +2196,7 @@ async function calculatePlanChange(req, res) {
         currentPlan: {
           id: currentSub.plan_id,
           name: currentSub.current_plan_name,
-          price: currentPrice
+          price: currentMonthlyPrice
         },
         targetPlan: {
           id: targetPlan.id,
@@ -2199,11 +2213,11 @@ async function calculatePlanChange(req, res) {
         message: `עלות התכנית: ${targetPrice}₪`
       });
     }
-    
+
     // Calculate days remaining in current subscription
     const daysRemaining = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
-    const totalDays = currentSub.current_billing_period === 'yearly' ? 365 : 30;
-    const dailyRate = currentPrice / totalDays;
+    const totalDays = currentBillingPeriod === 'yearly' ? 365 : 30;
+    const dailyRate = actualPaidForPeriod / totalDays;
     const creditAmount = Math.round(dailyRate * daysRemaining);
     
     // Calculate target plan cost
@@ -2232,7 +2246,9 @@ async function calculatePlanChange(req, res) {
       currentPlan: {
         id: currentSub.plan_id,
         name: currentSub.current_plan_name,
-        price: currentPrice,
+        price: currentMonthlyPrice,
+        paidAmount: actualPaidForPeriod,
+        billingPeriod: currentBillingPeriod,
         expiresAt: endDate
       },
       targetPlan: {
