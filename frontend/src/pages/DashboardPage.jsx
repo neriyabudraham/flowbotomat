@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { 
-  MessageCircle, Workflow, Users, Settings, Bot, MessageSquare, 
+  MessageCircle, Workflow, Users, Settings, Bot, MessageSquare,
   TrendingUp, Shield, ChevronLeft, Zap, Activity, Clock,
   Plus, ArrowUpRight, CheckCircle, Crown, Bell,
   Sparkles, ArrowRight, BarChart3, Calendar, Phone, Star,
   Target, Rocket, Gift, AlertCircle, X, ExternalLink, Lightbulb,
-  Gauge, HardDrive, Code, Forward, Send, Upload, HelpCircle, Eye
+  Gauge, HardDrive, Code, Forward, Send, Upload, HelpCircle, Eye,
+  Mail, Loader2
 } from 'lucide-react';
 
 // Icon mapping for community links
@@ -897,6 +898,9 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {/* Contact & Support */}
+        <ContactSupport userEmail={user?.email} />
+
         {/* Admin Panel Link */}
         {user && ['admin', 'superadmin'].includes(user.role) && (
           <Link 
@@ -1393,6 +1397,149 @@ function AffiliateQuickLink() {
             ניהול מלא
           </Link>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ContactSupport({ userEmail }) {
+  const [formData, setFormData] = useState({ name: '', phone: '', message: '' });
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSending(true);
+    setResult(null);
+    try {
+      const { data } = await api.post('/contact/submit', formData);
+      setResult({ type: 'success', text: data.message || 'הפנייה נשלחה בהצלחה!' });
+      setFormData({ name: '', phone: '', message: '' });
+    } catch (err) {
+      setResult({ type: 'error', text: err.response?.data?.error || 'שגיאה בשליחת הפנייה' });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-8 mt-8">
+      <div className="flex items-center gap-3 mb-5">
+        <div className="w-10 h-10 bg-gradient-to-br from-teal-500 to-teal-600 rounded-xl flex items-center justify-center">
+          <HelpCircle className="w-5 h-5 text-white" />
+        </div>
+        <div>
+          <h3 className="font-bold text-gray-900">צריכים עזרה? דברו איתנו</h3>
+          <p className="text-sm text-gray-500">נשמח לעזור בכל שאלה או בקשה</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Quick Contact Options */}
+        <div className="flex flex-col gap-3">
+          <a
+            href="https://wa.me/972584254229"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 px-4 py-3 bg-green-50 hover:bg-green-100 border border-green-200 rounded-xl transition-colors group"
+          >
+            <div className="w-9 h-9 bg-green-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+              <MessageCircle className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <span className="font-medium text-gray-900 text-sm">WhatsApp</span>
+              <p className="text-xs text-gray-500">שלחו לנו הודעה בוואטסאפ</p>
+            </div>
+            <ExternalLink className="w-4 h-4 text-gray-400 mr-auto" />
+          </a>
+
+          <a
+            href="mailto:office@neriyabudraham.co.il"
+            className="flex items-center gap-3 px-4 py-3 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition-colors group"
+          >
+            <div className="w-9 h-9 bg-blue-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+              <Mail className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <span className="font-medium text-gray-900 text-sm">אימייל</span>
+              <p className="text-xs text-gray-500">office@neriyabudraham.co.il</p>
+            </div>
+            <ExternalLink className="w-4 h-4 text-gray-400 mr-auto" />
+          </a>
+
+          <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl">
+            <div className="w-9 h-9 bg-gray-500 rounded-lg flex items-center justify-center">
+              <Phone className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <span className="font-medium text-gray-900 text-sm">טלפון</span>
+              <p className="text-xs text-gray-500" dir="ltr">058-4254229</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Contact Form */}
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <div className="text-sm font-medium text-gray-700 mb-1">השאירו פנייה ונחזור אליכם</div>
+          <input
+            type="text"
+            placeholder="שם מלא"
+            value={formData.name}
+            onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+            required
+            minLength={2}
+            maxLength={100}
+            className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none transition-all"
+          />
+          <input
+            type="tel"
+            placeholder="טלפון"
+            value={formData.phone}
+            onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+            required
+            minLength={7}
+            maxLength={20}
+            dir="ltr"
+            className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none transition-all"
+          />
+          <textarea
+            placeholder="הודעה (אופציונלי)"
+            value={formData.message}
+            onChange={(e) => setFormData(prev => ({ ...prev, message: e.target.value }))}
+            maxLength={2000}
+            rows={3}
+            className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none transition-all resize-none"
+          />
+          {userEmail && (
+            <p className="text-xs text-gray-400">המייל {userEmail} יצורף לפנייה אוטומטית</p>
+          )}
+          <button
+            type="submit"
+            disabled={sending}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-l from-teal-600 to-teal-500 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-60 disabled:cursor-not-allowed text-sm"
+          >
+            {sending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                שולח...
+              </>
+            ) : (
+              <>
+                <Send className="w-4 h-4" />
+                שליחת פנייה
+              </>
+            )}
+          </button>
+          {result && (
+            <div className={`text-sm px-3 py-2 rounded-lg ${
+              result.type === 'success'
+                ? 'bg-green-50 text-green-700 border border-green-200'
+                : 'bg-red-50 text-red-700 border border-red-200'
+            }`}>
+              {result.text}
+            </div>
+          )}
+        </form>
       </div>
     </div>
   );
