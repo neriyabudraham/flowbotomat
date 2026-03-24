@@ -1330,28 +1330,37 @@ async function subscribe(req, res) {
           FROM user_subscriptions us
           JOIN subscription_plans sp ON us.plan_id = sp.id
           WHERE us.user_id = $1 AND us.status IN ('active', 'cancelled')
-          AND us.expires_at > NOW()
         `, [userId]);
 
         if (existingSub.rows.length > 0) {
           const sub = existingSub.rows[0];
-          const now = new Date();
-          const endDate = new Date(sub.expires_at);
-          const daysRemaining = Math.max(0, Math.ceil((endDate - now) / (1000 * 60 * 60 * 24)));
-          const currentBillingPeriod = sub.current_billing_period || 'monthly';
-          const totalDays = currentBillingPeriod === 'yearly' ? 365 : 30;
+          // Use expires_at, next_charge_date, or fallback to 30 days from now
+          const endDate = sub.expires_at ? new Date(sub.expires_at)
+            : sub.next_charge_date ? new Date(sub.next_charge_date)
+            : null;
 
-          let actualPaid = parseFloat(sub.last_charge_amount || 0);
-          if (!actualPaid) {
-            actualPaid = currentBillingPeriod === 'yearly'
-              ? Math.floor(parseFloat(sub.current_price) * 12 * 0.8)
-              : parseFloat(sub.current_price);
+          if (endDate && endDate > new Date()) {
+            const now = new Date();
+            const daysRemaining = Math.max(0, Math.ceil((endDate - now) / (1000 * 60 * 60 * 24)));
+            const currentBillingPeriod = sub.current_billing_period || sub.billing_period || 'monthly';
+            const totalDays = currentBillingPeriod === 'yearly' ? 365 : 30;
+
+            let actualPaid = parseFloat(sub.last_charge_amount || 0);
+            if (!actualPaid) {
+              actualPaid = currentBillingPeriod === 'yearly'
+                ? Math.floor(parseFloat(sub.current_price) * 12 * 0.8)
+                : parseFloat(sub.current_price);
+            }
+
+            const dailyRate = actualPaid / totalDays;
+            const creditAmount = Math.round(dailyRate * daysRemaining);
+            actualChargeAmount = Math.max(0, chargeAmount - creditAmount);
+            console.log(`[Payment] Upgrade - server proration: credit=${creditAmount} ILS (${daysRemaining}/${totalDays} days remaining, paid=${actualPaid}, endDate=${endDate.toISOString()}), charge=${actualChargeAmount} ILS (original: ${chargeAmount} ILS)`);
+          } else {
+            console.log(`[Payment] Upgrade - no valid end date found (expires_at=${sub.expires_at}, next_charge_date=${sub.next_charge_date}), charging full price`);
           }
-
-          const dailyRate = actualPaid / totalDays;
-          const creditAmount = Math.round(dailyRate * daysRemaining);
-          actualChargeAmount = Math.max(0, chargeAmount - creditAmount);
-          console.log(`[Payment] Upgrade - server proration: credit=${creditAmount} ILS (${daysRemaining} days remaining, paid=${actualPaid}), charge=${actualChargeAmount} ILS (original: ${chargeAmount} ILS)`);
+        } else {
+          console.log(`[Payment] Upgrade - no existing subscription found for user ${userId}`);
         }
       } catch (proErr) {
         console.error('[Payment] Proration calculation error, using full price:', proErr.message);
@@ -1473,8 +1482,9 @@ async function subscribe(req, res) {
     
     // Schedule next charge in billing queue
     const billingType = billingPeriod === 'yearly' ? 'yearly' : 'monthly';
-    // Next renewal = full plan price (upgrade prorated amount is one-time only)
-    const isOneTimeDiscount = isUpgrade || (coupon && coupon.duration_type === 'once') ||
+    // Next renewal uses the full discounted price (chargeAmount includes any ongoing discounts).
+    // Only one-time discounts (single-use coupon, expiring promo) revert to originalPrice.
+    const isOneTimeDiscount = (coupon && coupon.duration_type === 'once') ||
                               (promotion && (promoMonthsRemaining <= 1));
     const nextAmount = isOneTimeDiscount ? (billingPeriod === 'yearly' ? originalPrice * 12 * 0.8 : originalPrice) : chargeAmount;
     
@@ -2163,10 +2173,6 @@ async function calculatePlanChange(req, res) {
       FROM user_subscriptions us
       JOIN subscription_plans sp ON us.plan_id = sp.id
       WHERE us.user_id = $1 AND us.status IN ('active', 'cancelled')
-      AND (
-        us.expires_at IS NOT NULL AND us.expires_at > NOW()
-        OR us.trial_ends_at IS NOT NULL AND us.trial_ends_at > NOW()
-      )
     `, [userId]);
     
     // Get target plan
@@ -2224,7 +2230,9 @@ async function calculatePlanChange(req, res) {
 
     // Calculate remaining days and value
     const now = new Date();
-    const endDate = currentSub.expires_at ? new Date(currentSub.expires_at) : null;
+    const endDate = currentSub.expires_at ? new Date(currentSub.expires_at)
+      : currentSub.next_charge_date ? new Date(currentSub.next_charge_date)
+      : null;
 
     if (!endDate || endDate <= now) {
       // Subscription already expired
