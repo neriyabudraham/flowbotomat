@@ -26,6 +26,33 @@ async function init() {
     process.exit(1);
   }
   
+  // On fresh start, reset any items left in 'processing' state from a previous instance.
+  // This ensures statuses interrupted by deployment (including pending viewer sends)
+  // get re-queued and processed after the worker restarts.
+  try {
+    const resetResult = await db.query(`
+      UPDATE status_bot_queue
+      SET queue_status = 'pending', processing_started_at = NULL
+      WHERE queue_status = 'processing'
+      RETURNING id, connection_id, viewers_done
+    `);
+    if (resetResult.rowCount > 0) {
+      const ids = resetResult.rows.map(r => r.id).join(', ');
+      console.log(`🔄 Reset ${resetResult.rowCount} orphaned processing item(s) to pending: [${ids}]`);
+    }
+  } catch (err) {
+    console.error('⚠️ Could not reset orphaned items:', err.message);
+  }
+
+  // Also release any stale queue lock from a previous instance
+  try {
+    await db.query(`
+      UPDATE status_bot_queue_lock
+      SET is_processing = false, processing_started_at = NULL
+      WHERE id = 1
+    `);
+  } catch { /* non-fatal */ }
+
   // Start the queue processor
   startQueueProcessor();
   console.log('✅ Queue processor started');
