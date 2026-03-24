@@ -640,6 +640,15 @@ async function preConvertMedia(baseUrl, apiKey, sessionName, type, content) {
  * Build WAHA status request body for a given type.
  */
 function buildStatusBody(messageId, contacts, statusType, content, preConvertedFile) {
+  // CRITICAL: Filter out LID contacts — they cannot receive statuses and cause WAHA errors.
+  // This is the last line of defense before the request goes to WAHA.
+  if (Array.isArray(contacts)) {
+    const before = contacts.length;
+    contacts = contacts.filter(c => !c.includes('@lid'));
+    if (contacts.length < before) {
+      console.warn(`[StatusBot] ⛔ buildStatusBody filtered ${before - contacts.length} LID contacts from batch (${before} → ${contacts.length})`);
+    }
+  }
   switch (statusType) {
     case 'text':
       return {
