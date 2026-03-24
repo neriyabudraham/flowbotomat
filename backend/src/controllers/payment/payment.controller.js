@@ -1320,11 +1320,42 @@ async function subscribe(req, res) {
       description += ' + הנחת חבר';
     }
     
-    // For upgrades, use the prorated amount instead of full price
+    // For upgrades, calculate prorated amount server-side (ignore client value for security)
     let actualChargeAmount = chargeAmount;
-    if (isUpgrade && proratedAmount !== undefined && proratedAmount >= 0) {
-      actualChargeAmount = proratedAmount;
-      console.log(`[Payment] Upgrade - using prorated amount: ${actualChargeAmount} ILS (original: ${chargeAmount} ILS)`);
+    if (isUpgrade) {
+      try {
+        const existingSub = await db.query(`
+          SELECT us.*, sp.price as current_price, us.billing_period as current_billing_period,
+                 (SELECT ph.amount FROM payment_history ph WHERE ph.user_id = us.user_id AND ph.status = 'success' ORDER BY ph.created_at DESC LIMIT 1) as last_charge_amount
+          FROM user_subscriptions us
+          JOIN subscription_plans sp ON us.plan_id = sp.id
+          WHERE us.user_id = $1 AND us.status IN ('active', 'cancelled')
+          AND us.expires_at > NOW()
+        `, [userId]);
+
+        if (existingSub.rows.length > 0) {
+          const sub = existingSub.rows[0];
+          const now = new Date();
+          const endDate = new Date(sub.expires_at);
+          const daysRemaining = Math.max(0, Math.ceil((endDate - now) / (1000 * 60 * 60 * 24)));
+          const currentBillingPeriod = sub.current_billing_period || 'monthly';
+          const totalDays = currentBillingPeriod === 'yearly' ? 365 : 30;
+
+          let actualPaid = parseFloat(sub.last_charge_amount || 0);
+          if (!actualPaid) {
+            actualPaid = currentBillingPeriod === 'yearly'
+              ? Math.floor(parseFloat(sub.current_price) * 12 * 0.8)
+              : parseFloat(sub.current_price);
+          }
+
+          const dailyRate = actualPaid / totalDays;
+          const creditAmount = Math.round(dailyRate * daysRemaining);
+          actualChargeAmount = Math.max(0, chargeAmount - creditAmount);
+          console.log(`[Payment] Upgrade - server proration: credit=${creditAmount} ILS (${daysRemaining} days remaining, paid=${actualPaid}), charge=${actualChargeAmount} ILS (original: ${chargeAmount} ILS)`);
+        }
+      } catch (proErr) {
+        console.error('[Payment] Proration calculation error, using full price:', proErr.message);
+      }
     }
     
     console.log(`[Payment] Charging user ${userId} - Amount: ${actualChargeAmount} ILS, Period: ${billingPeriod}, Promo: ${promotion?.id || 'none'}, Upgrade: ${isUpgrade || false}`);
@@ -1386,6 +1417,12 @@ async function subscribe(req, res) {
       END $$;
     `);
     
+    // On upgrade: cancel any pending charges from the old subscription
+    if (isUpgrade) {
+      await billingQueueService.cancelUserCharges(userId);
+      console.log(`[Payment] Upgrade: cancelled old pending charges for user ${userId}`);
+    }
+
     // Save subscription with promotion and referral info (no standing order - self-managed billing)
     const subResult = await db.query(`
       INSERT INTO user_subscriptions (
@@ -1436,8 +1473,8 @@ async function subscribe(req, res) {
     
     // Schedule next charge in billing queue
     const billingType = billingPeriod === 'yearly' ? 'yearly' : 'monthly';
-    // Use the actual charged amount as next amount (unless it's a one-time discount)
-    const isOneTimeDiscount = (coupon && coupon.duration_type === 'once') ||
+    // Next renewal = full plan price (upgrade prorated amount is one-time only)
+    const isOneTimeDiscount = isUpgrade || (coupon && coupon.duration_type === 'once') ||
                               (promotion && (promoMonthsRemaining <= 1));
     const nextAmount = isOneTimeDiscount ? (billingPeriod === 'yearly' ? originalPrice * 12 * 0.8 : originalPrice) : chargeAmount;
     

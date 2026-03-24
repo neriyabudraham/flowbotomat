@@ -99,17 +99,47 @@ const getWhatsappQR = async (req, res) => {
     const connection = result.rows[0];
     const { baseUrl, apiKey } = await getWahaCredentialsForConnection(connection);
 
+    let sessionStatus;
     try {
-      const status = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
-      if (status.status === 'WORKING') {
+      sessionStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
+    } catch (err) {
+      // Session might not exist on this server — try to heal
+      console.log('[Onboarding] Session not found, attempting heal for:', connection.session_name);
+      try {
+        const { healWahaConnectionByUserId } = require('../../services/waha/heal.service');
+        const healed = await healWahaConnectionByUserId(userId);
+        if (healed) {
+          const freshCreds = await getWahaCredentialsForConnection({ ...connection, waha_source_id: healed.sourceId || connection.waha_source_id });
+          try {
+            sessionStatus = await wahaSession.getSessionStatus(freshCreds.baseUrl || baseUrl, freshCreds.apiKey || apiKey, healed.sessionName || connection.session_name);
+          } catch { /* will be handled below */ }
+        }
+      } catch (healErr) {
+        console.error('[Onboarding] Heal failed:', healErr.message);
+      }
+    }
+
+    if (sessionStatus) {
+      if (sessionStatus.status === 'WORKING') {
         return res.json({ qr: null, status: 'connected' });
       }
-      if (status.status === 'STOPPED' || status.status === 'FAILED') {
-        await wahaSession.startSession(baseUrl, apiKey, connection.session_name);
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      if (sessionStatus.status === 'STARTING' || sessionStatus.status === 'SCAN_QR_CODE') {
+        // Session is starting up — tell frontend to retry shortly
+        try {
+          const qrData = await wahaSession.getQRCode(baseUrl, apiKey, connection.session_name);
+          return res.json({ qr: qrData.value, status: 'qr_ready' });
+        } catch {
+          return res.json({ qr: null, status: 'starting', message: 'Session is starting, please wait...' });
+        }
       }
-    } catch (err) {
-      console.error('[Onboarding] QR status check error:', err.message);
+      if (sessionStatus.status === 'STOPPED' || sessionStatus.status === 'FAILED') {
+        try {
+          await wahaSession.startSession(baseUrl, apiKey, connection.session_name);
+        } catch (startErr) {
+          console.error('[Onboarding] Failed to start session:', startErr.message);
+        }
+        return res.json({ qr: null, status: 'starting', message: 'Restarting session, please wait...' });
+      }
     }
 
     const qrData = await wahaSession.getQRCode(baseUrl, apiKey, connection.session_name);
