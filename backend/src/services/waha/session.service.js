@@ -52,9 +52,31 @@ async function getClientForConnection(connection) {
   if (connection.user_id && connection.connection_type !== 'external') {
     client.interceptors.response.use(null, async (error) => {
       const is422 = error.response?.status === 422;
-      const isSessionMissing = is422 && JSON.stringify(error.response?.data || '').includes('does not exist');
+      const responseData = JSON.stringify(error.response?.data || '');
+      const isSessionMissing = is422 && responseData.includes('does not exist');
+      const isSessionStopped = is422 && responseData.includes('Session status is not as expected');
 
-      if (!isSessionMissing) throw error;
+      if (!isSessionMissing && !isSessionStopped) throw error;
+
+      // If session exists but is STOPPED/FAILED, try to restart it first
+      if (isSessionStopped && sessionName) {
+        try {
+          const creds = await getWahaCredentialsForConnection(connection);
+          console.log(`[WAHA] Session ${sessionName} is stopped — attempting restart on ${creds.baseUrl}`);
+          await startSession(creds.baseUrl, creds.apiKey, sessionName);
+          // Wait for session to become WORKING
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          const status = await getSessionStatus(creds.baseUrl, creds.apiKey, sessionName);
+          if (status.status === 'WORKING' || status.status === 'SCAN_QR_CODE') {
+            console.log(`[WAHA] ✅ Session ${sessionName} restarted successfully (${status.status})`);
+            // Retry the original request
+            return client.request(error.config);
+          }
+          console.log(`[WAHA] Session ${sessionName} restart status: ${status.status} — falling through to heal`);
+        } catch (restartErr) {
+          console.log(`[WAHA] Restart failed for ${sessionName}: ${restartErr.message} — falling through to heal`);
+        }
+      }
 
       // Invalidate stale cache entry
       if (sessionName) invalidateCachedSession(sessionName);
