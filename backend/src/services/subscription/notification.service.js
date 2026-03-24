@@ -14,8 +14,9 @@ const APP_URL = process.env.APP_URL || 'https://botomat.co.il';
  */
 async function getAdminEmail() {
   try {
-    const result = await db.query(`SELECT config FROM system_settings WHERE key = 'site_config'`);
-    const siteConfig = result.rows[0]?.config || {};
+    const result = await db.query(`SELECT value FROM system_settings WHERE key = 'site_config'`);
+    const raw = result.rows[0]?.value;
+    const siteConfig = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
     return siteConfig.admin_email || process.env.ADMIN_EMAIL || null;
   } catch {
     return process.env.ADMIN_EMAIL || null;

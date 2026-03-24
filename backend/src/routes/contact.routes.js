@@ -56,8 +56,8 @@ router.post('/submit', async (req, res) => {
     }
 
     // Get admin email from system settings
-    const result = await db.query(`SELECT config FROM system_settings WHERE key = 'site_config'`);
-    const siteConfig = result.rows[0]?.config || {};
+    const result = await db.query(`SELECT value FROM system_settings WHERE key = 'site_config'`);
+    const siteConfig = typeof result.rows[0]?.value === 'string' ? JSON.parse(result.rows[0].value) : (result.rows[0]?.value || {});
     const adminEmail = siteConfig.admin_email || process.env.ADMIN_EMAIL;
 
     if (!adminEmail) {

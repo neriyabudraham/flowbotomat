@@ -1081,9 +1081,10 @@ async function sendFailureNotifications(charge, errorCode, errorMessage, retryCo
   try {
     // Get admin email from system settings
     const settingsResult = await pool.query(
-      `SELECT config FROM system_settings WHERE key = 'site_config'`
+      `SELECT value FROM system_settings WHERE key = 'site_config'`
     );
-    const siteConfig = settingsResult.rows[0]?.config || {};
+    const raw = settingsResult.rows[0]?.value;
+    const siteConfig = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
     const adminEmail = siteConfig.admin_email || process.env.ADMIN_EMAIL;
 
     const isLastRetry = retryCount >= maxRetries;
@@ -1162,9 +1163,10 @@ async function sendDowngradeNotification(charge) {
   try {
     // Get admin email
     const settingsResult = await pool.query(
-      `SELECT config FROM system_settings WHERE key = 'site_config'`
+      `SELECT value FROM system_settings WHERE key = 'site_config'`
     );
-    const siteConfig = settingsResult.rows[0]?.config || {};
+    const raw2 = settingsResult.rows[0]?.value;
+    const siteConfig = typeof raw2 === 'string' ? JSON.parse(raw2) : (raw2 || {});
     const adminEmail = siteConfig.admin_email || process.env.ADMIN_EMAIL;
 
     // Notify admin
