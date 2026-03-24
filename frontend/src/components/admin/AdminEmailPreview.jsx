@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Mail, Send, CheckCircle, AlertCircle, Eye } from 'lucide-react';
-import api from '../../utils/api';
+import api from '../../services/api';
 
 const EMAIL_TEMPLATES = [
   { category: 'אימות וסיסמה', templates: [
