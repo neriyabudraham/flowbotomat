@@ -637,11 +637,18 @@ async function preConvertMedia(baseUrl, apiKey, sessionName, type, content) {
 function buildStatusBody(messageId, contacts, statusType, content, preConvertedFile) {
   // CRITICAL: Filter out LID contacts — they cannot receive statuses and cause WAHA errors.
   // This is the last line of defense before the request goes to WAHA.
+  // Also filter fake phone numbers that are actually LIDs with @c.us (digits > 15 = not a real phone)
   if (Array.isArray(contacts)) {
     const before = contacts.length;
-    contacts = contacts.filter(c => !c.includes('@lid'));
+    contacts = contacts.filter(c => {
+      if (c.includes('@lid')) return false;
+      // E.164 max is 15 digits — anything longer is a LID disguised as a phone number
+      const digits = c.split('@')[0];
+      if (digits.length > 15) return false;
+      return true;
+    });
     if (contacts.length < before) {
-      console.warn(`[StatusBot] ⛔ buildStatusBody filtered ${before - contacts.length} LID contacts from batch (${before} → ${contacts.length})`);
+      console.warn(`[StatusBot] ⛔ buildStatusBody filtered ${before - contacts.length} invalid contacts from batch (${before} → ${contacts.length})`);
     }
   }
   switch (statusType) {
@@ -1011,9 +1018,14 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     }
     orderedContacts.push(...nonViewers);
   }
-  // Safety filter: remove any LID contacts that slipped through (LIDs cannot receive statuses)
+  // Safety filter: remove LID contacts AND fake phone numbers (digits > 15 = LID disguised as phone)
   const preFilterCount = orderedContacts.length;
-  orderedContacts = orderedContacts.filter(jid => !jid.includes('@lid'));
+  orderedContacts = orderedContacts.filter(jid => {
+    if (jid.includes('@lid')) return false;
+    const digits = jid.split('@')[0];
+    if (digits.length > 15) return false;
+    return true;
+  });
   if (orderedContacts.length < preFilterCount) {
     console.warn(`${LOG_PREFIX} ⚠️ Safety filter removed ${preFilterCount - orderedContacts.length} LID contacts from final list`);
   }
