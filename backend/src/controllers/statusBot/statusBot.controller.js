@@ -4403,10 +4403,10 @@ async function adminRestrictAllUsers(req, res) {
   try {
     const minutes = parseFloat(req.body.minutes) || 60;
     const restrictUntil = new Date(Date.now() + minutes * 60000);
+    // Restrict ALL connections (not just 'connected') — set both short_restriction and mark not lifted
     const result = await db.query(`
       UPDATE status_bot_connections
-      SET short_restriction_until = $1, updated_at = NOW()
-      WHERE connection_status = 'connected'
+      SET short_restriction_until = $1, restriction_lifted = false, updated_at = NOW()
       RETURNING id
     `, [restrictUntil]);
     console.log(`[StatusBot Admin] Restricted ${result.rowCount} users until ${restrictUntil}`);
@@ -4422,11 +4422,13 @@ async function adminRestrictAllUsers(req, res) {
  */
 async function adminUnrestrictAllUsers(req, res) {
   try {
+    // Lift ALL restrictions: clear short_restriction, clear restriction_until, mark lifted
     const result = await db.query(`
       UPDATE status_bot_connections
-      SET short_restriction_until = NULL, updated_at = NOW()
-      WHERE connection_status = 'connected'
-        AND short_restriction_until IS NOT NULL
+      SET short_restriction_until = NULL,
+          restriction_lifted = true,
+          restriction_lifted_at = NOW(),
+          updated_at = NOW()
       RETURNING id
     `);
     console.log(`[StatusBot Admin] Unrestricted ${result.rowCount} users`);

@@ -300,11 +300,17 @@ export default function AdminStatusBot() {
 
   const handleLiftRestriction = async (connectionId) => {
     if (!confirm('האם להסיר את החסימה?')) return;
-    
+
     setLiftingRestriction(connectionId);
     try {
       await api.post(`/status-bot/admin/lift-restriction/${connectionId}`);
-      loadData();
+      // Update local state without full refresh
+      setUsers(prev => prev.map(u => u.id === connectionId ? {
+        ...u,
+        restriction_lifted: true,
+        restriction_lifted_at: new Date().toISOString(),
+        short_restriction_until: null
+      } : u));
     } catch (err) {
       alert(err.response?.data?.error || 'שגיאה בהסרת החסימה');
     } finally {
@@ -420,7 +426,21 @@ export default function AdminStatusBot() {
       await api.patch(`/status-bot/admin/user/${connectionId}/set-restriction`, { restrictionUntil });
       setSettingRestriction(null);
       setRestrictionInput('');
-      loadData();
+      // Update local state without full refresh
+      if (restrictionUntil) {
+        setUsers(prev => prev.map(u => u.id === connectionId ? {
+          ...u,
+          restriction_until: restrictionUntil,
+          restriction_lifted: false
+        } : u));
+      } else {
+        setUsers(prev => prev.map(u => u.id === connectionId ? {
+          ...u,
+          restriction_until: null,
+          restriction_lifted: true,
+          restriction_lifted_at: new Date().toISOString()
+        } : u));
+      }
     } catch (err) {
       alert(err.response?.data?.error || 'שגיאה בעדכון הגבלה');
     }
@@ -539,13 +559,19 @@ export default function AdminStatusBot() {
 
   const handleRestrictAllUsers = async () => {
     const mins = parseFloat(restrictMinutes) || 60;
-    if (!confirm(`לחסום את כל המשתמשים המחוברים למשך ${mins} דקות?`)) return;
+    if (!confirm(`לחסום את כל המשתמשים למשך ${mins} דקות?`)) return;
     setRestricting(true);
     try {
       const { data } = await api.post('/status-bot/admin/restrict-all-users', { minutes: mins });
-      alert(`נחסמו ${data.restricted} משתמשים עד ${new Date(data.until).toLocaleTimeString('he-IL')}`);
+      // Update local state without full refresh
+      const until = data.until;
+      setUsers(prev => prev.map(u => ({
+        ...u,
+        short_restriction_until: until,
+        restriction_lifted: false
+      })));
       setRestrictModal(false);
-      loadData();
+      alert(`נחסמו ${data.restricted} משתמשים עד ${new Date(until).toLocaleTimeString('he-IL')}`);
     } catch (err) {
       alert(err.response?.data?.error || 'שגיאה בחסימה');
     } finally {
@@ -557,8 +583,14 @@ export default function AdminStatusBot() {
     if (!confirm('להסיר את ההגבלה מכל המשתמשים?')) return;
     try {
       const { data } = await api.post('/status-bot/admin/unrestrict-all-users');
+      // Update local state without full refresh
+      setUsers(prev => prev.map(u => ({
+        ...u,
+        short_restriction_until: null,
+        restriction_lifted: true,
+        restriction_lifted_at: new Date().toISOString()
+      })));
       alert(`הוסרה ההגבלה מ-${data.unrestricted} משתמשים`);
-      loadData();
     } catch (err) {
       alert(err.response?.data?.error || 'שגיאה בהסרת הגבלה');
     }
