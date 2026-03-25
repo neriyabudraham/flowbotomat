@@ -172,17 +172,21 @@ class BotEngine {
       }
 
       if (botsResult.rows.length === 0) {
+        console.log(`[BotEngine] processEvent(${eventType}) for ${contactPhone}: no active bots found`);
         return;
       }
-      
+
+      console.log(`[BotEngine] processEvent(${eventType}) for ${contactPhone}: found ${botsResult.rows.length} active bots`);
+
       // Get or create contact
       let contact;
       const contactResult = await db.query(
         'SELECT * FROM contacts WHERE user_id = $1 AND phone = $2',
         [userId, contactPhone]
       );
-      
+
       if (contactResult.rows.length === 0) {
+        console.log(`[BotEngine] processEvent(${eventType}): contact ${contactPhone} not found, creating...`);
         // For some events like group_join we may not have the contact yet
         // Check contact limit before creating new contact (skip for groups)
         const isGroup = contactPhone.includes('@g.us');
@@ -190,38 +194,41 @@ class BotEngine {
           try {
             const limitCheck = await checkContactLimit(userId);
             if (!limitCheck.allowed) {
+              console.log(`[BotEngine] processEvent(${eventType}): contact limit reached, skipping`);
               return;
             }
           } catch (limitErr) {
           }
         }
-        
+
         // Try to create contact
         try {
           const insertResult = await db.query(
-            `INSERT INTO contacts (user_id, phone, display_name) 
-             VALUES ($1, $2, $3) 
+            `INSERT INTO contacts (user_id, phone, display_name)
+             VALUES ($1, $2, $3)
              ON CONFLICT (user_id, phone) DO UPDATE SET display_name = COALESCE(contacts.display_name, EXCLUDED.display_name)
              RETURNING *`,
             [userId, contactPhone, eventData.pushName || eventData.notify || contactPhone]
           );
           contact = insertResult.rows[0];
         } catch (insertErr) {
+          console.error(`[BotEngine] processEvent(${eventType}): failed to create contact: ${insertErr.message}`);
           return;
         }
       } else {
         contact = contactResult.rows[0];
       }
-      
+
       // Check if bot is disabled for this contact
       if (!contact.is_bot_active) {
         if (contact.takeover_until && new Date(contact.takeover_until) < new Date()) {
           await db.query('UPDATE contacts SET is_bot_active = true, takeover_until = NULL WHERE id = $1', [contact.id]);
         } else {
+          console.log(`[BotEngine] processEvent(${eventType}): bot disabled for contact ${contactPhone} (is_bot_active=false)`);
           return;
         }
       }
-      
+
       // Add event context to contact
       contact._eventType = eventType;
       contact._eventData = eventData;
@@ -231,7 +238,7 @@ class BotEngine {
       if (eventType === 'webhook' && eventData.payload) {
         contact._webhookPayload = eventData.payload;
       }
-      
+
       // Process each active bot
       for (const bot of botsResult.rows) {
         await this.processEventBot(bot, contact, eventType, eventData, userId);
@@ -371,12 +378,20 @@ class BotEngine {
         }
       }
       
-      if (!matched) return;
-      
-      
+      if (!matched) {
+        // Only log for event-based triggers (not regular messages) to reduce noise
+        if (this.isEventCondition(eventType)) {
+          console.log(`[BotEngine] processEventBot(${eventType}): no matching trigger in bot ${bot.name || bot.id}`);
+        }
+        return;
+      }
+
+      console.log(`[BotEngine] processEventBot(${eventType}): trigger MATCHED in bot ${bot.name || bot.id} for contact ${contact.phone}`);
+
       // Check subscription limit for bot runs
       const runsLimit = await checkLimit(userId, 'bot_runs');
       if (!runsLimit.allowed) {
+        console.log(`[BotEngine] processEventBot(${eventType}): bot_runs limit reached`);
         return;
       }
 

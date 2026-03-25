@@ -3,6 +3,7 @@ const wahaSession = require('../../services/waha/session.service');
 const { getWahaCredentials, getWahaCredentialsForConnection } = require('../../services/settings/system.service');
 const { assignProxy, removeProxy } = require('../../services/proxy/proxy.service');
 const crypto = require('crypto');
+const botEngine = require('../../services/botEngine.service');
 
 // ============================================
 // HELPER FUNCTIONS
@@ -3417,6 +3418,19 @@ async function handleStatusView(connection, payload) {
       }
     }
 
+    // Trigger bot engine for status_viewed event
+    try {
+      const userId = connection.user_id;
+      if (userId && viewerPhone) {
+        await botEngine.processEvent(userId, viewerPhone, 'status_viewed', {
+          messageId: messageId,
+          fromMe: false
+        });
+      }
+    } catch (botErr) {
+      console.error('[StatusBot] Bot engine trigger on view error:', botErr.message);
+    }
+
   } catch (error) {
     console.error('[StatusBot] Handle status view error:', error);
   }
@@ -3490,10 +3504,26 @@ async function handleStatusReaction(connection, payload) {
 
     // Update reaction count
     await db.query(`
-      UPDATE status_bot_statuses 
+      UPDATE status_bot_statuses
       SET reaction_count = (SELECT COUNT(*) FROM status_bot_reactions WHERE status_id = $1)
       WHERE id = $1
     `, [statusId]);
+
+    // Trigger bot engine for status_reaction event
+    try {
+      const userId = connection.user_id;
+      if (userId && reactorPhone) {
+        const reactionEmoji = reactionText || '❤️';
+        const reactionMsgId = reactionData?.messageId || '';
+        await botEngine.processEvent(userId, reactorPhone, 'status_reaction', {
+          reaction: reactionEmoji,
+          messageId: reactionMsgId,
+          fromMe: false
+        });
+      }
+    } catch (botErr) {
+      console.error('[StatusBot] Bot engine trigger on reaction error:', botErr.message);
+    }
 
   } catch (error) {
     console.error('[StatusBot] Handle status reaction error:', error);

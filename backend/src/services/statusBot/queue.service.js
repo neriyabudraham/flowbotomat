@@ -642,9 +642,9 @@ function buildStatusBody(messageId, contacts, statusType, content, preConvertedF
     const before = contacts.length;
     contacts = contacts.filter(c => {
       if (c.includes('@lid')) return false;
-      // E.164 max is 15 digits — anything longer is a LID disguised as a phone number
+      // Real phone numbers have max ~12 digits (with country code). Longer = LID disguised as phone
       const digits = c.split('@')[0];
-      if (digits.length > 15) return false;
+      if (digits.length > 12) return false;
       return true;
     });
     if (contacts.length < before) {
@@ -1022,8 +1022,9 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   const preFilterCount = orderedContacts.length;
   orderedContacts = orderedContacts.filter(jid => {
     if (jid.includes('@lid')) return false;
+    // Real phone numbers have max ~12 digits (with country code). Longer = LID disguised as phone
     const digits = jid.split('@')[0];
-    if (digits.length > 15) return false;
+    if (digits.length > 12) return false;
     return true;
   });
   if (orderedContacts.length < preFilterCount) {
