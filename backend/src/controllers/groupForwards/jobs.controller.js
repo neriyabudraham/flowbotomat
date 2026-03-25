@@ -747,6 +747,16 @@ async function startForwardJob(jobId) {
             lastError = attemptError;
             const isTimeout = attemptError.message?.includes('timeout') || attemptError.code === 'ECONNABORTED';
             const isSessionMissing = attemptError.message?.includes('422') || attemptError.message?.includes('does not exist');
+            const errorBody = JSON.stringify(attemptError.response?.data || '');
+            const isRateLimit = errorBody.includes('420') || errorBody.includes('rate') || errorBody.includes('too many');
+
+            // 420 rate limit — wait longer and retry
+            if (isRateLimit && attempt < maxRetries) {
+              const rateLimitDelay = 30000 + (attempt * 15000); // 30s, 45s, 60s
+              console.log(`[GroupForwards] ⏳ Rate limited (420) on ${message.group_id}, waiting ${rateLimitDelay/1000}s before retry ${attempt + 1}/${maxRetries}`);
+              await new Promise(resolve => setTimeout(resolve, rateLimitDelay));
+              continue;
+            }
 
             if (isTimeout && attempt < maxRetries) {
               console.log(`[GroupForwards] Timeout on attempt ${attempt + 1} for ${message.group_id}, will retry...`);
