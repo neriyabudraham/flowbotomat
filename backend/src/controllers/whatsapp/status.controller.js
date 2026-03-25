@@ -137,26 +137,48 @@ async function getQR(req, res) {
         // Need to start the session first
         console.log(`[QR] Starting session ${connection.session_name}...`);
         await wahaSession.startSession(baseUrl, apiKey, connection.session_name);
-        // Wait a bit for session to initialize
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Wait for session to initialize then check if QR is ready
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        try {
+          const newStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
+          if (newStatus.status === 'SCAN_QR_CODE') {
+            const qrData = await wahaSession.getQRCode(baseUrl, apiKey, connection.session_name);
+            return res.json({ qr: qrData.value, status: 'qr_ready' });
+          }
+          if (newStatus.status === 'WORKING') {
+            return res.json({ qr: null, status: 'connected', message: 'כבר מחובר' });
+          }
+        } catch { /* still starting */ }
+        // Session still starting — tell frontend to retry
+        return res.json({ qr: null, status: 'starting', message: 'הסשן מאתחל, נסה שוב בעוד כמה שניות...' });
+      }
+
+      if (status.status === 'STARTING') {
+        return res.json({ qr: null, status: 'starting', message: 'הסשן מאתחל, נסה שוב בעוד כמה שניות...' });
       }
     } catch (statusErr) {
       console.error('[QR] Status check error:', statusErr.message);
     }
-    
-    const qrData = await wahaSession.getQRCode(
-      baseUrl, apiKey, connection.session_name
-    );
-    
-    // Save QR to DB (now it's a data URL)
-    await pool.query(
-      `UPDATE whatsapp_connections 
-       SET last_qr_code = $1, last_qr_at = NOW() 
-       WHERE id = $2`,
-      [qrData.value.substring(0, 100) + '...', connection.id] // Truncate for DB
-    );
-    
-    res.json({ qr: qrData.value, status: 'qr_ready' });
+
+    try {
+      const qrData = await wahaSession.getQRCode(
+        baseUrl, apiKey, connection.session_name
+      );
+
+      // Save QR to DB (now it's a data URL)
+      await pool.query(
+        `UPDATE whatsapp_connections
+         SET last_qr_code = $1, last_qr_at = NOW()
+         WHERE id = $2`,
+        [qrData.value.substring(0, 100) + '...', connection.id] // Truncate for DB
+      );
+
+      res.json({ qr: qrData.value, status: 'qr_ready' });
+    } catch (qrErr) {
+      console.error('[QR] getQRCode error:', qrErr.message);
+      // QR not available yet — tell frontend to retry instead of 500
+      res.json({ qr: null, status: 'starting', message: 'ממתין ל-QR, נסה שוב...' });
+    }
   } catch (error) {
     console.error('Get QR error:', error.message);
     res.status(500).json({ error: 'שגיאה בקבלת QR - נסה שוב' });
