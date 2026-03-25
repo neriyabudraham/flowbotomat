@@ -125,6 +125,7 @@ router.get('/admin/active-processes', authMiddleware, adminMiddleware, statusBot
 router.post('/admin/lift-restriction/:connectionId', authMiddleware, superadminMiddleware, statusBotController.adminLiftRestriction);
 router.post('/admin/reset-queue', authMiddleware, adminMiddleware, statusBotController.adminResetQueueLock);
 router.post('/admin/cancel-item/:queueId', authMiddleware, adminMiddleware, statusBotController.adminForceCancelItem);
+router.post('/admin/stop-item/:queueId', authMiddleware, adminMiddleware, statusBotController.adminForceStopItem);
 router.post('/admin/sync-phones', authMiddleware, adminMiddleware, statusBotController.adminSyncPhoneNumbers);
 router.get('/admin/queue-settings', authMiddleware, adminMiddleware, statusBotController.adminGetQueueSettings);
 router.patch('/admin/queue-settings', authMiddleware, adminMiddleware, statusBotController.adminUpdateQueueSettings);

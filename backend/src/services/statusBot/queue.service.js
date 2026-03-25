@@ -24,6 +24,7 @@ function emitToAdmin(event, data) {
 const QUEUE_INTERVAL = 5000; // Check queue every 5 seconds
 const DEFAULT_STATUS_TIMEOUT = 600000; // 10 minutes timeout per status (default)
 const activeItemTokens = new Map(); // queueId -> token (prevents duplicate processing after stuck reset)
+const forceStopItems = new Set(); // queueIds that admin requested immediate stop on
 
 // Generic settings cache (refreshed every 60 seconds from DB)
 const _settingsCache = {};
@@ -1107,6 +1108,14 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       throw new Error('PROCESSING_SUPERSEDED');
     }
 
+    // Admin force-stop check: immediately end sending, mark as sent with partial progress
+    if (forceStopItems.has(queueItem.id)) {
+      forceStopItems.delete(queueItem.id);
+      console.log(`${LOG_PREFIX} ⏹️ Admin force-stopped item — finishing with ${totalSent} contacts sent so far`);
+      stoppedEarly = true;
+      break;
+    }
+
     const wave = allBatches.slice(waveStart, waveStart + PARALLEL_BATCHES);
 
     // Add 30s delay between non-viewer waves (not the first one right after viewers)
@@ -1571,6 +1580,15 @@ async function retryQueueItem(queueId) {
   return result.rows[0] || null;
 }
 
+/**
+ * Admin force-stop: signal a processing item to stop immediately.
+ * The item will finish its current batch then mark as sent (partial).
+ */
+function forceStopItem(queueId) {
+  forceStopItems.add(queueId);
+  console.log(`[StatusBot Queue] ⏹️ Force-stop requested for item ${queueId}`);
+}
+
 module.exports = {
   startQueueProcessor,
   stopQueueProcessor,
@@ -1586,4 +1604,5 @@ module.exports = {
   invalidateTimeoutCache,
   invalidateSettingsCache,
   retryQueueItem,
+  forceStopItem,
 };

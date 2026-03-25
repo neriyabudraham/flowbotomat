@@ -2740,7 +2740,7 @@ async function adminForceCancelItem(req, res) {
     if (item.queue_status === 'processing') {
       // Reset queue lock
       await db.query(`
-        UPDATE status_bot_queue_lock 
+        UPDATE status_bot_queue_lock
         SET is_processing = false, processing_started_at = NULL
         WHERE id = 1
       `);
@@ -2748,7 +2748,7 @@ async function adminForceCancelItem(req, res) {
 
     // Mark as failed
     await db.query(`
-      UPDATE status_bot_queue 
+      UPDATE status_bot_queue
       SET queue_status = 'failed', error_message = 'בוטל ע"י מנהל'
       WHERE id = $1
     `, [queueId]);
@@ -2758,6 +2758,39 @@ async function adminForceCancelItem(req, res) {
   } catch (error) {
     console.error('[StatusBot Admin] Force cancel item error:', error);
     res.status(500).json({ error: 'שגיאה בביטול הפריט' });
+  }
+}
+
+/**
+ * Admin: force-stop a processing item — ends sending immediately,
+ * marks as sent with whatever was already sent (partial).
+ */
+async function adminForceStopItem(req, res) {
+  try {
+    const { queueId } = req.params;
+
+    const result = await db.query(
+      `SELECT id, queue_status FROM status_bot_queue WHERE id = $1`,
+      [queueId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'פריט לא נמצא' });
+    }
+
+    if (result.rows[0].queue_status !== 'processing') {
+      return res.status(400).json({ error: 'הפריט לא בתהליך עיבוד' });
+    }
+
+    // Signal the queue processor to stop this item gracefully
+    const { forceStopItem } = require('../../services/statusBot/queue.service');
+    forceStopItem(queueId);
+
+    res.json({ success: true, message: 'נשלח אות עצירה — התהליך ייעצר בסיום הבאץ\' הנוכחי' });
+
+  } catch (error) {
+    console.error('[StatusBot Admin] Force stop item error:', error);
+    res.status(500).json({ error: 'שגיאה בעצירת התהליך' });
   }
 }
 
@@ -4551,6 +4584,7 @@ module.exports = {
   adminGetUploadStats,
   adminResetQueueLock,
   adminForceCancelItem,
+  adminForceStopItem,
   adminSyncPhoneNumbers,
   adminGetUserErrors,
   adminGetUserDetails,

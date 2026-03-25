@@ -5,7 +5,7 @@ import {
   Phone, Search, ChevronDown, ChevronUp, Activity, MessageCircle, Loader2,
   RotateCcw, PhoneCall, XCircle, AlertTriangle, BarChart3, TrendingUp,
   Trash2, RotateCw, FileText, Calendar, Zap, Timer, ChevronRight, ExternalLink,
-  PauseCircle, PlayCircle, Ban, ListX
+  PauseCircle, PlayCircle, Ban, ListX, StopCircle
 } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
@@ -377,13 +377,26 @@ export default function AdminStatusBot() {
 
   const handleCancelItem = async (queueId) => {
     if (!confirm('לבטל את התהליך הזה?')) return;
-    
+
     setCancellingItem(queueId);
     try {
       await api.post(`/status-bot/admin/cancel-item/${queueId}`);
       loadActiveProcesses();
     } catch (err) {
       alert(err.response?.data?.error || 'שגיאה בביטול');
+    } finally {
+      setCancellingItem(null);
+    }
+  };
+
+  const handleForceStopItem = async (queueId) => {
+    if (!confirm('לעצור את ההעלאה? מה שנשלח עד עכשיו יישמר.')) return;
+
+    setCancellingItem(queueId);
+    try {
+      await api.post(`/status-bot/admin/stop-item/${queueId}`);
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בעצירה');
     } finally {
       setCancellingItem(null);
     }
@@ -1131,14 +1144,15 @@ export default function AdminStatusBot() {
                               <p className="text-xs text-gray-400">נכנס לתור: {queueTime.toLocaleTimeString('he-IL')}</p>
                             </div>
                             <button
-                              onClick={(e) => { e.stopPropagation(); handleCancelItem(upload.id); }}
+                              onClick={(e) => { e.stopPropagation(); handleForceStopItem(upload.id); }}
                               disabled={cancellingItem === upload.id}
-                              className="p-2 text-red-600 hover:bg-red-100 rounded-lg disabled:opacity-50"
+                              className="p-2 text-orange-600 hover:bg-orange-100 rounded-lg disabled:opacity-50"
+                              title="עצור העלאה (מה שנשלח יישמר)"
                             >
                               {cancellingItem === upload.id ? (
                                 <Loader2 className="w-4 h-4 animate-spin" />
                               ) : (
-                                <XCircle className="w-5 h-5" />
+                                <StopCircle className="w-5 h-5" />
                               )}
                             </button>
                           </div>
