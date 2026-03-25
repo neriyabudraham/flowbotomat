@@ -134,9 +134,13 @@ async function getQR(req, res) {
       }
       
       if (status.status === 'STOPPED' || status.status === 'FAILED') {
-        // Need to start the session first
-        console.log(`[QR] Starting session ${connection.session_name}...`);
-        await wahaSession.startSession(baseUrl, apiKey, connection.session_name);
+        // Try to start the session first
+        console.log(`[QR] Session ${connection.session_name} is ${status.status}, attempting restart...`);
+        try {
+          await wahaSession.startSession(baseUrl, apiKey, connection.session_name);
+        } catch (startErr) {
+          console.log(`[QR] Start failed: ${startErr.message}`);
+        }
         // Wait for session to initialize then check if QR is ready
         await new Promise(resolve => setTimeout(resolve, 5000));
         try {
@@ -147,6 +151,28 @@ async function getQR(req, res) {
           }
           if (newStatus.status === 'WORKING') {
             return res.json({ qr: null, status: 'connected', message: 'כבר מחובר' });
+          }
+          // Still FAILED after restart — delete and recreate session
+          if (newStatus.status === 'FAILED') {
+            console.log(`[QR] Session still FAILED after restart — deleting and recreating ${connection.session_name}`);
+            try {
+              await wahaSession.deleteSession(baseUrl, apiKey, connection.session_name);
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              // Recreate with same name + metadata
+              const userRes = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
+              const email = userRes.rows[0]?.email || '';
+              await wahaSession.createSession(baseUrl, apiKey, connection.session_name, {
+                'user.email': email
+              });
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              const recreatedStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
+              if (recreatedStatus.status === 'SCAN_QR_CODE') {
+                const qrData = await wahaSession.getQRCode(baseUrl, apiKey, connection.session_name);
+                return res.json({ qr: qrData.value, status: 'qr_ready' });
+              }
+            } catch (recreateErr) {
+              console.error(`[QR] Recreate session failed:`, recreateErr.message);
+            }
           }
         } catch { /* still starting */ }
         // Session still starting — tell frontend to retry

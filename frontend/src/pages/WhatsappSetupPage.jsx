@@ -58,7 +58,7 @@ export default function WhatsappSetupPage() {
     checkStatus();
   }, []);
 
-  // Poll status when on QR step to auto-detect connection
+  // Poll status when on QR step to auto-detect connection + retry QR if not loaded
   useEffect(() => {
     if (step !== 'qr') return;
 
@@ -67,16 +67,20 @@ export default function WhatsappSetupPage() {
         const data = await fetchStatus();
         if (data.connection?.status === 'connected') {
           clearInterval(pollInterval);
-          // Navigate to dashboard when connected
           navigate('/dashboard');
+          return;
+        }
+        // If QR not loaded yet, retry fetching it
+        if (!qrCode) {
+          await fetchQR();
         }
       } catch (e) {
         // Ignore polling errors
       }
-    }, 3000); // Poll every 3 seconds
+    }, 5000); // Poll every 5 seconds
 
     return () => clearInterval(pollInterval);
-  }, [step, navigate, fetchStatus]);
+  }, [step, navigate, fetchStatus, fetchQR, qrCode]);
 
   const checkStatus = async () => {
     try {
