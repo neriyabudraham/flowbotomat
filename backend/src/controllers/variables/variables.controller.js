@@ -60,11 +60,11 @@ async function createVariable(req, res) {
       return res.status(400).json({ error: 'שם המשתנה הוא שדה חובה' });
     }
     
-    // Validate name format (letters, numbers, underscore only, min 2 chars)
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]+$/.test(name) && name !== '_') {
-      return res.status(400).json({ error: 'שם משתנה יכול להכיל רק אותיות אנגליות, מספרים וקו תחתון (מינימום 2 תווים)' });
+    // Validate name format (letters, Hebrew, numbers, underscore, min 2 chars)
+    if (!/^[\u0590-\u05FFa-zA-Z_][\u0590-\u05FFa-zA-Z0-9_]+$/.test(name)) {
+      return res.status(400).json({ error: 'שם משתנה חייב להכיל לפחות 2 תווים (אותיות בעברית/אנגלית, מספרים וקו תחתון)' });
     }
-    if (name === '_' || /^_+$/.test(name)) {
+    if (/^_+$/.test(name)) {
       return res.status(400).json({ error: 'שם משתנה לא תקין' });
     }
     

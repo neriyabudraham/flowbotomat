@@ -1884,7 +1884,7 @@ class BotEngine {
 
           case 'image':
             if (action.url || action.fileData) {
-              const imageUrl = action.fileData || action.url;
+              const imageUrl = action.fileData || await this.replaceAllVariables(action.url, contact, originalMessage, botName, userId);
               const caption = await this.replaceAllVariables(action.caption || '', contact, originalMessage, botName, userId);
               const result = await wahaService.sendImage(connection, contact.phone, imageUrl, caption);
               // Save outgoing message to DB
@@ -1895,7 +1895,7 @@ class BotEngine {
             
           case 'video':
             if (action.url || action.fileData) {
-              const videoUrl = action.fileData || action.url;
+              const videoUrl = action.fileData || await this.replaceAllVariables(action.url, contact, originalMessage, botName, userId);
               const caption = await this.replaceAllVariables(action.caption || '', contact, originalMessage, botName, userId);
               const result = await wahaService.sendVideo(connection, contact.phone, videoUrl, caption);
               // Save outgoing message to DB
@@ -1906,7 +1906,7 @@ class BotEngine {
             
           case 'audio':
             if (action.url || action.fileData) {
-              const audioUrl = action.fileData || action.url;
+              const audioUrl = action.fileData || await this.replaceAllVariables(action.url, contact, originalMessage, botName, userId);
               const result = await wahaService.sendVoice(connection, contact.phone, audioUrl);
               // Save outgoing message to DB
               await this.saveOutgoingMessage(userId, contact.id, '', 'audio', audioUrl, result?.id?.id);
@@ -1916,7 +1916,7 @@ class BotEngine {
             
           case 'file':
             if (action.url || action.fileData) {
-              const fileUrl = action.fileData || action.url;
+              const fileUrl = action.fileData || await this.replaceAllVariables(action.url, contact, originalMessage, botName, userId);
               // Ensure we have a filename - use custom if provided, or extract from URL
               let filename = action.customFilename || action.fileName || action.filename || 'file';
               
@@ -3338,6 +3338,69 @@ class BotEngine {
       if (body) {
       }
       
+      // Check if response should be saved as binary file
+      if (action.responseAsFile && action.fileVariable) {
+        const response = await axios({
+          method: action.method || 'GET',
+          url,
+          headers,
+          data: body,
+          responseType: 'arraybuffer',
+          timeout: 60000,
+          maxContentLength: 50 * 1024 * 1024,
+        });
+
+        const fs = require('fs');
+        const pathModule = require('path');
+        const crypto = require('crypto');
+
+        const contentType = response.headers['content-type'] || 'application/octet-stream';
+        const contentDisposition = response.headers['content-disposition'] || '';
+
+        // Determine filename
+        let originalFilename = '';
+        const cdMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i);
+        if (cdMatch) originalFilename = cdMatch[1].replace(/['"]/g, '').trim();
+        if (!originalFilename) {
+          try { originalFilename = pathModule.basename(new URL(url).pathname); } catch { /* ignore */ }
+        }
+        if (!originalFilename || originalFilename === '/' || !originalFilename.includes('.')) {
+          const extMap = {
+            'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp',
+            'video/mp4': '.mp4', 'audio/mpeg': '.mp3', 'application/pdf': '.pdf',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+          };
+          originalFilename = `downloaded${extMap[contentType] || '.bin'}`;
+        }
+
+        // Determine storage directory
+        let typeDir = 'misc';
+        if (contentType.startsWith('image/')) typeDir = 'image';
+        else if (contentType.startsWith('video/')) typeDir = 'video';
+        else if (contentType.startsWith('audio/')) typeDir = 'audio';
+
+        const uploadsDir = pathModule.join(__dirname, '../../uploads', typeDir);
+        if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+        const uniqueId = crypto.randomBytes(8).toString('hex');
+        const ext = pathModule.extname(originalFilename);
+        const safeName = `${Date.now()}-${uniqueId}${ext}`;
+        const filePath = pathModule.join(uploadsDir, safeName);
+        fs.writeFileSync(filePath, Buffer.from(response.data));
+
+        const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 3000}/api`;
+        const fileUrl = `${baseUrl}/uploads/${typeDir}/${safeName}`;
+
+        console.log(`[BotEngine] HTTP Request file download: saved ${response.data.byteLength} bytes -> ${fileUrl}`);
+
+        await this.setContactVariable(contact.id, action.fileVariable, fileUrl);
+        if (!contact.variables) contact.variables = {};
+        contact.variables[action.fileVariable] = fileUrl;
+
+        return;
+      }
+
       const response = await axios({
         method: action.method || 'GET',
         url,
@@ -3345,22 +3408,22 @@ class BotEngine {
         data: body,
         timeout: 30000
       });
-      
-      
+
+
       // Apply response mappings
-      
+
       if (action.mappings && Array.isArray(action.mappings)) {
         for (const mapping of action.mappings) {
           if (mapping.path && mapping.varName) {
             let value;
-            
+
             // Special case: _full_response returns entire response as JSON string
             if (mapping.path === '_full_response') {
               value = JSON.stringify(response.data);
             } else {
               value = this.getValueFromPath(response.data, mapping.path);
             }
-            
+
             if (value !== undefined && value !== null) {
               const stringValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
               await this.setContactVariable(contact.id, mapping.varName, stringValue);

@@ -399,7 +399,10 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
   };
   
   const addMapping = (path = '', varName = '') => {
-    onUpdate({ mappings: [...mappings, { path, varName: varName || path.split('.').pop() || '' }] });
+    const autoName = path.split('.').pop() || '';
+    // Avoid invalid auto-names like '_' or empty strings
+    const safeName = varName || (/^[a-zA-Z\u0590-\u05FF]/.test(autoName) ? autoName : '');
+    onUpdate({ mappings: [...mappings, { path, varName: safeName }] });
   };
   
   const updateMapping = (index, field, value) => {
@@ -843,6 +846,34 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                 </div>
               )}
               
+              {/* Response as File Toggle */}
+              <div className="border border-gray-200 rounded-xl p-4 space-y-3">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={action.responseAsFile || false}
+                    onChange={(e) => onUpdate({ responseAsFile: e.target.checked })}
+                    className="w-4 h-4 text-purple-600 rounded"
+                  />
+                  <span className="text-sm font-medium text-gray-700">שמור תגובה כקובץ בינארי</span>
+                </label>
+                {action.responseAsFile && (
+                  <div className="pr-7 space-y-2">
+                    <p className="text-xs text-gray-500">התגובה תישמר כקובץ בשרת, וה-URL יישמר במשתנה שתבחר. מתאים לתמונות, PDF, אודיו וקבצים אחרים.</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600 whitespace-nowrap">שמור URL למשתנה:</span>
+                      <input
+                        type="text"
+                        value={action.fileVariable || ''}
+                        onChange={(e) => onUpdate({ fileVariable: e.target.value })}
+                        placeholder="file_url"
+                        className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Response Mapping */}
               <div className="border border-gray-200 rounded-xl overflow-hidden">
                 <button
