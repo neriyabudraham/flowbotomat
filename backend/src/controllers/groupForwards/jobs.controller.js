@@ -545,22 +545,54 @@ async function startForwardJob(jobId) {
     if (jobResult.rows.length === 0) {
       // Debug: check why job wasn't found
       const debugResult = await db.query(`
-        SELECT fj.id, fj.status, gf.id as forward_id, gf.is_active as forward_active,
+        SELECT fj.id, fj.status, gf.id as forward_id, gf.user_id, gf.is_active as forward_active,
           (SELECT COUNT(*) FROM whatsapp_connections WHERE user_id = gf.user_id AND status = 'connected') as connected_count
         FROM forward_jobs fj
         LEFT JOIN group_forwards gf ON fj.forward_id = gf.id
         WHERE fj.id = $1
       `, [jobId]);
-      
-      if (debugResult.rows.length > 0) {
-        const debug = debugResult.rows[0];
-        console.log(`[GroupForwards] Job ${jobId} debug: forward_id=${debug.forward_id}, forward_active=${debug.forward_active}, connected_count=${debug.connected_count}`);
-        if (debug.connected_count === 0 || debug.connected_count === '0') {
-          throw new Error('No active WhatsApp connection found');
+
+      if (debugResult.rows.length === 0) {
+        throw new Error('Job not found in database');
+      }
+
+      const debug = debugResult.rows[0];
+      console.log(`[GroupForwards] Job ${jobId} debug: forward_id=${debug.forward_id}, forward_active=${debug.forward_active}, connected_count=${debug.connected_count}`);
+
+      if (debug.connected_count === 0 || debug.connected_count === '0') {
+        // Attempt auto-heal before giving up
+        console.log(`[GroupForwards] ⚠️ No connected WhatsApp for job ${jobId} — attempting auto-heal...`);
+        const { healWahaConnectionByUserId } = require('../../services/waha/heal.service');
+        const healed = await healWahaConnectionByUserId(debug.user_id);
+        if (healed) {
+          console.log(`[GroupForwards] 🔄 Healed connection for job ${jobId}: ${healed.sessionName} — retrying query...`);
+          // Update the connection status so the JOIN works
+          await db.query(
+            `UPDATE whatsapp_connections SET status = 'connected', updated_at = NOW() WHERE user_id = $1 AND session_name = $2`,
+            [debug.user_id, healed.sessionName]
+          );
+          // Retry the main query
+          const retryResult = await db.query(`
+            SELECT fj.*, gf.delay_min, gf.delay_max, gf.user_id, gf.name as forward_name,
+              gf.trigger_type, gf.trigger_group_id,
+              gf.message_suffix, gf.suffix_enabled, gf.link_preview,
+              wc.session_name, wc.connection_type, wc.external_base_url, wc.external_api_key, wc.waha_source_id, wc.waha_base_url
+            FROM forward_jobs fj
+            JOIN group_forwards gf ON fj.forward_id = gf.id
+            JOIN whatsapp_connections wc ON wc.user_id = gf.user_id AND wc.status = 'connected'
+            WHERE fj.id = $1
+          `, [jobId]);
+          if (retryResult.rows.length > 0) {
+            jobResult.rows = retryResult.rows;
+          } else {
+            throw new Error('No active WhatsApp connection found (heal succeeded but query still failed)');
+          }
+        } else {
+          throw new Error('No active WhatsApp connection found (auto-heal failed)');
         }
+      } else {
         throw new Error(`Job exists but failed join: forward_active=${debug.forward_active}`);
       }
-      throw new Error('Job not found in database');
     }
     
     const job = jobResult.rows[0];
@@ -672,8 +704,8 @@ async function startForwardJob(jobId) {
         // Send message based on type - with retry logic for timeouts
         let messageId;
         let lastError = null;
-        const maxRetries = 3;
-        const retryDelays = [10000, 15000, 20000]; // 10s, 15s, 20s delays
+        const maxRetries = 4;
+        const retryDelays = [10000, 20000, 30000, 45000]; // 10s, 20s, 30s, 45s delays
         
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
           try {
@@ -745,15 +777,16 @@ async function startForwardJob(jobId) {
             
           } catch (attemptError) {
             lastError = attemptError;
+            const httpStatus = attemptError.response?.status;
             const isTimeout = attemptError.message?.includes('timeout') || attemptError.code === 'ECONNABORTED';
-            const isSessionMissing = attemptError.message?.includes('422') || attemptError.message?.includes('does not exist');
+            const isSessionMissing = httpStatus === 422 || attemptError.message?.includes('422') || attemptError.message?.includes('does not exist');
             const errorBody = JSON.stringify(attemptError.response?.data || '');
-            const isRateLimit = errorBody.includes('420') || errorBody.includes('rate') || errorBody.includes('too many');
+            const isRateLimit = httpStatus === 420 || httpStatus === 429 || errorBody.includes('rate') || errorBody.includes('too many');
 
-            // 420 rate limit — wait longer and retry
+            // 420/429 rate limit — wait longer and retry
             if (isRateLimit && attempt < maxRetries) {
-              const rateLimitDelay = 30000 + (attempt * 15000); // 30s, 45s, 60s
-              console.log(`[GroupForwards] ⏳ Rate limited (420) on ${message.group_id}, waiting ${rateLimitDelay/1000}s before retry ${attempt + 1}/${maxRetries}`);
+              const rateLimitDelay = 45000 + (attempt * 30000); // 45s, 75s, 105s
+              console.log(`[GroupForwards] ⏳ Rate limited (${httpStatus || '420'}) on ${message.group_id}, waiting ${rateLimitDelay/1000}s before retry ${attempt + 1}/${maxRetries}`);
               await new Promise(resolve => setTimeout(resolve, rateLimitDelay));
               continue;
             }
