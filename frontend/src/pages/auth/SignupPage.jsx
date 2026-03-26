@@ -449,15 +449,23 @@ export default function SignupPage() {
               />
               <span className="text-sm text-gray-600 leading-relaxed">
                 קראתי ואני מסכים/ה ל
-                <Link 
-                  to="/privacy" 
+                <Link
+                  to="/privacy"
                   target="_blank"
                   className="text-emerald-600 hover:underline mx-1 font-medium"
                   onClick={(e) => e.stopPropagation()}
                 >
                   מדיניות הפרטיות
                 </Link>
-                ולתנאי השימוש
+                ול
+                <Link
+                  to="/terms"
+                  target="_blank"
+                  className="text-emerald-600 hover:underline mx-1 font-medium"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  תנאי השימוש
+                </Link>
               </span>
             </label>
 
