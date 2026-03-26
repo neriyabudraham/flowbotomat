@@ -623,10 +623,10 @@ async function sendVideo(connection, phone, videoUrl, caption = '', mentions = n
 /**
  * Send list message
  */
-async function sendList(connection, phone, listData) {
+async function sendList(connection, phone, listData, replyTo = null) {
   const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
-  
+
   const rows = (listData.buttons || []).map((btn, i) => {
     const row = {
       title: (btn.title || `אפשרות ${i + 1}`).substring(0, 24), // Max 24 chars
@@ -637,7 +637,7 @@ async function sendList(connection, phone, listData) {
     }
     return row;
   });
-  
+
   const payload = {
     session: connection.session_name,
     chatId: chatId,
@@ -654,7 +654,12 @@ async function sendList(connection, phone, listData) {
       ],
     },
   };
-  
+
+  // Reply to a specific message (quote)
+  if (replyTo) {
+    payload.reply_to = replyTo;
+  }
+
   const response = await client.post(`/api/sendList`, payload);
   return response.data;
 }

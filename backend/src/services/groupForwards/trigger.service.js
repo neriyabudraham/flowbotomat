@@ -410,15 +410,25 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
       pollMultipleAnswers = messageData.multipleAnswers || false;
     }
 
+    // Extract the WhatsApp message ID of the triggering message
+    let triggerMsgId = null;
+    if (typeof payload.id === 'string') {
+      triggerMsgId = payload.id;
+    } else if (payload.id?._serialized) {
+      triggerMsgId = payload.id._serialized;
+    } else if (payload.id?.id) {
+      triggerMsgId = `${payload.id.fromMe ? 'true' : 'false'}_${payload.id.remote || ''}_${payload.id.id}`;
+    }
+
     // Create job - save forward_name so it persists even if forward is deleted
     const jobResult = await db.query(`
       INSERT INTO forward_jobs (
         forward_id, user_id, message_type, message_text,
         media_url, media_mime_type, media_filename,
         sender_phone, sender_name, total_targets, status, forward_name,
-        poll_options, poll_multiple_answers
+        poll_options, poll_multiple_answers, trigger_msg_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING *
     `, [
       forward.id,
@@ -434,7 +444,8 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
       forward.require_confirmation ? 'pending' : 'confirmed',
       forward.name,
       pollOptions ? JSON.stringify(pollOptions) : null,
-      pollMultipleAnswers
+      pollMultipleAnswers,
+      triggerMsgId
     ]);
     
     const job = jobResult.rows[0];
@@ -491,10 +502,10 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
       // Route to admin for approval first — sender gets no notification yet
       await broadcastAdminService.requestAdminApproval(userId, job, forward);
     } else if (forward.require_confirmation) {
-      // No admin configured — send confirmation directly to the sender
-      await sendConfirmationList(userId, senderPhone, forward, job);
+      // No admin configured — send confirmation directly to the sender (reply to original message)
+      await sendConfirmationList(userId, senderPhone, forward, job, triggerMsgId);
     } else {
-      await sendStartList(userId, senderPhone, job.id, job.total_targets);
+      await sendStartList(userId, senderPhone, job.id, job.total_targets, triggerMsgId);
 
       const { startForwardJob } = require('../../controllers/groupForwards/jobs.controller');
       startForwardJob(job.id).catch(err => {
@@ -510,17 +521,17 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
 /**
  * Send confirmation list message to sender
  */
-async function sendConfirmationList(userId, senderPhone, forward, job) {
+async function sendConfirmationList(userId, senderPhone, forward, job, replyToMsgId = null) {
   try {
     const wahaConnection = await getWahaConnection(userId);
     if (!wahaConnection) {
       console.log('[GroupForwards] No WhatsApp connection for confirmation');
       return;
     }
-    
+
     const chatId = `${senderPhone}@s.whatsapp.net`;
     const wahaService = require('../waha/session.service');
-    
+
     // Build list message - concise version with schedule option
     const listData = {
       title: `📤 ${forward.name}`,
@@ -532,8 +543,10 @@ async function sendConfirmationList(userId, senderPhone, forward, job) {
         { title: '❌ בטל', rowId: `fwd_cancel_${job.id}` }
       ]
     };
-    
-    const result = await wahaService.sendList(wahaConnection, chatId, listData);
+
+    // Reply to the original trigger message so the user sees which message this confirmation belongs to
+    const replyTo = replyToMsgId || job.trigger_msg_id || null;
+    const result = await wahaService.sendList(wahaConnection, chatId, listData, replyTo);
 
     // Store the confirmation message ID on the job for text-reply matching
     const confirmMsgId = result?.id || result?.key?.id || null;
@@ -567,14 +580,14 @@ async function sendConfirmationList(userId, senderPhone, forward, job) {
 /**
  * Send start message with stop options as list
  */
-async function sendStartList(userId, senderPhone, jobId, targetCount) {
+async function sendStartList(userId, senderPhone, jobId, targetCount, replyToMsgId = null) {
   try {
     const wahaConnection = await getWahaConnection(userId);
     if (!wahaConnection) return;
-    
+
     const chatId = `${senderPhone}@s.whatsapp.net`;
     const wahaService = require('../waha/session.service');
-    
+
     const listData = {
       title: `📤 שליחה ל-${targetCount} קבוצות`,
       body: `ההודעה נשלחת כעת...`,
@@ -584,8 +597,14 @@ async function sendStartList(userId, senderPhone, jobId, targetCount) {
         { title: '🗑️ עצור ומחק', rowId: `fwd_stopdelete_${jobId}` }
       ]
     };
-    
-    const result = await wahaService.sendList(wahaConnection, chatId, listData);
+
+    // Reply to the original trigger message
+    let replyTo = replyToMsgId;
+    if (!replyTo) {
+      const jobRow = await db.query('SELECT trigger_msg_id FROM forward_jobs WHERE id = $1', [jobId]);
+      replyTo = jobRow.rows[0]?.trigger_msg_id || null;
+    }
+    const result = await wahaService.sendList(wahaConnection, chatId, listData, replyTo);
 
     // Update confirmation_msg_id so text replies ("עצור"/"מחק") can match this job
     const startMsgId = result?.id || result?.key?.id || null;
