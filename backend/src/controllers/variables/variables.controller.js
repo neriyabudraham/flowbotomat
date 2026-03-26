@@ -60,9 +60,12 @@ async function createVariable(req, res) {
       return res.status(400).json({ error: 'שם המשתנה הוא שדה חובה' });
     }
     
-    // Validate name format (letters, numbers, underscore only)
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
-      return res.status(400).json({ error: 'שם משתנה יכול להכיל רק אותיות אנגליות, מספרים וקו תחתון' });
+    // Validate name format (letters, numbers, underscore only, min 2 chars)
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]+$/.test(name) && name !== '_') {
+      return res.status(400).json({ error: 'שם משתנה יכול להכיל רק אותיות אנגליות, מספרים וקו תחתון (מינימום 2 תווים)' });
+    }
+    if (name === '_' || /^_+$/.test(name)) {
+      return res.status(400).json({ error: 'שם משתנה לא תקין' });
     }
     
     // Check if trying to override built-in system variable
@@ -74,6 +77,10 @@ async function createVariable(req, res) {
     const result = await db.query(
       `INSERT INTO user_variable_definitions (user_id, name, label, description, default_value, var_type, is_system)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (user_id, name) DO UPDATE SET
+         label = COALESCE(EXCLUDED.label, user_variable_definitions.label),
+         description = COALESCE(EXCLUDED.description, user_variable_definitions.description),
+         default_value = COALESCE(EXCLUDED.default_value, user_variable_definitions.default_value)
        RETURNING *`,
       [userId, name.toLowerCase(), label || name, description || '', default_value || '', var_type || 'text', is_system || false]
     );
