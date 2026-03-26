@@ -9,6 +9,7 @@ const settingsController = require('../controllers/admin/settings.controller');
 const backupsController = require('../controllers/admin/backups.controller');
 const promotionsController = require('../controllers/admin/promotions.controller');
 const billingController = require('../controllers/admin/billing.controller');
+const legalController = require('../controllers/admin/legal.controller');
 const wahaSourcesController = require('../controllers/admin/waha-sources.controller');
 const proxySourcesController = require('../controllers/admin/proxy-sources.controller');
 
@@ -100,6 +101,10 @@ router.post('/affiliate/create-all', superadminMiddleware, promotionsController.
 router.post('/affiliate/payouts/:payoutId/process', superadminMiddleware, promotionsController.processPayoutRequest);
 // IMPORTANT: :affiliateId route must come AFTER all specific routes like /affiliate/terms
 router.put('/affiliate/:affiliateId', superadminMiddleware, promotionsController.updateAffiliate);
+
+// Legal pages (תנאי שימוש, מדיניות החזרים)
+router.get('/legal', legalController.getAllLegalPages);
+router.put('/legal/:slug', superadminMiddleware, legalController.updateLegalPage);
 
 // Broadcast notifications (שליחת התראות לכל המשתמשים)
 const { sendBroadcastNotification } = require('../services/usageAlerts.service');
@@ -227,6 +232,8 @@ router.post('/billing/schedule', superadminMiddleware, billingController.schedul
 router.post('/billing/process-queue', superadminMiddleware, billingController.processBillingQueue);
 router.post('/billing/cancel-subscription/:userId', superadminMiddleware, billingController.cancelSubscription);
 router.post('/billing/void-payment/:id', superadminMiddleware, billingController.voidPayment);
+router.put('/billing/charge-date/:id', superadminMiddleware, billingController.updateChargeDate);
+router.put('/billing/sumit-customer/:userId', superadminMiddleware, billingController.updateSumitCustomerId);
 router.delete('/billing/charge/:id', superadminMiddleware, billingController.deleteCharge);
 
 // System update notification - can be called without auth (for deploy script)

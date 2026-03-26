@@ -567,6 +567,94 @@ async function voidPayment(req, res) {
 }
 
 /**
+ * Update charge date for a billing queue entry
+ */
+async function updateChargeDate(req, res) {
+  try {
+    const { id } = req.params;
+    const { chargeDate } = req.body;
+    const adminId = req.user.id;
+
+    if (!chargeDate) {
+      return res.status(400).json({ error: 'נדרש תאריך חיוב' });
+    }
+
+    const result = await pool.query(
+      `UPDATE billing_queue SET charge_date = $1::date, updated_at = NOW()
+       WHERE id = $2 AND status IN ('pending', 'failed')
+       RETURNING *`,
+      [chargeDate, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'חיוב לא נמצא או לא ניתן לעדכון' });
+    }
+
+    await pool.query(
+      `INSERT INTO admin_audit_log (admin_id, action, entity_type, entity_id, details)
+       VALUES ($1, 'update_charge_date', 'billing_queue', $2, $3)`,
+      [adminId, id, JSON.stringify({ newDate: chargeDate, userId: result.rows[0].user_id })]
+    );
+
+    res.json({ success: true, charge: result.rows[0] });
+  } catch (error) {
+    console.error('[AdminBilling] Update charge date error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון תאריך חיוב' });
+  }
+}
+
+/**
+ * Update Sumit customer ID for a user
+ */
+async function updateSumitCustomerId(req, res) {
+  try {
+    const { userId } = req.params;
+    const { sumitCustomerId } = req.body;
+    const adminId = req.user.id;
+
+    if (!sumitCustomerId && sumitCustomerId !== 0) {
+      return res.status(400).json({ error: 'נדרש מזהה לקוח Sumit' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Update on user_subscriptions
+      await client.query(
+        `UPDATE user_subscriptions SET sumit_customer_id = $1, updated_at = NOW() WHERE user_id = $2`,
+        [parseInt(sumitCustomerId), userId]
+      );
+
+      // Update on active payment methods
+      await client.query(
+        `UPDATE user_payment_methods SET sumit_customer_id = $1, updated_at = NOW()
+         WHERE user_id = $2 AND is_active = true`,
+        [parseInt(sumitCustomerId), userId]
+      );
+
+      await client.query('COMMIT');
+
+      await pool.query(
+        `INSERT INTO admin_audit_log (admin_id, action, entity_type, entity_id, details)
+         VALUES ($1, 'update_sumit_customer_id', 'users', $2, $3)`,
+        [adminId, userId, JSON.stringify({ newSumitCustomerId: sumitCustomerId })]
+      );
+
+      res.json({ success: true });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('[AdminBilling] Update Sumit customer ID error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון מזהה Sumit' });
+  }
+}
+
+/**
  * Delete a failed/cancelled charge record permanently
  */
 async function deleteCharge(req, res) {
@@ -612,5 +700,7 @@ module.exports = {
   processBillingQueue,
   cancelSubscription,
   voidPayment,
-  deleteCharge
+  deleteCharge,
+  updateChargeDate,
+  updateSumitCustomerId
 };

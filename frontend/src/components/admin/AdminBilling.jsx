@@ -150,7 +150,7 @@ export default function AdminBilling() {
 
 // ─── Actions Dropdown ────────────────────────────────────────────────────────
 
-function ChargeActionsMenu({ charge, onRefresh, onViewUser, loadingUser, onViewHistory, onOpenChangeAmount }) {
+function ChargeActionsMenu({ charge, onRefresh, onViewUser, loadingUser, onViewHistory, onOpenChangeAmount, onOpenChangeDate, onOpenEditSumitId }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const ref = useRef(null);
@@ -211,6 +211,14 @@ function ChargeActionsMenu({ charge, onRefresh, onViewUser, loadingUser, onViewH
     {
       icon: Edit3, label: 'שנה עלות', color: 'text-orange-600 hover:bg-orange-50',
       onClick: () => { setOpen(false); onOpenChangeAmount(charge); },
+    },
+    {
+      icon: Calendar, label: 'שנה תאריך חיוב', color: 'text-teal-600 hover:bg-teal-50',
+      onClick: () => { setOpen(false); onOpenChangeDate(charge); },
+    },
+    {
+      icon: CreditCard, label: 'ערוך מזהה Sumit', color: 'text-indigo-600 hover:bg-indigo-50',
+      onClick: () => { setOpen(false); onOpenEditSumitId(charge); },
     },
     {
       icon: History, label: 'היסטוריית תשלומים', color: 'text-purple-600 hover:bg-purple-50',
@@ -378,6 +386,166 @@ function ChangeAmountModal({ charge, onClose, onDone }) {
   );
 }
 
+// ─── Change Date Modal ───────────────────────────────────────────────────────
+
+function ChangeDateModal({ charge, onClose, onDone }) {
+  const [chargeDate, setChargeDate] = useState(
+    new Date(charge.charge_date).toISOString().split('T')[0]
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSave = async () => {
+    if (!chargeDate) { setError('נא לבחור תאריך'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      await api.put(`/admin/billing/charge-date/${charge.id}`, { chargeDate });
+      onDone('✅ תאריך החיוב עודכן בהצלחה');
+    } catch (err) {
+      setError(err.response?.data?.error || 'שגיאה בעדכון');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5" dir="rtl">
+        <div>
+          <h3 className="text-lg font-bold text-gray-900">שנה תאריך חיוב</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            {charge.display_name || charge.email} — ₪{Number(charge.amount).toLocaleString()}
+          </p>
+        </div>
+
+        <div className="p-3 bg-gray-50 rounded-xl text-sm text-gray-600 space-y-1">
+          <div className="flex justify-between">
+            <span>תאריך נוכחי:</span>
+            <span className="font-bold">{new Date(charge.charge_date).toLocaleDateString('he-IL')}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>סוג:</span>
+            <span><BillingTypeBadge type={charge.billing_type} /></span>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">תאריך חיוב חדש</label>
+          <input
+            type="date"
+            value={chargeDate}
+            onChange={e => setChargeDate(e.target.value)}
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-lg focus:ring-2 focus:ring-purple-500 focus:outline-none"
+          />
+        </div>
+
+        {error && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-gray-700 hover:bg-gray-50 font-medium">
+            ביטול
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex-1 px-4 py-2.5 bg-purple-600 text-white rounded-xl font-medium hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            שמור
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Edit Sumit Customer ID Modal ────────────────────────────────────────────
+
+function EditSumitIdModal({ charge, onClose, onDone }) {
+  const [sumitId, setSumitId] = useState(charge.sumit_customer_id || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSave = async () => {
+    if (!sumitId) { setError('נא להזין מזהה Sumit'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      await api.put(`/admin/billing/sumit-customer/${charge.user_id}`, {
+        sumitCustomerId: parseInt(sumitId)
+      });
+      onDone('✅ מזהה Sumit עודכן בהצלחה');
+    } catch (err) {
+      setError(err.response?.data?.error || 'שגיאה בעדכון');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5" dir="rtl">
+        <div>
+          <h3 className="text-lg font-bold text-gray-900">עריכת מזהה לקוח Sumit</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            {charge.display_name || charge.email}
+          </p>
+        </div>
+
+        <div className="p-3 bg-gray-50 rounded-xl text-sm text-gray-600 space-y-1">
+          <div className="flex justify-between">
+            <span>מזהה נוכחי:</span>
+            <span className="font-bold font-mono">{charge.sumit_customer_id || 'לא מוגדר'}</span>
+          </div>
+          {charge.card_last_digits && (
+            <div className="flex justify-between">
+              <span>כרטיס:</span>
+              <span>****{charge.card_last_digits}</span>
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">מזהה לקוח Sumit חדש</label>
+          <input
+            type="number"
+            value={sumitId}
+            onChange={e => setSumitId(e.target.value)}
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-lg font-mono focus:ring-2 focus:ring-purple-500 focus:outline-none"
+            placeholder="לדוגמא: 123456"
+          />
+          <p className="text-xs text-gray-400 mt-1">המזהה יעודכן גם במנוי וגם באמצעי התשלום של המשתמש</p>
+        </div>
+
+        {error && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-gray-700 hover:bg-gray-50 font-medium">
+            ביטול
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex-1 px-4 py-2.5 bg-purple-600 text-white rounded-xl font-medium hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            שמור
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Upcoming Charges ─────────────────────────────────────────────────────────
 
 function UpcomingCharges({ onRefresh, onViewUser, loadingUser, onViewHistory }) {
@@ -385,6 +553,8 @@ function UpcomingCharges({ onRefresh, onViewUser, loadingUser, onViewHistory }) 
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(9999);
   const [changeAmountCharge, setChangeAmountCharge] = useState(null);
+  const [changeDateCharge, setChangeDateCharge] = useState(null);
+  const [editSumitCharge, setEditSumitCharge] = useState(null);
   const [toast, setToast] = useState(null);
 
   useEffect(() => { loadCharges(); }, [days]);
@@ -511,6 +681,8 @@ function UpcomingCharges({ onRefresh, onViewUser, loadingUser, onViewHistory }) 
                       loadingUser={loadingUser}
                       onViewHistory={onViewHistory}
                       onOpenChangeAmount={setChangeAmountCharge}
+                      onOpenChangeDate={setChangeDateCharge}
+                      onOpenEditSumitId={setEditSumitCharge}
                     />
                   </td>
                 </tr>
@@ -527,6 +699,30 @@ function UpcomingCharges({ onRefresh, onViewUser, loadingUser, onViewHistory }) 
           onClose={() => setChangeAmountCharge(null)}
           onDone={(msg) => {
             setChangeAmountCharge(null);
+            showToast(msg);
+            loadCharges();
+          }}
+        />
+      )}
+
+      {changeDateCharge && (
+        <ChangeDateModal
+          charge={changeDateCharge}
+          onClose={() => setChangeDateCharge(null)}
+          onDone={(msg) => {
+            setChangeDateCharge(null);
+            showToast(msg);
+            loadCharges();
+          }}
+        />
+      )}
+
+      {editSumitCharge && (
+        <EditSumitIdModal
+          charge={editSumitCharge}
+          onClose={() => setEditSumitCharge(null)}
+          onDone={(msg) => {
+            setEditSumitCharge(null);
             showToast(msg);
             loadCharges();
           }}

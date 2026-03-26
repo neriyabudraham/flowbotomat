@@ -300,7 +300,7 @@ async function detectMissingBillingEntries() {
     WHERE uss.status = 'active'
       AND s.price > 0
       AND uss.expires_at IS NOT NULL
-      AND uss.expires_at <= CURRENT_DATE + INTERVAL '7 days'
+      AND uss.expires_at <= CURRENT_DATE + INTERVAL '30 days'
       AND NOT EXISTS (
         SELECT 1 FROM billing_queue bq
         WHERE bq.user_id = uss.user_id

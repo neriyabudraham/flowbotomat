@@ -719,7 +719,7 @@ async function handleExpiringServiceSubscriptions() {
         AND s.price > 0
         AND uss.expires_at IS NOT NULL 
         AND uss.expires_at > NOW()
-        AND uss.expires_at < NOW() + INTERVAL '5 days'
+        AND uss.expires_at < NOW() + INTERVAL '30 days'
     `);
     
     if (expiringResult.rows.length === 0) {
