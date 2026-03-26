@@ -855,27 +855,26 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
       
       const normalizedPhone = normalizePhoneNumber(senderPhone);
       const withCountryCode = normalizedPhone ? '972' + normalizedPhone : '';
+      // No user_id filter — sender may have their own WAHA connection (different userId in webhook)
       const hasActiveJob = await db.query(`
-        SELECT 1 FROM forward_jobs 
-        WHERE user_id = $1 
-          AND (sender_phone = $2 OR sender_phone = $3 OR sender_phone = $4
-               OR REPLACE(sender_phone, '+', '') = $2
-               OR REGEXP_REPLACE(sender_phone, '^(\\+?972|0+)', '') = $3)
+        SELECT 1 FROM forward_jobs
+        WHERE (sender_phone = $1 OR sender_phone = $2 OR sender_phone = $3
+               OR REPLACE(sender_phone, '+', '') = $1
+               OR REGEXP_REPLACE(sender_phone, '^(\\+?972|0+)', '') = $2)
           AND status IN ('pending', 'pending_time', 'sending')
           AND updated_at > NOW() - INTERVAL '1 hour'
         LIMIT 1
-      `, [userId, senderPhone, normalizedPhone, withCountryCode]);
-      
+      `, [senderPhone, normalizedPhone, withCountryCode]);
+
       const hasPendingReschedule = await db.query(`
-        SELECT 1 FROM pending_reschedules 
-        WHERE user_id = $1 
-          AND (sender_phone = $2 OR sender_phone = $3 OR sender_phone = $4
-               OR REPLACE(sender_phone, '+', '') = $2
-               OR REGEXP_REPLACE(sender_phone, '^(\\+?972|0+)', '') = $3)
+        SELECT 1 FROM pending_reschedules
+        WHERE (sender_phone = $1 OR sender_phone = $2 OR sender_phone = $3
+               OR REPLACE(sender_phone, '+', '') = $1
+               OR REGEXP_REPLACE(sender_phone, '^(\\+?972|0+)', '') = $2)
           AND created_at > NOW() - INTERVAL '1 hour'
         LIMIT 1
-      `, [userId, senderPhone, normalizedPhone, withCountryCode]);
-      
+      `, [senderPhone, normalizedPhone, withCountryCode]);
+
       const pendingEditKey = `${userId}:${normalizedPhone}`;
       if (hasActiveJob.rows.length === 0 && hasPendingReschedule.rows.length === 0 && !pendingEdits.has(pendingEditKey)) {
         return false;
@@ -1040,9 +1039,10 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
  */
 async function handleConfirm(userId, senderPhone, jobId) {
   console.log(`[GroupForwards] handleConfirm called: userId=${userId}, senderPhone=${senderPhone}, jobId=${jobId}`);
-  // First check if job exists at all
+  // Look up job by ID only — the job UUID in the list rowId is the authorization token.
+  // The webhook userId may differ from the job owner (sender has their own WAHA connection).
   const jobExistsResult = await db.query(`
-    SELECT fj.id, fj.status, fj.user_id, gf.name as forward_name
+    SELECT fj.id, fj.status, fj.user_id, COALESCE(gf.name, fj.forward_name) as forward_name
     FROM forward_jobs fj
     LEFT JOIN group_forwards gf ON fj.forward_id = gf.id
     WHERE fj.id = $1
@@ -1053,42 +1053,37 @@ async function handleConfirm(userId, senderPhone, jobId) {
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
     return true;
   }
-  
-  const existingJob = jobExistsResult.rows[0];
-  console.log(`[GroupForwards] handleConfirm: job ${jobId} found, status=${existingJob.status}, user_id=${existingJob.user_id}, requesting userId=${userId}`);
 
-  // Check if job belongs to user
-  if (existingJob.user_id !== userId) {
-    console.log(`[GroupForwards] handleConfirm: job ${jobId} user mismatch (job=${existingJob.user_id}, request=${userId})`);
-    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
-    return true;
-  }
+  const existingJob = jobExistsResult.rows[0];
+  // Use the job owner's userId for all subsequent operations (sending, notifications, etc.)
+  const jobOwnerUserId = existingJob.user_id;
+  console.log(`[GroupForwards] handleConfirm: job ${jobId} found, status=${existingJob.status}, jobOwner=${jobOwnerUserId}, webhookUser=${userId}`);
 
   // Check if job is in pending status
   if (existingJob.status !== 'pending') {
     console.log(`[GroupForwards] handleConfirm: job ${jobId} not pending, status=${existingJob.status}`);
     if (existingJob.status === 'sending' || existingJob.status === 'confirmed') {
-      await sendNotificationMessage(userId, senderPhone, '⏳ המשימה כבר בתהליך שליחה.');
+      await sendNotificationMessage(jobOwnerUserId, senderPhone, '⏳ המשימה כבר בתהליך שליחה.');
     } else if (existingJob.status === 'completed') {
-      await sendNotificationMessage(userId, senderPhone, '✅ המשימה כבר הושלמה.');
+      await sendNotificationMessage(jobOwnerUserId, senderPhone, '✅ המשימה כבר הושלמה.');
     } else if (existingJob.status === 'stopped' || existingJob.status === 'cancelled') {
-      await sendNotificationMessage(userId, senderPhone, '❌ המשימה בוטלה.');
+      await sendNotificationMessage(jobOwnerUserId, senderPhone, '❌ המשימה בוטלה.');
     } else {
-      await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
+      await sendNotificationMessage(jobOwnerUserId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
     }
     return true;
   }
-  
+
   const jobResult = await db.query(`
     SELECT fj.*, COALESCE(gf.name, fj.forward_name) as forward_name
     FROM forward_jobs fj
     LEFT JOIN group_forwards gf ON fj.forward_id = gf.id
-    WHERE fj.id = $1 AND fj.user_id = $2 AND fj.status = 'pending'
-  `, [jobId, userId]);
+    WHERE fj.id = $1 AND fj.status = 'pending'
+  `, [jobId]);
 
   if (jobResult.rows.length === 0) {
     console.log(`[GroupForwards] handleConfirm: second query returned 0 for job ${jobId}`);
-    await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
+    await sendNotificationMessage(jobOwnerUserId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
     return true;
   }
 
@@ -1099,15 +1094,15 @@ async function handleConfirm(userId, senderPhone, jobId) {
     UPDATE forward_jobs SET status = 'confirmed', updated_at = NOW()
     WHERE id = $1
   `, [jobId]);
-  
-  await sendStartList(userId, senderPhone, jobId, job.total_targets);
-  
+
+  await sendStartList(jobOwnerUserId, senderPhone, jobId, job.total_targets);
+
   // Start sending
   const { startForwardJob } = require('../../controllers/groupForwards/jobs.controller');
   startForwardJob(jobId).catch(err => {
     console.error(`[GroupForwards] Error starting job ${jobId}:`, err);
   });
-  
+
   return true;
 }
 
@@ -1115,12 +1110,16 @@ async function handleConfirm(userId, senderPhone, jobId) {
  * Handle cancel action
  */
 async function handleCancel(userId, senderPhone, jobId) {
+  // Look up the job to get the owner's userId (webhook userId may differ)
+  const jobRow = await db.query('SELECT user_id FROM forward_jobs WHERE id = $1', [jobId]);
+  const jobOwnerUserId = jobRow.rows[0]?.user_id || userId;
+
   await db.query(`
     UPDATE forward_jobs SET status = 'cancelled', completed_at = NOW(), updated_at = NOW()
-    WHERE id = $1 AND user_id = $2
-  `, [jobId, userId]);
-  
-  await sendNotificationMessage(userId, senderPhone, '❌ המשימה בוטלה.');
+    WHERE id = $1
+  `, [jobId]);
+
+  await sendNotificationMessage(jobOwnerUserId, senderPhone, '❌ המשימה בוטלה.');
   return true;
 }
 
@@ -1128,65 +1127,65 @@ async function handleCancel(userId, senderPhone, jobId) {
  * Handle stop action
  */
 async function handleStop(userId, senderPhone, jobId, shouldDelete) {
-  // First check if job exists and belongs to user (any status)
+  // Look up job by ID only — webhook userId may differ from job owner
   const jobResult = await db.query(`
-    SELECT * FROM forward_jobs 
-    WHERE id = $1 AND user_id = $2
-  `, [jobId, userId]);
-  
+    SELECT * FROM forward_jobs WHERE id = $1
+  `, [jobId]);
+
   if (jobResult.rows.length === 0) {
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה.');
     return true;
   }
-  
+
   const job = jobResult.rows[0];
-  
+  const jobOwnerUserId = job.user_id;
+
   // If job is still running, stop it
   if (job.status === 'sending') {
     // Set stop flag
     await db.query(`
-      UPDATE forward_jobs 
+      UPDATE forward_jobs
       SET stop_requested = true, delete_sent_requested = $2, updated_at = NOW()
       WHERE id = $1
     `, [jobId, shouldDelete]);
-    
-    await sendStoppedMessage(userId, senderPhone, job.sent_count, job.total_targets, shouldDelete);
+
+    await sendStoppedMessage(jobOwnerUserId, senderPhone, job.sent_count, job.total_targets, shouldDelete);
     return true;
   }
-  
+
   // If job is completed/stopped and delete requested, delete the sent messages
   if (shouldDelete && ['completed', 'stopped', 'partial'].includes(job.status)) {
     // Check how many messages are left to delete
     const remainingMessages = await db.query(`
-      SELECT COUNT(*) as count FROM forward_job_messages 
+      SELECT COUNT(*) as count FROM forward_job_messages
       WHERE job_id = $1 AND status = 'sent' AND whatsapp_message_id IS NOT NULL
     `, [jobId]);
-    
+
     const remainingCount = parseInt(remainingMessages.rows[0]?.count || 0);
-    
+
     if (remainingCount === 0) {
-      await sendNotificationMessage(userId, senderPhone, '✅ כל ההודעות משליחה זו כבר נמחקו.');
+      await sendNotificationMessage(jobOwnerUserId, senderPhone, '✅ כל ההודעות משליחה זו כבר נמחקו.');
       return true;
     }
-    
-    await sendNotificationMessage(userId, senderPhone, `🗑️ מוחק ${remainingCount} הודעות שנשארו...`);
-    
+
+    await sendNotificationMessage(jobOwnerUserId, senderPhone, `🗑️ מוחק ${remainingCount} הודעות שנשארו...`);
+
     // Import and call delete function with senderPhone for completion notification
     const { deleteJobMessages } = require('../../controllers/groupForwards/jobs.controller');
     deleteJobMessages(jobId, senderPhone).catch(err => {
       console.error(`[GroupForwards] Error deleting messages for completed job ${jobId}:`, err);
     });
-    
+
     return true;
   }
-  
+
   // Job exists but not in a deletable state
   if (!shouldDelete) {
-    await sendNotificationMessage(userId, senderPhone, '❌ המשימה כבר הסתיימה.');
+    await sendNotificationMessage(jobOwnerUserId, senderPhone, '❌ המשימה כבר הסתיימה.');
   } else {
-    await sendNotificationMessage(userId, senderPhone, '❌ לא ניתן למחוק - המשימה בסטטוס לא מתאים.');
+    await sendNotificationMessage(jobOwnerUserId, senderPhone, '❌ לא ניתן למחוק - המשימה בסטטוס לא מתאים.');
   }
-  
+
   return true;
 }
 
@@ -1195,17 +1194,19 @@ async function handleStop(userId, senderPhone, jobId, shouldDelete) {
  * Handle edit prompt - ask user for new text
  */
 async function handleEditPrompt(userId, senderPhone, jobId) {
-  // Verify job exists and belongs to user and has sent messages
+  // Look up job by ID only — webhook userId may differ from job owner
   const jobResult = await db.query(`
     SELECT fj.id, fj.status, fj.user_id
     FROM forward_jobs fj
-    WHERE fj.id = $1 AND fj.user_id = $2
-  `, [jobId, userId]);
+    WHERE fj.id = $1
+  `, [jobId]);
 
   if (jobResult.rows.length === 0) {
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה.');
     return true;
   }
+
+  const jobOwnerUserId = jobResult.rows[0].user_id;
 
   // Check there are sent messages to edit
   const sentCheck = await db.query(`
@@ -1214,12 +1215,12 @@ async function handleEditPrompt(userId, senderPhone, jobId) {
   `, [jobId]);
 
   if (parseInt(sentCheck.rows[0]?.cnt || 0) === 0) {
-    await sendNotificationMessage(userId, senderPhone, '❌ אין הודעות לעריכה.');
+    await sendNotificationMessage(jobOwnerUserId, senderPhone, '❌ אין הודעות לעריכה.');
     return true;
   }
 
-  // Store pending edit state
-  const pendingKey = `${userId}:${normalizePhoneNumber(senderPhone)}`;
+  // Store pending edit state — use the job owner's userId so the edit can be found later
+  const pendingKey = `${jobOwnerUserId}:${normalizePhoneNumber(senderPhone)}`;
   safePendingEditsSet(pendingKey, jobId);
 
   // Clear after 10 minutes to avoid stale state
@@ -1229,7 +1230,7 @@ async function handleEditPrompt(userId, senderPhone, jobId) {
     }
   }, 10 * 60 * 1000);
 
-  await sendNotificationMessage(userId, senderPhone,
+  await sendNotificationMessage(jobOwnerUserId, senderPhone,
     `✏️ *עריכת הודעות*\n\nשלח את הטקסט החדש ואני אעדכן אותו בכל הקבוצות.\n\n(שלח "בטל" לביטול)`
   );
 
@@ -1282,16 +1283,16 @@ async function handleTextConfirm(userId, senderPhone, action, payload) {
   const quotedStanzaId = contextInfo?.stanzaID || contextInfo?.stanzaId || null;
 
   // If user quoted a specific message, try to match it to a job's confirmation_msg_id
+  // No user_id filter — webhook user may differ from job owner
   if (quotedStanzaId) {
     const matchedJob = await db.query(`
       SELECT fj.*, COALESCE(gf.name, fj.forward_name) as forward_name
       FROM forward_jobs fj
       LEFT JOIN group_forwards gf ON fj.forward_id = gf.id
-      WHERE fj.user_id = $1
-        AND fj.status = 'pending'
+      WHERE fj.status = 'pending'
         AND fj.confirmation_msg_id IS NOT NULL
-        AND (fj.confirmation_msg_id = $2 OR fj.confirmation_msg_id LIKE '%' || $2 || '%')
-    `, [userId, quotedStanzaId]);
+        AND (fj.confirmation_msg_id = $1 OR fj.confirmation_msg_id LIKE '%' || $1 || '%')
+    `, [quotedStanzaId]);
 
     if (matchedJob.rows.length > 0) {
       const job = matchedJob.rows[0];
@@ -1304,17 +1305,17 @@ async function handleTextConfirm(userId, senderPhone, action, payload) {
   }
 
   // No quoted message or no match — find pending jobs for this sender
+  // No user_id filter — webhook user may differ from job owner; sender_phone matching is sufficient
   const pendingJob = await db.query(`
     SELECT fj.*, COALESCE(gf.name, fj.forward_name) as forward_name
     FROM forward_jobs fj
     LEFT JOIN group_forwards gf ON fj.forward_id = gf.id
-    WHERE fj.user_id = $1
-      AND (fj.sender_phone = $2 OR fj.sender_phone = $3 OR fj.sender_phone = $4
-           OR REGEXP_REPLACE(fj.sender_phone, '^(\\+?972|0+)', '') = $3)
+    WHERE (fj.sender_phone = $1 OR fj.sender_phone = $2 OR fj.sender_phone = $3
+           OR REGEXP_REPLACE(fj.sender_phone, '^(\\+?972|0+)', '') = $2)
       AND fj.status = 'pending'
     ORDER BY fj.created_at DESC
     LIMIT 1
-  `, [userId, senderPhone, normalizedPhone, withCountryCode]);
+  `, [senderPhone, normalizedPhone, withCountryCode]);
 
   if (pendingJob.rows.length === 0) {
     return false;
@@ -1347,14 +1348,14 @@ async function handleTextStop(userId, senderPhone, shouldDelete, payload) {
   const quotedStanzaId = contextInfo?.stanzaID || contextInfo?.stanzaId || null;
 
   // If user quoted a specific message, try to match it to a job
+  // No user_id filter — webhook user may differ from job owner
   if (quotedStanzaId) {
     const matchedJob = await db.query(`
       SELECT fj.* FROM forward_jobs fj
-      WHERE fj.user_id = $1
-        AND fj.status = 'sending'
+      WHERE fj.status = 'sending'
         AND fj.confirmation_msg_id IS NOT NULL
-        AND (fj.confirmation_msg_id = $2 OR fj.confirmation_msg_id LIKE '%' || $2 || '%')
-    `, [userId, quotedStanzaId]);
+        AND (fj.confirmation_msg_id = $1 OR fj.confirmation_msg_id LIKE '%' || $1 || '%')
+    `, [quotedStanzaId]);
 
     if (matchedJob.rows.length > 0) {
       return await handleStop(userId, senderPhone, matchedJob.rows[0].id, shouldDelete);
@@ -1362,15 +1363,15 @@ async function handleTextStop(userId, senderPhone, shouldDelete, payload) {
   }
 
   // No quoted message or no match — find active jobs for this sender (LIMIT 1 = most recent)
+  // No user_id filter — sender_phone matching is sufficient
   const activeJob = await db.query(`
     SELECT * FROM forward_jobs
-    WHERE user_id = $1
-      AND (sender_phone = $2 OR sender_phone = $3 OR sender_phone = $4
-           OR REGEXP_REPLACE(sender_phone, '^(\\+?972|0+)', '') = $3)
+    WHERE (sender_phone = $1 OR sender_phone = $2 OR sender_phone = $3
+           OR REGEXP_REPLACE(sender_phone, '^(\\+?972|0+)', '') = $2)
       AND status = 'sending'
     ORDER BY created_at DESC
     LIMIT 1
-  `, [userId, senderPhone, normalizedPhone, withCountryCode]);
+  `, [senderPhone, normalizedPhone, withCountryCode]);
 
   if (activeJob.rows.length === 0) {
     return false;
@@ -1463,31 +1464,32 @@ function parseTimeInput(input) {
  * Handle schedule prompt - show day selection list (like Status Bot)
  */
 async function handleSchedulePrompt(userId, senderPhone, jobId) {
-  // Verify job exists and belongs to user
+  // Look up job by ID only — webhook userId may differ from job owner
   const jobResult = await db.query(`
-    SELECT fj.*, gf.name as forward_name
+    SELECT fj.*, COALESCE(gf.name, fj.forward_name) as forward_name
     FROM forward_jobs fj
-    JOIN group_forwards gf ON fj.forward_id = gf.id
-    WHERE fj.id = $1 AND fj.user_id = $2 AND fj.status = 'pending'
-  `, [jobId, userId]);
-  
+    LEFT JOIN group_forwards gf ON fj.forward_id = gf.id
+    WHERE fj.id = $1 AND fj.status = 'pending'
+  `, [jobId]);
+
   if (jobResult.rows.length === 0) {
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
     return true;
   }
-  
+
   const job = jobResult.rows[0];
-  
+  const jobOwnerUserId = job.user_id;
+
   // Mark job as waiting for schedule input
   await db.query(`
-    UPDATE forward_jobs SET 
+    UPDATE forward_jobs SET
       status = 'pending_schedule',
       updated_at = NOW()
     WHERE id = $1
   `, [jobId]);
-  
+
   // Send day selection list (like Status Bot)
-  const wahaConnection = await getWahaConnection(userId);
+  const wahaConnection = await getWahaConnection(jobOwnerUserId);
   if (!wahaConnection) {
     return true;
   }
@@ -1531,17 +1533,17 @@ async function handleSchedulePrompt(userId, senderPhone, jobId) {
     
     // Save to Live Chat
     await saveOutgoingMessage(
-      userId, 
-      chatId, 
-      'list', 
+      jobOwnerUserId,
+      chatId,
+      'list',
       listData.body,
       null, null, null,
       { title: listData.title, buttonText: listData.buttonText, buttons: listData.buttons }
     );
-    
+
   } catch (error) {
     console.error('[GroupForwards] Send schedule list error:', error.message);
-    await sendNotificationMessage(userId, senderPhone, 
+    await sendNotificationMessage(jobOwnerUserId, senderPhone,
       `⏰ *תזמון - ${job.forward_name}*\n\nבאיזה יום לשלוח?\n• "היום"\n• "מחר"\n• או מספר ימים (0-7)\n\nאו השב "בטל" לביטול.`
     );
   }
@@ -1578,22 +1580,23 @@ async function handleDaySelection(userId, senderPhone, jobId, dayOffset) {
   
   // Get job details
   const jobResult = await db.query(`
-    SELECT fj.*, gf.name as forward_name
+    SELECT fj.*, COALESCE(gf.name, fj.forward_name) as forward_name
     FROM forward_jobs fj
-    JOIN group_forwards gf ON fj.forward_id = gf.id
+    LEFT JOIN group_forwards gf ON fj.forward_id = gf.id
     WHERE fj.id = $1
   `, [jobId]);
-  
+
   if (jobResult.rows.length === 0) {
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה.');
     return true;
   }
-  
+
   const job = jobResult.rows[0];
+  const jobOwnerUserId = job.user_id;
   const dayName = DAY_NAMES[scheduledDate.getDay()];
   const dateDisplay = `${scheduledDate.getDate()}/${scheduledDate.getMonth() + 1}`;
-  
-  await sendNotificationMessage(userId, senderPhone, 
+
+  await sendNotificationMessage(jobOwnerUserId, senderPhone,
     `📅 נבחר: יום ${dayName}, ${dateDisplay}\n\n⏰ באיזו שעה לתזמן?\n\nשלח את השעה בפורמט: 13:00\n(מקבל גם 1300 או 13)`
   );
   
@@ -1612,39 +1615,39 @@ async function handleScheduleTimeInput(userId, senderPhone, timeInput) {
   await db.query(`DELETE FROM pending_reschedules WHERE created_at < NOW() - INTERVAL '1 hour'`).catch(() => {});
   
   // FIRST: Check for RECENT pending_time forward jobs (new schedule takes priority over reschedule)
+  // No user_id filter — webhook userId may differ from job owner; sender_phone matching is sufficient
   const jobResult = await db.query(`
-    SELECT fj.*, gf.name as forward_name, gf.id as forward_id
+    SELECT fj.*, COALESCE(gf.name, fj.forward_name) as forward_name, fj.forward_id
     FROM forward_jobs fj
-    JOIN group_forwards gf ON fj.forward_id = gf.id
-    WHERE fj.user_id = $1 AND fj.status = 'pending_time'
-      AND (fj.sender_phone = $2 OR fj.sender_phone = $3 OR fj.sender_phone = $4
-           OR REGEXP_REPLACE(fj.sender_phone, '^(\\+?972|0+)', '') = $3)
+    LEFT JOIN group_forwards gf ON fj.forward_id = gf.id
+    WHERE fj.status = 'pending_time'
+      AND (fj.sender_phone = $1 OR fj.sender_phone = $2 OR fj.sender_phone = $3
+           OR REGEXP_REPLACE(fj.sender_phone, '^(\\+?972|0+)', '') = $2)
       AND fj.updated_at > NOW() - INTERVAL '1 hour'
     ORDER BY fj.updated_at DESC
     LIMIT 1
-  `, [userId, senderPhone, normalizedPhone, withCountryCode]);
-  
+  `, [senderPhone, normalizedPhone, withCountryCode]);
+
   if (jobResult.rows.length > 0) {
     console.log(`[GroupForwards] Found pending_time job ${jobResult.rows[0].id} for time input "${timeInput}"`);
-    return await processNewScheduleTime(userId, senderPhone, timeInput, jobResult.rows[0]);
+    return await processNewScheduleTime(jobResult.rows[0].user_id, senderPhone, timeInput, jobResult.rows[0]);
   }
-  
+
   // SECOND: Check for pending reschedule
   const reschedResult = await db.query(`
     SELECT pr.*, sf.forward_id, gf.name as forward_name
     FROM pending_reschedules pr
     JOIN scheduled_forwards sf ON sf.id = pr.scheduled_id
     JOIN group_forwards gf ON gf.id = sf.forward_id
-    WHERE pr.user_id = $1 
-      AND (pr.sender_phone = $2 OR pr.sender_phone = $3 OR pr.sender_phone = $4
-           OR REGEXP_REPLACE(pr.sender_phone, '^(\\+?972|0+)', '') = $3)
+    WHERE (pr.sender_phone = $1 OR pr.sender_phone = $2 OR pr.sender_phone = $3
+           OR REGEXP_REPLACE(pr.sender_phone, '^(\\+?972|0+)', '') = $2)
       AND sf.status = 'pending'
     ORDER BY pr.created_at DESC LIMIT 1
-  `, [userId, senderPhone, normalizedPhone, withCountryCode]);
+  `, [senderPhone, normalizedPhone, withCountryCode]);
   
   if (reschedResult.rows.length > 0) {
     console.log(`[GroupForwards] Found pending reschedule ${reschedResult.rows[0].id} for time input "${timeInput}"`);
-    return await handleRescheduleTimeInput(userId, senderPhone, timeInput, reschedResult.rows[0]);
+    return await handleRescheduleTimeInput(reschedResult.rows[0].user_id, senderPhone, timeInput, reschedResult.rows[0]);
   }
   
   console.log(`[GroupForwards] No pending_time job or reschedule found for phone=${senderPhone} normalized=${normalizedPhone}`);
@@ -1762,29 +1765,31 @@ async function processNewScheduleTime(userId, senderPhone, timeInput, job) {
  * Handle back button - return to confirm/cancel menu
  */
 async function handleScheduleBack(userId, senderPhone, jobId) {
-  // Restore job to pending status
+  // Restore job to pending status — no user_id filter (webhook user may differ)
   const jobResult = await db.query(`
     UPDATE forward_jobs SET status = 'pending', updated_at = NOW()
-    WHERE id = $1 AND user_id = $2 AND status IN ('pending_schedule', 'pending_time')
+    WHERE id = $1 AND status IN ('pending_schedule', 'pending_time')
     RETURNING *
-  `, [jobId, userId]);
-  
+  `, [jobId]);
+
   if (jobResult.rows.length === 0) {
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה.');
     return true;
   }
-  
+
+  const jobOwnerUserId = jobResult.rows[0].user_id;
+
   // Get forward details
   const forwardResult = await db.query(`
     SELECT gf.* FROM group_forwards gf
     JOIN forward_jobs fj ON fj.forward_id = gf.id
     WHERE fj.id = $1
   `, [jobId]);
-  
+
   if (forwardResult.rows.length > 0) {
-    await sendConfirmationList(userId, senderPhone, forwardResult.rows[0], jobResult.rows[0]);
+    await sendConfirmationList(jobOwnerUserId, senderPhone, forwardResult.rows[0], jobResult.rows[0]);
   }
-  
+
   return true;
 }
 
@@ -1792,21 +1797,22 @@ async function handleScheduleBack(userId, senderPhone, jobId) {
  * Cancel a scheduled forward (stop if in progress, cancel if pending)
  */
 async function handleScheduledCancel(userId, senderPhone, scheduledId) {
-  // Get scheduled forward
+  // Get scheduled forward — no user_id filter (webhook user may differ)
   const schedResult = await db.query(`
     SELECT sf.*, gf.name as forward_name
     FROM scheduled_forwards sf
     JOIN group_forwards gf ON gf.id = sf.forward_id
-    WHERE sf.id = $1 AND sf.user_id = $2
-  `, [scheduledId, userId]);
-  
+    WHERE sf.id = $1
+  `, [scheduledId]);
+
   if (schedResult.rows.length === 0) {
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצא תזמון.');
     return;
   }
-  
+
   const scheduled = schedResult.rows[0];
-  
+  const jobOwnerUserId = scheduled.user_id;
+
   // If job is running, stop it
   if (scheduled.job_id) {
     await db.query(`
@@ -1814,14 +1820,14 @@ async function handleScheduledCancel(userId, senderPhone, scheduledId) {
       WHERE id = $1 AND status IN ('pending', 'running')
     `, [scheduled.job_id]);
   }
-  
+
   // Cancel the scheduled forward
   await db.query(`
     UPDATE scheduled_forwards SET status = 'cancelled', updated_at = NOW()
     WHERE id = $1
   `, [scheduledId]);
-  
-  await sendNotificationMessage(userId, senderPhone, 
+
+  await sendNotificationMessage(jobOwnerUserId, senderPhone,
     `✅ התזמון בוטל בהצלחה!\n\n📤 ${scheduled.forward_name}`
   );
 }
@@ -1830,22 +1836,23 @@ async function handleScheduledCancel(userId, senderPhone, scheduledId) {
  * Stop and delete messages from a scheduled forward
  */
 async function handleScheduledDelete(userId, senderPhone, scheduledId) {
-  // Get scheduled forward
+  // Get scheduled forward — no user_id filter (webhook user may differ)
   const schedResult = await db.query(`
     SELECT sf.*, gf.name as forward_name
     FROM scheduled_forwards sf
     JOIN group_forwards gf ON gf.id = sf.forward_id
-    WHERE sf.id = $1 AND sf.user_id = $2
-  `, [scheduledId, userId]);
-  
+    WHERE sf.id = $1
+  `, [scheduledId]);
+
   if (schedResult.rows.length === 0) {
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצא תזמון.');
     return;
   }
-  
+
   const scheduled = schedResult.rows[0];
+  const jobOwnerUserId = scheduled.user_id;
   let deletedCount = 0;
-  
+
   // If job exists, stop it and delete sent messages
   if (scheduled.job_id) {
     // Stop the job
@@ -1853,15 +1860,15 @@ async function handleScheduledDelete(userId, senderPhone, scheduledId) {
       UPDATE forward_jobs SET status = 'cancelled', updated_at = NOW()
       WHERE id = $1
     `, [scheduled.job_id]);
-    
+
     // Get sent message IDs
     const messagesResult = await db.query(`
       SELECT sent_message_id, group_id FROM forward_job_messages
       WHERE job_id = $1 AND sent_message_id IS NOT NULL
     `, [scheduled.job_id]);
-    
+
     // Delete messages
-    const wahaConnection = await getWahaConnection(userId);
+    const wahaConnection = await getWahaConnection(jobOwnerUserId);
     if (wahaConnection) {
       for (const msg of messagesResult.rows) {
         try {
@@ -1893,7 +1900,7 @@ async function handleScheduledDelete(userId, senderPhone, scheduledId) {
     WHERE id = $1
   `, [scheduledId]);
   
-  await sendNotificationMessage(userId, senderPhone, 
+  await sendNotificationMessage(jobOwnerUserId, senderPhone,
     `✅ התזמון בוטל${deletedCount > 0 ? ` ו-${deletedCount} הודעות נמחקו` : ''}\n\n📤 ${scheduled.forward_name}`
   );
 }
@@ -1903,32 +1910,34 @@ async function handleScheduledDelete(userId, senderPhone, scheduledId) {
  */
 async function handleScheduledChangeTime(userId, senderPhone, scheduledId) {
   // Get and LOCK the scheduled forward to prevent cron from executing it during reschedule
+  // No user_id filter — webhook user may differ from job owner
   const schedResult = await db.query(`
     UPDATE scheduled_forwards SET status = 'rescheduling', updated_at = NOW()
-    WHERE id = $1 AND user_id = $2 AND status IN ('pending', 'rescheduling')
+    WHERE id = $1 AND status IN ('pending', 'rescheduling')
     RETURNING *, (SELECT name FROM group_forwards WHERE id = forward_id) as forward_name
-  `, [scheduledId, userId]);
-  
+  `, [scheduledId]);
+
   if (schedResult.rows.length === 0) {
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצא תזמון פעיל.');
     return;
   }
-  
+
   const scheduled = schedResult.rows[0];
-  
+  const jobOwnerUserId = scheduled.user_id;
+
   // Get target count
   const targetCount = await db.query(`
     SELECT COUNT(*) FROM group_forward_targets WHERE forward_id = $1 AND is_active = true
   `, [scheduled.forward_id]);
-  
+
   // Generate day list (8 days from today)
   const now = getNowInIsrael();
   const days = [];
-  
+
   for (let i = 0; i < 8; i++) {
     const date = new Date(now);
     date.setDate(date.getDate() + i);
-    
+
     let title;
     if (i === 0) {
       title = `היום - ${DAY_NAMES[date.getDay()]}`;
@@ -1937,14 +1946,14 @@ async function handleScheduledChangeTime(userId, senderPhone, scheduledId) {
     } else {
       title = `${DAY_NAMES[date.getDay()]} - ${date.getDate()}/${date.getMonth() + 1}`;
     }
-    
+
     days.push({
       title,
       rowId: `fwd_rsched_day_${scheduledId}_${i}`
     });
   }
-  
-  const wahaConnection = await getWahaConnection(userId);
+
+  const wahaConnection = await getWahaConnection(jobOwnerUserId);
   if (wahaConnection) {
     const wahaService = require('../waha/session.service');
     const chatId = `${senderPhone}@s.whatsapp.net`;
@@ -1955,7 +1964,7 @@ async function handleScheduledChangeTime(userId, senderPhone, scheduledId) {
       buttons: days
     };
     await wahaService.sendList(wahaConnection, chatId, listData);
-    await saveOutgoingMessage(userId, senderPhone, 'list', `שינוי תזמון: ${scheduled.forward_name}`);
+    await saveOutgoingMessage(jobOwnerUserId, senderPhone, 'list', `שינוי תזמון: ${scheduled.forward_name}`);
   }
 }
 
@@ -1963,48 +1972,49 @@ async function handleScheduledChangeTime(userId, senderPhone, scheduledId) {
  * Handle day selection for rescheduling
  */
 async function handleScheduledDaySelection(userId, senderPhone, scheduledId, dayOffset) {
-  // Get scheduled forward (accept both pending and rescheduling status)
+  // Get scheduled forward — no user_id filter (webhook user may differ)
   const schedResult = await db.query(`
     SELECT sf.*, gf.name as forward_name
     FROM scheduled_forwards sf
     JOIN group_forwards gf ON gf.id = sf.forward_id
-    WHERE sf.id = $1 AND sf.user_id = $2 AND sf.status IN ('pending', 'rescheduling')
-  `, [scheduledId, userId]);
-  
+    WHERE sf.id = $1 AND sf.status IN ('pending', 'rescheduling')
+  `, [scheduledId]);
+
   if (schedResult.rows.length === 0) {
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצא תזמון פעיל.');
     return;
   }
   
   const scheduled = schedResult.rows[0];
-  
+  const jobOwnerUserId = scheduled.user_id;
+
   // Calculate scheduled date
   const now = getNowInIsrael();
   const selectedDate = new Date(now);
   selectedDate.setDate(selectedDate.getDate() + dayOffset);
   const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
-  
+
   // Update scheduled forward with pending_time status (using a temp column or just storing in memory)
   await db.query(`
-    UPDATE scheduled_forwards 
+    UPDATE scheduled_forwards
     SET updated_at = NOW()
     WHERE id = $1
   `, [scheduledId]);
-  
+
   // Store the date temporarily by saving to a pending_reschedule entry
   await db.query(`
     INSERT INTO pending_reschedules (user_id, scheduled_id, selected_date, sender_phone, created_at)
     VALUES ($1, $2, $3, $4, NOW())
     ON CONFLICT (user_id, scheduled_id) DO UPDATE SET selected_date = $3, sender_phone = $4, created_at = NOW()
-  `, [userId, scheduledId, dateStr, senderPhone]);
-  
+  `, [jobOwnerUserId, scheduledId, dateStr, senderPhone]);
+
   const hebrewDate = selectedDate.toLocaleDateString('he-IL', {
     weekday: 'long',
     day: 'numeric',
     month: 'numeric'
   });
-  
-  await sendNotificationMessage(userId, senderPhone,
+
+  await sendNotificationMessage(jobOwnerUserId, senderPhone,
     `📅 נבחר: יום ${hebrewDate}\n\n⏰ באיזו שעה לתזמן?\n\nשלח את השעה בפורמט: 13:00\n(מקבל גם 1300 או 13)`
   );
   
