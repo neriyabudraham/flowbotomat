@@ -2401,7 +2401,13 @@ class BotEngine {
         case 'http_request':
           await this.executeHttpRequest(action, contact);
           break;
-        
+
+        case 'download_file':
+          if (action.fileUrl && action.variableName) {
+            await this.executeDownloadFile(action, contact, userId);
+          }
+          break;
+
         // ========== NEW WHATSAPP ACTIONS ==========
         case 'send_voice':
           if (action.audioUrl) {
@@ -3065,6 +3071,119 @@ class BotEngine {
     }
   }
   
+  // Download file from URL and save to variable as a local physical file
+  async executeDownloadFile(action, contact, userId) {
+    const axios = require('axios');
+    const fs = require('fs');
+    const path = require('path');
+    const crypto = require('crypto');
+
+    try {
+      // Resolve variables in the URL
+      const resolvedUrl = await this.replaceAllVariables(action.fileUrl, contact, '', '', userId);
+      if (!resolvedUrl) {
+        console.warn('[BotEngine] download_file: empty URL after variable resolution');
+        return;
+      }
+
+      console.log(`[BotEngine] download_file: downloading from ${resolvedUrl}`);
+
+      // Download the file as a stream
+      const response = await axios({
+        method: 'GET',
+        url: resolvedUrl,
+        responseType: 'arraybuffer',
+        timeout: 60000, // 60s timeout
+        maxContentLength: 50 * 1024 * 1024, // 50MB max
+      });
+
+      // Determine filename and extension
+      const contentType = response.headers['content-type'] || 'application/octet-stream';
+      const contentDisposition = response.headers['content-disposition'] || '';
+
+      // Try to extract filename from content-disposition or URL
+      let originalFilename = '';
+      const cdMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i);
+      if (cdMatch) {
+        originalFilename = cdMatch[1].replace(/['"]/g, '').trim();
+      }
+      if (!originalFilename) {
+        try {
+          const urlPath = new URL(resolvedUrl).pathname;
+          originalFilename = path.basename(urlPath);
+        } catch { /* ignore */ }
+      }
+      if (!originalFilename || originalFilename === '/' || !originalFilename.includes('.')) {
+        // Guess extension from content type
+        const extMap = {
+          'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp',
+          'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov',
+          'audio/mpeg': '.mp3', 'audio/ogg': '.ogg', 'audio/wav': '.wav',
+          'application/pdf': '.pdf',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+          'application/msword': '.doc',
+        };
+        const ext = extMap[contentType] || '.bin';
+        originalFilename = `downloaded${ext}`;
+      }
+
+      // Use custom filename if provided
+      if (action.customFilename) {
+        const resolvedFilename = await this.replaceAllVariables(action.customFilename, contact, '', '', userId);
+        if (resolvedFilename) {
+          // Keep original extension if custom filename doesn't have one
+          const customExt = path.extname(resolvedFilename);
+          const origExt = path.extname(originalFilename);
+          originalFilename = customExt ? resolvedFilename : `${resolvedFilename}${origExt}`;
+        }
+      }
+
+      // Determine storage type directory
+      let typeDir = 'misc';
+      if (contentType.startsWith('image/')) typeDir = 'image';
+      else if (contentType.startsWith('video/')) typeDir = 'video';
+      else if (contentType.startsWith('audio/')) typeDir = 'audio';
+
+      // Ensure uploads directory exists
+      const uploadsDir = path.join(__dirname, '../../uploads', typeDir);
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+
+      // Generate unique filename
+      const uniqueId = crypto.randomBytes(8).toString('hex');
+      const ext = path.extname(originalFilename);
+      const safeName = `${Date.now()}-${uniqueId}${ext}`;
+      const filePath = path.join(uploadsDir, safeName);
+
+      // Write file to disk
+      fs.writeFileSync(filePath, Buffer.from(response.data));
+
+      // Build the public URL
+      const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 3000}/api`;
+      const fileUrl = `${baseUrl}/uploads/${typeDir}/${safeName}`;
+
+      console.log(`[BotEngine] download_file: saved to ${filePath} (${response.data.byteLength} bytes) -> ${fileUrl}`);
+
+      // Save the local URL to the contact variable
+      await this.setContactVariable(contact.id, action.variableName, fileUrl);
+
+      // Also set in-memory for immediate use in the same flow
+      if (!contact.variables) contact.variables = {};
+      contact.variables[action.variableName] = fileUrl;
+
+    } catch (err) {
+      console.error(`[BotEngine] download_file error: ${err.message}`);
+      // Optionally save error to a variable
+      if (action.errorVariable) {
+        await this.setContactVariable(contact.id, action.errorVariable, err.message);
+        if (!contact.variables) contact.variables = {};
+        contact.variables[action.errorVariable] = err.message;
+      }
+    }
+  }
+
   // Execute HTTP request action
   async executeHttpRequest(action, contact, message = '') {
     if (!action.apiUrl) return;

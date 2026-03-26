@@ -12,6 +12,7 @@ const actionLabels = {
   webhook: { label: 'Webhook', icon: '🌐' },
   http_request: { label: 'קריאת API', icon: '📡' },
   notify: { label: 'התראה', icon: '🔔' },
+  download_file: { label: 'הורד קובץ למשתנה', icon: '📥' },
 };
 
 function ActionNode({ data, selected }) {
@@ -44,6 +45,9 @@ function ActionNode({ data, selected }) {
                   )}
                   {(action.varKey || data.varKey) && (
                     <div className="text-xs text-pink-500 truncate">{action.varKey || data.varKey}</div>
+                  )}
+                  {action.variableName && (
+                    <div className="text-xs text-pink-500 truncate font-mono">{`{{${action.variableName}}}`}</div>
                   )}
                 </div>
               </div>

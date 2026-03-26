@@ -22,11 +22,15 @@ const actionTypes = [
   
   // Notifications
   { id: 'notify', label: 'התראה', icon: '🔔', hasValue: 'text', category: 'notify' },
+
+  // Files
+  { id: 'download_file', label: 'הורד קובץ למשתנה', icon: '📥', hasValue: 'download_file', category: 'files' },
 ];
 
 const categories = [
   { id: 'tags', label: 'תגיות', icon: '🏷️', color: 'pink' },
   { id: 'variables', label: 'משתנים', icon: '📝', color: 'blue' },
+  { id: 'files', label: 'קבצים', icon: '📥', color: 'teal' },
   { id: 'control', label: 'בקרת בוטים', icon: '🎮', color: 'red' },
   { id: 'notify', label: 'התראות', icon: '🔔', color: 'yellow' },
 ];
@@ -34,6 +38,7 @@ const categories = [
 const categoryColors = {
   tags: { bg: 'bg-pink-50', hover: 'hover:bg-pink-100', text: 'text-pink-700', border: 'border-pink-200' },
   variables: { bg: 'bg-blue-50', hover: 'hover:bg-blue-100', text: 'text-blue-700', border: 'border-blue-200' },
+  files: { bg: 'bg-teal-50', hover: 'hover:bg-teal-100', text: 'text-teal-700', border: 'border-teal-200' },
   control: { bg: 'bg-red-50', hover: 'hover:bg-red-100', text: 'text-red-700', border: 'border-red-200' },
   notify: { bg: 'bg-yellow-50', hover: 'hover:bg-yellow-100', text: 'text-yellow-700', border: 'border-yellow-200' },
 };
@@ -231,6 +236,48 @@ function ActionItem({ action, onUpdate, onRemove }) {
       {/* Clear Variable */}
       {actionInfo.hasValue === 'varname' && (
         <VariableNameSelector action={action} onUpdate={onUpdate} />
+      )}
+
+      {/* Download File to Variable */}
+      {actionInfo.hasValue === 'download_file' && (
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1.5">קישור לקובץ (URL)</label>
+            <TextInputWithVariables
+              value={action.fileUrl || ''}
+              onChange={(v) => onUpdate({ fileUrl: v })}
+              placeholder="https://example.com/file.pdf או {{משתנה}}"
+            />
+            <p className="text-[10px] text-gray-400 mt-1">ניתן להשתמש במשתנים — הקישור יומר לקובץ פיזי בשרת</p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1.5">שם משתנה לשמירה</label>
+            <input
+              type="text"
+              value={action.variableName || ''}
+              onChange={(e) => onUpdate({ variableName: e.target.value })}
+              placeholder="file_url"
+              className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-mono"
+              dir="ltr"
+            />
+            <p className="text-[10px] text-gray-400 mt-1">הקובץ יישמר בשרת וה-URL המקומי יישמר במשתנה זה</p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1.5">שם קובץ מותאם (אופציונלי)</label>
+            <TextInputWithVariables
+              value={action.customFilename || ''}
+              onChange={(v) => onUpdate({ customFilename: v })}
+              placeholder="report.pdf או {{שם_קובץ}}"
+            />
+          </div>
+          <div className="p-2.5 bg-teal-50 rounded-lg border border-teal-100">
+            <p className="text-xs text-teal-700 leading-relaxed">
+              <strong>איך זה עובד:</strong> הקובץ יורד מהקישור ונשמר פיזית בשרת.
+              ה-URL המקומי נשמר במשתנה <code className="bg-teal-100 px-1 rounded font-mono">{`{{${action.variableName || 'file_url'}}}`}</code> —
+              ואז אפשר להשתמש בו בפעולת שליחת קובץ/תמונה/וידאו.
+            </p>
+          </div>
+        </div>
       )}
 
       {/* Bot Select */}
