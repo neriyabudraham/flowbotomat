@@ -684,6 +684,51 @@ async function deleteCharge(req, res) {
   }
 }
 
+/**
+ * Admin: Update receipt URL for a payment history entry (add receipt to transactions missing one)
+ */
+async function updateReceiptUrl(req, res) {
+  try {
+    const { id } = req.params;
+    const { receipt_url } = req.body;
+    const adminId = req.user.id;
+
+    if (!receipt_url || !receipt_url.trim()) {
+      return res.status(400).json({ error: 'נדרש קישור לקבלה' });
+    }
+
+    // Try payment_history first
+    let result = await pool.query(
+      `UPDATE payment_history SET receipt_url = $1 WHERE id = $2 RETURNING id, user_id`,
+      [receipt_url.trim(), id]
+    );
+
+    // If not found, try service_payment_history
+    if (result.rows.length === 0) {
+      result = await pool.query(
+        `UPDATE service_payment_history SET receipt_url = $1 WHERE id = $2 RETURNING id, user_id`,
+        [receipt_url.trim(), id]
+      );
+    }
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'רשומת תשלום לא נמצאה' });
+    }
+
+    // Audit log
+    await pool.query(
+      `INSERT INTO admin_audit_log (admin_id, action, target_type, target_id, details) VALUES ($1, 'update_receipt_url', 'payment', $2, $3)`,
+      [adminId, id, JSON.stringify({ receipt_url: receipt_url.trim() })]
+    ).catch(() => {});
+
+    console.log(`[AdminBilling] Receipt URL updated for payment ${id} by admin ${adminId}`);
+    res.json({ success: true, message: 'קישור הקבלה עודכן בהצלחה' });
+  } catch (error) {
+    console.error('[AdminBilling] Update receipt URL error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון קישור הקבלה' });
+  }
+}
+
 module.exports = {
   getUpcomingCharges,
   getFailedCharges,
@@ -702,5 +747,6 @@ module.exports = {
   voidPayment,
   deleteCharge,
   updateChargeDate,
-  updateSumitCustomerId
+  updateSumitCustomerId,
+  updateReceiptUrl
 };

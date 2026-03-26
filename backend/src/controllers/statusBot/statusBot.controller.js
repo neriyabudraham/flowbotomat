@@ -1999,16 +1999,20 @@ async function forceCancelProcessing(req, res) {
       return res.status(404).json({ error: 'לא נמצא פריט בעיבוד' });
     }
 
+    // Signal the in-memory processing loop to stop this item
+    const { forceStopItem } = require('../../services/statusBot/queue.service');
+    forceStopItem(parseInt(queueId));
+
     // Reset queue lock
     await db.query(`
-      UPDATE status_bot_queue_lock 
+      UPDATE status_bot_queue_lock
       SET is_processing = false, processing_started_at = NULL
       WHERE id = 1
     `);
 
     // Mark as failed
     await db.query(`
-      UPDATE status_bot_queue 
+      UPDATE status_bot_queue
       SET queue_status = 'failed', error_message = 'בוטל ידנית - תקוע'
       WHERE id = $1
     `, [queueId]);

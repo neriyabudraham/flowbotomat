@@ -1867,6 +1867,16 @@ function BillingSection({ user, billing, showToast, onRefresh }) {
   const [registerForm, setRegisterForm] = useState({ sumitCustomerId: '', paymentMethodId: '', cardLastDigits: '', cardHolderName: '', expiryMonth: '', expiryYear: '' });
   const [registering, setRegistering] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [editingSumitId, setEditingSumitId] = useState(false);
+  const [sumitIdValue, setSumitIdValue] = useState('');
+  const [savingSumitId, setSavingSumitId] = useState(false);
+  const [removingCard, setRemovingCard] = useState(false);
+  const [changeDateChargeId, setChangeDateChargeId] = useState(null);
+  const [changeDateValue, setChangeDateValue] = useState('');
+  const [savingDate, setSavingDate] = useState(false);
+  const [editingReceiptId, setEditingReceiptId] = useState(null);
+  const [receiptUrlValue, setReceiptUrlValue] = useState('');
+  const [savingReceipt, setSavingReceipt] = useState(false);
 
   const queueHistory = billing.history || [];
   const transactions = billing.transactions || [];
@@ -1965,6 +1975,85 @@ function BillingSection({ user, billing, showToast, onRefresh }) {
     }
   };
 
+  const handleRemoveCard = async () => {
+    if (!confirm('להסיר את כרטיס האשראי? פעולה זו תבטל את אמצעי התשלום הפעיל.')) return;
+    setRemovingCard(true);
+    try {
+      const res = await api.delete(`/admin/users/${user.id}/payment-method`);
+      if (res.data.success) {
+        showToast('success', 'כרטיס האשראי הוסר בהצלחה');
+        onRefresh?.();
+      }
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה בהסרת כרטיס');
+    } finally {
+      setRemovingCard(false);
+    }
+  };
+
+  const handleSaveSumitId = async () => {
+    if (!sumitIdValue.trim()) {
+      showToast('error', 'נדרש מזהה Sumit');
+      return;
+    }
+    setSavingSumitId(true);
+    try {
+      const res = await api.put(`/admin/billing/sumit-customer/${user.id}`, { sumit_customer_id: sumitIdValue.trim() });
+      if (res.data.success) {
+        showToast('success', 'מזהה Sumit עודכן');
+        setEditingSumitId(false);
+        onRefresh?.();
+      }
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה בעדכון');
+    } finally {
+      setSavingSumitId(false);
+    }
+  };
+
+  const handleChangeDate = async (chargeId) => {
+    if (!changeDateValue) {
+      showToast('error', 'נדרש תאריך');
+      return;
+    }
+    setSavingDate(true);
+    try {
+      const res = await api.put(`/admin/billing/charge-date/${chargeId}`, { charge_date: changeDateValue });
+      if (res.data.success) {
+        showToast('success', 'תאריך החיוב עודכן');
+        setChangeDateChargeId(null);
+        onRefresh?.();
+      }
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה בעדכון תאריך');
+    } finally {
+      setSavingDate(false);
+    }
+  };
+
+  const handleSaveReceiptUrl = async (txId) => {
+    if (!receiptUrlValue.trim()) {
+      showToast('error', 'נדרש קישור לקבלה');
+      return;
+    }
+    setSavingReceipt(true);
+    try {
+      const res = await api.put(`/admin/billing/receipt-url/${txId}`, { receipt_url: receiptUrlValue.trim() });
+      if (res.data.success) {
+        showToast('success', 'קישור הקבלה עודכן');
+        setEditingReceiptId(null);
+        onRefresh?.();
+      }
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה בעדכון קבלה');
+    } finally {
+      setSavingReceipt(false);
+    }
+  };
+
+  // Detect if this is Sumit-only billing (no real card data)
+  const isSumitOnlyBilling = paymentMethod && !paymentMethod.card_last_digits;
+
   return (
     <div className="space-y-6">
 
@@ -1981,25 +2070,60 @@ function BillingSection({ user, billing, showToast, onRefresh }) {
             </div>
             <div>
               {paymentMethod ? (
-                <>
-                  <div className="font-bold text-emerald-700 dark:text-emerald-400 text-base">כרטיס אשראי פעיל</div>
-                  <div className="text-emerald-600 dark:text-emerald-500 text-sm">
-                    •••• {paymentMethod.card_last_digits || '****'}
-                    {paymentMethod.card_expiry_month && paymentMethod.card_expiry_year && (
-                      <span className="mr-3 text-emerald-500">תוקף: {paymentMethod.card_expiry_month}/{String(paymentMethod.card_expiry_year).slice(-2)}</span>
+                isSumitOnlyBilling ? (
+                  <>
+                    <div className="font-bold text-emerald-700 dark:text-emerald-400 text-base">חיוב אוטומטי דרך סאמיט</div>
+                    <div className="text-emerald-600 dark:text-emerald-500 text-sm">
+                      חיוב מנוהל ישירות דרך Sumit — ללא כרטיס אשראי מקושר
+                    </div>
+                    <div className="text-xs text-gray-400 mt-1 font-mono flex items-center gap-2">
+                      Sumit ID: {paymentMethod.sumit_customer_id || '—'}
+                      <button
+                        onClick={() => { setEditingSumitId(true); setSumitIdValue(paymentMethod.sumit_customer_id || ''); }}
+                        className="text-blue-500 hover:text-blue-700"
+                        title="ערוך מזהה Sumit"
+                      >
+                        <Edit className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="font-bold text-emerald-700 dark:text-emerald-400 text-base">כרטיס אשראי פעיל</div>
+                    <div className="text-emerald-600 dark:text-emerald-500 text-sm">
+                      •••• {paymentMethod.card_last_digits}
+                      {paymentMethod.card_expiry_month && paymentMethod.card_expiry_year && (
+                        <span className="mr-3 text-emerald-500">תוקף: {paymentMethod.card_expiry_month}/{String(paymentMethod.card_expiry_year).slice(-2)}</span>
+                      )}
+                    </div>
+                    {paymentMethod.card_holder_name && (
+                      <div className="text-xs text-emerald-500 mt-0.5">{paymentMethod.card_holder_name}</div>
                     )}
-                  </div>
-                  {paymentMethod.card_holder_name && (
-                    <div className="text-xs text-emerald-500 mt-0.5">{paymentMethod.card_holder_name}</div>
-                  )}
-                  <div className="text-xs text-gray-400 mt-1 font-mono">Sumit ID: {paymentMethod.sumit_customer_id || '—'}</div>
-                </>
+                    <div className="text-xs text-gray-400 mt-1 font-mono flex items-center gap-2">
+                      Sumit ID: {paymentMethod.sumit_customer_id || '—'}
+                      <button
+                        onClick={() => { setEditingSumitId(true); setSumitIdValue(paymentMethod.sumit_customer_id || ''); }}
+                        className="text-blue-500 hover:text-blue-700"
+                        title="ערוך מזהה Sumit"
+                      >
+                        <Edit className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </>
+                )
               ) : (
                 <>
                   <div className="font-bold text-red-700 dark:text-red-400 text-base">אין כרטיס אשראי!</div>
                   {legacySumit?.sumit_customer_id ? (
-                    <div className="text-sm text-amber-600 mt-1">
+                    <div className="text-sm text-amber-600 mt-1 flex items-center gap-2">
                       יש Sumit Customer ID: <span className="font-mono">{legacySumit.sumit_customer_id}</span> — לא מקושר
+                      <button
+                        onClick={() => { setEditingSumitId(true); setSumitIdValue(legacySumit.sumit_customer_id || ''); }}
+                        className="text-blue-500 hover:text-blue-700"
+                        title="ערוך מזהה Sumit"
+                      >
+                        <Edit className="w-3 h-3" />
+                      </button>
                     </div>
                   ) : (
                     <div className="text-red-600 dark:text-red-500 text-sm">יש לשלוח לינק תשלום למשתמש</div>
@@ -2008,27 +2132,49 @@ function BillingSection({ user, billing, showToast, onRefresh }) {
               )}
             </div>
           </div>
-          {!paymentMethod && (
-            <div className="flex flex-col gap-2 items-end">
-              {/* Primary: auto-sync from Sumit */}
-              <button
-                onClick={handleSyncFromSumit}
-                disabled={syncing}
-                className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5 transition-colors"
-                title="שלוף אוטומטית את פרטי האשראי מסאמיט לפי Customer ID"
-              >
-                {syncing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                סנכרן מסאמיט
-              </button>
-              {/* Fallback: manual registration */}
-              <button
-                onClick={() => setShowRegisterForm(v => !v)}
-                className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-xs hover:bg-gray-200 transition-colors"
-              >
-                רשום ידנית
-              </button>
-            </div>
-          )}
+          <div className="flex flex-col gap-2 items-end">
+            {paymentMethod && (
+              <>
+                <button
+                  onClick={handleSyncFromSumit}
+                  disabled={syncing}
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5 transition-colors"
+                  title="סנכרן פרטי כרטיס מסאמיט"
+                >
+                  {syncing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                  סנכרן מסאמיט
+                </button>
+                <button
+                  onClick={handleRemoveCard}
+                  disabled={removingCard}
+                  className="px-3 py-1.5 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg text-xs font-medium hover:bg-red-200 disabled:opacity-50 flex items-center gap-1.5 transition-colors"
+                  title="הסר כרטיס אשראי"
+                >
+                  {removingCard ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                  הסר כרטיס
+                </button>
+              </>
+            )}
+            {!paymentMethod && (
+              <>
+                <button
+                  onClick={handleSyncFromSumit}
+                  disabled={syncing}
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5 transition-colors"
+                  title="שלוף אוטומטית את פרטי האשראי מסאמיט לפי Customer ID"
+                >
+                  {syncing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                  סנכרן מסאמיט
+                </button>
+                <button
+                  onClick={() => setShowRegisterForm(v => !v)}
+                  className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-xs hover:bg-gray-200 transition-colors"
+                >
+                  רשום ידנית
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Manual registration form */}
@@ -2110,6 +2256,31 @@ function BillingSection({ user, billing, showToast, onRefresh }) {
         )}
       </div>
 
+      {/* Edit Sumit ID inline */}
+      {editingSumitId && (
+        <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-xl space-y-3">
+          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">עריכת מזהה Sumit</div>
+          <div className="flex items-center gap-3">
+            <input
+              type="text"
+              value={sumitIdValue}
+              onChange={e => setSumitIdValue(e.target.value)}
+              className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm font-mono bg-white dark:bg-gray-800"
+              placeholder="מזהה Sumit Customer ID"
+            />
+            <button
+              onClick={handleSaveSumitId}
+              disabled={savingSumitId}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1"
+            >
+              {savingSumitId ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+              שמור
+            </button>
+            <button onClick={() => setEditingSumitId(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">ביטול</button>
+          </div>
+        </div>
+      )}
+
       {/* Legacy standing order warning */}
       {legacySumit?.sumit_standing_order_id && (
         <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl flex items-start gap-3">
@@ -2149,9 +2320,36 @@ function BillingSection({ user, billing, showToast, onRefresh }) {
                   <div className="text-sm text-gray-500 mt-1">
                     {charge.description || charge.plan_name_he || '—'}
                     {charge.charge_date && (
-                      <span className="mr-3">תאריך: {new Date(charge.charge_date).toLocaleDateString('he-IL')}</span>
+                      <span className="mr-3">
+                        תאריך: {new Date(charge.charge_date).toLocaleDateString('he-IL')}
+                        <button
+                          onClick={() => { setChangeDateChargeId(charge.id); setChangeDateValue(charge.charge_date?.slice(0, 10) || ''); }}
+                          className="mr-1 text-blue-500 hover:text-blue-700 inline-flex"
+                          title="שנה תאריך חיוב"
+                        >
+                          <Edit className="w-3 h-3" />
+                        </button>
+                      </span>
                     )}
                   </div>
+                  {changeDateChargeId === charge.id && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <input
+                        type="date"
+                        value={changeDateValue}
+                        onChange={e => setChangeDateValue(e.target.value)}
+                        className="px-2 py-1 border border-gray-200 rounded-lg text-sm"
+                      />
+                      <button
+                        onClick={() => handleChangeDate(charge.id)}
+                        disabled={savingDate}
+                        className="px-3 py-1 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {savingDate ? <RefreshCw className="w-3 h-3 animate-spin" /> : 'שמור'}
+                      </button>
+                      <button onClick={() => setChangeDateChargeId(null)} className="px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 rounded-lg">ביטול</button>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 mr-3">
                   <button
@@ -2198,7 +2396,17 @@ function BillingSection({ user, billing, showToast, onRefresh }) {
                     </div>
                     <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm mb-2">
                       <div><span className="text-gray-500">ניסיונות:</span> <span className="font-medium">{charge.retry_count || 0}/{charge.max_retries || 2}</span></div>
-                      <div><span className="text-gray-500">תאריך חיוב:</span> <span>{charge.charge_date ? new Date(charge.charge_date).toLocaleDateString('he-IL') : '—'}</span></div>
+                      <div>
+                        <span className="text-gray-500">תאריך חיוב:</span>{' '}
+                        <span>{charge.charge_date ? new Date(charge.charge_date).toLocaleDateString('he-IL') : '—'}</span>
+                        <button
+                          onClick={() => { setChangeDateChargeId(charge.id); setChangeDateValue(charge.charge_date?.slice(0, 10) || ''); }}
+                          className="mr-1 text-blue-500 hover:text-blue-700 inline-flex align-middle"
+                          title="שנה תאריך חיוב"
+                        >
+                          <Edit className="w-3 h-3" />
+                        </button>
+                      </div>
                       {charge.last_attempt_at && (
                         <div><span className="text-gray-500">ניסיון אחרון:</span> <span>{new Date(charge.last_attempt_at).toLocaleDateString('he-IL')}</span></div>
                       )}
@@ -2206,6 +2414,24 @@ function BillingSection({ user, billing, showToast, onRefresh }) {
                         <div><span className="text-gray-500">ניסיון הבא:</span> <span>{new Date(charge.next_retry_at).toLocaleDateString('he-IL')}</span></div>
                       )}
                     </div>
+                    {changeDateChargeId === charge.id && (
+                      <div className="flex items-center gap-2 mb-2">
+                        <input
+                          type="date"
+                          value={changeDateValue}
+                          onChange={e => setChangeDateValue(e.target.value)}
+                          className="px-2 py-1 border border-gray-200 rounded-lg text-sm"
+                        />
+                        <button
+                          onClick={() => handleChangeDate(charge.id)}
+                          disabled={savingDate}
+                          className="px-3 py-1 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          {savingDate ? <RefreshCw className="w-3 h-3 animate-spin" /> : 'שמור'}
+                        </button>
+                        <button onClick={() => setChangeDateChargeId(null)} className="px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 rounded-lg">ביטול</button>
+                      </div>
+                    )}
                     {charge.last_error && (
                       <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg text-xs text-red-700 dark:text-red-400">
                         <span className="font-medium">שגיאה: </span>
@@ -2281,18 +2507,50 @@ function BillingSection({ user, billing, showToast, onRefresh }) {
                       </div>
                     )}
                   </div>
-                  {tx.receipt_url && (
-                    <a
-                      href={tx.receipt_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
-                      title="הורד קבלה"
-                    >
-                      <Receipt className="w-4 h-4" />
-                    </a>
-                  )}
+                  <div className="flex flex-col items-end gap-1">
+                    {tx.receipt_url ? (
+                      <a
+                        href={tx.receipt_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-2 text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
+                        title="הורד קבלה"
+                      >
+                        <Receipt className="w-4 h-4" />
+                      </a>
+                    ) : tx.status === 'success' ? (
+                      <button
+                        onClick={() => { setEditingReceiptId(tx.id); setReceiptUrlValue(''); }}
+                        className="px-2 py-1 text-xs text-amber-600 hover:bg-amber-50 rounded-lg transition-colors flex items-center gap-1"
+                        title="הוסף קישור לקבלה"
+                      >
+                        <Link2 className="w-3 h-3" />
+                        הוסף קבלה
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
+                {editingReceiptId === tx.id && (
+                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                    <input
+                      type="url"
+                      value={receiptUrlValue}
+                      onChange={e => setReceiptUrlValue(e.target.value)}
+                      className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800"
+                      placeholder="הזן קישור לקבלה..."
+                      dir="ltr"
+                    />
+                    <button
+                      onClick={() => handleSaveReceiptUrl(tx.id)}
+                      disabled={savingReceipt}
+                      className="px-3 py-1.5 bg-violet-600 text-white rounded-lg text-xs font-medium hover:bg-violet-700 disabled:opacity-50 flex items-center gap-1"
+                    >
+                      {savingReceipt ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                      שמור
+                    </button>
+                    <button onClick={() => setEditingReceiptId(null)} className="px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded-lg">ביטול</button>
+                  </div>
+                )}
               </div>
             ))}
           </div>

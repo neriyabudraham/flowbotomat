@@ -1138,6 +1138,12 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     console.log(`${LOG_PREFIX} 🌊 Wave ${Math.floor(waveStart / PARALLEL_BATCHES) + 1} — sending batches ${wave[0].batchNum}-${wave[wave.length - 1].batchNum} in parallel${wave[0].isViewerBatch ? ' (viewers)' : ''}`);
 
     const waveResults = await Promise.allSettled(wave.map(async ({ contacts: batch, batchNum, isViewerBatch }) => {
+      // Check force-stop before starting each batch (allows skipping batches within a wave)
+      if (forceStopItems.has(queueItem.id)) {
+        console.log(`${LOG_PREFIX} ⏹️ Batch ${batchNum}/${totalBatches} skipped — force-stop active`);
+        return { batchNum, sent: 0, timedOut: false, error: false, skipped: true };
+      }
+
       const endpoint = `/api/${sessionName}/status/${queueItem.status_type}`;
       const body = buildStatusBody(messageId, batch, queueItem.status_type, content, preConvertedFile);
       const batchTimeoutMs = isViewerBatch ? VIEWER_CALL_TIMEOUT_MS : CALL_TIMEOUT_MS;
@@ -1186,6 +1192,14 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
 
     const progressPct = orderedContacts.length > 0 ? Math.round((totalSent / orderedContacts.length) * 100) : 100;
     console.log(`${LOG_PREFIX} 🌊 Wave done — cumulative sent: ${totalSent}/${orderedContacts.length} (${progressPct}%) | timeouts in wave: ${waveTimeouts}/${wave.length}`);
+
+    // Check force-stop immediately after wave completes (don't wait for next loop iteration)
+    if (forceStopItems.has(queueItem.id)) {
+      forceStopItems.delete(queueItem.id);
+      console.log(`${LOG_PREFIX} ⏹️ Admin force-stopped item after wave — finishing with ${totalSent} contacts sent so far`);
+      stoppedEarly = true;
+      break;
+    }
 
     // Heartbeat + progress: keep processing_started_at fresh and update send progress
     // Report cumulative totals (including contacts sent in prior retry attempts)
@@ -1585,8 +1599,9 @@ async function retryQueueItem(queueId) {
  * The item will finish its current batch then mark as sent (partial).
  */
 function forceStopItem(queueId) {
-  forceStopItems.add(queueId);
-  console.log(`[StatusBot Queue] ⏹️ Force-stop requested for item ${queueId}`);
+  const id = typeof queueId === 'number' ? queueId : parseInt(queueId, 10);
+  forceStopItems.add(id);
+  console.log(`[StatusBot Queue] ⏹️ Force-stop requested for item ${id}`);
 }
 
 module.exports = {

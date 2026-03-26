@@ -1316,6 +1316,41 @@ async function createUser(req, res) {
   }
 }
 
+/**
+ * Admin: Remove (deactivate) a user's payment method
+ */
+async function removePaymentMethod(req, res) {
+  try {
+    const { id } = req.params;
+    const adminId = req.user.id;
+
+    // Deactivate all payment methods for this user
+    const result = await db.query(
+      'UPDATE user_payment_methods SET is_active = false, is_default = false, updated_at = NOW() WHERE user_id = $1 AND is_active = true RETURNING id',
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא אמצעי תשלום פעיל' });
+    }
+
+    // Update user flag
+    await db.query('UPDATE users SET has_payment_method = false, updated_at = NOW() WHERE id = $1', [id]);
+
+    // Audit log
+    await db.query(
+      `INSERT INTO admin_audit_log (admin_id, action, target_type, target_id, details) VALUES ($1, 'remove_payment_method', 'user', $2, $3)`,
+      [adminId, id, JSON.stringify({ deactivated_count: result.rows.length })]
+    ).catch(() => {});
+
+    console.log(`[Admin] Payment method removed for user ${id} by admin ${adminId}`);
+    res.json({ success: true, message: 'אמצעי התשלום הוסר בהצלחה' });
+  } catch (error) {
+    console.error('[Admin] Remove payment method error:', error);
+    res.status(500).json({ error: 'שגיאה בהסרת אמצעי תשלום' });
+  }
+}
+
 module.exports = {
   getUsers,
   getUser,
@@ -1336,5 +1371,6 @@ module.exports = {
   syncPaymentMethodFromSumit,
   adminRegisterPaymentMethod,
   approveUser,
-  createUser
+  createUser,
+  removePaymentMethod
 };

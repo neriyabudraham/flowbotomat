@@ -33,6 +33,7 @@ router.get('/users/:id/billing-history', usersController.getUserBillingHistory);
 router.post('/users/:id/sync-payment-from-sumit', superadminMiddleware, usersController.syncPaymentMethodFromSumit);
 router.post('/users/:id/register-payment-method', superadminMiddleware, usersController.adminRegisterPaymentMethod);
 router.post('/users/:id/payment-link', usersController.generatePaymentLink);
+router.delete('/users/:id/payment-method', superadminMiddleware, usersController.removePaymentMethod);
 router.put('/users/:id/credit-card-exempt', superadminMiddleware, usersController.toggleCreditCardExempt);
 router.post('/users/:id/approve', usersController.approveUser);
 router.post('/users/create', usersController.createUser);
@@ -235,6 +236,7 @@ router.post('/billing/void-payment/:id', superadminMiddleware, billingController
 router.put('/billing/charge-date/:id', superadminMiddleware, billingController.updateChargeDate);
 router.put('/billing/sumit-customer/:userId', superadminMiddleware, billingController.updateSumitCustomerId);
 router.delete('/billing/charge/:id', superadminMiddleware, billingController.deleteCharge);
+router.put('/billing/receipt-url/:id', superadminMiddleware, billingController.updateReceiptUrl);
 
 // System update notification - can be called without auth (for deploy script)
 // Uses a secret key for authentication

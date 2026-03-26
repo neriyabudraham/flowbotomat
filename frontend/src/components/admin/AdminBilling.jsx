@@ -4,7 +4,8 @@ import {
   RefreshCw, Calendar, Search, Filter, DollarSign,
   ChevronLeft, ChevronRight, Loader2, History, Ban, FileText,
   User, MoreVertical, Play, SkipForward, Edit3, Receipt,
-  AlertCircle, TrendingDown, ChevronDown, UserX, Trash2
+  AlertCircle, TrendingDown, ChevronDown, UserX, Trash2,
+  Link2, Check
 } from 'lucide-react';
 import api from '../../services/api';
 import { UnifiedUserModal } from './AdminUsers';
@@ -967,6 +968,23 @@ function PaymentHistory({ onViewUser, loadingUser, initialUserEmail, onClearUser
   });
   const [page, setPage] = useState(0);
   const limit = 20;
+  const [editingReceiptId, setEditingReceiptId] = useState(null);
+  const [receiptUrlValue, setReceiptUrlValue] = useState('');
+  const [savingReceipt, setSavingReceipt] = useState(false);
+
+  const handleSaveReceiptUrl = async (paymentId) => {
+    if (!receiptUrlValue.trim()) return;
+    setSavingReceipt(true);
+    try {
+      await api.put(`/admin/billing/receipt-url/${paymentId}`, { receipt_url: receiptUrlValue.trim() });
+      setEditingReceiptId(null);
+      loadPayments();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה בעדכון קבלה');
+    } finally {
+      setSavingReceipt(false);
+    }
+  };
 
   useEffect(() => {
     if (initialUserEmail) {
@@ -1147,8 +1165,36 @@ function PaymentHistory({ onViewUser, loadingUser, initialUserEmail, onClearUser
                         <span className="text-gray-400 text-xs font-mono" title="מספר מסמך בסאמיט">
                           #{payment.sumit_document_number}
                         </span>
+                      ) : payment.status === 'success' ? (
+                        editingReceiptId === payment.id ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="url"
+                              value={receiptUrlValue}
+                              onChange={e => setReceiptUrlValue(e.target.value)}
+                              className="w-40 px-2 py-1 border border-gray-200 rounded text-xs"
+                              placeholder="קישור לקבלה..."
+                              dir="ltr"
+                            />
+                            <button onClick={() => handleSaveReceiptUrl(payment.id)} disabled={savingReceipt} className="p-1 text-green-600 hover:bg-green-50 rounded">
+                              {savingReceipt ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                            </button>
+                            <button onClick={() => setEditingReceiptId(null)} className="p-1 text-gray-400 hover:bg-gray-100 rounded">
+                              <XCircle className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => { setEditingReceiptId(payment.id); setReceiptUrlValue(''); }}
+                            className="flex items-center gap-1 px-2 py-1 text-amber-600 hover:bg-amber-50 rounded text-xs transition-colors"
+                            title="הוסף קישור לקבלה"
+                          >
+                            <Link2 className="w-3 h-3" />
+                            הוסף קבלה
+                          </button>
+                        )
                       ) : (
-                        <span className="text-gray-300 text-xs">אין</span>
+                        <span className="text-gray-300 text-xs">—</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
