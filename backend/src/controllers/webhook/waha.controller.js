@@ -1744,7 +1744,8 @@ async function handleSessionStatus(userId, event) {
     const phoneNumber = payload.me?.id?.split('@')[0] || null;
     const displayName = payload.me?.pushName || null;
 
-    const sbcResult = await pool.query(`
+    // First try matching by session_name (exact match)
+    let sbcResult = await pool.query(`
       UPDATE status_bot_connections
       SET connection_status = $1,
           phone_number = COALESCE($2, phone_number),
@@ -1753,6 +1754,24 @@ async function handleSessionStatus(userId, event) {
       WHERE session_name = $4
       RETURNING id, phone_number, proxy_ip, waha_source_id
     `, [ourStatus, phoneNumber, displayName, session]);
+
+    // If no match by session_name but user is connecting — sync by user_id
+    // This handles reconnection with a new session name
+    if (sbcResult.rows.length === 0 && ourStatus === 'connected') {
+      sbcResult = await pool.query(`
+        UPDATE status_bot_connections
+        SET connection_status = $1,
+            session_name = $2,
+            phone_number = COALESCE($3, phone_number),
+            display_name = COALESCE($4, display_name),
+            updated_at = NOW()
+        WHERE user_id = $5 AND connection_status != 'connected'
+        RETURNING id, phone_number, proxy_ip, waha_source_id
+      `, [ourStatus, session, phoneNumber, displayName, userId]);
+      if (sbcResult.rows.length > 0) {
+        console.log(`[Webhook] Auto-synced status_bot_connections for user ${userId} with new session ${session}`);
+      }
+    }
 
     // Assign proxy when status bot session becomes connected and has a phone number
     if (ourStatus === 'connected' && sbcResult.rows.length > 0) {

@@ -451,44 +451,69 @@ async function checkAuthorization(phone) {
  * Returns { valid: boolean, error: string | null }
  */
 function validateConnectionStatus(connection) {
-  // Check if disconnected
+  // Check if FAILED — this is the only hard error that blocks queuing
+  if (connection.connection_status === 'failed') {
+    // Build scan link for this user
+    const appUrl = process.env.APP_URL || 'https://botomat.co.il';
+    const scanLink = `${appUrl}/status-bot`;
+    return {
+      valid: false,
+      queueable: false,
+      error: `❌ שגיאה בחיבור WhatsApp לחשבון "${connection.display_name || connection.connection_phone}".\n\nיש להתחבר מחדש:\n${scanLink}`
+    };
+  }
+
+  // Check if waiting for QR scan
+  if (connection.connection_status === 'qr_pending' || connection.connection_status === 'scan_qr') {
+    const appUrl = process.env.APP_URL || 'https://botomat.co.il';
+    const scanLink = `${appUrl}/status-bot`;
+    return {
+      valid: false,
+      queueable: true,
+      error: `📱 ממתין לסריקת QR לחשבון "${connection.display_name || connection.connection_phone}".\n\nסרוק כאן:\n${scanLink}\n\n✅ הסטטוס נוסף לתור ויעלה אוטומטית לאחר החיבור.`
+    };
+  }
+
+  // Check if disconnected (not failed) — queueable, will auto-process when reconnected
   if (connection.connection_status !== 'connected') {
     return {
       valid: false,
-      error: `החשבון "${connection.display_name || connection.connection_phone}" מנותק כרגע.\n\nיש להתחבר מחדש דרך האתר לפני שליחת סטטוסים.`
+      queueable: true,
+      error: `⏳ החשבון "${connection.display_name || connection.connection_phone}" אינו מחובר כרגע.\n\n✅ הסטטוס נוסף לתור ויעלה אוטומטית כשהחיבור יחזור.`
     };
   }
-  
-  // Check 24-hour restriction
+
+  // Check 24-hour restriction — queueable, will auto-process when restriction lifts
   if (!connection.restriction_lifted) {
     const connectionDate = connection.last_connected_at || connection.first_connected_at;
-    
+
     if (connectionDate) {
       const connectedAt = new Date(connectionDate);
       const restrictionEnd = new Date(connectedAt.getTime() + 24 * 60 * 60 * 1000);
       const now = new Date();
-      
+
       if (now < restrictionEnd) {
         const remainingMs = restrictionEnd - now;
         const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
         const remainingMinutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
-        
+
         let timeStr;
         if (remainingHours > 0) {
           timeStr = `${remainingHours} שעות ו-${remainingMinutes} דקות`;
         } else {
           timeStr = `${remainingMinutes} דקות`;
         }
-        
+
         return {
           valid: false,
-          error: `לא ניתן לשלוח סטטוסים עדיין.\n\nיש להמתין ${timeStr} מרגע ההתחברות לפני שליחת הסטטוס הראשון.\n\n(הגבלה זו נועדה למנוע חסימה מצד WhatsApp)`
+          queueable: true,
+          error: `⏳ יש להמתין ${timeStr} מרגע ההתחברות.\n\n✅ הסטטוס נוסף לתור ויעלה אוטומטית בתום ההמתנה.`
         };
       }
     }
   }
-  
-  return { valid: true, error: null };
+
+  return { valid: true, queueable: true, error: null };
 }
 
 /**
@@ -1389,11 +1414,11 @@ async function handleAccountSelection(phone, statusId, pendingStatus, connection
   
   const connection = result.rows[0];
   const validation = validateConnectionStatus(connection);
-  if (!validation.valid) {
+  if (!validation.valid && !validation.queueable) {
     await cloudApi.sendTextMessage(phone, validation.error);
     return;
   }
-  
+
   // Update pending status with selected connection
   await updatePendingStatus(phone, statusId, { connectionId });
   
@@ -2242,13 +2267,16 @@ async function handleIdleState(phone, message, state) {
   const connection = authorizedConnections.length === 1 ? authorizedConnections[0] : null;
   
   if (connection) {
-    // Validate connection status
+    // Validate connection status — allow queuing even if not connected
     const validation = validateConnectionStatus(connection);
-    if (!validation.valid) {
+    if (!validation.valid && !validation.queueable) {
       await cloudApi.sendTextMessage(phone, validation.error);
       return;
     }
     statusData.connectionId = connection.connection_id;
+    if (!validation.valid && validation.queueable) {
+      statusData._queueWarning = validation.error;
+    }
   } else {
     // Multiple accounts - store accounts for selection
     statusData.availableAccounts = authorizedConnections.map(c => ({
@@ -2336,9 +2364,9 @@ async function processVideoInBackground(phone, statusId, videoUrl, originalCapti
         return;
       }
       
-      // Single account - validate
+      // Single account - validate (allow queuing if queueable)
       const validation = validateConnectionStatus(connection);
-      if (!validation.valid) {
+      if (!validation.valid && !validation.queueable) {
         await cloudApi.sendTextMessage(phone, validation.error, messageId);
         await removePendingStatus(phone, statusId);
         return;
@@ -2562,10 +2590,10 @@ async function handleIdleState_LEGACY(phone, message, state) {
           return;
         }
         
-        // Single account - validate and go to caption choice
+        // Single account - validate (allow queuing if queueable)
         const connection = authorizedConnections[0];
         const validation = validateConnectionStatus(connection);
-        if (!validation.valid) {
+        if (!validation.valid && !validation.queueable) {
           await cloudApi.sendTextMessage(phone, validation.error);
           return;
         }
@@ -2651,9 +2679,9 @@ async function handleIdleState_LEGACY(phone, message, state) {
   // Single account - validate and proceed
   const connection = authorizedConnections[0];
   
-  // Validate connection status
+  // Validate connection status (allow queuing if queueable)
   const validation = validateConnectionStatus(connection);
-  if (!validation.valid) {
+  if (!validation.valid && !validation.queueable) {
     await cloudApi.sendTextMessage(phone, validation.error);
     return;
   }
@@ -2717,9 +2745,9 @@ async function handleSelectAccountState(phone, message, state) {
     return;
   }
   
-  // Validate connection status
+  // Validate connection status (allow queuing if queueable)
   const validation = validateConnectionStatus(selectedAccount);
-  if (!validation.valid) {
+  if (!validation.valid && !validation.queueable) {
     await cloudApi.sendTextMessage(phone, validation.error);
     await setState(phone, 'idle', null, null);
     return;
@@ -2941,7 +2969,13 @@ async function handleSelectActionState(phone, message, state) {
     
     const queueResult = await addToQueue(state.connection_id, pendingStatus.type, content, null, phone);
     const queuedStatusId = queueResult?.id;
-    
+
+    // Check if connection has issues — add warning to success message
+    const connCheck = await db.query('SELECT connection_status, display_name, phone_number, restriction_lifted, last_connected_at, first_connected_at FROM status_bot_connections WHERE id = $1', [state.connection_id]);
+    const connRow = connCheck.rows[0];
+    const connValidation = connRow ? validateConnectionStatus(connRow) : null;
+    const queueWarning = (connValidation && !connValidation.valid && connValidation.queueable) ? `\n\n${connValidation.error}` : '';
+
     // Show success message with action list (simplified - combined count+list)
     const sections = [{
       title: 'סטטיסטיקות',
@@ -2958,10 +2992,10 @@ async function handleSelectActionState(phone, message, state) {
         { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
       ]
     }];
-    
+
     await cloudApi.sendListMessage(
       phone,
-      '✅ הסטטוס נוסף לתור השליחה!\n\nבחר פעולה',
+      `✅ הסטטוס נוסף לתור השליחה!${queueWarning}\n\nבחר פעולה`,
       'בחר פעולה',
       sections,
       pendingStatus?.messageId // Reply to original message

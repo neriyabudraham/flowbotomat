@@ -1108,14 +1108,24 @@ async function checkCanUpload(connection, userId) {
     return { canUpload: false, reason: 'לא נמצא חיבור' };
   }
 
-  if (connection.connection_status !== 'connected') {
-    return { canUpload: false, reason: 'WhatsApp לא מחובר' };
-  }
-
-  // Check subscription status
+  // Check subscription status first — no subscription = hard block
   const subscriptionCheck = await checkSubscriptionForUpload(userId);
   if (!subscriptionCheck.canUpload) {
     return subscriptionCheck;
+  }
+
+  // Connection issues are soft blocks — status goes to queue, will send when ready
+  if (connection.connection_status === 'failed') {
+    return { canUpload: false, reason: 'שגיאה בחיבור WhatsApp. יש להתחבר מחדש.' };
+  }
+
+  if (connection.connection_status !== 'connected') {
+    // Allow queuing — return canUpload true with warning
+    return {
+      canUpload: true,
+      warning: 'WhatsApp אינו מחובר כרגע. הסטטוס נוסף לתור ויעלה אוטומטית כשהחיבור יחזור.',
+      isQueued: true
+    };
   }
 
   // Check restriction: prefer restriction_until, fall back to last_connected_at + 24h
@@ -1124,13 +1134,15 @@ async function checkCanUpload(connection, userId) {
     const msLeft = restrictionEnd - new Date();
     const hoursLeft = Math.ceil(msLeft / (1000 * 60 * 60));
     const minutesLeft = Math.ceil(msLeft / (1000 * 60)) % 60;
+    // Allow queuing — status will be sent when restriction lifts
     return {
-      canUpload: false,
-      reason: hoursLeft >= 1
-        ? `יש להמתין ${hoursLeft} שעות ו-${minutesLeft} דקות לאחר החיבור`
-        : `יש להמתין עוד ${Math.ceil(msLeft / 60000)} דקות לאחר החיבור`,
+      canUpload: true,
+      warning: hoursLeft >= 1
+        ? `יש המתנה של ${hoursLeft} שעות ו-${minutesLeft} דקות. הסטטוס נוסף לתור ויעלה בתום ההמתנה.`
+        : `יש המתנה של ${Math.ceil(msLeft / 60000)} דקות. הסטטוס נוסף לתור ויעלה בתום ההמתנה.`,
       restrictionEndsAt: restrictionEnd,
-      isRestricted: true
+      isRestricted: true,
+      isQueued: true
     };
   }
 
@@ -1266,9 +1278,15 @@ async function uploadTextStatus(req, res) {
       RETURNING *
     `, [connection.id, JSON.stringify(content), scheduled_for || null]);
 
-    res.json({ 
-      success: true, 
+    // Check if there's a queue warning from canUpload check
+    const canUploadResult = !scheduled_for ? await checkCanUpload(connection, userId) : null;
+    const warning = canUploadResult?.warning || null;
+
+    res.json({
+      success: true,
       message: scheduled_for ? 'הסטטוס תוזמן בהצלחה' : 'הסטטוס נוסף לתור',
+      warning,
+      isQueued: canUploadResult?.isQueued || false,
       queueId: queueResult.rows[0].id,
       scheduled_for: scheduled_for || null
     });
@@ -1348,8 +1366,8 @@ async function uploadImageStatus(req, res) {
       RETURNING *
     `, [connection.id, JSON.stringify(content), scheduled_for || null]);
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: scheduled_for ? 'הסטטוס תוזמן בהצלחה' : 'הסטטוס נשלח',
       queueId: queueResult.rows[0].id,
       scheduled_for: scheduled_for || null
