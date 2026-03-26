@@ -1,5 +1,53 @@
 const { createClient } = require('./client.service');
 const { getWahaCredentialsForConnection } = require('../settings/system.service');
+const https = require('https');
+const http = require('http');
+
+// ── Link preview helpers ──────────────────────────────────────────
+const URL_REGEX = /https?:\/\/[^\s<>"{}|\\^`\u0000-\u001F\u007F]+/i;
+
+function extractFirstUrl(text) {
+  const match = text?.match(URL_REGEX);
+  return match ? match[0] : null;
+}
+
+// Simple OG metadata fetcher (no heavy dependencies)
+async function fetchOgMetadata(url) {
+  return new Promise((resolve) => {
+    const mod = url.startsWith('https') ? https : http;
+    const req = mod.get(url, { timeout: 5000, headers: { 'User-Agent': 'WhatsApp/2' } }, (res) => {
+      // Follow redirects (up to 3)
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return fetchOgMetadata(res.headers.location).then(resolve);
+      }
+      if (res.statusCode !== 200) { resolve(null); return; }
+      let html = '';
+      res.setEncoding('utf-8');
+      res.on('data', (chunk) => { html += chunk; if (html.length > 50000) res.destroy(); });
+      res.on('end', () => {
+        const og = {};
+        const titleMatch = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)
+                        || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i);
+        const descMatch = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)
+                       || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i);
+        const imgMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+                      || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+        const fallbackTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+        og.title = titleMatch?.[1] || fallbackTitle?.[1] || url;
+        og.description = descMatch?.[1] || '';
+        const imageUrl = imgMatch?.[1] || null;
+        const preview = { url, title: og.title.substring(0, 100), description: og.description.substring(0, 200) };
+        if (imageUrl) {
+          preview.image = { url: imageUrl, mimetype: 'image/jpeg' };
+        }
+        resolve(preview);
+      });
+      res.on('error', () => resolve(null));
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+}
 
 // ── Session-to-server cache ──────────────────────────────────────────
 // In-memory map: sessionName → { baseUrl, apiKey, ts }
@@ -412,6 +460,33 @@ async function sendMessage(connection, phone, text, mentions = null, options = {
   const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
 
+  // If link preview requested, try custom preview for reliable results
+  if (options.linkPreview) {
+    const url = extractFirstUrl(text);
+    if (url) {
+      try {
+        const preview = await fetchOgMetadata(url);
+        if (preview && preview.image) {  // Custom preview requires image — WAHA crashes without it
+          const previewPayload = {
+            session: connection.session_name,
+            chatId: chatId,
+            text: text,
+            linkPreviewHighQuality: true,
+            preview: preview,
+          };
+          if (mentions && mentions.length > 0) {
+            previewPayload.mentions = mentions;
+          }
+          const response = await client.post(`/api/send/link-custom-preview`, previewPayload);
+          console.log(`[WAHA] Sent message with custom link preview to ${phone}`);
+          return response.data;
+        }
+      } catch (previewErr) {
+        console.log(`[WAHA] Custom link preview failed (${previewErr.message}), falling back to sendText`);
+      }
+    }
+  }
+
   const payload = {
     session: connection.session_name,
     chatId: chatId,
@@ -423,9 +498,10 @@ async function sendMessage(connection, phone, text, mentions = null, options = {
     payload.mentions = mentions;
   }
 
-  // Link preview (default: no explicit flag, let WAHA decide)
+  // Link preview flag for sendText fallback
   if (options.linkPreview !== undefined) {
     payload.linkPreview = options.linkPreview;
+    payload.linkPreviewHighQuality = true;
   }
 
   const response = await client.post(`/api/sendText`, payload);
