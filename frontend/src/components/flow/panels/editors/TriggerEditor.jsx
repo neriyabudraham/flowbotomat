@@ -1,6 +1,7 @@
-import { Plus, X, ChevronDown, ChevronUp, Trash2, RefreshCw, Clock, Copy, Wifi } from 'lucide-react';
+import { Plus, X, ChevronDown, ChevronUp, Trash2, RefreshCw, Clock, Copy, Wifi, Phone, Shield, Filter } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import api from '../../../../services/api';
+import TextInputWithVariables from './TextInputWithVariables';
 
 const triggerTypes = [
   { id: 'any_message', label: 'כל הודעה נכנסת', icon: '💬', category: 'message' },
@@ -1275,6 +1276,318 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                               onChange={(e) => updateGroupSetting(group.id, 'activeTo', e.target.value)}
                               className="px-2 py-1.5 border border-gray-200 rounded-lg text-sm"
                             />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Phone number filter (whitelist/blacklist) */}
+                      <div className="border-t border-gray-100 pt-3">
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={group.phoneFilter === 'whitelist' || group.phoneFilter === 'blacklist'}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                updateGroupSetting(group.id, 'phoneFilter', 'whitelist');
+                                if (!group.phoneNumbers) updateGroupSetting(group.id, 'phoneNumbers', []);
+                              } else {
+                                updateGroupSetting(group.id, 'phoneFilter', 'all');
+                              }
+                            }}
+                            className="w-4 h-4 rounded border-gray-300 text-purple-600"
+                          />
+                          <div>
+                            <div className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                              <Phone className="w-3.5 h-3.5" />
+                              סינון לפי מספר טלפון
+                            </div>
+                            <div className="text-xs text-gray-500">הגבל את הטריגר למספרים ספציפיים</div>
+                          </div>
+                        </label>
+
+                        {(group.phoneFilter === 'whitelist' || group.phoneFilter === 'blacklist') && (
+                          <div className="mt-3 mr-7 space-y-3">
+                            {/* Mode toggle */}
+                            <div className="flex bg-gray-100 rounded-lg p-1">
+                              <button
+                                type="button"
+                                onClick={() => updateGroupSetting(group.id, 'phoneFilter', 'whitelist')}
+                                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium transition-all ${
+                                  group.phoneFilter === 'whitelist'
+                                    ? 'bg-white shadow text-green-700'
+                                    : 'text-gray-500 hover:text-gray-700'
+                                }`}
+                              >
+                                <Shield className="w-3 h-3" />
+                                רק מספרים אלה (מורשים)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => updateGroupSetting(group.id, 'phoneFilter', 'blacklist')}
+                                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium transition-all ${
+                                  group.phoneFilter === 'blacklist'
+                                    ? 'bg-white shadow text-red-700'
+                                    : 'text-gray-500 hover:text-gray-700'
+                                }`}
+                              >
+                                <X className="w-3 h-3" />
+                                חסום מספרים אלה
+                              </button>
+                            </div>
+
+                            {/* Phone number list */}
+                            <div className="space-y-2">
+                              {(group.phoneNumbers || []).map((num, numIdx) => (
+                                <div key={numIdx} className="flex items-center gap-2">
+                                  <input
+                                    type="tel"
+                                    value={num}
+                                    onChange={(e) => {
+                                      const newNums = [...(group.phoneNumbers || [])];
+                                      newNums[numIdx] = e.target.value;
+                                      updateGroupSetting(group.id, 'phoneNumbers', newNums);
+                                    }}
+                                    placeholder="050-1234567 / 972501234567"
+                                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                                    dir="ltr"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newNums = (group.phoneNumbers || []).filter((_, i) => i !== numIdx);
+                                      updateGroupSetting(group.id, 'phoneNumbers', newNums);
+                                    }}
+                                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newNums = [...(group.phoneNumbers || []), ''];
+                                  updateGroupSetting(group.id, 'phoneNumbers', newNums);
+                                }}
+                                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                הוסף מספר
+                              </button>
+                            </div>
+
+                            <p className="text-[10px] text-gray-400">
+                              ניתן להזין בכל פורמט: 050-1234567, 0501234567, 972501234567, +972-50-123-4567
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Advanced conditions */}
+                      <div className="border-t border-gray-100 pt-3">
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={!!(group.advancedConditions && group.advancedConditions.length > 0)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                updateGroupSetting(group.id, 'advancedConditions', [
+                                  { variable: 'contact_var', operator: 'equals', value: '', varName: '' }
+                                ]);
+                              } else {
+                                updateGroupSetting(group.id, 'advancedConditions', []);
+                              }
+                            }}
+                            className="w-4 h-4 rounded border-gray-300 text-purple-600"
+                          />
+                          <div>
+                            <div className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                              <Filter className="w-3.5 h-3.5" />
+                              תנאים מתקדמים
+                            </div>
+                            <div className="text-xs text-gray-500">הוסף תנאים על משתנים, תגיות, זמנים ועוד</div>
+                          </div>
+                        </label>
+
+                        {group.advancedConditions && group.advancedConditions.length > 0 && (
+                          <div className="mt-3 mr-7 space-y-2">
+                            <div className="flex items-center gap-2 mb-2">
+                              <div className="text-xs text-gray-500">
+                                כל התנאים חייבים להתקיים (וגם) כדי שהטריגר יופעל
+                              </div>
+                            </div>
+                            {group.advancedConditions.map((adv, advIdx) => (
+                              <div key={advIdx} className="bg-white border border-gray-200 rounded-xl p-3 space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    value={adv.variable || 'contact_var'}
+                                    onChange={(e) => {
+                                      const newAdvs = [...group.advancedConditions];
+                                      newAdvs[advIdx] = { ...adv, variable: e.target.value, varName: '', value: '' };
+                                      updateGroupSetting(group.id, 'advancedConditions', newAdvs);
+                                    }}
+                                    className="flex-1 px-2 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                                  >
+                                    <optgroup label="איש קשר">
+                                      <option value="contact_name">שם איש קשר</option>
+                                      <option value="phone">מספר טלפון</option>
+                                      <option value="has_tag">יש תגית</option>
+                                    </optgroup>
+                                    <optgroup label="הודעה">
+                                      <option value="message">תוכן ההודעה</option>
+                                      <option value="message_type">סוג ההודעה</option>
+                                      <option value="is_group">האם קבוצה</option>
+                                    </optgroup>
+                                    <optgroup label="משתנים">
+                                      <option value="contact_var">משתנה מהמערכת</option>
+                                    </optgroup>
+                                    <optgroup label="זמן">
+                                      <option value="time">שעה נוכחית</option>
+                                      <option value="day">יום בשבוע</option>
+                                    </optgroup>
+                                  </select>
+
+                                  <select
+                                    value={adv.operator || 'equals'}
+                                    onChange={(e) => {
+                                      const newAdvs = [...group.advancedConditions];
+                                      newAdvs[advIdx] = { ...adv, operator: e.target.value };
+                                      updateGroupSetting(group.id, 'advancedConditions', newAdvs);
+                                    }}
+                                    className="flex-1 px-2 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                                  >
+                                    <optgroup label="בסיסי">
+                                      <option value="equals">שווה ל</option>
+                                      <option value="not_equals">לא שווה ל</option>
+                                    </optgroup>
+                                    <optgroup label="טקסט">
+                                      <option value="contains">מכיל</option>
+                                      <option value="not_contains">לא מכיל</option>
+                                      <option value="starts_with">מתחיל ב</option>
+                                      <option value="ends_with">נגמר ב</option>
+                                    </optgroup>
+                                    <optgroup label="מספרים">
+                                      <option value="greater_than">גדול מ</option>
+                                      <option value="less_than">קטן מ</option>
+                                    </optgroup>
+                                    <optgroup label="בדיקה">
+                                      <option value="is_empty">ריק</option>
+                                      <option value="is_not_empty">לא ריק</option>
+                                      <option value="is_true">אמת</option>
+                                      <option value="is_false">שקר</option>
+                                    </optgroup>
+                                  </select>
+
+                                  {group.advancedConditions.length > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const newAdvs = group.advancedConditions.filter((_, i) => i !== advIdx);
+                                        updateGroupSetting(group.id, 'advancedConditions', newAdvs);
+                                      }}
+                                      className="p-1.5 text-gray-400 hover:text-red-500"
+                                    >
+                                      <X className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Variable name for contact_var */}
+                                {adv.variable === 'contact_var' && (
+                                  <input
+                                    type="text"
+                                    value={adv.varName || ''}
+                                    onChange={(e) => {
+                                      const newAdvs = [...group.advancedConditions];
+                                      newAdvs[advIdx] = { ...adv, varName: e.target.value };
+                                      updateGroupSetting(group.id, 'advancedConditions', newAdvs);
+                                    }}
+                                    placeholder="שם המשתנה (למשל: ניקוד)"
+                                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                                  />
+                                )}
+
+                                {/* Tag name for has_tag */}
+                                {adv.variable === 'has_tag' && (
+                                  <input
+                                    type="text"
+                                    value={adv.varName || ''}
+                                    onChange={(e) => {
+                                      const newAdvs = [...group.advancedConditions];
+                                      newAdvs[advIdx] = { ...adv, varName: e.target.value };
+                                      updateGroupSetting(group.id, 'advancedConditions', newAdvs);
+                                    }}
+                                    placeholder="שם התגית"
+                                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                                  />
+                                )}
+
+                                {/* Value input */}
+                                {!['is_empty', 'is_not_empty', 'is_true', 'is_false'].includes(adv.operator) && (
+                                  adv.variable === 'day' ? (
+                                    <select
+                                      value={adv.value || ''}
+                                      onChange={(e) => {
+                                        const newAdvs = [...group.advancedConditions];
+                                        newAdvs[advIdx] = { ...adv, value: e.target.value };
+                                        updateGroupSetting(group.id, 'advancedConditions', newAdvs);
+                                      }}
+                                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                                    >
+                                      <option value="">בחר יום...</option>
+                                      <option value="0">ראשון</option>
+                                      <option value="1">שני</option>
+                                      <option value="2">שלישי</option>
+                                      <option value="3">רביעי</option>
+                                      <option value="4">חמישי</option>
+                                      <option value="5">שישי</option>
+                                      <option value="6">שבת</option>
+                                    </select>
+                                  ) : adv.variable === 'time' ? (
+                                    <input
+                                      type="time"
+                                      value={adv.value || ''}
+                                      onChange={(e) => {
+                                        const newAdvs = [...group.advancedConditions];
+                                        newAdvs[advIdx] = { ...adv, value: e.target.value };
+                                        updateGroupSetting(group.id, 'advancedConditions', newAdvs);
+                                      }}
+                                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                                    />
+                                  ) : (
+                                    <TextInputWithVariables
+                                      value={adv.value || ''}
+                                      onChange={(val) => {
+                                        const newAdvs = [...group.advancedConditions];
+                                        newAdvs[advIdx] = { ...adv, value: val };
+                                        updateGroupSetting(group.id, 'advancedConditions', newAdvs);
+                                      }}
+                                      placeholder="ערך להשוואה או {{משתנה}}"
+                                      className="text-sm"
+                                    />
+                                  )
+                                )}
+
+                                {/* AND separator */}
+                                {advIdx < group.advancedConditions.length - 1 && (
+                                  <div className="flex justify-center pt-1">
+                                    <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-medium">וגם</span>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newAdvs = [...group.advancedConditions, { variable: 'contact_var', operator: 'equals', value: '', varName: '' }];
+                                updateGroupSetting(group.id, 'advancedConditions', newAdvs);
+                              }}
+                              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              הוסף תנאי מתקדם
+                            </button>
                           </div>
                         )}
                       </div>

@@ -292,11 +292,16 @@ class BotEngine {
           if (isGroupEvent && !allowGroupMessages) continue;
           if (!isGroupEvent && !allowDirectMessages) continue;
         }
-        
+
+        // Check phone filter (whitelist/blacklist)
+        if (!this.checkPhoneFilter(group, contact.phone)) {
+          continue;
+        }
+
         // Check if all conditions in the group match
         let allMatch = true;
         let hasEventCondition = false;
-        
+
         const eventMessage = eventData.message || '';
         for (const condition of group.conditions) {
           if (this.isEventCondition(condition.type)) {
@@ -328,6 +333,12 @@ class BotEngine {
           }
         }
         
+        // Check advanced conditions for events
+        if (allMatch && hasEventCondition && group.advancedConditions && group.advancedConditions.length > 0) {
+          const advResult = await this.evaluateAdvancedConditions(group.advancedConditions, contact, eventMessage);
+          if (!advResult) allMatch = false;
+        }
+
         if (allMatch && hasEventCondition) {
           // Check cooldown
           if (group.hasCooldown && group.cooldownValue && group.cooldownUnit) {
@@ -1018,6 +1029,122 @@ class BotEngine {
     }
   }
   
+  // Normalize phone number for comparison: strip all non-digits, convert Israeli format
+  normalizePhone(phone) {
+    if (!phone) return '';
+    let clean = String(phone).replace(/\D/g, '');
+    if (clean.startsWith('0')) clean = '972' + clean.substring(1);
+    // Remove leading + if present in original
+    return clean;
+  }
+
+  // Check if contact phone matches phone filter
+  checkPhoneFilter(group, contactPhone) {
+    if (!group.phoneFilter || group.phoneFilter === 'all') return true;
+    const phoneNumbers = group.phoneNumbers || [];
+    if (phoneNumbers.length === 0) return true; // No numbers = no filter
+
+    const normalizedContact = this.normalizePhone(contactPhone);
+    const matchesAny = phoneNumbers.some(num => {
+      const normalized = this.normalizePhone(num);
+      return normalized && normalizedContact && (normalizedContact === normalized || normalizedContact.endsWith(normalized) || normalized.endsWith(normalizedContact));
+    });
+
+    if (group.phoneFilter === 'whitelist') return matchesAny;
+    if (group.phoneFilter === 'blacklist') return !matchesAny;
+    return true;
+  }
+
+  // Evaluate advanced conditions for a trigger group
+  async evaluateAdvancedConditions(conditions, contact, message, userId) {
+    if (!conditions || conditions.length === 0) return true;
+
+    for (const cond of conditions) {
+      const { variable, operator, value, varName } = cond;
+      let checkValue = '';
+
+      switch (variable) {
+        case 'message':
+          checkValue = message || '';
+          break;
+        case 'contact_name':
+          checkValue = contact.display_name || contact.name || '';
+          break;
+        case 'phone':
+          checkValue = contact.phone || '';
+          break;
+        case 'message_type':
+          checkValue = contact._mediaType || 'text';
+          break;
+        case 'is_group':
+          checkValue = contact._isGroup ? 'true' : 'false';
+          break;
+        case 'has_tag': {
+          if (!varName) { checkValue = 'false'; break; }
+          try {
+            const tagResult = await db.query(
+              `SELECT 1 FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id
+               WHERE ct.contact_id = $1 AND LOWER(t.name) = LOWER($2) LIMIT 1`,
+              [contact.id, varName]
+            );
+            checkValue = tagResult.rows.length > 0 ? 'true' : 'false';
+          } catch { checkValue = 'false'; }
+          break;
+        }
+        case 'contact_var': {
+          if (!varName) { checkValue = ''; break; }
+          try {
+            const varResult = await db.query(
+              `SELECT value FROM contact_variables WHERE contact_id = $1 AND variable_name = $2`,
+              [contact.id, varName]
+            );
+            checkValue = varResult.rows.length > 0 ? (varResult.rows[0].value || '') : '';
+          } catch { checkValue = ''; }
+          break;
+        }
+        case 'time': {
+          const israelTime = new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' });
+          const now = new Date(israelTime);
+          checkValue = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+          break;
+        }
+        case 'day': {
+          const israelTime2 = new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' });
+          checkValue = String(new Date(israelTime2).getDay());
+          break;
+        }
+        default:
+          checkValue = '';
+      }
+
+      const result = this.evalAdvancedOperator(operator, checkValue, value || '');
+      if (!result) return false;
+    }
+    return true;
+  }
+
+  // Evaluate an operator for advanced conditions
+  evalAdvancedOperator(operator, checkValue, targetValue) {
+    const cv = (checkValue || '').toString().toLowerCase().trim();
+    const tv = (targetValue || '').toString().toLowerCase().trim();
+
+    switch (operator) {
+      case 'equals': return cv === tv;
+      case 'not_equals': return cv !== tv;
+      case 'contains': return cv.includes(tv);
+      case 'not_contains': return !cv.includes(tv);
+      case 'starts_with': return cv.startsWith(tv);
+      case 'ends_with': return cv.endsWith(tv);
+      case 'greater_than': return parseFloat(checkValue) > parseFloat(targetValue);
+      case 'less_than': return parseFloat(checkValue) < parseFloat(targetValue);
+      case 'is_empty': return !checkValue || checkValue.toString().trim() === '';
+      case 'is_not_empty': return checkValue && checkValue.toString().trim() !== '';
+      case 'is_true': return ['true', 'כן', 'yes', '1'].includes(cv);
+      case 'is_false': return ['false', 'לא', 'no', '0'].includes(cv);
+      default: return true;
+    }
+  }
+
   // Check if trigger matches (with advanced settings)
   async checkTrigger(triggerData, message, messageType, contact, botId, isGroupMessage = false) {
     // Support both new triggerGroups format and old triggers format
@@ -1061,10 +1188,15 @@ class BotEngine {
         if (!isGroupMessage && !isChannelMessage && !allowDirectMessages) {
           continue; // Try next group
         }
-        
+
+        // Check phone filter (whitelist/blacklist)
+        if (!this.checkPhoneFilter(group, contact.phone)) {
+          continue; // Try next group
+        }
+
         // All conditions in this group must match (AND)
         let groupMatches = true;
-        
+
         for (const condition of conditions) {
           const conditionMatches = await this.checkSingleCondition(condition, message, contact);
           if (!conditionMatches) {
@@ -1072,7 +1204,13 @@ class BotEngine {
             break;
           }
         }
-        
+
+        // Check advanced conditions
+        if (groupMatches && group.advancedConditions && group.advancedConditions.length > 0) {
+          const advResult = await this.evaluateAdvancedConditions(group.advancedConditions, contact, message);
+          if (!advResult) groupMatches = false;
+        }
+
         // If basic conditions match, check group-level behavior settings
         if (groupMatches) {
           // Check group-level active hours (Israel timezone)

@@ -92,6 +92,23 @@ function TriggerNode({ data, selected }) {
     advancedSettings.push(`⏱️ השהיה ${data.cooldownValue || data.cooldownHours || ''} ${unit || ''}`);
   }
   if (data.hasActiveHours) advancedSettings.push(`🕐 ${data.activeFrom || ''}-${data.activeTo || ''}`);
+
+  // Collect per-group advanced badges
+  const groupBadges = (group) => {
+    const badges = [];
+    if (group.phoneFilter === 'whitelist') {
+      badges.push(`📱 ${(group.phoneNumbers || []).filter(Boolean).length} מורשים`);
+    } else if (group.phoneFilter === 'blacklist') {
+      badges.push(`🚫 ${(group.phoneNumbers || []).filter(Boolean).length} חסומים`);
+    }
+    if (group.advancedConditions && group.advancedConditions.length > 0) {
+      badges.push(`🔀 ${group.advancedConditions.length} תנאים`);
+    }
+    if (group.oncePerUser) badges.push('👤 פ״א');
+    if (group.hasCooldown) badges.push('⏱️ השהיה');
+    if (group.hasActiveHours) badges.push(`🕐 ${group.activeFrom || ''}-${group.activeTo || ''}`);
+    return badges;
+  };
   
   return (
     <BaseNode
@@ -137,6 +154,16 @@ function TriggerNode({ data, selected }) {
                     </div>
                   </div>
                 ))}
+                {/* Per-group badges */}
+                {groupBadges(group).length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {groupBadges(group).map((badge, idx) => (
+                      <span key={idx} className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">
+                        {badge}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           ))
