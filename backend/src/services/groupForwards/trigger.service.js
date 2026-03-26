@@ -546,7 +546,9 @@ async function sendConfirmationList(userId, senderPhone, forward, job, replyToMs
 
     // Reply to the original trigger message so the user sees which message this confirmation belongs to
     const replyTo = replyToMsgId || job.trigger_msg_id || null;
+    console.log(`[GroupForwards] Sending confirmation list for job ${job.id}, replyTo: ${replyTo || 'none'}`);
     const result = await wahaService.sendList(wahaConnection, chatId, listData, replyTo);
+    console.log(`[GroupForwards] Confirmation list sent for job ${job.id}, result id: ${result?.id || result?.key?.id || 'unknown'}`);
 
     // Store the confirmation message ID on the job for text-reply matching
     const confirmMsgId = result?.id || result?.key?.id || null;
@@ -569,7 +571,7 @@ async function sendConfirmationList(userId, senderPhone, forward, job, replyToMs
     );
 
   } catch (error) {
-    console.error('[GroupForwards] Send confirmation list error:', error.message);
+    console.error('[GroupForwards] Send confirmation list error for job', job.id, ':', error.message);
     // Fallback to text
     await sendNotificationMessage(userId, senderPhone,
       `📤 *${forward.name}*\n\nלשלוח ל-${job.total_targets} קבוצות?\n\nהשב "שלח" או "בטל"`
@@ -1037,6 +1039,7 @@ async function handleConfirmationResponse(userId, senderPhone, messageContent, s
  * Handle confirm action
  */
 async function handleConfirm(userId, senderPhone, jobId) {
+  console.log(`[GroupForwards] handleConfirm called: userId=${userId}, senderPhone=${senderPhone}, jobId=${jobId}`);
   // First check if job exists at all
   const jobExistsResult = await db.query(`
     SELECT fj.id, fj.status, fj.user_id, gf.name as forward_name
@@ -1044,23 +1047,26 @@ async function handleConfirm(userId, senderPhone, jobId) {
     LEFT JOIN group_forwards gf ON fj.forward_id = gf.id
     WHERE fj.id = $1
   `, [jobId]);
-  
+
   if (jobExistsResult.rows.length === 0) {
+    console.log(`[GroupForwards] handleConfirm: job ${jobId} NOT FOUND in database`);
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
     return true;
   }
   
   const existingJob = jobExistsResult.rows[0];
-  
+  console.log(`[GroupForwards] handleConfirm: job ${jobId} found, status=${existingJob.status}, user_id=${existingJob.user_id}, requesting userId=${userId}`);
+
   // Check if job belongs to user
   if (existingJob.user_id !== userId) {
+    console.log(`[GroupForwards] handleConfirm: job ${jobId} user mismatch (job=${existingJob.user_id}, request=${userId})`);
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
     return true;
   }
-  
+
   // Check if job is in pending status
   if (existingJob.status !== 'pending') {
-    
+    console.log(`[GroupForwards] handleConfirm: job ${jobId} not pending, status=${existingJob.status}`);
     if (existingJob.status === 'sending' || existingJob.status === 'confirmed') {
       await sendNotificationMessage(userId, senderPhone, '⏳ המשימה כבר בתהליך שליחה.');
     } else if (existingJob.status === 'completed') {
@@ -1074,19 +1080,20 @@ async function handleConfirm(userId, senderPhone, jobId) {
   }
   
   const jobResult = await db.query(`
-    SELECT fj.*, gf.name as forward_name
+    SELECT fj.*, COALESCE(gf.name, fj.forward_name) as forward_name
     FROM forward_jobs fj
-    JOIN group_forwards gf ON fj.forward_id = gf.id
+    LEFT JOIN group_forwards gf ON fj.forward_id = gf.id
     WHERE fj.id = $1 AND fj.user_id = $2 AND fj.status = 'pending'
   `, [jobId, userId]);
-  
+
   if (jobResult.rows.length === 0) {
+    console.log(`[GroupForwards] handleConfirm: second query returned 0 for job ${jobId}`);
     await sendNotificationMessage(userId, senderPhone, '❌ לא נמצאה משימה ממתינה.');
     return true;
   }
-  
+
   const job = jobResult.rows[0];
-  
+
   // Update status
   await db.query(`
     UPDATE forward_jobs SET status = 'confirmed', updated_at = NOW()
@@ -1277,9 +1284,9 @@ async function handleTextConfirm(userId, senderPhone, action, payload) {
   // If user quoted a specific message, try to match it to a job's confirmation_msg_id
   if (quotedStanzaId) {
     const matchedJob = await db.query(`
-      SELECT fj.*, gf.name as forward_name
+      SELECT fj.*, COALESCE(gf.name, fj.forward_name) as forward_name
       FROM forward_jobs fj
-      JOIN group_forwards gf ON fj.forward_id = gf.id
+      LEFT JOIN group_forwards gf ON fj.forward_id = gf.id
       WHERE fj.user_id = $1
         AND fj.status = 'pending'
         AND fj.confirmation_msg_id IS NOT NULL
@@ -1298,9 +1305,9 @@ async function handleTextConfirm(userId, senderPhone, action, payload) {
 
   // No quoted message or no match — find pending jobs for this sender
   const pendingJob = await db.query(`
-    SELECT fj.*, gf.name as forward_name
+    SELECT fj.*, COALESCE(gf.name, fj.forward_name) as forward_name
     FROM forward_jobs fj
-    JOIN group_forwards gf ON fj.forward_id = gf.id
+    LEFT JOIN group_forwards gf ON fj.forward_id = gf.id
     WHERE fj.user_id = $1
       AND (fj.sender_phone = $2 OR fj.sender_phone = $3 OR fj.sender_phone = $4
            OR REGEXP_REPLACE(fj.sender_phone, '^(\\+?972|0+)', '') = $3)

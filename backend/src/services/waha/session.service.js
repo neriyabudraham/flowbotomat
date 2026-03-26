@@ -655,9 +655,17 @@ async function sendList(connection, phone, listData, replyTo = null) {
     },
   };
 
-  // Reply to a specific message (quote)
+  // Reply to a specific message (quote) — not all WAHA builds support reply_to on lists
   if (replyTo) {
     payload.reply_to = replyTo;
+    try {
+      const response = await client.post(`/api/sendList`, payload);
+      return response.data;
+    } catch (replyErr) {
+      // reply_to likely unsupported — retry without it
+      console.log(`[WAHA] sendList with reply_to failed (${replyErr.message}), retrying without`);
+      delete payload.reply_to;
+    }
   }
 
   const response = await client.post(`/api/sendList`, payload);
