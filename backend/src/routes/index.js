@@ -75,6 +75,10 @@ router.use('/onboarding', onboardingRoutes);
 const settingsController = require('../controllers/admin/settings.controller');
 router.get('/public/config', settingsController.getPublicConfig);
 
+// Public legal pages (no auth required)
+const legalController = require('../controllers/admin/legal.controller');
+router.get('/legal/:slug', legalController.getLegalPage);
+
 // Health check endpoint for deployment monitoring
 router.get('/health', async (req, res) => {
   try {

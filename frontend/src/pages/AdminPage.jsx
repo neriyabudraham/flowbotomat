@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2, Bell, Package, Smartphone, Globe, Receipt, Server, Mail
+  Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2, Bell, Package, Smartphone, Globe, Receipt, Server, Mail, FileText
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
@@ -25,6 +25,7 @@ import AdminBilling from '../components/admin/AdminBilling';
 import AdminWahaSources from '../components/admin/AdminWahaSources';
 import AdminProxySources from '../components/admin/AdminProxySources';
 import AdminEmailPreview from '../components/admin/AdminEmailPreview';
+import AdminLegalPages from '../components/admin/AdminLegalPages';
 
 const TABS = [
   { id: 'dashboard', label: 'דשבורד', icon: BarChart3 },
@@ -36,6 +37,7 @@ const TABS = [
   { id: 'affiliate', label: 'תוכנית שותפים', icon: Share2 },
   { id: 'notifications', label: 'התראות', icon: Bell },
   { id: 'templates', label: 'תבניות', icon: Grid },
+  { id: 'legal', label: 'דפים משפטיים', icon: FileText },
   { id: 'site-config', label: 'הגדרות אתר', icon: Globe },
   { id: 'waha-sources', label: 'שרתי WAHA', icon: Server },
   { id: 'proxy-sources', label: 'מקורות פרוקסי', icon: Shield },
@@ -130,6 +132,8 @@ export default function AdminPage() {
         return <AdminNotifications />;
       case 'templates':
         return <AdminTemplates />;
+      case 'legal':
+        return <AdminLegalPages />;
       case 'site-config':
         return <AdminSiteConfig />;
       case 'waha-sources':

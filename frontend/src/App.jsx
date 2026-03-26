@@ -23,6 +23,8 @@ import CheckoutPage from './pages/CheckoutPage';
 import PrivacyPage from './pages/PrivacyPage';
 import ApiPage from './pages/ApiPage';
 import AffiliateTermsPage from './pages/AffiliateTermsPage';
+import TermsPage from './pages/TermsPage';
+import RefundPolicyPage from './pages/RefundPolicyPage';
 import GroupForwardsPage from './pages/GroupForwardsPage';
 import GroupTransfersPage from './pages/GroupTransfersPage';
 import BroadcastsPage from './pages/BroadcastsPage';
@@ -151,6 +153,8 @@ function App() {
           <Route path="/connect/:userId/whatsapp" element={<ConnectWhatsAppPage />} />
           <Route path="/connect/:userId/integrations" element={<ConnectIntegrationsPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="/refund-policy" element={<RefundPolicyPage />} />
           <Route path="/affiliate-terms" element={<AffiliateTermsPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/login" element={<LoginPage />} />
