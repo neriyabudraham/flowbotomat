@@ -172,11 +172,8 @@ class BotEngine {
       }
 
       if (botsResult.rows.length === 0) {
-        console.log(`[BotEngine] processEvent(${eventType}) for ${contactPhone}: no active bots found`);
         return;
       }
-
-      console.log(`[BotEngine] processEvent(${eventType}) for ${contactPhone}: found ${botsResult.rows.length} active bots`);
 
       // Get or create contact
       let contact;
@@ -390,10 +387,6 @@ class BotEngine {
       }
       
       if (!matched) {
-        // Only log for event-based triggers (not regular messages) to reduce noise
-        if (this.isEventCondition(eventType)) {
-          console.log(`[BotEngine] processEventBot(${eventType}): no matching trigger in bot ${bot.name || bot.id}`);
-        }
         return;
       }
 
