@@ -1539,11 +1539,11 @@ function OverviewSection({ user, bots, billing, onRefresh, showToast }) {
         </div>
       </div>
 
-      {/* Linked Account */}
+      {/* Linked Account - Parent */}
       <div className="p-5 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-2xl border border-blue-200 dark:border-blue-800">
         <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
           <ArrowRightLeft className="w-4 h-4 text-blue-500" />
-          קישור לחשבון אחר
+          קישור לחשבון אב
         </h3>
         {user.linked_parent_id ? (
           <div className="space-y-3">
@@ -1585,6 +1585,35 @@ function OverviewSection({ user, bots, billing, onRefresh, showToast }) {
           </div>
         )}
       </div>
+
+      {/* Linked Children Accounts */}
+      {(user.linked_children && user.linked_children.length > 0) && (
+        <div className="p-5 bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-2xl border border-emerald-200 dark:border-emerald-800">
+          <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <Users className="w-4 h-4 text-emerald-500" />
+            חשבונות מקושרים ({user.linked_children.length})
+          </h3>
+          <div className="space-y-2">
+            {user.linked_children.map(child => (
+              <div key={child.id} className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-xl border border-emerald-200 dark:border-emerald-700">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center">
+                    <UserCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-white">{child.name || 'ללא שם'}</div>
+                    <div className="text-xs text-gray-500 font-mono">{child.email}</div>
+                    {child.phone && <div className="text-xs text-gray-400 font-mono" dir="ltr">{child.phone}</div>}
+                  </div>
+                </div>
+                <div className="text-xs text-gray-400">
+                  {child.linked_at ? new Date(child.linked_at).toLocaleDateString('he-IL') : ''}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Status Cards */}
       <div className="grid grid-cols-2 gap-4">

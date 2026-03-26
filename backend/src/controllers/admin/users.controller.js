@@ -218,6 +218,18 @@ async function getUser(req, res) {
     }
 
     const { password_hash, ...user } = result.rows[0];
+
+    // Fetch child linked accounts (accounts linked TO this user as parent)
+    const childAccounts = await db.query(
+      `SELECT u.id, u.email, u.name, u.phone, u.created_at, la.created_at as linked_at
+       FROM linked_accounts la
+       JOIN users u ON u.id = la.child_user_id
+       WHERE la.parent_user_id = $1
+       ORDER BY la.created_at DESC`,
+      [id]
+    );
+    user.linked_children = childAccounts.rows;
+
     res.json({ user });
   } catch (error) {
     console.error('[Admin] Get user error:', error);
