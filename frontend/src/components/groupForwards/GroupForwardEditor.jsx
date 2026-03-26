@@ -1172,7 +1172,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                     <p className="text-sm text-gray-500">לפני ביצוע ההפצה, השולח יקבל הודעת ווצאפ עם פרטי ההודעה וכפתורי אישור/ביטול. כאשר כבוי — ההפצה מתחילה מיידית ללא אישור.</p>
                   </div>
                 </div>
-                <div className={`w-14 h-8 rounded-full relative transition-colors ${requireConfirmation ? 'bg-gradient-to-r from-purple-500 to-pink-500' : 'bg-gray-300'}`}>
+                <div className={`w-14 h-8 rounded-full relative transition-colors flex-shrink-0 ${requireConfirmation ? 'bg-gradient-to-r from-purple-500 to-pink-500' : 'bg-gray-300'}`}>
                   <div className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow-lg transition-all ${requireConfirmation ? 'left-7' : 'left-1'}`} />
                 </div>
               </label>
@@ -1199,7 +1199,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                     <p className="text-sm text-gray-500">כאשר דלוק, קישורים בהודעה יוצגו עם תצוגה מקדימה (תמונה, כותרת ותיאור). כאשר כבוי — הקישור יישלח כטקסט רגיל ללא תצוגה מקדימה.</p>
                   </div>
                 </div>
-                <div className={`w-14 h-8 rounded-full relative transition-colors ${linkPreview ? 'bg-gradient-to-r from-blue-500 to-cyan-500' : 'bg-gray-300'}`}>
+                <div className={`w-14 h-8 rounded-full relative transition-colors flex-shrink-0 ${linkPreview ? 'bg-gradient-to-r from-blue-500 to-cyan-500' : 'bg-gray-300'}`}>
                   <div className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow-lg transition-all ${linkPreview ? 'left-7' : 'left-1'}`} />
                 </div>
               </label>
