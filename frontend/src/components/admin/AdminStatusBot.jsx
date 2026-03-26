@@ -551,9 +551,8 @@ export default function AdminStatusBot() {
   const handlePauseQueue = async () => {
     setPausing(true);
     try {
-      const { data } = await api.post('/status-bot/admin/queue/pause', { minutes: parseFloat(pauseMinutes) || 30 });
-      setQueuePauseStatus({ paused: true, pausedUntil: data.pausedUntil });
-      setPauseModal(false);
+      const { data } = await api.post('/status-bot/admin/queue/pause', { indefinite: true });
+      setQueuePauseStatus({ paused: true, indefinite: true });
     } catch (err) {
       alert(err.response?.data?.error || 'שגיאה בהשהיית התור');
     } finally {
@@ -862,7 +861,7 @@ export default function AdminStatusBot() {
           {queuePauseStatus.paused && (
             <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
               <PauseCircle className="w-3 h-3" />
-              התור מושהה עד {new Date(queuePauseStatus.pausedUntil).toLocaleTimeString('he-IL')}
+              {queuePauseStatus.indefinite ? 'התור מושהה' : `התור מושהה עד ${new Date(queuePauseStatus.pausedUntil).toLocaleTimeString('he-IL')}`}
             </span>
           )}
         </div>
@@ -878,10 +877,11 @@ export default function AdminStatusBot() {
             </button>
           ) : (
             <button
-              onClick={() => setPauseModal(true)}
-              className="flex items-center gap-2 px-3 py-2 text-sm bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200"
+              onClick={handlePauseQueue}
+              disabled={pausing}
+              className="flex items-center gap-2 px-3 py-2 text-sm bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 disabled:opacity-50"
             >
-              <PauseCircle className="w-4 h-4" />
+              {pausing ? <Loader2 className="w-4 h-4 animate-spin" /> : <PauseCircle className="w-4 h-4" />}
               השהה תור
             </button>
           )}
@@ -917,36 +917,7 @@ export default function AdminStatusBot() {
       </div>
 
       {/* Pause Modal */}
-      {pauseModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-sm shadow-xl">
-            <h3 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
-              <PauseCircle className="w-5 h-5 text-orange-500" />
-              השהיית תור
-            </h3>
-            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-              לכמה דקות להשהות את עיבוד התור? (לא יבוטלו סטטוסים, רק לא יתחילו חדשים)
-            </p>
-            <div className="flex items-center gap-2 mb-5">
-              <input
-                type="number"
-                value={pauseMinutes}
-                onChange={e => setPauseMinutes(e.target.value)}
-                min="1" max="1440"
-                className="flex-1 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400 bg-white dark:bg-gray-700 text-gray-800 dark:text-white"
-              />
-              <span className="text-sm text-gray-500">דקות</span>
-            </div>
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setPauseModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">ביטול</button>
-              <button onClick={handlePauseQueue} disabled={pausing} className="px-4 py-2 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50 flex items-center gap-2">
-                {pausing ? <Loader2 className="w-4 h-4 animate-spin" /> : <PauseCircle className="w-4 h-4" />}
-                השהה
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Pause modal removed — pause is now a direct toggle */}
 
       {/* Restrict All Modal */}
       {restrictModal && (

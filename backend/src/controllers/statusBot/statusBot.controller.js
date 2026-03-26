@@ -4408,15 +4408,17 @@ async function adminBulkCancelQueue(req, res) {
  */
 async function adminPauseQueue(req, res) {
   try {
-    const minutes = parseFloat(req.body.minutes) || 30;
-    const pauseUntil = new Date(Date.now() + minutes * 60000).toISOString();
+    const indefinite = req.body.indefinite === true;
+    const pauseValue = indefinite
+      ? 'indefinite'
+      : new Date(Date.now() + (parseFloat(req.body.minutes) || 30) * 60000).toISOString();
     await db.query(`
       INSERT INTO system_settings (key, value, updated_at)
       VALUES ('statusbot_global_pause_until', $1, NOW())
       ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()
-    `, [JSON.stringify(pauseUntil)]);
-    console.log(`[StatusBot Admin] Queue paused until ${pauseUntil}`);
-    res.json({ success: true, pausedUntil: pauseUntil });
+    `, [JSON.stringify(pauseValue)]);
+    console.log(`[StatusBot Admin] Queue paused ${indefinite ? 'indefinitely' : `until ${pauseValue}`}`);
+    res.json({ success: true, pausedUntil: pauseValue, indefinite });
   } catch (e) {
     console.error('[StatusBot Admin] adminPauseQueue error:', e);
     res.status(500).json({ error: 'שגיאה בהשהיית התור' });
@@ -4443,9 +4445,12 @@ async function adminGetQueuePauseStatus(req, res) {
   try {
     const result = await db.query(`SELECT value FROM system_settings WHERE key = 'statusbot_global_pause_until'`);
     if (result.rows.length === 0) return res.json({ paused: false });
-    const pauseUntil = JSON.parse(result.rows[0].value);
-    const paused = new Date(pauseUntil) > new Date();
-    res.json({ paused, pausedUntil: paused ? pauseUntil : null });
+    const pauseValue = JSON.parse(result.rows[0].value);
+    if (pauseValue === 'indefinite') {
+      return res.json({ paused: true, indefinite: true });
+    }
+    const paused = new Date(pauseValue) > new Date();
+    res.json({ paused, pausedUntil: paused ? pauseValue : null });
   } catch (e) {
     res.json({ paused: false });
   }

@@ -233,13 +233,14 @@ function parseCurl(curlCommand) {
     method: 'GET',
     url: '',
     headers: [],
-    body: null
+    body: null,
+    formFields: null, // for -F / --form fields
   };
 
   // First, extract the body BEFORE normalizing whitespace to preserve JSON formatting
   let bodyContent = null;
   const originalCmd = curlCommand;
-  
+
   // Find body with -d or --data variants - use greedy matching for quoted content
   // Match single-quoted body
   let bodyMatch = originalCmd.match(/(?:-d|--data(?:-raw|-binary|-urlencode)?)\s+'([\s\S]*?)'/);
@@ -251,7 +252,7 @@ function parseCurl(curlCommand) {
     // Match $'...' syntax
     bodyMatch = originalCmd.match(/(?:-d|--data(?:-raw|-binary|-urlencode)?)\s+\$'([\s\S]*?)'/);
   }
-  
+
   if (bodyMatch) {
     bodyContent = bodyMatch[1];
   }
@@ -291,8 +292,32 @@ function parseCurl(curlCommand) {
     }
   }
 
+  // Extract -F / --form fields (multipart form-data)
+  const formRegex = /(?:-F|--form)\s+(?:'([^']*)'|"([^"]*)")/gi;
+  let formMatch;
+  const formFields = [];
+  while ((formMatch = formRegex.exec(cmd)) !== null) {
+    const fieldStr = formMatch[1] || formMatch[2];
+    const eqIndex = fieldStr.indexOf('=');
+    if (eqIndex > 0) {
+      const key = fieldStr.substring(0, eqIndex).trim();
+      let value = fieldStr.substring(eqIndex + 1).trim();
+      // Detect file references like @filename or @/path/to/file
+      const isFile = value.startsWith('@');
+      if (isFile) value = value.substring(1); // remove @
+      formFields.push({ key, value, isFile });
+    }
+  }
+
+  if (formFields.length > 0) {
+    result.formFields = formFields;
+    if (!methodMatch) {
+      result.method = 'POST';
+    }
+  }
+
   // Process the body content
-  if (bodyContent) {
+  if (bodyContent && !result.formFields) {
     let body = bodyContent;
     // Try to parse and pretty-print JSON
     try {
@@ -352,16 +377,20 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
         method: parsed.method,
         apiUrl: parsed.url,
       };
-      
+
       if (parsed.headers.length > 0) {
         updates.headers = parsed.headers;
       }
-      
-      if (parsed.body) {
+
+      if (parsed.formFields) {
+        // -F fields → formdata mode
+        updates.bodyMode = 'formdata';
+        updates.bodyParams = parsed.formFields.map(f => ({ key: f.key, value: f.value, isFile: f.isFile }));
+      } else if (parsed.body) {
         updates.body = parsed.body;
         updates.bodyMode = 'json';
       }
-      
+
       onUpdate(updates);
       setShowCurlImport(false);
       setCurlInput('');
@@ -417,7 +446,7 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
   
   // Build body from params for testing
   const buildBodyFromParams = () => {
-    if (action.bodyMode === 'keyvalue' && bodyParams.length > 0) {
+    if ((action.bodyMode === 'keyvalue' || action.bodyMode === 'formdata') && bodyParams.length > 0) {
       const obj = {};
       bodyParams.forEach(p => {
         if (p.key) obj[p.key] = p.value;
@@ -436,17 +465,19 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
 
   const testApiCall = async () => {
     if (!action.apiUrl) return;
-    
+
     setIsTesting(true);
     setTestResult(null);
-    
+
     try {
       const bodyData = buildBodyFromParams();
       const res = await api.post('/utils/test-api', {
         method: action.method || 'GET',
         url: action.apiUrl,
         headers: headers.reduce((acc, h) => h.key ? { ...acc, [h.key]: h.value } : acc, {}),
-        body: bodyData
+        body: bodyData,
+        bodyMode: action.bodyMode || 'json',
+        bodyParams: action.bodyMode === 'formdata' ? bodyParams : undefined,
       });
       
       // Handle HTML or non-JSON response
@@ -697,6 +728,15 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                       >
                         Key-Value
                       </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onUpdate({ bodyMode: 'formdata' }); }}
+                        className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                          action.bodyMode === 'formdata' ? 'bg-white shadow text-gray-700' : 'text-gray-500'
+                        }`}
+                      >
+                        Form-Data
+                      </button>
                     </div>
                     {showBody ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   </div>
@@ -721,6 +761,62 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                           dir="ltr"
                         />
                       </div>
+                    ) : action.bodyMode === 'formdata' ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-blue-600 bg-blue-50 p-2 rounded-lg">
+                          multipart/form-data — לשדות קובץ, הערך צריך להיות URL של הקובץ (או משתנה כמו {'{{file_url}}'})
+                        </p>
+                        {bodyParams.map((param, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={param.key}
+                              onChange={(e) => updateBodyParam(i, 'key', e.target.value)}
+                              placeholder="Key"
+                              className="w-[100px] px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm flex-shrink-0"
+                              dir="ltr"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <TextInputWithVariables
+                                value={param.value}
+                                onChange={(v) => updateBodyParam(i, 'value', v)}
+                                placeholder={param.isFile ? "URL קובץ או @filename" : "Value - הקלד { למשתנים"}
+                                dir="ltr"
+                                compact
+                                className="bg-gray-50"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newParams = [...bodyParams];
+                                newParams[i] = { ...newParams[i], isFile: !newParams[i].isFile };
+                                onUpdate({ bodyParams: newParams });
+                              }}
+                              title={param.isFile ? 'שדה קובץ' : 'שדה טקסט'}
+                              className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-xs font-bold ${
+                                param.isFile ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                              }`}
+                            >
+                              {param.isFile ? 'F' : 'T'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeBodyParam(i)}
+                              className="flex-shrink-0 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={addBodyParam}
+                          className="w-full py-2 text-sm text-orange-600 hover:bg-orange-50 rounded-lg border border-dashed border-orange-200"
+                        >
+                          + הוסף שדה
+                        </button>
+                      </div>
                     ) : (
                       <div className="space-y-2">
                         {bodyParams.map((param, i) => (
@@ -743,7 +839,7 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                                 className="bg-gray-50"
                               />
                             </div>
-                            <button 
+                            <button
                               type="button"
                               onClick={() => removeBodyParam(i)}
                               className="flex-shrink-0 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"

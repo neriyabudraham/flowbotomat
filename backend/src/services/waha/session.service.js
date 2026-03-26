@@ -11,14 +11,32 @@ function extractFirstUrl(text) {
   return match ? match[0] : null;
 }
 
+// WhatsApp invite link pattern
+const WA_GROUP_LINK_REGEX = /https?:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+/i;
+
+// Public placeholder images for link previews (WAHA rejects data: URIs)
+const WHATSAPP_LOGO_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6b/WhatsApp.svg/240px-WhatsApp.svg.png';
+const GENERIC_LINK_IMAGE_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/56/Chain_link_icon_slanted.png/240px-Chain_link_icon_slanted.png';
+
 // Simple OG metadata fetcher (no heavy dependencies)
-async function fetchOgMetadata(url) {
+function fetchOgMetadata(url, _redirectCount = 0) {
+  // Skip fetching OG for WhatsApp links — they don't serve OG tags via HTTP
+  if (WA_GROUP_LINK_REGEX.test(url)) {
+    return Promise.resolve({
+      url,
+      title: 'WhatsApp Group Invite',
+      description: 'קישור הצטרפות לקבוצה',
+      image: { url: WHATSAPP_LOGO_URL, mimetype: 'image/png' },
+    });
+  }
+
   return new Promise((resolve) => {
+    if (_redirectCount > 3) { resolve(null); return; }
     const mod = url.startsWith('https') ? https : http;
     const req = mod.get(url, { timeout: 5000, headers: { 'User-Agent': 'WhatsApp/2' } }, (res) => {
-      // Follow redirects (up to 3)
+      // Follow redirects
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return fetchOgMetadata(res.headers.location).then(resolve);
+        return fetchOgMetadata(res.headers.location, _redirectCount + 1).then(resolve);
       }
       if (res.statusCode !== 200) { resolve(null); return; }
       let html = '';
@@ -466,7 +484,12 @@ async function sendMessage(connection, phone, text, mentions = null, options = {
     if (url) {
       try {
         const preview = await fetchOgMetadata(url);
-        if (preview && preview.image) {  // Custom preview requires image — WAHA crashes without it
+        // Ensure image exists — WAHA custom preview crashes without it
+        if (preview && !preview.image) {
+          const placeholderUrl = WA_GROUP_LINK_REGEX.test(url) ? WHATSAPP_LOGO_URL : GENERIC_LINK_IMAGE_URL;
+          preview.image = { url: placeholderUrl, mimetype: 'image/png' };
+        }
+        if (preview) {
           const previewPayload = {
             session: connection.session_name,
             chatId: chatId,

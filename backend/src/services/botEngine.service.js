@@ -3301,15 +3301,38 @@ class BotEngine {
           }
         }
       }
-      if (!headers['Content-Type'] && ['POST', 'PUT', 'PATCH'].includes(action.method)) {
-        headers['Content-Type'] = 'application/json';
-      }
-
       // Build body with variable replacement
       let body = undefined;
+      let isFormData = false;
       if (['POST', 'PUT', 'PATCH'].includes(action.method)) {
-        // Support both JSON mode and key-value mode
-        if (action.bodyMode === 'keyvalue' && action.bodyParams) {
+        if (action.bodyMode === 'formdata' && action.bodyParams) {
+          // Build multipart/form-data
+          const FormData = require('form-data');
+          const form = new FormData();
+          for (const param of action.bodyParams) {
+            if (!param.key) continue;
+            const val = await this.replaceAllVariables(param.value || '', contact, message, '');
+            if (param.isFile && val) {
+              // val is a URL — download file and append as stream
+              try {
+                const fileResponse = await axios({ method: 'GET', url: val, responseType: 'stream', timeout: 30000 });
+                const contentType = fileResponse.headers['content-type'] || 'application/octet-stream';
+                const pathModule = require('path');
+                let filename = pathModule.basename(new URL(val).pathname) || 'file';
+                form.append(param.key, fileResponse.data, { filename, contentType });
+              } catch (dlErr) {
+                console.error(`[BotEngine] Failed to download file for form field "${param.key}": ${dlErr.message}`);
+                form.append(param.key, val);
+              }
+            } else {
+              form.append(param.key, val);
+            }
+          }
+          body = form;
+          isFormData = true;
+          // Merge form headers (boundary etc.) into request headers
+          Object.assign(headers, form.getHeaders());
+        } else if (action.bodyMode === 'keyvalue' && action.bodyParams) {
           body = {};
           for (const param of action.bodyParams) {
             if (param.key) {
@@ -3335,9 +3358,12 @@ class BotEngine {
       }
 
       const url = await this.replaceAllVariables(action.apiUrl, contact, message, '');
-      if (body) {
+
+      // Auto-set Content-Type for non-formdata POST/PUT/PATCH
+      if (!isFormData && !headers['Content-Type'] && ['POST', 'PUT', 'PATCH'].includes(action.method)) {
+        headers['Content-Type'] = 'application/json';
       }
-      
+
       // Check if response should be saved as binary file
       if (action.responseAsFile && action.fileVariable) {
         const response = await axios({
