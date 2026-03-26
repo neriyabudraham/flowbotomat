@@ -14,11 +14,22 @@ function extractFirstUrl(text) {
 // WhatsApp invite link pattern
 const WA_GROUP_LINK_REGEX = /https?:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+/i;
 
+// Static WhatsApp group icon served from our own server
+function getWaGroupImageUrl() {
+  const base = process.env.API_URL || `http://localhost:${process.env.PORT || 3000}/api`;
+  return `${base}/uploads/static/whatsapp-group.png`;
+}
+
 // Simple OG metadata fetcher (no heavy dependencies)
 function fetchOgMetadata(url, _redirectCount = 0) {
-  // WhatsApp group links don't serve OG tags — skip fetching
+  // WhatsApp group links — return preview with our static group icon
   if (WA_GROUP_LINK_REGEX.test(url)) {
-    return Promise.resolve(null);
+    return Promise.resolve({
+      url,
+      title: 'WhatsApp Group Invite',
+      description: 'לחץ להצטרפות לקבוצה',
+      image: { url: getWaGroupImageUrl(), mimetype: 'image/png' },
+    });
   }
 
   return new Promise((resolve) => {
