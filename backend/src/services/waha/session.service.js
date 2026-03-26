@@ -14,20 +14,11 @@ function extractFirstUrl(text) {
 // WhatsApp invite link pattern
 const WA_GROUP_LINK_REGEX = /https?:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+/i;
 
-// Public placeholder images for link previews (WAHA rejects data: URIs)
-const WHATSAPP_LOGO_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6b/WhatsApp.svg/240px-WhatsApp.svg.png';
-const GENERIC_LINK_IMAGE_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/56/Chain_link_icon_slanted.png/240px-Chain_link_icon_slanted.png';
-
 // Simple OG metadata fetcher (no heavy dependencies)
 function fetchOgMetadata(url, _redirectCount = 0) {
-  // Skip fetching OG for WhatsApp links — they don't serve OG tags via HTTP
+  // WhatsApp group links don't serve OG tags — skip fetching
   if (WA_GROUP_LINK_REGEX.test(url)) {
-    return Promise.resolve({
-      url,
-      title: 'WhatsApp Group Invite',
-      description: 'קישור הצטרפות לקבוצה',
-      image: { url: WHATSAPP_LOGO_URL, mimetype: 'image/png' },
-    });
+    return Promise.resolve(null);
   }
 
   return new Promise((resolve) => {
@@ -478,18 +469,15 @@ async function sendMessage(connection, phone, text, mentions = null, options = {
   const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
 
-  // If link preview requested, try custom preview for reliable results
+  // If link preview requested, try custom preview only when we have a real OG image
   if (options.linkPreview) {
     const url = extractFirstUrl(text);
     if (url) {
       try {
         const preview = await fetchOgMetadata(url);
-        // Ensure image exists — WAHA custom preview crashes without it
-        if (preview && !preview.image) {
-          const placeholderUrl = WA_GROUP_LINK_REGEX.test(url) ? WHATSAPP_LOGO_URL : GENERIC_LINK_IMAGE_URL;
-          preview.image = { url: placeholderUrl, mimetype: 'image/png' };
-        }
-        if (preview) {
+        // Only use custom preview if we got real metadata WITH an image from the site
+        // Otherwise fall through to sendText which generates native WhatsApp previews
+        if (preview && preview.image) {
           const previewPayload = {
             session: connection.session_name,
             chatId: chatId,
