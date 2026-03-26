@@ -11,27 +11,11 @@ function extractFirstUrl(text) {
   return match ? match[0] : null;
 }
 
-// WhatsApp invite link pattern
-const WA_GROUP_LINK_REGEX = /https?:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+/i;
-
-// Static WhatsApp group icon served from our own server
-function getWaGroupImageUrl() {
-  const base = process.env.API_URL || `http://localhost:${process.env.PORT || 3000}/api`;
-  return `${base}/uploads/static/whatsapp-group.png`;
-}
-
 // Simple OG metadata fetcher (no heavy dependencies)
+// For WhatsApp group invite links, the page at chat.whatsapp.com contains
+// og:title (group name), og:description, and og:image (group picture) —
+// so no special-casing is needed.
 function fetchOgMetadata(url, _redirectCount = 0) {
-  // WhatsApp group links — return preview with our static group icon
-  if (WA_GROUP_LINK_REGEX.test(url)) {
-    return Promise.resolve({
-      url,
-      title: 'WhatsApp Group Invite',
-      description: 'לחץ להצטרפות לקבוצה',
-      image: { url: getWaGroupImageUrl(), mimetype: 'image/png' },
-    });
-  }
-
   return new Promise((resolve) => {
     if (_redirectCount > 3) { resolve(null); return; }
     const mod = url.startsWith('https') ? https : http;
