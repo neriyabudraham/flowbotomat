@@ -3,24 +3,31 @@ import { Zap } from 'lucide-react';
 import BaseNode from './BaseNode';
 
 const triggerLabels = {
-  any_message: '💬 כל הודעה',
+  any_message: '💬 כל הודעה נכנסת',
   message_content: '🔍 תוכן הודעה',
+  message_received: '📨 הודעה נכנסת לפי סוג',
   first_message: '👋 הודעה ראשונה',
+  no_message_in: '🔕 לא שלח הודעה',
+  bot_activated: '▶️ הפעלת הבוט',
   contact_field: '👤 שדה באיש קשר',
   has_tag: '🏷️ יש תגית',
   no_tag: '🏷️ אין תגית',
   contact_added: '➕ איש קשר נוסף',
   tag_added: '🏷️ תגית נוספה',
   tag_removed: '🏷️ תגית הוסרה',
+  not_triggered_in: '⏰ לא הופעל',
   status_viewed: '👁️ צפייה בסטטוס',
   status_reaction: '💚 סימון לב על סטטוס',
   status_reply: '💬 תגובה על סטטוס',
   group_join: '📥 הצטרף לקבוצה',
   group_leave: '📤 יצא מקבוצה',
+  channel_message: '📢 הודעה מערוץ',
+  facebook_campaign: '📣 קמפיין פייסבוק',
   call_received: '📞 שיחה נכנסת',
   call_rejected: '📵 שיחה נדחתה',
   call_accepted: '✅ שיחה נענתה',
   poll_vote: '📊 מענה על סקר',
+  message_revoked: '🗑️ הודעה נמחקה',
   webhook: '🔗 Webhook חיצוני',
   image_received: '🖼️ תמונה נכנסת',
   video_received: '🎥 סרטון נכנס',
@@ -47,39 +54,87 @@ function TriggerNode({ data, selected }) {
   // Trigger nodes cannot be deleted
   const canDelete = false;
   
+  const messageTypeLabels = {
+    any: 'כל סוג', text: 'טקסט', image: 'תמונה', video: 'סרטון',
+    audio: 'הודעה קולית', file: 'קובץ', sticker: 'מדבקה',
+  };
+
+  const timeUnitLabels = {
+    minutes: 'דקות', hours: 'שעות', days: 'ימים', weeks: 'שבועות',
+  };
+
   // Build summary of conditions
   const getConditionSummary = (condition) => {
     const label = triggerLabels[condition.type] || condition.type;
-    
-    // For simple triggers - no operator/value needed
-    if (['any_message', 'first_message', 'contact_added', 'status_viewed', 'status_reaction', 'status_reply',
-         'group_join', 'group_leave', 'call_received', 'call_rejected', 'call_accepted', 'webhook',
+
+    // message_received - show message type + optional content filter
+    if (condition.type === 'message_received') {
+      const msgType = messageTypeLabels[condition.messageType] || '';
+      const parts = [label];
+      if (msgType && condition.messageType !== 'any') parts[0] = `📨 ${msgType}`;
+      if (condition.contentFilter && condition.value) {
+        const op = operatorLabels[condition.contentFilter] || condition.contentFilter;
+        parts.push(`${op} "${condition.value}"`);
+      }
+      return parts.join(' · ');
+    }
+
+    // Time-based triggers
+    if (condition.type === 'no_message_in' || condition.type === 'not_triggered_in') {
+      const unit = timeUnitLabels[condition.timeUnit] || condition.timeUnit || '';
+      if (condition.timeValue) {
+        return `${label} ${condition.timeValue} ${unit}`;
+      }
+      return label;
+    }
+
+    // Simple triggers with optional specific filters
+    if (['any_message', 'first_message', 'contact_added', 'bot_activated', 'message_revoked',
+         'status_viewed', 'status_reaction', 'status_reply',
+         'group_join', 'group_leave', 'channel_message', 'facebook_campaign',
+         'call_received', 'call_rejected', 'call_accepted', 'webhook',
          'image_received', 'video_received', 'audio_received', 'file_received'].includes(condition.type)) {
-      // Show specific status indicator if filtering by status
       if (condition.filterByStatus && condition.specificStatusId) {
         return `${label} (ספציפי)`;
       }
-      // Show specific group indicator if filtering by group
       if (condition.filterByGroup && condition.specificGroupId) {
         return `${label} (ספציפי)`;
       }
       return label;
     }
-    
-    // For triggers with operators (message_content, contact_field)
-    if (condition.operator && condition.type === 'message_content') {
+
+    // message_content with operator
+    if (condition.type === 'message_content' && condition.operator) {
       const op = operatorLabels[condition.operator] || condition.operator;
       if (condition.value) {
         return `הודעה ${op} "${condition.value}"`;
       }
       return label;
     }
-    
-    // For triggers with just a value (has_tag, no_tag, tag_added, tag_removed)
+
+    // contact_field with field + operator + value
+    if (condition.type === 'contact_field') {
+      const field = condition.field || '';
+      const op = operatorLabels[condition.operator] || condition.operator || '';
+      if (field && condition.value) {
+        return `👤 ${field} ${op} "${condition.value}"`;
+      }
+      if (field) return `👤 ${field}`;
+      return label;
+    }
+
+    // poll_vote with operator + value
+    if (condition.type === 'poll_vote' && condition.operator) {
+      const op = operatorLabels[condition.operator] || condition.operator;
+      if (condition.value) return `📊 תשובה ${op} "${condition.value}"`;
+      return label;
+    }
+
+    // Triggers with just a value (has_tag, no_tag, tag_added, tag_removed)
     if (condition.value) {
       return `${label}: ${condition.value}`;
     }
-    
+
     return label;
   };
   
