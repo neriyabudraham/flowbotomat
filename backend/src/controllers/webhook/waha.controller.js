@@ -829,10 +829,11 @@ async function handleIncomingMessage(userId, event) {
   try {
     // First check if this is a confirmation response for pending job
     const wasConfirmation = await groupForwardsTrigger.handleConfirmationResponse(
-      userId, 
-      phoneForProcessing, 
+      userId,
+      phoneForProcessing,
       messageData.content,
-      messageData.selectedRowId // Button ID if clicked
+      messageData.selectedRowId, // Button ID if clicked
+      payload // Full payload for quoted message context
     );
     
     if (wasConfirmation) {

@@ -126,11 +126,14 @@ CREATE TABLE IF NOT EXISTS forward_jobs (
     -- Control
     stop_requested BOOLEAN DEFAULT false,
     delete_sent_requested BOOLEAN DEFAULT false,
-    
+
+    -- Confirmation message tracking (WhatsApp message ID of the last confirmation/start list sent)
+    confirmation_msg_id VARCHAR(255),
+
     -- Results
     error_message TEXT,
     completed_at TIMESTAMP,
-    
+
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
