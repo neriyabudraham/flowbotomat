@@ -188,4 +188,69 @@ const getGoogleSheetsUrl = async (req, res) => {
   }
 };
 
-module.exports = { getStatus, getWhatsappQR, getGoogleContactsUrl, getGoogleSheetsUrl };
+/**
+ * POST /api/onboarding/:userId/whatsapp/request-code
+ * Request pairing code for public connect page (no auth)
+ */
+const requestWhatsappCode = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    let { phoneNumber } = req.body;
+
+    if (!phoneNumber) {
+      return res.status(400).json({ error: 'נדרש מספר טלפון' });
+    }
+
+    // Format phone number
+    let clean = phoneNumber.replace(/\D/g, '');
+    if (clean.startsWith('0')) {
+      clean = '972' + clean.substring(1);
+    } else if (!clean.startsWith('972') && clean.length === 9) {
+      clean = '972' + clean;
+    }
+    phoneNumber = clean;
+
+    const result = await pool.query(
+      `SELECT id, connection_type, session_name, external_base_url, external_api_key, waha_source_id
+       FROM whatsapp_connections WHERE user_id = $1`,
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No WhatsApp connection found' });
+    }
+
+    const connection = result.rows[0];
+    const { baseUrl, apiKey } = await getWahaCredentialsForConnection(connection);
+
+    // Check/start session if needed
+    try {
+      const status = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
+      if (status.status === 'WORKING') {
+        return res.json({ success: false, message: 'כבר מחובר' });
+      }
+      if (status.status === 'STOPPED' || status.status === 'FAILED') {
+        await wahaSession.startSession(baseUrl, apiKey, connection.session_name);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    } catch (err) {
+      console.error('[Onboarding] Code auth status check error:', err.message);
+    }
+
+    const codeData = await wahaSession.requestPairingCode(
+      baseUrl, apiKey, connection.session_name, phoneNumber
+    );
+
+    console.log(`[Onboarding] Pairing code requested for ${phoneNumber}`);
+
+    res.json({
+      success: true,
+      code: codeData.code,
+    });
+  } catch (error) {
+    console.error('[Onboarding] Request code error:', error.message);
+    res.status(500).json({ error: 'שגיאה בשליחת קוד - וודא שהמספר נכון' });
+  }
+};
+
+module.exports = { getStatus, getWhatsappQR, getGoogleContactsUrl, getGoogleSheetsUrl, requestWhatsappCode };
