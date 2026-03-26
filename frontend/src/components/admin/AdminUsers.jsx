@@ -1580,6 +1580,12 @@ function SubscriptionSection({ user, plans, affiliates, onRefresh, showToast }) 
         invoiceName: formData.invoiceName || null,
         receiptEmail: formData.receiptEmail || null,
       });
+
+      // Update Sumit Customer ID if changed
+      if (formData.sumitCustomerId !== undefined && formData.sumitCustomerId !== (user.sumit_customer_id || '')) {
+        await api.put(`/admin/billing/sumit-customer/${user.id}`, { sumit_customer_id: formData.sumitCustomerId || null }).catch(() => {});
+      }
+
       showToast('success', 'המנוי עודכן!');
       onRefresh();
     } catch (err) {
@@ -1718,8 +1724,20 @@ function SubscriptionSection({ user, plans, affiliates, onRefresh, showToast }) 
             </div>
           )}
 
-          <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-sm space-y-2">
-            <div className="flex justify-between"><span className="text-gray-500">Sumit Customer ID:</span><span className="font-mono text-gray-800 dark:text-gray-200">{user.sumit_customer_id || '—'}</span></div>
+          <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-sm space-y-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Sumit Customer ID</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={formData.sumitCustomerId ?? (user.sumit_customer_id || '')}
+                  onChange={(e) => setFormData(f => ({ ...f, sumitCustomerId: e.target.value }))}
+                  className="flex-1 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-sm font-mono"
+                  placeholder="מזהה לקוח בסאמיט"
+                  dir="ltr"
+                />
+              </div>
+            </div>
             <div className="flex justify-between"><span className="text-gray-500">Standing Order:</span><span className="font-mono text-gray-800 dark:text-gray-200">{user.sumit_standing_order_id || '—'}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">תקופת חיוב:</span><span className="text-gray-800 dark:text-gray-200">{user.billing_period === 'yearly' ? 'שנתי' : 'חודשי'}</span></div>
           </div>
