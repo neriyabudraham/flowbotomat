@@ -331,9 +331,14 @@ class BotEngine {
         }
         
         // Check advanced conditions for events
-        if (allMatch && hasEventCondition && group.advancedConditions && group.advancedConditions.length > 0) {
-          const advResult = await this.evaluateAdvancedConditions(group.advancedConditions, contact, eventMessage);
-          if (!advResult) allMatch = false;
+        if (allMatch && hasEventCondition) {
+          if (group.advancedConditionGroup?.conditions?.length > 0) {
+            const advResult = await this.evaluateAdvancedConditionGroup(group.advancedConditionGroup, contact, eventMessage);
+            if (!advResult) allMatch = false;
+          } else if (group.advancedConditions?.length > 0) {
+            const advResult = await this.evaluateAdvancedConditions(group.advancedConditions, contact, eventMessage);
+            if (!advResult) allMatch = false;
+          }
         }
 
         if (allMatch && hasEventCondition) {
@@ -1034,86 +1039,114 @@ class BotEngine {
   // Check if contact phone matches phone filter
   checkPhoneFilter(group, contactPhone) {
     if (!group.phoneFilter || group.phoneFilter === 'all') return true;
-    const phoneNumbers = group.phoneNumbers || [];
-    if (phoneNumbers.length === 0) return true; // No numbers = no filter
-
     const normalizedContact = this.normalizePhone(contactPhone);
-    const matchesAny = phoneNumbers.some(num => {
-      const normalized = this.normalizePhone(num);
-      return normalized && normalizedContact && (normalizedContact === normalized || normalizedContact.endsWith(normalized) || normalized.endsWith(normalizedContact));
-    });
 
-    if (group.phoneFilter === 'whitelist') return matchesAny;
-    if (group.phoneFilter === 'blacklist') return !matchesAny;
+    if (group.phoneFilter === 'whitelist') {
+      const phoneNumbers = group.phoneNumbers || [];
+      if (phoneNumbers.length === 0) return true;
+      return phoneNumbers.some(num => {
+        const normalized = this.normalizePhone(num);
+        return normalized && normalizedContact && (normalizedContact === normalized || normalizedContact.endsWith(normalized) || normalized.endsWith(normalizedContact));
+      });
+    }
+
+    if (group.phoneFilter === 'blacklist') {
+      const blacklistNumbers = group.blacklistNumbers || [];
+      if (blacklistNumbers.length === 0) return true;
+      const matchesBlacklist = blacklistNumbers.some(num => {
+        const normalized = this.normalizePhone(num);
+        return normalized && normalizedContact && (normalizedContact === normalized || normalizedContact.endsWith(normalized) || normalized.endsWith(normalizedContact));
+      });
+      return !matchesBlacklist;
+    }
+
     return true;
   }
 
-  // Evaluate advanced conditions for a trigger group
+  // Resolve the value of a single advanced condition variable
+  async resolveAdvConditionValue(cond, contact, message) {
+    const { variable, varName } = cond;
+    switch (variable) {
+      case 'message': return message || '';
+      case 'last_message': return message || '';
+      case 'contact_name': return contact.display_name || contact.name || '';
+      case 'phone': return contact.phone || '';
+      case 'message_type': return contact._mediaType || 'text';
+      case 'is_group': return contact._isGroup ? 'true' : 'false';
+      case 'is_channel': return contact._isChannel ? 'true' : 'false';
+      case 'has_media': return contact._hasMedia ? 'true' : 'false';
+      case 'is_first_contact': return contact._isFirstContact ? 'true' : 'false';
+      case 'has_tag': {
+        if (!varName) return 'false';
+        try {
+          const tagResult = await db.query(
+            `SELECT 1 FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id
+             WHERE ct.contact_id = $1 AND LOWER(t.name) = LOWER($2) LIMIT 1`,
+            [contact.id, varName]
+          );
+          return tagResult.rows.length > 0 ? 'true' : 'false';
+        } catch { return 'false'; }
+      }
+      case 'contact_var': {
+        if (!varName) return '';
+        // Strip {{ and }} if present
+        const cleanVarName = varName.replace(/^\{\{|\}\}$/g, '');
+        try {
+          const varResult = await db.query(
+            `SELECT value FROM contact_variables WHERE contact_id = $1 AND variable_name = $2`,
+            [contact.id, cleanVarName]
+          );
+          return varResult.rows.length > 0 ? (varResult.rows[0].value || '') : '';
+        } catch { return ''; }
+      }
+      case 'time': {
+        const israelTime = new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' });
+        const now = new Date(israelTime);
+        return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      }
+      case 'day': {
+        const israelTime2 = new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' });
+        return String(new Date(israelTime2).getDay());
+      }
+      case 'date': {
+        const israelTime3 = new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' });
+        const d = new Date(israelTime3);
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      }
+      case 'random': return String(Math.floor(Math.random() * 100) + 1);
+      default: return '';
+    }
+  }
+
+  // Evaluate advanced conditions — supports both flat array and nested conditionGroup
   async evaluateAdvancedConditions(conditions, contact, message, userId) {
     if (!conditions || conditions.length === 0) return true;
 
+    // Flat array (old format) — all AND
     for (const cond of conditions) {
-      const { variable, operator, value, varName } = cond;
-      let checkValue = '';
-
-      switch (variable) {
-        case 'message':
-          checkValue = message || '';
-          break;
-        case 'contact_name':
-          checkValue = contact.display_name || contact.name || '';
-          break;
-        case 'phone':
-          checkValue = contact.phone || '';
-          break;
-        case 'message_type':
-          checkValue = contact._mediaType || 'text';
-          break;
-        case 'is_group':
-          checkValue = contact._isGroup ? 'true' : 'false';
-          break;
-        case 'has_tag': {
-          if (!varName) { checkValue = 'false'; break; }
-          try {
-            const tagResult = await db.query(
-              `SELECT 1 FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id
-               WHERE ct.contact_id = $1 AND LOWER(t.name) = LOWER($2) LIMIT 1`,
-              [contact.id, varName]
-            );
-            checkValue = tagResult.rows.length > 0 ? 'true' : 'false';
-          } catch { checkValue = 'false'; }
-          break;
-        }
-        case 'contact_var': {
-          if (!varName) { checkValue = ''; break; }
-          try {
-            const varResult = await db.query(
-              `SELECT value FROM contact_variables WHERE contact_id = $1 AND variable_name = $2`,
-              [contact.id, varName]
-            );
-            checkValue = varResult.rows.length > 0 ? (varResult.rows[0].value || '') : '';
-          } catch { checkValue = ''; }
-          break;
-        }
-        case 'time': {
-          const israelTime = new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' });
-          const now = new Date(israelTime);
-          checkValue = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-          break;
-        }
-        case 'day': {
-          const israelTime2 = new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' });
-          checkValue = String(new Date(israelTime2).getDay());
-          break;
-        }
-        default:
-          checkValue = '';
-      }
-
-      const result = this.evalAdvancedOperator(operator, checkValue, value || '');
+      const checkValue = await this.resolveAdvConditionValue(cond, contact, message);
+      const result = this.evalAdvancedOperator(cond.operator, checkValue, cond.value || '');
       if (!result) return false;
     }
     return true;
+  }
+
+  // Evaluate a nested conditionGroup (new format) with AND/OR logic
+  async evaluateAdvancedConditionGroup(group, contact, message) {
+    if (!group || !group.conditions || group.conditions.length === 0) return true;
+    const logic = group.logic || 'AND';
+    const results = [];
+
+    for (const cond of group.conditions) {
+      if (cond.isGroup) {
+        results.push(await this.evaluateAdvancedConditionGroup(cond, contact, message));
+      } else {
+        const checkValue = await this.resolveAdvConditionValue(cond, contact, message);
+        results.push(this.evalAdvancedOperator(cond.operator, checkValue, cond.value || ''));
+      }
+    }
+
+    return logic === 'AND' ? results.every(r => r) : results.some(r => r);
   }
 
   // Evaluate an operator for advanced conditions
@@ -1128,12 +1161,24 @@ class BotEngine {
       case 'not_contains': return !cv.includes(tv);
       case 'starts_with': return cv.startsWith(tv);
       case 'ends_with': return cv.endsWith(tv);
+      case 'matches_regex': try { return new RegExp(targetValue, 'i').test(checkValue || ''); } catch { return false; }
       case 'greater_than': return parseFloat(checkValue) > parseFloat(targetValue);
       case 'less_than': return parseFloat(checkValue) < parseFloat(targetValue);
+      case 'greater_or_equal': return parseFloat(checkValue) >= parseFloat(targetValue);
+      case 'less_or_equal': return parseFloat(checkValue) <= parseFloat(targetValue);
       case 'is_empty': return !checkValue || checkValue.toString().trim() === '';
       case 'is_not_empty': return checkValue && checkValue.toString().trim() !== '';
       case 'is_true': return ['true', 'כן', 'yes', '1'].includes(cv);
       case 'is_false': return ['false', 'לא', 'no', '0'].includes(cv);
+      case 'is_text': return isNaN(Number(checkValue));
+      case 'is_number': return !isNaN(Number(checkValue)) && checkValue.toString().trim() !== '';
+      case 'is_email': return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cv);
+      case 'is_phone': return /^[\d\s+\-()]{7,}$/.test(cv);
+      case 'is_image': return ['image'].includes(cv);
+      case 'is_video': return ['video'].includes(cv);
+      case 'is_audio': return ['audio', 'ptt'].includes(cv);
+      case 'is_document': return ['document'].includes(cv);
+      case 'is_pdf': return cv.endsWith('.pdf') || cv === 'application/pdf';
       default: return true;
     }
   }
@@ -1199,9 +1244,14 @@ class BotEngine {
         }
 
         // Check advanced conditions
-        if (groupMatches && group.advancedConditions && group.advancedConditions.length > 0) {
-          const advResult = await this.evaluateAdvancedConditions(group.advancedConditions, contact, message);
-          if (!advResult) groupMatches = false;
+        if (groupMatches) {
+          if (group.advancedConditionGroup?.conditions?.length > 0) {
+            const advResult = await this.evaluateAdvancedConditionGroup(group.advancedConditionGroup, contact, message);
+            if (!advResult) groupMatches = false;
+          } else if (group.advancedConditions?.length > 0) {
+            const advResult = await this.evaluateAdvancedConditions(group.advancedConditions, contact, message);
+            if (!advResult) groupMatches = false;
+          }
         }
 
         // If basic conditions match, check group-level behavior settings

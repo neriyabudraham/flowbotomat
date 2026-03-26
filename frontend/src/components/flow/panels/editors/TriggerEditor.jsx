@@ -1,4 +1,4 @@
-import { Plus, X, ChevronDown, ChevronUp, Trash2, RefreshCw, Clock, Copy, Wifi, Phone, Shield, Filter } from 'lucide-react';
+import { Plus, X, ChevronDown, ChevronUp, Trash2, RefreshCw, Clock, Copy, Wifi, Phone, Shield, Filter, List, Type } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import api from '../../../../services/api';
 import TextInputWithVariables from './TextInputWithVariables';
@@ -61,6 +61,370 @@ const contactFields = [
   { id: 'custom', label: 'שדה מותאם...' },
 ];
 
+// === Advanced Conditions Components (matching ConditionEditor quality) ===
+
+const advVariables = [
+  { id: 'message', label: 'תוכן ההודעה', group: 'הודעה' },
+  { id: 'last_message', label: 'ההודעה האחרונה שהתקבלה', group: 'הודעה' },
+  { id: 'message_type', label: 'סוג ההודעה', group: 'הודעה' },
+  { id: 'has_media', label: 'האם יש מדיה', group: 'הודעה', isBoolean: true },
+  { id: 'is_group', label: 'האם קבוצה', group: 'הודעה', isBoolean: true },
+  { id: 'is_channel', label: 'האם ערוץ', group: 'הודעה', isBoolean: true },
+  { id: 'contact_name', label: 'שם איש קשר', group: 'איש קשר' },
+  { id: 'phone', label: 'מספר טלפון', group: 'איש קשר' },
+  { id: 'is_first_contact', label: 'איש קשר חדש', group: 'איש קשר', isBoolean: true },
+  { id: 'has_tag', label: 'יש תגית', group: 'איש קשר', isBoolean: true },
+  { id: 'contact_var', label: 'משתנה מהמערכת', group: 'משתנים' },
+  { id: 'time', label: 'שעה נוכחית', group: 'זמן' },
+  { id: 'day', label: 'יום בשבוע', group: 'זמן' },
+  { id: 'date', label: 'תאריך', group: 'זמן' },
+  { id: 'random', label: 'מספר אקראי (1-100)', group: 'מתקדם' },
+];
+
+const advOperators = [
+  { id: 'equals', label: 'שווה ל', group: 'בסיסי' },
+  { id: 'not_equals', label: 'לא שווה ל', group: 'בסיסי' },
+  { id: 'contains', label: 'מכיל', group: 'טקסט' },
+  { id: 'not_contains', label: 'לא מכיל', group: 'טקסט' },
+  { id: 'starts_with', label: 'מתחיל ב', group: 'טקסט' },
+  { id: 'ends_with', label: 'נגמר ב', group: 'טקסט' },
+  { id: 'matches_regex', label: 'תואם Regex', group: 'טקסט' },
+  { id: 'greater_than', label: 'גדול מ', group: 'מספרים' },
+  { id: 'less_than', label: 'קטן מ', group: 'מספרים' },
+  { id: 'greater_or_equal', label: 'גדול או שווה ל', group: 'מספרים' },
+  { id: 'less_or_equal', label: 'קטן או שווה ל', group: 'מספרים' },
+  { id: 'is_empty', label: 'ריק', group: 'בדיקה' },
+  { id: 'is_not_empty', label: 'לא ריק', group: 'בדיקה' },
+  { id: 'is_true', label: 'אמת (true)', group: 'בדיקה' },
+  { id: 'is_false', label: 'שקר (false)', group: 'בדיקה' },
+  { id: 'is_text', label: 'זה טקסט', group: 'סוג נתון' },
+  { id: 'is_number', label: 'זה מספר', group: 'סוג נתון' },
+  { id: 'is_email', label: 'זה מייל תקין', group: 'סוג נתון' },
+  { id: 'is_phone', label: 'זה מספר טלפון', group: 'סוג נתון' },
+  { id: 'is_image', label: 'זו תמונה', group: 'סוג מדיה' },
+  { id: 'is_video', label: 'זה סרטון', group: 'סוג מדיה' },
+  { id: 'is_audio', label: 'זה קובץ שמע', group: 'סוג מדיה' },
+  { id: 'is_document', label: 'זה מסמך', group: 'סוג מדיה' },
+  { id: 'is_pdf', label: 'זה קובץ PDF', group: 'סוג מדיה' },
+];
+
+const advMessageTypes = [
+  { id: 'text', label: 'טקסט' },
+  { id: 'image', label: 'תמונה' },
+  { id: 'video', label: 'סרטון' },
+  { id: 'audio', label: 'קול' },
+  { id: 'document', label: 'מסמך' },
+  { id: 'sticker', label: 'סטיקר' },
+  { id: 'location', label: 'מיקום' },
+];
+
+const advDays = [
+  { id: '0', label: 'ראשון' },
+  { id: '1', label: 'שני' },
+  { id: '2', label: 'שלישי' },
+  { id: '3', label: 'רביעי' },
+  { id: '4', label: 'חמישי' },
+  { id: '5', label: 'שישי' },
+  { id: '6', label: 'שבת' },
+];
+
+const advBooleanOptions = [
+  { value: 'true', label: 'כן (true)' },
+  { value: 'false', label: 'לא (false)' },
+];
+
+const advGroupedVariables = advVariables.reduce((acc, v) => {
+  if (!acc[v.group]) acc[v.group] = [];
+  acc[v.group].push(v);
+  return acc;
+}, {});
+
+const advGroupedOperators = advOperators.reduce((acc, o) => {
+  if (!acc[o.group]) acc[o.group] = [];
+  acc[o.group].push(o);
+  return acc;
+}, {});
+
+const noValueOperators = ['is_empty', 'is_not_empty', 'is_true', 'is_false', 'is_text', 'is_number', 'is_email', 'is_phone', 'is_image', 'is_video', 'is_audio', 'is_document', 'is_pdf'];
+
+function TriggerConditionRow({ condition, onChange, onRemove, canRemove, availableVars, loadingVars }) {
+  const needsValue = !noValueOperators.includes(condition.operator);
+  const needsVarName = condition.variable === 'has_tag';
+  const needsVarSelect = condition.variable === 'contact_var';
+  const selectedVar = advVariables.find(v => v.id === condition.variable);
+  const isBooleanVar = selectedVar?.isBoolean || false;
+  const showBooleanInput = isBooleanVar && needsValue && ['equals', 'not_equals'].includes(condition.operator);
+  const boolInputMode = condition.boolInputMode || 'select';
+
+  const groupedAvailableVars = availableVars.reduce((acc, v) => {
+    const grp = v.group || 'משתנים שלי';
+    if (!acc[grp]) acc[grp] = [];
+    acc[grp].push(v);
+    return acc;
+  }, {});
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <div className="flex-1 grid grid-cols-2 gap-2">
+          <select
+            value={condition.variable || 'message'}
+            onChange={(e) => onChange({ ...condition, variable: e.target.value, varName: '', value: '', boolInputMode: 'select' })}
+            className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+          >
+            {Object.entries(advGroupedVariables).map(([grp, vars]) => (
+              <optgroup key={grp} label={grp}>
+                {vars.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}
+              </optgroup>
+            ))}
+          </select>
+          <select
+            value={condition.operator || 'equals'}
+            onChange={(e) => onChange({ ...condition, operator: e.target.value })}
+            className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+          >
+            {Object.entries(advGroupedOperators).map(([grp, ops]) => (
+              <optgroup key={grp} label={grp}>
+                {ops.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+        {canRemove && (
+          <button type="button" onClick={onRemove} className="p-1.5 text-gray-400 hover:text-red-500">
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
+      {/* Variable dropdown for contact_var */}
+      {needsVarSelect && (
+        <select
+          value={condition.varName || ''}
+          onChange={(e) => onChange({ ...condition, varName: e.target.value })}
+          className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+        >
+          <option value="">{loadingVars ? 'טוען משתנים...' : 'בחר משתנה...'}</option>
+          {Object.entries(groupedAvailableVars).map(([grp, vars]) => (
+            <optgroup key={grp} label={grp}>
+              {vars.map(v => (
+                <option key={v.key} value={`{{${v.key}}}`}>
+                  {v.label} ({v.key})
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      )}
+
+      {/* Tag name input */}
+      {needsVarName && (
+        <input
+          type="text"
+          value={condition.varName || ''}
+          onChange={(e) => onChange({ ...condition, varName: e.target.value })}
+          placeholder="שם התגית"
+          className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+        />
+      )}
+
+      {/* Boolean value input - with mode toggle */}
+      {showBooleanInput && (
+        <div className="space-y-2">
+          <div className="flex bg-gray-100 rounded-lg p-1">
+            <button
+              type="button"
+              onClick={() => onChange({ ...condition, boolInputMode: 'select', value: '' })}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs font-medium transition-all ${
+                boolInputMode === 'select' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <List className="w-3 h-3" />
+              בחירה מרשימה
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange({ ...condition, boolInputMode: 'variable', value: '' })}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs font-medium transition-all ${
+                boolInputMode === 'variable' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Type className="w-3 h-3" />
+              משתנה / טקסט
+            </button>
+          </div>
+          {boolInputMode === 'select' && (
+            <select
+              value={condition.value || ''}
+              onChange={(e) => onChange({ ...condition, value: e.target.value })}
+              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+            >
+              <option value="">בחר ערך...</option>
+              {advBooleanOptions.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          )}
+          {boolInputMode === 'variable' && (
+            <>
+              <TextInputWithVariables
+                value={condition.value || ''}
+                onChange={(val) => onChange({ ...condition, value: val })}
+                placeholder="true / false / כן / לא / {{משתנה}}"
+                className="text-sm"
+              />
+              <p className="text-xs text-gray-500 flex items-center gap-1">
+                <span>💡</span>
+                <span>מקבל: true, false, כן, לא או משתנה</span>
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Regular value input */}
+      {needsValue && !showBooleanInput && (
+        condition.variable === 'message_type' ? (
+          <select
+            value={condition.value || ''}
+            onChange={(e) => onChange({ ...condition, value: e.target.value })}
+            className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+          >
+            <option value="">בחר סוג...</option>
+            {advMessageTypes.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
+        ) : condition.variable === 'day' ? (
+          <select
+            value={condition.value || ''}
+            onChange={(e) => onChange({ ...condition, value: e.target.value })}
+            className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+          >
+            <option value="">בחר יום...</option>
+            {advDays.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
+          </select>
+        ) : condition.variable === 'time' ? (
+          <input
+            type="time"
+            value={condition.value || ''}
+            onChange={(e) => onChange({ ...condition, value: e.target.value })}
+            className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+          />
+        ) : (
+          <TextInputWithVariables
+            value={condition.value || ''}
+            onChange={(val) => onChange({ ...condition, value: val })}
+            placeholder="ערך להשוואה או {{משתנה}}"
+            className="text-sm"
+          />
+        )
+      )}
+    </div>
+  );
+}
+
+function TriggerConditionGroup({ group, onChange, onRemove, canRemove, isRoot = false, availableVars, loadingVars }) {
+  const conditions = group.conditions || [];
+  const logic = group.logic || 'AND';
+
+  const addCondition = () => {
+    onChange({
+      ...group,
+      conditions: [...conditions, { variable: 'contact_var', operator: 'equals', value: '', varName: '' }]
+    });
+  };
+
+  const addNestedGroup = () => {
+    onChange({
+      ...group,
+      conditions: [...conditions, { isGroup: true, logic: 'OR', conditions: [{ variable: 'message', operator: 'contains', value: '' }] }]
+    });
+  };
+
+  const updateCondition = (index, newCondition) => {
+    const newConditions = [...conditions];
+    newConditions[index] = newCondition;
+    onChange({ ...group, conditions: newConditions });
+  };
+
+  const removeCondition = (index) => {
+    if (conditions.length <= 1 && !isRoot) return;
+    onChange({ ...group, conditions: conditions.filter((_, i) => i !== index) });
+  };
+
+  return (
+    <div className={`space-y-2 ${!isRoot ? 'bg-gray-50 rounded-xl p-3 border-2 border-dashed border-gray-200' : ''}`}>
+      {!isRoot && (
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-gray-500">קבוצת תנאים</span>
+          {canRemove && (
+            <button type="button" onClick={onRemove} className="text-xs text-red-500 hover:text-red-700">הסר קבוצה</button>
+          )}
+        </div>
+      )}
+
+      {conditions.map((condition, index) => (
+        <div key={index}>
+          {index > 0 && (
+            <div className="flex justify-center py-1">
+              <button
+                type="button"
+                onClick={() => onChange({ ...group, logic: logic === 'AND' ? 'OR' : 'AND' })}
+                className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
+                  logic === 'AND'
+                    ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                    : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                }`}
+              >
+                {logic === 'AND' ? 'וגם' : 'או'}
+              </button>
+            </div>
+          )}
+
+          {condition.isGroup ? (
+            <TriggerConditionGroup
+              group={condition}
+              onChange={(newGroup) => updateCondition(index, newGroup)}
+              onRemove={() => removeCondition(index)}
+              canRemove={conditions.length > 1 || !isRoot}
+              availableVars={availableVars}
+              loadingVars={loadingVars}
+            />
+          ) : (
+            <TriggerConditionRow
+              condition={condition}
+              onChange={(newCond) => updateCondition(index, newCond)}
+              onRemove={() => removeCondition(index)}
+              canRemove={conditions.length > 1 || !isRoot}
+              availableVars={availableVars}
+              loadingVars={loadingVars}
+            />
+          )}
+        </div>
+      ))}
+
+      {/* Add buttons */}
+      <div className="flex gap-2 pt-2">
+        <button
+          type="button"
+          onClick={addCondition}
+          className="flex-1 flex items-center justify-center gap-1 px-3 py-2 text-sm text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-lg"
+        >
+          <Plus className="w-3 h-3" />
+          תנאי
+        </button>
+        <button
+          type="button"
+          onClick={addNestedGroup}
+          className="flex-1 flex items-center justify-center gap-1 px-3 py-2 text-sm text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg"
+        >
+          <Plus className="w-3 h-3" />
+          קבוצה
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function TriggerEditor({ data, onUpdate, botId }) {
   // Groups of conditions - each group is OR, conditions within group are AND
   const groups = data.triggerGroups || [];
@@ -83,6 +447,8 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
   const [listenCountdown, setListenCountdown] = useState(0);
   const [capturedPayload, setCapturedPayload] = useState(null);
   const [copiedField, setCopiedField] = useState(null);
+  const [availableVars, setAvailableVars] = useState([]);
+  const [loadingVars, setLoadingVars] = useState(false);
 
   const hasWebhookTrigger = groups.some(g => g.conditions?.some(c => c.type === 'webhook'));
 
@@ -196,7 +562,30 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
   // Load available tags
   useEffect(() => {
     loadTags();
+    loadVariables();
   }, []);
+
+  const loadVariables = async () => {
+    try {
+      setLoadingVars(true);
+      const res = await api.get('/variables');
+      const allVars = [];
+      (res.data.systemVariables || []).forEach(v => {
+        allVars.push({ key: v.name, label: v.label, group: 'משתני מערכת' });
+      });
+      (res.data.userVariables || []).forEach(v => {
+        allVars.push({ key: v.name, label: v.label || v.name, group: 'משתנים שלי' });
+      });
+      (res.data.customSystemVariables || []).forEach(v => {
+        allVars.push({ key: v.name, label: v.label || v.name, group: 'קבועים' });
+      });
+      setAvailableVars(allVars);
+    } catch (err) {
+      console.error('Failed to load variables:', err);
+    } finally {
+      setLoadingVars(false);
+    }
+  };
 
   // Load user statuses if any status trigger exists
   useEffect(() => {
@@ -1290,6 +1679,7 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                               if (e.target.checked) {
                                 updateGroupSetting(group.id, 'phoneFilter', 'whitelist');
                                 if (!group.phoneNumbers) updateGroupSetting(group.id, 'phoneNumbers', []);
+                                if (!group.blacklistNumbers) updateGroupSetting(group.id, 'blacklistNumbers', []);
                               } else {
                                 updateGroupSetting(group.id, 'phoneFilter', 'all');
                               }
@@ -1306,7 +1696,7 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                         </label>
 
                         {(group.phoneFilter === 'whitelist' || group.phoneFilter === 'blacklist') && (
-                          <div className="mt-3 mr-7 space-y-3">
+                          <div className="mt-3 mr-7 space-y-4">
                             {/* Mode toggle */}
                             <div className="flex bg-gray-100 rounded-lg p-1">
                               <button
@@ -1319,7 +1709,7 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                                 }`}
                               >
                                 <Shield className="w-3 h-3" />
-                                רק מספרים אלה (מורשים)
+                                מספרים מורשים בלבד
                               </button>
                               <button
                                 type="button"
@@ -1331,50 +1721,111 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                                 }`}
                               >
                                 <X className="w-3 h-3" />
-                                חסום מספרים אלה
+                                מספרים חסומים בלבד
                               </button>
                             </div>
 
-                            {/* Phone number list */}
-                            <div className="space-y-2">
-                              {(group.phoneNumbers || []).map((num, numIdx) => (
-                                <div key={numIdx} className="flex items-center gap-2">
-                                  <input
-                                    type="tel"
-                                    value={num}
-                                    onChange={(e) => {
-                                      const newNums = [...(group.phoneNumbers || [])];
-                                      newNums[numIdx] = e.target.value;
-                                      updateGroupSetting(group.id, 'phoneNumbers', newNums);
-                                    }}
-                                    placeholder="050-1234567 / 972501234567"
-                                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                                    dir="ltr"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const newNums = (group.phoneNumbers || []).filter((_, i) => i !== numIdx);
-                                      updateGroupSetting(group.id, 'phoneNumbers', newNums);
-                                    }}
-                                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
-                                  >
-                                    <X className="w-4 h-4" />
-                                  </button>
+                            {/* Whitelist section */}
+                            {group.phoneFilter === 'whitelist' && (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                                  <span className="text-xs font-medium text-green-700">מספרים מורשים</span>
+                                  <span className="text-[10px] text-gray-400">— רק מספרים אלה יפעילו את הטריגר</span>
                                 </div>
-                              ))}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const newNums = [...(group.phoneNumbers || []), ''];
-                                  updateGroupSetting(group.id, 'phoneNumbers', newNums);
-                                }}
-                                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                                הוסף מספר
-                              </button>
-                            </div>
+                                {(group.phoneNumbers || []).map((num, numIdx) => (
+                                  <div key={numIdx} className="flex items-center gap-2 group/phone">
+                                    <div className="w-6 h-6 flex items-center justify-center rounded-full bg-green-100 text-green-600 text-xs font-medium flex-shrink-0">
+                                      {numIdx + 1}
+                                    </div>
+                                    <input
+                                      type="tel"
+                                      value={num}
+                                      onChange={(e) => {
+                                        const newNums = [...(group.phoneNumbers || [])];
+                                        newNums[numIdx] = e.target.value;
+                                        updateGroupSetting(group.id, 'phoneNumbers', newNums);
+                                      }}
+                                      placeholder="050-1234567 / 972501234567"
+                                      className="flex-1 px-3 py-2 border border-green-200 bg-green-50/50 rounded-lg text-sm focus:border-green-400 focus:ring-1 focus:ring-green-200 outline-none"
+                                      dir="ltr"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const newNums = (group.phoneNumbers || []).filter((_, i) => i !== numIdx);
+                                        updateGroupSetting(group.id, 'phoneNumbers', newNums);
+                                      }}
+                                      className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover/phone:opacity-100 transition-opacity"
+                                    >
+                                      <X className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                ))}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newNums = [...(group.phoneNumbers || []), ''];
+                                    updateGroupSetting(group.id, 'phoneNumbers', newNums);
+                                  }}
+                                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-green-600 bg-green-50 hover:bg-green-100 rounded-lg transition-colors border border-dashed border-green-200"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  הוסף מספר מורשה
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Blacklist section */}
+                            {group.phoneFilter === 'blacklist' && (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                                  <span className="text-xs font-medium text-red-700">מספרים חסומים</span>
+                                  <span className="text-[10px] text-gray-400">— מספרים אלה לא יפעילו את הטריגר</span>
+                                </div>
+                                {(group.blacklistNumbers || []).map((num, numIdx) => (
+                                  <div key={numIdx} className="flex items-center gap-2 group/phone">
+                                    <div className="w-6 h-6 flex items-center justify-center rounded-full bg-red-100 text-red-600 text-xs font-medium flex-shrink-0">
+                                      {numIdx + 1}
+                                    </div>
+                                    <input
+                                      type="tel"
+                                      value={num}
+                                      onChange={(e) => {
+                                        const newNums = [...(group.blacklistNumbers || [])];
+                                        newNums[numIdx] = e.target.value;
+                                        updateGroupSetting(group.id, 'blacklistNumbers', newNums);
+                                      }}
+                                      placeholder="050-1234567 / 972501234567"
+                                      className="flex-1 px-3 py-2 border border-red-200 bg-red-50/50 rounded-lg text-sm focus:border-red-400 focus:ring-1 focus:ring-red-200 outline-none"
+                                      dir="ltr"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const newNums = (group.blacklistNumbers || []).filter((_, i) => i !== numIdx);
+                                        updateGroupSetting(group.id, 'blacklistNumbers', newNums);
+                                      }}
+                                      className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover/phone:opacity-100 transition-opacity"
+                                    >
+                                      <X className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                ))}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newNums = [...(group.blacklistNumbers || []), ''];
+                                    updateGroupSetting(group.id, 'blacklistNumbers', newNums);
+                                  }}
+                                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-dashed border-red-200"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  הוסף מספר לחסימה
+                                </button>
+                              </div>
+                            )}
 
                             <p className="text-[10px] text-gray-400">
                               ניתן להזין בכל פורמט: 050-1234567, 0501234567, 972501234567, +972-50-123-4567
@@ -1388,13 +1839,16 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                         <label className="flex items-center gap-3 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={!!(group.advancedConditions && group.advancedConditions.length > 0)}
+                            checked={!!(group.advancedConditionGroup?.conditions?.length > 0 || (group.advancedConditions && group.advancedConditions.length > 0))}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                updateGroupSetting(group.id, 'advancedConditions', [
-                                  { variable: 'contact_var', operator: 'equals', value: '', varName: '' }
-                                ]);
+                                updateGroupSetting(group.id, 'advancedConditionGroup', {
+                                  logic: 'AND',
+                                  conditions: [{ variable: 'contact_var', operator: 'equals', value: '', varName: '' }]
+                                });
+                                updateGroupSetting(group.id, 'advancedConditions', []);
                               } else {
+                                updateGroupSetting(group.id, 'advancedConditionGroup', null);
                                 updateGroupSetting(group.id, 'advancedConditions', []);
                               }
                             }}
@@ -1409,187 +1863,46 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                           </div>
                         </label>
 
-                        {group.advancedConditions && group.advancedConditions.length > 0 && (
-                          <div className="mt-3 mr-7 space-y-2">
-                            <div className="flex items-center gap-2 mb-2">
-                              <div className="text-xs text-gray-500">
-                                כל התנאים חייבים להתקיים (וגם) כדי שהטריגר יופעל
+                        {(() => {
+                          // Migrate old flat advancedConditions to new conditionGroup format
+                          const condGroup = group.advancedConditionGroup || (
+                            group.advancedConditions && group.advancedConditions.length > 0
+                              ? { logic: 'AND', conditions: group.advancedConditions }
+                              : null
+                          );
+                          if (!condGroup || !condGroup.conditions || condGroup.conditions.length === 0) return null;
+
+                          const updateCondGroup = (newGroup) => {
+                            updateGroupSetting(group.id, 'advancedConditionGroup', newGroup);
+                            updateGroupSetting(group.id, 'advancedConditions', []);
+                          };
+
+                          return (
+                            <div className="mt-3 mr-7 space-y-2">
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="text-xs text-gray-500">לחץ על "וגם"/"או" לשינוי לוגיקה</p>
+                                <button
+                                  type="button"
+                                  onClick={loadVariables}
+                                  disabled={loadingVars}
+                                  className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                                >
+                                  <RefreshCw className={`w-3 h-3 ${loadingVars ? 'animate-spin' : ''}`} />
+                                  רענן משתנים
+                                </button>
                               </div>
+                              <TriggerConditionGroup
+                                group={condGroup}
+                                onChange={updateCondGroup}
+                                onRemove={() => {}}
+                                canRemove={false}
+                                isRoot={true}
+                                availableVars={availableVars}
+                                loadingVars={loadingVars}
+                              />
                             </div>
-                            {group.advancedConditions.map((adv, advIdx) => (
-                              <div key={advIdx} className="bg-white border border-gray-200 rounded-xl p-3 space-y-2">
-                                <div className="flex items-center gap-2">
-                                  <select
-                                    value={adv.variable || 'contact_var'}
-                                    onChange={(e) => {
-                                      const newAdvs = [...group.advancedConditions];
-                                      newAdvs[advIdx] = { ...adv, variable: e.target.value, varName: '', value: '' };
-                                      updateGroupSetting(group.id, 'advancedConditions', newAdvs);
-                                    }}
-                                    className="flex-1 px-2 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-                                  >
-                                    <optgroup label="איש קשר">
-                                      <option value="contact_name">שם איש קשר</option>
-                                      <option value="phone">מספר טלפון</option>
-                                      <option value="has_tag">יש תגית</option>
-                                    </optgroup>
-                                    <optgroup label="הודעה">
-                                      <option value="message">תוכן ההודעה</option>
-                                      <option value="message_type">סוג ההודעה</option>
-                                      <option value="is_group">האם קבוצה</option>
-                                    </optgroup>
-                                    <optgroup label="משתנים">
-                                      <option value="contact_var">משתנה מהמערכת</option>
-                                    </optgroup>
-                                    <optgroup label="זמן">
-                                      <option value="time">שעה נוכחית</option>
-                                      <option value="day">יום בשבוע</option>
-                                    </optgroup>
-                                  </select>
-
-                                  <select
-                                    value={adv.operator || 'equals'}
-                                    onChange={(e) => {
-                                      const newAdvs = [...group.advancedConditions];
-                                      newAdvs[advIdx] = { ...adv, operator: e.target.value };
-                                      updateGroupSetting(group.id, 'advancedConditions', newAdvs);
-                                    }}
-                                    className="flex-1 px-2 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-                                  >
-                                    <optgroup label="בסיסי">
-                                      <option value="equals">שווה ל</option>
-                                      <option value="not_equals">לא שווה ל</option>
-                                    </optgroup>
-                                    <optgroup label="טקסט">
-                                      <option value="contains">מכיל</option>
-                                      <option value="not_contains">לא מכיל</option>
-                                      <option value="starts_with">מתחיל ב</option>
-                                      <option value="ends_with">נגמר ב</option>
-                                    </optgroup>
-                                    <optgroup label="מספרים">
-                                      <option value="greater_than">גדול מ</option>
-                                      <option value="less_than">קטן מ</option>
-                                    </optgroup>
-                                    <optgroup label="בדיקה">
-                                      <option value="is_empty">ריק</option>
-                                      <option value="is_not_empty">לא ריק</option>
-                                      <option value="is_true">אמת</option>
-                                      <option value="is_false">שקר</option>
-                                    </optgroup>
-                                  </select>
-
-                                  {group.advancedConditions.length > 1 && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const newAdvs = group.advancedConditions.filter((_, i) => i !== advIdx);
-                                        updateGroupSetting(group.id, 'advancedConditions', newAdvs);
-                                      }}
-                                      className="p-1.5 text-gray-400 hover:text-red-500"
-                                    >
-                                      <X className="w-4 h-4" />
-                                    </button>
-                                  )}
-                                </div>
-
-                                {/* Variable name for contact_var */}
-                                {adv.variable === 'contact_var' && (
-                                  <input
-                                    type="text"
-                                    value={adv.varName || ''}
-                                    onChange={(e) => {
-                                      const newAdvs = [...group.advancedConditions];
-                                      newAdvs[advIdx] = { ...adv, varName: e.target.value };
-                                      updateGroupSetting(group.id, 'advancedConditions', newAdvs);
-                                    }}
-                                    placeholder="שם המשתנה (למשל: ניקוד)"
-                                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-                                  />
-                                )}
-
-                                {/* Tag name for has_tag */}
-                                {adv.variable === 'has_tag' && (
-                                  <input
-                                    type="text"
-                                    value={adv.varName || ''}
-                                    onChange={(e) => {
-                                      const newAdvs = [...group.advancedConditions];
-                                      newAdvs[advIdx] = { ...adv, varName: e.target.value };
-                                      updateGroupSetting(group.id, 'advancedConditions', newAdvs);
-                                    }}
-                                    placeholder="שם התגית"
-                                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-                                  />
-                                )}
-
-                                {/* Value input */}
-                                {!['is_empty', 'is_not_empty', 'is_true', 'is_false'].includes(adv.operator) && (
-                                  adv.variable === 'day' ? (
-                                    <select
-                                      value={adv.value || ''}
-                                      onChange={(e) => {
-                                        const newAdvs = [...group.advancedConditions];
-                                        newAdvs[advIdx] = { ...adv, value: e.target.value };
-                                        updateGroupSetting(group.id, 'advancedConditions', newAdvs);
-                                      }}
-                                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-                                    >
-                                      <option value="">בחר יום...</option>
-                                      <option value="0">ראשון</option>
-                                      <option value="1">שני</option>
-                                      <option value="2">שלישי</option>
-                                      <option value="3">רביעי</option>
-                                      <option value="4">חמישי</option>
-                                      <option value="5">שישי</option>
-                                      <option value="6">שבת</option>
-                                    </select>
-                                  ) : adv.variable === 'time' ? (
-                                    <input
-                                      type="time"
-                                      value={adv.value || ''}
-                                      onChange={(e) => {
-                                        const newAdvs = [...group.advancedConditions];
-                                        newAdvs[advIdx] = { ...adv, value: e.target.value };
-                                        updateGroupSetting(group.id, 'advancedConditions', newAdvs);
-                                      }}
-                                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-                                    />
-                                  ) : (
-                                    <TextInputWithVariables
-                                      value={adv.value || ''}
-                                      onChange={(val) => {
-                                        const newAdvs = [...group.advancedConditions];
-                                        newAdvs[advIdx] = { ...adv, value: val };
-                                        updateGroupSetting(group.id, 'advancedConditions', newAdvs);
-                                      }}
-                                      placeholder="ערך להשוואה או {{משתנה}}"
-                                      className="text-sm"
-                                    />
-                                  )
-                                )}
-
-                                {/* AND separator */}
-                                {advIdx < group.advancedConditions.length - 1 && (
-                                  <div className="flex justify-center pt-1">
-                                    <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-medium">וגם</span>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const newAdvs = [...group.advancedConditions, { variable: 'contact_var', operator: 'equals', value: '', varName: '' }];
-                                updateGroupSetting(group.id, 'advancedConditions', newAdvs);
-                              }}
-                              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              הוסף תנאי מתקדם
-                            </button>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>

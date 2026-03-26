@@ -197,23 +197,26 @@ async function getUser(req, res) {
     const { id } = req.params;
     
     const result = await db.query(
-      `SELECT u.*, 
+      `SELECT u.*,
               (SELECT COUNT(*) FROM bots WHERE user_id = u.id) as bots_count,
               (SELECT COUNT(*) FROM contacts WHERE user_id = u.id) as contacts_count,
-              (SELECT COUNT(*) FROM messages m 
-               JOIN contacts c ON m.contact_id = c.id 
+              (SELECT COUNT(*) FROM messages m
+               JOIN contacts c ON m.contact_id = c.id
                WHERE c.user_id = u.id) as messages_count,
-              wc.status as whatsapp_status, wc.phone_number as whatsapp_phone
+              wc.status as whatsapp_status, wc.phone_number as whatsapp_phone,
+              (SELECT parent_user_id FROM linked_accounts WHERE child_user_id = u.id LIMIT 1) as linked_parent_id,
+              (SELECT pu.email FROM linked_accounts la JOIN users pu ON pu.id = la.parent_user_id WHERE la.child_user_id = u.id LIMIT 1) as linked_parent_email,
+              (SELECT pu.name FROM linked_accounts la JOIN users pu ON pu.id = la.parent_user_id WHERE la.child_user_id = u.id LIMIT 1) as linked_parent_name
        FROM users u
        LEFT JOIN whatsapp_connections wc ON wc.user_id = u.id
        WHERE u.id = $1`,
       [id]
     );
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'משתמש לא נמצא' });
     }
-    
+
     const { password_hash, ...user } = result.rows[0];
     res.json({ user });
   } catch (error) {
@@ -228,20 +231,24 @@ async function getUser(req, res) {
 async function updateUser(req, res) {
   try {
     const { id } = req.params;
-    const { name, role, plan, is_active, is_verified } = req.body;
-    
+    const { name, role, plan, is_active, is_verified, phone, linked_user_id } = req.body;
+
     // Prevent changing own role if not superadmin
     if (req.user.id === id && role && req.user.role !== 'superadmin') {
       return res.status(403).json({ error: 'לא ניתן לשנות את התפקיד שלך' });
     }
-    
+
     const updates = [];
     const values = [];
     let paramIndex = 1;
-    
+
     if (name !== undefined) {
       updates.push(`name = $${paramIndex++}`);
       values.push(name);
+    }
+    if (phone !== undefined) {
+      updates.push(`phone = $${paramIndex++}`);
+      values.push(phone || null);
     }
     if (role !== undefined) {
       updates.push(`role = $${paramIndex++}`);
@@ -259,19 +266,43 @@ async function updateUser(req, res) {
       updates.push(`is_verified = $${paramIndex++}`);
       values.push(is_verified);
     }
-    
-    if (updates.length === 0) {
-      return res.status(400).json({ error: 'אין שדות לעדכון' });
+    // Handle account linking separately via linked_accounts table
+    if (linked_user_id !== undefined) {
+      if (linked_user_id) {
+        // Find the parent user
+        const parentCheck = await db.query('SELECT id FROM users WHERE id = $1', [linked_user_id]);
+        if (parentCheck.rows.length > 0) {
+          // Remove existing parent links for this user
+          await db.query('DELETE FROM linked_accounts WHERE child_user_id = $1', [id]);
+          // Create the new link
+          await db.query(
+            'INSERT INTO linked_accounts (parent_user_id, child_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            [linked_user_id, id]
+          );
+        }
+      } else {
+        // Remove all parent links
+        await db.query('DELETE FROM linked_accounts WHERE child_user_id = $1', [id]);
+      }
     }
     
     values.push(id);
-    
-    const result = await db.query(
-      `UPDATE users SET ${updates.join(', ')}, updated_at = NOW() 
-       WHERE id = $${paramIndex} 
-       RETURNING id, email, name, role, is_active, is_verified`,
-      values
-    );
+
+    if (updates.length === 0 && linked_user_id === undefined) {
+      return res.status(400).json({ error: 'אין שדות לעדכון' });
+    }
+
+    let result;
+    if (updates.length > 0) {
+      result = await db.query(
+        `UPDATE users SET ${updates.join(', ')}, updated_at = NOW()
+         WHERE id = $${paramIndex}
+         RETURNING id, email, name, phone, role, is_active, is_verified`,
+        values
+      );
+    } else {
+      result = await db.query('SELECT id, email, name, phone, role, is_active, is_verified FROM users WHERE id = $1', [id]);
+    }
     
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'משתמש לא נמצא' });

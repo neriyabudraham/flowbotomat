@@ -1395,7 +1395,7 @@ function UserDetailDrawer({ user, onClose, onRefresh, currentUser, showToast }) 
           ) : (
             <>
               {activeSection === 'overview' && (
-                <OverviewSection user={user} bots={data.bots} billing={data.billing} />
+                <OverviewSection user={user} bots={data.bots} billing={data.billing} onRefresh={loadData} showToast={showToast} />
               )}
               {activeSection === 'subscription' && (
                 <SubscriptionSection user={user} plans={data.plans} affiliates={data.affiliates} onRefresh={onRefresh} showToast={showToast} />
@@ -1434,9 +1434,158 @@ function UserDetailDrawer({ user, onClose, onRefresh, currentUser, showToast }) 
 }
 
 // Overview Section
-function OverviewSection({ user, bots, billing }) {
+function OverviewSection({ user, bots, billing, onRefresh, showToast }) {
+  const [editName, setEditName] = useState(user.name || '');
+  const [editPhone, setEditPhone] = useState(user.phone || '');
+  const [linkedEmail, setLinkedEmail] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingLink, setSavingLink] = useState(false);
+
+  const handleSaveProfile = async () => {
+    setSavingProfile(true);
+    try {
+      const updates = {};
+      if (editName !== (user.name || '')) updates.name = editName;
+      if (editPhone !== (user.phone || '')) updates.phone = editPhone;
+      if (Object.keys(updates).length === 0) { setSavingProfile(false); return; }
+      await api.put(`/admin/users/${user.id}`, updates);
+      showToast('success', 'פרטי המשתמש עודכנו');
+      onRefresh?.();
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה בעדכון');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const handleLinkAccount = async () => {
+    if (!linkedEmail.trim()) return;
+    setSavingLink(true);
+    try {
+      // Find user by email
+      const searchRes = await api.get(`/admin/users?search=${encodeURIComponent(linkedEmail.trim())}&limit=1`);
+      const parentUser = searchRes.data.users?.[0];
+      if (!parentUser) { showToast('error', 'משתמש לא נמצא'); setSavingLink(false); return; }
+      if (parentUser.id === user.id) { showToast('error', 'לא ניתן לקשר חשבון לעצמו'); setSavingLink(false); return; }
+      await api.put(`/admin/users/${user.id}`, { linked_user_id: parentUser.id });
+      showToast('success', `החשבון קושר ל-${parentUser.email}`);
+      setLinkedEmail('');
+      onRefresh?.();
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה בקישור');
+    } finally {
+      setSavingLink(false);
+    }
+  };
+
+  const handleUnlinkAccount = async () => {
+    if (!confirm('להסיר את הקישור?')) return;
+    setSavingLink(true);
+    try {
+      await api.put(`/admin/users/${user.id}`, { linked_user_id: null });
+      showToast('success', 'הקישור הוסר');
+      onRefresh?.();
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'שגיאה');
+    } finally {
+      setSavingLink(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {/* User Profile Edit */}
+      <div className="p-5 bg-gradient-to-br from-gray-50 to-white dark:from-gray-800 dark:to-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700">
+        <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+          <Edit className="w-4 h-4 text-violet-500" />
+          פרטי משתמש
+        </h3>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">שם</label>
+            <input
+              type="text"
+              value={editName}
+              onChange={e => setEditName(e.target.value)}
+              className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-sm"
+              placeholder="שם מלא"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">טלפון</label>
+            <input
+              type="tel"
+              value={editPhone}
+              onChange={e => setEditPhone(e.target.value)}
+              className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-sm font-mono"
+              placeholder="050-1234567"
+              dir="ltr"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">אימייל</label>
+            <input type="text" value={user.email} disabled className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm text-gray-400 cursor-not-allowed" dir="ltr" />
+          </div>
+          {(editName !== (user.name || '') || editPhone !== (user.phone || '')) && (
+            <button
+              onClick={handleSaveProfile}
+              disabled={savingProfile}
+              className="w-full px-4 py-2.5 bg-violet-600 text-white rounded-xl font-medium flex items-center justify-center gap-2 hover:bg-violet-700 disabled:opacity-50 transition-colors"
+            >
+              {savingProfile ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              שמור שינויים
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Linked Account */}
+      <div className="p-5 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-2xl border border-blue-200 dark:border-blue-800">
+        <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+          <ArrowRightLeft className="w-4 h-4 text-blue-500" />
+          קישור לחשבון אחר
+        </h3>
+        {user.linked_parent_id ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-xl border border-blue-200 dark:border-blue-700">
+              <div>
+                <div className="text-sm font-medium text-gray-900 dark:text-white">{user.linked_parent_name || 'חשבון מקושר'}</div>
+                <div className="text-xs text-gray-500 font-mono">{user.linked_parent_email}</div>
+              </div>
+              <button
+                onClick={handleUnlinkAccount}
+                disabled={savingLink}
+                className="px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              >
+                הסר קישור
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-500">קשר משתמש זה לחשבון אב (הזן אימייל של החשבון האב)</p>
+            <div className="flex items-center gap-2">
+              <input
+                type="email"
+                value={linkedEmail}
+                onChange={e => setLinkedEmail(e.target.value)}
+                className="flex-1 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-sm"
+                placeholder="email@example.com"
+                dir="ltr"
+              />
+              <button
+                onClick={handleLinkAccount}
+                disabled={savingLink || !linkedEmail.trim()}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1 transition-colors"
+              >
+                {savingLink ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Link2 className="w-3 h-3" />}
+                קשר
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Status Cards */}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-gradient-to-br from-violet-50 to-purple-50 dark:from-violet-900/20 dark:to-purple-900/20 rounded-2xl p-4 border border-violet-200 dark:border-violet-800">
@@ -1455,7 +1604,7 @@ function OverviewSection({ user, bots, billing }) {
         </div>
 
         <div className={`rounded-2xl p-4 border ${
-          user.has_payment_method 
+          user.has_payment_method
             ? 'bg-gradient-to-br from-emerald-50 to-green-50 dark:from-emerald-900/20 dark:to-green-900/20 border-emerald-200 dark:border-emerald-800'
             : 'bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-900/20 dark:to-rose-900/20 border-red-200 dark:border-red-800'
         }`}>
