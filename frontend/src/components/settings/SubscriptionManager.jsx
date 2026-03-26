@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { CreditCard, Calendar, AlertCircle, Crown, CheckCircle, XCircle, RotateCcw, Trash2, ShieldAlert, Clock, Info, HelpCircle, ArrowRight, RefreshCw, Package, Upload, ExternalLink, Zap, TrendingUp, X } from 'lucide-react';
+import { CreditCard, Calendar, AlertCircle, Crown, CheckCircle, XCircle, RotateCcw, Trash2, ShieldAlert, Clock, Info, HelpCircle, ArrowRight, RefreshCw, Package, Upload, ExternalLink, Zap, TrendingUp, X, FileText, Receipt } from 'lucide-react';
 import api from '../../services/api';
 import Button from '../atoms/Button';
 import CreditCardForm from '../payment/CreditCardForm';
@@ -681,6 +681,9 @@ export default function SubscriptionManager() {
         </div>
       )}
 
+      {/* Payment History Section */}
+      <PaymentHistorySection />
+
       {/* Cancel Service Modal */}
       {showCancelServiceModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowCancelServiceModal(null)}>
@@ -1122,6 +1125,117 @@ function RemoveCardModal({ subscription, onClose, onConfirm, loading }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Payment History Section ────────────────────────────────────────────────
+
+const billingTypeLabels = {
+  monthly: 'חודשי',
+  yearly: 'שנתי',
+  status_bot: 'בוט סטטוסים',
+  service_recurring: 'שירות חודשי',
+  one_time: 'חד פעמי',
+  trial_conversion: 'המרת ניסיון',
+  first_payment: 'תשלום ראשון',
+  renewal: 'חידוש',
+  reactivation: 'הפעלה מחדש',
+  manual: 'ידני',
+};
+
+function PaymentHistorySection() {
+  const [payments, setPayments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    loadPayments();
+  }, []);
+
+  const loadPayments = async () => {
+    try {
+      const { data } = await api.get('/subscriptions/my/payments');
+      setPayments(data.payments || []);
+    } catch (err) {
+      console.error('Failed to load payment history:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) return null;
+  if (payments.length === 0) return null;
+
+  const displayPayments = expanded ? payments : payments.slice(0, 5);
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 mt-6">
+      <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 dark:text-white">
+        <Receipt className="w-5 h-5 text-purple-500" />
+        היסטוריית חיובים
+      </h2>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-100 dark:border-gray-700 text-gray-500 dark:text-gray-400 text-xs">
+              <th className="text-right py-2 px-3 font-medium">תאריך</th>
+              <th className="text-right py-2 px-3 font-medium">תיאור</th>
+              <th className="text-right py-2 px-3 font-medium">סכום</th>
+              <th className="text-right py-2 px-3 font-medium">קבלה</th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayPayments.map(payment => (
+              <tr key={payment.id} className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                <td className="py-3 px-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                  {new Date(payment.created_at).toLocaleDateString('he-IL', {
+                    year: 'numeric', month: 'short', day: 'numeric'
+                  })}
+                </td>
+                <td className="py-3 px-3">
+                  <div className="text-gray-800 dark:text-gray-200">
+                    {payment.description || payment.plan_name_he || billingTypeLabels[payment.billing_type] || 'תשלום'}
+                  </div>
+                  {payment.billing_type && (
+                    <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded">
+                      {billingTypeLabels[payment.billing_type] || payment.billing_type}
+                    </span>
+                  )}
+                </td>
+                <td className="py-3 px-3 font-bold text-gray-800 dark:text-gray-200 whitespace-nowrap">
+                  ₪{Number(payment.amount).toLocaleString()}
+                </td>
+                <td className="py-3 px-3">
+                  {payment.receipt_url ? (
+                    <a
+                      href={payment.receipt_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-lg text-xs font-medium hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors"
+                    >
+                      <FileText className="w-3 h-3" />
+                      קבלה
+                    </a>
+                  ) : (
+                    <span className="text-gray-300 dark:text-gray-600 text-xs">—</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {payments.length > 5 && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-full mt-3 py-2 text-sm text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-colors"
+        >
+          {expanded ? 'הצג פחות' : `הצג את כל ${payments.length} התשלומים`}
+        </button>
+      )}
     </div>
   );
 }

@@ -456,8 +456,10 @@ function UpcomingCharges({ onRefresh, onViewUser, loadingUser, onViewHistory }) 
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {charges.map(charge => (
-                <tr key={charge.id} className="hover:bg-gray-50">
+              {charges.map(charge => {
+                const isOverdue = new Date(charge.charge_date) < new Date(new Date().toDateString());
+                return (
+                <tr key={charge.id} className={`hover:bg-gray-50 ${isOverdue ? 'bg-red-50/50' : ''}`}>
                   <td className="px-4 py-3">
                     <button
                       onClick={() => onViewUser(charge.user_id)}
@@ -487,8 +489,13 @@ function UpcomingCharges({ onRefresh, onViewUser, loadingUser, onViewHistory }) 
                   <td className="px-4 py-3 font-bold text-gray-800">
                     ₪{Number(charge.amount).toLocaleString()}
                   </td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {new Date(charge.charge_date).toLocaleDateString('he-IL')}
+                  <td className="px-4 py-3">
+                    <span className={isOverdue ? 'text-red-600 font-semibold' : 'text-gray-600'}>
+                      {new Date(charge.charge_date).toLocaleDateString('he-IL')}
+                    </span>
+                    {isOverdue && (
+                      <span className="block text-[10px] text-red-500 font-medium mt-0.5">⚠️ עבר תאריך!</span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <BillingTypeBadge type={charge.billing_type} />
@@ -507,7 +514,8 @@ function UpcomingCharges({ onRefresh, onViewUser, loadingUser, onViewHistory }) 
                     />
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -582,6 +590,20 @@ function FailedCharges({ onRefresh, onViewUser, loadingUser, onViewHistory }) {
     }
   };
 
+  const handleDelete = async (id) => {
+    if (!confirm('למחוק את הרשומה לצמיתות? פעולה זו בלתי הפיכה.')) return;
+    setActionLoading(id);
+    try {
+      await api.delete(`/admin/billing/charge/${id}`);
+      loadCharges();
+      onRefresh?.();
+    } catch (err) {
+      alert(err.response?.data?.error || 'שגיאה במחיקה');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   if (loading) return (
     <div className="flex items-center justify-center py-12">
       <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
@@ -643,6 +665,14 @@ function FailedCharges({ onRefresh, onViewUser, loadingUser, onViewHistory }) {
                   className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-300 disabled:opacity-50"
                 >
                   בטל
+                </button>
+                <button
+                  onClick={() => handleDelete(charge.id)}
+                  disabled={actionLoading === charge.id}
+                  className="px-3 py-1.5 bg-red-100 text-red-600 rounded-lg text-xs font-medium hover:bg-red-200 disabled:opacity-50 flex items-center gap-1"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  מחק
                 </button>
               </div>
             </div>
@@ -917,6 +947,10 @@ function PaymentHistory({ onViewUser, loadingUser, initialUserEmail, onClearUser
                           <FileText className="w-3 h-3" />
                           קבלה
                         </a>
+                      ) : payment.sumit_document_number ? (
+                        <span className="text-gray-400 text-xs font-mono" title="מספר מסמך בסאמיט">
+                          #{payment.sumit_document_number}
+                        </span>
                       ) : (
                         <span className="text-gray-300 text-xs">אין</span>
                       )}

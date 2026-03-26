@@ -227,6 +227,7 @@ router.post('/billing/schedule', superadminMiddleware, billingController.schedul
 router.post('/billing/process-queue', superadminMiddleware, billingController.processBillingQueue);
 router.post('/billing/cancel-subscription/:userId', superadminMiddleware, billingController.cancelSubscription);
 router.post('/billing/void-payment/:id', superadminMiddleware, billingController.voidPayment);
+router.delete('/billing/charge/:id', superadminMiddleware, billingController.deleteCharge);
 
 // System update notification - can be called without auth (for deploy script)
 // Uses a secret key for authentication

@@ -36,13 +36,13 @@ async function scheduleCharge({
  */
 async function cancelCharge(queueId) {
   const result = await pool.query(
-    `UPDATE billing_queue 
+    `UPDATE billing_queue
      SET status = 'cancelled', updated_at = NOW()
-     WHERE id = $1 AND status = 'pending'
+     WHERE id = $1 AND status IN ('pending', 'failed')
      RETURNING *`,
     [queueId]
   );
-  
+
   if (result.rows[0]) {
     console.log(`[BillingQueue] Cancelled charge ${queueId}`);
   }
@@ -291,6 +291,39 @@ async function detectMissingBillingEntries() {
     console.log(`[BillingQueue] Created missing billing entry for user ${sub.user_id} (was due ${sub.next_charge_date})`);
   }
 
+  // 2b. Find active service subscriptions (e.g. status bot) with overdue/upcoming expiry but no billing queue entry
+  const missingServiceResult = await pool.query(`
+    SELECT uss.user_id, uss.id as subscription_id, uss.service_id, uss.expires_at,
+           s.price as service_price, s.name_he as service_name
+    FROM user_service_subscriptions uss
+    JOIN additional_services s ON s.id = uss.service_id
+    WHERE uss.status = 'active'
+      AND s.price > 0
+      AND uss.expires_at IS NOT NULL
+      AND uss.expires_at <= CURRENT_DATE + INTERVAL '7 days'
+      AND NOT EXISTS (
+        SELECT 1 FROM billing_queue bq
+        WHERE bq.user_id = uss.user_id
+          AND bq.status IN ('pending', 'processing', 'failed')
+          AND bq.billing_type = 'status_bot'
+      )
+      AND EXISTS (
+        SELECT 1 FROM user_payment_methods pm WHERE pm.user_id = uss.user_id AND pm.is_active = true
+      )
+  `);
+
+  for (const sub of missingServiceResult.rows) {
+    await pool.query(
+      `INSERT INTO billing_queue
+       (user_id, subscription_id, amount, charge_date, billing_type, description, currency)
+       VALUES ($1, $2, $3, $4::date, 'status_bot', $5, 'ILS')
+       ON CONFLICT DO NOTHING`,
+      [sub.user_id, sub.subscription_id, sub.service_price, sub.expires_at, `${sub.service_name} - חודשי`]
+    );
+    created++;
+    console.log(`[BillingQueue] Created missing service billing entry for user ${sub.user_id} (${sub.service_name}, expires ${sub.expires_at})`);
+  }
+
   if (created > 0) {
     console.log(`[BillingQueue] Created ${created} missing billing queue entries`);
   }
@@ -522,7 +555,7 @@ async function retryFailedCharges() {
       // Properly finalize the charge so it isn't left stuck in 'processing'
       try {
         const newRetryCount = charge.retry_count + 1;
-        if (newRetryCount >= (charge.max_retries || 2)) {
+        if (newRetryCount >= (charge.max_retries || 3)) {
           await handleMaxRetriesReached(charge, error.message);
         } else {
           await handleChargeFailure(charge, 'SYSTEM_ERROR', error.message);
@@ -864,11 +897,15 @@ async function sendSuccessNotification(charge, chargeResult) {
  */
 async function handleChargeFailure(charge, errorCode, errorMessage, technicalError = null) {
   const retryCount = (charge.retry_count || 0) + 1;
-  const maxRetries = charge.max_retries || 2;
-  
-  // Calculate next retry date (tomorrow)
+  const maxRetries = charge.max_retries || 3; // 3 days grace period
+
+  // Calculate next retry date (tomorrow, skip Shabbat)
   const nextRetryDate = new Date();
   nextRetryDate.setDate(nextRetryDate.getDate() + 1);
+  // If next retry falls on Saturday (6), push to Sunday
+  if (nextRetryDate.getDay() === 6) {
+    nextRetryDate.setDate(nextRetryDate.getDate() + 1);
+  }
   const formattedRetryDate = nextRetryDate.toLocaleDateString('he-IL', {
     weekday: 'long', month: 'long', day: 'numeric'
   });
@@ -909,15 +946,16 @@ async function handleChargeFailure(charge, errorCode, errorMessage, technicalErr
   
   // Create in-app notification for user
   const isLastRetry = retryCount >= maxRetries;
+  const remainingDays = maxRetries - retryCount;
   await pool.query(`
     INSERT INTO notifications (user_id, notification_type, title, message, metadata, priority)
     VALUES ($1, 'payment_failed', $2, $3, $4, $5)
   `, [
     charge.user_id,
-    isLastRetry ? '⚠️ בעיה בתשלום - נדרשת פעולה מיידית!' : 'בעיה בחיוב החודשי',
-    isLastRetry 
-      ? `לא הצלחנו לחייב את אמצעי התשלום שלך (₪${charge.amount}). זהו הניסיון האחרון - אנא עדכן את פרטי התשלום כדי למנוע הפסקת שירות.`
-      : `לא הצלחנו לחייב את אמצעי התשלום שלך (₪${charge.amount}). ננסה שוב ב-${formattedRetryDate}.`,
+    isLastRetry ? '⚠️ ניסיון אחרון לחיוב - עדכן כרטיס עכשיו!' : `בעיה בחיוב - נותרו ${remainingDays} ימים`,
+    isLastRetry
+      ? `לא הצלחנו לחייב ₪${charge.amount}. זהו הניסיון האחרון! אנא עדכן את כרטיס האשראי שלך בהגדרות כדי למנוע הפסקת שירות.`
+      : `לא הצלחנו לחייב ₪${charge.amount}. ננסה שוב ב-${formattedRetryDate}. נותרו ${remainingDays} ימים לעדכון כרטיס אשראי.`,
     JSON.stringify({
       amount: charge.amount,
       error_code: errorCode,
@@ -1091,30 +1129,38 @@ async function sendFailureNotifications(charge, errorCode, errorMessage, retryCo
 
     // Send to admin
     if (adminEmail) {
+      const chargeDateStr = charge.charge_date ? new Date(charge.charge_date).toLocaleDateString('he-IL') : 'לא ידוע';
+      const daysPastDue = charge.charge_date ? Math.floor((Date.now() - new Date(charge.charge_date)) / (1000 * 60 * 60 * 24)) : 0;
+      const overdueNote = daysPastDue > 0 ? `⏰ עבר ${daysPastDue} ${daysPastDue === 1 ? 'יום' : 'ימים'} מתאריך החיוב!` : '';
+
       const adminContent = `
+        ${overdueNote ? alertBox(overdueNote, 'error') : ''}
         ${dataTable([
           ['משתמש:', charge.display_name || 'לא ידוע'],
           ['אימייל:', charge.email],
           ['סכום:', `₪${charge.amount}`],
           ['סוג חיוב:', charge.billing_type],
+          ['תאריך חיוב:', chargeDateStr],
           ['קוד שגיאה:', errorCode],
           ['הודעת שגיאה:', errorMessage],
           ['ניסיון:', `${retryCount} מתוך ${maxRetries}`],
         ])}
         ${isLastRetry
-          ? alertBox('זהו הניסיון האחרון - המשתמש יורד לתוכנית חינמית!', 'error')
-          : alertBox('יבוצע ניסיון נוסף מחר.', 'warning')
+          ? alertBox('זהו הניסיון האחרון - המשתמש ירד לתוכנית חינמית בניסיון הבא!', 'error')
+          : alertBox(`ניסיון הבא: ${formattedRetryDate}`, 'warning')
         }
-        ${ctaButton('צפה בפרופיל המשתמש', `${FRONTEND_URL}/admin?tab=users`, COLORS.primary, COLORS.primaryDark)}
+        ${ctaButton('צפה בניהול חיובים', `${FRONTEND_URL}/admin?tab=billing`, COLORS.primary, COLORS.primaryDark)}
       `;
 
       await sendMail(
         adminEmail,
-        `⚠️ כשלון בחיוב - ${charge.display_name || charge.email}`,
+        isLastRetry
+          ? `🚨 ניסיון אחרון לחיוב - ${charge.display_name || charge.email} (₪${charge.amount})`
+          : `⚠️ כשלון בחיוב - ${charge.display_name || charge.email} (ניסיון ${retryCount}/${maxRetries})`,
         wrapInLayout({
           content: adminContent,
-          headerTitle: 'כשלון בחיוב אוטומטי',
-          headerIcon: '⚠️',
+          headerTitle: isLastRetry ? 'ניסיון אחרון לחיוב!' : 'כשלון בחיוב אוטומטי',
+          headerIcon: isLastRetry ? '🚨' : '⚠️',
           headerColor: COLORS.error,
           headerColorEnd: '#b91c1c',
           showUnsubscribe: false,
@@ -1125,28 +1171,41 @@ async function sendFailureNotifications(charge, errorCode, errorMessage, retryCo
     // Send to user (use receipt_email if set, otherwise user's email)
     const userEmail = charge.receipt_email || charge.email;
     if (userEmail) {
+      const remainingDays = maxRetries - retryCount;
+      const graceDaysText = remainingDays > 0
+        ? `נותרו לך עוד ${remainingDays} ${remainingDays === 1 ? 'יום' : 'ימים'} לעדכן את פרטי התשלום.`
+        : 'זהו הניסיון האחרון. אם לא תעדכן את פרטי התשלום, המנוי שלך יופסק.';
+
+      // Translate common Sumit errors to simple Hebrew
+      let hebrewError = errorMessage;
+      if (/declined|סירוב/i.test(errorMessage)) hebrewError = 'הכרטיס נדחה על ידי חברת האשראי';
+      else if (/expired|תוקף/i.test(errorMessage)) hebrewError = 'פג תוקף כרטיס האשראי';
+      else if (/insufficient|מספיק/i.test(errorMessage)) hebrewError = 'אין מספיק יתרה בכרטיס';
+      else if (/credentials|מחובר/i.test(errorMessage)) hebrewError = 'בעיה באימות פרטי התשלום';
+
       const userContent = `
         ${greeting(charge.display_name)}
-        ${paragraph('לא הצלחנו לחייב את אמצעי התשלום שלך עבור המנוי.')}
-        ${alertBox(`<strong>סיבה:</strong> ${errorMessage}`, 'error')}
-        ${isLastRetry
-          ? alertBox('זהו הניסיון האחרון - אם החיוב יכשל שוב, תועבר לתוכנית החינמית.', 'error')
-          : alertBox('ננסה לחייב שוב מחר.', 'warning')
-        }
-        ${paragraph('אנא עדכן את פרטי התשלום שלך כדי למנוע הפסקת שירות:')}
+        ${paragraph(`ניסינו לחייב את אמצעי התשלום שלך על סך <strong>₪${charge.amount}</strong> עבור ${charge.description || charge.plan_name_he || 'המנוי שלך'}, אך החיוב נכשל.`)}
+        ${alertBox(`<strong>סיבת הכשלון:</strong> ${hebrewError}`, 'error')}
+        ${alertBox(graceDaysText, isLastRetry ? 'error' : 'warning')}
+        ${paragraph('כדי למנוע הפסקת שירות, אנא עדכן את פרטי התשלום שלך (כרטיס אשראי חדש או תקף):')}
         ${ctaButton('עדכן פרטי תשלום', `${FRONTEND_URL}/settings?tab=subscription`, COLORS.primary, COLORS.primaryDark)}
+        ${isLastRetry
+          ? paragraph('<strong>שים לב:</strong> אם לא תעדכן את פרטי התשלום, המנוי יופסק והחשבון שלך יעבור לתוכנית החינמית. הבוטים שלך יושבתו.', { size: '13', color: COLORS.error })
+          : paragraph(`ננסה לחייב שוב ב-${formattedRetryDate}. אם תעדכן את הכרטיס לפני כן, החיוב יצליח אוטומטית.`, { size: '13', color: COLORS.textLight })
+        }
       `;
 
       await sendMail(
         userEmail,
-        'בעיה בחיוב החודשי שלך - נדרשת פעולה',
+        isLastRetry ? '⚠️ ניסיון אחרון לחיוב - נדרשת פעולה מיידית!' : 'בעיה בחיוב - נדרש עדכון כרטיס אשראי',
         wrapInLayout({
           content: userContent,
-          headerTitle: 'בעיה בחיוב',
-          headerIcon: '💳',
+          headerTitle: isLastRetry ? 'ניסיון אחרון לחיוב!' : 'בעיה בחיוב',
+          headerIcon: isLastRetry ? '⚠️' : '💳',
           headerColor: COLORS.error,
           headerColorEnd: '#b91c1c',
-          preheader: 'לא הצלחנו לחייב את אמצעי התשלום שלך',
+          preheader: `לא הצלחנו לחייב ₪${charge.amount} - ${graceDaysText}`,
         })
       );
     }
@@ -1198,21 +1257,25 @@ async function sendDowngradeNotification(charge) {
     if (charge.email) {
       const userContent = `
         ${greeting(charge.display_name)}
-        ${paragraph('לצערנו, לא הצלחנו לחייב את אמצעי התשלום שלך למרות מספר ניסיונות.')}
-        ${alertBox('המנוי שלך הועבר לתוכנית החינמית.', 'warning')}
-        ${paragraph('אם ברצונך לחדש את המנוי, אנא עדכן את פרטי התשלום ובחר תוכנית חדשה:')}
-        ${ctaButton('צפה בתוכניות', `${FRONTEND_URL}/pricing`, COLORS.primary, COLORS.primaryDark)}
+        ${alertBox('המנוי שלך הופסק עקב כשלון בחיוב.', 'error')}
+        ${paragraph(`לצערנו, לא הצלחנו לחייב את אמצעי התשלום שלך (₪${charge.amount}) למרות ${charge.max_retries || 3} ניסיונות.`)}
+        ${paragraph('<strong>מה השתנה?</strong>')}
+        ${paragraph('• הבוטים שלך <strong>הושבתו</strong> (למעט בוט אחד בתוכנית החינמית)<br>• המנוי שלך הועבר לתוכנית החינמית<br>• שירותים נוספים הופסקו', { size: '14' })}
+        ${paragraph('<strong>איך לחדש?</strong> עדכן את כרטיס האשראי שלך ובחר תוכנית חדשה:')}
+        ${ctaButton('חדש מנוי עכשיו', `${FRONTEND_URL}/pricing`, COLORS.primary, COLORS.primaryDark)}
+        ${paragraph('לעזרה נוספת ניתן לפנות אלינו.', { size: '13', color: COLORS.textLight })}
       `;
 
       await sendMail(
         charge.email,
-        'המנוי שלך הועבר לתוכנית החינמית',
+        '❌ המנוי שלך הופסק - נדרש חידוש',
         wrapInLayout({
           content: userContent,
-          headerTitle: 'המנוי שלך הועבר לתוכנית חינמית',
-          headerColor: COLORS.warning,
-          headerColorEnd: '#b45309',
-          preheader: 'המנוי שלך הועבר לתוכנית החינמית עקב בעיה בחיוב',
+          headerTitle: 'המנוי שלך הופסק',
+          headerIcon: '❌',
+          headerColor: COLORS.error,
+          headerColorEnd: '#b91c1c',
+          preheader: 'המנוי שלך הופסק עקב כשלון בחיוב — חדש את המנוי כדי להפעיל מחדש',
         })
       );
     }

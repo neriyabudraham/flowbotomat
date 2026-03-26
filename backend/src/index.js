@@ -327,6 +327,11 @@ server.listen(PORT, () => {
       await dbQuery(`ALTER TABLE messages ALTER COLUMN media_mime_type TYPE VARCHAR(200)`);
       // Add is_admin_notification column to notifications table
       await dbQuery(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS is_admin_notification BOOLEAN DEFAULT false`);
+      await dbQuery(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS priority VARCHAR(20) DEFAULT 'normal'`);
+      // Ensure notification_type column exists (some schemas use 'type' instead)
+      await dbQuery(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS notification_type VARCHAR(50)`);
+      // Backfill notification_type from type if needed
+      await dbQuery(`UPDATE notifications SET notification_type = type WHERE notification_type IS NULL AND type IS NOT NULL`);
       // Add disconnect restriction settings columns to status_bot_connections
       await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS disconnect_restriction_enabled BOOLEAN DEFAULT true`);
       await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS short_restriction_minutes INTEGER DEFAULT 30`);
@@ -432,6 +437,9 @@ server.listen(PORT, () => {
       await dbQuery(`ALTER TABLE status_bot_connections ADD COLUMN IF NOT EXISTS restriction_until TIMESTAMP WITH TIME ZONE`);
       await dbQuery(`ALTER TABLE proxy_sources ADD COLUMN IF NOT EXISTS proxy_username VARCHAR(100)`);
       await dbQuery(`ALTER TABLE proxy_sources ADD COLUMN IF NOT EXISTS proxy_password_enc TEXT`);
+      // Increase default max_retries to 3 (3 days grace period)
+      await dbQuery(`ALTER TABLE billing_queue ALTER COLUMN max_retries SET DEFAULT 3`);
+      await dbQuery(`UPDATE billing_queue SET max_retries = 3 WHERE max_retries = 2 AND status IN ('pending', 'failed')`);
       // Drop FK on billing_queue.subscription_id — it references user_subscriptions but
       // service subscriptions use user_service_subscriptions (different table), causing FK violations.
       await dbQuery(`ALTER TABLE billing_queue DROP CONSTRAINT IF EXISTS billing_queue_subscription_id_fkey`);

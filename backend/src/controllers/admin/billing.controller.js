@@ -566,6 +566,36 @@ async function voidPayment(req, res) {
   }
 }
 
+/**
+ * Delete a failed/cancelled charge record permanently
+ */
+async function deleteCharge(req, res) {
+  try {
+    const { id } = req.params;
+    const adminId = req.user.id;
+
+    const result = await pool.query(
+      `DELETE FROM billing_queue WHERE id = $1 AND status IN ('failed', 'cancelled') RETURNING *`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'רשומה לא נמצאה או שאינה ניתנת למחיקה (רק רשומות שנכשלו/בוטלו)' });
+    }
+
+    await pool.query(
+      `INSERT INTO admin_audit_log (admin_id, action, entity_type, entity_id, details)
+       VALUES ($1, 'delete_charge', 'billing_queue', $2, $3)`,
+      [adminId, id, JSON.stringify({ deleted: result.rows[0] })]
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[AdminBilling] Delete charge error:', error);
+    res.status(500).json({ error: 'שגיאה במחיקת הרשומה' });
+  }
+}
+
 module.exports = {
   getUpcomingCharges,
   getFailedCharges,
@@ -581,5 +611,6 @@ module.exports = {
   getChargeDetails,
   processBillingQueue,
   cancelSubscription,
-  voidPayment
+  voidPayment,
+  deleteCharge
 };

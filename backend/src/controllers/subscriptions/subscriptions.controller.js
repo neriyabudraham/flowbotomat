@@ -653,9 +653,46 @@ async function updateAutoUpgrade(req, res) {
   }
 }
 
+/**
+ * Get the current user's payment history (for SubscriptionManager billing history)
+ */
+async function getMyPaymentHistory(req, res) {
+  try {
+    const userId = req.user.id;
+
+    const result = await db.query(`
+      SELECT * FROM (
+        SELECT ph.id, ph.amount, ph.status, ph.created_at,
+               ph.sumit_transaction_id, ph.description, ph.receipt_url,
+               ph.billing_type, ph.plan_name as plan_name_he
+        FROM payment_history ph
+        WHERE ph.user_id = $1 AND ph.status IN ('success', 'refunded')
+
+        UNION ALL
+
+        SELECT sph.id, sph.amount, sph.status, sph.created_at,
+               sph.sumit_transaction_id, sph.description, sph.receipt_url,
+               COALESCE(sph.payment_type, 'status_bot') as billing_type,
+               s.name_he as plan_name_he
+        FROM service_payment_history sph
+        JOIN additional_services s ON s.id = sph.service_id
+        WHERE sph.user_id = $1 AND sph.status IN ('success', 'refunded')
+      ) combined
+      ORDER BY created_at DESC
+      LIMIT 50
+    `, [userId]);
+
+    res.json({ payments: result.rows });
+  } catch (error) {
+    console.error('[Subscriptions] Get my payment history error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת היסטוריית תשלומים' });
+  }
+}
+
 module.exports = {
   getMySubscription,
   getMyUsage,
+  getMyPaymentHistory,
   getAllSubscriptions,
   assignSubscription,
   cancelSubscription,
