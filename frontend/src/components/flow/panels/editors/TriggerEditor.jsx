@@ -1633,13 +1633,21 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                             type="checkbox"
                             checked={group.hasActiveHours || false}
                             onChange={(e) => {
-                              updateGroupSetting(group.id, 'hasActiveHours', e.target.checked);
-                              // Set default values when enabling
-                              if (e.target.checked && !group.activeFrom) {
-                                updateGroupSetting(group.id, 'activeFrom', '09:00');
-                              }
-                              if (e.target.checked && !group.activeTo) {
-                                updateGroupSetting(group.id, 'activeTo', '18:00');
+                              if (e.target.checked) {
+                                const newGroups = groups.map(g => {
+                                  if (g.id === group.id) {
+                                    return {
+                                      ...g,
+                                      hasActiveHours: true,
+                                      activeFrom: g.activeFrom || '09:00',
+                                      activeTo: g.activeTo || '18:00'
+                                    };
+                                  }
+                                  return g;
+                                });
+                                onUpdate({ triggerGroups: newGroups });
+                              } else {
+                                updateGroupSetting(group.id, 'hasActiveHours', false);
                               }
                             }}
                             className="w-4 h-4 rounded border-gray-300 text-purple-600"
@@ -1677,9 +1685,18 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                             checked={group.phoneFilter === 'whitelist' || group.phoneFilter === 'blacklist'}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                updateGroupSetting(group.id, 'phoneFilter', 'whitelist');
-                                if (!group.phoneNumbers) updateGroupSetting(group.id, 'phoneNumbers', []);
-                                if (!group.blacklistNumbers) updateGroupSetting(group.id, 'blacklistNumbers', []);
+                                const newGroups = groups.map(g => {
+                                  if (g.id === group.id) {
+                                    return {
+                                      ...g,
+                                      phoneFilter: 'whitelist',
+                                      phoneNumbers: g.phoneNumbers || [],
+                                      blacklistNumbers: g.blacklistNumbers || []
+                                    };
+                                  }
+                                  return g;
+                                });
+                                onUpdate({ triggerGroups: newGroups });
                               } else {
                                 updateGroupSetting(group.id, 'phoneFilter', 'all');
                               }
@@ -1841,16 +1858,24 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                             type="checkbox"
                             checked={!!(group.advancedConditionGroup?.conditions?.length > 0 || (group.advancedConditions && group.advancedConditions.length > 0))}
                             onChange={(e) => {
-                              if (e.target.checked) {
-                                updateGroupSetting(group.id, 'advancedConditionGroup', {
-                                  logic: 'AND',
-                                  conditions: [{ variable: 'contact_var', operator: 'equals', value: '', varName: '' }]
-                                });
-                                updateGroupSetting(group.id, 'advancedConditions', []);
-                              } else {
-                                updateGroupSetting(group.id, 'advancedConditionGroup', null);
-                                updateGroupSetting(group.id, 'advancedConditions', []);
-                              }
+                              const newGroups = groups.map(g => {
+                                if (g.id === group.id) {
+                                  if (e.target.checked) {
+                                    return {
+                                      ...g,
+                                      advancedConditionGroup: {
+                                        logic: 'AND',
+                                        conditions: [{ variable: 'contact_var', operator: 'equals', value: '', varName: '' }]
+                                      },
+                                      advancedConditions: []
+                                    };
+                                  } else {
+                                    return { ...g, advancedConditionGroup: null, advancedConditions: [] };
+                                  }
+                                }
+                                return g;
+                              });
+                              onUpdate({ triggerGroups: newGroups });
                             }}
                             className="w-4 h-4 rounded border-gray-300 text-purple-600"
                           />

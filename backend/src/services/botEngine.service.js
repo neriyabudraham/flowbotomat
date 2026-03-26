@@ -3210,11 +3210,62 @@ class BotEngine {
       // Write file to disk
       fs.writeFileSync(filePath, Buffer.from(response.data));
 
+      let finalPath = filePath;
+      let finalName = safeName;
+      let finalTypeDir = typeDir;
+
+      // Convert format if requested
+      if (action.convertFormat) {
+        const targetExt = action.convertFormat.startsWith('.') ? action.convertFormat : `.${action.convertFormat}`;
+        const convertedName = `${Date.now()}-${uniqueId}${targetExt}`;
+
+        // Determine target type directory
+        const audioExts = ['.mp3', '.ogg', '.wav', '.m4a'];
+        const imageExts = ['.jpg', '.png', '.webp'];
+        const videoExts = ['.mp4'];
+        if (audioExts.includes(targetExt)) finalTypeDir = 'audio';
+        else if (imageExts.includes(targetExt)) finalTypeDir = 'image';
+        else if (videoExts.includes(targetExt)) finalTypeDir = 'video';
+
+        const convertedDir = path.join(__dirname, '../../uploads', finalTypeDir);
+        if (!fs.existsSync(convertedDir)) fs.mkdirSync(convertedDir, { recursive: true });
+        const convertedPath = path.join(convertedDir, convertedName);
+
+        try {
+          const ffmpeg = require('fluent-ffmpeg');
+          await new Promise((resolve, reject) => {
+            let cmd = ffmpeg(filePath);
+            // Set codec/options for specific formats
+            if (targetExt === '.mp3') cmd = cmd.audioCodec('libmp3lame').audioFrequency(44100);
+            else if (targetExt === '.ogg') cmd = cmd.audioCodec('libvorbis');
+            else if (targetExt === '.wav') cmd = cmd.audioCodec('pcm_s16le');
+            else if (targetExt === '.m4a') cmd = cmd.audioCodec('aac');
+            else if (targetExt === '.jpg') cmd = cmd.frames(1);
+            else if (targetExt === '.png') cmd = cmd.frames(1);
+            else if (targetExt === '.webp') cmd = cmd.frames(1);
+            else if (targetExt === '.mp4') cmd = cmd.videoCodec('libx264').audioCodec('aac');
+
+            cmd.output(convertedPath)
+              .on('end', resolve)
+              .on('error', reject)
+              .run();
+          });
+          // Remove original file after successful conversion
+          fs.unlinkSync(filePath);
+          finalPath = convertedPath;
+          finalName = convertedName;
+          console.log(`[BotEngine] download_file: converted to ${targetExt} -> ${convertedPath}`);
+        } catch (convertErr) {
+          console.error(`[BotEngine] download_file: conversion to ${targetExt} failed: ${convertErr.message}, using original`);
+          // Keep original file on conversion failure
+        }
+      }
+
       // Build the public URL
       const baseUrl = process.env.API_URL || `http://localhost:${process.env.PORT || 3000}/api`;
-      const fileUrl = `${baseUrl}/uploads/${typeDir}/${safeName}`;
+      const fileUrl = `${baseUrl}/uploads/${finalTypeDir}/${finalName}`;
 
-      console.log(`[BotEngine] download_file: saved to ${filePath} (${response.data.byteLength} bytes) -> ${fileUrl}`);
+      console.log(`[BotEngine] download_file: saved to ${finalPath} (${response.data.byteLength} bytes) -> ${fileUrl}`);
 
       // Save the local URL to the contact variable
       await this.setContactVariable(contact.id, action.variableName, fileUrl);

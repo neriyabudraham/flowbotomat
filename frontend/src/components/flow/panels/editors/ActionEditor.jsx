@@ -270,6 +270,31 @@ function ActionItem({ action, onUpdate, onRemove }) {
               placeholder="report.pdf או {{שם_קובץ}}"
             />
           </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1.5">המרת פורמט (אופציונלי)</label>
+            <select
+              value={action.convertFormat || ''}
+              onChange={(e) => onUpdate({ convertFormat: e.target.value })}
+              className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm"
+            >
+              <option value="">ללא המרה — שמור כפי שהוא</option>
+              <optgroup label="שמע">
+                <option value="mp3">MP3</option>
+                <option value="ogg">OGG</option>
+                <option value="wav">WAV</option>
+                <option value="m4a">M4A</option>
+              </optgroup>
+              <optgroup label="תמונה">
+                <option value="jpg">JPG</option>
+                <option value="png">PNG</option>
+                <option value="webp">WebP</option>
+              </optgroup>
+              <optgroup label="וידאו">
+                <option value="mp4">MP4</option>
+              </optgroup>
+            </select>
+            <p className="text-[10px] text-gray-400 mt-1">אם נבחר פורמט, הקובץ יומר אליו אוטומטית לאחר ההורדה</p>
+          </div>
           <div className="p-2.5 bg-teal-50 rounded-lg border border-teal-100">
             <p className="text-xs text-teal-700 leading-relaxed">
               <strong>איך זה עובד:</strong> הקובץ יורד מהקישור ונשמר פיזית בשרת.

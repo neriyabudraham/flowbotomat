@@ -312,6 +312,7 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
 
       let isAuthorized = false;
       let senderCanSendWithoutApproval = false;
+      let senderDbPhone = null; // phone_number as stored in forward_authorized_senders
 
       if (totalAuthSenders === 0 && forward.allow_all_senders) {
         // No senders defined + allow_all enabled — everyone can send
@@ -328,6 +329,7 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
           const normalizedAuth = normalizePhoneNumber(auth.phone_number);
           if (normalizedPhone === normalizedAuth) {
             senderCanSendWithoutApproval = auth.can_send_without_approval === true;
+            senderDbPhone = auth.phone_number;
             break;
           }
         }
@@ -338,6 +340,7 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
           if (normalizedPhone === normalizedAuth) {
             isAuthorized = true;
             senderCanSendWithoutApproval = auth.can_send_without_approval === true;
+            senderDbPhone = auth.phone_number;
             break;
           }
         }
@@ -352,7 +355,7 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
         continue;
       }
 
-      await createTriggerJob(userId, forward, senderPhone, messageData, payload, senderCanSendWithoutApproval);
+      await createTriggerJob(userId, forward, senderPhone, messageData, payload, senderCanSendWithoutApproval, senderDbPhone);
       anyForwardTriggered = true;
     }
     
@@ -367,7 +370,7 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
 /**
  * Create a forward job from webhook trigger
  */
-async function createTriggerJob(userId, forward, senderPhone, messageData, payload, senderCanSendWithoutApproval = false) {
+async function createTriggerJob(userId, forward, senderPhone, messageData, payload, senderCanSendWithoutApproval = false, senderDbPhone = null) {
   // Log reduced
   
   try {
@@ -437,23 +440,10 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
     const job = jobResult.rows[0];
     
     // Create job messages for each target (filtered by sender group permissions)
-    const normalizedSender = normalizePhoneNumber(senderPhone);
-    const targets = await db.query(`
-      SELECT gft.* FROM group_forward_targets gft
-      WHERE gft.forward_id = $1 AND gft.is_active = true
-        AND NOT EXISTS (
-          SELECT 1 FROM forward_sender_group_denied fsgd
-          WHERE fsgd.forward_id = gft.forward_id
-            AND fsgd.sender_phone = $2
-            AND fsgd.group_id = gft.group_id
-        )
-      ORDER BY gft.sort_order ASC
-    `, [forward.id, normalizedSender + '@s.whatsapp.net']);
-
-    // If no targets after filtering, also try with raw normalized phone
-    let finalTargets = targets.rows;
-    if (finalTargets.length === 0) {
-      const targetsRetry = await db.query(`
+    // Use senderDbPhone (as stored in forward_authorized_senders / forward_sender_group_denied)
+    let finalTargets;
+    if (senderDbPhone) {
+      const targets = await db.query(`
         SELECT gft.* FROM group_forward_targets gft
         WHERE gft.forward_id = $1 AND gft.is_active = true
           AND NOT EXISTS (
@@ -463,12 +453,10 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
               AND fsgd.group_id = gft.group_id
           )
         ORDER BY gft.sort_order ASC
-      `, [forward.id, normalizedSender]);
-      finalTargets = targetsRetry.rows;
-    }
-
-    // Fallback: if still no targets (no denied rows at all), get all active targets
-    if (finalTargets.length === 0) {
+      `, [forward.id, senderDbPhone]);
+      finalTargets = targets.rows;
+    } else {
+      // No DB phone (e.g. allow_all_senders with unregistered sender) — no filtering
       const allTargets = await db.query(`
         SELECT * FROM group_forward_targets WHERE forward_id = $1 AND is_active = true ORDER BY sort_order ASC
       `, [forward.id]);
@@ -506,7 +494,7 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
       // No admin configured — send confirmation directly to the sender
       await sendConfirmationList(userId, senderPhone, forward, job);
     } else {
-      await sendStartList(userId, senderPhone, job.id, forward.target_count);
+      await sendStartList(userId, senderPhone, job.id, job.total_targets);
 
       const { startForwardJob } = require('../../controllers/groupForwards/jobs.controller');
       startForwardJob(job.id).catch(err => {
@@ -536,7 +524,7 @@ async function sendConfirmationList(userId, senderPhone, forward, job) {
     // Build list message - concise version with schedule option
     const listData = {
       title: `📤 ${forward.name}`,
-      body: `לשלוח ל-*${forward.target_count}* קבוצות?`,
+      body: `לשלוח ל-*${job.total_targets}* קבוצות?`,
       buttonText: 'בחר פעולה',
       buttons: [
         { title: '✅ שלח עכשיו', rowId: `fwd_confirm_${job.id}` },
@@ -562,7 +550,7 @@ async function sendConfirmationList(userId, senderPhone, forward, job) {
     console.error('[GroupForwards] Send confirmation list error:', error.message);
     // Fallback to text
     await sendNotificationMessage(userId, senderPhone, 
-      `📤 *${forward.name}*\n\nלשלוח ל-${forward.target_count} קבוצות?\n\nהשב "שלח" או "בטל"`
+      `📤 *${forward.name}*\n\nלשלוח ל-${job.total_targets} קבוצות?\n\nהשב "שלח" או "בטל"`
     );
   }
 }
@@ -1236,29 +1224,64 @@ async function handleEditTextInput(userId, senderPhone, newText, pendingKey) {
 async function handleTextConfirm(userId, senderPhone, action) {
   const normalizedPhone = normalizePhoneNumber(senderPhone);
   const withCountryCode = normalizedPhone ? '972' + normalizedPhone : '';
-  const pendingJob = await db.query(`
+  const pendingJobs = await db.query(`
     SELECT fj.*, gf.name as forward_name
     FROM forward_jobs fj
     JOIN group_forwards gf ON fj.forward_id = gf.id
-    WHERE fj.user_id = $1 
+    WHERE fj.user_id = $1
       AND (fj.sender_phone = $2 OR fj.sender_phone = $3 OR fj.sender_phone = $4
            OR REGEXP_REPLACE(fj.sender_phone, '^(\\+?972|0+)', '') = $3)
       AND fj.status = 'pending'
     ORDER BY fj.created_at DESC
-    LIMIT 1
   `, [userId, senderPhone, normalizedPhone, withCountryCode]);
-  
-  if (pendingJob.rows.length === 0) {
+
+  if (pendingJobs.rows.length === 0) {
     return false;
   }
-  
-  const job = pendingJob.rows[0];
-  
-  if (action === 'confirm') {
-    return await handleConfirm(userId, senderPhone, job.id);
-  } else {
-    return await handleCancel(userId, senderPhone, job.id);
+
+  // Single pending job — act on it directly
+  if (pendingJobs.rows.length === 1) {
+    const job = pendingJobs.rows[0];
+    if (action === 'confirm') {
+      return await handleConfirm(userId, senderPhone, job.id);
+    } else {
+      return await handleCancel(userId, senderPhone, job.id);
+    }
   }
+
+  // Multiple pending jobs — send a list so user can pick which one
+  try {
+    const wahaConnection = await getWahaConnection(userId);
+    if (!wahaConnection) return false;
+
+    const chatId = senderPhone.includes('@') ? senderPhone : `${senderPhone}@s.whatsapp.net`;
+    const wahaService = require('../waha/session.service');
+
+    const actionLabel = action === 'confirm' ? 'שלח' : 'בטל';
+    const actionPrefix = action === 'confirm' ? 'fwd_confirm' : 'fwd_cancel';
+    const buttons = pendingJobs.rows.map(job => ({
+      title: `${actionLabel}: ${job.forward_name} (${job.total_targets} קבוצות)`,
+      rowId: `${actionPrefix}_${job.id}`
+    }));
+
+    const listData = {
+      title: `📋 יש ${pendingJobs.rows.length} משימות ממתינות`,
+      body: `בחר את המשימה שברצונך ${action === 'confirm' ? 'לשלוח' : 'לבטל'}:`,
+      buttonText: 'בחר משימה',
+      buttons
+    };
+
+    await wahaService.sendList(wahaConnection, chatId, listData);
+    await saveOutgoingMessage(
+      userId, chatId, 'list', listData.body,
+      null, null, null,
+      { title: listData.title, buttonText: listData.buttonText, buttons: listData.buttons }
+    );
+  } catch (error) {
+    console.error('[GroupForwards] handleTextConfirm multi-job list error:', error.message);
+  }
+
+  return true;
 }
 
 /**
@@ -1267,21 +1290,58 @@ async function handleTextConfirm(userId, senderPhone, action) {
 async function handleTextStop(userId, senderPhone, shouldDelete) {
   const normalizedPhone = normalizePhoneNumber(senderPhone);
   const withCountryCode = normalizedPhone ? '972' + normalizedPhone : '';
-  const activeJob = await db.query(`
-    SELECT * FROM forward_jobs 
-    WHERE user_id = $1 
-      AND (sender_phone = $2 OR sender_phone = $3 OR sender_phone = $4
-           OR REGEXP_REPLACE(sender_phone, '^(\\+?972|0+)', '') = $3)
-      AND status = 'sending'
-    ORDER BY created_at DESC
-    LIMIT 1
+  const activeJobs = await db.query(`
+    SELECT fj.*, gf.name as forward_name FROM forward_jobs fj
+    JOIN group_forwards gf ON fj.forward_id = gf.id
+    WHERE fj.user_id = $1
+      AND (fj.sender_phone = $2 OR fj.sender_phone = $3 OR fj.sender_phone = $4
+           OR REGEXP_REPLACE(fj.sender_phone, '^(\\+?972|0+)', '') = $3)
+      AND fj.status = 'sending'
+    ORDER BY fj.created_at DESC
   `, [userId, senderPhone, normalizedPhone, withCountryCode]);
-  
-  if (activeJob.rows.length === 0) {
+
+  if (activeJobs.rows.length === 0) {
     return false;
   }
-  
-  return await handleStop(userId, senderPhone, activeJob.rows[0].id, shouldDelete);
+
+  // Single active job — act on it directly
+  if (activeJobs.rows.length === 1) {
+    return await handleStop(userId, senderPhone, activeJobs.rows[0].id, shouldDelete);
+  }
+
+  // Multiple active jobs — send a list so user can pick
+  try {
+    const wahaConnection = await getWahaConnection(userId);
+    if (!wahaConnection) return false;
+
+    const chatId = senderPhone.includes('@') ? senderPhone : `${senderPhone}@s.whatsapp.net`;
+    const wahaService = require('../waha/session.service');
+
+    const actionLabel = shouldDelete ? 'מחק' : 'עצור';
+    const actionPrefix = shouldDelete ? 'fwd_delete' : 'fwd_stop';
+    const buttons = activeJobs.rows.map(job => ({
+      title: `${actionLabel}: ${job.forward_name}`,
+      rowId: `${actionPrefix}_${job.id}`
+    }));
+
+    const listData = {
+      title: `📋 יש ${activeJobs.rows.length} משימות פעילות`,
+      body: `בחר את המשימה שברצונך ${shouldDelete ? 'למחוק' : 'לעצור'}:`,
+      buttonText: 'בחר משימה',
+      buttons
+    };
+
+    await wahaService.sendList(wahaConnection, chatId, listData);
+    await saveOutgoingMessage(
+      userId, chatId, 'list', listData.body,
+      null, null, null,
+      { title: listData.title, buttonText: listData.buttonText, buttons: listData.buttons }
+    );
+  } catch (error) {
+    console.error('[GroupForwards] handleTextStop multi-job list error:', error.message);
+  }
+
+  return true;
 }
 
 // Hebrew day names
