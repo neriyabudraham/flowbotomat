@@ -28,6 +28,33 @@ app.use('/api', routes);
 // Serve uploaded files under /api/uploads (so it goes through nginx api proxy)
 app.use('/api/uploads', express.static(path.join(__dirname, '../uploads')));
 
+// Ensure static placeholder images exist in the uploads volume
+(function ensureStaticAssets() {
+  const fs = require('fs');
+  const zlib = require('zlib');
+  const staticDir = path.join(__dirname, '../uploads/static');
+  const filePath = path.join(staticDir, 'whatsapp-group.png');
+  if (!fs.existsSync(filePath)) {
+    fs.mkdirSync(staticDir, { recursive: true });
+    // Generate a 64x64 WhatsApp-green PNG
+    const sig = Buffer.from([137,80,78,71,13,10,26,10]);
+    function pngChunk(type, data) {
+      const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+      const t = Buffer.from(type);
+      const combined = Buffer.concat([t, data]);
+      let c = 0xFFFFFFFF;
+      for (let i = 0; i < combined.length; i++) { c ^= combined[i]; for (let j = 0; j < 8; j++) c = (c>>>1)^(c&1?0xEDB88320:0); }
+      const crc = Buffer.alloc(4); crc.writeUInt32BE((c^0xFFFFFFFF)>>>0);
+      return Buffer.concat([len, t, data, crc]);
+    }
+    const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(64,0); ihdr.writeUInt32BE(64,4); ihdr[8]=8; ihdr[9]=2;
+    const raw = []; for (let y=0;y<64;y++){raw.push(0);for(let x=0;x<64;x++)raw.push(37,211,102);}
+    const png = Buffer.concat([sig, pngChunk('IHDR',ihdr), pngChunk('IDAT',zlib.deflateSync(Buffer.from(raw))), pngChunk('IEND',Buffer.alloc(0))]);
+    fs.writeFileSync(filePath, png);
+    console.log('[Static] Created whatsapp-group.png placeholder');
+  }
+})();
+
 // Health check
 app.get('/api/health', (req, res) => {
   const dbPool = require('./config/database').pool;
