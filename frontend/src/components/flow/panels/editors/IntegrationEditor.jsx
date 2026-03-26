@@ -293,15 +293,16 @@ function parseCurl(curlCommand) {
   }
 
   // Extract -F / --form fields (multipart form-data)
-  const formRegex = /(?:-F|--form)\s+(?:'([^']*)'|"([^"]*)")/gi;
+  // Supports: -F 'key=value', -F "key=value", -F key=value, -F key="value", -F key=@file
+  const formRegex = /(?:-F|--form)\s+(?:'([^']*)'|"([^"]*)"|(\S+))/gi;
   let formMatch;
   const formFields = [];
   while ((formMatch = formRegex.exec(cmd)) !== null) {
-    const fieldStr = formMatch[1] || formMatch[2];
+    const fieldStr = formMatch[1] || formMatch[2] || formMatch[3];
     const eqIndex = fieldStr.indexOf('=');
     if (eqIndex > 0) {
       const key = fieldStr.substring(0, eqIndex).trim();
-      let value = fieldStr.substring(eqIndex + 1).trim();
+      let value = fieldStr.substring(eqIndex + 1).trim().replace(/^["']|["']$/g, ''); // strip surrounding quotes
       // Detect file references like @filename or @/path/to/file
       const isFile = value.startsWith('@');
       if (isFile) value = value.substring(1); // remove @
