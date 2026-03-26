@@ -71,12 +71,29 @@ CREATE TABLE IF NOT EXISTS forward_authorized_senders (
     forward_id UUID NOT NULL REFERENCES group_forwards(id) ON DELETE CASCADE,
     phone_number VARCHAR(30) NOT NULL, -- Phone number in WhatsApp format
     name VARCHAR(255), -- Display name
+    auto_add_new_targets BOOLEAN DEFAULT true, -- Whether new targets are auto-allowed for this sender
     created_at TIMESTAMP DEFAULT NOW(),
-    
+
     UNIQUE(forward_id, phone_number)
 );
 
 CREATE INDEX idx_forward_senders_forward ON forward_authorized_senders(forward_id);
+
+-- =============================================
+-- SENDER GROUP DENIED (Per-sender group access restrictions)
+-- =============================================
+CREATE TABLE IF NOT EXISTS forward_sender_group_denied (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    forward_id UUID NOT NULL REFERENCES group_forwards(id) ON DELETE CASCADE,
+    sender_phone VARCHAR(50) NOT NULL,
+    group_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+
+    UNIQUE(forward_id, sender_phone, group_id)
+);
+
+CREATE INDEX idx_sender_group_denied_forward ON forward_sender_group_denied(forward_id);
+CREATE INDEX idx_sender_group_denied_phone ON forward_sender_group_denied(forward_id, sender_phone);
 
 -- =============================================
 -- FORWARD JOBS (Active forwarding jobs)

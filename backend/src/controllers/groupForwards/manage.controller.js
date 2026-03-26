@@ -248,6 +248,11 @@ async function updateTargets(req, res) {
           suffixTargets.map(t => ({ group: t.group_name, suffix_len: t.custom_suffix?.length })));
       }
 
+      // Get existing group_ids before deletion (to detect truly new groups)
+      const existingGroupIds = new Set(
+        (await client.query('SELECT group_id FROM group_forward_targets WHERE forward_id = $1', [forwardId])).rows.map(r => r.group_id)
+      );
+
       // Delete existing targets
       await client.query(
         'DELETE FROM group_forward_targets WHERE forward_id = $1',
@@ -255,10 +260,11 @@ async function updateTargets(req, res) {
       );
 
       // Insert new targets
+      const newGroupIds = [];
       for (let i = 0; i < targets.length; i++) {
         const target = targets[i];
         await client.query(`
-          INSERT INTO group_forward_targets 
+          INSERT INTO group_forward_targets
           (forward_id, group_id, group_name, group_image_url, sort_order, custom_suffix, no_suffix)
           VALUES ($1, $2, $3, $4, $5, $6, $7)
         `, [
@@ -270,8 +276,40 @@ async function updateTargets(req, res) {
           target.custom_suffix !== undefined ? target.custom_suffix : null,
           target.no_suffix || false
         ]);
+        if (!existingGroupIds.has(target.group_id)) {
+          newGroupIds.push(target.group_id);
+        }
       }
-      
+
+      // Auto-deny new groups for senders with auto_add_new_targets = false
+      if (newGroupIds.length > 0) {
+        const restrictedSenders = await client.query(
+          'SELECT phone_number FROM forward_authorized_senders WHERE forward_id = $1 AND auto_add_new_targets = false',
+          [forwardId]
+        );
+        for (const sender of restrictedSenders.rows) {
+          for (const groupId of newGroupIds) {
+            await client.query(
+              'INSERT INTO forward_sender_group_denied (forward_id, sender_phone, group_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+              [forwardId, sender.phone_number, groupId]
+            );
+          }
+        }
+        if (restrictedSenders.rows.length > 0) {
+          console.log(`[GroupForwards] Auto-denied ${newGroupIds.length} new groups for ${restrictedSenders.rows.length} restricted senders in forward ${forwardId}`);
+        }
+      }
+
+      // Clean up denied entries for groups that were removed
+      const currentGroupIds = targets.map(t => t.group_id);
+      if (currentGroupIds.length > 0) {
+        await client.query(`
+          DELETE FROM forward_sender_group_denied
+          WHERE forward_id = $1
+            AND group_id NOT IN (${currentGroupIds.map((_, i) => `$${i + 2}`).join(',')})
+        `, [forwardId, ...currentGroupIds]);
+      }
+
       await client.query('COMMIT');
       
       // Get updated targets
@@ -338,7 +376,7 @@ async function updateAuthorizedSenders(req, res) {
         [forwardId]
       );
 
-      // Insert new senders
+      // Insert new senders (preserve auto_add_new_targets from existing data)
       for (const sender of senders) {
         if (sender.phone_number?.trim()) {
           // Normalize phone number
@@ -353,26 +391,37 @@ async function updateAuthorizedSenders(req, res) {
           const isAdmin = sender.is_admin === true;
           const canSendWithoutApproval = sender.can_send_without_approval === true;
           const canDeleteFromAllGroups = sender.can_delete_from_all_groups === true;
+          const autoAddNewTargets = sender.auto_add_new_targets !== false;
 
           await client.query(`
-            INSERT INTO forward_authorized_senders (forward_id, phone_number, name, is_admin, can_send_without_approval, can_delete_from_all_groups)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO forward_authorized_senders (forward_id, phone_number, name, is_admin, can_send_without_approval, can_delete_from_all_groups, auto_add_new_targets)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (forward_id, phone_number) DO UPDATE SET
               name = $3, is_admin = $4,
-              can_send_without_approval = $5, can_delete_from_all_groups = $6
-          `, [forwardId, phone, sender.name || null, isAdmin, canSendWithoutApproval, canDeleteFromAllGroups]);
+              can_send_without_approval = $5, can_delete_from_all_groups = $6,
+              auto_add_new_targets = $7
+          `, [forwardId, phone, sender.name || null, isAdmin, canSendWithoutApproval, canDeleteFromAllGroups, autoAddNewTargets]);
         }
       }
 
-      await client.query('COMMIT');
-      
-      // Get updated senders
-      const result = await db.query(`
-        SELECT * FROM forward_authorized_senders 
-        WHERE forward_id = $1 
-        ORDER BY created_at ASC
+      // Clean up denied entries for senders that were removed
+      await client.query(`
+        DELETE FROM forward_sender_group_denied
+        WHERE forward_id = $1
+          AND sender_phone NOT IN (SELECT phone_number FROM forward_authorized_senders WHERE forward_id = $1)
       `, [forwardId]);
-      
+
+      await client.query('COMMIT');
+
+      // Get updated senders with denied group counts
+      const result = await db.query(`
+        SELECT fas.*,
+          (SELECT COUNT(*) FROM forward_sender_group_denied WHERE forward_id = fas.forward_id AND sender_phone = fas.phone_number) as denied_groups_count
+        FROM forward_authorized_senders fas
+        WHERE fas.forward_id = $1
+        ORDER BY fas.created_at ASC
+      `, [forwardId]);
+
       res.json({
         success: true,
         senders: result.rows,
@@ -527,6 +576,135 @@ async function duplicateGroupForward(req, res) {
   }
 }
 
+/**
+ * Get group permissions for a specific sender
+ * Returns all targets with their allowed/denied status
+ */
+async function getSenderGroupPermissions(req, res) {
+  try {
+    const userId = req.user.id;
+    const { forwardId, senderPhone } = req.params;
+
+    // Verify ownership
+    const ownerCheck = await db.query(
+      'SELECT id FROM group_forwards WHERE id = $1 AND user_id = $2',
+      [forwardId, userId]
+    );
+    if (ownerCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'העברה לא נמצאה' });
+    }
+
+    // Get sender info
+    const senderResult = await db.query(
+      'SELECT * FROM forward_authorized_senders WHERE forward_id = $1 AND phone_number = $2',
+      [forwardId, senderPhone]
+    );
+    if (senderResult.rows.length === 0) {
+      return res.status(404).json({ error: 'שולח לא נמצא' });
+    }
+
+    // Get all targets with denied status
+    const targets = await db.query(`
+      SELECT gft.id, gft.group_id, gft.group_name, gft.group_image_url,
+        CASE WHEN fsgd.id IS NOT NULL THEN false ELSE true END as allowed
+      FROM group_forward_targets gft
+      LEFT JOIN forward_sender_group_denied fsgd
+        ON fsgd.forward_id = gft.forward_id
+        AND fsgd.sender_phone = $2
+        AND fsgd.group_id = gft.group_id
+      WHERE gft.forward_id = $1 AND gft.is_active = true
+      ORDER BY gft.sort_order ASC
+    `, [forwardId, senderPhone]);
+
+    res.json({
+      success: true,
+      sender: senderResult.rows[0],
+      targets: targets.rows
+    });
+  } catch (error) {
+    console.error('[GroupForwards] Get sender permissions error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת הרשאות שולח' });
+  }
+}
+
+/**
+ * Update group permissions for a specific sender
+ * Body: { denied_group_ids: [...], auto_add_new_targets: boolean }
+ */
+async function updateSenderGroupPermissions(req, res) {
+  try {
+    const userId = req.user.id;
+    const { forwardId, senderPhone } = req.params;
+    const { denied_group_ids, auto_add_new_targets } = req.body;
+
+    // Verify ownership
+    const ownerCheck = await db.query(
+      'SELECT id FROM group_forwards WHERE id = $1 AND user_id = $2',
+      [forwardId, userId]
+    );
+    if (ownerCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'העברה לא נמצאה' });
+    }
+
+    // Verify sender exists
+    const senderResult = await db.query(
+      'SELECT id FROM forward_authorized_senders WHERE forward_id = $1 AND phone_number = $2',
+      [forwardId, senderPhone]
+    );
+    if (senderResult.rows.length === 0) {
+      return res.status(404).json({ error: 'שולח לא נמצא' });
+    }
+
+    const client = await db.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Delete all existing denied entries for this sender
+      await client.query(
+        'DELETE FROM forward_sender_group_denied WHERE forward_id = $1 AND sender_phone = $2',
+        [forwardId, senderPhone]
+      );
+
+      // Insert new denied entries
+      if (Array.isArray(denied_group_ids)) {
+        for (const groupId of denied_group_ids) {
+          await client.query(
+            'INSERT INTO forward_sender_group_denied (forward_id, sender_phone, group_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+            [forwardId, senderPhone, groupId]
+          );
+        }
+      }
+
+      // Update auto_add_new_targets if provided
+      if (auto_add_new_targets !== undefined) {
+        await client.query(
+          'UPDATE forward_authorized_senders SET auto_add_new_targets = $3 WHERE forward_id = $1 AND phone_number = $2',
+          [forwardId, senderPhone, auto_add_new_targets]
+        );
+      }
+
+      await client.query('COMMIT');
+
+      const deniedCount = Array.isArray(denied_group_ids) ? denied_group_ids.length : 0;
+      res.json({
+        success: true,
+        denied_count: deniedCount,
+        message: deniedCount > 0
+          ? `${deniedCount} קבוצות נחסמו עבור שולח זה`
+          : 'לשולח יש גישה לכל הקבוצות'
+      });
+    } catch (txError) {
+      await client.query('ROLLBACK');
+      throw txError;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('[GroupForwards] Update sender permissions error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון הרשאות שולח' });
+  }
+}
+
 module.exports = {
   createGroupForward,
   updateGroupForward,
@@ -534,5 +712,7 @@ module.exports = {
   updateTargets,
   updateAuthorizedSenders,
   toggleForwardActive,
-  duplicateGroupForward
+  duplicateGroupForward,
+  getSenderGroupPermissions,
+  updateSenderGroupPermissions
 };

@@ -436,20 +436,58 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
     
     const job = jobResult.rows[0];
     
-    // Create job messages for each target
+    // Create job messages for each target (filtered by sender group permissions)
+    const normalizedSender = normalizePhoneNumber(senderPhone);
     const targets = await db.query(`
-      SELECT * FROM group_forward_targets 
-      WHERE forward_id = $1 AND is_active = true
-      ORDER BY sort_order ASC
-    `, [forward.id]);
-    
-    for (const target of targets.rows) {
+      SELECT gft.* FROM group_forward_targets gft
+      WHERE gft.forward_id = $1 AND gft.is_active = true
+        AND NOT EXISTS (
+          SELECT 1 FROM forward_sender_group_denied fsgd
+          WHERE fsgd.forward_id = gft.forward_id
+            AND fsgd.sender_phone = $2
+            AND fsgd.group_id = gft.group_id
+        )
+      ORDER BY gft.sort_order ASC
+    `, [forward.id, normalizedSender + '@s.whatsapp.net']);
+
+    // If no targets after filtering, also try with raw normalized phone
+    let finalTargets = targets.rows;
+    if (finalTargets.length === 0) {
+      const targetsRetry = await db.query(`
+        SELECT gft.* FROM group_forward_targets gft
+        WHERE gft.forward_id = $1 AND gft.is_active = true
+          AND NOT EXISTS (
+            SELECT 1 FROM forward_sender_group_denied fsgd
+            WHERE fsgd.forward_id = gft.forward_id
+              AND fsgd.sender_phone = $2
+              AND fsgd.group_id = gft.group_id
+          )
+        ORDER BY gft.sort_order ASC
+      `, [forward.id, normalizedSender]);
+      finalTargets = targetsRetry.rows;
+    }
+
+    // Fallback: if still no targets (no denied rows at all), get all active targets
+    if (finalTargets.length === 0) {
+      const allTargets = await db.query(`
+        SELECT * FROM group_forward_targets WHERE forward_id = $1 AND is_active = true ORDER BY sort_order ASC
+      `, [forward.id]);
+      finalTargets = allTargets.rows;
+    }
+
+    for (const target of finalTargets) {
       await db.query(`
         INSERT INTO forward_job_messages (job_id, target_id, group_id, group_name, status)
         VALUES ($1, $2, $3, $4, 'pending')
       `, [job.id, target.id, target.group_id, target.group_name]);
     }
-    
+
+    // Update total_targets to reflect actual count after sender filtering
+    if (finalTargets.length !== forward.target_count) {
+      await db.query('UPDATE forward_jobs SET total_targets = $2 WHERE id = $1', [job.id, finalTargets.length]);
+      job.total_targets = finalTargets.length;
+    }
+
     // Job created
     
     // Check if admin approval is required before proceeding (per-forward admin)

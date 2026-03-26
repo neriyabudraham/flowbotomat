@@ -57,11 +57,13 @@ async function getGroupForward(req, res) {
       ORDER BY sort_order ASC, created_at ASC
     `, [forwardId]);
     
-    // Get authorized senders
+    // Get authorized senders with denied group counts
     const sendersResult = await db.query(`
-      SELECT * FROM forward_authorized_senders 
-      WHERE forward_id = $1
-      ORDER BY created_at ASC
+      SELECT fas.*,
+        (SELECT COUNT(*) FROM forward_sender_group_denied WHERE forward_id = fas.forward_id AND sender_phone = fas.phone_number) as denied_groups_count
+      FROM forward_authorized_senders fas
+      WHERE fas.forward_id = $1
+      ORDER BY fas.created_at ASC
     `, [forwardId]);
     
     res.json({

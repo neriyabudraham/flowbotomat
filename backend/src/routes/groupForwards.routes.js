@@ -57,6 +57,8 @@ router.post('/:forwardId/toggle', manageController.toggleForwardActive);
 // =============================================
 router.put('/:forwardId/targets', manageController.updateTargets);
 router.put('/:forwardId/senders', manageController.updateAuthorizedSenders);
+router.get('/:forwardId/senders/:senderPhone/permissions', manageController.getSenderGroupPermissions);
+router.put('/:forwardId/senders/:senderPhone/permissions', manageController.updateSenderGroupPermissions);
 
 // =============================================
 // Forward-specific jobs

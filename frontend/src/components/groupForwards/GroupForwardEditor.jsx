@@ -50,6 +50,12 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
   const [newSenderName, setNewSenderName] = useState('');
   const [allowAllSenders, setAllowAllSenders] = useState(false);
   const [loadingMembers, setLoadingMembers] = useState(false);
+
+  // Sender group permissions
+  const [expandedSender, setExpandedSender] = useState(null); // phone_number of expanded sender
+  const [senderPermissions, setSenderPermissions] = useState(null); // { sender, targets }
+  const [loadingPermissions, setLoadingPermissions] = useState(false);
+  const [savingPermissions, setSavingPermissions] = useState(false);
   
   // Error modal
   const [errorMessage, setErrorMessage] = useState(null);
@@ -178,6 +184,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
           is_admin: s.is_admin || false,
           can_send_without_approval: s.can_send_without_approval || false,
           can_delete_from_all_groups: s.can_delete_from_all_groups || false,
+          auto_add_new_targets: s.auto_add_new_targets !== false,
         }))
       });
       return true;
@@ -353,6 +360,101 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
       setErrorMessage(e.response?.data?.error || 'שגיאה בשליפת חברי הקבוצה');
     } finally {
       setLoadingMembers(false);
+    }
+  };
+
+  // Load sender group permissions
+  const loadSenderPermissions = async (senderPhone) => {
+    if (expandedSender === senderPhone) {
+      setExpandedSender(null);
+      setSenderPermissions(null);
+      return;
+    }
+    try {
+      setLoadingPermissions(true);
+      setExpandedSender(senderPhone);
+      const { data } = await api.get(`/group-forwards/${forward.id}/senders/${encodeURIComponent(senderPhone)}/permissions`);
+      setSenderPermissions(data);
+    } catch (e) {
+      console.error('Error loading sender permissions:', e);
+      setErrorMessage(e.response?.data?.error || 'שגיאה בטעינת הרשאות');
+      setExpandedSender(null);
+    } finally {
+      setLoadingPermissions(false);
+    }
+  };
+
+  // Toggle a group for a sender
+  const toggleSenderGroup = (groupId) => {
+    if (!senderPermissions) return;
+    setSenderPermissions(prev => ({
+      ...prev,
+      targets: prev.targets.map(t =>
+        t.group_id === groupId ? { ...t, allowed: !t.allowed } : t
+      )
+    }));
+  };
+
+  // Save sender group permissions
+  const saveSenderPermissions = async () => {
+    if (!senderPermissions || !expandedSender) return;
+    try {
+      setSavingPermissions(true);
+      const deniedGroupIds = senderPermissions.targets
+        .filter(t => !t.allowed)
+        .map(t => t.group_id);
+
+      const hasDenied = deniedGroupIds.length > 0;
+      // If any group is denied and auto_add was true, flip it to false
+      const currentSender = senders.find(s => s.phone_number === expandedSender);
+      const newAutoAdd = hasDenied ? (currentSender?.auto_add_new_targets === false ? false : false) : currentSender?.auto_add_new_targets;
+
+      await api.put(`/group-forwards/${forward.id}/senders/${encodeURIComponent(expandedSender)}/permissions`, {
+        denied_group_ids: deniedGroupIds,
+        auto_add_new_targets: newAutoAdd
+      });
+
+      // Update local sender state
+      setSenders(prev => prev.map(s =>
+        s.phone_number === expandedSender
+          ? { ...s, denied_groups_count: deniedGroupIds.length, auto_add_new_targets: newAutoAdd }
+          : s
+      ));
+    } catch (e) {
+      console.error('Error saving sender permissions:', e);
+      setErrorMessage(e.response?.data?.error || 'שגיאה בשמירת הרשאות');
+    } finally {
+      setSavingPermissions(false);
+    }
+  };
+
+  // Toggle auto_add_new_targets for a sender
+  const toggleSenderAutoAdd = async (senderPhone, currentValue) => {
+    const newValue = !currentValue;
+    try {
+      // Get current denied list first
+      const { data } = await api.get(`/group-forwards/${forward.id}/senders/${encodeURIComponent(senderPhone)}/permissions`);
+      const deniedGroupIds = data.targets.filter(t => !t.allowed).map(t => t.group_id);
+
+      await api.put(`/group-forwards/${forward.id}/senders/${encodeURIComponent(senderPhone)}/permissions`, {
+        denied_group_ids: deniedGroupIds,
+        auto_add_new_targets: newValue
+      });
+
+      setSenders(prev => prev.map(s =>
+        s.phone_number === senderPhone ? { ...s, auto_add_new_targets: newValue } : s
+      ));
+
+      // Update permissions panel if this sender is expanded
+      if (senderPermissions?.sender?.phone_number === senderPhone) {
+        setSenderPermissions(prev => ({
+          ...prev,
+          sender: { ...prev.sender, auto_add_new_targets: newValue }
+        }));
+      }
+    } catch (e) {
+      console.error('Error toggling auto_add:', e);
+      setErrorMessage(e.response?.data?.error || 'שגיאה בעדכון');
     }
   };
 
@@ -856,60 +958,156 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                     
                     const hasAnyCapability = sender.is_admin || sender.can_send_without_approval || sender.can_delete_from_all_groups;
 
+                    const isExpanded = expandedSender === sender.phone_number;
+                    const deniedCount = parseInt(sender.denied_groups_count) || 0;
+
                     return (
-                      <div key={sender.phone_number} className={`group flex items-center gap-3 p-4 bg-gradient-to-r rounded-xl border transition-all hover:shadow-md ${sender.is_admin ? 'from-amber-50 to-orange-50 border-amber-200 hover:border-amber-300' : 'from-gray-50 to-white border-gray-100 hover:border-green-200'}`}>
-                        <div className={`w-11 h-11 bg-gradient-to-br rounded-xl flex items-center justify-center shadow flex-shrink-0 ${sender.is_admin ? 'from-amber-400 to-orange-500' : 'from-green-500 to-emerald-500'}`}>
-                          {sender.is_admin ? <Crown className="w-5 h-5 text-white" /> : <Phone className="w-5 h-5 text-white" />}
-                        </div>
-                        <div className="flex-1 min-w-0 text-right">
-                          <div className="flex items-center gap-1.5 justify-end flex-wrap">
-                            {sender.name && (
-                              <p className="font-semibold text-gray-900">{sender.name}</p>
-                            )}
-                            {sender.is_admin && (
-                              <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">מנהל ראשי</span>
-                            )}
-                            {sender.can_send_without_approval && (
-                              <span className="text-xs bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-medium">שליחה חופשית</span>
-                            )}
-                            {sender.can_delete_from_all_groups && (
-                              <span className="text-xs bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full font-medium">מחיקה מכל הקבוצות</span>
-                            )}
+                      <div key={sender.phone_number} className="space-y-0">
+                        <div className={`group flex items-center gap-3 p-4 bg-gradient-to-r rounded-xl border transition-all hover:shadow-md cursor-pointer ${sender.is_admin ? 'from-amber-50 to-orange-50 border-amber-200 hover:border-amber-300' : 'from-gray-50 to-white border-gray-100 hover:border-green-200'} ${isExpanded ? 'rounded-b-none border-b-0' : ''}`}
+                          onClick={() => loadSenderPermissions(sender.phone_number)}
+                        >
+                          <div className={`w-11 h-11 bg-gradient-to-br rounded-xl flex items-center justify-center shadow flex-shrink-0 ${sender.is_admin ? 'from-amber-400 to-orange-500' : 'from-green-500 to-emerald-500'}`}>
+                            {sender.is_admin ? <Crown className="w-5 h-5 text-white" /> : <Phone className="w-5 h-5 text-white" />}
                           </div>
-                          <p className={`${sender.name ? 'text-sm text-gray-500' : 'font-semibold text-gray-900'}`} dir="ltr" style={{ textAlign: 'right' }}>
-                            {formattedPhone}
-                          </p>
+                          <div className="flex-1 min-w-0 text-right">
+                            <div className="flex items-center gap-1.5 justify-end flex-wrap">
+                              {sender.name && (
+                                <p className="font-semibold text-gray-900">{sender.name}</p>
+                              )}
+                              {sender.is_admin && (
+                                <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">מנהל ראשי</span>
+                              )}
+                              {sender.can_send_without_approval && (
+                                <span className="text-xs bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-medium">שליחה חופשית</span>
+                              )}
+                              {sender.can_delete_from_all_groups && (
+                                <span className="text-xs bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full font-medium">מחיקה מכל הקבוצות</span>
+                              )}
+                              {deniedCount > 0 && (
+                                <span className="text-xs bg-orange-100 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full font-medium">{deniedCount} קבוצות חסומות</span>
+                              )}
+                            </div>
+                            <p className={`${sender.name ? 'text-sm text-gray-500' : 'font-semibold text-gray-900'}`} dir="ltr" style={{ textAlign: 'right' }}>
+                              {formattedPhone}
+                            </p>
+                          </div>
+                          {/* Capability toggles */}
+                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => toggleAdmin(sender.phone_number)}
+                              title={sender.is_admin ? 'הסר מנהל ראשי' : 'הגדר כמנהל ראשי (מאשר הודעות)'}
+                              className={`p-2 rounded-xl transition-all ${sender.is_admin ? 'text-amber-500 bg-amber-100' : 'text-gray-400 hover:bg-amber-50 hover:text-amber-500'}`}
+                            >
+                              <Crown className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => toggleCapability(sender.phone_number, 'can_send_without_approval')}
+                              title={sender.can_send_without_approval ? 'הסר שליחה חופשית' : 'הרשה שליחה ללא אישור'}
+                              className={`p-2 rounded-xl transition-all ${sender.can_send_without_approval ? 'text-blue-500 bg-blue-100' : 'text-gray-400 hover:bg-blue-50 hover:text-blue-500'}`}
+                            >
+                              <Zap className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => toggleCapability(sender.phone_number, 'can_delete_from_all_groups')}
+                              title={sender.can_delete_from_all_groups ? 'הסר הרשאת מחיקה' : 'הרשה מחיקה מכל הקבוצות'}
+                              className={`p-2 rounded-xl transition-all ${sender.can_delete_from_all_groups ? 'text-red-500 bg-red-100' : 'text-gray-400 hover:bg-red-50 hover:text-red-500'}`}
+                            >
+                              <Eraser className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => removeSender(sender.phone_number)}
+                              className="p-2 hover:bg-red-100 rounded-xl text-gray-400 hover:text-red-600 transition-all"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                          <div className="flex-shrink-0">
+                            {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                          </div>
                         </div>
-                        {/* Capability toggles */}
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => toggleAdmin(sender.phone_number)}
-                            title={sender.is_admin ? 'הסר מנהל ראשי' : 'הגדר כמנהל ראשי (מאשר הודעות)'}
-                            className={`p-2 rounded-xl transition-all ${sender.is_admin ? 'text-amber-500 bg-amber-100' : 'text-gray-400 hover:bg-amber-50 hover:text-amber-500'}`}
-                          >
-                            <Crown className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => toggleCapability(sender.phone_number, 'can_send_without_approval')}
-                            title={sender.can_send_without_approval ? 'הסר שליחה חופשית' : 'הרשה שליחה ללא אישור'}
-                            className={`p-2 rounded-xl transition-all ${sender.can_send_without_approval ? 'text-blue-500 bg-blue-100' : 'text-gray-400 hover:bg-blue-50 hover:text-blue-500'}`}
-                          >
-                            <Zap className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => toggleCapability(sender.phone_number, 'can_delete_from_all_groups')}
-                            title={sender.can_delete_from_all_groups ? 'הסר הרשאת מחיקה' : 'הרשה מחיקה מכל הקבוצות'}
-                            className={`p-2 rounded-xl transition-all ${sender.can_delete_from_all_groups ? 'text-red-500 bg-red-100' : 'text-gray-400 hover:bg-red-50 hover:text-red-500'}`}
-                          >
-                            <Eraser className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => removeSender(sender.phone_number)}
-                            className="p-2 hover:bg-red-100 rounded-xl text-gray-400 hover:text-red-600 transition-all"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+
+                        {/* Expanded: Group permissions panel */}
+                        {isExpanded && (
+                          <div className="border border-t-0 border-gray-200 rounded-b-xl bg-gradient-to-b from-white to-gray-50 p-4">
+                            {loadingPermissions ? (
+                              <div className="flex items-center justify-center py-6">
+                                <Loader2 className="w-5 h-5 text-purple-500 animate-spin" />
+                                <span className="mr-2 text-sm text-gray-500">טוען הרשאות...</span>
+                              </div>
+                            ) : senderPermissions ? (
+                              <div>
+                                {/* Auto add toggle */}
+                                <div className="flex items-center justify-between gap-3 mb-4 p-3 bg-white rounded-xl border border-gray-100">
+                                  <div className="flex items-center gap-2">
+                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${sender.auto_add_new_targets !== false ? 'bg-green-100' : 'bg-gray-100'}`}>
+                                      <Plus className={`w-4 h-4 ${sender.auto_add_new_targets !== false ? 'text-green-600' : 'text-gray-400'}`} />
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-medium text-gray-800">קבוצות חדשות אוטומטית</p>
+                                      <p className="text-xs text-gray-500">כשמתווספת קבוצה חדשה, השולח {sender.auto_add_new_targets !== false ? 'מקבל' : 'לא מקבל'} גישה אליה</p>
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); toggleSenderAutoAdd(sender.phone_number, sender.auto_add_new_targets !== false); }}
+                                    className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer flex-shrink-0 ${
+                                      sender.auto_add_new_targets !== false ? 'bg-green-500' : 'bg-gray-300'
+                                    }`}
+                                  >
+                                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${
+                                      sender.auto_add_new_targets !== false ? 'right-1' : 'left-1'
+                                    }`} />
+                                  </button>
+                                </div>
+
+                                {/* Group list */}
+                                <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                                  {senderPermissions.targets.map(target => (
+                                    <div
+                                      key={target.group_id}
+                                      onClick={() => toggleSenderGroup(target.group_id)}
+                                      className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all ${
+                                        target.allowed
+                                          ? 'bg-green-50 border border-green-200 hover:bg-green-100'
+                                          : 'bg-red-50 border border-red-200 hover:bg-red-100'
+                                      }`}
+                                    >
+                                      <div className={`w-5 h-5 rounded flex items-center justify-center flex-shrink-0 ${
+                                        target.allowed ? 'bg-green-500' : 'bg-red-400'
+                                      }`}>
+                                        {target.allowed
+                                          ? <Check className="w-3.5 h-3.5 text-white" />
+                                          : <X className="w-3.5 h-3.5 text-white" />
+                                        }
+                                      </div>
+                                      {target.group_image_url && (
+                                        <img src={target.group_image_url} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                                      )}
+                                      <span className={`text-sm font-medium flex-1 truncate ${target.allowed ? 'text-green-800' : 'text-red-700 line-through'}`}>
+                                        {target.group_name || target.group_id}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                {/* Save button */}
+                                <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
+                                  <div className="text-xs text-gray-500">
+                                    {senderPermissions.targets.filter(t => t.allowed).length}/{senderPermissions.targets.length} קבוצות מורשות
+                                  </div>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); saveSenderPermissions(); }}
+                                    disabled={savingPermissions}
+                                    className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg text-sm font-medium shadow hover:shadow-md transition-all disabled:opacity-50"
+                                  >
+                                    {savingPermissions ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                                    שמור הרשאות
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
