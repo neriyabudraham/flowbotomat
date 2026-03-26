@@ -22,7 +22,10 @@ CREATE TABLE IF NOT EXISTS group_forwards (
     
     -- Confirmation settings
     require_confirmation BOOLEAN DEFAULT true, -- Ask user before sending
-    
+
+    -- Link preview
+    link_preview BOOLEAN DEFAULT true, -- Show link preview in messages
+
     -- Statistics
     total_forwards INT DEFAULT 0,
     last_forward_at TIMESTAMP,

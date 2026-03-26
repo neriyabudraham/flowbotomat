@@ -3,7 +3,7 @@ import {
   ArrowRight, Save, Target, Zap, Clock, UserCheck, Settings, Search,
   X, Plus, Trash2, Check, AlertCircle, Loader2, RefreshCw,
   MessageSquare, Users, ChevronDown, ChevronUp, Phone, Image as ImageIcon,
-  Crown, AlertTriangle, Eraser, Bell
+  Crown, AlertTriangle, Eraser, Bell, Globe
 } from 'lucide-react';
 // Using simple arrow buttons instead of drag-drop to avoid dependency issues
 import Button from '../atoms/Button';
@@ -29,6 +29,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
   const [messageSuffix, setMessageSuffix] = useState(forward.message_suffix || '');
   const [suffixEnabled, setSuffixEnabled] = useState(forward.suffix_enabled || false);
   const [pollMultipleAnswers, setPollMultipleAnswers] = useState(forward.poll_multiple_answers || false);
+  const [linkPreview, setLinkPreview] = useState(forward.link_preview !== false);
   const [showSuffixSettings, setShowSuffixSettings] = useState(false);
   
   // Targets
@@ -80,6 +81,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
       setMessageSuffix(f.message_suffix || '');
       setSuffixEnabled(f.suffix_enabled || false);
       setPollMultipleAnswers(f.poll_multiple_answers || false);
+      setLinkPreview(f.link_preview !== false);
       setTargets(f.targets || []);
       setSenders(f.authorized_senders || []);
       setAllowAllSenders(f.allow_all_senders !== false);
@@ -130,7 +132,8 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
         suffix_enabled: suffixEnabled,
         notify_sender_on_pending: notifySenderOnPending,
         poll_multiple_answers: pollMultipleAnswers,
-        allow_all_senders: allowAllSenders
+        allow_all_senders: allowAllSenders,
+        link_preview: linkPreview
       });
       
       onSave?.(data.forward);
@@ -1171,6 +1174,33 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                 </div>
                 <div className={`w-14 h-8 rounded-full relative transition-colors ${requireConfirmation ? 'bg-gradient-to-r from-purple-500 to-pink-500' : 'bg-gray-300'}`}>
                   <div className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow-lg transition-all ${requireConfirmation ? 'left-7' : 'left-1'}`} />
+                </div>
+              </label>
+
+              {/* Link Preview Toggle */}
+              <label
+                onClick={() => setLinkPreview(!linkPreview)}
+                className={`flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all ${
+                  linkPreview
+                    ? 'border-blue-500 bg-gradient-to-r from-blue-50 to-cyan-50'
+                    : 'border-gray-200 hover:border-blue-200 bg-white'
+                }`}
+              >
+                <div className="flex items-center gap-4">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
+                    linkPreview
+                      ? 'bg-gradient-to-br from-blue-500 to-cyan-500 shadow-lg'
+                      : 'bg-gray-100'
+                  }`}>
+                    <Globe className={`w-6 h-6 ${linkPreview ? 'text-white' : 'text-gray-400'}`} />
+                  </div>
+                  <div>
+                    <p className="font-bold text-gray-900">תצוגה מקדימה של קישורים</p>
+                    <p className="text-sm text-gray-500">כאשר דלוק, קישורים בהודעה יוצגו עם תצוגה מקדימה (תמונה, כותרת ותיאור). כאשר כבוי — הקישור יישלח כטקסט רגיל ללא תצוגה מקדימה.</p>
+                  </div>
+                </div>
+                <div className={`w-14 h-8 rounded-full relative transition-colors ${linkPreview ? 'bg-gradient-to-r from-blue-500 to-cyan-500' : 'bg-gray-300'}`}>
+                  <div className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow-lg transition-all ${linkPreview ? 'left-7' : 'left-1'}`} />
                 </div>
               </label>
 

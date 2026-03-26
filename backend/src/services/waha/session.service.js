@@ -408,24 +408,29 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
  * @param {string} text - Message text
  * @param {Array} mentions - Optional array of phone numbers to mention (format: ["972...@c.us"])
  */
-async function sendMessage(connection, phone, text, mentions = null) {
+async function sendMessage(connection, phone, text, mentions = null, options = {}) {
   const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
-  
+
   const payload = {
     session: connection.session_name,
     chatId: chatId,
     text: text,
   };
-  
+
   // Add mentions if provided
   if (mentions && mentions.length > 0) {
     payload.mentions = mentions;
   }
-  
+
+  // Link preview (default: no explicit flag, let WAHA decide)
+  if (options.linkPreview !== undefined) {
+    payload.linkPreview = options.linkPreview;
+  }
+
   const response = await client.post(`/api/sendText`, payload);
-  
-  console.log(`[WAHA] Sent message to ${phone}${mentions ? ` with ${mentions.length} mentions` : ''}`);
+
+  console.log(`[WAHA] Sent message to ${phone}${mentions ? ` with ${mentions.length} mentions` : ''}${options.linkPreview !== undefined ? ` linkPreview=${options.linkPreview}` : ''}`);
   return response.data;
 }
 

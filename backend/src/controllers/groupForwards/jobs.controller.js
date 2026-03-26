@@ -532,7 +532,7 @@ async function startForwardJob(jobId) {
     const jobResult = await db.query(`
       SELECT fj.*, gf.delay_min, gf.delay_max, gf.user_id, gf.name as forward_name,
         gf.trigger_type, gf.trigger_group_id,
-        gf.message_suffix, gf.suffix_enabled,
+        gf.message_suffix, gf.suffix_enabled, gf.link_preview,
         wc.session_name, wc.connection_type, wc.external_base_url, wc.external_api_key, wc.waha_source_id, wc.waha_base_url
       FROM forward_jobs fj
       JOIN group_forwards gf ON fj.forward_id = gf.id
@@ -715,7 +715,7 @@ async function startForwardJob(jobId) {
                   console.warn('[GroupForwards] mentionAll: Could not fetch participants:', e.message);
                 }
               }
-              const result = await wahaService.sendMessage(wahaConnection, message.group_id, textWithSuffix, mentions);
+              const result = await wahaService.sendMessage(wahaConnection, message.group_id, textWithSuffix, mentions, { linkPreview: job.link_preview !== false });
               messageId = result?.id;
             } else if (job.message_type === 'image') {
               const result = await wahaService.sendImage(wahaConnection, message.group_id, job.media_url, textWithSuffix);
