@@ -362,7 +362,8 @@ async function processQueue() {
     try {
       const pauseRes = await db.query(`SELECT value FROM system_settings WHERE key = 'statusbot_global_pause_until'`);
       if (pauseRes.rows.length > 0) {
-        const pauseValue = JSON.parse(pauseRes.rows[0].value);
+        // JSONB is auto-parsed by pg driver — no need for JSON.parse
+        const pauseValue = pauseRes.rows[0].value;
         if (pauseValue === 'indefinite') {
           return; // Queue is indefinitely paused by admin
         }

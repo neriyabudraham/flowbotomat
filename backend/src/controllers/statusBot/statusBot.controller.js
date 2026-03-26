@@ -4445,7 +4445,8 @@ async function adminGetQueuePauseStatus(req, res) {
   try {
     const result = await db.query(`SELECT value FROM system_settings WHERE key = 'statusbot_global_pause_until'`);
     if (result.rows.length === 0) return res.json({ paused: false });
-    const pauseValue = JSON.parse(result.rows[0].value);
+    // JSONB is auto-parsed by pg driver — no need for JSON.parse
+    const pauseValue = result.rows[0].value;
     if (pauseValue === 'indefinite') {
       return res.json({ paused: true, indefinite: true });
     }
