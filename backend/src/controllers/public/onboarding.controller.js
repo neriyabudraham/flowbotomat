@@ -133,11 +133,45 @@ const getWhatsappQR = async (req, res) => {
         }
       }
       if (sessionStatus.status === 'STOPPED' || sessionStatus.status === 'FAILED') {
+        console.log(`[Onboarding] Session ${connection.session_name} is ${sessionStatus.status}, attempting restart...`);
         try {
           await wahaSession.startSession(baseUrl, apiKey, connection.session_name);
         } catch (startErr) {
           console.error('[Onboarding] Failed to start session:', startErr.message);
         }
+        // Wait for session to initialize then check if QR is ready
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        try {
+          const newStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
+          if (newStatus.status === 'SCAN_QR_CODE') {
+            const qrData2 = await wahaSession.getQRCode(baseUrl, apiKey, connection.session_name);
+            return res.json({ qr: qrData2.value, status: 'qr_ready' });
+          }
+          if (newStatus.status === 'WORKING') {
+            return res.json({ qr: null, status: 'connected' });
+          }
+          // Still FAILED after restart — delete and recreate session
+          if (newStatus.status === 'FAILED') {
+            console.log(`[Onboarding] Session still FAILED after restart — deleting and recreating ${connection.session_name}`);
+            try {
+              await wahaSession.deleteSession(baseUrl, apiKey, connection.session_name);
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              const userRes = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
+              const email = userRes.rows[0]?.email || '';
+              await wahaSession.createSession(baseUrl, apiKey, connection.session_name, {
+                'user.email': email
+              });
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              const recreatedStatus = await wahaSession.getSessionStatus(baseUrl, apiKey, connection.session_name);
+              if (recreatedStatus.status === 'SCAN_QR_CODE') {
+                const qrData3 = await wahaSession.getQRCode(baseUrl, apiKey, connection.session_name);
+                return res.json({ qr: qrData3.value, status: 'qr_ready' });
+              }
+            } catch (recreateErr) {
+              console.error('[Onboarding] Recreate session failed:', recreateErr.message);
+            }
+          }
+        } catch { /* still starting */ }
         return res.json({ qr: null, status: 'starting', message: 'Restarting session, please wait...' });
       }
     }
