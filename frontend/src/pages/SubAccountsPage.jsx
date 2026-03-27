@@ -75,7 +75,7 @@ export default function SubAccountsPage() {
       }
       localStorage.setItem('accessToken', result.token);
       setTokens(result.token, localStorage.getItem('refreshToken'));
-      window.location.reload();
+      window.location.href = '/dashboard';
     } catch (e) {
       alert(e.response?.data?.error || 'שגיאה במעבר חשבון');
       setSwitching(null);
