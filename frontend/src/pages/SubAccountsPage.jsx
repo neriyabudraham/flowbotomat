@@ -12,7 +12,7 @@ import Logo from '../components/atoms/Logo';
 
 export default function SubAccountsPage() {
   const navigate = useNavigate();
-  const { user, logout, setTokens } = useAuthStore();
+  const { user, logout, setTokens, fetchMe } = useAuthStore();
   const [data, setData] = useState({ parentEmail: '', parentPlan: 'Free', subAccounts: [] });
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -37,6 +37,7 @@ export default function SubAccountsPage() {
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
     if (!token) { navigate('/login'); return; }
+    fetchMe();
     load();
   }, [load, navigate]);
 
