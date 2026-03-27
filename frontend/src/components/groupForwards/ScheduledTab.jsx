@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Calendar, Clock, Edit2, Trash2, Plus, X, Check, Send, Image, Video, FileText, Mic, AlertCircle, Loader2 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 
 const MESSAGE_TYPES = {
   text: { icon: Send, label: 'טקסט', color: 'blue' },
@@ -48,7 +49,7 @@ export default function ScheduledTab({ forwards = [] }) {
       setScheduled(prev => prev.filter(s => s.id !== id));
     } catch (err) {
       console.error('Failed to delete:', err);
-      alert(err.response?.data?.error || 'שגיאה במחיקה');
+      toast.error(err.response?.data?.error || 'שגיאה במחיקה');
     } finally {
       setDeleting(null);
     }

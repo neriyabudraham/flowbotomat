@@ -1,6 +1,7 @@
 import { Plus, X, ChevronDown, ChevronUp, Trash2, RefreshCw, Clock, Copy, Wifi, Phone, Shield, Filter, List, Type } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import api from '../../../../services/api';
+import { toast } from '../../../../store/toastStore';
 import TextInputWithVariables from './TextInputWithVariables';
 
 const triggerTypes = [
@@ -682,7 +683,7 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
       setNewTagName('');
     } catch (err) {
       console.error('Error creating tag:', err);
-      alert('שגיאה ביצירת התגית');
+      toast.error('שגיאה ביצירת התגית');
     }
     setSavingTag(false);
   };

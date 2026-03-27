@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, ArrowLeftRight, Pencil, Check, X, Wifi, WifiOff, Crown, CreditCard,
-  ArrowLeft, Users, Shield, Smartphone, Search
+  ArrowLeft, Users, Shield, Smartphone, Search, Trash2
 } from 'lucide-react';
 import api from '../services/api';
+import { toast } from '../store/toastStore';
 import useAuthStore from '../store/authStore';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
 import AccountSwitcher from '../components/AccountSwitcher';
@@ -50,7 +51,7 @@ export default function SubAccountsPage() {
       setShowCreate(false);
       load();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה ביצירת חשבון משנה');
+      toast.error(e.response?.data?.error || 'שגיאה ביצירת חשבון משנה');
     } finally {
       setCreating(false);
     }
@@ -63,7 +64,7 @@ export default function SubAccountsPage() {
       setEditingId(null);
       load();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בשינוי שם');
+      toast.error(e.response?.data?.error || 'שגיאה בשינוי שם');
     }
   };
 
@@ -78,8 +79,19 @@ export default function SubAccountsPage() {
       setTokens(result.token, localStorage.getItem('refreshToken'));
       window.location.href = '/dashboard';
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה במעבר חשבון');
+      toast.error(e.response?.data?.error || 'שגיאה במעבר חשבון');
       setSwitching(null);
+    }
+  };
+
+  const handleDelete = async (id, name) => {
+    if (!confirm(`האם אתה בטוח שברצונך למחוק את חשבון המשנה "${name}"?\n\nכל הנתונים כולל בוטים, אנשי קשר והודעות יימחקו לצמיתות!`)) return;
+    try {
+      await api.delete(`/experts/sub-accounts/${id}`);
+      toast.success('חשבון המשנה נמחק בהצלחה');
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'שגיאה במחיקת חשבון משנה');
     }
   };
 
@@ -391,15 +403,24 @@ export default function SubAccountsPage() {
                     </div>
                   </div>
 
-                  {/* Switch button */}
-                  <button
-                    onClick={() => handleSwitch(account.id)}
-                    disabled={switching === account.id}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-xl font-medium text-sm transition-all hover:shadow-lg hover:shadow-purple-200/50 hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 shrink-0"
-                  >
-                    <ArrowLeftRight className="w-4 h-4" />
-                    {switching === account.id ? 'עובר...' : 'עבור לחשבון'}
-                  </button>
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => handleSwitch(account.id)}
+                      disabled={switching === account.id}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-xl font-medium text-sm transition-all hover:shadow-lg hover:shadow-purple-200/50 hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
+                    >
+                      <ArrowLeftRight className="w-4 h-4" />
+                      {switching === account.id ? 'עובר...' : 'עבור לחשבון'}
+                    </button>
+                    <button
+                      onClick={() => handleDelete(account.id, account.name)}
+                      className="p-2.5 bg-red-50 hover:bg-red-100 text-red-500 rounded-xl transition-colors"
+                      title="מחק חשבון משנה"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

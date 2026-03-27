@@ -6,6 +6,7 @@ import {
   FileSpreadsheet, ExternalLink, History, Clock, Edit2, Save, RotateCcw
 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 
 const COUNTRY_CODES = [
   { code: '972', label: 'ישראל (+972)', flag: '🇮🇱' },
@@ -45,13 +46,13 @@ function ImportResultView({ importResult, importName, onReset, defaultCountryCod
 
   const handleSaveErrorContact = async (err, index) => {
     if (!err.data?.phone) {
-      alert('חובה להזין מספר טלפון');
+      toast.warning('חובה להזין מספר טלפון');
       return;
     }
 
     const phone = formatPhoneForSave(err.data.phone);
     if (!phone || !/^\d{10,15}$/.test(phone)) {
-      alert('מספר טלפון לא תקין');
+      toast.warning('מספר טלפון לא תקין');
       return;
     }
 
@@ -74,7 +75,7 @@ function ImportResultView({ importResult, importName, onReset, defaultCountryCod
       setEditingErrors(newErrors);
 
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בשמירת איש קשר');
+      toast.error(e.response?.data?.error || 'שגיאה בשמירת איש קשר');
     } finally {
       setSavingContact(null);
     }
@@ -439,7 +440,7 @@ export default function ImportTab({ onRefresh }) {
       setCurrentPage(1);
       setStep(2);
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בהעלאת הקובץ');
+      toast.error(e.response?.data?.error || 'שגיאה בהעלאת הקובץ');
     } finally {
       setUploading(false);
       setUploadProgress(0);
@@ -488,7 +489,7 @@ export default function ImportTab({ onRefresh }) {
       setNewVarKey('');
       setNewVarLabel('');
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה ביצירת משתנה');
+      toast.error(e.response?.data?.error || 'שגיאה ביצירת משתנה');
     }
   };
 
@@ -509,7 +510,7 @@ export default function ImportTab({ onRefresh }) {
       setNewAudienceName('');
       setNewAudienceDesc('');
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה ביצירת קהל');
+      toast.error(e.response?.data?.error || 'שגיאה ביצירת קהל');
     } finally {
       setCreatingAudience(false);
     }
@@ -558,12 +559,12 @@ export default function ImportTab({ onRefresh }) {
   const handleImport = async () => {
     const phoneColumn = Object.keys(mapping).find(col => mapping[col] === 'phone');
     if (!phoneColumn) {
-      alert('חובה למפות עמודת טלפון');
+      toast.warning('חובה למפות עמודת טלפון');
       return;
     }
     
     if (validationResults.validCount === 0) {
-      alert('אין שורות תקינות לייבוא');
+      toast.warning('אין שורות תקינות לייבוא');
       return;
     }
     

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { FileText, Save, Loader2, Eye, RefreshCw, Plus } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 import Button from '../atoms/Button';
 
 const DEFAULT_PAGES = [
@@ -63,9 +64,9 @@ export default function AdminLegalPages() {
         }
         return [...prev, { slug: activeSlug, title, content, updated_at: new Date().toISOString() }];
       });
-      alert('הדף נשמר בהצלחה');
+      toast.success('הדף נשמר בהצלחה');
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בשמירה');
+      toast.error(err.response?.data?.error || 'שגיאה בשמירה');
     } finally {
       setSaving(false);
     }

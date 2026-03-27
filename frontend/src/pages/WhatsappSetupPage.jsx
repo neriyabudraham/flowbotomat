@@ -13,6 +13,7 @@ import Logo from '../components/atoms/Logo';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
 import AccountSwitcher from '../components/AccountSwitcher';
 import PaymentRequiredModal from '../components/payment/PaymentRequiredModal';
+import { toast } from '../store/toastStore';
 
 export default function WhatsappSetupPage() {
   const navigate = useNavigate();
@@ -131,7 +132,7 @@ export default function WhatsappSetupPage() {
         }
       } catch (err) {
         if (err.response?.data?.code === 'SUBSCRIPTION_REQUIRED') {
-          alert(err.response.data.error);
+          toast.error(err.response.data.error);
           navigate('/pricing');
         } else if (err.response?.data?.code === 'PAYMENT_REQUIRED') {
           setPendingConnectionType('managed');

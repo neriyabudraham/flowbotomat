@@ -6,6 +6,7 @@ import {
   XCircle, AlertTriangle, User, ChevronDown, ChevronUp, PenTool
 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 import { getSocket } from '../../services/socket';
 
 export default function AdminTemplates() {
@@ -78,7 +79,7 @@ export default function AdminTemplates() {
       await api.delete(`/templates/admin/${id}`);
       loadData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה במחיקה');
+      toast.error(err.response?.data?.error || 'שגיאה במחיקה');
     }
   };
 
@@ -89,7 +90,7 @@ export default function AdminTemplates() {
       });
       loadData();
     } catch (err) {
-      alert('שגיאה בעדכון');
+      toast.error('שגיאה בעדכון');
     }
   };
 
@@ -100,7 +101,7 @@ export default function AdminTemplates() {
       });
       loadData();
     } catch (err) {
-      alert('שגיאה בעדכון');
+      toast.error('שגיאה בעדכון');
     }
   };
 
@@ -113,7 +114,7 @@ export default function AdminTemplates() {
       loadData();
       setApproveTemplate(null);
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה באישור');
+      toast.error(err.response?.data?.error || 'שגיאה באישור');
     } finally {
       setProcessing(false);
     }
@@ -121,7 +122,7 @@ export default function AdminTemplates() {
 
   const handleReject = async (template) => {
     if (!rejectReason.trim()) {
-      alert('יש לציין סיבה לדחייה');
+      toast.warning('יש לציין סיבה לדחייה');
       return;
     }
     setProcessing(true);
@@ -131,7 +132,7 @@ export default function AdminTemplates() {
       setRejectTemplate(null);
       setRejectReason('');
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בדחייה');
+      toast.error(err.response?.data?.error || 'שגיאה בדחייה');
     } finally {
       setProcessing(false);
     }
@@ -579,7 +580,7 @@ function TemplateFormModal({ template, categories, onClose, onSave }) {
 
   const handleSave = async () => {
     if (!formData.name.trim()) {
-      alert('שם התבנית הוא שדה חובה');
+      toast.warning('שם התבנית הוא שדה חובה');
       return;
     }
     
@@ -592,7 +593,7 @@ function TemplateFormModal({ template, categories, onClose, onSave }) {
       }
       onSave();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בשמירה');
+      toast.error(err.response?.data?.error || 'שגיאה בשמירה');
     } finally {
       setSaving(false);
     }
@@ -744,7 +745,7 @@ function CreateFromBotModal({ bots, categories, onClose, onSave }) {
       await api.post(`/templates/admin/from-bot/${selectedBot.id}`, formData);
       onSave();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה ביצירה');
+      toast.error(err.response?.data?.error || 'שגיאה ביצירה');
     } finally {
       setSaving(false);
     }

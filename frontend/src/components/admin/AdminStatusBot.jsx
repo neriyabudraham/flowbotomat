@@ -8,6 +8,7 @@ import {
   PauseCircle, PlayCircle, Ban, ListX, StopCircle
 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 import Button from '../atoms/Button';
 import { io } from 'socket.io-client';
 
@@ -277,7 +278,7 @@ export default function AdminStatusBot() {
         window.location.href = '/status-bot';
       }
     } catch (err) {
-      alert('שגיאה במעבר לחשבון');
+      toast.error('שגיאה במעבר לחשבון');
     } finally {
       setSwitchingUser(null);
     }
@@ -291,7 +292,7 @@ export default function AdminStatusBot() {
         const { data } = await api.get('/status-bot/admin/upload-stats');
         setUploadStats(data.stats || []);
       } catch (err) {
-        alert('שגיאה בטעינת סטטיסטיקות');
+        toast.error('שגיאה בטעינת סטטיסטיקות');
       } finally {
         setLoadingUploadStats(false);
       }
@@ -312,7 +313,7 @@ export default function AdminStatusBot() {
         short_restriction_until: null
       } : u));
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בהסרת החסימה');
+      toast.error(err.response?.data?.error || 'שגיאה בהסרת החסימה');
     } finally {
       setLiftingRestriction(null);
     }
@@ -326,7 +327,7 @@ export default function AdminStatusBot() {
       await api.patch(`/status-bot/admin/user/${connectionId}/send-format`, { format });
       setUsers(prev => prev.map(u => u.id === connectionId ? { ...u, status_send_format: format } : u));
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בעדכון פורמט');
+      toast.error(err.response?.data?.error || 'שגיאה בעדכון פורמט');
     }
   };
 
@@ -339,7 +340,7 @@ export default function AdminStatusBot() {
       await api.patch(`/status-bot/admin/user/${connectionId}/viewers-first`, { enabled: newValue });
       setUsers(prev => prev.map(u => u.id === connectionId ? { ...u, viewers_first_mode: newValue } : u));
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בעדכון');
+      toast.error(err.response?.data?.error || 'שגיאה בעדכון');
     }
   };
 
@@ -350,10 +351,10 @@ export default function AdminStatusBot() {
     try {
       const res = await api.post('/status-bot/admin/sync-phones');
       const updated = res.data.results?.filter(r => r.status === 'updated').length || 0;
-      alert(`סנכרון הושלם! ${updated} מספרים עודכנו מתוך ${res.data.totalConnections} חיבורים`);
+      toast.success(`סנכרון הושלם! ${updated} מספרים עודכנו מתוך ${res.data.totalConnections} חיבורים`);
       loadData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בסנכרון');
+      toast.error(err.response?.data?.error || 'שגיאה בסנכרון');
     } finally {
       setSyncingPhones(false);
     }
@@ -365,11 +366,11 @@ export default function AdminStatusBot() {
     setResettingQueue(true);
     try {
       const res = await api.post('/status-bot/admin/reset-queue');
-      alert(res.data.message || 'התור אופס בהצלחה');
+      toast.success(res.data.message || 'התור אופס בהצלחה');
       loadData();
       loadActiveProcesses();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה באיפוס התור');
+      toast.error(err.response?.data?.error || 'שגיאה באיפוס התור');
     } finally {
       setResettingQueue(false);
     }
@@ -383,7 +384,7 @@ export default function AdminStatusBot() {
       await api.post(`/status-bot/admin/cancel-item/${queueId}`);
       loadActiveProcesses();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בביטול');
+      toast.error(err.response?.data?.error || 'שגיאה בביטול');
     } finally {
       setCancellingItem(null);
     }
@@ -396,7 +397,7 @@ export default function AdminStatusBot() {
     try {
       await api.post(`/status-bot/admin/stop-item/${queueId}`);
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בעצירה');
+      toast.error(err.response?.data?.error || 'שגיאה בעצירה');
     } finally {
       setCancellingItem(null);
     }
@@ -408,11 +409,11 @@ export default function AdminStatusBot() {
     setClearingErrors(connectionId);
     try {
       const res = await api.delete(`/status-bot/admin/user/${connectionId}/errors`);
-      alert(res.data.message);
+      toast.success(res.data.message);
       setShowErrorsModal(null);
       loadData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה במחיקה');
+      toast.error(err.response?.data?.error || 'שגיאה במחיקה');
     } finally {
       setClearingErrors(null);
     }
@@ -424,11 +425,11 @@ export default function AdminStatusBot() {
     setRetryingErrors(connectionId);
     try {
       const res = await api.post(`/status-bot/admin/user/${connectionId}/retry-errors`);
-      alert(res.data.message);
+      toast.success(res.data.message);
       setShowErrorsModal(null);
       loadData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה');
+      toast.error(err.response?.data?.error || 'שגיאה');
     } finally {
       setRetryingErrors(null);
     }
@@ -455,7 +456,7 @@ export default function AdminStatusBot() {
         } : u));
       }
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בעדכון הגבלה');
+      toast.error(err.response?.data?.error || 'שגיאה בעדכון הגבלה');
     }
   };
 
@@ -531,7 +532,7 @@ export default function AdminStatusBot() {
       await api.delete(`/status-bot/admin/queue/${queueId}`);
       loadActiveProcesses();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בביטול');
+      toast.error(err.response?.data?.error || 'שגיאה בביטול');
     } finally {
       setCancellingItem(null);
     }
@@ -543,11 +544,11 @@ export default function AdminStatusBot() {
     setBulkCancelling(true);
     try {
       const { data } = await api.post('/status-bot/admin/queue/bulk-cancel', { statuses: ['pending', 'scheduled'] });
-      alert(`בוטלו ${data.cancelled} פריטים בהצלחה`);
+      toast.success(`בוטלו ${data.cancelled} פריטים בהצלחה`);
       loadActiveProcesses();
       loadData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בביטול גורף');
+      toast.error(err.response?.data?.error || 'שגיאה בביטול גורף');
     } finally {
       setBulkCancelling(false);
     }
@@ -559,7 +560,7 @@ export default function AdminStatusBot() {
       const { data } = await api.post('/status-bot/admin/queue/pause', { indefinite: true });
       setQueuePauseStatus({ paused: true, indefinite: true });
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בהשהיית התור');
+      toast.error(err.response?.data?.error || 'שגיאה בהשהיית התור');
     } finally {
       setPausing(false);
     }
@@ -573,7 +574,7 @@ export default function AdminStatusBot() {
       setQueuePauseStatus({ paused: true, pausedUntil: data.pausedUntil });
       setPauseModal(false);
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בהשהיית התור');
+      toast.error(err.response?.data?.error || 'שגיאה בהשהיית התור');
     } finally {
       setPausing(false);
     }
@@ -584,7 +585,7 @@ export default function AdminStatusBot() {
       await api.delete('/status-bot/admin/queue/pause');
       setQueuePauseStatus({ paused: false });
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה');
+      toast.error(err.response?.data?.error || 'שגיאה');
     }
   };
 
@@ -602,9 +603,9 @@ export default function AdminStatusBot() {
         restriction_lifted: false
       })));
       setRestrictModal(false);
-      alert(`נחסמו ${data.restricted} משתמשים עד ${new Date(until).toLocaleTimeString('he-IL')}`);
+      toast.success(`נחסמו ${data.restricted} משתמשים עד ${new Date(until).toLocaleTimeString('he-IL')}`);
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בחסימה');
+      toast.error(err.response?.data?.error || 'שגיאה בחסימה');
     } finally {
       setRestricting(false);
     }
@@ -621,9 +622,9 @@ export default function AdminStatusBot() {
         restriction_lifted: true,
         restriction_lifted_at: new Date().toISOString()
       })));
-      alert(`הוסרה ההגבלה מ-${data.unrestricted} משתמשים`);
+      toast.success(`הוסרה ההגבלה מ-${data.unrestricted} משתמשים`);
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בהסרת הגבלה');
+      toast.error(err.response?.data?.error || 'שגיאה בהסרת הגבלה');
     }
   };
 

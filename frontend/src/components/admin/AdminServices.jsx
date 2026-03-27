@@ -5,6 +5,7 @@ import {
   Sparkles, DollarSign, Calendar, Search, User
 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 import Button from '../atoms/Button';
 import ConfirmModal from '../organisms/ConfirmModal';
 
@@ -53,7 +54,7 @@ export default function AdminServices() {
       setEditingService(null);
       loadServices();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בשמירה');
+      toast.error(err.response?.data?.error || 'שגיאה בשמירה');
     }
   };
 
@@ -64,7 +65,7 @@ export default function AdminServices() {
       setConfirmDelete(null);
       loadServices();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה במחיקה');
+      toast.error(err.response?.data?.error || 'שגיאה במחיקה');
     }
   };
 
@@ -72,9 +73,9 @@ export default function AdminServices() {
     try {
       await api.post(`/services/admin/${grantingTrial.serviceId}/trial`, data);
       setGrantingTrial(null);
-      alert('תקופת ניסיון הוקצתה בהצלחה');
+      toast.success('תקופת ניסיון הוקצתה בהצלחה');
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בהקצאת תקופת ניסיון');
+      toast.error(err.response?.data?.error || 'שגיאה בהקצאת תקופת ניסיון');
     }
   };
 
@@ -299,7 +300,7 @@ function ServiceEditModal({ service, onSave, onClose }) {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!form.slug || !form.name || !form.name_he) {
-      alert('נדרש slug, שם ושם בעברית');
+      toast.warning('נדרש slug, שם ושם בעברית');
       return;
     }
     onSave({ ...service, ...form });
@@ -584,7 +585,7 @@ function SubscriptionsModal({ service, onClose }) {
       await api.post(`/services/admin/${service.id}/cancel/${userId}`);
       loadSubscriptions();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בביטול');
+      toast.error(err.response?.data?.error || 'שגיאה בביטול');
     }
   };
 

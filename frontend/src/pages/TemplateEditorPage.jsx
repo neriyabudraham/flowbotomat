@@ -6,6 +6,7 @@ import NodePalette from '../components/flow/NodePalette';
 import NodeEditor from '../components/flow/panels/NodeEditor';
 import Button from '../components/atoms/Button';
 import api from '../services/api';
+import { toast } from '../store/toastStore';
 
 export default function TemplateEditorPage() {
   const { templateId } = useParams();
@@ -109,7 +110,7 @@ export default function TemplateEditorPage() {
 
   const handleDeleteNode = useCallback((nodeId) => {
     if (nodeId === 'trigger_start') {
-      alert('לא ניתן למחוק את הטריגר הראשי');
+      toast.warning('לא ניתן למחוק את הטריגר הראשי');
       return;
     }
     setFlowData(prev => ({
@@ -135,7 +136,7 @@ export default function TemplateEditorPage() {
       setTimeout(() => setShowSaved(false), 2000);
     } catch (error) {
       console.error('Failed to save template:', error);
-      alert('שגיאה בשמירה');
+      toast.error('שגיאה בשמירה');
     } finally {
       setIsSaving(false);
     }
@@ -150,11 +151,11 @@ export default function TemplateEditorPage() {
     setIsApproving(true);
     try {
       await api.post(`/templates/admin/${templateId}/approve`);
-      alert('התבנית אושרה ופורסמה בהצלחה!');
+      toast.success('התבנית אושרה ופורסמה בהצלחה!');
       navigate('/admin', { state: { tab: 'templates' } });
     } catch (error) {
       console.error('Failed to approve template:', error);
-      alert(error.response?.data?.error || 'שגיאה באישור התבנית');
+      toast.error(error.response?.data?.error || 'שגיאה באישור התבנית');
     } finally {
       setIsApproving(false);
     }
@@ -162,18 +163,18 @@ export default function TemplateEditorPage() {
 
   const handleReject = async () => {
     if (!rejectReason.trim()) {
-      alert('יש להזין סיבה לדחייה');
+      toast.warning('יש להזין סיבה לדחייה');
       return;
     }
     
     setIsRejecting(true);
     try {
       await api.post(`/templates/admin/${templateId}/reject`, { reason: rejectReason });
-      alert('התבנית נדחתה והמשתמש קיבל הודעה');
+      toast.info('התבנית נדחתה והמשתמש קיבל הודעה');
       navigate('/admin', { state: { tab: 'templates' } });
     } catch (error) {
       console.error('Failed to reject template:', error);
-      alert(error.response?.data?.error || 'שגיאה בדחיית התבנית');
+      toast.error(error.response?.data?.error || 'שגיאה בדחיית התבנית');
     } finally {
       setIsRejecting(false);
       setShowRejectModal(false);

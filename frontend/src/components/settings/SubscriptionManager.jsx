@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { CreditCard, Calendar, AlertCircle, Crown, CheckCircle, XCircle, RotateCcw, Trash2, ShieldAlert, Clock, Info, HelpCircle, ArrowRight, RefreshCw, Package, Upload, ExternalLink, Zap, TrendingUp, X, FileText, Receipt } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 import Button from '../atoms/Button';
 import CreditCardForm from '../payment/CreditCardForm';
 
@@ -49,7 +50,7 @@ export default function SubscriptionManager() {
       setAllowAutoUpgrade(newValue);
     } catch (err) {
       console.error('Failed to update auto-upgrade setting:', err);
-      alert(err.response?.data?.error || 'שגיאה בעדכון ההגדרה');
+      toast.error(err.response?.data?.error || 'שגיאה בעדכון ההגדרה');
     } finally {
       setUpdatingAutoUpgrade(false);
     }
@@ -82,7 +83,7 @@ export default function SubscriptionManager() {
       await loadAdditionalServices();
       setShowCancelServiceModal(null);
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בביטול השירות');
+      toast.error(err.response?.data?.error || 'שגיאה בביטול השירות');
     } finally {
       setCancellingService(false);
     }
@@ -95,7 +96,7 @@ export default function SubscriptionManager() {
       await loadSubscription();
       setShowCancelModal(false);
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בביטול המנוי');
+      toast.error(err.response?.data?.error || 'שגיאה בביטול המנוי');
     } finally {
       setCancelling(false);
     }
@@ -134,7 +135,7 @@ export default function SubscriptionManager() {
           }
         });
       } else {
-        alert(errorData?.error || 'שגיאה בהפעלת המנוי מחדש');
+        toast.error(errorData?.error || 'שגיאה בהפעלת המנוי מחדש');
       }
     } finally {
       setReactivating(false);
@@ -155,7 +156,7 @@ export default function SubscriptionManager() {
         }
       });
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בהסרת כרטיס האשראי');
+      toast.error(err.response?.data?.error || 'שגיאה בהסרת כרטיס האשראי');
     } finally {
       setRemovingCard(false);
     }

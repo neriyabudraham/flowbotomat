@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Shield, Plus, X, Play, Check, AlertCircle, ChevronDown, ChevronUp, Trash2, Settings, Globe, Code } from 'lucide-react';
 import api from '../../../../services/api';
+import { toast } from '../../../../store/toastStore';
 
 const comparisonOptions = [
   { id: 'equals', label: 'שווה ל', icon: '=' },
@@ -80,11 +81,11 @@ export default function ValidationSelector({ value, onChange }) {
   
   const handleCreateNew = async () => {
     if (!form.name || !form.apiUrl) {
-      alert('נא למלא שם ו-URL');
+      toast.warning('נא למלא שם ו-URL');
       return;
     }
     if (form.pathSource === 'specific' && !form.responsePath) {
-      alert('נא להזין נתיב בתגובה');
+      toast.warning('נא להזין נתיב בתגובה');
       return;
     }
     
@@ -100,7 +101,7 @@ export default function ValidationSelector({ value, onChange }) {
       setEditingId(null);
       resetForm();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בשמירת אימות');
+      toast.error(err.response?.data?.error || 'שגיאה בשמירת אימות');
     }
   };
   
@@ -145,7 +146,7 @@ export default function ValidationSelector({ value, onChange }) {
         onChange(null);
       }
     } catch (err) {
-      alert('שגיאה במחיקה');
+      toast.error('שגיאה במחיקה');
     }
   };
   

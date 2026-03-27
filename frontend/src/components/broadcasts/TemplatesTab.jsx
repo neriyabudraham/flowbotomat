@@ -6,6 +6,7 @@ import {
   GripVertical, Sparkles, Hash, BarChart2
 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 import TextInputWithVariables from '../flow/panels/editors/TextInputWithVariables';
 
 export default function TemplatesTab({ onRefresh }) {
@@ -49,7 +50,7 @@ export default function TemplatesTab({ onRefresh }) {
       fetchTemplates();
       onRefresh?.();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה במחיקת תבנית');
+      toast.error(e.response?.data?.error || 'שגיאה במחיקת תבנית');
     }
   };
 

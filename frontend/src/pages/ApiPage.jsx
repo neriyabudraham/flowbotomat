@@ -11,6 +11,7 @@ import Logo from '../components/atoms/Logo';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
 import AccountSwitcher from '../components/AccountSwitcher';
 import api from '../services/api';
+import { toast } from '../store/toastStore';
 
 export default function ApiPage() {
   const navigate = useNavigate();
@@ -90,7 +91,7 @@ export default function ApiPage() {
     } catch (e) {
       console.error('Failed to create API key:', e);
       if (e.response?.data?.code === 'API_ACCESS_DENIED') {
-        alert('גישת API זמינה רק למנויים בתשלום');
+        toast.warning('גישת API זמינה רק למנויים בתשלום');
       }
     }
     setCreating(false);

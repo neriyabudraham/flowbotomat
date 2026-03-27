@@ -4,6 +4,7 @@ import {
   Clock, CreditCard, RefreshCw, Eye, ChevronDown, FileText, Save, Loader2
 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 import Button from '../atoms/Button';
 
 export default function AdminAffiliate() {
@@ -46,9 +47,9 @@ export default function AdminAffiliate() {
     setTermsSaving(true);
     try {
       await api.put('/admin/affiliate/terms', { content: termsContent });
-      alert('תנאי התוכנית נשמרו בהצלחה');
+      toast.success('תנאי התוכנית נשמרו בהצלחה');
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בשמירה');
+      toast.error(err.response?.data?.error || 'שגיאה בשמירה');
     } finally {
       setTermsSaving(false);
     }
@@ -60,7 +61,7 @@ export default function AdminAffiliate() {
       setSettings(settingsForm);
       setEditingSettings(false);
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בשמירה');
+      toast.error(err.response?.data?.error || 'שגיאה בשמירה');
     }
   };
 
@@ -69,7 +70,7 @@ export default function AdminAffiliate() {
       await api.post(`/admin/affiliate/payouts/${payoutId}/process`, { action });
       loadData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בעיבוד');
+      toast.error(err.response?.data?.error || 'שגיאה בעיבוד');
     }
   };
 
@@ -181,10 +182,10 @@ export default function AdminAffiliate() {
                   if (confirm('ליצור חשבון שותף לכל המשתמשים שעדיין אין להם?')) {
                     try {
                       const { data } = await api.post('/admin/affiliate/create-all');
-                      alert(data.message);
+                      toast.success(data.message);
                       loadData();
                     } catch (err) {
-                      alert(err.response?.data?.error || 'שגיאה');
+                      toast.error(err.response?.data?.error || 'שגיאה');
                     }
                   }
                 }}
@@ -506,12 +507,12 @@ function AffiliateCard({ affiliate, onUpdate }) {
       setEditing(false);
       onUpdate?.();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בשמירה');
+      toast.error(err.response?.data?.error || 'שגיאה בשמירה');
     } finally {
       setSaving(false);
     }
   };
-  
+
   return (
     <div className={`border rounded-xl overflow-hidden ${affiliate.is_active === false ? 'border-red-200 bg-red-50/30' : 'border-gray-200'}`}>
       {/* Header */}

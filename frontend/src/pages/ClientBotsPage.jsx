@@ -4,6 +4,7 @@ import { Bot, Play, Pause, Edit2, Zap, Users, ArrowRight, Plus, Upload, X, Downl
 import Button from '../components/atoms/Button';
 import Logo from '../components/atoms/Logo';
 import api from '../services/api';
+import { toast } from '../store/toastStore';
 
 export default function ClientBotsPage() {
   const navigate = useNavigate();
@@ -58,7 +59,7 @@ export default function ClientBotsPage() {
   const handleToggle = async (e, bot) => {
     e.stopPropagation();
     if (!permissions.can_edit_bots) {
-      alert('אין לך הרשאה לערוך בוטים');
+      toast.warning('אין לך הרשאה לערוך בוטים');
       return;
     }
     try {
@@ -67,7 +68,7 @@ export default function ClientBotsPage() {
         b.id === bot.id ? { ...b, is_active: !b.is_active } : b
       ));
     } catch (err) {
-      alert('שגיאה בשינוי סטטוס');
+      toast.error('שגיאה בשינוי סטטוס');
     }
   };
 
@@ -83,7 +84,7 @@ export default function ClientBotsPage() {
       setNewBotDesc('');
       loadClientBots();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה ביצירת בוט');
+      toast.error(err.response?.data?.error || 'שגיאה ביצירת בוט');
     }
   };
 
@@ -95,7 +96,7 @@ export default function ClientBotsPage() {
       setImportData(data);
       setImportName(data.bot.name || 'בוט מיובא');
     } catch (e) {
-      alert('שגיאה בקריאת הקובץ - ודא שהקובץ תקין');
+      toast.error('שגיאה בקריאת הקובץ - ודא שהקובץ תקין');
     }
   };
 
@@ -112,7 +113,7 @@ export default function ClientBotsPage() {
       setImportName('');
       loadClientBots();
     } catch (e) {
-      alert('שגיאה בייבוא');
+      toast.error('שגיאה בייבוא');
     } finally {
       setImporting(false);
     }
@@ -136,7 +137,7 @@ export default function ClientBotsPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert('שגיאה בייצוא');
+      toast.error('שגיאה בייצוא');
     }
   };
 
@@ -154,7 +155,7 @@ export default function ClientBotsPage() {
       setDeleteBot(null);
       loadClientBots();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה במחיקה');
+      toast.error(err.response?.data?.error || 'שגיאה במחיקה');
     }
   };
 
@@ -176,7 +177,7 @@ export default function ClientBotsPage() {
       setDuplicateName('');
       loadClientBots();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בשכפול');
+      toast.error(err.response?.data?.error || 'שגיאה בשכפול');
     }
   };
 

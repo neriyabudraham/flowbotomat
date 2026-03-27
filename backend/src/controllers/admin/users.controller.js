@@ -359,22 +359,21 @@ async function deleteUser(req, res) {
     // Stop and delete WAHA sessions for all accounts
     try {
       const wahaService = require('../../services/waha/session.service');
+      const wahaSources = require('../../services/waha/sources.service');
       for (const uid of allUserIds) {
         const connections = await db.query(
-          `SELECT wc.session_name, ws.base_url, ws.api_key
-           FROM whatsapp_connections wc
-           LEFT JOIN waha_sources ws ON wc.waha_source_id = ws.id
-           WHERE wc.user_id = $1 AND wc.session_name IS NOT NULL`,
+          `SELECT session_name, waha_source_id FROM whatsapp_connections WHERE user_id = $1 AND session_name IS NOT NULL`,
           [uid]
         );
         for (const conn of connections.rows) {
-          if (conn.base_url && conn.api_key && conn.session_name) {
-            try {
-              await wahaService.stopSession(conn.base_url, conn.api_key, conn.session_name);
-              await wahaService.deleteSession(conn.base_url, conn.api_key, conn.session_name);
-            } catch (e) {
-              console.error(`[Admin] Failed to delete WAHA session ${conn.session_name}:`, e.message);
+          try {
+            const creds = conn.waha_source_id ? await wahaSources.getCredentialsForSource(conn.waha_source_id) : null;
+            if (creds && conn.session_name) {
+              await wahaService.stopSession(creds.baseUrl, creds.apiKey, conn.session_name);
+              await wahaService.deleteSession(creds.baseUrl, creds.apiKey, conn.session_name);
             }
+          } catch (e) {
+            console.error(`[Admin] Failed to delete WAHA session ${conn.session_name}:`, e.message);
           }
         }
       }

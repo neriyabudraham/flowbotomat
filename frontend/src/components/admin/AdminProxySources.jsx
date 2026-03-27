@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, RefreshCw, Shield, CheckCircle, XCircle, AlertCircle, Wifi, Users, ChevronDown, ChevronUp, Download, Link, X } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 
 const STATUS_LABEL = {
   connected: { label: 'מחובר', cls: 'bg-green-100 text-green-700' },
@@ -135,7 +136,7 @@ export default function AdminProxySources() {
       const { data } = await api.post(`/admin/proxy-sources/connections/${connId}/assign`);
       setConnections(prev => prev.map(c => c.id === connId ? { ...c, proxy_ip: data.proxyIp } : c));
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בשיוך');
+      toast.error(err.response?.data?.error || 'שגיאה בשיוך');
     } finally {
       setAssigningId(null);
     }
@@ -149,7 +150,7 @@ export default function AdminProxySources() {
       await loadConnections();
       load(); // refresh proxy list too
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בהסרת פרוקסי');
+      toast.error(err.response?.data?.error || 'שגיאה בהסרת פרוקסי');
     } finally {
       setRemovingId(null);
     }
@@ -178,7 +179,7 @@ export default function AdminProxySources() {
       await api.delete(`/admin/proxy-sources/${sourceId}`);
       load();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בנטרול');
+      toast.error(err.response?.data?.error || 'שגיאה בנטרול');
     }
   };
 

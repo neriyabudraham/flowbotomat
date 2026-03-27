@@ -4,6 +4,7 @@ import {
   Users, Bot, MessageSquare, HardDrive, Infinity
 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 
 const DEFAULT_PLANS = [
   {
@@ -87,7 +88,7 @@ export default function AdminPlans() {
       setPlans(newPlans);
       setEditingPlan(null);
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בשמירת התוכניות');
+      toast.error(err.response?.data?.error || 'שגיאה בשמירת התוכניות');
     } finally {
       setSaving(false);
     }

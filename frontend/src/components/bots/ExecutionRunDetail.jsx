@@ -13,6 +13,7 @@ import {
   ArrowLeftRight, Play, ExternalLink, AlertCircle, Database, X
 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 
 // ===== Constants =====
 const STATUS_COLORS = {
@@ -1124,7 +1125,7 @@ export default function ExecutionRunDetail({ botId, runId, onBack, onNavigateToE
     setRerunning(true);
     try {
       const { data } = await api.post(`/bots/${botId}/history/${runId}/rerun`);
-      alert(data.message || 'הבוט הורץ מחדש');
+      toast.success(data.message || 'הבוט הורץ מחדש');
       // Navigate to the new run
       if (data.runId) {
         setTimeout(async () => {
@@ -1139,7 +1140,7 @@ export default function ExecutionRunDetail({ botId, runId, onBack, onNavigateToE
         setRerunning(false);
       }
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בהרצה מחדש');
+      toast.error(err.response?.data?.error || 'שגיאה בהרצה מחדש');
       setRerunning(false);
     }
   };

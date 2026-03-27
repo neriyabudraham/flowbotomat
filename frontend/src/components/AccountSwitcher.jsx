@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import useAuthStore from '../store/authStore';
+import { toast } from '../store/toastStore';
 
 // Hide internal #sub_ email — show parent email or nothing
 function displayEmail(email) {
@@ -81,7 +82,7 @@ export default function AccountSwitcher() {
       setTokens(data.token, localStorage.getItem('refreshToken'));
       window.location.reload();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה במעבר חשבון');
+      toast.error(e.response?.data?.error || 'שגיאה במעבר חשבון');
     } finally {
       setLoading(false);
       setIsOpen(false);
@@ -106,7 +107,7 @@ export default function AccountSwitcher() {
       setGeneratedLink(link);
       setShowLinkModal(true);
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה ביצירת קישור');
+      toast.error(e.response?.data?.error || 'שגיאה ביצירת קישור');
     } finally {
       setCreatingLink(false);
     }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, RefreshCw, Server, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 
 export default function AdminWahaSources() {
   const [sources, setSources] = useState([]);
@@ -143,7 +144,7 @@ export default function AdminWahaSources() {
       await api.delete(`/admin/waha-sources/${sourceId}`);
       load();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בנטרול');
+      toast.error(err.response?.data?.error || 'שגיאה בנטרול');
     }
   };
 

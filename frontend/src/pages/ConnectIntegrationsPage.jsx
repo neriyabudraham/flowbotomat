@@ -4,6 +4,7 @@ import {
   CheckCircle, Loader2, Users, Table2, AlertCircle, CheckCircle2
 } from 'lucide-react';
 import axios from 'axios';
+import { toast } from '../store/toastStore';
 
 const api = axios.create({ baseURL: '/api' });
 
@@ -43,14 +44,14 @@ export default function ConnectIntegrationsPage() {
     try {
       const { data } = await api.get(`/onboarding/${userId}/google-contacts/url`);
       window.location.href = data.url;
-    } catch { alert('שגיאה בהתחברות לגוגל'); }
+    } catch { toast.error('שגיאה בהתחברות לגוגל'); }
   };
 
   const handleGoogleSheetsConnect = async () => {
     try {
       const { data } = await api.get(`/onboarding/${userId}/google-sheets/url`);
       window.location.href = data.url;
-    } catch { alert('שגיאה בהתחברות לגוגל'); }
+    } catch { toast.error('שגיאה בהתחברות לגוגל'); }
   };
 
   if (loading) {

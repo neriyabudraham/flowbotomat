@@ -6,6 +6,7 @@ import {
   Settings, Download, Crown, Shield
 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 
 export default function AudiencesTab({ onRefresh }) {
   const [audiences, setAudiences] = useState([]);
@@ -41,7 +42,7 @@ export default function AudiencesTab({ onRefresh }) {
       fetchAudiences();
       onRefresh?.();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה במחיקת קהל');
+      toast.error(e.response?.data?.error || 'שגיאה במחיקת קהל');
     }
   };
 
@@ -719,7 +720,7 @@ function ContactPicker({ selectedIds, onChange, loading }) {
   // Import selected participants
   const handleImportGroupParticipants = async () => {
     if (!selectedGroup || selectedParticipants.length === 0) {
-      alert('לא נבחרו אנשי קשר לייבוא');
+      toast.warning('לא נבחרו אנשי קשר לייבוא');
       return;
     }
     
@@ -750,7 +751,7 @@ function ContactPicker({ selectedIds, onChange, loading }) {
       await loadContacts(1, '', contactTypeFilter);
       await loadAllContactIds(contactTypeFilter);
       
-      alert(data.message || `יובאו ${data.imported} אנשי קשר חדשים`);
+      toast.success(data.message || `יובאו ${data.imported} אנשי קשר חדשים`);
       
       // Close modal
       setShowGroupImport(false);
@@ -758,7 +759,7 @@ function ContactPicker({ selectedIds, onChange, loading }) {
       setGroupParticipants([]);
       setSelectedParticipants([]);
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בייבוא משתתפי הקבוצה');
+      toast.error(e.response?.data?.error || 'שגיאה בייבוא משתתפי הקבוצה');
     } finally {
       setImportingParticipants(false);
     }

@@ -11,6 +11,7 @@ import api from '../services/api';
 import Logo from '../components/atoms/Logo';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
 import useAuthStore from '../store/authStore';
+import { toast } from '../store/toastStore';
 
 const CATEGORY_ICONS = {
   general: Grid,
@@ -124,9 +125,9 @@ export default function TemplatesPage() {
         setSelectedTemplate(null); // Close template modal
         setBotLimitModal({ limit, used });
       } else if (err.response?.data?.upgrade_required) {
-        alert('תבנית זו זמינה למנויים בלבד. שדרג את החשבון שלך כדי להשתמש בה.');
+        toast.warning('תבנית זו זמינה למנויים בלבד. שדרג את החשבון שלך כדי להשתמש בה.');
       } else {
-        alert(err.response?.data?.error || 'שגיאה ביצירת בוט מתבנית');
+        toast.error(err.response?.data?.error || 'שגיאה ביצירת בוט מתבנית');
       }
     } finally {
       setCreating(false);
@@ -157,9 +158,9 @@ export default function TemplatesPage() {
       setSubmitData({ botId: '', name: '', name_he: '', description: '', description_he: '', category: 'general' });
       setActiveTab('my-templates');
       loadMyTemplates();
-      alert('התבנית הוגשה בהצלחה! היא תיבדק על ידי צוות האתר.');
+      toast.success('התבנית הוגשה בהצלחה! היא תיבדק על ידי צוות האתר.');
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בהגשת תבנית');
+      toast.error(err.response?.data?.error || 'שגיאה בהגשת תבנית');
     } finally {
       setSubmitting(false);
     }

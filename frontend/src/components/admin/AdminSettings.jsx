@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Settings, Save, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 
 export default function AdminSettings() {
   const [settings, setSettings] = useState({});
@@ -30,7 +31,7 @@ export default function AdminSettings() {
       await api.put(`/admin/settings/${key}`, { value });
       loadSettings();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בשמירת ההגדרה');
+      toast.error(err.response?.data?.error || 'שגיאה בשמירת ההגדרה');
     } finally {
       setSaving(false);
     }
@@ -136,7 +137,7 @@ function SettingEditor({ settingKey, value, onSave, saving }) {
       onSave(parsedValue);
       setIsEditing(false);
     } catch (err) {
-      alert('JSON לא תקין');
+      toast.warning('JSON לא תקין');
     }
   };
 

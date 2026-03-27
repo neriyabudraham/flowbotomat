@@ -3,6 +3,7 @@ import { Plus, X, GripVertical, MessageSquare, Image, FileText, Video, Upload, C
 import TextInputWithVariables from './TextInputWithVariables';
 import { COMMON_REACTIONS, EMOJI_CATEGORIES } from './emojis';
 import api from '../../../../services/api';
+import { toast } from '../../../../store/toastStore';
 
 const LIMITS = { text: 4096, caption: 1024 };
 
@@ -1470,7 +1471,7 @@ function AudioRecorder({ action, onUpdate, fileInputRef, handleFileUpload }) {
       }, 1000);
     } catch (err) {
       console.error('Error accessing microphone:', err);
-      alert('לא ניתן לגשת למיקרופון. אנא בדוק הרשאות.');
+      toast.error('לא ניתן לגשת למיקרופון. אנא בדוק הרשאות.');
     }
   };
 

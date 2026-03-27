@@ -5,6 +5,7 @@ import {
   Download, Loader2, Crown, Shield
 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 import DeleteContactModal from '../contacts/DeleteContactModal';
 
 /**
@@ -326,9 +327,9 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
         `/whatsapp/groups/${encodeURIComponent(groupId)}/participants/import`,
         { excludeAdmins }
       );
-      alert(data.message || `יובאו ${data.imported} אנשי קשר`);
+      toast.success(data.message || `יובאו ${data.imported} אנשי קשר`);
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בייבוא');
+      toast.error(err.response?.data?.error || 'שגיאה בייבוא');
     }
     setImportingParticipants(false);
   };

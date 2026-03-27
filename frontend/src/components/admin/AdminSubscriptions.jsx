@@ -5,6 +5,7 @@ import {
   Gift, Tag, Percent, Clock, Forward, Send
 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 import Button from '../atoms/Button';
 import ConfirmModal from '../organisms/ConfirmModal';
 
@@ -60,7 +61,7 @@ export default function AdminSubscriptions() {
       setEditingPlan(null);
       loadData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בשמירה');
+      toast.error(err.response?.data?.error || 'שגיאה בשמירה');
     }
   };
 
@@ -71,7 +72,7 @@ export default function AdminSubscriptions() {
       setConfirmDelete(null);
       loadData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה במחיקה');
+      toast.error(err.response?.data?.error || 'שגיאה במחיקה');
     }
   };
 
@@ -85,7 +86,7 @@ export default function AdminSubscriptions() {
       setEditingPromo(null);
       loadData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בשמירה');
+      toast.error(err.response?.data?.error || 'שגיאה בשמירה');
     }
   };
 
@@ -96,7 +97,7 @@ export default function AdminSubscriptions() {
       setConfirmDeletePromo(null);
       loadData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה במחיקה');
+      toast.error(err.response?.data?.error || 'שגיאה במחיקה');
     }
   };
 
@@ -110,7 +111,7 @@ export default function AdminSubscriptions() {
       setEditingCoupon(null);
       loadData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בשמירה');
+      toast.error(err.response?.data?.error || 'שגיאה בשמירה');
     }
   };
 
@@ -121,7 +122,7 @@ export default function AdminSubscriptions() {
       setConfirmDeleteCoupon(null);
       loadData();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה במחיקה');
+      toast.error(err.response?.data?.error || 'שגיאה במחיקה');
     }
   };
 

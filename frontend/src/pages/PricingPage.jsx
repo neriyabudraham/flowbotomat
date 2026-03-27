@@ -7,6 +7,7 @@ import {
   RotateCcw, Clock, Info, Send, Share2, ImagePlus, ExternalLink
 } from 'lucide-react';
 import api from '../services/api';
+import { toast } from '../store/toastStore';
 import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
@@ -267,7 +268,7 @@ export default function PricingPage() {
       setShowCancelModal(false);
       navigate('/dashboard', { state: { message: 'המנוי בוטל בהצלחה', type: 'success' } });
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בביטול המנוי');
+      toast.error(err.response?.data?.error || 'שגיאה בביטול המנוי');
     }
   };
 

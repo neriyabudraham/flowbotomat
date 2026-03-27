@@ -1092,6 +1092,58 @@ async function renameSubAccount(req, res) {
 }
 
 /**
+ * Delete a sub-account (parent only)
+ */
+async function deleteSubAccount(req, res) {
+  try {
+    const parentUserId = req.user.viewingAs || req.user.id;
+    const { subAccountId } = req.params;
+
+    // Verify this sub-account belongs to the parent
+    const check = await db.query(
+      'SELECT id FROM linked_accounts WHERE parent_user_id = $1 AND child_user_id = $2',
+      [parentUserId, subAccountId]
+    );
+    if (check.rows.length === 0) {
+      return res.status(403).json({ error: 'אין גישה לחשבון זה' });
+    }
+
+    // Stop and delete WAHA sessions
+    try {
+      const wahaService = require('../../services/waha/session.service');
+      const wahaSources = require('../../services/waha/sources.service');
+      const connections = await db.query(
+        `SELECT session_name, waha_source_id FROM whatsapp_connections WHERE user_id = $1 AND session_name IS NOT NULL`,
+        [subAccountId]
+      );
+      for (const conn of connections.rows) {
+        try {
+          const creds = conn.waha_source_id ? await wahaSources.getCredentialsForSource(conn.waha_source_id) : null;
+          if (creds && conn.session_name) {
+            await wahaService.stopSession(creds.baseUrl, creds.apiKey, conn.session_name);
+            await wahaService.deleteSession(creds.baseUrl, creds.apiKey, conn.session_name);
+          }
+        } catch (e) {
+          console.error(`[Experts] Failed to delete WAHA session ${conn.session_name}:`, e.message);
+        }
+      }
+    } catch (e) {
+      console.error('[Experts] WAHA cleanup error:', e.message);
+    }
+
+    // Delete the sub-account (CASCADE handles related data)
+    await db.query('DELETE FROM users WHERE id = $1', [subAccountId]);
+
+    console.log(`[Experts] Sub-account ${subAccountId} deleted by parent ${parentUserId}`);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Experts] Delete sub-account error:', error);
+    res.status(500).json({ error: 'שגיאה במחיקת חשבון משנה' });
+  }
+}
+
+/**
  * Generate a link code for creating linked accounts
  */
 async function generateLinkCode(req, res) {
@@ -1292,4 +1344,5 @@ module.exports = {
   createSubAccount,
   getSubAccounts,
   renameSubAccount,
+  deleteSubAccount,
 };

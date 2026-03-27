@@ -13,6 +13,7 @@ import NotificationsDropdown from '../components/notifications/NotificationsDrop
 import AccountSwitcher from '../components/AccountSwitcher';
 import Logo from '../components/atoms/Logo';
 import api from '../services/api';
+import { toast } from '../store/toastStore';
 
 export default function BotsPage() {
   const navigate = useNavigate();
@@ -148,7 +149,7 @@ export default function BotsPage() {
       setNewVarDefault('');
       fetchVariables();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה ביצירת משתנה');
+      toast.error(e.response?.data?.error || 'שגיאה ביצירת משתנה');
     }
   };
 
@@ -166,7 +167,7 @@ export default function BotsPage() {
       setNewSysVarValue('');
       fetchVariables();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה ביצירת משתנה');
+      toast.error(e.response?.data?.error || 'שגיאה ביצירת משתנה');
     }
   };
 
@@ -175,7 +176,7 @@ export default function BotsPage() {
       await api.put(`/variables/${varId}`, { default_value: newValue });
       fetchVariables();
     } catch (e) {
-      alert('שגיאה בעדכון משתנה');
+      toast.error('שגיאה בעדכון משתנה');
     }
   };
 
@@ -184,7 +185,7 @@ export default function BotsPage() {
       await api.put(`/variables/${varId}`, { label: newLabel });
       fetchVariables();
     } catch (e) {
-      alert('שגיאה בעדכון תווית');
+      toast.error('שגיאה בעדכון תווית');
     }
   };
 
@@ -221,7 +222,7 @@ export default function BotsPage() {
         });
         setShowUpgradeModal(true);
       } else {
-        alert(err.response?.data?.error || 'שגיאה ביצירת בוט');
+        toast.error(err.response?.data?.error || 'שגיאה ביצירת בוט');
       }
     } finally {
       setIsCreating(false);
@@ -238,7 +239,7 @@ export default function BotsPage() {
         setUpgradeError(errorData);
         setShowUpgradeModal(true);
       } else {
-        alert(errorData?.error || 'שגיאה בעדכון בוט');
+        toast.error(errorData?.error || 'שגיאה בעדכון בוט');
       }
     }
   };
@@ -268,7 +269,7 @@ export default function BotsPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert('שגיאה בייצוא');
+      toast.error('שגיאה בייצוא');
     }
   };
 
@@ -300,7 +301,7 @@ export default function BotsPage() {
         setUpgradeError(errorData);
         setShowUpgradeModal(true);
       } else {
-        alert(errorData?.error || 'שגיאה בשכפול');
+        toast.error(errorData?.error || 'שגיאה בשכפול');
       }
     }
   };
@@ -313,7 +314,7 @@ export default function BotsPage() {
       setImportData(data);
       setImportName(data.bot.name || 'בוט מיובא');
     } catch (e) {
-      alert('שגיאה בקריאת הקובץ - ודא שהקובץ תקין');
+      toast.error('שגיאה בקריאת הקובץ - ודא שהקובץ תקין');
     }
   };
 
@@ -339,7 +340,7 @@ export default function BotsPage() {
         setUpgradeError(errorData);
         setShowUpgradeModal(true);
       } else {
-        alert(errorData?.error || 'שגיאה בייבוא');
+        toast.error(errorData?.error || 'שגיאה בייבוא');
       }
     } finally {
       setImporting(false);

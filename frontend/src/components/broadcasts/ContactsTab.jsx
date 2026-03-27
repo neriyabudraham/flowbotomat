@@ -6,6 +6,7 @@ import {
   Calendar, MessageSquare, Eye, Clock, Hash, ExternalLink, Radio
 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 import ImportTab from './ImportTab';
 
 // Helper to check if contact is a group
@@ -206,7 +207,7 @@ export default function ContactsTab({ onRefresh }) {
     };
     
     if (contactVariables.find(v => v.key === newVar.key)) {
-      alert('משתנה זה כבר קיים');
+      toast.warning('משתנה זה כבר קיים');
       return;
     }
     
@@ -241,7 +242,7 @@ export default function ContactsTab({ onRefresh }) {
       loadContacts();
       loadAllVariables();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בשמירה');
+      toast.error(e.response?.data?.error || 'שגיאה בשמירה');
     } finally {
       setSaving(false);
     }
@@ -255,7 +256,7 @@ export default function ContactsTab({ onRefresh }) {
       setViewingContact(null);
       loadContacts();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה במחיקה');
+      toast.error(e.response?.data?.error || 'שגיאה במחיקה');
     }
   };
 
@@ -267,7 +268,7 @@ export default function ContactsTab({ onRefresh }) {
       setSelectedContacts([]);
       loadContacts();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה במחיקה');
+      toast.error(e.response?.data?.error || 'שגיאה במחיקה');
     }
   };
 
@@ -285,7 +286,7 @@ export default function ContactsTab({ onRefresh }) {
       loadContacts();
       loadTags();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בהוספת תגית');
+      toast.error(e.response?.data?.error || 'שגיאה בהוספת תגית');
     }
   };
 
@@ -314,7 +315,7 @@ export default function ContactsTab({ onRefresh }) {
         }
       }
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בהוספת תגית');
+      toast.error(e.response?.data?.error || 'שגיאה בהוספת תגית');
     }
   };
 
@@ -332,7 +333,7 @@ export default function ContactsTab({ onRefresh }) {
         });
       }
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בהסרת תגית');
+      toast.error(e.response?.data?.error || 'שגיאה בהסרת תגית');
     }
   };
 

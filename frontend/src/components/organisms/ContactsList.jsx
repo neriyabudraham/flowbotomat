@@ -3,6 +3,7 @@ import { Search, Users, MessageSquare, Bot, Activity, Trash2, Download, X, Check
 import ContactItem from '../molecules/ContactItem';
 import DeleteContactModal from '../contacts/DeleteContactModal';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 
 /**
  * Check if contact is a group
@@ -199,7 +200,7 @@ export default function ContactsList({
       setShowActions(false);
     } catch (error) {
       console.error('Export error:', error);
-      alert('שגיאה בייצוא אנשי קשר');
+      toast.error('שגיאה בייצוא אנשי קשר');
     }
     setExporting(false);
   };

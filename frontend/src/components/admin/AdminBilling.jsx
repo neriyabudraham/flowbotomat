@@ -8,6 +8,7 @@ import {
   Link2, Check
 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 import { UnifiedUserModal } from './AdminUsers';
 import useAuthStore from '../../store/authStore';
 
@@ -173,10 +174,10 @@ function ChargeActionsMenu({ charge, onRefresh, onViewUser, loadingUser, onViewH
     if (!confirm(`לחייב ₪${Number(charge.amount).toLocaleString()} עכשיו?`)) return;
     const res = await api.post(`/admin/billing/charge/${charge.id}`);
     if (res.data.success) {
-      alert(`✅ חויב בהצלחה!\nמזהה עסקה: ${res.data.transactionId}`);
+      toast.success(`חויב בהצלחה!\nמזהה עסקה: ${res.data.transactionId}`);
       onRefresh?.();
     } else {
-      alert(`❌ החיוב נכשל: ${res.data.error}`);
+      toast.error(`החיוב נכשל: ${res.data.error}`);
     }
   });
 
@@ -196,7 +197,7 @@ function ChargeActionsMenu({ charge, onRefresh, onViewUser, loadingUser, onViewH
     const reason = prompt(`ביטול מנוי עבור ${charge.display_name || charge.email}\n\nהמשתמש יועבר לתוכנית חינמית והבוטים שלו יינעלו.\n\nסיבה לביטול (אופציונלי):`);
     if (reason === null) return; // user pressed cancel
     await api.post(`/admin/billing/cancel-subscription/${charge.user_id}`, { reason });
-    alert('✅ המנוי בוטל בהצלחה');
+    toast.success('המנוי בוטל בהצלחה');
     onRefresh?.();
   });
 
@@ -760,14 +761,14 @@ function FailedCharges({ onRefresh, onViewUser, loadingUser, onViewHistory }) {
     try {
       const res = await api.post(`/admin/billing/retry/${id}`);
       if (res.data.success) {
-        alert(`✅ החיוב הצליח! עסקה: ${res.data.transactionId}`);
+        toast.success(`החיוב הצליח! עסקה: ${res.data.transactionId}`);
       } else {
-        alert(`❌ החיוב נכשל שוב: ${res.data.error}`);
+        toast.error(`החיוב נכשל שוב: ${res.data.error}`);
       }
       loadCharges();
       onRefresh?.();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בחיוב');
+      toast.error(err.response?.data?.error || 'שגיאה בחיוב');
     } finally {
       setActionLoading(null);
     }
@@ -781,7 +782,7 @@ function FailedCharges({ onRefresh, onViewUser, loadingUser, onViewHistory }) {
       loadCharges();
       onRefresh?.();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בביטול');
+      toast.error(err.response?.data?.error || 'שגיאה בביטול');
     } finally {
       setActionLoading(null);
     }
@@ -795,7 +796,7 @@ function FailedCharges({ onRefresh, onViewUser, loadingUser, onViewHistory }) {
       loadCharges();
       onRefresh?.();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה במחיקה');
+      toast.error(err.response?.data?.error || 'שגיאה במחיקה');
     } finally {
       setActionLoading(null);
     }
@@ -980,7 +981,7 @@ function PaymentHistory({ onViewUser, loadingUser, initialUserEmail, onClearUser
       setEditingReceiptId(null);
       loadPayments();
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בעדכון קבלה');
+      toast.error(err.response?.data?.error || 'שגיאה בעדכון קבלה');
     } finally {
       setSavingReceipt(false);
     }
@@ -1258,7 +1259,7 @@ function PaymentActionsMenu({ payment, onRefresh }) {
     const reason = prompt(`ביטול מנוי עבור ${payment.display_name || payment.email}\n\nהמשתמש יועבר לתוכנית חינמית.\n\nסיבה (אופציונלי):`);
     if (reason === null) return;
     await api.post(`/admin/billing/cancel-subscription/${payment.user_id}`, { reason });
-    alert('✅ המנוי בוטל');
+    toast.success('המנוי בוטל');
     onRefresh?.();
   });
 

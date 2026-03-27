@@ -4,6 +4,7 @@ import {
   HelpCircle, Users, MessageCircle, Gift, Clock, Settings
 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 
 const ICON_OPTIONS = [
   { value: 'bell', label: 'פעמון', icon: Bell },
@@ -61,9 +62,9 @@ export default function AdminSiteConfig() {
     setSaving(true);
     try {
       await api.put('/admin/settings/site_config', { value: config });
-      alert('ההגדרות נשמרו בהצלחה!');
+      toast.success('ההגדרות נשמרו בהצלחה!');
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בשמירה');
+      toast.error(err.response?.data?.error || 'שגיאה בשמירה');
     } finally {
       setSaving(false);
     }

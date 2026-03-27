@@ -42,6 +42,7 @@ import ConnectWhatsAppPage from './pages/ConnectWhatsAppPage';
 import ConnectIntegrationsPage from './pages/ConnectIntegrationsPage';
 import SystemAlertOverlay from './components/notifications/SystemAlertOverlay';
 import MaintenanceOverlay from './components/MaintenanceOverlay';
+import ToastContainer from './components/atoms/ToastContainer';
 import SocketProvider from './components/providers/SocketProvider';
 import useThemeStore from './store/themeStore';
 import api from './services/api';
@@ -189,6 +190,7 @@ function App() {
           </Routes>
         </div>
       </SocketProvider>
+      <ToastContainer />
     </BrowserRouter>
   );
 }

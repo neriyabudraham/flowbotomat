@@ -5,6 +5,7 @@ import {
   ArrowRight, XCircle, AlertTriangle
 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 
 const PERMISSIONS = [
   { key: 'can_view_bots', label: 'צפייה בבוטים', icon: Eye },
@@ -143,7 +144,7 @@ export default function ExpertAccessManager() {
         e.expert_id === expertId ? { ...e, [key]: value } : e
       ));
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה בעדכון');
+      toast.error(err.response?.data?.error || 'שגיאה בעדכון');
     }
   };
 

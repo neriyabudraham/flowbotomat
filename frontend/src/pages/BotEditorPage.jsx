@@ -9,6 +9,7 @@ import FlowPreview from '../components/flow/panels/FlowPreview';
 import BotStatsPanel from '../components/bots/BotStatsPanel';
 import BotExecutionHistory from '../components/bots/BotExecutionHistory';
 import Button from '../components/atoms/Button';
+import { toast } from '../store/toastStore';
 
 const STORAGE_KEY = 'flowbotomat_draft_';
 
@@ -276,7 +277,7 @@ export default function BotEditorPage() {
       setTimeout(() => setShowSaved(false), 3000);
     } catch (err) {
       console.error(err);
-      alert('שגיאה בשמירה. נסה שוב.');
+      toast.error('שגיאה בשמירה. נסה שוב.');
     }
     setIsSaving(false);
   };

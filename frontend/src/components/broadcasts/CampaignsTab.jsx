@@ -7,6 +7,7 @@ import {
   ArrowRight, TrendingUp, Timer, RotateCcw, Tag
 } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 import { TemplateEditorModal } from './TemplatesTab';
 import { AudienceEditorModal } from './AudiencesTab';
 
@@ -92,7 +93,7 @@ export default function CampaignsTab({ onRefresh }) {
       fetchAll();
       onRefresh?.();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה במחיקת קמפיין');
+      toast.error(e.response?.data?.error || 'שגיאה במחיקת קמפיין');
     }
   };
 
@@ -102,7 +103,7 @@ export default function CampaignsTab({ onRefresh }) {
       await api.post(`/broadcasts/campaigns/${id}/${action}`);
       fetchAll();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בביצוע פעולה');
+      toast.error(e.response?.data?.error || 'שגיאה בביצוע פעולה');
     } finally {
       setActionLoading(null);
     }
@@ -121,7 +122,7 @@ export default function CampaignsTab({ onRefresh }) {
       setNewScheduleTime('');
       fetchAll();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בעדכון תזמון');
+      toast.error(e.response?.data?.error || 'שגיאה בעדכון תזמון');
     } finally {
       setActionLoading(null);
     }
@@ -136,7 +137,7 @@ export default function CampaignsTab({ onRefresh }) {
       });
       fetchAll();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בביטול תזמון');
+      toast.error(e.response?.data?.error || 'שגיאה בביטול תזמון');
     } finally {
       setActionLoading(null);
     }
@@ -156,7 +157,7 @@ export default function CampaignsTab({ onRefresh }) {
       fetchAll();
       onRefresh?.();
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בשכפול קמפיין');
+      toast.error(e.response?.data?.error || 'שגיאה בשכפול קמפיין');
     } finally {
       setActionLoading(null);
     }
@@ -191,7 +192,7 @@ export default function CampaignsTab({ onRefresh }) {
       link.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert(e.response?.data?.error || 'שגיאה בהורדת דוח');
+      toast.error(e.response?.data?.error || 'שגיאה בהורדת דוח');
     } finally {
       setActionLoading(null);
     }

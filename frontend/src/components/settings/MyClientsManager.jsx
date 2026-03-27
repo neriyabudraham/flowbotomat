@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Bot, LogOut, ChevronLeft, Eye, Edit, BarChart3, X, AlertTriangle, ArrowLeftRight } from 'lucide-react';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 import useAuthStore from '../../store/authStore';
 
 export default function MyClientsManager() {
@@ -35,7 +36,7 @@ export default function MyClientsManager() {
       loadClients();
       setLeaveModal(null);
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה ביציאה');
+      toast.error(err.response?.data?.error || 'שגיאה ביציאה');
     }
   };
 
@@ -58,7 +59,7 @@ export default function MyClientsManager() {
         window.location.href = '/dashboard';
       }
     } catch (err) {
-      alert(err.response?.data?.error || 'שגיאה במעבר לחשבון');
+      toast.error(err.response?.data?.error || 'שגיאה במעבר לחשבון');
       setSwitching(null);
     }
   };
