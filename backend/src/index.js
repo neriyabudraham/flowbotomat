@@ -500,6 +500,44 @@ server.listen(PORT, () => {
         ORDER BY ph.user_id, ph.created_at DESC
         ON CONFLICT DO NOTHING
       `);
+      // Execution history tables for bot run tracking
+      await dbQuery(`
+        CREATE TABLE IF NOT EXISTS bot_execution_runs (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+          contact_id UUID REFERENCES contacts(id) ON DELETE SET NULL,
+          trigger_node_id VARCHAR(255),
+          trigger_message TEXT,
+          status VARCHAR(20) DEFAULT 'running',
+          error_message TEXT,
+          flow_snapshot JSONB,
+          variables_snapshot JSONB DEFAULT '{}',
+          started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          completed_at TIMESTAMP WITH TIME ZONE,
+          duration_ms INTEGER
+        )
+      `);
+      await dbQuery(`CREATE INDEX IF NOT EXISTS idx_execution_runs_bot_id ON bot_execution_runs(bot_id)`);
+      await dbQuery(`CREATE INDEX IF NOT EXISTS idx_execution_runs_started_at ON bot_execution_runs(started_at DESC)`);
+      await dbQuery(`
+        CREATE TABLE IF NOT EXISTS bot_execution_steps (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          run_id UUID NOT NULL REFERENCES bot_execution_runs(id) ON DELETE CASCADE,
+          node_id VARCHAR(255) NOT NULL,
+          node_type VARCHAR(50) NOT NULL,
+          node_label TEXT,
+          step_order INTEGER NOT NULL,
+          status VARCHAR(20) DEFAULT 'running',
+          input_data JSONB DEFAULT '{}',
+          output_data JSONB DEFAULT '{}',
+          error_message TEXT,
+          next_handle VARCHAR(255),
+          started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          completed_at TIMESTAMP WITH TIME ZONE,
+          duration_ms INTEGER
+        )
+      `);
+      await dbQuery(`CREATE INDEX IF NOT EXISTS idx_execution_steps_run_id ON bot_execution_steps(run_id)`);
     } catch (err) {
       console.error('[Startup] Migration error:', err.message);
     }

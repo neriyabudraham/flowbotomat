@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { Save, ArrowRight, Edit2, RotateCcw, Play, X, BarChart3, Sparkles } from 'lucide-react';
+import { Save, ArrowRight, Edit2, RotateCcw, Play, X, BarChart3, Sparkles, History } from 'lucide-react';
 import useBotsStore from '../store/botsStore';
 import FlowBuilder from '../components/flow/FlowBuilder';
 import NodePalette from '../components/flow/NodePalette';
 import NodeEditor from '../components/flow/panels/NodeEditor';
 import FlowPreview from '../components/flow/panels/FlowPreview';
 import BotStatsPanel from '../components/bots/BotStatsPanel';
+import BotExecutionHistory from '../components/bots/BotExecutionHistory';
 import Button from '../components/atoms/Button';
 
 const STORAGE_KEY = 'flowbotomat_draft_';
@@ -33,6 +34,7 @@ export default function BotEditorPage() {
   const [flowKey, setFlowKey] = useState(0);
   const [showPreview, setShowPreview] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const isInitialLoad = useRef(true);
   
   // Check if user can edit
@@ -415,6 +417,16 @@ export default function BotEditorPage() {
           <div className="flex items-center gap-3">
             {canEdit && (
               <button
+                onClick={() => setShowHistory(true)}
+                className="flex items-center justify-center gap-2 h-10 px-4 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded-xl font-medium transition-all"
+              >
+                <History className="w-4 h-4" />
+                <span>היסטוריה</span>
+              </button>
+            )}
+
+            {canEdit && (
+              <button
                 onClick={() => setShowStats(true)}
                 className="flex items-center justify-center gap-2 h-10 px-4 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-xl font-medium transition-all"
               >
@@ -542,6 +554,29 @@ export default function BotEditorPage() {
             </div>
             <div className="p-6 overflow-auto max-h-[calc(90vh-80px)]">
               <BotStatsPanel botId={botId} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* History Modal */}
+      {showHistory && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-6xl h-[90vh] overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <History className="w-5 h-5 text-amber-600" />
+                <h2 className="font-semibold text-lg">היסטוריית ריצות - {currentBot?.name}</h2>
+              </div>
+              <button onClick={() => setShowHistory(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-6">
+              <BotExecutionHistory
+                botId={botId}
+                onNavigateToEditor={() => setShowHistory(false)}
+              />
             </div>
           </div>
         </div>

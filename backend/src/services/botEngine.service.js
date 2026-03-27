@@ -4,6 +4,7 @@ const { getWahaCredentialsForConnection } = require('./settings/system.service')
 const validationService = require('./validation.service');
 const { checkLimit, incrementBotRuns } = require('../controllers/subscriptions/subscriptions.controller');
 const { getSocketManager } = require('./socket/manager.service');
+const executionTracker = require('./executionTracker.service');
 const { checkContactLimit } = require('./limits.service');
 
 // Concurrency limiter: max 5 simultaneous processEvent calls to avoid DB pool exhaustion
@@ -417,16 +418,26 @@ class BotEngine {
       // Log bot run and increment usage (only when trigger actually continues to execution)
       await this.logBotRun(bot.id, contact.id, 'triggered');
       await incrementBotRuns(userId);
-      
+
+      // Start execution tracking for event
+      let contactVars = {};
+      try {
+        const varsResult = await db.query('SELECT key, value FROM contact_variables WHERE contact_id = $1', [contact.id]);
+        contactVars = Object.fromEntries(varsResult.rows.map(r => [r.key, r.value]));
+      } catch (e) {}
+      const eventRunId = await executionTracker.startRun(bot.id, contact.id, triggerNode2.id, eventMessage, flowData, contactVars);
+
       const sortedEdges = nextEdges.sort((a, b) => {
         const nodeA = flowData.nodes.find(n => n.id === a.target);
         const nodeB = flowData.nodes.find(n => n.id === b.target);
         return (nodeA?.position?.y || 0) - (nodeB?.position?.y || 0);
       });
-      
+
       for (const edge of sortedEdges) {
-        await this.executeNode(edge.target, flowData, contact, eventMessage, userId, bot.id, bot.name);
+        await this.executeNode(edge.target, flowData, contact, eventMessage, userId, bot.id, bot.name, undefined, eventRunId);
       }
+
+      await executionTracker.completeRun(eventRunId, 'completed');
     } catch (error) {
       console.error('[BotEngine] Error processing event bot:', error.message);
     }
@@ -535,6 +546,7 @@ class BotEngine {
   
   // Process single bot
   async processBot(bot, contact, message, messageType, userId, selectedRowId = null, quotedListTitle = null, isGroupMessage = false, extraContext = {}) {
+    let runId = null;
     try {
       // Check if this specific bot is disabled for this contact
       try {
@@ -716,7 +728,15 @@ class BotEngine {
       // Log bot run and increment usage (only when trigger actually continues to execution)
       await this.logBotRun(bot.id, contact.id, 'triggered');
       await incrementBotRuns(userId);
-      
+
+      // Start execution tracking
+      let contactVars = {};
+      try {
+        const varsResult = await db.query('SELECT key, value FROM contact_variables WHERE contact_id = $1', [contact.id]);
+        contactVars = Object.fromEntries(varsResult.rows.map(r => [r.key, r.value]));
+      } catch (e) {}
+      const runId = await executionTracker.startRun(bot.id, contact.id, triggerNode.id, message, flowData, contactVars);
+
       // Sort by target node Y position (top to bottom)
       const sortedEdges = nextEdges.sort((a, b) => {
         const nodeA = flowData.nodes.find(n => n.id === a.target);
@@ -725,19 +745,23 @@ class BotEngine {
         const posB = nodeB?.position?.y || 0;
         return posA - posB;
       });
-      
-      
+
+
       // Execute all branches sequentially (top to bottom)
       for (const edge of sortedEdges) {
-        await this.executeNode(edge.target, flowData, contact, message, userId, bot.id, bot.name);
+        await this.executeNode(edge.target, flowData, contact, message, userId, bot.id, bot.name, undefined, runId);
       }
-      
+
+      // Complete execution tracking
+      await executionTracker.completeRun(runId, 'completed');
+
     } catch (error) {
       console.error('[BotEngine] Error processing bot:', error);
       await this.logBotRun(bot.id, contact.id, 'error', error.message);
+      if (runId) await executionTracker.completeRun(runId, 'error', error.message);
     }
   }
-  
+
   // Get active session for contact
   async getSession(botId, contactId) {
     const result = await db.query(
@@ -1701,7 +1725,7 @@ class BotEngine {
   }
   
   // Execute a node
-  async executeNode(nodeId, flowData, contact, message, userId, botId, botName = '', _visitedNodes = new Set()) {
+  async executeNode(nodeId, flowData, contact, message, userId, botId, botName = '', _visitedNodes = new Set(), runId = null) {
     // Infinite loop protection: track visited nodes in this execution chain
     const MAX_NODE_EXECUTIONS = 50;
     if (_visitedNodes.has(nodeId)) {
@@ -1713,68 +1737,120 @@ class BotEngine {
       return;
     }
     _visitedNodes.add(nodeId);
-    
+
     const node = flowData.nodes.find(n => n.id === nodeId);
     if (!node) {
       return;
     }
-    
-    
-    let nextHandleId = null;
-    
-    switch (node.type) {
-      case 'message':
-        const shouldWait = await this.executeMessageNode(node, contact, message, userId, botName, botId);
-        if (shouldWait) return; // Wait for response, don't continue
-        break;
-        
-      case 'condition':
-        nextHandleId = await this.executeConditionNode(node, contact, message, userId);
-        break;
-        
-      case 'delay':
-        await this.executeDelayNode(node, contact, userId);
-        break;
-        
-      case 'action':
-        await this.executeActionNode(node, contact, userId);
-        break;
-        
-      case 'list':
-        await this.executeListNode(node, contact, userId, botName, botId);
-        // List nodes wait for response, session saved
-        return;
-        
-      case 'registration':
-        await this.executeRegistrationNode(node, contact, message, userId, botName, botId);
-        // Registration nodes wait for responses, session saved
-        return;
-        
-      case 'integration':
-        await this.executeIntegrationNode(node, contact, userId, message);
-        break;
-        
-      case 'google_sheets':
-        await this.executeGoogleSheetsNode(node, contact, userId);
-        break;
-        
-      case 'google_contacts':
-        await this.executeGoogleContactsNode(node, contact, userId);
-        break;
-        
-      case 'note':
-        // Note nodes are just for documentation, skip them
-        break;
-        
-      case 'send_other':
-        await this.executeSendOtherNode(node, contact, userId, message);
-        break;
 
-      case 'formula':
-        await this.executeFormulaNode(node, contact, userId, message);
-        break;
+    const stepStart = Date.now();
+    const stepOrder = _visitedNodes.size;
+    const nodeLabel = executionTracker.getNodeLabel(node);
+    let stepStatus = 'completed';
+    let stepError = null;
+    let stepOutput = {};
+    let nextHandleId = null;
+
+    try {
+      switch (node.type) {
+        case 'message':
+          const shouldWait = await this.executeMessageNode(node, contact, message, userId, botName, botId);
+          if (shouldWait) {
+            stepStatus = 'waiting';
+            stepOutput = { waitingForReply: true };
+            await executionTracker.logStep(runId, nodeId, node.type, nodeLabel, stepOrder, {
+              inputData: { actions: (node.data.actions || []).map(a => a.type) },
+              outputData: stepOutput, status: stepStatus, durationMs: Date.now() - stepStart
+            });
+            return;
+          }
+          stepOutput = { actionsSent: (node.data.actions || []).length };
+          break;
+
+        case 'condition':
+          nextHandleId = await this.executeConditionNode(node, contact, message, userId);
+          stepOutput = { result: nextHandleId === 'yes' ? 'כן' : 'לא', handle: nextHandleId };
+          break;
+
+        case 'delay':
+          await this.executeDelayNode(node, contact, userId);
+          stepOutput = { delay: `${node.data.delayValue || 0} ${node.data.delayUnit || 'seconds'}` };
+          break;
+
+        case 'action':
+          await this.executeActionNode(node, contact, userId);
+          stepOutput = { actions: (node.data.actions || []).map(a => a.type) };
+          break;
+
+        case 'list':
+          await this.executeListNode(node, contact, userId, botName, botId);
+          stepStatus = 'waiting';
+          stepOutput = { title: node.data.title, buttons: (node.data.buttons || []).map(b => b.title) };
+          await executionTracker.logStep(runId, nodeId, node.type, nodeLabel, stepOrder, {
+            inputData: { title: node.data.title },
+            outputData: stepOutput, status: stepStatus, durationMs: Date.now() - stepStart
+          });
+          return;
+
+        case 'registration':
+          await this.executeRegistrationNode(node, contact, message, userId, botName, botId);
+          stepStatus = 'waiting';
+          stepOutput = { fields: (node.data.questions || []).map(q => q.label || q.fieldName) };
+          await executionTracker.logStep(runId, nodeId, node.type, nodeLabel, stepOrder, {
+            inputData: { title: node.data.title },
+            outputData: stepOutput, status: stepStatus, durationMs: Date.now() - stepStart
+          });
+          return;
+
+        case 'integration':
+          await this.executeIntegrationNode(node, contact, userId, message);
+          stepOutput = { type: 'integration' };
+          break;
+
+        case 'google_sheets':
+          await this.executeGoogleSheetsNode(node, contact, userId);
+          stepOutput = { type: 'google_sheets' };
+          break;
+
+        case 'google_contacts':
+          await this.executeGoogleContactsNode(node, contact, userId);
+          stepOutput = { type: 'google_contacts' };
+          break;
+
+        case 'note':
+          stepStatus = 'skipped';
+          break;
+
+        case 'send_other':
+          await this.executeSendOtherNode(node, contact, userId, message);
+          stepOutput = { type: 'send_other' };
+          break;
+
+        case 'formula':
+          await this.executeFormulaNode(node, contact, userId, message);
+          stepOutput = { type: 'formula' };
+          break;
+      }
+    } catch (nodeError) {
+      stepStatus = 'error';
+      stepError = nodeError.message;
+      // Log the step error but don't re-throw - let the execution continue or be caught above
+      await executionTracker.logStep(runId, nodeId, node.type, nodeLabel, stepOrder, {
+        inputData: { nodeData: node.data },
+        outputData: {}, status: 'error', errorMessage: nodeError.message, durationMs: Date.now() - stepStart
+      });
+      throw nodeError;
     }
-    
+
+    // Log successful step
+    await executionTracker.logStep(runId, nodeId, node.type, nodeLabel, stepOrder, {
+      inputData: {},
+      outputData: stepOutput,
+      status: stepStatus,
+      nextHandle: nextHandleId,
+      durationMs: Date.now() - stepStart
+    });
+
     // Find all next edges (support multiple outputs)
     let nextEdges;
     if (nextHandleId) {
@@ -1783,12 +1859,12 @@ class BotEngine {
       // Get all edges without specific handle
       nextEdges = flowData.edges.filter(e => e.source === nodeId && !e.sourceHandle);
     }
-    
+
     if (nextEdges.length === 0 && !nextHandleId) {
       // Fallback - get any edge from this node
       nextEdges = flowData.edges.filter(e => e.source === nodeId);
     }
-    
+
     if (nextEdges.length > 0) {
       // Sort by target node Y position (higher first)
       const sortedEdges = nextEdges.sort((a, b) => {
@@ -1798,11 +1874,11 @@ class BotEngine {
         const posB = nodeB?.position?.y || 0;
         return posA - posB; // Lower Y first (top to bottom)
       });
-      
-      
+
+
       // Execute all branches sequentially (top to bottom)
       for (const edge of sortedEdges) {
-        await this.executeNode(edge.target, flowData, contact, message, userId, botId, botName, _visitedNodes);
+        await this.executeNode(edge.target, flowData, contact, message, userId, botId, botName, _visitedNodes, runId);
       }
     }
   }
