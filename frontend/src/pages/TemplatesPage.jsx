@@ -885,55 +885,28 @@ function SubmitTemplateModal({ userBots, categories, submitData, setSubmitData, 
           </div>
 
           {/* Name */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                שם (אנגלית)
-              </label>
-              <input
-                type="text"
-                value={submitData.name}
-                onChange={(e) => setSubmitData({ ...submitData, name: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all"
-                required
-                dir="ltr"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                שם (עברית)
-              </label>
-              <input
-                type="text"
-                value={submitData.name_he}
-                onChange={(e) => setSubmitData({ ...submitData, name_he: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all"
-              />
-            </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              שם התבנית
+            </label>
+            <input
+              type="text"
+              value={submitData.name_he || submitData.name}
+              onChange={(e) => setSubmitData({ ...submitData, name_he: e.target.value, name: e.target.value })}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all"
+              required
+            />
           </div>
 
           {/* Description */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              תיאור (אנגלית)
+              תיאור התבנית
             </label>
             <textarea
-              value={submitData.description}
-              onChange={(e) => setSubmitData({ ...submitData, description: e.target.value })}
-              rows={2}
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all resize-none"
-              placeholder="Describe what this template does..."
-              dir="ltr"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              תיאור (עברית)
-            </label>
-            <textarea
-              value={submitData.description_he}
-              onChange={(e) => setSubmitData({ ...submitData, description_he: e.target.value })}
-              rows={2}
+              value={submitData.description_he || submitData.description}
+              onChange={(e) => setSubmitData({ ...submitData, description_he: e.target.value, description: e.target.value })}
+              rows={3}
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all resize-none"
               placeholder="תאר את התבנית ומה היא עושה..."
             />
