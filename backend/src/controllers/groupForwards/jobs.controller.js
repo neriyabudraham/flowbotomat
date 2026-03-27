@@ -767,10 +767,32 @@ async function startForwardJob(jobId) {
               const result = await wahaService.sendMessage(wahaConnection, message.group_id, textWithSuffix, mentions, sendOpts);
               messageId = result?.id;
             } else if (job.message_type === 'image') {
-              const result = await wahaService.sendImage(wahaConnection, message.group_id, job.media_url, textWithSuffix);
+              // Check for @כולם mentions in caption
+              let imgMentions;
+              if (/@כולם/.test(textWithSuffix || '') && message.group_id.includes('@g.us')) {
+                try {
+                  const participants = await wahaService.getGroupParticipants(wahaConnection, message.group_id);
+                  imgMentions = (participants || []).map(p => p.PhoneNumber || p.id || p).filter(Boolean);
+                  console.log(`[GroupForwards] mentionAll (image): tagging ${imgMentions.length} participants in ${message.group_id}`);
+                } catch (e) {
+                  console.warn('[GroupForwards] mentionAll (image): Could not fetch participants:', e.message);
+                }
+              }
+              const result = await wahaService.sendImage(wahaConnection, message.group_id, job.media_url, textWithSuffix, imgMentions);
               messageId = result?.id;
             } else if (job.message_type === 'video') {
-              const result = await wahaService.sendVideo(wahaConnection, message.group_id, job.media_url, textWithSuffix);
+              // Check for @כולם mentions in caption
+              let vidMentions;
+              if (/@כולם/.test(textWithSuffix || '') && message.group_id.includes('@g.us')) {
+                try {
+                  const participants = await wahaService.getGroupParticipants(wahaConnection, message.group_id);
+                  vidMentions = (participants || []).map(p => p.PhoneNumber || p.id || p).filter(Boolean);
+                  console.log(`[GroupForwards] mentionAll (video): tagging ${vidMentions.length} participants in ${message.group_id}`);
+                } catch (e) {
+                  console.warn('[GroupForwards] mentionAll (video): Could not fetch participants:', e.message);
+                }
+              }
+              const result = await wahaService.sendVideo(wahaConnection, message.group_id, job.media_url, textWithSuffix, vidMentions);
               messageId = result?.id;
             } else if (job.message_type === 'audio') {
               // Audio doesn't have caption, so send suffix as separate message if needed

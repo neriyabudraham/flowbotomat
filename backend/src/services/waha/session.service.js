@@ -72,8 +72,11 @@ async function fetchOgMetadata(url) {
   const isWaGroup = WA_GROUP_LINK_REGEX.test(url);
   if (isWaGroup) console.log(`[WAHA-OG] Detected as WhatsApp group invite link`);
 
-  for (const ua of OG_USER_AGENTS) {
+  for (let i = 0; i < OG_USER_AGENTS.length; i++) {
+    const ua = OG_USER_AGENTS[i];
     const uaShort = ua.split('/')[0];
+    // Wait between retries to avoid rate limiting (429)
+    if (i > 0) await new Promise(r => setTimeout(r, 1000));
     console.log(`[WAHA-OG] Trying UA: ${uaShort}`);
     const { statusCode, body } = await httpGet(url, ua);
     console.log(`[WAHA-OG] ${uaShort} → status=${statusCode}, body=${body.length} chars`);
@@ -1098,19 +1101,24 @@ async function sendRawVcard(connection, phone, vcardString) {
 /**
  * Send link with custom preview
  */
-async function sendLinkPreview(connection, phone, text, preview) {
+async function sendLinkPreview(connection, phone, text, preview, mentions = null) {
   const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
-  
-  const response = await client.post(`/api/send/link-custom-preview`, {
+
+  const payload = {
     session: connection.session_name,
     chatId: chatId,
     text: text,
     linkPreviewHighQuality: true,
     preview: preview,
-  });
-  
-  console.log(`[WAHA] Sent link preview to ${phone}`);
+  };
+  if (mentions && mentions.length > 0) {
+    payload.mentions = mentions;
+  }
+
+  const response = await client.post(`/api/send/link-custom-preview`, payload);
+
+  console.log(`[WAHA] Sent link preview to ${phone}${mentions ? ` with ${mentions.length} mentions` : ''}`);
   return response.data;
 }
 

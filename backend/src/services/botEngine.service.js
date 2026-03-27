@@ -2205,7 +2205,7 @@ class BotEngine {
                 if (previewImage) {
                   preview.image = { url: previewImage };
                 }
-                result = await wahaService.sendLinkPreview(connection, contact.phone, text, preview);
+                result = await wahaService.sendLinkPreview(connection, contact.phone, text, preview, mentions);
               } else {
                 result = await wahaService.sendMessage(connection, contact.phone, text, mentions);
               }
