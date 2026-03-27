@@ -10,7 +10,7 @@ import {
   Zap, GitBranch, Timer, List, FileText, Code, Webhook,
   Table2, Users, Send, Edit3, Pause, Copy, RotateCcw,
   Image, Video, Music, File, MapPin, Eye, Hash, Tag,
-  ArrowLeftRight, Play, ExternalLink, AlertCircle, Database
+  ArrowLeftRight, Play, ExternalLink, AlertCircle, Database, X
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -155,6 +155,39 @@ function StepOutputPreview({ step, nodeType }) {
   const input = step.input_data || {};
 
   switch (nodeType) {
+    case 'trigger': {
+      return (
+        <div className="space-y-1">
+          {output.triggerMessage && (
+            <div className="text-[10px] text-gray-600 flex items-start gap-1">
+              <MessageSquare className="w-3 h-3 text-purple-500 mt-0.5 flex-shrink-0" />
+              <span className="truncate" dir="auto">"{String(output.triggerMessage).substring(0, 60)}"</span>
+            </div>
+          )}
+          {output.contactName && (
+            <div className="text-[10px] text-gray-600 flex items-center gap-1">
+              <User className="w-3 h-3 text-purple-400" />
+              <span>{output.contactName}</span>
+            </div>
+          )}
+          {output.contactPhone && (
+            <div className="text-[10px] text-gray-400 font-mono" dir="ltr">
+              {output.contactPhone.replace('@s.whatsapp.net', '').replace('@c.us', '')}
+            </div>
+          )}
+          {output.triggerType && (
+            <div className="text-[10px] text-purple-500">
+              <Zap className="w-3 h-3 inline ml-1" />
+              {output.triggerType === 'keyword' ? `מילת מפתח: ${output.keyword || ''}` :
+               output.triggerType === 'any' ? 'כל הודעה' :
+               output.triggerType === 'webhook' ? 'Webhook' :
+               output.triggerType}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     case 'message': {
       const actions = output.actionsSent || input.actions || [];
       return (
@@ -306,6 +339,30 @@ function ExecutionFlowView({ run, selectedStepId, onStepSelect }) {
 
     const stepMap = {};
     (run.steps || []).forEach(step => { stepMap[step.node_id] = step; });
+
+    // Create synthetic trigger step so trigger node shows execution data
+    const triggerNode = flowSnapshot.nodes.find(n => n.type === 'trigger');
+    if (triggerNode && !stepMap[triggerNode.id]) {
+      stepMap[triggerNode.id] = {
+        id: `trigger-${triggerNode.id}`,
+        node_id: triggerNode.id,
+        node_type: 'trigger',
+        node_label: triggerNode.data?.label || 'טריגר',
+        step_order: 0,
+        status: 'completed',
+        input_data: {},
+        output_data: {
+          triggerMessage: run.trigger_message,
+          contactName: run.contact_name,
+          contactPhone: run.contact_phone,
+          triggerType: triggerNode.data?.triggerType || triggerNode.data?.type,
+          keyword: triggerNode.data?.keyword,
+          startedAt: run.started_at,
+        },
+        started_at: run.started_at,
+        duration_ms: 0,
+      };
+    }
 
     // Compute source handles from edges like the real FlowBuilder
     const sourceHandleMap = {};
@@ -618,6 +675,33 @@ function DetailedStepOutput({ step }) {
   const input = step.input_data || {};
 
   switch (step.node_type) {
+    case 'trigger':
+      return (
+        <div className="space-y-2">
+          {output.triggerMessage && (
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-2.5">
+              <div className="text-[10px] font-medium text-purple-600 mb-1">הודעה שהתקבלה:</div>
+              <div className="text-xs text-gray-700 whitespace-pre-wrap break-words" dir="auto">
+                "{String(output.triggerMessage)}"
+              </div>
+            </div>
+          )}
+          {output.contactName && <DetailRow label="איש קשר" value={output.contactName} />}
+          {output.contactPhone && (
+            <DetailRow label="טלפון" value={output.contactPhone.replace('@s.whatsapp.net', '').replace('@c.us', '')} mono />
+          )}
+          {output.triggerType && (
+            <DetailRow label="סוג טריגר" value={
+              output.triggerType === 'keyword' ? `מילת מפתח: ${output.keyword || ''}` :
+              output.triggerType === 'any' ? 'כל הודעה' :
+              output.triggerType === 'webhook' ? 'Webhook' :
+              output.triggerType
+            } />
+          )}
+          <DetailRow label="זמן הפעלה" value={formatTime(output.startedAt)} mono />
+        </div>
+      );
+
     case 'message': {
       const actions = output.actionsSent || input.actions || [];
       return (

@@ -161,7 +161,8 @@ async function rerunExecution(req, res) {
     const userId = req.user.id;
 
     const access = await checkBotAccess(userId, botId);
-    if (!access.hasAccess || !access.canEdit) {
+    const canEdit = access.hasAccess && (access.isOwner || access.permission === 'edit' || access.permission === 'admin');
+    if (!canEdit) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -267,7 +268,8 @@ async function deleteExecutionHistory(req, res) {
     const { days = 30 } = req.query;
 
     const access = await checkBotAccess(userId, botId);
-    if (!access.hasAccess || !access.canEdit) {
+    const canEdit = access.hasAccess && (access.isOwner || access.permission === 'edit' || access.permission === 'admin');
+    if (!canEdit) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
