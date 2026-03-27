@@ -4,13 +4,15 @@ class ExecutionTracker {
   /**
    * Start a new execution run
    */
-  async startRun(botId, contactId, triggerNodeId, triggerMessage, flowData, contactVariables = {}) {
+  async startRun(botId, contactId, triggerNodeId, triggerMessage, flowData, contactVariables = {}, triggerDetail = null) {
     try {
+      const snapshot = { ...contactVariables };
+      if (triggerDetail) snapshot._triggerDetail = triggerDetail;
       const result = await db.query(
         `INSERT INTO bot_execution_runs (bot_id, contact_id, trigger_node_id, trigger_message, status, flow_snapshot, variables_snapshot, started_at)
          VALUES ($1, $2, $3, $4, 'running', $5, $6, NOW())
          RETURNING id`,
-        [botId, contactId, triggerNodeId, triggerMessage, JSON.stringify(flowData), JSON.stringify(contactVariables)]
+        [botId, contactId, triggerNodeId, triggerMessage, JSON.stringify(flowData), JSON.stringify(snapshot)]
       );
       return result.rows[0].id;
     } catch (err) {

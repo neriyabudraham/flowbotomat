@@ -156,6 +156,7 @@ function StepOutputPreview({ step, nodeType }) {
 
   switch (nodeType) {
     case 'trigger': {
+      const conditions = output.conditionGroups || output.legacyTriggers || [];
       return (
         <div className="space-y-1">
           {output.triggerMessage && (
@@ -168,20 +169,23 @@ function StepOutputPreview({ step, nodeType }) {
             <div className="text-[10px] text-gray-600 flex items-center gap-1">
               <User className="w-3 h-3 text-purple-400" />
               <span>{output.contactName}</span>
+              {output.isGroup && <span className="text-purple-400">(קבוצה)</span>}
             </div>
           )}
-          {output.contactPhone && (
-            <div className="text-[10px] text-gray-400 font-mono" dir="ltr">
-              {output.contactPhone.replace('@s.whatsapp.net', '').replace('@c.us', '')}
+          {output.messageType && output.messageType !== 'text' && (
+            <div className="text-[10px] text-purple-400">סוג: {output.messageType}</div>
+          )}
+          {/* Show matched conditions */}
+          {output.conditionGroups?.length > 0 && (
+            <div className="text-[10px] text-green-600">
+              <CheckCircle2 className="w-3 h-3 inline ml-0.5" />
+              {output.conditionGroups[0]?.conditions?.map(c => c.description).join(' + ') || 'התאים'}
             </div>
           )}
-          {output.triggerType && (
-            <div className="text-[10px] text-purple-500">
-              <Zap className="w-3 h-3 inline ml-1" />
-              {output.triggerType === 'keyword' ? `מילת מפתח: ${output.keyword || ''}` :
-               output.triggerType === 'any' ? 'כל הודעה' :
-               output.triggerType === 'webhook' ? 'Webhook' :
-               output.triggerType}
+          {output.legacyTriggers?.length > 0 && (
+            <div className="text-[10px] text-green-600">
+              <CheckCircle2 className="w-3 h-3 inline ml-0.5" />
+              {output.legacyTriggers.map(t => t.description).join(' / ')}
             </div>
           )}
         </div>
@@ -292,7 +296,32 @@ function StepOutputPreview({ step, nodeType }) {
       );
     }
 
-    case 'integration':
+    case 'integration': {
+      const intActions = output.actions || [];
+      const changes = output.variableChanges || {};
+      return (
+        <div className="space-y-1">
+          {intActions.slice(0, 1).map((a, i) => (
+            <div key={i} className="text-[10px] text-gray-600">
+              <span className="font-mono font-bold text-orange-600">{a.method || 'GET'}</span>
+              <span className="truncate mr-1">{(a.resolvedUrl || a.url || '').substring(0, 40)}</span>
+            </div>
+          ))}
+          {(output.apiResponses || []).slice(0, 1).map((r, i) => (
+            <div key={i} className={`text-[10px] font-mono ${r.status >= 200 && r.status < 300 ? 'text-green-600' : 'text-red-500'}`}>
+              {r.status} {r.statusText}
+            </div>
+          ))}
+          {Object.keys(changes).length > 0 && (
+            <div className="text-[10px] text-purple-500">
+              <Database className="w-3 h-3 inline ml-1" />
+              {Object.keys(changes).length} משתנים עודכנו
+            </div>
+          )}
+        </div>
+      );
+    }
+
     case 'google_sheets':
     case 'google_contacts': {
       const changes = output.variableChanges || {};
@@ -313,13 +342,22 @@ function StepOutputPreview({ step, nodeType }) {
       );
     }
 
-    case 'send_other':
+    case 'send_other': {
+      const soActions = output.actionsSent || [];
       return (
-        <div className="text-[10px] text-teal-600">
-          <Send className="w-3 h-3 inline ml-1" />
-          {output.recipientType === 'group' ? 'קבוצה' : output.recipientId || '-'}
+        <div className="space-y-1">
+          <div className="text-[10px] text-teal-600">
+            <Send className="w-3 h-3 inline ml-1" />
+            {output.recipientType === 'group' ? 'קבוצה' : output.recipientId || '-'}
+          </div>
+          {soActions.slice(0, 2).map((a, i) => (
+            <div key={i} className="text-[10px] text-gray-600 truncate">
+              {a.resolvedText ? `"${a.resolvedText.substring(0, 50)}"` : a.type}
+            </div>
+          ))}
         </div>
       );
+    }
 
     default:
       return null;
@@ -342,6 +380,7 @@ function ExecutionFlowView({ run, selectedStepId, onStepSelect }) {
 
     // Create synthetic trigger step so trigger node shows execution data
     const triggerNode = flowSnapshot.nodes.find(n => n.type === 'trigger');
+    const triggerDetail = run.variables_snapshot?._triggerDetail || {};
     if (triggerNode && !stepMap[triggerNode.id]) {
       stepMap[triggerNode.id] = {
         id: `trigger-${triggerNode.id}`,
@@ -353,11 +392,15 @@ function ExecutionFlowView({ run, selectedStepId, onStepSelect }) {
         input_data: {},
         output_data: {
           triggerMessage: run.trigger_message,
-          contactName: run.contact_name,
-          contactPhone: run.contact_phone,
+          contactName: triggerDetail.contactName || run.contact_name,
+          contactPhone: triggerDetail.contactPhone || run.contact_phone,
           triggerType: triggerNode.data?.triggerType || triggerNode.data?.type,
           keyword: triggerNode.data?.keyword,
           startedAt: run.started_at,
+          messageType: triggerDetail.messageType,
+          isGroup: triggerDetail.isGroup,
+          conditionGroups: triggerDetail.conditionGroups,
+          legacyTriggers: triggerDetail.legacyTriggers,
         },
         started_at: run.started_at,
         duration_ms: 0,
@@ -690,15 +733,49 @@ function DetailedStepOutput({ step }) {
           {output.contactPhone && (
             <DetailRow label="טלפון" value={output.contactPhone.replace('@s.whatsapp.net', '').replace('@c.us', '')} mono />
           )}
-          {output.triggerType && (
-            <DetailRow label="סוג טריגר" value={
-              output.triggerType === 'keyword' ? `מילת מפתח: ${output.keyword || ''}` :
-              output.triggerType === 'any' ? 'כל הודעה' :
-              output.triggerType === 'webhook' ? 'Webhook' :
-              output.triggerType
-            } />
-          )}
+          {output.messageType && <DetailRow label="סוג הודעה" value={output.messageType} />}
+          {output.isGroup && <DetailRow label="מקור" value="קבוצה" />}
           <DetailRow label="זמן הפעלה" value={formatTime(output.startedAt)} mono />
+
+          {/* Trigger conditions detail */}
+          {output.conditionGroups?.length > 0 && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-2.5">
+              <div className="text-[10px] font-medium text-green-700 mb-1.5">
+                <CheckCircle2 className="w-3 h-3 inline ml-1" />
+                תנאי טריגר שהתאימו:
+              </div>
+              {output.conditionGroups.map((group, gi) => (
+                <div key={gi} className="space-y-1 mb-1.5">
+                  {group.name && <div className="text-[10px] text-gray-500 font-medium">{group.name}</div>}
+                  {group.conditions?.map((c, ci) => (
+                    <div key={ci} className="text-[10px] text-green-700 flex items-center gap-1 bg-green-100/50 rounded px-2 py-0.5">
+                      <CheckCircle2 className="w-2.5 h-2.5 flex-shrink-0" />
+                      {c.description}
+                    </div>
+                  ))}
+                  {group.hasActiveHours && (
+                    <div className="text-[10px] text-gray-500">
+                      שעות פעילות: {group.activeFrom} - {group.activeTo}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {output.legacyTriggers?.length > 0 && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-2.5">
+              <div className="text-[10px] font-medium text-green-700 mb-1.5">
+                <CheckCircle2 className="w-3 h-3 inline ml-1" />
+                תנאי טריגר:
+              </div>
+              {output.legacyTriggers.map((t, i) => (
+                <div key={i} className="text-[10px] text-green-700 flex items-center gap-1 bg-green-100/50 rounded px-2 py-0.5 mb-0.5">
+                  <CheckCircle2 className="w-2.5 h-2.5 flex-shrink-0" />
+                  {t.not ? 'לא ' : ''}{t.description}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       );
 
@@ -834,6 +911,103 @@ function DetailedStepOutput({ step }) {
           ))}
         </div>
       );
+
+    case 'integration': {
+      const intActions = output.actions || [];
+      const apiResponses = output.apiResponses || [];
+      return (
+        <div className="space-y-2">
+          {intActions.map((a, i) => (
+            <div key={i} className="bg-orange-50 border border-orange-200 rounded-lg p-2.5">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[10px] font-bold text-white bg-orange-500 px-1.5 py-0.5 rounded font-mono">{a.method || 'GET'}</span>
+                <span className="text-xs text-gray-700 font-mono break-all">{a.resolvedUrl || a.url}</span>
+              </div>
+              {a.originalUrl && a.resolvedUrl !== a.originalUrl && (
+                <div className="text-[10px] text-gray-400 font-mono mb-1">תבנית: {a.originalUrl}</div>
+              )}
+              {a.headers?.length > 0 && (
+                <div className="mb-1.5">
+                  <div className="text-[10px] font-medium text-gray-500 mb-0.5">כותרות:</div>
+                  {a.headers.map((h, hi) => (
+                    <div key={hi} className="text-[10px] font-mono text-gray-600">{h.key}: {h.value}</div>
+                  ))}
+                </div>
+              )}
+              {a.body && (
+                <div className="mb-1.5">
+                  <div className="text-[10px] font-medium text-gray-500 mb-0.5">גוף הבקשה ({a.bodyMode || 'json'}):</div>
+                  <pre className="text-[10px] font-mono text-gray-700 bg-white rounded p-1.5 border border-gray-100 whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
+                    {typeof a.body === 'string' ? a.body : JSON.stringify(a.body, null, 2)}
+                  </pre>
+                </div>
+              )}
+              {a.mappings?.length > 0 && (
+                <div className="mb-1">
+                  <div className="text-[10px] font-medium text-gray-500 mb-0.5">מיפוי תגובה:</div>
+                  {a.mappings.map((m, mi) => (
+                    <div key={mi} className="text-[10px] font-mono text-purple-600">{m.jsonPath} → {m.varName}</div>
+                  ))}
+                </div>
+              )}
+              {/* Response */}
+              {apiResponses[i] && (
+                <div className="mt-2 border-t border-orange-200 pt-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-medium text-gray-500">תגובה:</span>
+                    <span className={`text-[10px] font-bold font-mono ${apiResponses[i].status >= 200 && apiResponses[i].status < 300 ? 'text-green-600' : 'text-red-600'}`}>
+                      {apiResponses[i].status} {apiResponses[i].statusText}
+                    </span>
+                  </div>
+                  {apiResponses[i].headers && (
+                    <details className="mb-1">
+                      <summary className="text-[10px] text-gray-400 cursor-pointer hover:text-gray-600">כותרות תגובה</summary>
+                      <div className="text-[10px] font-mono text-gray-500 mt-0.5">
+                        {Object.entries(apiResponses[i].headers).slice(0, 10).map(([k, v]) => (
+                          <div key={k}>{k}: {String(v).substring(0, 100)}</div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                  {apiResponses[i].data && (
+                    <pre className="text-[10px] font-mono text-gray-700 bg-white rounded p-1.5 border border-gray-100 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                      {(() => { try { return JSON.stringify(JSON.parse(apiResponses[i].data), null, 2); } catch { return apiResponses[i].data; } })()}
+                    </pre>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    case 'send_other': {
+      const soActions = output.actionsSent || [];
+      return (
+        <div className="space-y-2">
+          <DetailRow label="נמען" value={output.recipientType === 'group' ? 'קבוצה' : output.recipientType === 'channel' ? 'ערוץ' : 'טלפון'} />
+          <DetailRow label="מזהה" value={output.recipientId || '-'} mono />
+          {soActions.map((a, i) => (
+            <div key={i} className="bg-teal-50 border border-teal-200 rounded-lg p-2.5">
+              <div className="text-[10px] font-medium text-teal-600 uppercase mb-1">{a.type}</div>
+              {a.resolvedText && (
+                <div className="text-xs text-gray-700 bg-white rounded-lg p-2 border border-gray-100 whitespace-pre-wrap break-words" dir="auto">
+                  {a.resolvedText}
+                </div>
+              )}
+              {a.originalTemplate && a.resolvedText !== a.originalTemplate && (
+                <div className="text-[10px] text-gray-400 mt-1 font-mono">תבנית: {a.originalTemplate.substring(0, 100)}</div>
+              )}
+              {a.mediaUrl && (
+                <div className="text-[10px] text-blue-500 mt-1">{a.mediaUrl}</div>
+              )}
+              {a.caption && <div className="text-[10px] text-gray-500 mt-1">כיתוב: {a.caption}</div>}
+            </div>
+          ))}
+        </div>
+      );
+    }
 
     default:
       if (Object.keys(output).length > 0) {

@@ -729,13 +729,59 @@ class BotEngine {
       await this.logBotRun(bot.id, contact.id, 'triggered');
       await incrementBotRuns(userId);
 
-      // Start execution tracking
+      // Start execution tracking with trigger detail
       let contactVars = {};
       try {
         const varsResult = await db.query('SELECT key, value FROM contact_variables WHERE contact_id = $1', [contact.id]);
         contactVars = Object.fromEntries(varsResult.rows.map(r => [r.key, r.value]));
       } catch (e) {}
-      const runId = await executionTracker.startRun(bot.id, contact.id, triggerNode.id, message, flowData, contactVars);
+
+      // Build trigger detail for tracking
+      const triggerDetail = {
+        contactName: contact.display_name || contact.pushName || contact.phone,
+        contactPhone: contact.phone,
+        messageReceived: message,
+        messageType: messageType,
+        isGroup: isGroupMessage,
+        matchedGroupId: matchedGroupId || null,
+      };
+      // Capture trigger conditions that were evaluated
+      const triggerGroups = triggerNode.data.triggerGroups || [];
+      const oldTriggers = triggerNode.data.triggers || [];
+      if (triggerGroups.length > 0) {
+        triggerDetail.conditionGroups = triggerGroups.map(g => ({
+          name: g.name || g.id || null,
+          conditions: (g.conditions || []).map(c => ({
+            type: c.type, operator: c.operator || null, value: c.value || null,
+            description: c.type === 'any_message' ? 'כל הודעה' :
+              c.type === 'contains' ? `מכיל: "${c.value}"` :
+              c.type === 'starts_with' ? `מתחיל ב: "${c.value}"` :
+              c.type === 'exact' ? `בדיוק: "${c.value}"` :
+              c.type === 'regex' ? `ביטוי רגולרי: ${c.value}` :
+              c.type === 'first_message' ? 'הודעה ראשונה' :
+              c.type === 'has_media' ? `מדיה: ${c.mediaType || 'כלשהי'}` :
+              c.type === 'group_message' ? 'הודעת קבוצה' :
+              c.type === 'channel_message' ? 'הודעת ערוץ' :
+              c.type === 'has_variable' ? `משתנה ${c.variableName} ${c.operator} ${c.value || ''}` :
+              `${c.type}: ${c.value || ''}`
+          })),
+          hasActiveHours: g.hasActiveHours || false,
+          activeFrom: g.activeFrom,
+          activeTo: g.activeTo,
+        }));
+      } else if (oldTriggers.length > 0) {
+        triggerDetail.legacyTriggers = oldTriggers.map(t => ({
+          type: t.type, value: t.value, not: t.not || false,
+          description: t.type === 'any_message' ? 'כל הודעה' :
+            t.type === 'contains' ? `מכיל: "${t.value}"` :
+            t.type === 'starts_with' ? `מתחיל ב: "${t.value}"` :
+            t.type === 'exact' ? `בדיוק: "${t.value}"` :
+            t.type === 'regex' ? `ביטוי רגולרי: ${t.value}` :
+            `${t.type}: ${t.value || ''}`
+        }));
+      }
+
+      const runId = await executionTracker.startRun(bot.id, contact.id, triggerNode.id, message, flowData, contactVars, triggerDetail);
 
       // Sort by target node Y position (top to bottom)
       const sortedEdges = nextEdges.sort((a, b) => {
@@ -1882,11 +1928,52 @@ class BotEngine {
         }
 
         case 'integration': {
-          const intActions = (node.data.actions || []).map(a => ({
-            type: a.type, url: a.apiUrl, method: a.method,
-            mappings: (a.mappings || []).map(m => ({ jsonPath: m.jsonPath, varName: m.variableName }))
-          }));
-          stepInput = { actions: intActions };
+          // Resolve all variables for tracking the actual API call
+          const intActionsResolved = [];
+          for (const a of (node.data.actions || [])) {
+            const resolved = {
+              type: a.type || 'http_request',
+              method: a.method || 'GET',
+              originalUrl: a.apiUrl,
+              resolvedUrl: a.apiUrl ? await this.replaceAllVariables(a.apiUrl, contact, message, botName, userId) : '',
+              headers: [],
+              mappings: (a.mappings || []).map(m => ({ jsonPath: m.jsonPath || m.path, varName: m.variableName || m.varName })),
+            };
+            // Resolve headers
+            if (a.headers && Array.isArray(a.headers)) {
+              for (const h of a.headers) {
+                if (h.key) {
+                  resolved.headers.push({ key: h.key, value: await this.replaceAllVariables(h.value || '', contact, message, botName, userId) });
+                }
+              }
+            }
+            // Resolve body
+            if (['POST', 'PUT', 'PATCH'].includes(a.method)) {
+              resolved.bodyMode = a.bodyMode || 'raw';
+              if (a.bodyMode === 'keyvalue' && a.bodyParams) {
+                resolved.body = {};
+                for (const p of a.bodyParams) {
+                  if (p.key) resolved.body[p.key] = await this.replaceAllVariables(p.value || '', contact, message, botName, userId);
+                }
+              } else if (a.bodyMode === 'formdata' && a.bodyParams) {
+                resolved.body = {};
+                for (const p of a.bodyParams) {
+                  if (p.key) resolved.body[p.key] = p.isFile ? (p.value || '[file]') : await this.replaceAllVariables(p.value || '', contact, message, botName, userId);
+                }
+              } else if (a.body) {
+                try {
+                  const parsed = JSON.parse(a.body);
+                  resolved.body = await this.replaceAllVariablesInObject(parsed, contact, message, '');
+                } catch {
+                  resolved.body = await this.replaceAllVariables(a.body, contact, message, botName, userId);
+                }
+              }
+            }
+            intActionsResolved.push(resolved);
+          }
+          stepInput = { actions: intActionsResolved };
+          // Execute and capture response data
+          node._trackingData = {};
           await this.executeIntegrationNode(node, contact, userId, message);
           let varsAfterInt = {};
           try {
@@ -1895,7 +1982,12 @@ class BotEngine {
           } catch (e) {}
           const intChanges = {};
           for (const [k, v] of Object.entries(varsAfterInt)) { if (varsBefore[k] !== v) intChanges[k] = { before: varsBefore[k] || null, after: v }; }
-          stepOutput = { actions: intActions, variableChanges: intChanges };
+          // Collect response data from executed actions
+          const apiResponses = [];
+          for (const a of (node.data.actions || [])) {
+            if (a._lastResponse) { apiResponses.push(a._lastResponse); delete a._lastResponse; }
+          }
+          stepOutput = { actions: intActionsResolved, variableChanges: intChanges, apiResponses };
           break;
         }
 
@@ -1940,15 +2032,32 @@ class BotEngine {
 
         case 'send_other': {
           const recipient = node.data.recipient || {};
-          const soActions = (node.data.actions || []).map(a => {
+          // Resolve all variables in actions for tracking
+          const soActions = [];
+          for (const a of (node.data.actions || [])) {
             const r = { type: a.type };
-            if (a.type === 'text') r.content = a.content;
-            if (['image', 'video', 'audio', 'file'].includes(a.type)) { r.mediaUrl = a.fileData || a.url; r.caption = a.caption; }
-            return r;
-          });
-          stepInput = { recipient: { type: recipient.type, phone: recipient.phone, groupId: recipient.groupId }, actions: soActions };
+            if (a.type === 'text' && a.content) {
+              r.resolvedText = await this.replaceAllVariables(a.content, contact, message, botName, userId);
+              r.originalTemplate = a.content;
+            }
+            if (['image', 'video', 'audio', 'file'].includes(a.type)) {
+              r.mediaUrl = a.fileData || a.url;
+              r.caption = a.caption ? await this.replaceAllVariables(a.caption, contact, message, botName, userId) : '';
+            }
+            if (a.type === 'location') { r.latitude = a.latitude; r.longitude = a.longitude; }
+            if (a.type === 'contact') { r.contactName = a.contactName; r.contactPhone = a.contactPhone; }
+            soActions.push(r);
+          }
+          // Resolve recipient ID
+          let resolvedRecipientId = recipient.phone || recipient.groupId || recipient.channelId || '';
+          if (recipient.useVariable && recipient.variableName) {
+            resolvedRecipientId = await this.replaceAllVariables(`{{${recipient.variableName.replace(/^\{\{/, '').replace(/\}\}$/, '')}}}`, contact, message, botName, userId);
+          } else if (resolvedRecipientId) {
+            resolvedRecipientId = await this.replaceAllVariables(resolvedRecipientId, contact, message, botName, userId);
+          }
+          stepInput = { recipient: { type: recipient.type, phone: recipient.phone, groupId: recipient.groupId, resolvedId: resolvedRecipientId }, actions: soActions };
           await this.executeSendOtherNode(node, contact, userId, message);
-          stepOutput = { recipientType: recipient.type, recipientId: recipient.phone || recipient.groupId, actionsSent: soActions };
+          stepOutput = { recipientType: recipient.type, recipientId: resolvedRecipientId, actionsSent: soActions };
           break;
         }
 
@@ -3660,6 +3769,14 @@ class BotEngine {
         data: body,
         timeout: 30000
       });
+
+      // Store response data for execution tracking
+      action._lastResponse = {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(Object.entries(response.headers || {}).filter(([k]) => !['set-cookie'].includes(k.toLowerCase()))),
+        data: typeof response.data === 'object' ? JSON.stringify(response.data).substring(0, 5000) : String(response.data || '').substring(0, 5000),
+      };
 
       console.log(`[BotEngine] ✅ HTTP Response: status=${response.status}, data type=${typeof response.data}, keys=${typeof response.data === 'object' ? Object.keys(response.data || {}).join(',') : 'N/A'}`);
 
