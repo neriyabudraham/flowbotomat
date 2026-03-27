@@ -29,6 +29,7 @@ import GroupForwardsPage from './pages/GroupForwardsPage';
 import GroupTransfersPage from './pages/GroupTransfersPage';
 import BroadcastsPage from './pages/BroadcastsPage';
 import ServicesPage from './pages/ServicesPage';
+import SubAccountsPage from './pages/SubAccountsPage';
 import StatusBotLandingPage from './pages/statusBot/StatusBotLandingPage';
 import StatusBotDashboardPage from './pages/statusBot/StatusBotDashboardPage';
 import StatusBotSubscribePage from './pages/statusBot/StatusBotSubscribePage';
@@ -166,6 +167,7 @@ function App() {
           <Route path="/whatsapp" element={<WhatsappSetupPage />} />
           <Route path="/contacts" element={<ContactsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/accounts" element={<SubAccountsPage />} />
           <Route path="/bots" element={<BotsPage />} />
           <Route path="/bots/:botId" element={<BotEditorPage />} />
           <Route path="/group-forwards" element={<GroupForwardsPage />} />

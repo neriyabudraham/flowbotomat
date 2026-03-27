@@ -866,6 +866,23 @@ async function createSubAccount(req, res) {
       return res.status(400).json({ error: 'שם חשבון המשנה נדרש' });
     }
 
+    // Check parent has a paid subscription (cannot create sub-accounts on Free plan)
+    try {
+      const subCheck = await db.query(
+        `SELECT us.id, sp.name as plan_name
+         FROM user_subscriptions us
+         JOIN subscription_plans sp ON us.plan_id = sp.id
+         WHERE us.user_id = $1 AND us.status = 'active'
+         ORDER BY us.created_at DESC LIMIT 1`,
+        [parentUserId]
+      );
+      if (subCheck.rows.length === 0 || subCheck.rows[0].plan_name === 'Free') {
+        return res.status(403).json({ error: 'יצירת חשבונות משנה זמינה רק עם מנוי בתשלום' });
+      }
+    } catch (e) {
+      // If subscription check fails, allow (table might not exist)
+    }
+
     // Get parent user
     const parentResult = await db.query('SELECT id, email, name FROM users WHERE id = $1', [parentUserId]);
     if (parentResult.rows.length === 0) {
@@ -987,6 +1004,88 @@ async function createSubAccount(req, res) {
   } catch (error) {
     console.error('[Experts] Create sub-account error:', error);
     res.status(500).json({ error: 'שגיאה ביצירת חשבון משנה' });
+  }
+}
+
+/**
+ * Get sub-accounts for the current user (with subscription info)
+ */
+async function getSubAccounts(req, res) {
+  try {
+    const parentUserId = req.user.viewingAs || req.user.id;
+
+    const result = await db.query(
+      `SELECT u.id, u.name, u.email, u.created_at,
+              wc.phone_number, wc.status as whatsapp_status,
+              sp.name as plan_name, us.status as subscription_status
+       FROM linked_accounts la
+       JOIN users u ON la.child_user_id = u.id
+       LEFT JOIN whatsapp_connections wc ON wc.user_id = u.id
+       LEFT JOIN user_subscriptions us ON us.user_id = u.id
+       LEFT JOIN subscription_plans sp ON us.plan_id = sp.id
+       WHERE la.parent_user_id = $1
+       ORDER BY u.created_at`,
+      [parentUserId]
+    );
+
+    // Get parent info
+    const parentResult = await db.query(
+      `SELECT u.email, sp.name as plan_name
+       FROM users u
+       LEFT JOIN user_subscriptions us ON us.user_id = u.id
+       LEFT JOIN subscription_plans sp ON us.plan_id = sp.id
+       WHERE u.id = $1`,
+      [parentUserId]
+    );
+
+    res.json({
+      parentEmail: parentResult.rows[0]?.email,
+      parentPlan: parentResult.rows[0]?.plan_name || 'Free',
+      subAccounts: result.rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        createdAt: r.created_at,
+        whatsappPhone: r.phone_number,
+        whatsappStatus: r.whatsapp_status || 'disconnected',
+        planName: r.plan_name || 'Free',
+        subscriptionStatus: r.subscription_status || 'none',
+      }))
+    });
+  } catch (error) {
+    console.error('[Experts] Get sub-accounts error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת חשבונות משנה' });
+  }
+}
+
+/**
+ * Rename a sub-account
+ */
+async function renameSubAccount(req, res) {
+  try {
+    const parentUserId = req.user.viewingAs || req.user.id;
+    const { subAccountId } = req.params;
+    const { name } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'שם נדרש' });
+    }
+
+    // Verify this sub-account belongs to the parent
+    const check = await db.query(
+      'SELECT id FROM linked_accounts WHERE parent_user_id = $1 AND child_user_id = $2',
+      [parentUserId, subAccountId]
+    );
+    if (check.rows.length === 0) {
+      return res.status(403).json({ error: 'אין גישה לחשבון זה' });
+    }
+
+    await db.query('UPDATE users SET name = $1, updated_at = NOW() WHERE id = $2', [name.trim(), subAccountId]);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Experts] Rename sub-account error:', error);
+    res.status(500).json({ error: 'שגיאה בשינוי שם' });
   }
 }
 
@@ -1189,4 +1288,6 @@ module.exports = {
   validateLinkCode,
   completeLinking,
   createSubAccount,
+  getSubAccounts,
+  renameSubAccount,
 };

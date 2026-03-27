@@ -22,6 +22,8 @@ const {
   generateLinkCode,
   validateLinkCode,
   createSubAccount,
+  getSubAccounts,
+  renameSubAccount,
 } = require('../controllers/experts/experts.controller');
 
 // Public route - validate link code (no auth required)
@@ -34,6 +36,8 @@ router.get('/accessible-accounts', getAccessibleAccounts);
 router.post('/switch/:targetUserId', switchAccount);
 router.post('/generate-link-code', generateLinkCode);
 router.post('/create-sub-account', createSubAccount);
+router.get('/sub-accounts', getSubAccounts);
+router.put('/sub-accounts/:subAccountId/rename', renameSubAccount);
 
 // As client - manage who has access to my account
 router.get('/my-experts', getMyExperts);
