@@ -1290,7 +1290,7 @@ function parseMessage(payload) {
 
   // Text message (default) — also extract link preview data if present
   const result = { type: 'text', content: body };
-  const extTextMsg = msg.extendedTextMessage;
+  const extTextMsg = (payload._data?.Message || {}).extendedTextMessage;
   if (extTextMsg) {
     const previewTitle = extTextMsg.title;
     const previewDesc = extTextMsg.description || '';
