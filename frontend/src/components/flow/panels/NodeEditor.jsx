@@ -61,6 +61,25 @@ const colors = {
   formula: 'bg-emerald-50 border-emerald-200',
 };
 
+// Check if a node has no user content (still at default/empty state)
+function isNodeEmpty(node) {
+  const d = node.data || {};
+  switch (node.type) {
+    case 'message': return !d.actions || d.actions.length === 0;
+    case 'condition': return !d.conditions || d.conditions.length === 0;
+    case 'delay': return !d.actions || d.actions.length === 0;
+    case 'action': return !d.actions || d.actions.length === 0;
+    case 'list': return !d.title && (!d.sections || d.sections.length === 0);
+    case 'registration': return !d.title && (!d.questions || d.questions.length === 0);
+    case 'integration': return !d.actions || d.actions.length === 0;
+    case 'send_other': return !d.actions || d.actions.length === 0;
+    case 'google_sheets': return !d.actions || d.actions.length === 0;
+    case 'google_contacts': return !d.actions || d.actions.length === 0;
+    case 'formula': return !d.formula && !d.expression;
+    default: return false; // unknown types — don't auto-delete
+  }
+}
+
 export default function NodeEditor({ node, onUpdate, onClose, onDelete, isNodeConnected, botId }) {
   if (!node) return null;
   
@@ -76,8 +95,9 @@ export default function NodeEditor({ node, onUpdate, onClose, onDelete, isNodeCo
   };
   
   const handleClose = () => {
-    // If node is NOT connected to any edge, delete it when closing
-    if (node.type !== 'trigger' && isNodeConnected && !isNodeConnected(node.id)) {
+    // If node is NOT connected to any edge and is still empty, delete it when closing
+    // Never delete: trigger nodes, note nodes, or nodes with user content
+    if (node.type !== 'trigger' && node.type !== 'note' && isNodeConnected && !isNodeConnected(node.id) && isNodeEmpty(node)) {
       onDelete(node.id);
     }
     onClose();
