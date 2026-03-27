@@ -333,26 +333,66 @@ async function updateUser(req, res) {
 async function deleteUser(req, res) {
   try {
     const { id } = req.params;
-    
+
     // Prevent deleting yourself
     if (req.user.id === id) {
       return res.status(400).json({ error: 'לא ניתן למחוק את עצמך' });
     }
-    
+
     // Check if user exists
-    const check = await db.query('SELECT role FROM users WHERE id = $1', [id]);
+    const check = await db.query('SELECT role, email, name FROM users WHERE id = $1', [id]);
     if (check.rows.length === 0) {
       return res.status(404).json({ error: 'משתמש לא נמצא' });
     }
-    
+
     // Prevent deleting superadmin
     if (check.rows[0].role === 'superadmin' && req.user.role !== 'superadmin') {
       return res.status(403).json({ error: 'לא ניתן למחוק סופר-אדמין' });
     }
-    
+
+    // Collect all user IDs to delete (including sub-accounts)
+    const subAccounts = await db.query(
+      'SELECT child_user_id FROM linked_accounts WHERE parent_user_id = $1', [id]
+    );
+    const allUserIds = [id, ...subAccounts.rows.map(r => r.child_user_id)];
+
+    // Stop and delete WAHA sessions for all accounts
+    try {
+      const wahaService = require('../../services/waha/session.service');
+      for (const uid of allUserIds) {
+        const connections = await db.query(
+          `SELECT wc.session_name, ws.base_url, ws.api_key
+           FROM whatsapp_connections wc
+           LEFT JOIN waha_sources ws ON wc.waha_source_id = ws.id
+           WHERE wc.user_id = $1 AND wc.session_name IS NOT NULL`,
+          [uid]
+        );
+        for (const conn of connections.rows) {
+          if (conn.base_url && conn.api_key && conn.session_name) {
+            try {
+              await wahaService.stopSession(conn.base_url, conn.api_key, conn.session_name);
+              await wahaService.deleteSession(conn.base_url, conn.api_key, conn.session_name);
+            } catch (e) {
+              console.error(`[Admin] Failed to delete WAHA session ${conn.session_name}:`, e.message);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[Admin] WAHA cleanup error:', e.message);
+    }
+
+    // Delete sub-accounts first (CASCADE handles their related data)
+    for (const sub of subAccounts.rows) {
+      await db.query('DELETE FROM users WHERE id = $1', [sub.child_user_id]);
+    }
+
+    // Delete the user (CASCADE handles all related data)
     await db.query('DELETE FROM users WHERE id = $1', [id]);
-    
-    res.json({ success: true });
+
+    console.log(`[Admin] User deleted: ${check.rows[0].email} (${check.rows[0].name}) + ${subAccounts.rows.length} sub-accounts`);
+
+    res.json({ success: true, deletedSubAccounts: subAccounts.rows.length });
   } catch (error) {
     console.error('[Admin] Delete user error:', error);
     res.status(500).json({ error: 'שגיאה במחיקת משתמש' });

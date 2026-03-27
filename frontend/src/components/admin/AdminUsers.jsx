@@ -387,12 +387,13 @@ export default function AdminUsers() {
       ) : viewMode === 'cards' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {users.map(user => (
-            <UserCard 
+            <UserCard
               key={user.id}
               user={user}
               currentUser={currentUser}
               onSelect={() => setSelectedUser(user)}
               showToast={showToast}
+              onRefresh={() => loadUsers(currentPage)}
             />
           ))}
         </div>
@@ -412,6 +413,7 @@ export default function AdminUsers() {
               setSortOrder('desc');
             }
           }}
+          onRefresh={() => loadUsers(currentPage)}
         />
       )}
 
@@ -645,11 +647,12 @@ function FilterSelect({ label, value, onChange, options }) {
 }
 
 // User Card Component
-function UserCard({ user, currentUser, onSelect, showToast }) {
+function UserCard({ user, currentUser, onSelect, showToast, onRefresh }) {
   const [copying, setCopying] = useState(false);
   const [copyingConnect, setCopyingConnect] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [approving, setApproving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const handleApprove = async (e) => {
     e.stopPropagation();
@@ -712,6 +715,20 @@ function UserCard({ user, currentUser, onSelect, showToast }) {
     } catch (err) {
       showToast('error', 'שגיאה במעבר לחשבון');
       setSwitching(false);
+    }
+  };
+
+  const handleDeleteUser = async (e) => {
+    e.stopPropagation();
+    if (!confirm(`האם אתה בטוח שברצונך למחוק את המשתמש "${user.name || user.email}"?\n\nפעולה זו תמחק את כל הנתונים שלו כולל בוטים, אנשי קשר, הודעות וחשבונות משנה. לא ניתן לשחזר!`)) return;
+    setDeleting(true);
+    try {
+      const { data } = await api.delete(`/admin/users/${user.id}`);
+      showToast('success', `המשתמש נמחק בהצלחה${data.deletedSubAccounts > 0 ? ` (+ ${data.deletedSubAccounts} חשבונות משנה)` : ''}`);
+      onRefresh?.();
+    } catch (err) {
+      showToast('error', err?.response?.data?.error || 'שגיאה במחיקת משתמש');
+      setDeleting(false);
     }
   };
 
@@ -892,6 +909,22 @@ function UserCard({ user, currentUser, onSelect, showToast }) {
               )}
             </button>
           )}
+
+          {/* Delete User */}
+          {user.id !== currentUser?.id && (
+            <button
+              onClick={handleDeleteUser}
+              disabled={deleting}
+              className="px-3 py-2.5 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-xl transition-all"
+              title="מחק משתמש"
+            >
+              {deleting ? (
+                <RefreshCw className="w-4 h-4 animate-spin text-red-500" />
+              ) : (
+                <Trash2 className="w-4 h-4 text-red-500" />
+              )}
+            </button>
+          )}
         </div>
 
         {/* Created Date */}
@@ -952,7 +985,7 @@ function SubscriptionBadge({ user }) {
 }
 
 // Users Table Component
-function UsersTable({ users, currentUser, onSelect, showToast, sortBy, sortOrder, onSort }) {
+function UsersTable({ users, currentUser, onSelect, showToast, sortBy, sortOrder, onSort, onRefresh }) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
       <div className="overflow-x-auto">
@@ -971,12 +1004,13 @@ function UsersTable({ users, currentUser, onSelect, showToast, sortBy, sortOrder
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
             {users.map(user => (
-              <UserTableRow 
+              <UserTableRow
                 key={user.id}
                 user={user}
                 currentUser={currentUser}
                 onSelect={() => onSelect(user)}
                 showToast={showToast}
+                onRefresh={onRefresh}
               />
             ))}
           </tbody>
@@ -1002,11 +1036,12 @@ function SortableHeader({ label, column, current, order, onSort }) {
   );
 }
 
-function UserTableRow({ user, currentUser, onSelect, showToast }) {
+function UserTableRow({ user, currentUser, onSelect, showToast, onRefresh }) {
   const [copying, setCopying] = useState(false);
   const [copyingConnect, setCopyingConnect] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [approving, setApproving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const handleApprove = async (e) => {
     e.stopPropagation();
@@ -1069,6 +1104,20 @@ function UserTableRow({ user, currentUser, onSelect, showToast }) {
     } catch (err) {
       showToast('error', 'שגיאה במעבר לחשבון');
       setSwitching(false);
+    }
+  };
+
+  const handleDeleteUser = async (e) => {
+    e.stopPropagation();
+    if (!confirm(`האם אתה בטוח שברצונך למחוק את המשתמש "${user.name || user.email}"?\n\nפעולה זו בלתי הפיכה!`)) return;
+    setDeleting(true);
+    try {
+      const { data } = await api.delete(`/admin/users/${user.id}`);
+      showToast('success', `המשתמש נמחק בהצלחה${data.deletedSubAccounts > 0 ? ` (+ ${data.deletedSubAccounts} חשבונות משנה)` : ''}`);
+      onRefresh?.();
+    } catch (err) {
+      showToast('error', err?.response?.data?.error || 'שגיאה במחיקת משתמש');
+      setDeleting(false);
     }
   };
 
@@ -1173,6 +1222,16 @@ function UserTableRow({ user, currentUser, onSelect, showToast }) {
               title="כניסה לחשבון"
             >
               {switching ? <RefreshCw className="w-4 h-4 animate-spin text-amber-600" /> : <ExternalLink className="w-4 h-4 text-amber-600" />}
+            </button>
+          )}
+          {user.id !== currentUser?.id && (
+            <button
+              onClick={handleDeleteUser}
+              disabled={deleting}
+              className="p-2 bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 rounded-lg transition-colors"
+              title="מחק משתמש"
+            >
+              {deleting ? <RefreshCw className="w-4 h-4 animate-spin text-red-500" /> : <Trash2 className="w-4 h-4 text-red-500" />}
             </button>
           )}
           <button
@@ -1327,6 +1386,25 @@ function UserDetailDrawer({ user, onClose, onRefresh, currentUser, showToast }) 
                 >
                   <ExternalLink className="w-4 h-4" />
                   כניסה לחשבון
+                </button>
+              )}
+              {user.id !== currentUser.id && (
+                <button
+                  onClick={async () => {
+                    if (!confirm(`האם אתה בטוח שברצונך למחוק את "${user.name || user.email}"?\n\nכל הנתונים יימחקו לצמיתות!`)) return;
+                    try {
+                      const { data } = await api.delete(`/admin/users/${user.id}`);
+                      showToast('success', `המשתמש נמחק בהצלחה${data.deletedSubAccounts > 0 ? ` (+ ${data.deletedSubAccounts} חשבונות משנה)` : ''}`);
+                      onRefresh?.();
+                      onClose();
+                    } catch (err) {
+                      showToast('error', err?.response?.data?.error || 'שגיאה במחיקת משתמש');
+                    }
+                  }}
+                  className="px-4 py-2 bg-red-500/30 hover:bg-red-500/50 rounded-xl font-medium flex items-center gap-2 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  מחק
                 </button>
               )}
             </div>
