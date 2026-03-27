@@ -15,7 +15,8 @@ function extractFirstUrl(text) {
 const WA_GROUP_LINK_REGEX = /https?:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+/i;
 
 // Fallback WhatsApp logo for group invites when OG fetch fails (429 etc.)
-const WA_FALLBACK_IMAGE = 'https://files.neriyabudraham.co.il/files/httpswww.whatsapp.comfavicon-64x64.png_20260326_9pnet.png';
+// Served from local static uploads so it doesn't depend on external hosting
+const WA_FALLBACK_IMAGE = `${process.env.API_URL || 'http://localhost:3000/api'}/uploads/static/whatsapp-logo.png`;
 
 // User-Agents to try in order — different ones may bypass rate limiting
 const OG_USER_AGENTS = [
@@ -98,7 +99,7 @@ async function fetchOgMetadata(url) {
   console.log(`[WAHA-OG] All User-Agents failed for ${url}`);
   if (isWaGroup) {
     console.log(`[WAHA-OG] Using WA fallback preview`);
-    return { url, title: 'WhatsApp Group Invite', description: 'לחץ להצטרפות לקבוצה', image: { url: WA_FALLBACK_IMAGE, mimetype: 'image/png' } };
+    return { url, title: 'הזמנה לקבוצת וואטסאפ', description: 'לחץ להצטרפות לקבוצה', image: { url: WA_FALLBACK_IMAGE, mimetype: 'image/png' } };
   }
   return null;
 }
@@ -514,6 +515,28 @@ async function sendMessage(connection, phone, text, mentions = null, options = {
   const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
 
+  // If pre-resolved preview data provided (e.g. from webhook), use it directly
+  if (options.linkPreviewData && options.linkPreviewData.image) {
+    try {
+      const previewPayload = {
+        session: connection.session_name,
+        chatId: chatId,
+        text: text,
+        linkPreviewHighQuality: true,
+        preview: options.linkPreviewData,
+      };
+      if (mentions && mentions.length > 0) {
+        previewPayload.mentions = mentions;
+      }
+      console.log(`[WAHA] Sending link-custom-preview with pre-resolved data: title="${options.linkPreviewData.title}", image=${options.linkPreviewData.image.url}`);
+      const response = await client.post(`/api/send/link-custom-preview`, previewPayload);
+      console.log(`[WAHA] ✅ Sent message with pre-resolved link preview to ${phone}`);
+      return response.data;
+    } catch (previewErr) {
+      console.log(`[WAHA] Pre-resolved link preview failed (${previewErr.message}), falling back`);
+    }
+  }
+
   // If link preview requested, try custom preview only when we have a real OG image
   if (options.linkPreview) {
     const url = extractFirstUrl(text);
@@ -522,8 +545,6 @@ async function sendMessage(connection, phone, text, mentions = null, options = {
       try {
         const preview = await fetchOgMetadata(url);
         console.log(`[WAHA] OG result: ${preview ? JSON.stringify({ title: preview.title, description: preview.description, hasImage: !!preview.image }) : 'null'}`);
-        // Only use custom preview if we got real metadata WITH an image from the site
-        // Otherwise fall through to sendText which generates native WhatsApp previews
         if (preview && preview.image) {
           const previewPayload = {
             session: connection.session_name,

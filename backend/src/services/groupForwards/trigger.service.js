@@ -420,15 +420,39 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
       triggerMsgId = `${payload.id.fromMe ? 'true' : 'false'}_${payload.id.remote || ''}_${payload.id.id}`;
     }
 
+    // Extract link preview data from the message (if present)
+    let linkPreviewData = null;
+    if (messageData.linkPreviewData) {
+      const lpd = messageData.linkPreviewData;
+      linkPreviewData = { title: lpd.title, description: lpd.description, matchedUrl: lpd.matchedUrl };
+      // Save thumbnail as file if present
+      if (lpd.thumbnail) {
+        try {
+          const path = require('path');
+          const fs = require('fs');
+          const thumbDir = path.join(__dirname, '../../../uploads/link-previews');
+          if (!fs.existsSync(thumbDir)) fs.mkdirSync(thumbDir, { recursive: true });
+          const thumbFilename = `thumb_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.jpg`;
+          const thumbPath = path.join(thumbDir, thumbFilename);
+          fs.writeFileSync(thumbPath, Buffer.from(lpd.thumbnail, 'base64'));
+          const baseUrl = process.env.API_URL || 'http://localhost:3000/api';
+          linkPreviewData.imageUrl = `${baseUrl}/uploads/link-previews/${thumbFilename}`;
+          console.log(`[GroupForwards] Saved link preview thumbnail: ${linkPreviewData.imageUrl}`);
+        } catch (thumbErr) {
+          console.error(`[GroupForwards] Failed to save thumbnail: ${thumbErr.message}`);
+        }
+      }
+    }
+
     // Create job - save forward_name so it persists even if forward is deleted
     const jobResult = await db.query(`
       INSERT INTO forward_jobs (
         forward_id, user_id, message_type, message_text,
         media_url, media_mime_type, media_filename,
         sender_phone, sender_name, total_targets, status, forward_name,
-        poll_options, poll_multiple_answers, trigger_msg_id
+        poll_options, poll_multiple_answers, trigger_msg_id, link_preview_data
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING *
     `, [
       forward.id,
@@ -445,7 +469,8 @@ async function createTriggerJob(userId, forward, senderPhone, messageData, paylo
       forward.name,
       pollOptions ? JSON.stringify(pollOptions) : null,
       pollMultipleAnswers,
-      triggerMsgId
+      triggerMsgId,
+      linkPreviewData ? JSON.stringify(linkPreviewData) : null
     ]);
     
     const job = jobResult.rows[0];

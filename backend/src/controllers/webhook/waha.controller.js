@@ -1288,8 +1288,24 @@ function parseMessage(payload) {
     };
   }
 
-  // Text message (default)
-  return { type: 'text', content: body };
+  // Text message (default) — also extract link preview data if present
+  const result = { type: 'text', content: body };
+  const extTextMsg = msg.extendedTextMessage;
+  if (extTextMsg) {
+    const previewTitle = extTextMsg.title;
+    const previewDesc = extTextMsg.description || '';
+    const previewThumb = extTextMsg.JPEGThumbnail; // base64
+    const matchedText = extTextMsg.matchedText || '';
+    if (previewTitle || previewThumb) {
+      result.linkPreviewData = {
+        title: previewTitle || '',
+        description: previewDesc,
+        thumbnail: previewThumb || null, // base64 JPEG
+        matchedUrl: matchedText,
+      };
+    }
+  }
+  return result;
 }
 
 /**

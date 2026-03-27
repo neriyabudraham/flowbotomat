@@ -514,9 +514,14 @@ export default function AdminStatusBot() {
     }
   };
 
-  // Load queue pause status on mount
+  // Load queue pause status on mount + poll every 10s to detect auto-resume
   useEffect(() => {
-    api.get('/status-bot/admin/queue/pause').then(({ data }) => setQueuePauseStatus(data)).catch(() => {});
+    const fetchPauseStatus = () => {
+      api.get('/status-bot/admin/queue/pause').then(({ data }) => setQueuePauseStatus(data)).catch(() => {});
+    };
+    fetchPauseStatus();
+    const interval = setInterval(fetchPauseStatus, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleAdminCancelItem = async (queueId) => {

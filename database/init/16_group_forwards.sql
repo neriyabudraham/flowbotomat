@@ -131,6 +131,9 @@ CREATE TABLE IF NOT EXISTS forward_jobs (
     trigger_msg_id VARCHAR(255),        -- WhatsApp msg ID of the original message that created this job
     confirmation_msg_id VARCHAR(255),   -- WhatsApp msg ID of the confirmation/start list sent to sender
 
+    -- Link preview data (extracted from webhook)
+    link_preview_data JSONB,
+
     -- Results
     error_message TEXT,
     completed_at TIMESTAMP,

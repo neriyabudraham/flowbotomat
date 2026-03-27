@@ -747,7 +747,24 @@ async function startForwardJob(jobId) {
                   console.warn('[GroupForwards] mentionAll: Could not fetch participants:', e.message);
                 }
               }
-              const result = await wahaService.sendMessage(wahaConnection, message.group_id, textWithSuffix, mentions, { linkPreview: job.link_preview !== false });
+              // Build send options — use stored link preview data from webhook if available
+              const sendOpts = { linkPreview: job.link_preview !== false };
+              if (job.link_preview_data) {
+                const lpd = typeof job.link_preview_data === 'string' ? JSON.parse(job.link_preview_data) : job.link_preview_data;
+                if (lpd.title || lpd.imageUrl) {
+                  const previewObj = {
+                    url: lpd.matchedUrl || '',
+                    title: (lpd.title || '').substring(0, 100),
+                    description: (lpd.description || '').substring(0, 200),
+                  };
+                  if (lpd.imageUrl) {
+                    previewObj.image = { url: lpd.imageUrl, mimetype: 'image/jpeg' };
+                  }
+                  sendOpts.linkPreviewData = previewObj;
+                  console.log(`[GroupForwards] Using stored link preview: title="${lpd.title}", hasImage=${!!lpd.imageUrl}`);
+                }
+              }
+              const result = await wahaService.sendMessage(wahaConnection, message.group_id, textWithSuffix, mentions, sendOpts);
               messageId = result?.id;
             } else if (job.message_type === 'image') {
               const result = await wahaService.sendImage(wahaConnection, message.group_id, job.media_url, textWithSuffix);
