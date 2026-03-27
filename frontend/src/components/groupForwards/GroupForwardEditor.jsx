@@ -1395,6 +1395,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                   <div>
                     <p className="font-bold text-gray-900">תצוגה מקדימה של קישורים</p>
                     <p className="text-sm text-gray-500">כאשר דלוק, קישורים בהודעה יוצגו עם תצוגה מקדימה (תמונה, כותרת ותיאור). כאשר כבוי — הקישור יישלח כטקסט רגיל ללא תצוגה מקדימה.</p>
+                    <p className="text-xs text-blue-600 mt-1">💡 לתצוגה מקדימה של קישור לקבוצת וואטסאפ — שלח את ההודעה עם תצוגה מקדימה פעילה בוואטסאפ, כדי שהמערכת תשמור את פרטי הקבוצה (שם, תיאור ותמונה) מההודעה המקורית.</p>
                   </div>
                 </div>
                 <div className={`w-14 h-8 rounded-full relative transition-colors flex-shrink-0 ${linkPreview ? 'bg-gradient-to-r from-blue-500 to-cyan-500' : 'bg-gray-300'}`}>
