@@ -74,7 +74,7 @@ export default function AdminTemplates() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('האם למחוק תבנית זו?')) return;
+    if (!await toast.confirm('האם למחוק תבנית זו?')) return;
     try {
       await api.delete(`/templates/admin/${id}`);
       loadData();

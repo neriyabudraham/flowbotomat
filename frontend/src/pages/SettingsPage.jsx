@@ -16,6 +16,7 @@ import AffiliatePanel from '../components/settings/AffiliatePanel';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
 import AccountSwitcher from '../components/AccountSwitcher';
 import api from '../services/api';
+import { toast } from '../store/toastStore';
 
 // Notification preferences categories
 const NOTIFICATION_CATEGORIES = [
@@ -188,7 +189,7 @@ export default function SettingsPage() {
   };
 
   const disconnectGoogleSheets = async () => {
-    if (!confirm('האם אתה בטוח שברצונך לנתק את Google Sheets?')) return;
+    if (!await toast.confirm('האם אתה בטוח שברצונך לנתק את Google Sheets?')) return;
     try {
       setSheetsLoading(true);
       await api.post('/google-sheets/disconnect');
@@ -226,7 +227,7 @@ export default function SettingsPage() {
   };
 
   const disconnectGoogleContacts = async () => {
-    if (!confirm('האם אתה בטוח שברצונך לנתק את Google Contacts?')) return;
+    if (!await toast.confirm('האם אתה בטוח שברצונך לנתק את Google Contacts?')) return;
     try {
       setContactsLoading(true);
       await api.post('/google-contacts/disconnect');

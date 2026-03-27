@@ -139,7 +139,7 @@ export default function AdminWahaSources() {
   };
 
   const handleDeactivate = async (sourceId) => {
-    if (!window.confirm('האם לנטרל מקור WAHA זה? לא ניתן להקצות אליו סשנים חדשים, אבל סשנים קיימים ימשיכו לעבוד.')) return;
+    if (!await toast.confirm('האם לנטרל מקור WAHA זה? לא ניתן להקצות אליו סשנים חדשים, אבל סשנים קיימים ימשיכו לעבוד.')) return;
     try {
       await api.delete(`/admin/waha-sources/${sourceId}`);
       load();

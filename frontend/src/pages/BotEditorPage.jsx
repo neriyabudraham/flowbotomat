@@ -283,8 +283,8 @@ export default function BotEditorPage() {
   };
 
   // Discard changes
-  const handleDiscard = () => {
-    if (!confirm('לבטל את כל השינויים ולחזור לגרסה השמורה?')) return;
+  const handleDiscard = async () => {
+    if (!await toast.confirm('לבטל את כל השינויים ולחזור לגרסה השמורה?')) return;
     setFlowData(JSON.parse(JSON.stringify(originalFlowData)));
     setHasChanges(false);
     setHasDraft(false);
@@ -317,8 +317,8 @@ export default function BotEditorPage() {
   };
 
   // Navigate back with warning (only if can edit)
-  const handleBack = () => {
-    if (hasChanges && canEdit && !confirm('יש שינויים שלא נשמרו. לצאת בכל זאת?')) return;
+  const handleBack = async () => {
+    if (hasChanges && canEdit && !await toast.confirm('יש שינויים שלא נשמרו. לצאת בכל זאת?')) return;
     // Return to client bots page if editing client's bot, otherwise to my bots
     if (clientId) {
       navigate(`/clients/${clientId}/bots`);

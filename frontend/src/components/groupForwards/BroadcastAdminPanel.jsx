@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Shield, Phone, User, Save, Trash2, CheckCircle, AlertCircle, Loader2, Info, Clock } from 'lucide-react';
 import Button from '../atoms/Button';
 import api from '../../services/api';
+import { toast } from '../../store/toastStore';
 
 /**
  * BroadcastAdminPanel
@@ -79,7 +80,7 @@ export default function BroadcastAdminPanel() {
   };
 
   const handleDelete = async () => {
-    if (!window.confirm('האם למחוק את הגדרות המנהל? השליחות יחזרו לאישור ישיר מהמשתמש.')) return;
+    if (!await toast.confirm('האם למחוק את הגדרות המנהל? השליחות יחזרו לאישור ישיר מהמשתמש.')) return;
     try {
       setDeleting(true);
       await api.delete('/broadcast-admin/config');

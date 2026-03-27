@@ -144,7 +144,7 @@ export default function TemplateEditorPage() {
 
   const handleApprove = async () => {
     if (hasChanges) {
-      if (!confirm('יש שינויים שלא נשמרו. האם לשמור ולאשר?')) return;
+      if (!await toast.confirm('יש שינויים שלא נשמרו. האם לשמור ולאשר?')) return;
       await handleSave();
     }
     
@@ -181,16 +181,16 @@ export default function TemplateEditorPage() {
     }
   };
 
-  const handleDiscard = () => {
-    if (confirm('האם לבטל את כל השינויים?')) {
+  const handleDiscard = async () => {
+    if (await toast.confirm('האם לבטל את כל השינויים?')) {
       setFlowData(JSON.parse(JSON.stringify(originalFlowData)));
       setHasChanges(false);
       setFlowKey(prev => prev + 1);
     }
   };
 
-  const handleBack = () => {
-    if (hasChanges && !confirm('יש שינויים שלא נשמרו. האם לצאת?')) {
+  const handleBack = async () => {
+    if (hasChanges && !await toast.confirm('יש שינויים שלא נשמרו. האם לצאת?')) {
       return;
     }
     navigate('/admin', { state: { tab: 'templates' } });

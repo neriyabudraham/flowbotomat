@@ -189,7 +189,7 @@ export default function WhatsappSetupPage() {
   };
 
   const handleDelete = async () => {
-    if (!confirm('האם אתה בטוח שברצונך למחוק את החיבור? פעולה זו לא ניתנת לביטול.')) return;
+    if (!await toast.confirm('האם אתה בטוח שברצונך למחוק את החיבור? פעולה זו לא ניתנת לביטול.')) return;
     clearError();
     try {
       await deleteConnection();

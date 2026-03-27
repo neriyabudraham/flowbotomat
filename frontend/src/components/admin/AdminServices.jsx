@@ -580,7 +580,7 @@ function SubscriptionsModal({ service, onClose }) {
   };
 
   const cancelSubscription = async (userId) => {
-    if (!confirm('האם לבטל את המנוי?')) return;
+    if (!await toast.confirm('האם לבטל את המנוי?')) return;
     try {
       await api.post(`/services/admin/${service.id}/cancel/${userId}`);
       loadSubscriptions();

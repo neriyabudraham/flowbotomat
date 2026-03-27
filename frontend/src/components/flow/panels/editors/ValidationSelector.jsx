@@ -137,7 +137,7 @@ export default function ValidationSelector({ value, onChange }) {
   };
   
   const handleDelete = async (id) => {
-    if (!confirm('למחוק את האימות?')) return;
+    if (!await toast.confirm('למחוק את האימות?')) return;
     
     try {
       await api.delete(`/validations/${id}`);

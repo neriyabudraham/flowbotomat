@@ -101,7 +101,7 @@ export default function AdminProxySources() {
   };
 
   const handleSyncExisting = async () => {
-    if (!window.confirm('לשייך פרוקסי לכל המשתמשים המחוברים שעדיין אין להם פרוקסי?')) return;
+    if (!await toast.confirm('לשייך פרוקסי לכל המשתמשים המחוברים שעדיין אין להם פרוקסי?')) return;
     setSyncing(true);
     setSyncResult(null);
     try {
@@ -157,7 +157,7 @@ export default function AdminProxySources() {
   };
 
   const handleRemoveAll = async () => {
-    if (!window.confirm('להסיר פרוקסי מכל החיבורים? פעולה זו תעדכן גם את שרתי WAHA.')) return;
+    if (!await toast.confirm('להסיר פרוקסי מכל החיבורים? פעולה זו תעדכן גם את שרתי WAHA.')) return;
     setRemovingAll(true);
     setSyncResult(null);
     try {
@@ -174,7 +174,7 @@ export default function AdminProxySources() {
   };
 
   const handleDeactivate = async (sourceId) => {
-    if (!window.confirm('האם לנטרל מקור פרוקסי זה?')) return;
+    if (!await toast.confirm('האם לנטרל מקור פרוקסי זה?')) return;
     try {
       await api.delete(`/admin/proxy-sources/${sourceId}`);
       load();

@@ -1121,7 +1121,7 @@ export default function ExecutionRunDetail({ botId, runId, onBack, onNavigateToE
   }, [selectedStepId, run]);
 
   const handleRerun = async () => {
-    if (!confirm('להריץ את הבוט מחדש עבור איש הקשר הזה?')) return;
+    if (!await toast.confirm('להריץ את הבוט מחדש עבור איש הקשר הזה?')) return;
     setRerunning(true);
     try {
       const { data } = await api.post(`/bots/${botId}/history/${runId}/rerun`);

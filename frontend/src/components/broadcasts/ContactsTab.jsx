@@ -249,7 +249,7 @@ export default function ContactsTab({ onRefresh }) {
   };
 
   const handleDeleteContact = async (contact) => {
-    if (!confirm(`למחוק את ${contact.display_name || contact.phone}?`)) return;
+    if (!await toast.confirm(`למחוק את ${contact.display_name || contact.phone}?`)) return;
     
     try {
       await api.delete(`/contacts/${contact.id}`);
@@ -261,7 +261,7 @@ export default function ContactsTab({ onRefresh }) {
   };
 
   const handleBulkDelete = async () => {
-    if (!confirm(`למחוק ${selectedContacts.length} אנשי קשר?`)) return;
+    if (!await toast.confirm(`למחוק ${selectedContacts.length} אנשי קשר?`)) return;
     
     try {
       await api.post('/contacts/bulk-delete', { contactIds: selectedContacts });

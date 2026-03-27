@@ -9,6 +9,7 @@ import Logo from '../components/atoms/Logo';
 import NotificationsDropdown from '../components/notifications/NotificationsDropdown';
 import AccountSwitcher from '../components/AccountSwitcher';
 import api from '../services/api';
+import { toast } from '../store/toastStore';
 
 const SERVICE_ICONS = {
   'webhook': '🔗',
@@ -113,7 +114,7 @@ export default function ServicesPage() {
   };
 
   const handleCancel = async (serviceId) => {
-    if (!confirm('האם אתה בטוח שברצונך לבטל את המנוי?')) return;
+    if (!await toast.confirm('האם אתה בטוח שברצונך לבטל את המנוי?')) return;
     
     try {
       await api.post(`/services/${serviceId}/cancel`);

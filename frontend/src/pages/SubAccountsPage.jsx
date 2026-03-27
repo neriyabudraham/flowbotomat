@@ -85,7 +85,7 @@ export default function SubAccountsPage() {
   };
 
   const handleDelete = async (id, name) => {
-    if (!confirm(`האם אתה בטוח שברצונך למחוק את חשבון המשנה "${name}"?\n\nכל הנתונים כולל בוטים, אנשי קשר והודעות יימחקו לצמיתות!`)) return;
+    if (!await toast.confirm(`האם אתה בטוח שברצונך למחוק את חשבון המשנה "${name}"?\n\nכל הנתונים כולל בוטים, אנשי קשר והודעות יימחקו לצמיתות!`)) return;
     try {
       await api.delete(`/experts/sub-accounts/${id}`);
       toast.success('חשבון המשנה נמחק בהצלחה');

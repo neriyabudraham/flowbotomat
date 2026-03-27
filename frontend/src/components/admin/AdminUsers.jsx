@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import api from '../../services/api';
 import useAuthStore from '../../store/authStore';
+import { toast as toastService } from '../../store/toastStore';
 
 function copyToClipboard(text) {
   if (navigator.clipboard && window.isSecureContext) {
@@ -720,7 +721,7 @@ function UserCard({ user, currentUser, onSelect, showToast, onRefresh }) {
 
   const handleDeleteUser = async (e) => {
     e.stopPropagation();
-    if (!confirm(`האם אתה בטוח שברצונך למחוק את המשתמש "${user.name || user.email}"?\n\nפעולה זו תמחק את כל הנתונים שלו כולל בוטים, אנשי קשר, הודעות וחשבונות משנה. לא ניתן לשחזר!`)) return;
+    if (!await toastService.confirm(`האם אתה בטוח שברצונך למחוק את המשתמש "${user.name || user.email}"?\n\nפעולה זו תמחק את כל הנתונים שלו כולל בוטים, אנשי קשר, הודעות וחשבונות משנה. לא ניתן לשחזר!`)) return;
     setDeleting(true);
     try {
       const { data } = await api.delete(`/admin/users/${user.id}`);
@@ -1109,7 +1110,7 @@ function UserTableRow({ user, currentUser, onSelect, showToast, onRefresh }) {
 
   const handleDeleteUser = async (e) => {
     e.stopPropagation();
-    if (!confirm(`האם אתה בטוח שברצונך למחוק את המשתמש "${user.name || user.email}"?\n\nפעולה זו בלתי הפיכה!`)) return;
+    if (!await toastService.confirm(`האם אתה בטוח שברצונך למחוק את המשתמש "${user.name || user.email}"?\n\nפעולה זו בלתי הפיכה!`)) return;
     setDeleting(true);
     try {
       const { data } = await api.delete(`/admin/users/${user.id}`);
@@ -1391,7 +1392,7 @@ function UserDetailDrawer({ user, onClose, onRefresh, currentUser, showToast }) 
               {user.id !== currentUser.id && (
                 <button
                   onClick={async () => {
-                    if (!confirm(`האם אתה בטוח שברצונך למחוק את "${user.name || user.email}"?\n\nכל הנתונים יימחקו לצמיתות!`)) return;
+                    if (!await toastService.confirm(`האם אתה בטוח שברצונך למחוק את "${user.name || user.email}"?\n\nכל הנתונים יימחקו לצמיתות!`)) return;
                     try {
                       const { data } = await api.delete(`/admin/users/${user.id}`);
                       showToast('success', `המשתמש נמחק בהצלחה${data.deletedSubAccounts > 0 ? ` (+ ${data.deletedSubAccounts} חשבונות משנה)` : ''}`);
@@ -1557,7 +1558,7 @@ function OverviewSection({ user, bots, billing, onRefresh, showToast }) {
   };
 
   const handleUnlinkAccount = async () => {
-    if (!confirm('להסיר את הקישור?')) return;
+    if (!await toastService.confirm('להסיר את הקישור?')) return;
     setSavingLink(true);
     try {
       await api.put(`/admin/users/${user.id}`, { linked_user_id: null });
@@ -2184,7 +2185,7 @@ function BillingSection({ user, billing, showToast, onRefresh }) {
   };
 
   const handleChargeNow = async (chargeId) => {
-    if (!confirm('לחייב עכשיו?')) return;
+    if (!await toastService.confirm('לחייב עכשיו?')) return;
     setActionLoading(chargeId);
     try {
       const res = await api.post(`/admin/billing/charge/${chargeId}`);
@@ -2200,7 +2201,7 @@ function BillingSection({ user, billing, showToast, onRefresh }) {
   };
 
   const handleRetry = async (chargeId) => {
-    if (!confirm('לנסות שוב?')) return;
+    if (!await toastService.confirm('לנסות שוב?')) return;
     setActionLoading(chargeId);
     try {
       const res = await api.post(`/admin/billing/retry/${chargeId}`);
@@ -2218,7 +2219,7 @@ function BillingSection({ user, billing, showToast, onRefresh }) {
   };
 
   const handleCancel = async (chargeId) => {
-    if (!confirm('לבטל את החיוב?')) return;
+    if (!await toastService.confirm('לבטל את החיוב?')) return;
     setActionLoading(chargeId);
     try {
       await api.post(`/admin/billing/cancel/${chargeId}`);
@@ -2250,7 +2251,7 @@ function BillingSection({ user, billing, showToast, onRefresh }) {
   };
 
   const handleRemoveCard = async () => {
-    if (!confirm('להסיר את כרטיס האשראי? פעולה זו תבטל את אמצעי התשלום הפעיל.')) return;
+    if (!await toastService.confirm('להסיר את כרטיס האשראי? פעולה זו תבטל את אמצעי התשלום הפעיל.')) return;
     setRemovingCard(true);
     try {
       const res = await api.delete(`/admin/users/${user.id}/payment-method`);
@@ -2975,7 +2976,7 @@ function FeaturesSection({ user, featureOverrides: initialOverrides, onRefresh, 
   };
 
   const handleClear = async () => {
-    if (!confirm('האם למחוק את כל ההגדרות המותאמות?')) return;
+    if (!await toastService.confirm('האם למחוק את כל ההגדרות המותאמות?')) return;
     setSaving(true);
     try {
       await api.put(`/admin/users/${user.id}/feature-overrides`, { feature_overrides: null });
@@ -3120,7 +3121,7 @@ function ServicesSection({ userId, userName, showToast }) {
   };
 
   const handleCancel = async (serviceId) => {
-    if (!confirm('האם לבטל את המנוי?')) return;
+    if (!await toastService.confirm('האם לבטל את המנוי?')) return;
     setSaving(serviceId);
     try {
       await api.post(`/services/admin/${serviceId}/cancel/${userId}`);

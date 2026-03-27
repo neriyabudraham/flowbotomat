@@ -190,7 +190,7 @@ export default function BotsPage() {
   };
 
   const handleDeleteVariable = async (varId) => {
-    if (!confirm('למחוק משתנה?')) return;
+    if (!await toast.confirm('למחוק משתנה?')) return;
     try {
       await api.delete(`/variables/${varId}`);
       fetchVariables();

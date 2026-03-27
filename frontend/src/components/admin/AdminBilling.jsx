@@ -171,7 +171,7 @@ function ChargeActionsMenu({ charge, onRefresh, onViewUser, loadingUser, onViewH
   };
 
   const handleChargeNow = () => run(async () => {
-    if (!confirm(`לחייב ₪${Number(charge.amount).toLocaleString()} עכשיו?`)) return;
+    if (!await toast.confirm(`לחייב ₪${Number(charge.amount).toLocaleString()} עכשיו?`)) return;
     const res = await api.post(`/admin/billing/charge/${charge.id}`);
     if (res.data.success) {
       toast.success(`חויב בהצלחה!\nמזהה עסקה: ${res.data.transactionId}`);
@@ -182,13 +182,13 @@ function ChargeActionsMenu({ charge, onRefresh, onViewUser, loadingUser, onViewH
   });
 
   const handleSkip = () => run(async () => {
-    if (!confirm('לדלג על חיוב זה ולדחות חודש?')) return;
+    if (!await toast.confirm('לדלג על חיוב זה ולדחות חודש?')) return;
     await api.post(`/admin/billing/skip/${charge.id}`);
     onRefresh?.();
   });
 
   const handleCancel = () => run(async () => {
-    if (!confirm('לבטל את החיוב לצמיתות?')) return;
+    if (!await toast.confirm('לבטל את החיוב לצמיתות?')) return;
     await api.post(`/admin/billing/cancel/${charge.id}`);
     onRefresh?.();
   });
@@ -756,7 +756,7 @@ function FailedCharges({ onRefresh, onViewUser, loadingUser, onViewHistory }) {
   };
 
   const handleRetry = async (id) => {
-    if (!confirm('לנסות לחייב שוב?')) return;
+    if (!await toast.confirm('לנסות לחייב שוב?')) return;
     setActionLoading(id);
     try {
       const res = await api.post(`/admin/billing/retry/${id}`);
@@ -775,7 +775,7 @@ function FailedCharges({ onRefresh, onViewUser, loadingUser, onViewHistory }) {
   };
 
   const handleCancel = async (id) => {
-    if (!confirm('לבטל את החיוב? (המשתמש לא יחויב)')) return;
+    if (!await toast.confirm('לבטל את החיוב? (המשתמש לא יחויב)')) return;
     setActionLoading(id);
     try {
       await api.post(`/admin/billing/cancel/${id}`);
@@ -789,7 +789,7 @@ function FailedCharges({ onRefresh, onViewUser, loadingUser, onViewHistory }) {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('למחוק את הרשומה לצמיתות? פעולה זו בלתי הפיכה.')) return;
+    if (!await toast.confirm('למחוק את הרשומה לצמיתות? פעולה זו בלתי הפיכה.')) return;
     setActionLoading(id);
     try {
       await api.delete(`/admin/billing/charge/${id}`);
@@ -1250,7 +1250,7 @@ function PaymentActionsMenu({ payment, onRefresh }) {
   };
 
   const handleVoid = () => run(async () => {
-    if (!confirm(`לבטל את הרישום של עסקה זו (₪${Number(payment.amount).toLocaleString()})?\n\nהפעולה מסמנת את החיוב כ"בוטל" ברשומות בלבד — לא מבצעת זיכוי בסאמיט.`)) return;
+    if (!await toast.confirm(`לבטל את הרישום של עסקה זו (₪${Number(payment.amount).toLocaleString()})?\n\nהפעולה מסמנת את החיוב כ"בוטל" ברשומות בלבד — לא מבצעת זיכוי בסאמיט.`)) return;
     await api.post(`/admin/billing/void-payment/${payment.id}`);
     onRefresh?.();
   });

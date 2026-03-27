@@ -179,7 +179,7 @@ export default function AdminAffiliate() {
               <h3 className="font-bold text-gray-800">כל השותפים והמשתמשים שהביאו</h3>
               <button
                 onClick={async () => {
-                  if (confirm('ליצור חשבון שותף לכל המשתמשים שעדיין אין להם?')) {
+                  if (await toast.confirm('ליצור חשבון שותף לכל המשתמשים שעדיין אין להם?')) {
                     try {
                       const { data } = await api.post('/admin/affiliate/create-all');
                       toast.success(data.message);

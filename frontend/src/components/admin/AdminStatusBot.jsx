@@ -300,7 +300,7 @@ export default function AdminStatusBot() {
   };
 
   const handleLiftRestriction = async (connectionId) => {
-    if (!confirm('האם להסיר את החסימה?')) return;
+    if (!await toast.confirm('האם להסיר את החסימה?')) return;
 
     setLiftingRestriction(connectionId);
     try {
@@ -322,7 +322,7 @@ export default function AdminStatusBot() {
   const handleSetSendFormat = async (e, connectionId, format) => {
     e.stopPropagation();
     const label = format === 'contacts' ? 'פורמט אנשי קשר' : 'פורמט ברירת מחדל';
-    if (!confirm(`לעבור ל-${label} עבור משתמש זה?`)) return;
+    if (!await toast.confirm(`לעבור ל-${label} עבור משתמש זה?`)) return;
     try {
       await api.patch(`/status-bot/admin/user/${connectionId}/send-format`, { format });
       setUsers(prev => prev.map(u => u.id === connectionId ? { ...u, status_send_format: format } : u));
@@ -335,7 +335,7 @@ export default function AdminStatusBot() {
     e.stopPropagation();
     const newValue = !currentValue;
     const label = newValue ? 'צופים קודם' : 'רגיל קודם (צופים רק בטיימאאוט)';
-    if (!confirm(`לעבור ל-${label} עבור משתמש זה?`)) return;
+    if (!await toast.confirm(`לעבור ל-${label} עבור משתמש זה?`)) return;
     try {
       await api.patch(`/status-bot/admin/user/${connectionId}/viewers-first`, { enabled: newValue });
       setUsers(prev => prev.map(u => u.id === connectionId ? { ...u, viewers_first_mode: newValue } : u));
@@ -345,7 +345,7 @@ export default function AdminStatusBot() {
   };
 
   const handleSyncPhones = async () => {
-    if (!confirm('לסנכרן מספרי טלפון מכל החיבורים?')) return;
+    if (!await toast.confirm('לסנכרן מספרי טלפון מכל החיבורים?')) return;
     
     setSyncingPhones(true);
     try {
@@ -361,7 +361,7 @@ export default function AdminStatusBot() {
   };
 
   const handleResetQueue = async () => {
-    if (!confirm('לאפס את התור? כל התהליכים הפעילים יבוטלו!')) return;
+    if (!await toast.confirm('לאפס את התור? כל התהליכים הפעילים יבוטלו!')) return;
     
     setResettingQueue(true);
     try {
@@ -377,7 +377,7 @@ export default function AdminStatusBot() {
   };
 
   const handleCancelItem = async (queueId) => {
-    if (!confirm('לבטל את התהליך הזה?')) return;
+    if (!await toast.confirm('לבטל את התהליך הזה?')) return;
 
     setCancellingItem(queueId);
     try {
@@ -391,7 +391,7 @@ export default function AdminStatusBot() {
   };
 
   const handleForceStopItem = async (queueId) => {
-    if (!confirm('לעצור את ההעלאה? מה שנשלח עד עכשיו יישמר.')) return;
+    if (!await toast.confirm('לעצור את ההעלאה? מה שנשלח עד עכשיו יישמר.')) return;
 
     setCancellingItem(queueId);
     try {
@@ -404,7 +404,7 @@ export default function AdminStatusBot() {
   };
 
   const handleClearUserErrors = async (connectionId) => {
-    if (!confirm('למחוק את כל השגיאות?')) return;
+    if (!await toast.confirm('למחוק את כל השגיאות?')) return;
     
     setClearingErrors(connectionId);
     try {
@@ -420,7 +420,7 @@ export default function AdminStatusBot() {
   };
 
   const handleRetryUserErrors = async (connectionId) => {
-    if (!confirm('להחזיר את כל הנכשלים לתור?')) return;
+    if (!await toast.confirm('להחזיר את כל הנכשלים לתור?')) return;
     
     setRetryingErrors(connectionId);
     try {
@@ -526,7 +526,7 @@ export default function AdminStatusBot() {
   }, []);
 
   const handleAdminCancelItem = async (queueId) => {
-    if (!confirm('לבטל פריט זה מהתור?')) return;
+    if (!await toast.confirm('לבטל פריט זה מהתור?')) return;
     setCancellingItem(queueId);
     try {
       await api.delete(`/status-bot/admin/queue/${queueId}`);
@@ -540,7 +540,7 @@ export default function AdminStatusBot() {
 
   const handleBulkCancel = async () => {
     const total = (activeProcesses.pendingQueue?.length || 0) + (activeProcesses.scheduledStatuses?.length || 0);
-    if (!confirm(`לבטל את כל ${total} הפריטים הממתינים והמתוזמנים?`)) return;
+    if (!await toast.confirm(`לבטל את כל ${total} הפריטים הממתינים והמתוזמנים?`)) return;
     setBulkCancelling(true);
     try {
       const { data } = await api.post('/status-bot/admin/queue/bulk-cancel', { statuses: ['pending', 'scheduled'] });
@@ -591,7 +591,7 @@ export default function AdminStatusBot() {
 
   const handleRestrictAllUsers = async () => {
     const mins = parseFloat(restrictMinutes) || 60;
-    if (!confirm(`לחסום את כל המשתמשים למשך ${mins} דקות?`)) return;
+    if (!await toast.confirm(`לחסום את כל המשתמשים למשך ${mins} דקות?`)) return;
     setRestricting(true);
     try {
       const { data } = await api.post('/status-bot/admin/restrict-all-users', { minutes: mins });
@@ -612,7 +612,7 @@ export default function AdminStatusBot() {
   };
 
   const handleUnrestrictAllUsers = async () => {
-    if (!confirm('להסיר את ההגבלה מכל המשתמשים?')) return;
+    if (!await toast.confirm('להסיר את ההגבלה מכל המשתמשים?')) return;
     try {
       const { data } = await api.post('/status-bot/admin/unrestrict-all-users');
       // Update local state without full refresh
