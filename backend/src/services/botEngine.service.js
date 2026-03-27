@@ -3313,15 +3313,31 @@ class BotEngine {
             if (!param.key) continue;
             const val = await this.replaceAllVariables(param.value || '', contact, message, '');
             if (param.isFile && val) {
-              // val is a URL — download file and append as stream
+              // val is a URL — try local disk first, then download via HTTP
+              const pathModule = require('path');
+              const fs = require('fs');
               try {
-                const fileResponse = await axios({ method: 'GET', url: val, responseType: 'stream', timeout: 30000 });
-                const contentType = fileResponse.headers['content-type'] || 'application/octet-stream';
-                const pathModule = require('path');
-                let filename = pathModule.basename(new URL(val).pathname) || 'file';
-                form.append(param.key, fileResponse.data, { filename, contentType });
+                // Check if file is hosted on our own server → read from local disk
+                const uploadsMatch = val.match(/\/uploads\/(.+)$/);
+                const localPath = uploadsMatch ? pathModule.join(__dirname, '../../uploads', uploadsMatch[1]) : null;
+
+                if (localPath && fs.existsSync(localPath)) {
+                  const filename = pathModule.basename(localPath);
+                  const ext = pathModule.extname(filename).toLowerCase().replace('.', '');
+                  const mimeMap = { mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', m4a: 'audio/mp4', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', mp4: 'video/mp4', pdf: 'application/pdf' };
+                  const contentType = mimeMap[ext] || 'application/octet-stream';
+                  console.log(`[BotEngine] Reading local file for form field "${param.key}": ${localPath} (${contentType})`);
+                  form.append(param.key, fs.createReadStream(localPath), { filename, contentType });
+                } else {
+                  // Download from remote URL
+                  console.log(`[BotEngine] Downloading remote file for form field "${param.key}": ${val}`);
+                  const fileResponse = await axios({ method: 'GET', url: val, responseType: 'stream', timeout: 30000 });
+                  const contentType = fileResponse.headers['content-type'] || 'application/octet-stream';
+                  let filename = pathModule.basename(new URL(val).pathname) || 'file';
+                  form.append(param.key, fileResponse.data, { filename, contentType });
+                }
               } catch (dlErr) {
-                console.error(`[BotEngine] Failed to download file for form field "${param.key}": ${dlErr.message}`);
+                console.error(`[BotEngine] Failed to load file for form field "${param.key}": ${dlErr.message}`);
                 form.append(param.key, val);
               }
             } else {

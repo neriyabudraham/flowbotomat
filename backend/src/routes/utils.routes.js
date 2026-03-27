@@ -36,11 +36,22 @@ router.post('/test-api', authMiddleware, async (req, res) => {
           if (!param.key) continue;
           if (param.isFile && param.value) {
             try {
-              const fileRes = await axios({ method: 'GET', url: param.value, responseType: 'stream', timeout: 10000 });
-              const contentType = fileRes.headers['content-type'] || 'application/octet-stream';
-              const path = require('path');
-              const filename = path.basename(new URL(param.value).pathname) || 'file';
-              form.append(param.key, fileRes.data, { filename, contentType });
+              // Check if file is on our own server → read from local disk
+              const uploadsMatch = param.value.match(/\/uploads\/(.+)$/);
+              const localPath = uploadsMatch ? path.join(__dirname, '../../uploads', uploadsMatch[1]) : null;
+
+              if (localPath && fs.existsSync(localPath)) {
+                const filename = path.basename(localPath);
+                const ext = path.extname(filename).toLowerCase().replace('.', '');
+                const mimeMap = { mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', mp4: 'video/mp4', pdf: 'application/pdf' };
+                const contentType = mimeMap[ext] || 'application/octet-stream';
+                form.append(param.key, fs.createReadStream(localPath), { filename, contentType });
+              } else {
+                const fileRes = await axios({ method: 'GET', url: param.value, responseType: 'stream', timeout: 10000 });
+                const contentType = fileRes.headers['content-type'] || 'application/octet-stream';
+                const filename = path.basename(new URL(param.value).pathname) || 'file';
+                form.append(param.key, fileRes.data, { filename, contentType });
+              }
             } catch {
               form.append(param.key, param.value);
             }

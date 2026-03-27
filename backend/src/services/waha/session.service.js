@@ -11,20 +11,43 @@ function extractFirstUrl(text) {
   return match ? match[0] : null;
 }
 
+// WhatsApp invite link pattern
+const WA_GROUP_LINK_REGEX = /https?:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+/i;
+
+// Fallback WhatsApp logo for group invites when OG fetch fails (429 etc.)
+const WA_FALLBACK_IMAGE = 'https://files.neriyabudraham.co.il/files/httpswww.whatsapp.comfavicon-64x64.png_20260326_9pnet.png';
+
 // Simple OG metadata fetcher (no heavy dependencies)
-// For WhatsApp group invite links, the page at chat.whatsapp.com contains
-// og:title (group name), og:description, and og:image (group picture) —
-// so no special-casing is needed.
+// For WhatsApp group invite links, tries to fetch real OG data first (group name,
+// description, image). If that fails (e.g. 429), falls back to a generic preview
+// with the WhatsApp logo so the link-custom-preview still works.
 function fetchOgMetadata(url, _redirectCount = 0) {
   return new Promise((resolve) => {
-    if (_redirectCount > 3) { resolve(null); return; }
+    if (_redirectCount > 3) {
+      // If this was a WA group link that exhausted redirects, use fallback
+      if (WA_GROUP_LINK_REGEX.test(url)) {
+        resolve({ url, title: 'WhatsApp Group Invite', description: 'לחץ להצטרפות לקבוצה', image: { url: WA_FALLBACK_IMAGE, mimetype: 'image/png' } });
+      } else {
+        resolve(null);
+      }
+      return;
+    }
     const mod = url.startsWith('https') ? https : http;
     const req = mod.get(url, { timeout: 5000, headers: { 'User-Agent': 'WhatsApp/2' } }, (res) => {
       // Follow redirects
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         return fetchOgMetadata(res.headers.location, _redirectCount + 1).then(resolve);
       }
-      if (res.statusCode !== 200) { resolve(null); return; }
+      if (res.statusCode !== 200) {
+        // For WA group links, use fallback preview instead of null
+        if (WA_GROUP_LINK_REGEX.test(url)) {
+          console.log(`[WAHA] OG fetch for WA group link returned ${res.statusCode}, using fallback preview`);
+          resolve({ url, title: 'WhatsApp Group Invite', description: 'לחץ להצטרפות לקבוצה', image: { url: WA_FALLBACK_IMAGE, mimetype: 'image/png' } });
+        } else {
+          resolve(null);
+        }
+        return;
+      }
       let html = '';
       res.setEncoding('utf-8');
       res.on('data', (chunk) => { html += chunk; if (html.length > 50000) res.destroy(); });
@@ -43,13 +66,35 @@ function fetchOgMetadata(url, _redirectCount = 0) {
         const preview = { url, title: og.title.substring(0, 100), description: og.description.substring(0, 200) };
         if (imageUrl) {
           preview.image = { url: imageUrl, mimetype: 'image/jpeg' };
+        } else if (WA_GROUP_LINK_REGEX.test(url)) {
+          // Got OG data but no image — use WhatsApp logo as fallback
+          preview.image = { url: WA_FALLBACK_IMAGE, mimetype: 'image/png' };
         }
         resolve(preview);
       });
-      res.on('error', () => resolve(null));
+      res.on('error', () => {
+        if (WA_GROUP_LINK_REGEX.test(url)) {
+          resolve({ url, title: 'WhatsApp Group Invite', description: 'לחץ להצטרפות לקבוצה', image: { url: WA_FALLBACK_IMAGE, mimetype: 'image/png' } });
+        } else {
+          resolve(null);
+        }
+      });
     });
-    req.on('error', () => resolve(null));
-    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', () => {
+      if (WA_GROUP_LINK_REGEX.test(url)) {
+        resolve({ url, title: 'WhatsApp Group Invite', description: 'לחץ להצטרפות לקבוצה', image: { url: WA_FALLBACK_IMAGE, mimetype: 'image/png' } });
+      } else {
+        resolve(null);
+      }
+    });
+    req.on('timeout', () => {
+      req.destroy();
+      if (WA_GROUP_LINK_REGEX.test(url)) {
+        resolve({ url, title: 'WhatsApp Group Invite', description: 'לחץ להצטרפות לקבוצה', image: { url: WA_FALLBACK_IMAGE, mimetype: 'image/png' } });
+      } else {
+        resolve(null);
+      }
+    });
   });
 }
 
