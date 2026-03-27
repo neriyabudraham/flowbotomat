@@ -848,17 +848,21 @@ async function handleIncomingMessage(userId, event) {
       
       if (!isListResponse) {
         // Check if this triggers a group forward (from authorized sender)
-        const forwardTriggered = await groupForwardsTrigger.processMessageForForwards(
+        const forwardResult = await groupForwardsTrigger.processMessageForForwards(
           userId,
           phoneForProcessing,
           messageData,
           chatId,
           payload
         );
-        
-        if (forwardTriggered) {
-          // Forward trigger handled
-          handledByForwards = true;
+
+        if (forwardResult && forwardResult.triggered) {
+          // Forward triggered — check conflict mode
+          // 'forward_only' = skip bot, 'both' = let bot also run
+          if (forwardResult.conflictMode === 'forward_only') {
+            handledByForwards = true;
+          }
+          // 'both' mode: handledByForwards stays false, so bot engine also runs
         }
       } else {
         // Skipping forward trigger for list_response

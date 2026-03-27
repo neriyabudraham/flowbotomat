@@ -26,6 +26,10 @@ CREATE TABLE IF NOT EXISTS group_forwards (
     -- Link preview
     link_preview BOOLEAN DEFAULT true, -- Show link preview in messages
 
+    -- Trigger conflict mode: what happens when message matches both bot and forward
+    -- 'both' = both run, 'forward_only' = only forward, 'bot_only' = only bot
+    trigger_conflict_mode VARCHAR(20) DEFAULT 'both',
+
     -- Statistics
     total_forwards INT DEFAULT 0,
     last_forward_at TIMESTAMP,

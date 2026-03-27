@@ -3,7 +3,7 @@ import {
   ArrowRight, Save, Target, Zap, Clock, UserCheck, Settings, Search,
   X, Plus, Trash2, Check, AlertCircle, Loader2, RefreshCw,
   MessageSquare, Users, ChevronDown, ChevronUp, Phone, Image as ImageIcon,
-  Crown, AlertTriangle, Eraser, Bell, Globe
+  Crown, AlertTriangle, Eraser, Bell, Globe, Swords
 } from 'lucide-react';
 // Using simple arrow buttons instead of drag-drop to avoid dependency issues
 import Button from '../atoms/Button';
@@ -30,6 +30,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
   const [suffixEnabled, setSuffixEnabled] = useState(forward.suffix_enabled || false);
   const [pollMultipleAnswers, setPollMultipleAnswers] = useState(forward.poll_multiple_answers || false);
   const [linkPreview, setLinkPreview] = useState(forward.link_preview !== false);
+  const [triggerConflictMode, setTriggerConflictMode] = useState(forward.trigger_conflict_mode || 'both');
   const [showSuffixSettings, setShowSuffixSettings] = useState(false);
   
   // Targets
@@ -88,6 +89,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
       setSuffixEnabled(f.suffix_enabled || false);
       setPollMultipleAnswers(f.poll_multiple_answers || false);
       setLinkPreview(f.link_preview !== false);
+      setTriggerConflictMode(f.trigger_conflict_mode || 'both');
       setTargets(f.targets || []);
       setSenders(f.authorized_senders || []);
       setAllowAllSenders(f.allow_all_senders !== false);
@@ -139,7 +141,8 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
         notify_sender_on_pending: notifySenderOnPending,
         poll_multiple_answers: pollMultipleAnswers,
         allow_all_senders: allowAllSenders,
-        link_preview: linkPreview
+        link_preview: linkPreview,
+        trigger_conflict_mode: triggerConflictMode
       });
       
       onSave?.(data.forward);
@@ -1402,6 +1405,44 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                   <div className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow-lg transition-all ${linkPreview ? 'left-7' : 'left-1'}`} />
                 </div>
               </label>
+
+              {/* Trigger Conflict Mode */}
+              <div className="p-5 bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl border border-amber-200">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-500 rounded-xl flex items-center justify-center shadow">
+                    <Swords className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900">התנגשות עם בוטים</h3>
+                    <p className="text-sm text-gray-500">מה יקרה כשהודעה מפעילה גם בוט וגם תפוצה?</p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {[
+                    { value: 'both', label: 'שניהם פועלים', desc: 'גם הבוט וגם התפוצה יפעלו', active: 'border-green-400 bg-green-50', dot: 'border-green-500 bg-green-500' },
+                    { value: 'forward_only', label: 'תפוצה בלבד', desc: 'רק התפוצה תפעל, הבוט ידלג', active: 'border-blue-400 bg-blue-50', dot: 'border-blue-500 bg-blue-500' },
+                    { value: 'bot_only', label: 'בוט בלבד', desc: 'רק הבוט יפעל, התפוצה תדלג', active: 'border-purple-400 bg-purple-50', dot: 'border-purple-500 bg-purple-500' },
+                  ].map(opt => (
+                    <label
+                      key={opt.value}
+                      onClick={() => setTriggerConflictMode(opt.value)}
+                      className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all border-2 ${
+                        triggerConflictMode === opt.value ? opt.active : 'border-transparent hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                        triggerConflictMode === opt.value ? opt.dot : 'border-gray-300'
+                      }`}>
+                        {triggerConflictMode === opt.value && <Check className="w-3 h-3 text-white" />}
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-900 text-sm">{opt.label}</p>
+                        <p className="text-xs text-gray-500">{opt.desc}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
 
               {/* Message Suffix Section */}
               <div className="p-5 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-2xl border border-emerald-100">

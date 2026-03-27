@@ -79,7 +79,8 @@ async function updateGroupForward(req, res) {
       notify_sender_on_pending,
       poll_multiple_answers,
       allow_all_senders,
-      link_preview
+      link_preview,
+      trigger_conflict_mode
     } = req.body;
 
     // Log suffix changes for debugging truncation issues
@@ -122,6 +123,7 @@ async function updateGroupForward(req, res) {
         poll_multiple_answers = COALESCE($14, poll_multiple_answers),
         allow_all_senders = COALESCE($15, allow_all_senders),
         link_preview = COALESCE($16, link_preview),
+        trigger_conflict_mode = COALESCE($17, trigger_conflict_mode),
         updated_at = NOW()
       WHERE id = $10
       RETURNING *
@@ -141,7 +143,8 @@ async function updateGroupForward(req, res) {
       notify_sender_on_pending !== undefined ? notify_sender_on_pending : null,
       poll_multiple_answers !== undefined ? poll_multiple_answers : null,
       allow_all_senders !== undefined ? allow_all_senders : null,
-      link_preview !== undefined ? link_preview : null
+      link_preview !== undefined ? link_preview : null,
+      trigger_conflict_mode || null
     ]);
     
     res.json({

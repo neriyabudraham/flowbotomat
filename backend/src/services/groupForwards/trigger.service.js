@@ -299,7 +299,8 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
     }
     
     let anyForwardTriggered = false;
-    
+    let resolvedConflictMode = 'both'; // default
+
     // Check if sender is authorized for each forward
     for (const forward of forwards.rows) {
       const normalizedPhone = normalizePhoneNumber(senderPhone);
@@ -355,11 +356,20 @@ async function processMessageForForwards(userId, senderPhone, messageData, chatI
         continue;
       }
 
+      // Check conflict mode — if 'bot_only', skip creating the forward job
+      const conflictMode = forward.trigger_conflict_mode || 'both';
+      if (conflictMode === 'bot_only') {
+        console.log(`[GroupForwards] Forward ${forward.id} conflict mode is bot_only, skipping forward`);
+        continue;
+      }
+
       await createTriggerJob(userId, forward, senderPhone, messageData, payload, senderCanSendWithoutApproval, senderDbPhone);
       anyForwardTriggered = true;
+      // Use the most restrictive conflict mode if multiple forwards match
+      if (conflictMode === 'forward_only') resolvedConflictMode = 'forward_only';
     }
-    
-    return anyForwardTriggered;
+
+    return anyForwardTriggered ? { triggered: true, conflictMode: resolvedConflictMode } : false;
     
   } catch (error) {
     console.error('[GroupForwards] Trigger processing error:', error);
