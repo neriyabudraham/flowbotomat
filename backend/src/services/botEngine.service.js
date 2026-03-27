@@ -1751,100 +1751,233 @@ class BotEngine {
     let stepOutput = {};
     let nextHandleId = null;
 
+    // Capture contact variables before execution for detailed logging
+    let varsBefore = {};
+    try {
+      const vr = await db.query('SELECT key, value FROM contact_variables WHERE contact_id = $1', [contact.id]);
+      varsBefore = Object.fromEntries(vr.rows.map(r => [r.key, r.value]));
+    } catch (e) {}
+
+    let stepInput = {};
+
     try {
       switch (node.type) {
-        case 'message':
+        case 'message': {
+          // Capture detailed message data
+          const actions = node.data.actions || [];
+          const resolvedActions = [];
+          for (const action of actions) {
+            const resolved = { type: action.type };
+            if (action.type === 'text' && action.content) {
+              resolved.resolvedText = await this.replaceAllVariables(action.content, contact, message, botName, userId);
+              resolved.originalTemplate = action.content;
+            } else if (['image', 'video', 'audio', 'file'].includes(action.type)) {
+              resolved.mediaUrl = action.fileData || action.url;
+              resolved.caption = action.caption ? await this.replaceAllVariables(action.caption, contact, message, botName, userId) : '';
+            } else if (action.type === 'location') {
+              resolved.latitude = action.latitude;
+              resolved.longitude = action.longitude;
+              resolved.title = action.title;
+            } else if (action.type === 'reaction') {
+              resolved.emoji = action.emoji;
+            } else if (action.type === 'poll') {
+              resolved.pollName = action.pollName;
+              resolved.pollOptions = action.pollOptions;
+            }
+            resolvedActions.push(resolved);
+          }
+          stepInput = { actions: resolvedActions, waitForReply: node.data.waitForReply, timeout: node.data.timeout };
+
           const shouldWait = await this.executeMessageNode(node, contact, message, userId, botName, botId);
           if (shouldWait) {
             stepStatus = 'waiting';
-            stepOutput = { waitingForReply: true };
+            stepOutput = { waitingForReply: true, timeout: node.data.timeout, actionsSent: resolvedActions };
             await executionTracker.logStep(runId, nodeId, node.type, nodeLabel, stepOrder, {
-              inputData: { actions: (node.data.actions || []).map(a => a.type) },
-              outputData: stepOutput, status: stepStatus, durationMs: Date.now() - stepStart
+              inputData: stepInput, outputData: stepOutput, status: stepStatus, durationMs: Date.now() - stepStart
             });
             return;
           }
-          stepOutput = { actionsSent: (node.data.actions || []).length };
+          stepOutput = { actionsSent: resolvedActions };
           break;
+        }
 
-        case 'condition':
+        case 'condition': {
+          // Capture condition evaluation details
+          const condGroup = node.data.conditionGroup || {};
+          stepInput = { conditionGroup: condGroup, conditions: node.data.conditions, logic: node.data.logic };
           nextHandleId = await this.executeConditionNode(node, contact, message, userId);
-          stepOutput = { result: nextHandleId === 'yes' ? 'כן' : 'לא', handle: nextHandleId };
+          // Get current variable values for context
+          let varsNow = {};
+          try {
+            const vr2 = await db.query('SELECT key, value FROM contact_variables WHERE contact_id = $1', [contact.id]);
+            varsNow = Object.fromEntries(vr2.rows.map(r => [r.key, r.value]));
+          } catch (e) {}
+          stepOutput = {
+            result: nextHandleId === 'yes' ? 'כן (true)' : 'לא (false)',
+            handle: nextHandleId,
+            evaluatedMessage: message,
+            contactName: contact.display_name || contact.phone,
+            variables: varsNow,
+          };
           break;
+        }
 
-        case 'delay':
+        case 'delay': {
+          const delayActions = node.data.actions || [];
+          const delayValue = node.data.delayValue || node.data.delay;
+          const delayUnit = node.data.delayUnit || node.data.unit || 'seconds';
+          stepInput = { delayValue, delayUnit, actions: delayActions };
           await this.executeDelayNode(node, contact, userId);
-          stepOutput = { delay: `${node.data.delayValue || 0} ${node.data.delayUnit || 'seconds'}` };
+          const multipliers = { seconds: 1000, minutes: 60000, hours: 3600000 };
+          stepOutput = { delayMs: (delayValue || 0) * (multipliers[delayUnit] || 1000), delayFormatted: `${delayValue} ${delayUnit}` };
           break;
+        }
 
-        case 'action':
+        case 'action': {
+          const actionDetails = (node.data.actions || []).map(a => {
+            const detail = { type: a.type };
+            if (a.type === 'set_variable') { detail.varName = a.variableName; detail.varValue = a.variableValue; }
+            if (a.type === 'add_tag' || a.type === 'remove_tag') { detail.tagName = a.tagName; }
+            if (a.type === 'webhook') { detail.url = a.webhookUrl; }
+            if (a.type === 'run_bot') { detail.botId = a.botId; }
+            return detail;
+          });
+          stepInput = { actions: actionDetails };
           await this.executeActionNode(node, contact, userId);
-          stepOutput = { actions: (node.data.actions || []).map(a => a.type) };
+          // Capture vars after to show what changed
+          let varsAfter = {};
+          try {
+            const vr3 = await db.query('SELECT key, value FROM contact_variables WHERE contact_id = $1', [contact.id]);
+            varsAfter = Object.fromEntries(vr3.rows.map(r => [r.key, r.value]));
+          } catch (e) {}
+          const changedVars = {};
+          for (const [k, v] of Object.entries(varsAfter)) { if (varsBefore[k] !== v) changedVars[k] = { before: varsBefore[k] || null, after: v }; }
+          for (const k of Object.keys(varsBefore)) { if (!(k in varsAfter)) changedVars[k] = { before: varsBefore[k], after: null }; }
+          stepOutput = { actionsExecuted: actionDetails, variableChanges: changedVars };
           break;
+        }
 
-        case 'list':
+        case 'list': {
+          const buttons = (node.data.buttons || []).map((b, i) => ({ index: i, title: b.title, description: b.description }));
+          stepInput = { title: node.data.title, body: node.data.body, buttonText: node.data.buttonText, buttons, timeout: node.data.timeout };
           await this.executeListNode(node, contact, userId, botName, botId);
           stepStatus = 'waiting';
-          stepOutput = { title: node.data.title, buttons: (node.data.buttons || []).map(b => b.title) };
+          stepOutput = { title: node.data.title, body: node.data.body, buttonsSent: buttons, timeout: node.data.timeout };
           await executionTracker.logStep(runId, nodeId, node.type, nodeLabel, stepOrder, {
-            inputData: { title: node.data.title },
-            outputData: stepOutput, status: stepStatus, durationMs: Date.now() - stepStart
+            inputData: stepInput, outputData: stepOutput, status: stepStatus, durationMs: Date.now() - stepStart
           });
           return;
+        }
 
-        case 'registration':
+        case 'registration': {
+          const questions = (node.data.questions || []).map((q, i) => ({ index: i, question: q.question, varName: q.varName, type: q.type }));
+          stepInput = { title: node.data.title, welcomeMessage: node.data.welcomeMessage, questions, cancelKeyword: node.data.cancelKeyword };
           await this.executeRegistrationNode(node, contact, message, userId, botName, botId);
           stepStatus = 'waiting';
-          stepOutput = { fields: (node.data.questions || []).map(q => q.label || q.fieldName) };
+          stepOutput = { questionsSent: questions, welcomeMessage: node.data.welcomeMessage, totalQuestions: questions.length };
           await executionTracker.logStep(runId, nodeId, node.type, nodeLabel, stepOrder, {
-            inputData: { title: node.data.title },
-            outputData: stepOutput, status: stepStatus, durationMs: Date.now() - stepStart
+            inputData: stepInput, outputData: stepOutput, status: stepStatus, durationMs: Date.now() - stepStart
           });
           return;
+        }
 
-        case 'integration':
+        case 'integration': {
+          const intActions = (node.data.actions || []).map(a => ({
+            type: a.type, url: a.apiUrl, method: a.method,
+            mappings: (a.mappings || []).map(m => ({ jsonPath: m.jsonPath, varName: m.variableName }))
+          }));
+          stepInput = { actions: intActions };
           await this.executeIntegrationNode(node, contact, userId, message);
-          stepOutput = { type: 'integration' };
+          let varsAfterInt = {};
+          try {
+            const vr4 = await db.query('SELECT key, value FROM contact_variables WHERE contact_id = $1', [contact.id]);
+            varsAfterInt = Object.fromEntries(vr4.rows.map(r => [r.key, r.value]));
+          } catch (e) {}
+          const intChanges = {};
+          for (const [k, v] of Object.entries(varsAfterInt)) { if (varsBefore[k] !== v) intChanges[k] = { before: varsBefore[k] || null, after: v }; }
+          stepOutput = { actions: intActions, variableChanges: intChanges };
           break;
+        }
 
-        case 'google_sheets':
+        case 'google_sheets': {
+          const gsActions = (node.data.actions || []).map(a => ({
+            operation: a.operation, spreadsheetId: a.spreadsheetId, sheetName: a.sheetName
+          }));
+          stepInput = { actions: gsActions };
           await this.executeGoogleSheetsNode(node, contact, userId);
-          stepOutput = { type: 'google_sheets' };
+          let varsAfterGs = {};
+          try {
+            const vr5 = await db.query('SELECT key, value FROM contact_variables WHERE contact_id = $1', [contact.id]);
+            varsAfterGs = Object.fromEntries(vr5.rows.map(r => [r.key, r.value]));
+          } catch (e) {}
+          const gsChanges = {};
+          for (const [k, v] of Object.entries(varsAfterGs)) { if (varsBefore[k] !== v) gsChanges[k] = { before: varsBefore[k] || null, after: v }; }
+          stepOutput = { operations: gsActions, variableChanges: gsChanges };
           break;
+        }
 
-        case 'google_contacts':
+        case 'google_contacts': {
+          const gcActions = (node.data.actions || []).map(a => ({
+            operation: a.operation, searchBy: a.searchBy, searchValue: a.searchValue
+          }));
+          stepInput = { actions: gcActions };
           await this.executeGoogleContactsNode(node, contact, userId);
-          stepOutput = { type: 'google_contacts' };
+          let varsAfterGc = {};
+          try {
+            const vr6 = await db.query('SELECT key, value FROM contact_variables WHERE contact_id = $1', [contact.id]);
+            varsAfterGc = Object.fromEntries(vr6.rows.map(r => [r.key, r.value]));
+          } catch (e) {}
+          const gcChanges = {};
+          for (const [k, v] of Object.entries(varsAfterGc)) { if (varsBefore[k] !== v) gcChanges[k] = { before: varsBefore[k] || null, after: v }; }
+          stepOutput = { operations: gcActions, variableChanges: gcChanges };
           break;
+        }
 
         case 'note':
           stepStatus = 'skipped';
+          stepOutput = { note: (node.data.note || '').substring(0, 200) };
           break;
 
-        case 'send_other':
+        case 'send_other': {
+          const recipient = node.data.recipient || {};
+          const soActions = (node.data.actions || []).map(a => {
+            const r = { type: a.type };
+            if (a.type === 'text') r.content = a.content;
+            if (['image', 'video', 'audio', 'file'].includes(a.type)) { r.mediaUrl = a.fileData || a.url; r.caption = a.caption; }
+            return r;
+          });
+          stepInput = { recipient: { type: recipient.type, phone: recipient.phone, groupId: recipient.groupId }, actions: soActions };
           await this.executeSendOtherNode(node, contact, userId, message);
-          stepOutput = { type: 'send_other' };
+          stepOutput = { recipientType: recipient.type, recipientId: recipient.phone || recipient.groupId, actionsSent: soActions };
           break;
+        }
 
-        case 'formula':
+        case 'formula': {
+          const steps = (node.data.steps || []).map(s => ({ expression: s.expression, outputVar: s.outputVar }));
+          stepInput = { steps };
           await this.executeFormulaNode(node, contact, userId, message);
-          stepOutput = { type: 'formula' };
+          let varsAfterF = {};
+          try {
+            const vr7 = await db.query('SELECT key, value FROM contact_variables WHERE contact_id = $1', [contact.id]);
+            varsAfterF = Object.fromEntries(vr7.rows.map(r => [r.key, r.value]));
+          } catch (e) {}
+          const fResults = steps.map(s => ({ expression: s.expression, outputVar: s.outputVar, result: varsAfterF[s.outputVar] || null }));
+          stepOutput = { formulaResults: fResults };
           break;
+        }
       }
     } catch (nodeError) {
       stepStatus = 'error';
       stepError = nodeError.message;
-      // Log the step error but don't re-throw - let the execution continue or be caught above
       await executionTracker.logStep(runId, nodeId, node.type, nodeLabel, stepOrder, {
-        inputData: { nodeData: node.data },
-        outputData: {}, status: 'error', errorMessage: nodeError.message, durationMs: Date.now() - stepStart
+        inputData: stepInput, outputData: {}, status: 'error', errorMessage: nodeError.message, durationMs: Date.now() - stepStart
       });
       throw nodeError;
     }
 
-    // Log successful step
+    // Log successful step with detailed data
     await executionTracker.logStep(runId, nodeId, node.type, nodeLabel, stepOrder, {
-      inputData: {},
+      inputData: stepInput,
       outputData: stepOutput,
       status: stepStatus,
       nextHandle: nextHandleId,

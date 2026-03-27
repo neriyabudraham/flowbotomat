@@ -5,7 +5,7 @@ const { listBots, getBot } = require('../controllers/bots/list.controller');
 const { createBot, updateBot, saveFlow, deleteBot, selectBotToKeep, getPendingDeletionStatus, generateWebhookSecret, deleteWebhookSecret, startWebhookListen, checkWebhookListen } = require('../controllers/bots/manage.controller');
 const { getBotStats, getBotUsers, getBotLogs, getBotStatsTimeline, exportBotStats } = require('../controllers/bots/stats.controller');
 const { exportBot, importBot, duplicateBot } = require('../controllers/bots/export.controller');
-const { getExecutionHistory, getExecutionRun, deleteExecutionHistory } = require('../controllers/bots/history.controller');
+const { getExecutionHistory, getExecutionRun, rerunExecution, deleteExecutionHistory } = require('../controllers/bots/history.controller');
 
 router.use(authMiddleware);
 
@@ -30,6 +30,7 @@ router.get('/:botId/logs', getBotLogs);
 // Execution history
 router.get('/:botId/history', getExecutionHistory);
 router.get('/:botId/history/:runId', getExecutionRun);
+router.post('/:botId/history/:runId/rerun', rerunExecution);
 router.delete('/:botId/history', deleteExecutionHistory);
 
 // Webhook trigger secret management
