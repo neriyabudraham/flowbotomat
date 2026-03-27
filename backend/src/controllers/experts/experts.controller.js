@@ -853,6 +853,144 @@ async function switchAccount(req, res) {
 }
 
 /**
+ * Create a sub-account directly (no separate registration needed)
+ * The sub-account is linked to the parent, shares payment method by default,
+ * and uses a unique internal email for WAHA session isolation.
+ */
+async function createSubAccount(req, res) {
+  try {
+    const parentUserId = req.user.viewingAs || req.user.id;
+    const { name } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'שם חשבון המשנה נדרש' });
+    }
+
+    // Get parent user
+    const parentResult = await db.query('SELECT id, email, name FROM users WHERE id = $1', [parentUserId]);
+    if (parentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'חשבון לא נמצא' });
+    }
+    const parent = parentResult.rows[0];
+
+    // Count existing sub-accounts for numbering
+    const countResult = await db.query(
+      'SELECT COUNT(*) as cnt FROM linked_accounts WHERE parent_user_id = $1',
+      [parentUserId]
+    );
+    const subNum = parseInt(countResult.rows[0].cnt) + 1;
+
+    // Generate unique sub-account email: parent_email#sub_N
+    // This keeps email unique in DB while allowing same parent to have multiple accounts
+    const subEmail = `${parent.email}#sub_${subNum}`;
+
+    // Check if this sub-email already exists (edge case)
+    const existingCheck = await db.query('SELECT id FROM users WHERE email = $1', [subEmail]);
+    if (existingCheck.rows.length > 0) {
+      // Find next available number
+      const allSubs = await db.query(
+        `SELECT email FROM users WHERE email LIKE $1`,
+        [`${parent.email}#sub_%`]
+      );
+      const usedNums = allSubs.rows.map(r => {
+        const match = r.email.match(/#sub_(\d+)$/);
+        return match ? parseInt(match[1]) : 0;
+      });
+      const nextNum = Math.max(...usedNums, 0) + 1;
+      var finalEmail = `${parent.email}#sub_${nextNum}`;
+    } else {
+      var finalEmail = subEmail;
+    }
+
+    // Generate random password (sub-account logs in via parent's account switch, not directly)
+    const randomPassword = crypto.randomBytes(16).toString('hex');
+    const passwordHash = await bcrypt.hash(randomPassword, 10);
+
+    // Create user
+    const userResult = await db.query(
+      `INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id`,
+      [finalEmail, passwordHash, name.trim()]
+    );
+    const childUserId = userResult.rows[0].id;
+
+    // Create linked account relationship
+    await db.query(
+      `INSERT INTO linked_accounts (parent_user_id, child_user_id)
+       VALUES ($1, $2)
+       ON CONFLICT (parent_user_id, child_user_id) DO NOTHING`,
+      [parentUserId, childUserId]
+    );
+
+    // Create expert access automatically (full permissions)
+    await db.query(
+      `INSERT INTO expert_clients
+       (expert_id, client_id, can_view_bots, can_edit_bots, can_manage_contacts, can_view_analytics, is_active, status, approved_at)
+       VALUES ($1, $2, true, true, true, true, true, 'approved', NOW())
+       ON CONFLICT (expert_id, client_id) DO UPDATE SET is_active = true, status = 'approved', approved_at = NOW()`,
+      [parentUserId, childUserId]
+    );
+
+    // Create Free subscription
+    try {
+      const planResult = await db.query(
+        `SELECT id FROM subscription_plans WHERE name = 'Free' AND is_active = true LIMIT 1`
+      );
+      if (planResult.rows.length > 0) {
+        await db.query(
+          `INSERT INTO user_subscriptions (user_id, plan_id, status, is_trial, billing_period)
+           VALUES ($1, $2, 'active', false, 'monthly')`,
+          [childUserId, planResult.rows[0].id]
+        );
+      }
+    } catch (subErr) {
+      console.error('[Experts] Failed to create subscription for sub-account:', subErr.message);
+    }
+
+    // Copy parent's default payment method to child (if exists)
+    try {
+      const parentPayment = await db.query(
+        `SELECT card_token, card_last_digits, card_expiry_month, card_expiry_year,
+                card_holder_name, citizen_id, sumit_customer_id
+         FROM user_payment_methods
+         WHERE user_id = $1 AND is_active = true AND is_default = true
+         LIMIT 1`,
+        [parentUserId]
+      );
+      if (parentPayment.rows.length > 0) {
+        const pm = parentPayment.rows[0];
+        await db.query(
+          `INSERT INTO user_payment_methods
+           (user_id, card_token, card_last_digits, card_expiry_month, card_expiry_year,
+            card_holder_name, citizen_id, sumit_customer_id, is_active, is_default)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, true)`,
+          [childUserId, pm.card_token, pm.card_last_digits, pm.card_expiry_month,
+           pm.card_expiry_year, pm.card_holder_name, pm.citizen_id, pm.sumit_customer_id]
+        );
+        console.log(`[Experts] Copied payment method from parent ${parentUserId} to sub-account ${childUserId}`);
+      }
+    } catch (payErr) {
+      console.error('[Experts] Failed to copy payment method:', payErr.message);
+      // Non-critical — sub-account can add payment later
+    }
+
+    console.log(`[Experts] Created sub-account ${childUserId} (${finalEmail}) for parent ${parentUserId}`);
+
+    res.json({
+      success: true,
+      subAccount: {
+        id: childUserId,
+        email: finalEmail,
+        name: name.trim(),
+        parentEmail: parent.email
+      }
+    });
+  } catch (error) {
+    console.error('[Experts] Create sub-account error:', error);
+    res.status(500).json({ error: 'שגיאה ביצירת חשבון משנה' });
+  }
+}
+
+/**
  * Generate a link code for creating linked accounts
  */
 async function generateLinkCode(req, res) {
@@ -1050,4 +1188,5 @@ module.exports = {
   generateLinkCode,
   validateLinkCode,
   completeLinking,
+  createSubAccount,
 };

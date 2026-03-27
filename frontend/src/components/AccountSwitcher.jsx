@@ -18,6 +18,9 @@ export default function AccountSwitcher() {
   const [loading, setLoading] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
+  const [showSubAccountModal, setShowSubAccountModal] = useState(false);
+  const [subAccountName, setSubAccountName] = useState('');
+  const [creatingSubAccount, setCreatingSubAccount] = useState(false);
   const [generatedLink, setGeneratedLink] = useState(null);
   const [viewingAs, setViewingAs] = useState(null);
   const [creatingLink, setCreatingLink] = useState(false);
@@ -107,6 +110,22 @@ export default function AccountSwitcher() {
       alert(e.response?.data?.error || 'שגיאה ביצירת קישור');
     } finally {
       setCreatingLink(false);
+    }
+  };
+
+  // Create sub-account directly (no separate signup needed)
+  const handleCreateSubAccount = async () => {
+    if (!subAccountName.trim()) return;
+    setCreatingSubAccount(true);
+    try {
+      await api.post('/experts/create-sub-account', { name: subAccountName.trim() });
+      setShowSubAccountModal(false);
+      setSubAccountName('');
+      loadAccounts();
+    } catch (e) {
+      alert(e.response?.data?.error || 'שגיאה ביצירת חשבון משנה');
+    } finally {
+      setCreatingSubAccount(false);
     }
   };
 
@@ -258,14 +277,24 @@ export default function AccountSwitcher() {
               </button>
               
               <button
-                onClick={handleCreateLinkedAccount}
-                disabled={creatingLink}
-                className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 text-gray-700 transition-colors disabled:opacity-50"
+                onClick={() => { setShowSubAccountModal(true); setIsOpen(false); }}
+                className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 text-gray-700 transition-colors"
               >
                 <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
                   <Plus className="w-4 h-4 text-purple-600" />
                 </div>
-                <span className="text-sm">{creatingLink ? 'פותח...' : 'צור חשבון מקושר'}</span>
+                <span className="text-sm">צור חשבון משנה</span>
+              </button>
+
+              <button
+                onClick={handleCreateLinkedAccount}
+                disabled={creatingLink}
+                className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 text-gray-700 transition-colors disabled:opacity-50"
+              >
+                <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
+                  <Link2 className="w-4 h-4 text-gray-600" />
+                </div>
+                <span className="text-sm">{creatingLink ? 'יוצר...' : 'קישור הרשמה לחשבון מקושר'}</span>
               </button>
             </div>
 
@@ -293,6 +322,63 @@ export default function AccountSwitcher() {
           onClose={() => setShowRequestModal(false)} 
           onSuccess={() => { setShowRequestModal(false); loadAccounts(); }}
         />,
+        document.body
+      )}
+
+      {/* Sub-Account Creation Modal */}
+      {showSubAccountModal && createPortal(
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4" onClick={() => setShowSubAccountModal(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-purple-500 to-indigo-600 p-6 rounded-t-2xl">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-white">חשבון משנה חדש</h2>
+                <button onClick={() => setShowSubAccountModal(false)} className="text-white/80 hover:text-white">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <p className="text-white/80 text-sm mt-1">החשבון יקושר אליך, אמצעי התשלום יועתק אוטומטית</p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">שם החשבון</label>
+                <input
+                  type="text"
+                  value={subAccountName}
+                  onChange={e => setSubAccountName(e.target.value)}
+                  placeholder="לדוגמה: חשבון מספר 2"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                  dir="rtl"
+                  autoFocus
+                  onKeyDown={e => e.key === 'Enter' && handleCreateSubAccount()}
+                />
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+                <p className="text-xs text-blue-700">
+                  💳 אמצעי התשלום הנוכחי שלך יועתק לחשבון המשנה. ניתן לשנות בכל עת.
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={handleCreateSubAccount}
+                  disabled={creatingSubAccount || !subAccountName.trim()}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-purple-500 text-white rounded-xl hover:bg-purple-600 font-medium disabled:opacity-50"
+                >
+                  <Plus className="w-4 h-4" />
+                  {creatingSubAccount ? 'יוצר...' : 'צור חשבון משנה'}
+                </button>
+                <button
+                  onClick={() => setShowSubAccountModal(false)}
+                  className="flex-1 px-4 py-3 border border-gray-200 rounded-xl hover:bg-gray-50"
+                >
+                  ביטול
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
         document.body
       )}
 
