@@ -139,6 +139,27 @@ async function createManaged(req, res) {
       });
     }
 
+    // Sub-accounts must have a paid subscription before connecting WhatsApp
+    const isSubAccount = await pool.query(
+      `SELECT 1 FROM linked_accounts WHERE child_user_id = $1 LIMIT 1`, [userId]
+    );
+    if (isSubAccount.rows.length > 0) {
+      const subPlanCheck = await pool.query(
+        `SELECT sp.name, sp.price FROM user_subscriptions us
+         JOIN subscription_plans sp ON us.plan_id = sp.id
+         WHERE us.user_id = $1 AND us.status = 'active'
+         ORDER BY us.created_at DESC LIMIT 1`,
+        [userId]
+      );
+      const subPlan = subPlanCheck.rows[0];
+      if (!subPlan || subPlan.price <= 0) {
+        return res.status(402).json({
+          error: 'חשבון משנה דורש מנוי בתשלום לפני חיבור WhatsApp. יש לבחור מנוי תחילה.',
+          code: 'SUBSCRIPTION_REQUIRED',
+        });
+      }
+    }
+
     // Check if user already has an active subscription
     const subCheck = await pool.query(
       `SELECT * FROM user_subscriptions WHERE user_id = $1 AND status IN ('active', 'trial')`,

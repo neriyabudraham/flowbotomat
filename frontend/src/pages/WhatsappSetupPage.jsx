@@ -130,7 +130,10 @@ export default function WhatsappSetupPage() {
           fetchQR();
         }
       } catch (err) {
-        if (err.response?.data?.code === 'PAYMENT_REQUIRED') {
+        if (err.response?.data?.code === 'SUBSCRIPTION_REQUIRED') {
+          alert(err.response.data.error);
+          navigate('/pricing');
+        } else if (err.response?.data?.code === 'PAYMENT_REQUIRED') {
           setPendingConnectionType('managed');
           setShowPaymentModal(true);
         }
