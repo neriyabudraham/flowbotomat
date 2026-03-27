@@ -23,8 +23,6 @@ async function getGroups(req, res) {
     const sessionName = connection.session_name;
     
     // Fetch groups from WAHA
-    console.log('[Groups] Fetching from:', `${baseUrl}/api/${sessionName}/groups`);
-    
     const response = await axios.get(
       `${baseUrl}/api/${sessionName}/groups`,
       {
@@ -35,8 +33,6 @@ async function getGroups(req, res) {
         timeout: 30000
       }
     );
-    
-    console.log('[Groups] Raw response sample:', JSON.stringify(response.data).substring(0, 1000));
     
     // Format groups - handle WAHA response format
     // WAHA returns array with JID, Name, Participants (array)
@@ -59,11 +55,6 @@ async function getGroups(req, res) {
         Participants: participants,
       };
     }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'he')); // Sort alphabetically in Hebrew
-    
-    console.log('[Groups] Formatted', groups.length, 'groups');
-    if (groups.length > 0) {
-      console.log('[Groups] Sample group:', JSON.stringify(groups[0]));
-    }
     
     res.json({ groups });
     

@@ -4,8 +4,6 @@ const pool = require('../../config/database');
  * Check if user has access to a bot (owner, shared, or expert)
  */
 async function checkBotAccess(userId, botId) {
-  console.log(`[Bots] checkBotAccess - userId: ${userId}, botId: ${botId}`);
-  
   // Check ownership and get created_by
   const ownerCheck = await pool.query(
     'SELECT user_id, created_by FROM bots WHERE id = $1',
@@ -13,7 +11,6 @@ async function checkBotAccess(userId, botId) {
   );
   
   if (ownerCheck.rows.length === 0) {
-    console.log(`[Bots] checkBotAccess - bot not found in database`);
     return { hasAccess: false, isOwner: false, permission: null, botOwnerId: null, createdBy: null };
   }
   
