@@ -23,9 +23,14 @@ const WA_FALLBACK_IMAGE = 'https://files.neriyabudraham.co.il/files/httpswww.wha
 // with the WhatsApp logo so the link-custom-preview still works.
 function fetchOgMetadata(url, _redirectCount = 0) {
   return new Promise((resolve) => {
+    console.log(`[WAHA-OG] Fetching OG metadata for: ${url} (redirect #${_redirectCount})`);
+    const isWaGroup = WA_GROUP_LINK_REGEX.test(url);
+    if (isWaGroup) console.log(`[WAHA-OG] Detected as WhatsApp group invite link`);
+
     if (_redirectCount > 3) {
-      // If this was a WA group link that exhausted redirects, use fallback
-      if (WA_GROUP_LINK_REGEX.test(url)) {
+      console.log(`[WAHA-OG] Max redirects reached`);
+      if (isWaGroup) {
+        console.log(`[WAHA-OG] Using WA fallback preview (max redirects)`);
         resolve({ url, title: 'WhatsApp Group Invite', description: 'לחץ להצטרפות לקבוצה', image: { url: WA_FALLBACK_IMAGE, mimetype: 'image/png' } });
       } else {
         resolve(null);
@@ -34,16 +39,18 @@ function fetchOgMetadata(url, _redirectCount = 0) {
     }
     const mod = url.startsWith('https') ? https : http;
     const req = mod.get(url, { timeout: 5000, headers: { 'User-Agent': 'WhatsApp/2' } }, (res) => {
+      console.log(`[WAHA-OG] HTTP response: status=${res.statusCode}`);
       // Follow redirects
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        console.log(`[WAHA-OG] Redirecting to: ${res.headers.location}`);
         return fetchOgMetadata(res.headers.location, _redirectCount + 1).then(resolve);
       }
       if (res.statusCode !== 200) {
-        // For WA group links, use fallback preview instead of null
-        if (WA_GROUP_LINK_REGEX.test(url)) {
-          console.log(`[WAHA] OG fetch for WA group link returned ${res.statusCode}, using fallback preview`);
+        if (isWaGroup) {
+          console.log(`[WAHA-OG] OG fetch for WA group link returned ${res.statusCode}, using fallback preview`);
           resolve({ url, title: 'WhatsApp Group Invite', description: 'לחץ להצטרפות לקבוצה', image: { url: WA_FALLBACK_IMAGE, mimetype: 'image/png' } });
         } else {
+          console.log(`[WAHA-OG] Non-200 status, returning null`);
           resolve(null);
         }
         return;
@@ -52,6 +59,7 @@ function fetchOgMetadata(url, _redirectCount = 0) {
       res.setEncoding('utf-8');
       res.on('data', (chunk) => { html += chunk; if (html.length > 50000) res.destroy(); });
       res.on('end', () => {
+        console.log(`[WAHA-OG] Received HTML: ${html.length} chars`);
         const og = {};
         const titleMatch = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)
                         || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i);
@@ -63,33 +71,38 @@ function fetchOgMetadata(url, _redirectCount = 0) {
         og.title = titleMatch?.[1] || fallbackTitle?.[1] || url;
         og.description = descMatch?.[1] || '';
         const imageUrl = imgMatch?.[1] || null;
+        console.log(`[WAHA-OG] Parsed OG: title="${og.title}", description="${og.description}", image=${imageUrl || 'NONE'}`);
         const preview = { url, title: og.title.substring(0, 100), description: og.description.substring(0, 200) };
         if (imageUrl) {
           preview.image = { url: imageUrl, mimetype: 'image/jpeg' };
-        } else if (WA_GROUP_LINK_REGEX.test(url)) {
-          // Got OG data but no image — use WhatsApp logo as fallback
+        } else if (isWaGroup) {
+          console.log(`[WAHA-OG] No OG image found, using WA fallback image`);
           preview.image = { url: WA_FALLBACK_IMAGE, mimetype: 'image/png' };
         }
+        console.log(`[WAHA-OG] Final preview:`, JSON.stringify(preview));
         resolve(preview);
       });
-      res.on('error', () => {
-        if (WA_GROUP_LINK_REGEX.test(url)) {
+      res.on('error', (err) => {
+        console.log(`[WAHA-OG] Response stream error: ${err.message}`);
+        if (isWaGroup) {
           resolve({ url, title: 'WhatsApp Group Invite', description: 'לחץ להצטרפות לקבוצה', image: { url: WA_FALLBACK_IMAGE, mimetype: 'image/png' } });
         } else {
           resolve(null);
         }
       });
     });
-    req.on('error', () => {
-      if (WA_GROUP_LINK_REGEX.test(url)) {
+    req.on('error', (err) => {
+      console.log(`[WAHA-OG] Request error: ${err.message}`);
+      if (isWaGroup) {
         resolve({ url, title: 'WhatsApp Group Invite', description: 'לחץ להצטרפות לקבוצה', image: { url: WA_FALLBACK_IMAGE, mimetype: 'image/png' } });
       } else {
         resolve(null);
       }
     });
     req.on('timeout', () => {
+      console.log(`[WAHA-OG] Request timeout`);
       req.destroy();
-      if (WA_GROUP_LINK_REGEX.test(url)) {
+      if (isWaGroup) {
         resolve({ url, title: 'WhatsApp Group Invite', description: 'לחץ להצטרפות לקבוצה', image: { url: WA_FALLBACK_IMAGE, mimetype: 'image/png' } });
       } else {
         resolve(null);
@@ -512,9 +525,11 @@ async function sendMessage(connection, phone, text, mentions = null, options = {
   // If link preview requested, try custom preview only when we have a real OG image
   if (options.linkPreview) {
     const url = extractFirstUrl(text);
+    console.log(`[WAHA] Link preview requested. Extracted URL: ${url || 'NONE'}`);
     if (url) {
       try {
         const preview = await fetchOgMetadata(url);
+        console.log(`[WAHA] OG result: ${preview ? JSON.stringify({ title: preview.title, description: preview.description, hasImage: !!preview.image }) : 'null'}`);
         // Only use custom preview if we got real metadata WITH an image from the site
         // Otherwise fall through to sendText which generates native WhatsApp previews
         if (preview && preview.image) {
@@ -528,9 +543,12 @@ async function sendMessage(connection, phone, text, mentions = null, options = {
           if (mentions && mentions.length > 0) {
             previewPayload.mentions = mentions;
           }
+          console.log(`[WAHA] Sending link-custom-preview with image: ${preview.image.url}`);
           const response = await client.post(`/api/send/link-custom-preview`, previewPayload);
-          console.log(`[WAHA] Sent message with custom link preview to ${phone}`);
+          console.log(`[WAHA] ✅ Sent message with custom link preview to ${phone}`);
           return response.data;
+        } else {
+          console.log(`[WAHA] No image in preview, falling back to sendText with native preview`);
         }
       } catch (previewErr) {
         console.log(`[WAHA] Custom link preview failed (${previewErr.message}), falling back to sendText`);
