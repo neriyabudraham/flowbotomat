@@ -906,9 +906,9 @@ async function createSubAccount(req, res) {
     const randomPassword = crypto.randomBytes(16).toString('hex');
     const passwordHash = await bcrypt.hash(randomPassword, 10);
 
-    // Create user
+    // Create user — already verified since it's created from an existing account
     const userResult = await db.query(
-      `INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id`,
+      `INSERT INTO users (email, password_hash, name, is_verified, verified_at) VALUES ($1, $2, $3, true, NOW()) RETURNING id`,
       [finalEmail, passwordHash, name.trim()]
     );
     const childUserId = userResult.rows[0].id;
