@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, GripVertical, ChevronDown, ChevronUp, Play, Check, AlertCircle, Loader2, FileSpreadsheet, Users } from 'lucide-react';
+import { X, GripVertical, ChevronDown, ChevronUp, Play, Check, AlertCircle, Loader2, FileSpreadsheet, Users, Upload } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 import GoogleSheetsEditor from './GoogleSheetsEditor';
 import GoogleContactsEditor from './GoogleContactsEditor';
@@ -357,6 +357,9 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
   const [showCurlImport, setShowCurlImport] = useState(false);
   const [curlInput, setCurlInput] = useState('');
   const [curlError, setCurlError] = useState('');
+  const [showVarPrompt, setShowVarPrompt] = useState(false);
+  const [pendingVariables, setPendingVariables] = useState([]);
+  const [uploadingVar, setUploadingVar] = useState(null);
   
   const headers = action.headers || [];
   const bodyParams = action.bodyParams || [];
@@ -445,58 +448,113 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
     onUpdate({ mappings: mappings.filter((_, i) => i !== index) });
   };
   
-  // Build body from params for testing
-  const buildBodyFromParams = () => {
-    if ((action.bodyMode === 'keyvalue' || action.bodyMode === 'formdata') && bodyParams.length > 0) {
-      const obj = {};
-      bodyParams.forEach(p => {
-        if (p.key) obj[p.key] = p.value;
-      });
-      return obj;
-    }
-    if (action.body) {
-      try {
-        return JSON.parse(action.body);
-      } catch {
-        return action.body;
-      }
-    }
-    return undefined;
+  // Extract all {{variable}} patterns from the request
+  const extractVariables = () => {
+    const varSet = new Set();
+    const varRegex = /\{\{([^}]+)\}\}/g;
+    const checkStr = (str) => {
+      if (!str) return;
+      let m;
+      while ((m = varRegex.exec(str)) !== null) varSet.add(m[1]);
+      varRegex.lastIndex = 0;
+    };
+    checkStr(action.apiUrl);
+    headers.forEach(h => { checkStr(h.key); checkStr(h.value); });
+    if (action.body) checkStr(action.body);
+    bodyParams.forEach(p => { checkStr(p.key); checkStr(p.value); });
+    return [...varSet];
   };
 
-  const testApiCall = async () => {
-    if (!action.apiUrl) return;
+  // Replace variables in a string using the provided map
+  const replaceVars = (str, replacements) => {
+    if (!str) return str;
+    let result = str;
+    for (const [name, val] of Object.entries(replacements)) {
+      result = result.replaceAll(`{{${name}}}`, val);
+    }
+    return result;
+  };
 
+  // Execute the test API call
+  const executeTest = async (testUrl, testHeaders, testBody, testParams) => {
     setIsTesting(true);
     setTestResult(null);
-
     try {
-      const bodyData = buildBodyFromParams();
+      const headersObj = testHeaders.reduce((acc, h) => h.key ? { ...acc, [h.key]: h.value } : acc, {});
+      let bodyData;
+      if ((action.bodyMode === 'keyvalue' || action.bodyMode === 'formdata') && testParams.length > 0) {
+        bodyData = {};
+        testParams.forEach(p => { if (p.key) bodyData[p.key] = p.value; });
+      } else if (testBody) {
+        try { bodyData = JSON.parse(testBody); } catch { bodyData = testBody; }
+      }
       const res = await api.post('/utils/test-api', {
         method: action.method || 'GET',
-        url: action.apiUrl,
-        headers: headers.reduce((acc, h) => h.key ? { ...acc, [h.key]: h.value } : acc, {}),
+        url: testUrl,
+        headers: headersObj,
         body: bodyData,
         bodyMode: action.bodyMode || 'json',
-        bodyParams: action.bodyMode === 'formdata' ? bodyParams : undefined,
+        bodyParams: action.bodyMode === 'formdata' ? testParams : undefined,
       });
-      
-      // Handle HTML or non-JSON response
       let data = res.data.data;
       if (typeof data === 'string') {
-        try {
-          data = JSON.parse(data);
-        } catch {
-          data = { _raw_response: data, _type: 'html_or_text' };
-        }
+        try { data = JSON.parse(data); } catch { data = { _raw_response: data, _type: 'html_or_text' }; }
       }
-      
       setTestResult({ success: true, status: res.data.status, data });
     } catch (err) {
       setTestResult({ success: false, error: err.response?.data?.error || err.message });
     }
-    
     setIsTesting(false);
+  };
+
+  // Start test — if variables exist, prompt first
+  const testApiCall = async () => {
+    if (!action.apiUrl) return;
+    const vars = extractVariables();
+    if (vars.length > 0) {
+      // Detect which variables are used in file fields
+      const fileFieldVars = new Set();
+      bodyParams.forEach(p => {
+        if (p.isFile && p.value) {
+          const m = p.value.match(/\{\{([^}]+)\}\}/g);
+          if (m) m.forEach(v => fileFieldVars.add(v.replace(/\{|\}/g, '')));
+        }
+      });
+      setPendingVariables(vars.map(name => ({ name, value: '', isFile: fileFieldVars.has(name) })));
+      setShowVarPrompt(true);
+      return;
+    }
+    executeTest(action.apiUrl, headers, action.body, bodyParams);
+  };
+
+  // Execute test after user fills in variable values
+  const executeTestWithVars = () => {
+    const replacements = {};
+    pendingVariables.forEach(v => { replacements[v.name] = v.value; });
+    const testUrl = replaceVars(action.apiUrl, replacements);
+    const testHeaders = headers.map(h => ({ ...h, key: replaceVars(h.key, replacements), value: replaceVars(h.value, replacements) }));
+    const testBody = replaceVars(action.body, replacements);
+    const testParams = bodyParams.map(p => ({ ...p, key: replaceVars(p.key, replacements), value: replaceVars(p.value, replacements) }));
+    setShowVarPrompt(false);
+    executeTest(testUrl, testHeaders, testBody, testParams);
+  };
+
+  // Upload a file for testing and return its URL
+  const uploadTestFile = async (file, varIndex) => {
+    setUploadingVar(varIndex);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await api.post('/utils/upload-test-file', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const newVars = [...pendingVariables];
+      newVars[varIndex] = { ...newVars[varIndex], value: res.data.url };
+      setPendingVariables(newVars);
+    } catch (err) {
+      console.error('Upload failed:', err);
+    }
+    setUploadingVar(null);
   };
   
   // Extract all paths from response data
@@ -1051,6 +1109,115 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
           </button>
         </div>
       </div>
+
+      {/* Variable Prompt Modal */}
+      {showVarPrompt && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="font-medium text-gray-700">הזן ערכי משתנים לבדיקה</h4>
+              <button onClick={() => setShowVarPrompt(false)} className="p-1 hover:bg-gray-100 rounded">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-500">הבקשה מכילה משתנים. הזן ערכים כדי לבצע בדיקה:</p>
+            <div className="space-y-3 max-h-[50vh] overflow-auto">
+              {pendingVariables.map((v, i) => (
+                <div key={v.name} className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <code className="text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded text-sm font-mono">{`{{${v.name}}}`}</code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newVars = [...pendingVariables];
+                        newVars[i] = { ...newVars[i], isFile: !newVars[i].isFile, value: '' };
+                        setPendingVariables(newVars);
+                      }}
+                      className={`text-xs px-2 py-0.5 rounded transition-colors ${
+                        v.isFile ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                      }`}
+                    >
+                      {v.isFile ? 'קובץ' : 'טקסט'}
+                    </button>
+                  </div>
+                  {v.isFile ? (
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        value={v.value}
+                        onChange={(e) => {
+                          const newVars = [...pendingVariables];
+                          newVars[i] = { ...newVars[i], value: e.target.value };
+                          setPendingVariables(newVars);
+                        }}
+                        placeholder="הכנס URL של קובץ..."
+                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                        dir="ltr"
+                      />
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-400">או</span>
+                        <label className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg cursor-pointer transition-colors ${
+                          uploadingVar === i ? 'bg-gray-100 text-gray-400' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                        }`}>
+                          {uploadingVar === i ? (
+                            <><Loader2 className="w-3 h-3 animate-spin" /> מעלה...</>
+                          ) : (
+                            <><Upload className="w-3 h-3" /> העלה קובץ</>
+                          )}
+                          <input
+                            type="file"
+                            className="hidden"
+                            disabled={uploadingVar === i}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) uploadTestFile(file, i);
+                              e.target.value = '';
+                            }}
+                          />
+                        </label>
+                        {v.value && v.value.startsWith('http') && (
+                          <span className="text-xs text-green-600 truncate max-w-[200px]">
+                            {v.value.split('/').pop()}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      value={v.value}
+                      onChange={(e) => {
+                        const newVars = [...pendingVariables];
+                        newVars[i] = { ...newVars[i], value: e.target.value };
+                        setPendingVariables(newVars);
+                      }}
+                      placeholder={`ערך עבור ${v.name}`}
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                      dir="ltr"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 justify-end pt-2 border-t border-gray-100">
+              <button
+                onClick={() => setShowVarPrompt(false)}
+                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={executeTestWithVars}
+                disabled={uploadingVar !== null}
+                className="px-4 py-2 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 flex items-center gap-2"
+              >
+                <Play className="w-4 h-4" />
+                הרץ בדיקה
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
