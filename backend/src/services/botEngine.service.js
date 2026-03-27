@@ -447,7 +447,7 @@ class BotEngine {
   isEventCondition(type) {
     return ['status_viewed', 'status_reaction', 'status_reply', 'group_join', 'group_leave',
             'call_received', 'call_rejected', 'call_accepted', 'poll_vote', 'webhook', 'message_revoked',
-            'bot_activated'].includes(type);
+            'bot_activated', 'message_sent'].includes(type);
   }
   
   // Check if event matches condition
@@ -486,6 +486,31 @@ class BotEngine {
       }
     }
     
+    // message_sent — filter by message type and optional content
+    if (condition.type === 'message_sent') {
+      const msgType = condition.messageType || 'any';
+      const sentMessageType = eventData.messageType || 'text';
+      if (msgType !== 'any') {
+        if (msgType === 'text' && sentMessageType !== 'text') return false;
+        if (msgType === 'image' && sentMessageType !== 'image') return false;
+        if (msgType === 'video' && sentMessageType !== 'video') return false;
+        if (msgType === 'audio' && sentMessageType !== 'audio' && sentMessageType !== 'ptt') return false;
+        if (msgType === 'file' && sentMessageType !== 'document') return false;
+        if (msgType === 'sticker' && sentMessageType !== 'sticker') return false;
+      }
+      // Optional content filter (text/any only)
+      if (condition.hasContentFilter && condition.operator && ['any', 'text'].includes(msgType)) {
+        const message = eventData.message || '';
+        if (!['is_empty', 'is_not_empty'].includes(condition.operator) && condition.value) {
+          return this.matchOperator(message, condition.operator, condition.value);
+        }
+        if (condition.operator === 'is_empty') return !message || message.trim() === '';
+        if (condition.operator === 'is_not_empty') return !!(message && message.trim());
+        return false;
+      }
+      return true;
+    }
+
     // Specific status matching for status_reaction, status_reply, status_viewed
     if (condition.filterByStatus && condition.specificStatusId && (condition.type === 'status_reaction' || condition.type === 'status_reply' || condition.type === 'status_viewed')) {
       // Extract hex ID from stored full wa_message_id (e.g. "true_status@broadcast_<HEX>_<PHONE>@c.us")
@@ -539,7 +564,8 @@ class BotEngine {
       'call_rejected': 'שיחה שנדחתה',
       'call_accepted': 'שיחה שנענתה',
       'poll_vote': `ענה על סקר: ${(eventData.selectedOptions || []).join(', ')}`,
-      'message_revoked': eventData.originalMessage || 'הודעה נמחקה'
+      'message_revoked': eventData.originalMessage || 'הודעה נמחקה',
+      'message_sent': `הודעה יוצאת: ${(eventData.message || '').substring(0, 50) || eventData.messageType || 'טקסט'}`
     };
     return descriptions[eventType] || eventType;
   }

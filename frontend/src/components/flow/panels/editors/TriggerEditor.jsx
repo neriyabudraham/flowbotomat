@@ -27,6 +27,7 @@ const triggerTypes = [
   { id: 'call_rejected', label: 'שיחה שנדחתה / לא נענתה', icon: '📵', hasCallType: true, category: 'call' },
   { id: 'call_accepted', label: 'שיחה שנענתה', icon: '✅', hasCallType: true, category: 'call' },
   { id: 'poll_vote', label: 'מענה על סקר', icon: '📊', hasValue: true, hasOperator: true, category: 'group' },
+  { id: 'message_sent', label: 'הודעה יוצאת (מהמכשיר/ווב)', icon: '📤', hasMessageType: true, hasOptionalContent: true, category: 'message' },
   { id: 'message_revoked', label: 'הודעה נמחקה', icon: '🗑️', category: 'message' },
   { id: 'webhook', label: 'Webhook חיצוני', icon: '🔗', category: 'webhook' },
 ];
@@ -1012,7 +1013,7 @@ export default function TriggerEditor({ data, onUpdate, botId }) {
                           )}
 
                           {/* message_received — message type picker + optional content filter */}
-                          {condition.type === 'message_received' && (
+                          {(condition.type === 'message_received' || condition.type === 'message_sent') && (
                             <div className="space-y-3">
                               <div>
                                 <p className="text-xs text-gray-500 mb-1.5">סוג ההודעה:</p>

@@ -1426,7 +1426,15 @@ async function handleOutgoingDeviceMessage(userId, payload) {
     contact,
   });
   
-  // Outgoing message saved
+  // Trigger message_sent event for bot engine (device/web messages only — bot-sent are deduped above)
+  try {
+    await botEngine.processEvent(userId, toPhone, 'message_sent', {
+      message: messageData.content || '',
+      messageType: messageData.type || 'text',
+    });
+  } catch (e) {
+    console.error('[Webhook] Error processing message_sent event:', e.message);
+  }
 }
 
 /**

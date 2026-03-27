@@ -27,6 +27,7 @@ const triggerLabels = {
   call_rejected: '📵 שיחה נדחתה',
   call_accepted: '✅ שיחה נענתה',
   poll_vote: '📊 מענה על סקר',
+  message_sent: '📤 הודעה יוצאת',
   message_revoked: '🗑️ הודעה נמחקה',
   webhook: '🔗 Webhook חיצוני',
   image_received: '🖼️ תמונה נכנסת',
