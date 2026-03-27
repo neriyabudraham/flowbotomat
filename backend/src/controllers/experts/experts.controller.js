@@ -702,11 +702,13 @@ async function getAccessibleAccounts(req, res) {
     const originalUser = originalUserResult.rows[0];
     
     // Get clients the ORIGINAL user has access to (as expert)
+    // Exclude linked (sub) accounts — they appear in the linked list instead
     const clientsResult = await db.query(
       `SELECT u.id, u.email, u.name, u.avatar_url, ec.can_view_bots, ec.can_edit_bots
        FROM expert_clients ec
        JOIN users u ON ec.client_id = u.id
        WHERE ec.expert_id = $1 AND ec.is_active = true AND ec.status = 'approved'
+         AND NOT EXISTS (SELECT 1 FROM linked_accounts la WHERE la.parent_user_id = $1 AND la.child_user_id = u.id)
        ORDER BY u.name, u.email`,
       [originalUserId]
     );
