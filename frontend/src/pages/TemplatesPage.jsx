@@ -116,6 +116,7 @@ export default function TemplatesPage() {
       const { data } = await api.post(`/templates/${selectedTemplate.id}/use`, {
         name: newBotName.trim()
       });
+      localStorage.setItem('botomat_template_used', 'true');
       navigate(`/bots/${data.bot.id}`, { state: { fromTemplate: true, showSave: true } });
     } catch (err) {
       if (err.response?.data?.limit_exceeded) {
@@ -864,11 +865,13 @@ function SubmitTemplateModal({ userBots, categories, submitData, setSubmitData, 
               value={submitData.botId}
               onChange={(e) => {
                 const bot = userBots.find(b => b.id === e.target.value);
-                setSubmitData({ 
-                  ...submitData, 
+                setSubmitData({
+                  ...submitData,
                   botId: e.target.value,
                   name: bot?.name || '',
-                  description: bot?.description || ''
+                  name_he: bot?.name || '',
+                  description: bot?.description || '',
+                  description_he: bot?.description || ''
                 });
               }}
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all"
@@ -912,12 +915,25 @@ function SubmitTemplateModal({ userBots, categories, submitData, setSubmitData, 
           {/* Description */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
+              תיאור (אנגלית)
+            </label>
+            <textarea
+              value={submitData.description}
+              onChange={(e) => setSubmitData({ ...submitData, description: e.target.value })}
+              rows={2}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all resize-none"
+              placeholder="Describe what this template does..."
+              dir="ltr"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               תיאור (עברית)
             </label>
             <textarea
               value={submitData.description_he}
               onChange={(e) => setSubmitData({ ...submitData, description_he: e.target.value })}
-              rows={3}
+              rows={2}
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 transition-all resize-none"
               placeholder="תאר את התבנית ומה היא עושה..."
             />

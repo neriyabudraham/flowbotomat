@@ -493,13 +493,15 @@ export default function BotsPage() {
               </div>
               
               <div className="flex gap-3">
-                <button
-                  onClick={() => navigate('/templates')}
-                  className="flex items-center gap-2 px-5 py-3 bg-white/20 hover:bg-white/30 backdrop-blur text-white rounded-xl font-medium transition-all"
-                >
-                  <Sparkles className="w-5 h-5" />
-                  גלריית תבניות
-                </button>
+                {!localStorage.getItem('botomat_template_used') && (
+                  <button
+                    onClick={() => navigate('/templates')}
+                    className="flex items-center gap-2 px-5 py-3 bg-white/20 hover:bg-white/30 backdrop-blur text-white rounded-xl font-medium transition-all"
+                  >
+                    <Sparkles className="w-5 h-5" />
+                    גלריית תבניות
+                  </button>
+                )}
                 <button
                   onClick={() => setShowImport(true)}
                   className="flex items-center gap-2 px-5 py-3 bg-white/20 hover:bg-white/30 backdrop-blur text-white rounded-xl font-medium transition-all"

@@ -342,12 +342,12 @@ export default function BotEditorPage() {
       {/* Header */}
       <header className="bg-white/80 backdrop-blur border-b border-gray-200 z-10">
         <div className="px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button onClick={handleBack} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <button onClick={handleBack} className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0">
               <ArrowRight className="w-5 h-5 text-gray-600" />
             </button>
-            
-            <div className="flex flex-col">
+
+            <div className="flex flex-col min-w-0">
               {isEditingName && canEdit ? (
                 <input
                   type="text"
@@ -359,12 +359,12 @@ export default function BotEditorPage() {
                   autoFocus
                 />
               ) : canEdit ? (
-                <button onClick={() => setIsEditingName(true)} className="flex items-center gap-2 hover:bg-gray-100 px-3 py-1 rounded-lg transition-colors">
-                  <h1 className="font-semibold text-lg text-gray-800">{currentBot.name}</h1>
-                  <Edit2 className="w-4 h-4 text-gray-400" />
+                <button onClick={() => setIsEditingName(true)} className="flex items-center gap-2 hover:bg-gray-100 px-3 py-1 rounded-lg transition-colors min-w-0">
+                  <h1 className="font-semibold text-lg text-gray-800 truncate">{currentBot.name}</h1>
+                  <Edit2 className="w-4 h-4 text-gray-400 flex-shrink-0" />
                 </button>
               ) : (
-                <h1 className="font-semibold text-lg text-gray-800 px-3 py-1">{currentBot.name}</h1>
+                <h1 className="font-semibold text-lg text-gray-800 px-3 py-1 truncate">{currentBot.name}</h1>
               )}
               
               {isEditingDescription && canEdit ? (
@@ -379,14 +379,14 @@ export default function BotEditorPage() {
                   autoFocus
                 />
               ) : canEdit ? (
-                <button 
-                  onClick={() => setIsEditingDescription(true)} 
-                  className="mr-3 text-xs text-gray-400 hover:text-gray-600 text-right"
+                <button
+                  onClick={() => setIsEditingDescription(true)}
+                  className="mr-3 text-xs text-gray-400 hover:text-gray-600 text-right truncate"
                 >
                   {currentBot.description || botDescription || 'לחץ להוספת תיאור...'}
                 </button>
               ) : (
-                <span className="mr-3 text-xs text-gray-400 text-right">
+                <span className="mr-3 text-xs text-gray-400 text-right truncate">
                   {currentBot.description || botDescription || ''}
                 </span>
               )}
@@ -414,7 +414,7 @@ export default function BotEditorPage() {
             )}
           </div>
           
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-shrink-0">
             {canEdit && (
               <button
                 onClick={() => setShowHistory(true)}
