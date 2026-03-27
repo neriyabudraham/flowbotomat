@@ -200,11 +200,8 @@ async function saveFlow(req, res) {
     const { botId } = req.params;
     const { flow_data } = req.body;
     
-    console.log(`[Bots] saveFlow called - userId: ${userId}, botId: ${botId}`);
-    
     // Check access
     const access = await checkBotAccess(userId, botId);
-    console.log(`[Bots] saveFlow access check:`, access);
     
     if (!access.hasAccess) {
       return res.status(404).json({ error: 'בוט לא נמצא' });
