@@ -3443,6 +3443,7 @@ class BotEngine {
         return;
       }
 
+      console.log(`[BotEngine] Sending HTTP ${action.method || 'GET'} to ${url}`);
       const response = await axios({
         method: action.method || 'GET',
         url,
@@ -3451,10 +3452,12 @@ class BotEngine {
         timeout: 30000
       });
 
+      console.log(`[BotEngine] ✅ HTTP Response: status=${response.status}, data type=${typeof response.data}, keys=${typeof response.data === 'object' ? Object.keys(response.data || {}).join(',') : 'N/A'}`);
 
       // Apply response mappings
 
       if (action.mappings && Array.isArray(action.mappings)) {
+        console.log(`[BotEngine] Applying ${action.mappings.length} response mapping(s)`);
         for (const mapping of action.mappings) {
           if (mapping.path && mapping.varName) {
             let value;
@@ -3468,15 +3471,21 @@ class BotEngine {
 
             if (value !== undefined && value !== null) {
               const stringValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+              console.log(`[BotEngine] Mapping: ${mapping.path} → ${mapping.varName} = "${stringValue.substring(0, 100)}${stringValue.length > 100 ? '...' : ''}"`);
               await this.setContactVariable(contact.id, mapping.varName, stringValue);
             } else {
+              console.log(`[BotEngine] Mapping: ${mapping.path} → ${mapping.varName} = (no value found at path)`);
             }
           }
         }
       } else {
+        console.log('[BotEngine] No response mappings configured');
       }
     } catch (error) {
       console.error('[BotEngine] ❌ HTTP Request failed:', error.message);
+      if (error.response) {
+        console.error(`[BotEngine] ❌ Response status: ${error.response.status}, data:`, JSON.stringify(error.response.data).substring(0, 500));
+      }
     }
   }
   

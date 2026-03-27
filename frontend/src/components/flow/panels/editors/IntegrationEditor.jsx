@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { X, GripVertical, ChevronDown, ChevronUp, Play, Check, AlertCircle, Loader2, FileSpreadsheet, Users, Upload } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, GripVertical, ChevronDown, ChevronUp, Play, Check, AlertCircle, Loader2, FileSpreadsheet, Users, Upload, Plus } from 'lucide-react';
 import TextInputWithVariables from './TextInputWithVariables';
 import GoogleSheetsEditor from './GoogleSheetsEditor';
 import GoogleContactsEditor from './GoogleContactsEditor';
@@ -360,10 +360,46 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
   const [showVarPrompt, setShowVarPrompt] = useState(false);
   const [pendingVariables, setPendingVariables] = useState([]);
   const [uploadingVar, setUploadingVar] = useState(null);
-  
+  const [availableVars, setAvailableVars] = useState([]);
+  const [openVarDropdown, setOpenVarDropdown] = useState(null);
+  const [varSearch, setVarSearch] = useState('');
+  const [creatingVar, setCreatingVar] = useState(false);
+
   const headers = action.headers || [];
   const bodyParams = action.bodyParams || [];
   const mappings = action.mappings || [];
+
+  // Fetch available variables
+  useEffect(() => {
+    const fetchVars = async () => {
+      try {
+        const res = await api.get('/variables');
+        const all = [
+          ...(res.data.systemVariables || []).map(v => ({ key: v.name, label: v.label || v.name })),
+          ...(res.data.userVariables || []).map(v => ({ key: v.name, label: v.label || v.name })),
+          ...(res.data.customSystemVariables || []).map(v => ({ key: v.name, label: v.label || v.name })),
+        ];
+        setAvailableVars(all);
+      } catch { /* ignore */ }
+    };
+    fetchVars();
+  }, []);
+
+  // Create a new variable
+  const createVariable = async (name) => {
+    try {
+      setCreatingVar(true);
+      const key = name.trim().toLowerCase().replace(/\s+/g, '_');
+      await api.post('/variables', { name: key, label: name.trim(), is_system: false });
+      setAvailableVars(prev => [...prev, { key, label: name.trim() }]);
+      return key;
+    } catch (err) {
+      console.error('Failed to create variable:', err);
+      return null;
+    } finally {
+      setCreatingVar(false);
+    }
+  };
   
   // Handle curl import
   const handleCurlImport = () => {
@@ -1062,16 +1098,59 @@ function ApiRequestModal({ action, onUpdate, onClose }) {
                           dir="ltr"
                         />
                         <span className="text-gray-400 font-bold flex-shrink-0">→</span>
-                        <input
-                          type="text"
-                          value={mapping.varName}
-                          onChange={(e) => updateMapping(i, 'varName', e.target.value)}
-                          placeholder="שם_המשתנה"
-                          className="flex-1 min-w-0 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
-                        />
-                        <button 
+                        <div className="flex-1 min-w-0 relative">
+                          <input
+                            type="text"
+                            value={mapping.varName}
+                            onChange={(e) => {
+                              updateMapping(i, 'varName', e.target.value);
+                              setVarSearch(e.target.value);
+                              setOpenVarDropdown(i);
+                            }}
+                            onFocus={() => { setOpenVarDropdown(i); setVarSearch(mapping.varName || ''); }}
+                            onBlur={() => setTimeout(() => setOpenVarDropdown(null), 200)}
+                            placeholder="בחר משתנה..."
+                            className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                          />
+                          {openVarDropdown === i && (
+                            <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                              {availableVars
+                                .filter(v => !varSearch || v.key.includes(varSearch.toLowerCase()) || v.label.includes(varSearch))
+                                .map(v => (
+                                  <button
+                                    key={v.key}
+                                    type="button"
+                                    onMouseDown={(e) => { e.preventDefault(); updateMapping(i, 'varName', v.key); setOpenVarDropdown(null); }}
+                                    className="w-full text-right px-3 py-2 text-sm hover:bg-purple-50 flex items-center justify-between"
+                                  >
+                                    <span className="text-gray-500 text-xs font-mono" dir="ltr">{v.key}</span>
+                                    <span className="text-gray-700">{v.label}</span>
+                                  </button>
+                                ))}
+                              {varSearch && !availableVars.some(v => v.key === varSearch.trim().toLowerCase().replace(/\s+/g, '_')) && (
+                                <button
+                                  type="button"
+                                  onMouseDown={async (e) => {
+                                    e.preventDefault();
+                                    const key = await createVariable(varSearch);
+                                    if (key) { updateMapping(i, 'varName', key); setOpenVarDropdown(null); }
+                                  }}
+                                  disabled={creatingVar}
+                                  className="w-full text-right px-3 py-2 text-sm hover:bg-green-50 border-t border-gray-100 flex items-center justify-between text-green-700"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span>{creatingVar ? 'יוצר...' : `צור משתנה "${varSearch.trim()}"`}</span>
+                                </button>
+                              )}
+                              {availableVars.length === 0 && !varSearch && (
+                                <div className="px-3 py-2 text-sm text-gray-400 text-center">אין משתנים</div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <button
                           type="button"
-                          onClick={() => removeMapping(i)} 
+                          onClick={() => removeMapping(i)}
                           className="flex-shrink-0 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
                         >
                           <X className="w-4 h-4" />
