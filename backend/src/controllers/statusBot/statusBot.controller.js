@@ -427,21 +427,16 @@ async function checkExisting(req, res) {
       return res.json({ exists: false });
     }
     
-    // Get WAHA credentials - use existing connection source or fall back to system defaults
-    const existingConn = dbConnection.rows[0] || null;
-    const { baseUrl, apiKey } = await getWahaCredentialsForConnection(existingConn);
+    // Smart lookup: cache �� DB → full scan
+    const webhookPattern = `/api/webhook/waha/${userId}`;
+    const found = await wahaSession.findSessionAcrossSources(userEmail, { webhookPattern });
 
-    if (!baseUrl || !apiKey) {
+    if (!found) {
       return res.json({ exists: false });
     }
 
-    // Search in WAHA by email, preferring sessions with status-bot webhook configured
-    console.log(`[StatusBot] Checking existing session for: ${userEmail}`);
-    // Use the main webhook pattern - Status Bot shares the main webhook
-    const webhookPattern = `/api/webhook/waha/${userId}`;
-    
-    const existingSession = await wahaSession.findSessionByEmailWithWebhookPriority(baseUrl, apiKey, userEmail, webhookPattern);
-    
+    const { session: existingSession, baseUrl, apiKey } = found;
+
     if (existingSession) {
       console.log(`[StatusBot] ✅ Found existing session: ${existingSession.name} (status: ${existingSession.status})`);
       
@@ -649,8 +644,8 @@ async function startConnection(req, res) {
       });
     }
 
-    // Step 1: No main connection — search ALL WAHA servers for existing session by email
-    const { pickSourceForNewSession, getAllSourceCredentials } = require('../../services/waha/sources.service');
+    // Step 1: Smart session lookup (cache → DB → full scan)
+    const { pickSourceForNewSession } = require('../../services/waha/sources.service');
 
     let sessionName = null;
     let wahaStatus = null;
@@ -659,29 +654,17 @@ async function startConnection(req, res) {
     let foundApiKey = null;
     let foundSourceId = null;
 
-    console.log(`[StatusBot] No main connection, searching ALL WAHA servers for session with email: ${userEmail}`);
     const webhookPattern = `/api/webhook/waha/${userId}`;
 
     try {
-      const allSources = await getAllSourceCredentials();
-      for (const src of allSources) {
-        try {
-          const session = await wahaSession.findSessionByEmailWithWebhookPriority(src.baseUrl, src.apiKey, userEmail, webhookPattern);
-          if (session) {
-            existingSession = session;
-            foundBaseUrl = src.baseUrl;
-            foundApiKey = src.apiKey;
-            foundSourceId = src.id;
-            sessionName = session.name;
-            console.log(`[StatusBot] ✅ Found existing session by email on source ${src.id}: ${sessionName}`);
-            break;
-          }
-        } catch (err) {
-          console.log(`[StatusBot] Source ${src.id} unreachable: ${err.message}`);
-        }
-      }
+      const found = await wahaSession.findSessionAcrossSources(userEmail, { webhookPattern });
+      if (found) {
+        existingSession = found.session;
+        foundBaseUrl = found.baseUrl;
+        foundApiKey = found.apiKey;
+        foundSourceId = found.sourceId;
+        sessionName = found.sessionName;
 
-      if (existingSession && foundBaseUrl) {
         wahaStatus = await wahaSession.getSessionStatus(foundBaseUrl, foundApiKey, sessionName);
 
         if (wahaStatus && (wahaStatus.status === 'STOPPED' || wahaStatus.status === 'FAILED')) {
@@ -692,8 +675,6 @@ async function startConnection(req, res) {
           await wahaSession.startSession(foundBaseUrl, foundApiKey, sessionName);
           console.log(`[StatusBot] ✅ Restarted session: ${sessionName}`);
           wahaStatus = await wahaSession.getSessionStatus(foundBaseUrl, foundApiKey, sessionName);
-        } else {
-          console.log(`[StatusBot] Session status: ${wahaStatus?.status}`);
         }
       }
     } catch (err) {

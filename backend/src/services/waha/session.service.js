@@ -2,6 +2,7 @@ const { createClient } = require('./client.service');
 const { getWahaCredentialsForConnection } = require('../settings/system.service');
 const https = require('https');
 const http = require('http');
+const db = require('../../config/database');
 
 // ── Link preview helpers ──────────────────────────────────────────
 const URL_REGEX = /https?:\/\/[^\s<>"{}|\\^`\u0000-\u001F\u007F]+/i;
@@ -129,6 +130,47 @@ function setCachedSession(sessionName, baseUrl, apiKey) {
 
 function invalidateCachedSession(sessionName) {
   _sessionCache.delete(sessionName);
+}
+
+// ── Email-to-session cache ──────────────────────────────────────────
+// email → { sessionName, sourceId, baseUrl, apiKey, status, ts }
+// Populated whenever we scan sessions from a server. Prevents repeated
+// full-scan lookups across all WAHA servers.
+const _emailSessionCache = new Map();
+const EMAIL_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+function getCachedEmailSession(email) {
+  const entry = _emailSessionCache.get(email);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > EMAIL_CACHE_TTL) {
+    _emailSessionCache.delete(email);
+    return null;
+  }
+  return entry;
+}
+
+function setCachedEmailSession(email, sessionName, sourceId, baseUrl, apiKey, status) {
+  _emailSessionCache.set(email, { sessionName, sourceId, baseUrl, apiKey, status, ts: Date.now() });
+}
+
+function invalidateCachedEmailSession(email) {
+  _emailSessionCache.delete(email);
+}
+
+/**
+ * Populate both session and email caches from a full session list.
+ * Called whenever we fetch all sessions from a server.
+ */
+function bulkCacheSessions(sessions, sourceId, baseUrl, apiKey) {
+  for (const session of sessions) {
+    // Session name cache
+    setCachedSession(session.name, baseUrl, apiKey);
+    // Email cache
+    const email = session.config?.metadata?.['user.email'];
+    if (email && (session.status === 'WORKING' || session.status === 'STARTING')) {
+      setCachedEmailSession(email, session.name, sourceId, baseUrl, apiKey, session.status);
+    }
+  }
 }
 
 // Track connections that are currently being healed to avoid infinite loops
@@ -334,26 +376,30 @@ async function requestPairingCode(baseUrl, apiKey, sessionName, phoneNumber) {
 }
 
 /**
- * Get all sessions from WAHA (including all statuses)
+ * Get all sessions from WAHA (including all statuses).
+ * Optionally pass sourceId to populate email cache for all returned sessions.
  */
-async function getAllSessions(baseUrl, apiKey) {
+async function getAllSessions(baseUrl, apiKey, sourceId) {
   const client = createClient(baseUrl, apiKey);
-  // Use all=true to get all sessions including inactive ones
   const response = await client.get('/api/sessions', { params: { all: true } });
-  return response.data;
+  const sessions = response.data;
+  // Populate caches if sourceId is known
+  if (sourceId) {
+    bulkCacheSessions(sessions, sourceId, baseUrl, apiKey);
+  }
+  return sessions;
 }
 
 /**
  * Find session by user.email in metadata
  * @returns session object with status or null
  */
-async function findSessionByEmail(baseUrl, apiKey, email) {
-  const sessions = await getAllSessions(baseUrl, apiKey);
+async function findSessionByEmail(baseUrl, apiKey, email, sourceId) {
+  const sessions = await getAllSessions(baseUrl, apiKey, sourceId);
 
   for (const session of sessions) {
     const metadata = session.config?.metadata || {};
     if (metadata['user.email'] === email) {
-      console.log(`[WAHA] ✅ Match found: ${session.name}, status: ${session.status}`);
       return session;
     }
   }
@@ -366,13 +412,12 @@ async function findSessionByEmail(baseUrl, apiKey, email) {
  * Used to differentiate between different services (e.g., 'bots' vs 'status-bot')
  * @returns session object with status or null
  */
-async function findSessionByEmailAndService(baseUrl, apiKey, email, service) {
-  const sessions = await getAllSessions(baseUrl, apiKey);
+async function findSessionByEmailAndService(baseUrl, apiKey, email, service, sourceId) {
+  const sessions = await getAllSessions(baseUrl, apiKey, sourceId);
 
   for (const session of sessions) {
     const metadata = session.config?.metadata || {};
     if (metadata['user.email'] === email && metadata['service'] === service) {
-      console.log(`[WAHA] ✅ Match found: ${session.name}, status: ${session.status}`);
       return session;
     }
   }
@@ -385,8 +430,8 @@ async function findSessionByEmailAndService(baseUrl, apiKey, email, service) {
  * If multiple sessions exist, prioritize the one that has the webhook for the given userId
  * @returns session object with status or null
  */
-async function findSessionByEmailWithWebhookPriority(baseUrl, apiKey, email, webhookUrlPattern) {
-  const sessions = await getAllSessions(baseUrl, apiKey);
+async function findSessionByEmailWithWebhookPriority(baseUrl, apiKey, email, webhookUrlPattern, sourceId) {
+  const sessions = await getAllSessions(baseUrl, apiKey, sourceId);
 
   const matchingSessions = [];
   let sessionWithWebhook = null;
@@ -427,6 +472,111 @@ async function findSessionByEmailWithWebhookPriority(baseUrl, apiKey, email, web
   }
   
   console.log(`[WAHA] ❌ No session found with email: ${email}`);
+  return null;
+}
+
+/**
+ * Smart cross-source session lookup.
+ * Pipeline: email cache → DB (whatsapp_connections) → full scan of all WAHA servers.
+ * When doing a full scan, caches ALL email→session mappings found.
+ *
+ * @param {string} email - user email
+ * @param {object} [options]
+ * @param {string} [options.webhookPattern] - if provided, uses findSessionByEmailWithWebhookPriority
+ * @param {string} [options.service] - if provided, uses findSessionByEmailAndService
+ * @returns {{ session, sessionName, sourceId, baseUrl, apiKey, webhookBaseUrl } | null}
+ */
+async function findSessionAcrossSources(email, { webhookPattern, service } = {}) {
+  const { getAllSourceCredentials, getCredentialsForSource } = require('./sources.service');
+
+  // ── Step 1: Check email cache ──
+  const cached = getCachedEmailSession(email);
+  if (cached && cached.status === 'WORKING') {
+    try {
+      const status = await getSessionStatus(cached.baseUrl, cached.apiKey, cached.sessionName);
+      if (status && (status.status === 'WORKING' || status.status === 'STARTING')) {
+        console.log(`[WAHA] ✅ Cache hit for ${email}: ${cached.sessionName} on source ${cached.sourceId}`);
+        return {
+          session: { name: cached.sessionName, status: status.status, ...status },
+          sessionName: cached.sessionName,
+          sourceId: cached.sourceId,
+          baseUrl: cached.baseUrl,
+          apiKey: cached.apiKey,
+        };
+      }
+    } catch {
+      // Cache stale or server unreachable — continue to DB/scan
+      invalidateCachedEmailSession(email);
+    }
+  }
+
+  // ── Step 2: Check DB for known source ──
+  try {
+    const dbResult = await db.query(
+      `SELECT wc.session_name, wc.waha_source_id, wc.waha_base_url
+       FROM whatsapp_connections wc
+       JOIN users u ON u.id = wc.user_id
+       WHERE u.email = $1 AND wc.session_name IS NOT NULL AND wc.waha_source_id IS NOT NULL
+       ORDER BY wc.updated_at DESC LIMIT 1`,
+      [email]
+    );
+    if (dbResult.rows.length > 0) {
+      const { session_name, waha_source_id } = dbResult.rows[0];
+      const creds = await getCredentialsForSource(waha_source_id);
+      if (creds) {
+        try {
+          const findFn = webhookPattern
+            ? () => findSessionByEmailWithWebhookPriority(creds.baseUrl, creds.apiKey, email, webhookPattern, waha_source_id)
+            : service
+              ? () => findSessionByEmailAndService(creds.baseUrl, creds.apiKey, email, service, waha_source_id)
+              : () => findSessionByEmail(creds.baseUrl, creds.apiKey, email, waha_source_id);
+          const session = await findFn();
+          if (session) {
+            console.log(`[WAHA] ✅ DB-source hit for ${email}: ${session.name} on source ${waha_source_id}`);
+            setCachedEmailSession(email, session.name, waha_source_id, creds.baseUrl, creds.apiKey, session.status);
+            return {
+              session,
+              sessionName: session.name,
+              sourceId: waha_source_id,
+              baseUrl: creds.baseUrl,
+              apiKey: creds.apiKey,
+              webhookBaseUrl: creds.webhookBaseUrl,
+            };
+          }
+        } catch { /* source unreachable, fall through */ }
+      }
+    }
+  } catch (err) {
+    console.log(`[WAHA] DB lookup error for ${email}: ${err.message}`);
+  }
+
+  // ── Step 3: Full scan of all sources ──
+  console.log(`[WAHA] Full scan for ${email} across all sources`);
+  const allSources = await getAllSourceCredentials();
+  for (const src of allSources) {
+    try {
+      const findFn = webhookPattern
+        ? () => findSessionByEmailWithWebhookPriority(src.baseUrl, src.apiKey, email, webhookPattern, src.id)
+        : service
+          ? () => findSessionByEmailAndService(src.baseUrl, src.apiKey, email, service, src.id)
+          : () => findSessionByEmail(src.baseUrl, src.apiKey, email, src.id);
+      const session = await findFn();
+      if (session) {
+        console.log(`[WAHA] ✅ Full-scan hit for ${email}: ${session.name} on source ${src.id}`);
+        setCachedEmailSession(email, session.name, src.id, src.baseUrl, src.apiKey, session.status);
+        return {
+          session,
+          sessionName: session.name,
+          sourceId: src.id,
+          baseUrl: src.baseUrl,
+          apiKey: src.apiKey,
+          webhookBaseUrl: src.webhookBaseUrl,
+        };
+      }
+    } catch { /* source unreachable, try next */ }
+  }
+
+  console.log(`[WAHA] ❌ No session found for ${email} on any source`);
   return null;
 }
 
@@ -1523,6 +1673,10 @@ module.exports = {
   findSessionByEmail,
   findSessionByEmailAndService,
   findSessionByEmailWithWebhookPriority,
+  findSessionAcrossSources,
+  bulkCacheSessions,
+  setCachedEmailSession,
+  invalidateCachedEmailSession,
   addWebhook,
   updateSessionProxy,
   sendMessage,

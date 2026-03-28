@@ -143,12 +143,11 @@ async function syncLiveCounts(req, res) {
       let apiKey;
       try { apiKey = decrypt(src.api_key_enc); } catch { return; }
       try {
-        const sessions = await wahaSession.getAllSessions(src.base_url, apiKey);
+        // Pass sourceId to populate both session and email caches
+        const sessions = await wahaSession.getAllSessions(src.base_url, apiKey, src.id);
         liveSessionsBySource[src.id] = sessions;
         for (const s of sessions) {
           sessionNameToSource[s.name] = { sourceId: src.id, baseUrl: src.base_url, apiKey };
-          // Populate in-memory session cache for instant lookups
-          wahaSession.setCachedSession(s.name, src.base_url, apiKey);
         }
       } catch { /* server unreachable */ }
     }));

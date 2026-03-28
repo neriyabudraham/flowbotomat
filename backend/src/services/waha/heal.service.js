@@ -67,17 +67,16 @@ async function healWahaConnectionByEmail(email, wc_id = null) {
       try { srcApiKey = decrypt(src.api_key_enc); } catch { continue; }
 
       try {
-        const session = await wahaSession.findSessionByEmail(src.base_url, srcApiKey, email);
+        // Pass sourceId to populate caches for ALL sessions on this server
+        const session = await wahaSession.findSessionByEmail(src.base_url, srcApiKey, email, src.id);
         if (session) {
           if (session.status === 'WORKING') {
-            // Prefer WORKING sessions
             foundSession = session;
             foundSourceId = src.id;
             foundBaseUrl = src.base_url;
             foundApiKey = srcApiKey;
             break;
           } else if (!stoppedSession) {
-            // Remember first non-working session as fallback
             stoppedSession = session;
             stoppedSourceId = src.id;
             stoppedBaseUrl = src.base_url;
@@ -115,6 +114,9 @@ async function healWahaConnectionByEmail(email, wc_id = null) {
 
     const sessionName = foundSession.name;
     console.log(`[Heal] ✅ Found live session for ${email}: ${sessionName} on source ${foundSourceId}`);
+
+    // Update email cache with healed session info
+    wahaSession.setCachedEmailSession(email, sessionName, foundSourceId, foundBaseUrl, foundApiKey, foundSession.status);
 
     // Update whatsapp_connections if we have the row id
     if (wc_id) {

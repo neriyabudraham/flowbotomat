@@ -568,24 +568,22 @@ server.listen(PORT, () => {
     }
   }, 5000);
 
-  // Warm up session→server cache from all WAHA sources
+  // Warm up session + email caches from all WAHA sources
   setTimeout(async () => {
     try {
       const { query: dbQ } = require('./config/database');
       const { decrypt: dec } = require('./services/crypto/encrypt.service');
       const wahaSession = require('./services/waha/session.service');
 
-      const srcRes = await dbQ(`SELECT base_url, api_key_enc FROM waha_sources WHERE is_active = true`);
+      const srcRes = await dbQ(`SELECT id, base_url, api_key_enc FROM waha_sources WHERE is_active = true`);
       let total = 0;
       await Promise.all(srcRes.rows.map(async (src) => {
         let apiKey;
         try { apiKey = dec(src.api_key_enc); } catch { return; }
         try {
-          const sessions = await wahaSession.getAllSessions(src.base_url, apiKey);
-          for (const s of sessions) {
-            wahaSession.setCachedSession(s.name, src.base_url, apiKey);
-            total++;
-          }
+          // getAllSessions with sourceId populates both session and email caches via bulkCacheSessions
+          const sessions = await wahaSession.getAllSessions(src.base_url, apiKey, src.id);
+          total += sessions.length;
         } catch { /* server unreachable */ }
       }));
       if (total > 0) console.log(`[Startup] Cached ${total} WAHA sessions from active sources`);
