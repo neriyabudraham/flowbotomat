@@ -625,10 +625,8 @@ async function preConvertMedia(baseUrl, apiKey, sessionName, type, content) {
     ? `/api/${sessionName}/media/convert/video`
     : `/api/${sessionName}/media/convert/voice`;
   try {
-    console.log(`[StatusBot] 🔄 Pre-converting ${type} via WAHA...`);
     const result = await wahaSession.makeRequest(baseUrl, apiKey, 'POST', endpoint, { url: fileUrl });
     if (result?.data && result?.mimetype) {
-      console.log(`[StatusBot] ✅ Pre-converted ${type}: ${result.mimetype}`);
       return { mimetype: result.mimetype, data: result.data };
     }
   } catch (err) {
@@ -742,12 +740,11 @@ async function resolveLidMappings(baseUrl, apiKey, sessionName, userId, lidIds) 
   // 2. Find unresolved LIDs
   const unresolved = rawLids.filter(lid => !lidToPhone.has(lid));
   if (unresolved.length === 0) {
-    console.log(`${LOG} All ${rawLids.length} LIDs resolved from DB cache`);
     return lidToPhone;
   }
 
   // 3. Fetch from WAHA /lids API
-  console.log(`${LOG} ${lidToPhone.size}/${rawLids.length} resolved from cache, fetching ${unresolved.length} from WAHA...`);
+  // Fetch unresolved LIDs from WAHA
   try {
     const lidsData = await wahaSession.makeRequest(
       baseUrl, apiKey, 'GET',
@@ -755,7 +752,7 @@ async function resolveLidMappings(baseUrl, apiKey, sessionName, userId, lidIds) 
     );
 
     if (Array.isArray(lidsData) && lidsData.length > 0) {
-      console.log(`${LOG} WAHA returned ${lidsData.length} LID mappings`);
+      // Process WAHA LID mappings
 
       // Build bulk upsert to cache all mappings
       const values = [];
@@ -793,7 +790,7 @@ async function resolveLidMappings(baseUrl, apiKey, sessionName, userId, lidIds) 
   if (stillUnresolved.length > 0) {
     console.warn(`${LOG} ⚠️ ${stillUnresolved.length} LIDs could not be resolved — will be excluded from status send`);
   }
-  console.log(`${LOG} Final: ${lidToPhone.size}/${rawLids.length} LIDs resolved`);
+  if (rawLids.length > 0) console.log(`${LOG} LIDs resolved: ${lidToPhone.size}/${rawLids.length}`);
 
   return lidToPhone;
 }
@@ -862,7 +859,6 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
 
   // 1. Get engaged phone numbers ranked by total engagement (views + reactions + replies)
   //    Most active viewers first, least active last.
-  console.log(`${LOG_PREFIX} 👁️ Querying engaged contacts ranked by engagement...`);
   const viewersResult = await db.query(`
     SELECT phone, SUM(cnt) AS total_engagement FROM (
       SELECT sbv.viewer_phone AS phone, COUNT(*) AS cnt
@@ -889,13 +885,13 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   const viewerPhones = new Set(viewersResult.rows.map(r => r.phone));
   // Ordered array: most engaged first
   const viewerPhonesRanked = viewersResult.rows.map(r => r.phone);
-  console.log(`${LOG_PREFIX} 👁️ Found ${viewerPhones.size} unique engaged contacts (ranked by engagement)`);
+  // viewerPhones found from DB
 
   let orderedContacts;
 
   if (viewersOnly) {
     // ── viewersOnly: use viewer phones from DB directly — no WAHA contacts fetch needed ──
-    console.log(`${LOG_PREFIX} 👁️ viewersOnly mode — using ${viewerPhones.size} viewer phones directly from DB`);
+    // viewersOnly: use viewer phones from DB directly
 
     // Get own ID for first position
     let ownId = null;
@@ -916,23 +912,20 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       if (alreadySentPhones.has(phone)) continue;
       orderedContacts.push(`${phone}@c.us`);
     }
-    console.log(`${LOG_PREFIX} 👁️ viewersOnly: ${orderedContacts.length} contacts to send (skipped ${alreadySentPhones.size} already-sent)`);
+    console.log(`${LOG_PREFIX} viewersOnly: ${orderedContacts.length} contacts (skipped ${alreadySentPhones.size} already-sent)`);
 
   } else {
     // ── Full contacts mode: fetch WAHA contacts, order viewers first ──
     let ownId = null;
     try {
-      console.log(`${LOG_PREFIX} 🔍 Fetching own session ID from WAHA...`);
       const me = await wahaSession.makeRequest(baseUrl, apiKey, 'GET', `/api/sessions/${sessionName}/me`);
       ownId = me?.id;
-      console.log(`${LOG_PREFIX} ✅ Own ID: ${ownId}`);
     } catch (err) {
       console.warn(`${LOG_PREFIX} ⚠️ Could not get own ID — will proceed without it. Error: ${err.message}`);
     }
 
     // Get contacts from WAHA cache
     const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-    console.log(`${LOG_PREFIX} 📦 Checking contacts cache...`);
     const connCacheRes = await db.query(
       `SELECT contacts_cache, contacts_cache_synced_at FROM status_bot_connections WHERE id = $1`,
       [queueItem.connection_id]
@@ -945,13 +938,10 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     let allContacts;
     if (connCache?.contacts_cache && cacheAgeMs < CACHE_TTL_MS) {
       allContacts = Array.isArray(connCache.contacts_cache) ? connCache.contacts_cache : [];
-      const cacheAgeHours = (cacheAgeMs / 3600000).toFixed(1);
-      console.log(`${LOG_PREFIX} ✅ Using DB cache: ${allContacts.length} contacts (${cacheAgeHours}h old)`);
+      // Using cached contacts
     } else {
-      const reason = cacheAgeMs === Infinity ? 'never synced' : `cache ${(cacheAgeMs / 3600000).toFixed(1)}h old (>24h)`;
-      console.log(`${LOG_PREFIX} 🔄 Cache stale — fetching fresh contacts from WAHA. Reason: ${reason}`);
+      console.log(`${LOG_PREFIX} Cache stale — fetching fresh contacts from WAHA`);
       allContacts = await fetchAndCacheContacts(baseUrl, apiKey, sessionName, queueItem.connection_id);
-      console.log(`${LOG_PREFIX} ✅ Fetched ${allContacts.length} contacts from WAHA and saved to cache`);
     }
 
     // Resolve LID contacts to phone numbers (LIDs cannot receive statuses)
@@ -967,7 +957,7 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       } catch (lidErr) {
         console.warn(`${LOG_PREFIX} LID resolution error (non-fatal): ${lidErr.message}`);
       }
-      console.log(`${LOG_PREFIX} 🔗 Resolved ${lidToPhone.size}/${lidContacts.length} LID contacts to phone numbers`);
+      if (lidToPhone.size > 0) console.log(`${LOG_PREFIX} Resolved ${lidToPhone.size}/${lidContacts.length} LID contacts`);
     }
 
     // Build ordered contact list: own phone → viewers (ranked by engagement) → non-viewers
@@ -1099,8 +1089,7 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   const totalBatches = allBatches.length;
   const viewerBatchCount = allBatches.filter(b => b.isViewerBatch).length;
   const nonViewerBatchCount = totalBatches - viewerBatchCount;
-  console.log(`${LOG_PREFIX} 📋 Contact order built: ${orderedContacts.length} total (skipped ${alreadySentPhones.size} already-sent) | viewerBatches:${viewerBatchCount} nonViewerBatches:${nonViewerBatchCount} | BATCH_SIZE=${BATCH_SIZE}`);
-  console.log(`${LOG_PREFIX} 🚀 Sending ${totalBatches} batches with parallelism=${PARALLEL_BATCHES}`);
+  console.log(`${LOG_PREFIX} 📋 ${orderedContacts.length} contacts | ${viewerBatchCount} viewer + ${nonViewerBatchCount} non-viewer batches | parallelism=${PARALLEL_BATCHES}`);
 
   // Process batches in waves of PARALLEL_BATCHES
   let isFirstNonViewerWave = true;
@@ -1135,12 +1124,15 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
         console.log(`${LOG_PREFIX} ✅ Viewers phase complete — connection unblocked for next status`);
         emitToAdmin('statusbot:viewers_done', { id: queueItem.id, connectionId: queueItem.connection_id });
       } else if (WAVE_DELAY_MS > 0) {
-        console.log(`${LOG_PREFIX} ⏳ Waiting ${WAVE_DELAY_MS / 1000}s before next wave...`);
         await new Promise(resolve => setTimeout(resolve, WAVE_DELAY_MS));
       }
     }
 
-    console.log(`${LOG_PREFIX} 🌊 Wave ${Math.floor(waveStart / PARALLEL_BATCHES) + 1} — sending batches ${wave[0].batchNum}-${wave[wave.length - 1].batchNum} in parallel${wave[0].isViewerBatch ? ' (viewers)' : ''}`);
+    // Wave logging only on first wave and viewer/non-viewer transition
+    const waveNum = Math.floor(waveStart / PARALLEL_BATCHES) + 1;
+    if (waveNum === 1 || (wave[0].isViewerBatch !== (waveStart > 0 && allBatches[waveStart - 1]?.isViewerBatch))) {
+      console.log(`${LOG_PREFIX} 🌊 Wave ${waveNum} — batches ${wave[0].batchNum}-${wave[wave.length - 1].batchNum}${wave[0].isViewerBatch ? ' (viewers)' : ' (non-viewers)'}`);
+    }
 
     const waveResults = await Promise.allSettled(wave.map(async ({ contacts: batch, batchNum, isViewerBatch }) => {
       // Check force-stop before starting each batch (allows skipping batches within a wave)
@@ -1154,7 +1146,7 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       const batchTimeoutMs = isViewerBatch ? VIEWER_CALL_TIMEOUT_MS : CALL_TIMEOUT_MS;
       const maxRetries = isViewerBatch ? VIEWER_TIMEOUT_RETRIES : 0;
 
-      console.log(`${LOG_PREFIX} 📤 Batch ${batchNum}/${totalBatches} — sending to ${batch.length} contacts (contacts: ${batch.slice(0,3).join(', ')}${batch.length > 3 ? ` ...+${batch.length - 3}` : ''}) timeout=${batchTimeoutMs}ms${isViewerBatch ? ` retries=${maxRetries}` : ''}`);
+      // Per-batch logging removed to reduce noise — errors/timeouts still logged below
 
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
         const batchStart = Date.now();
@@ -1165,7 +1157,7 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
           );
           const wahaResponse = await Promise.race([sendPromise, timeoutPromise]);
           const batchDurationMs = Date.now() - batchStart;
-          console.log(`${LOG_PREFIX} ✅ Batch ${batchNum}/${totalBatches} OK in ${batchDurationMs}ms${attempt > 0 ? ` (attempt ${attempt + 1})` : ''} | WAHA resp id: ${wahaResponse?.id || 'n/a'}`);
+          // Success logged at wave level, not per-batch
           await logContactSends(historyId, queueItem.id, batch, batchNum, true, null);
           return { batchNum, sent: batch.length, timedOut: false, error: false };
         } catch (err) {
@@ -1196,7 +1188,10 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     }
 
     const progressPct = orderedContacts.length > 0 ? Math.round((totalSent / orderedContacts.length) * 100) : 100;
-    console.log(`${LOG_PREFIX} 🌊 Wave done — cumulative sent: ${totalSent}/${orderedContacts.length} (${progressPct}%) | timeouts in wave: ${waveTimeouts}/${wave.length}`);
+    // Log progress every 25% or on timeouts
+    if (waveTimeouts > 0 || progressPct % 25 < (PARALLEL_BATCHES * BATCH_SIZE / orderedContacts.length * 100) || totalSent === orderedContacts.length) {
+      console.log(`${LOG_PREFIX} 📊 Progress: ${totalSent}/${orderedContacts.length} (${progressPct}%)${waveTimeouts > 0 ? ` | timeouts: ${waveTimeouts}/${wave.length}` : ''}`);
+    }
 
     // Check force-stop immediately after wave completes (don't wait for next loop iteration)
     if (forceStopItems.has(queueItem.id)) {
@@ -1220,9 +1215,8 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     if (waveTimeouts === wave.length) {
       consecutiveTimeouts++;
       if (consecutiveTimeouts < MAX_CONSECUTIVE_TIMEOUTS) {
-        console.log(`${LOG_PREFIX} ⏸️ Entire wave timed out (${consecutiveTimeouts}/${MAX_CONSECUTIVE_TIMEOUTS}) — pausing ${PAUSE_MS / 1000}s before continuing...`);
+        console.log(`${LOG_PREFIX} ⏸️ Wave timeout (${consecutiveTimeouts}/${MAX_CONSECUTIVE_TIMEOUTS}) — pausing ${PAUSE_MS / 1000}s`);
         await new Promise(resolve => setTimeout(resolve, PAUSE_MS));
-        console.log(`${LOG_PREFIX} ▶️ Resuming after pause`);
       } else {
         const remaining = orderedContacts.length - totalSent;
         console.warn(`${LOG_PREFIX} 🛑 ${MAX_CONSECUTIVE_TIMEOUTS} consecutive full-wave timeouts — stopping early. totalSent=${totalSent}/${orderedContacts.length} remaining≈${remaining} elapsed=${Math.round((Date.now() - startTime) / 1000)}s`);
@@ -1289,7 +1283,7 @@ async function sendStatus(queueItem) {
         `/api/${sessionName}/status/new-message-id`
       );
       messageId = idResponse.id;
-      console.log(`[StatusBot Queue] 🆔 Got new message ID: ${messageId} for queue item ${queueItem.id}`);
+      // messageId obtained
 
       // Save message ID to queue
       await db.query(`
@@ -1307,13 +1301,13 @@ async function sendStatus(queueItem) {
       // Other errors (network glitch etc.) — continue without message ID
     }
   } else {
-    console.log(`[StatusBot Queue] 🆔 Using existing message ID: ${messageId} for queue item ${queueItem.id}`);
+    // Reusing existing messageId
   }
   
   // Save to history BEFORE sending - this allows view tracking from the start
   // even if the send times out or takes a long time
   const historyMessageId = messageId || `pending_${queueItem.id}`;
-  console.log(`[StatusBot Queue] 💾 Pre-saving to history for view tracking with waha_message_id: ${historyMessageId}`);
+  // Pre-save to history for view tracking
   
   // Check if history record already exists for this queue item
   let historyId = null;
@@ -1376,14 +1370,14 @@ async function sendStatus(queueItem) {
 
   if (viewersFirst) {
     // ── Viewers-first mode: send to viewers in batches, then broadcast to all ──
-    console.log(`[StatusBot] 📋 Viewers-first mode: sending to viewers, then broadcasting`);
+    // Viewers-first mode
     const viewersResult = await sendStatusWithContacts(queueItem, {
       baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile,
       processingToken: queueItem._processingToken,
       viewersOnly: true,
     });
     const viewersSent = viewersResult?.contactsSent || 0;
-    console.log(`[StatusBot] ✅ Viewers done: ${viewersSent} sent — now broadcasting to all`);
+    // Viewers done, now broadcast to all
 
     const broadcastResult = await sendDefaultBroadcast(queueItem, {
       baseUrl, apiKey, sessionName, messageId, historyId, historyMessageId, content, preConvertedFile,
@@ -1392,7 +1386,7 @@ async function sendStatus(queueItem) {
 
   } else {
     // ── Classic mode (default): broadcast to all first, on timeout → send to viewers ──
-    console.log(`[StatusBot] 📡 Classic mode: broadcasting to all first`);
+    // Classic mode: broadcast first
     const broadcastResult = await sendDefaultBroadcast(queueItem, {
       baseUrl, apiKey, sessionName, messageId, historyId, historyMessageId, content, preConvertedFile,
     });
