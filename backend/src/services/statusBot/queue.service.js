@@ -26,13 +26,14 @@ const DEFAULT_STATUS_TIMEOUT = 600000; // 10 minutes timeout per status (default
 const activeItemTokens = new Map(); // queueId -> token (prevents duplicate processing after stuck reset)
 const forceStopItems = new Set(); // queueIds that admin requested immediate stop on
 
-// Generic settings cache (refreshed every 60 seconds from DB)
+// Generic settings cache (refreshed every 10 seconds from DB for quick admin changes)
+const SETTINGS_CACHE_TTL_MS = 10000;
 const _settingsCache = {};
 const _settingsCacheTime = {};
 
 async function getSettingFloat(key, defaultValue) {
   const now = Date.now();
-  if (_settingsCacheTime[key] && now - _settingsCacheTime[key] < 60000) {
+  if (_settingsCacheTime[key] && now - _settingsCacheTime[key] < SETTINGS_CACHE_TTL_MS) {
     return _settingsCache[key];
   }
   try {
@@ -1155,8 +1156,7 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
           const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('BATCH_TIMEOUT')), batchTimeoutMs)
           );
-          const wahaResponse = await Promise.race([sendPromise, timeoutPromise]);
-          const batchDurationMs = Date.now() - batchStart;
+          await Promise.race([sendPromise, timeoutPromise]);
           // Success logged at wave level, not per-batch
           await logContactSends(historyId, queueItem.id, batch, batchNum, true, null);
           return { batchNum, sent: batch.length, timedOut: false, error: false };

@@ -472,7 +472,10 @@ export default function AdminStatusBot() {
       const { data } = await api.get('/status-bot/admin/queue-settings');
       setQueueSettings(data);
       setEditingSettings(Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])));
-    } catch { }
+      toast.success('ההגדרות נשמרו בהצלחה! השינויים ייכנסו לתוקף תוך 10 שניות');
+    } catch {
+      toast.error('שגיאה בשמירת ההגדרות');
+    }
     setSavingSettings(false);
   };
 
