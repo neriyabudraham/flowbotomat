@@ -320,7 +320,7 @@ async function handleWebhook(req, res) {
           await handleChatArchive(userId, event);
           break;
         default:
-          if (event.event && !['presence.update', 'message.waiting', 'message.edited', 'message.ack.group', 'poll.vote.failed'].includes(event.event)) {
+          if (event.event && !['presence.update', 'message.waiting', 'message.edited', 'message.ack.group', 'poll.vote.failed', 'group.v2.update'].includes(event.event)) {
             console.log('[Webhook] Unhandled event type:', event.event);
           }
           break;
@@ -484,7 +484,7 @@ async function handleIncomingMessage(userId, event) {
   if (messageId) {
     const dedupKey = `${userId}_${messageId}`;
     if (processedMessagesCache.has(dedupKey)) {
-      console.log(`[Webhook] ⏭️ Skipping duplicate message: ${messageId.substring(0, 30)}...`);
+      // Duplicate message skip — silent
       return;
     }
     processedMessagesCache.set(dedupKey, Date.now());

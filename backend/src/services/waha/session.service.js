@@ -348,22 +348,16 @@ async function getAllSessions(baseUrl, apiKey) {
  * @returns session object with status or null
  */
 async function findSessionByEmail(baseUrl, apiKey, email) {
-  console.log(`[WAHA] Searching for session with email: ${email}`);
-  
   const sessions = await getAllSessions(baseUrl, apiKey);
-  console.log(`[WAHA] Found ${sessions.length} total sessions`);
-  
+
   for (const session of sessions) {
     const metadata = session.config?.metadata || {};
-    console.log(`[WAHA] Session "${session.name}" status: ${session.status}, metadata:`, JSON.stringify(metadata));
-    
     if (metadata['user.email'] === email) {
       console.log(`[WAHA] ✅ Match found: ${session.name}, status: ${session.status}`);
-      return session; // Returns full session object including status
+      return session;
     }
   }
-  
-  console.log(`[WAHA] ❌ No session found with email: ${email}`);
+
   return null;
 }
 
@@ -373,21 +367,16 @@ async function findSessionByEmail(baseUrl, apiKey, email) {
  * @returns session object with status or null
  */
 async function findSessionByEmailAndService(baseUrl, apiKey, email, service) {
-  console.log(`[WAHA] Searching for session with email: ${email} and service: ${service}`);
-  
   const sessions = await getAllSessions(baseUrl, apiKey);
-  console.log(`[WAHA] Found ${sessions.length} total sessions`);
-  
+
   for (const session of sessions) {
     const metadata = session.config?.metadata || {};
-    
     if (metadata['user.email'] === email && metadata['service'] === service) {
       console.log(`[WAHA] ✅ Match found: ${session.name}, status: ${session.status}`);
-      return session; // Returns full session object including status
+      return session;
     }
   }
-  
-  console.log(`[WAHA] ❌ No session found with email: ${email} and service: ${service}`);
+
   return null;
 }
 
@@ -397,27 +386,22 @@ async function findSessionByEmailAndService(baseUrl, apiKey, email, service) {
  * @returns session object with status or null
  */
 async function findSessionByEmailWithWebhookPriority(baseUrl, apiKey, email, webhookUrlPattern) {
-  console.log(`[WAHA] Searching for session with email: ${email}, prioritizing webhook: ${webhookUrlPattern}`);
-  
   const sessions = await getAllSessions(baseUrl, apiKey);
-  console.log(`[WAHA] Found ${sessions.length} total sessions`);
-  
+
   const matchingSessions = [];
   let sessionWithWebhook = null;
-  
+
   for (const session of sessions) {
     const metadata = session.config?.metadata || {};
-    
+
     if (metadata['user.email'] === email) {
-      console.log(`[WAHA] Match found: ${session.name}, status: ${session.status}`);
       matchingSessions.push(session);
-      
+
       // Check if this session has the webhook configured
       const webhooks = session.config?.webhooks || [];
       const hasWebhook = webhooks.some(wh => wh.url && wh.url.includes(webhookUrlPattern));
-      
+
       if (hasWebhook && session.status === 'WORKING') {
-        console.log(`[WAHA] ✅ Session ${session.name} has webhook configured!`);
         sessionWithWebhook = session;
       }
     }

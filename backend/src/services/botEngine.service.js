@@ -3787,7 +3787,7 @@ class BotEngine {
         return;
       }
 
-      console.log(`[BotEngine] Sending HTTP ${action.method || 'GET'} to ${url}`);
+      // HTTP request log removed (too noisy)
       const response = await axios({
         method: action.method || 'GET',
         url,
@@ -3804,12 +3804,12 @@ class BotEngine {
         data: typeof response.data === 'object' ? JSON.stringify(response.data).substring(0, 5000) : String(response.data || '').substring(0, 5000),
       };
 
-      console.log(`[BotEngine] ✅ HTTP Response: status=${response.status}, data type=${typeof response.data}, keys=${typeof response.data === 'object' ? Object.keys(response.data || {}).join(',') : 'N/A'}`);
+      // HTTP response log removed (too noisy)
 
       // Apply response mappings
 
       if (action.mappings && Array.isArray(action.mappings)) {
-        console.log(`[BotEngine] Applying ${action.mappings.length} response mapping(s)`);
+        // Mapping count log removed (too noisy)
         for (const mapping of action.mappings) {
           if (mapping.path && mapping.varName) {
             let value;
@@ -3823,15 +3823,14 @@ class BotEngine {
 
             if (value !== undefined && value !== null) {
               const stringValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
-              console.log(`[BotEngine] Mapping: ${mapping.path} → ${mapping.varName} = "${stringValue.substring(0, 100)}${stringValue.length > 100 ? '...' : ''}"`);
               await this.setContactVariable(contact.id, mapping.varName, stringValue);
             } else {
-              console.log(`[BotEngine] Mapping: ${mapping.path} → ${mapping.varName} = (no value found at path)`);
+              // no value found at path — silent
             }
           }
         }
       } else {
-        console.log('[BotEngine] No response mappings configured');
+        // No response mappings configured — silent
       }
     } catch (error) {
       console.error('[BotEngine] ❌ HTTP Request failed:', error.message);
