@@ -388,7 +388,7 @@ async function processQueue() {
      WHERE bq.status = 'pending'
        AND bq.charge_date <= CURRENT_DATE
      ORDER BY bq.charge_date ASC
-     FOR UPDATE SKIP LOCKED`
+     FOR UPDATE OF bq SKIP LOCKED`
   );
   
   console.log(`[BillingQueue] Found ${pendingResult.rows.length} pending charges to process`);
@@ -492,7 +492,7 @@ async function retryFailedCharges() {
        AND bq.retry_count < bq.max_retries
        AND bq.next_retry_at <= CURRENT_DATE
      ORDER BY bq.next_retry_at ASC
-     FOR UPDATE SKIP LOCKED`
+     FOR UPDATE OF bq SKIP LOCKED`
   );
   
   console.log(`[BillingQueue] Found ${failedResult.rows.length} failed charges to retry`);
