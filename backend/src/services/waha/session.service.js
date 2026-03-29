@@ -652,8 +652,13 @@ async function sendMessage(connection, phone, text, mentions = null, options = {
   const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
 
+  // Skip custom link preview for WhatsApp invite links — WhatsApp masks
+  // chat.whatsapp.com URLs when sent via extendedTextMessage (link-custom-preview).
+  // Let WhatsApp handle native preview for its own invite links.
+  const hasWhatsAppInviteLink = WA_GROUP_LINK_REGEX.test(text);
+
   // If pre-resolved preview data provided (e.g. from webhook), use it directly
-  if (options.linkPreviewData && options.linkPreviewData.image) {
+  if (!hasWhatsAppInviteLink && options.linkPreviewData && options.linkPreviewData.image) {
     try {
       const previewPayload = {
         session: connection.session_name,
@@ -675,7 +680,7 @@ async function sendMessage(connection, phone, text, mentions = null, options = {
   }
 
   // If link preview requested, try custom preview only when we have a real OG image
-  if (options.linkPreview) {
+  if (!hasWhatsAppInviteLink && options.linkPreview) {
     const url = extractFirstUrl(text);
     console.log(`[WAHA] Link preview requested. Extracted URL: ${url || 'NONE'}`);
     if (url) {
