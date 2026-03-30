@@ -46,7 +46,9 @@ async function sendMessage(req, res) {
     let wahaResponse;
     try {
       // Check if custom link preview is provided
-      if (linkPreview && linkPreview.url) {
+      // Skip link-custom-preview for WA group invite links — WhatsApp masks them in extendedTextMessage
+      const WA_GROUP_LINK_RE = /https?:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+/i;
+      if (linkPreview && linkPreview.url && !WA_GROUP_LINK_RE.test(content)) {
         const preview = {
           url: linkPreview.url,
           title: linkPreview.title || undefined,

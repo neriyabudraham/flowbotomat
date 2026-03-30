@@ -1244,6 +1244,18 @@ async function sendLinkPreview(connection, phone, text, preview, mentions = null
   const client = await getClientForConnection(connection);
   const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
 
+  // WhatsApp masks chat.whatsapp.com invite links in extendedTextMessage — fall back to sendText
+  if (WA_GROUP_LINK_REGEX.test(text)) {
+    console.log(`[WAHA] Text contains WA invite link — skipping link-custom-preview, using sendText to preserve link`);
+    const payload = { session: connection.session_name, chatId, text };
+    if (mentions && mentions.length > 0) {
+      payload.mentions = mentions;
+    }
+    const response = await client.post(`/api/sendText`, payload);
+    console.log(`[WAHA] Sent text (with native preview) to ${phone}`);
+    return response.data;
+  }
+
   const payload = {
     session: connection.session_name,
     chatId: chatId,

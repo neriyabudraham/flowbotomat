@@ -1121,14 +1121,18 @@ async function getOrCreateContact(userId, phone, payload) {
     }
   }
   
-  // Create new contact
+  // Create new contact (ON CONFLICT handles race conditions from concurrent webhooks)
   const result = await pool.query(
     `INSERT INTO contacts (user_id, phone, wa_id, display_name)
      VALUES ($1, $2, $3, $4)
+     ON CONFLICT (user_id, phone) DO UPDATE SET
+       wa_id = COALESCE(EXCLUDED.wa_id, contacts.wa_id),
+       display_name = CASE WHEN EXCLUDED.display_name IS NOT NULL AND EXCLUDED.display_name != EXCLUDED.phone THEN EXCLUDED.display_name ELSE contacts.display_name END,
+       updated_at = NOW()
      RETURNING *`,
     [userId, phone, waId, displayName]
   );
-  
+
   return result.rows[0];
 }
 
@@ -1355,10 +1359,11 @@ async function handleOutgoingDeviceMessage(userId, payload) {
   
   let contact;
   if (contactResult.rows.length === 0) {
-    // Create contact if doesn't exist
+    // Create contact if doesn't exist (ON CONFLICT handles race conditions)
     const newContact = await pool.query(
       `INSERT INTO contacts (user_id, phone, display_name)
        VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, phone) DO UPDATE SET updated_at = NOW()
        RETURNING *`,
       [userId, toPhone, toPhone]
     );
@@ -1500,7 +1505,7 @@ async function handleMessageAck(userId, event) {
           phone = await resolveLidToPhone(userId, viewerRaw);
         }
         if (!phone) {
-          phone = viewerRaw.replace('@s.whatsapp.net', '').replace('@c.us', '');
+          phone = viewerRaw.split('@')[0];
         }
         
         try {
@@ -1525,6 +1530,9 @@ async function handleMessageAck(userId, event) {
 async function syncStatusBotView(userId, waMessageId, viewerPhone) {
   try {
     if (!waMessageId || !viewerPhone || viewerPhone === 'status') return;
+
+    // Skip unresolved LIDs — they cause duplicate viewer entries
+    if (/^\d{15,}$/.test(viewerPhone)) return;
     
     // Try to find matching status in status_bot_statuses
     // Match by waha_message_id (try exact and partial match)

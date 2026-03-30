@@ -3394,26 +3394,34 @@ async function handleStatusView(connection, payload) {
     const statusId = statusResult.rows[0].id;
     
     // Get viewer phone - might be in participant or elsewhere
-    let viewerPhone = participant?.split('@')[0];
-    if (!viewerPhone && payload?.to) {
-      viewerPhone = payload.to.split('@')[0];
-    }
-    
+    const rawParticipant = participant || payload?.to || '';
+    let viewerPhone = rawParticipant.split('@')[0];
+
     if (!viewerPhone || viewerPhone === 'status') return;
-    
-    // Check if viewerPhone is a LID (15+ digits, not starting with country code pattern)
-    // LIDs are typically 15-18 digit numbers that start with 2-3
-    const isLid = /^\d{15,18}$/.test(viewerPhone) && /^[23]/.test(viewerPhone);
-    
+
+    // Detect LID: @lid suffix from WhatsApp, or 15+ digit number (real phones are 10-13 digits)
+    const isLid = rawParticipant.endsWith('@lid') || /^\d{15,}$/.test(viewerPhone);
+
     if (isLid) {
+      const originalLid = viewerPhone;
       // Try to resolve LID to phone number
       try {
         const resolvedPhone = await wahaSession.resolveLid(connection, viewerPhone);
         if (resolvedPhone) {
           viewerPhone = resolvedPhone;
+          // Clean up old LID-based view records for this user's statuses to prevent duplicates
+          try {
+            await db.query(`
+              DELETE FROM status_bot_views
+              WHERE viewer_phone = $1 AND status_id IN (
+                SELECT sbs.id FROM status_bot_statuses sbs WHERE sbs.connection_id = $2
+              )
+            `, [originalLid, connection.id]);
+          } catch {}
         }
       } catch (lidErr) {
-        // Continue with original viewerPhone if resolution fails
+        // Unresolved LID — skip recording to avoid duplicate entries
+        return;
       }
     }
 
