@@ -245,27 +245,30 @@ async function addSequenceStep(profileId, input) {
   return rows[0];
 }
 
-async function updateSequenceStep(stepId, input) {
+async function updateSequenceStep(stepId, profileId, input) {
   const { rows } = await db.query(
     `UPDATE save_contact_bot_sequence_steps
-        SET step_type = COALESCE($2, step_type),
-            text_content = $3,
-            media_url = $4,
-            media_caption = $5,
-            media_filename = COALESCE($6, media_filename),
-            delay_ms = COALESCE($7, delay_ms),
-            position = COALESCE($8, position),
-            step_order = COALESCE($9, step_order)
-      WHERE id = $1
+        SET step_type = COALESCE($3, step_type),
+            text_content = $4,
+            media_url = $5,
+            media_caption = $6,
+            media_filename = COALESCE($7, media_filename),
+            delay_ms = COALESCE($8, delay_ms),
+            position = COALESCE($9, position),
+            step_order = COALESCE($10, step_order)
+      WHERE id = $1 AND profile_id = $2
       RETURNING *`,
-    [stepId, input.step_type, input.text_content || null, input.media_url || null, input.media_caption || null, input.media_filename || null, input.delay_ms, input.position, input.step_order]
+    [stepId, profileId, input.step_type, input.text_content || null, input.media_url || null, input.media_caption || null, input.media_filename || null, input.delay_ms, input.position, input.step_order]
   );
   return rows[0];
 }
 
-async function deleteSequenceStep(stepId) {
-  await db.query(`DELETE FROM save_contact_bot_sequence_steps WHERE id = $1`, [stepId]);
-  return { deleted: true };
+async function deleteSequenceStep(stepId, profileId) {
+  const { rowCount } = await db.query(
+    `DELETE FROM save_contact_bot_sequence_steps WHERE id = $1 AND profile_id = $2`,
+    [stepId, profileId]
+  );
+  return { deleted: rowCount > 0 };
 }
 
 async function reorderSequenceSteps(profileId, orderedIds) {
@@ -615,13 +618,20 @@ async function handleInboundMessage({ from, waName, text, messageId }) {
   const matched = await findMatchingActiveProfile(text);
 
   // Log first so we always have a record of every inbound message.
+  // ON CONFLICT gives webhook idempotency: Meta retries the same message,
+  // we must not double-process it (duplicate sequence send + double quota).
   const logResult = await db.query(
     `INSERT INTO save_contact_bot_received_requests
         (profile_id, from_phone, from_wa_name, message_text, whatsapp_message_id, matched)
      VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (whatsapp_message_id) WHERE whatsapp_message_id IS NOT NULL DO NOTHING
      RETURNING id`,
     [matched?.id || null, from, waName || null, text || null, messageId || null, !!matched]
   );
+  if (logResult.rowCount === 0) {
+    console.log(`[SaveContactBot] duplicate webhook skipped (messageId=${messageId})`);
+    return { duplicate: true };
+  }
   const requestId = logResult.rows[0].id;
 
   if (!matched) {

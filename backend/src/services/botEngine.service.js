@@ -46,14 +46,19 @@ class BotEngine {
       const mimetype = metadata?.mimetype || null;
       
       const result = await db.query(`
-        INSERT INTO messages 
+        INSERT INTO messages
         (user_id, contact_id, wa_message_id, direction, message_type, content, media_url, media_filename, media_mime_type, latitude, longitude, metadata, status, sent_at)
         VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, $9, $10, $11, 'sent', NOW())
+        ON CONFLICT (user_id, wa_message_id) WHERE wa_message_id IS NOT NULL DO NOTHING
         RETURNING *
       `, [userId, contactId, waMessageId, messageType, content, mediaUrl, filename, mimetype, latitude, longitude, metadata ? JSON.stringify(metadata) : null]);
-      
+
       const savedMessage = result.rows[0];
-      
+      if (!savedMessage) {
+        // Duplicate — already inserted by a concurrent path (webhook)
+        return null;
+      }
+
       // Parse metadata back if stored as string
       if (savedMessage.metadata && typeof savedMessage.metadata === 'string') {
         try {

@@ -28,21 +28,20 @@ async function verifyWebhook(req, res) {
  * Handle incoming webhook (POST request from Meta)
  */
 async function handleWebhook(req, res) {
-  // Always respond 200 quickly to prevent retries
+  // Verify Meta signature first — rejecting forged webhooks.
+  // If CLOUD_API_APP_SECRET is unset, verifyWebhookSignature logs a warning
+  // and returns true (back-compat with unconfigured deployments).
+  const signature = req.headers['x-hub-signature-256'];
+  if (!cloudApiService.verifyWebhookSignature(req.rawBody, signature)) {
+    console.warn('[CloudAPI Webhook] rejected — invalid signature');
+    return res.status(403).send('Forbidden');
+  }
+  // Respond 200 quickly so Meta doesn't retry.
   res.status(200).send('OK');
-  
+
   try {
     const body = req.body;
-    
-    // Verify signature if configured
-    const signature = req.headers['x-hub-signature-256'];
-    if (signature && process.env.CLOUD_API_APP_SECRET) {
-      const payload = JSON.stringify(req.body);
-      if (!cloudApiService.verifyWebhookSignature(payload, signature)) {
-        return;
-      }
-    }
-    
+
     // Process messages
     if (body.object !== 'whatsapp_business_account') {
       return;

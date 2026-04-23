@@ -34,6 +34,24 @@ function createOAuth2Client() {
   );
 }
 
+// OAuth state must be signed so an attacker can't inject a different slot
+// or userId via the callback URL (which would associate an attacker's
+// Google account with the victim's slot).
+const jwt = require('jsonwebtoken');
+const OAUTH_STATE_SECRET = process.env.OAUTH_STATE_SECRET || process.env.JWT_SECRET;
+
+function signState(payload) {
+  return jwt.sign(payload, OAUTH_STATE_SECRET, { expiresIn: '15m' });
+}
+
+function verifyState(state) {
+  try {
+    return jwt.verify(state, OAUTH_STATE_SECRET);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Get authorization URL for Google Contacts
  */
@@ -43,7 +61,7 @@ function getAuthUrl(userId, from = null, slot = 0) {
     access_type: 'offline',
     prompt: 'consent',
     scope: SCOPES,
-    state: JSON.stringify({ userId, slot, ...(from && { from }) }),
+    state: signState({ userId, slot, ...(from && { from }) }),
   });
 }
 
@@ -959,6 +977,7 @@ async function getContactCountBySlot(userId, slot = 0) {
 module.exports = {
   // Auth
   getAuthUrl,
+  verifyState,
   handleCallback,
   getConnectionStatus,
   disconnect,

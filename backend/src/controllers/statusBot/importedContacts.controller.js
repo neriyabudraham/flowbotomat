@@ -292,6 +292,14 @@ async function importContacts(req, res) {
 
     await client.query('BEGIN');
 
+    // Serialize concurrent imports for the same scope so the limit-check
+    // below can't be raced by a parallel importContacts / addOne call.
+    // Advisory key uses the connection UUID bytes (stable per-scope).
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+      [`imported_contacts:${scope.connectionId}:${scope.authorizedNumberId || 'null'}`]
+    );
+
     if (mode === 'replace') {
       await client.query(
         `DELETE FROM status_bot_imported_contacts WHERE ${w.sql}`,
@@ -392,24 +400,34 @@ async function removeOne(req, res) {
  * POST /status-bot/imported-contacts/add — manual add of a single phone
  */
 async function addOne(req, res) {
+  const client = await db.pool.connect();
   try {
     const scope = await resolveScope(req);
-    if (!scope.ok) return res.status(scope.status).json({ error: scope.error });
+    if (!scope.ok) { client.release(); return res.status(scope.status).json({ error: scope.error }); }
     const { phone, display_name } = req.body || {};
     const normalized = normalizePhone(phone);
-    if (!normalized) return res.status(400).json({ error: 'מספר לא תקין' });
+    if (!normalized) { client.release(); return res.status(400).json({ error: 'מספר לא תקין' }); }
 
     const limit = await getMaxLimit();
     const w = scopeWhere(scope, 1);
-    const curRes = await db.query(
+
+    await client.query('BEGIN');
+    // Serialize same-scope writers so count→insert can't race itself or an import.
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+      [`imported_contacts:${scope.connectionId}:${scope.authorizedNumberId || 'null'}`]
+    );
+
+    const curRes = await client.query(
       `SELECT COUNT(*)::int AS total FROM status_bot_imported_contacts WHERE ${w.sql}`,
       w.params
     );
     if (curRes.rows[0].total >= limit) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: `הגעת למגבלה של ${limit} אנשי קשר` });
     }
 
-    const r = await db.query(
+    const r = await client.query(
       `INSERT INTO status_bot_imported_contacts (connection_id, user_id, phone, display_name, source, authorized_number_id)
        VALUES ($1, $2, $3, $4, 'manual', $5)
        ${scopeConflictTarget(scope)}
@@ -417,12 +435,17 @@ async function addOne(req, res) {
       [scope.connectionId, req.user.id, normalized, display_name ? String(display_name).slice(0, 128) : null, scope.authorizedNumberId]
     );
     if (r.rowCount === 0) {
+      await client.query('ROLLBACK');
       return res.status(409).json({ error: 'מספר זה כבר קיים ברשימה' });
     }
+    await client.query('COMMIT');
     res.json({ success: true, contact: r.rows[0] });
   } catch (err) {
+    try { await client.query('ROLLBACK'); } catch {}
     console.error('[ImportedContacts] addOne error:', err);
     res.status(500).json({ error: 'שגיאה בהוספה' });
+  } finally {
+    client.release();
   }
 }
 

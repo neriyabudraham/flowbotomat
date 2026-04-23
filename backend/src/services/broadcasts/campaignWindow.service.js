@@ -72,18 +72,35 @@ function getTzParts(date, timezone) {
  * Uses a search to invert the TZ conversion (no external libs).
  */
 function makeDateInTz(year, month, day, hour, minute, timezone) {
-  // Construct a reasonable UTC guess, then adjust by observed offset iteratively
-  let utc = Date.UTC(year, month - 1, day, hour, minute, 0);
-  for (let i = 0; i < 3; i++) {
-    const parts = getTzParts(new Date(utc), timezone);
-    if (!parts) break;
-    const observedUtcMs = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, 0);
-    const targetUtcMs = Date.UTC(year, month - 1, day, hour, minute, 0);
-    const diff = targetUtcMs - observedUtcMs;
-    if (Math.abs(diff) < 60 * 1000) break; // converged to nearest minute
-    utc += diff;
+  // Construct a reasonable UTC guess, then adjust by observed offset iteratively.
+  const tryMake = (y, mo, d, h, mi) => {
+    let utc = Date.UTC(y, mo - 1, d, h, mi, 0);
+    let converged = false;
+    for (let i = 0; i < 5; i++) {
+      const parts = getTzParts(new Date(utc), timezone);
+      if (!parts) break;
+      const observedUtcMs = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, 0);
+      const targetUtcMs = Date.UTC(y, mo - 1, d, h, mi, 0);
+      const diff = targetUtcMs - observedUtcMs;
+      if (Math.abs(diff) < 60 * 1000) { converged = true; break; }
+      utc += diff;
+    }
+    return { utc, converged };
+  };
+
+  const first = tryMake(year, month, day, hour, minute);
+  if (first.converged) return new Date(first.utc);
+
+  // Non-convergence typically means we hit a DST spring-forward gap (e.g.
+  // 02:30 on a day when 02:00→03:00 jump happens, so 02:30 does not exist).
+  // Snap forward to the next valid minute by nudging +1h at a time until
+  // the clock reflects a real instant.
+  for (let bump = 1; bump <= 3; bump++) {
+    const next = tryMake(year, month, day, hour + bump, minute);
+    if (next.converged) return new Date(next.utc);
   }
-  return new Date(utc);
+  // Fallback: return best-effort even if still non-converged.
+  return new Date(first.utc);
 }
 
 /**
@@ -239,6 +256,20 @@ async function runSingleBatch(campaign, connection, messages) {
         [recipient.id]
       );
       console.log(`[CampaignWindow] Campaign ${campaign.id} no longer running (${statusCheck.rows[0]?.status}) — interrupting batch`);
+      return { sentCount, failedCount, hasMore: true, stopped: true };
+    }
+
+    // Window-boundary interrupt: even within a single running campaign, the
+    // active-window may close mid-batch (long per-message delay pushes us
+    // past the configured end time). Stop sending and roll remaining rows
+    // back to 'pending' so the next tick picks them up after the next
+    // window opens.
+    if (!isWithinWindow(new Date(), settings)) {
+      await db.query(
+        `UPDATE broadcast_campaign_recipients SET status = 'pending' WHERE id = $1 AND status = 'sending'`,
+        [recipient.id]
+      );
+      console.log(`[CampaignWindow] Campaign ${campaign.id} window closed mid-batch — interrupting`);
       return { sentCount, failedCount, hasMore: true, stopped: true };
     }
 

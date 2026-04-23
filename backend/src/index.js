@@ -19,7 +19,11 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({
+  limit: '50mb',
+  // Preserve raw body for webhook HMAC verification (Meta X-Hub-Signature-256).
+  verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Routes
@@ -267,10 +271,36 @@ server.listen(PORT, () => {
   (async () => {
     try {
       const executionTracker = require('./services/executionTracker.service');
-      const cleaned = await executionTracker.cleanupStaleRuns({ thresholdMinutes: 5 });
+      // 30 min default so long-running legitimate jobs (bulk imports, large
+      // sends) don't get killed by a rolling deploy that finished mid-run.
+      const cleaned = await executionTracker.cleanupStaleRuns({ thresholdMinutes: 30 });
       if (cleaned > 0) console.log(`[Startup] Closed ${cleaned} bot_execution_runs left mid-run by previous container`);
     } catch (err) {
       console.error('[Startup] Orphan-run cleanup failed:', err.message);
+    }
+  })();
+
+  // Google contacts deletion jobs: reap anything 'running' with no heartbeat
+  // in the last 10 minutes (previous container crashed mid-job).
+  (async () => {
+    try {
+      const { query: dbQuery } = require('./config/database');
+      const r = await dbQuery(`
+        UPDATE google_contacts_deletion_log
+           SET status = 'error',
+               error_message = COALESCE(error_message, 'stale — no heartbeat after container restart'),
+               finished_at = NOW(),
+               updated_at = NOW()
+         WHERE status = 'running'
+           AND COALESCE(updated_at, created_at) < NOW() - INTERVAL '10 minutes'
+        RETURNING id
+      `);
+      if (r.rowCount > 0) console.log(`[Startup] Marked ${r.rowCount} stale google-contacts delete jobs as error`);
+    } catch (err) {
+      // Column updated_at may not exist on very old DBs that haven't run migration 012 yet; skip quietly.
+      if (!/updated_at/.test(err.message || '')) {
+        console.error('[Startup] Stale deletion-job reaper failed:', err.message);
+      }
     }
   })();
 

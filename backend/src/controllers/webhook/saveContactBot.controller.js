@@ -4,6 +4,7 @@
  * Separate from the status bot's Cloud API webhook.
  */
 
+const crypto = require('crypto');
 const saveContactBotService = require('../../services/saveContactBot/saveContactBot.service');
 
 async function verifyWebhook(req, res) {
@@ -21,7 +22,32 @@ async function verifyWebhook(req, res) {
   return res.status(403).send('Forbidden');
 }
 
+// Verify Meta's X-Hub-Signature-256 header. Returns true if valid, false otherwise.
+// If SAVE_CONTACT_BOT_APP_SECRET is not configured, logs a warning and returns true
+// (back-compat so we don't lock out an un-configured deployment).
+function verifySignature(req) {
+  const appSecret = process.env.SAVE_CONTACT_BOT_APP_SECRET;
+  if (!appSecret) {
+    console.warn('[SaveContactBot Webhook] SAVE_CONTACT_BOT_APP_SECRET not set — signature verification DISABLED');
+    return true;
+  }
+  const header = req.get('x-hub-signature-256') || '';
+  if (!header.startsWith('sha256=')) return false;
+  const raw = req.rawBody;
+  if (!raw || !raw.length) return false;
+  const expected = 'sha256=' + crypto.createHmac('sha256', appSecret).update(raw).digest('hex');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(header), Buffer.from(expected));
+  } catch {
+    return false;
+  }
+}
+
 async function handleWebhook(req, res) {
+  if (!verifySignature(req)) {
+    console.warn('[SaveContactBot Webhook] rejected — invalid signature');
+    return res.status(403).send('Forbidden');
+  }
   res.status(200).send('OK');
 
   try {

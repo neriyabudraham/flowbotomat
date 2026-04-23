@@ -109,6 +109,29 @@ function computeOverage(uniqueCount) {
  * The function also records the month's counters/warnings as a side effect.
  */
 async function checkAndRecordInbound(userId, phone) {
+  // Serialize concurrent usage gates for the same user so the count→gate
+  // decision can't be raced by a parallel inbound (which would let the user
+  // sneak past the 500-limit under load). Transaction-scoped advisory lock
+  // so it's released automatically on COMMIT even if the caller forgets.
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+      [`save_contact_bot_usage:${userId}`]
+    );
+    const result = await _checkAndRecordInboundLocked(userId, phone);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function _checkAndRecordInboundLocked(userId, phone) {
   const usageRow = await getOrCreateUsageRow(userId);
   const data = usageRow?.usage_data || {};
   const warningsSent = new Set(data.warnings_sent || []);

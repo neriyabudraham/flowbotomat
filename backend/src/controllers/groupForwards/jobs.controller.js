@@ -910,14 +910,15 @@ async function startForwardJob(jobId) {
           // Save the outgoing message
           console.log(`[GroupForwards] Saving message to Live Chat - contactId: ${contactId}, type: ${job.message_type}`);
           const msgResult = await db.query(`
-            INSERT INTO messages 
-            (user_id, contact_id, wa_message_id, direction, message_type, 
+            INSERT INTO messages
+            (user_id, contact_id, wa_message_id, direction, message_type,
              content, media_url, media_mime_type, media_filename, status, sent_at)
             VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, 'sent', NOW())
+            ON CONFLICT (user_id, wa_message_id) WHERE wa_message_id IS NOT NULL DO NOTHING
             RETURNING id
           `, [
-            job.user_id, 
-            contactId, 
+            job.user_id,
+            contactId,
             messageId,
             job.message_type,
             job.message_text,

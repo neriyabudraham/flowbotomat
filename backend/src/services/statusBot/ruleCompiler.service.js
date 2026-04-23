@@ -40,6 +40,27 @@ function escapeLike(s) {
   return String(s ?? '').replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
 
+// Guard against catastrophic-backtracking regexes (ReDoS). Postgres' `~`
+// operator runs user-supplied regex against every row; a crafted pattern like
+// `(a+)+b` on a moderate string can hang a query. We reject obvious
+// pathological patterns and impose a length cap. Callers should also run
+// these queries with SET LOCAL statement_timeout as a second line of defense.
+const REGEX_MAX_LEN = 256;
+const DANGEROUS_REGEX_PATTERNS = [
+  /(\([^)]*[+*][^)]*\))[+*]/,    // (...+)+ or (...*)+ — nested quantifiers
+  /(\[[^\]]*\][+*]){2,}/,         // [x]+[y]+ chained quantifiers
+];
+
+function sanitizeRegexOrFallback(raw) {
+  const s = String(raw ?? '');
+  if (s.length === 0) return null;
+  if (s.length > REGEX_MAX_LEN) return null;
+  for (const bad of DANGEROUS_REGEX_PATTERNS) {
+    if (bad.test(s)) return null;
+  }
+  return s;
+}
+
 function pushParam(state, value) {
   state.params.push(value);
   return `$${state.nextIndex++}`;
@@ -78,8 +99,16 @@ function compileLeaf(leaf, fieldMap, state) {
         if (arr.length === 0) return 'TRUE';
         return `(${expr} IS NULL OR ${expr} <> ALL(${pushParam(state, arr)}::text[]))`;
       }
-      case 'regex':         return `(${expr} ~ ${pushParam(state, String(val ?? ''))})`;
-      case 'not_regex':     return `(${expr} IS NULL OR ${expr} !~ ${pushParam(state, String(val ?? ''))})`;
+      case 'regex': {
+        const safe = sanitizeRegexOrFallback(val);
+        if (safe === null) return 'FALSE'; // reject pathological/overlong patterns
+        return `(${expr} ~ ${pushParam(state, safe)})`;
+      }
+      case 'not_regex': {
+        const safe = sanitizeRegexOrFallback(val);
+        if (safe === null) return 'TRUE';
+        return `(${expr} IS NULL OR ${expr} !~ ${pushParam(state, safe)})`;
+      }
     }
   }
 

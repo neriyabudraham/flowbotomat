@@ -284,22 +284,21 @@ async function markAsRead(messageId) {
 /**
  * Verify webhook signature from Meta
  */
-function verifyWebhookSignature(payload, signature) {
-  const { accessToken } = getCredentials();
+function verifyWebhookSignature(rawBody, signature) {
   const appSecret = process.env.CLOUD_API_APP_SECRET;
-  
   if (!appSecret) {
     console.warn('[CloudAPI] No app secret configured, skipping signature verification');
     return true;
   }
-  
-  const expectedSignature = 'sha256=' + 
-    require('crypto')
-      .createHmac('sha256', appSecret)
-      .update(payload)
-      .digest('hex');
-  
-  return signature === expectedSignature;
+  if (!signature || !signature.startsWith('sha256=')) return false;
+  if (!rawBody || !rawBody.length) return false;
+  const crypto = require('crypto');
+  const expected = 'sha256=' + crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -264,6 +264,10 @@ async function getCleanupStats(req, res) {
 }
 
 // Resolve a filter into an array of contact IDs (for preview / delete planning).
+// Returns at most PREVIEW_LIMIT rows plus the true total so the UI can warn
+// the user if the filter matched more than we returned.
+const PREVIEW_LIMIT = 5000;
+
 async function previewSelection(req, res) {
   try {
     const userId = req.user.id;
@@ -272,20 +276,34 @@ async function previewSelection(req, res) {
 
     const { where, params, nextIndex } = buildFilterSQL(userId, filters);
 
-    let sql = `
+    const finalParams = [...params];
+    let excludeClause = '';
+    let paramIdx = nextIndex;
+    if (excludeIds.length) {
+      excludeClause = ` AND c.id <> ALL($${paramIdx}::uuid[])`;
+      finalParams.push(excludeIds);
+      paramIdx += 1;
+    }
+
+    const countSql = `SELECT COUNT(*)::int AS n FROM contacts c WHERE ${where}${excludeClause}`;
+    const totalMatched = (await pool.query(countSql, finalParams)).rows[0].n;
+
+    const listSql = `
       SELECT c.id, c.phone, c.display_name
       FROM contacts c
-      WHERE ${where}
+      WHERE ${where}${excludeClause}
+      ORDER BY c.display_name NULLS LAST, c.phone
+      LIMIT ${PREVIEW_LIMIT}
     `;
-    const finalParams = [...params];
-    if (excludeIds.length) {
-      sql += ` AND c.id <> ALL($${nextIndex}::uuid[])`;
-      finalParams.push(excludeIds);
-    }
-    sql += ` ORDER BY c.display_name NULLS LAST, c.phone LIMIT 5000`;
+    const { rows } = await pool.query(listSql, finalParams);
 
-    const { rows } = await pool.query(sql, finalParams);
-    res.json({ contacts: rows, total: rows.length });
+    res.json({
+      contacts: rows,
+      total: rows.length,
+      total_matched: totalMatched,
+      limit: PREVIEW_LIMIT,
+      truncated: totalMatched > rows.length,
+    });
   } catch (err) {
     console.error('[Cleanup] previewSelection error:', err);
     res.status(500).json({ error: 'שגיאה בתצוגה מקדימה' });

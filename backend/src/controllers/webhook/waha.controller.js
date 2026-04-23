@@ -789,12 +789,16 @@ async function handleIncomingMessage(userId, event) {
     ? JSON.stringify({ options: messageData.pollOptions || [], multipleAnswers: messageData.multipleAnswers || false })
     : null;
 
-  // Save message with sender_phone and sender_name for group messages
+  // Save message with sender_phone and sender_name for group messages.
+  // ON CONFLICT: WAHA may deliver the same webhook twice; migration 009 adds a
+  // unique index on (user_id, wa_message_id) so a blind INSERT would fail.
+  // Skip duplicates silently — downstream handlers should be idempotent anyway.
   const result = await pool.query(
     `INSERT INTO messages
      (user_id, contact_id, wa_message_id, direction, message_type,
       content, media_url, media_mime_type, media_filename, latitude, longitude, sent_at, sender_phone, sender_name, metadata)
      VALUES ($1, $2, $3, 'incoming', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+     ON CONFLICT (user_id, wa_message_id) WHERE wa_message_id IS NOT NULL DO NOTHING
      RETURNING *`,
     [userId, contact.id, payload.id, messageData.type, messageData.content,
      messageData.mediaUrl, messageData.mimeType?.substring(0, 200) || null, messageData.filename?.substring(0, 500) || null,
@@ -803,6 +807,10 @@ async function handleIncomingMessage(userId, event) {
      isGroupMessage ? (senderName || '').substring(0, 255) || null : null,
      msgMetadata]
   );
+  if (result.rowCount === 0) {
+    console.log(`[WAHA Webhook] duplicate incoming message skipped (wa_id=${payload.id})`);
+    return null;
+  }
   
   // Update contact's last message time and preview
   await pool.query(

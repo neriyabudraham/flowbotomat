@@ -190,6 +190,13 @@ export default function ContactCleanupPage() {
       const next = new Map();
       (data.contacts || []).forEach(c => next.set(c.id, c));
       setSelected(next);
+      if (data.truncated) {
+        const matched = Number(data.total_matched || 0).toLocaleString();
+        const got = Number(data.total || data.contacts?.length || 0).toLocaleString();
+        setError(`הסינון תואם ${matched} אנשי קשר — סומנו רק ${got} הראשונים. מחק בכמה סבבים.`);
+      } else {
+        setError('');
+      }
     } catch (err) {
       setError(err.response?.data?.error || 'שגיאה בבחירת כל הסינון');
     } finally {

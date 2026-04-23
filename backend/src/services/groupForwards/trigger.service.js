@@ -169,9 +169,10 @@ async function saveOutgoingMessage(userId, chatId, messageType, content, mediaUr
     
     // Save message - match schema used in other places
     const result = await db.query(`
-      INSERT INTO messages 
+      INSERT INTO messages
       (user_id, contact_id, wa_message_id, direction, message_type, content, media_url, media_mime_type, media_filename, metadata, status, sent_at)
       VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, $9, 'sent', NOW())
+      ON CONFLICT (user_id, wa_message_id) WHERE wa_message_id IS NOT NULL DO NOTHING
       RETURNING *
     `, [
       userId,

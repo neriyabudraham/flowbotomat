@@ -731,15 +731,20 @@ async function sendToRecipient(userId, connection, recipient, messages, campaign
     return false;
   }
 
+  // Track each WAHA message id as soon as we get one so the resume-after-crash
+  // logic can tell "successfully sent, DB update crashed" from "never sent" and
+  // avoid duplicate sends on the same recipient.
+  const sentMessageIds = [];
+
   try {
     // Format phone number
-    const chatId = recipient.phone.includes('@') 
-      ? recipient.phone 
+    const chatId = recipient.phone.includes('@')
+      ? recipient.phone
       : `${recipient.phone}@s.whatsapp.net`;
-    
+
     // Get contact variables for replacement
-    const contactVariables = recipient.contact_id 
-      ? await getContactVariables(recipient.contact_id) 
+    const contactVariables = recipient.contact_id
+      ? await getContactVariables(recipient.contact_id)
       : {};
     
     // Send each message
@@ -816,23 +821,43 @@ async function sendToRecipient(userId, connection, recipient, messages, campaign
           break;
       }
       
-      // Save message to database if successful
-      if (result?.id && recipient.contact_id) {
-        await saveMessageToDatabase(
-          userId,
-          recipient.contact_id,
-          result.id,
-          messageType,
-          content,
-          msg.media_url,
-          null
-        );
+      if (result?.id) {
+        sentMessageIds.push(result.id);
+        // Persist the WAHA id on the recipient row *immediately* after WAHA
+        // confirms — this is the durable signal the resume-after-crash logic
+        // uses to avoid re-sending on the next restart.
+        try {
+          await db.query(
+            `UPDATE broadcast_campaign_recipients
+                SET waha_message_ids = COALESCE(waha_message_ids, '[]'::jsonb) || to_jsonb($2::text)
+              WHERE id = $1`,
+            [recipient.id, result.id]
+          );
+        } catch (persistErr) {
+          console.warn('[Broadcast Sender] persist waha id failed:', persistErr.message);
+        }
+        // Save message to database (best-effort; wrap to isolate failures)
+        if (recipient.contact_id) {
+          try {
+            await saveMessageToDatabase(
+              userId,
+              recipient.contact_id,
+              result.id,
+              messageType,
+              content,
+              msg.media_url,
+              null
+            );
+          } catch (saveErr) {
+            console.warn('[Broadcast Sender] saveMessageToDatabase failed:', saveErr.message);
+          }
+        }
       }
     }
-    
+
     console.log(`[Broadcast Sender] Successfully sent to ${recipient.phone}`);
     return true;
-    
+
   } catch (error) {
     console.error(`[Broadcast Sender] Error sending to ${recipient.phone}:`, error.message);
     return false;
@@ -854,7 +879,26 @@ async function sendToRecipient(userId, connection, recipient, messages, campaign
  */
 async function resumeStuckBroadcastCampaigns() {
   try {
-    // Reset any 'sending' rows left over from a previous restart
+    // Distinguish two crash scenarios:
+    //  (A) We called WAHA and WAHA accepted the message (waha_message_ids
+    //      is non-empty) but crashed before writing status='sent'. Re-sending
+    //      would duplicate the message → promote to 'sent' instead.
+    //  (B) Status='sending' with no WAHA id recorded → the send didn't reach
+    //      WAHA (or we have no evidence it did), so resetting to 'pending' is
+    //      safe.
+    const promoted = await db.query(`
+      UPDATE broadcast_campaign_recipients
+         SET status = 'sent',
+             sent_at = COALESCE(sent_at, NOW())
+       WHERE status = 'sending'
+         AND waha_message_ids IS NOT NULL
+         AND jsonb_array_length(waha_message_ids) > 0
+      RETURNING id
+    `);
+    if (promoted.rowCount > 0) {
+      console.log(`[Broadcast Sender] Promoted ${promoted.rowCount} 'sending' rows that already reached WAHA → 'sent'`);
+    }
+
     const resetRes = await db.query(`
       UPDATE broadcast_campaign_recipients
       SET status = 'pending'

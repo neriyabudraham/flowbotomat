@@ -558,8 +558,20 @@ async function importGroupParticipants(req, res) {
         resolvedGroupName = group.Name || null;
 
         if (!selectedPhones || selectedPhones.length === 0) {
+          // Hard cap on auto-import to protect against OOM / long-running
+          // imports on very large groups. Groups larger than the cap must be
+          // imported by explicit selection in the UI.
+          const AUTO_IMPORT_CAP = 2000;
+          const participants = group.Participants || [];
+          if (participants.length > AUTO_IMPORT_CAP) {
+            return res.status(413).json({
+              error: `הקבוצה "${group.Name}" מכילה ${participants.length} משתתפים. ייבוא אוטומטי מוגבל ל-${AUTO_IMPORT_CAP}. בחר משתתפים ספציפיים מהרשימה.`,
+              participantCount: participants.length,
+              cap: AUTO_IMPORT_CAP,
+            });
+          }
           selectedPhones = [];
-          for (const p of (group.Participants || [])) {
+          for (const p of participants) {
             const phone = p.PhoneNumber?.replace('@s.whatsapp.net', '').replace('@c.us', '') || '';
             if (phone && !phone.includes('@lid')) {
               selectedPhones.push(phone);

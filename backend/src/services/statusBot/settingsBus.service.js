@@ -18,6 +18,17 @@ let listenerClient = null;
 let listenerReady = false;
 const onChangeHandlers = [];
 
+// Exponential backoff for reconnect attempts — prevents a tight 5s loop when
+// the DB is down, which would spam logs and churn connections.
+let reconnectAttempts = 0;
+const BASE_BACKOFF_MS = 5000;
+const MAX_BACKOFF_MS = 60_000;
+function nextBackoffMs() {
+  const exp = Math.min(Math.pow(2, reconnectAttempts), MAX_BACKOFF_MS / BASE_BACKOFF_MS);
+  const jitter = Math.random() * 1000;
+  return Math.min(BASE_BACKOFF_MS * exp + jitter, MAX_BACKOFF_MS);
+}
+
 function registerOnChange(handler) {
   onChangeHandlers.push(handler);
 }
@@ -33,13 +44,14 @@ async function startListener() {
   });
 
   client.on('error', (err) => {
-    console.error('[SettingsBus] listener error:', err.message);
+    const delay = nextBackoffMs();
+    reconnectAttempts++;
+    console.error(`[SettingsBus] listener error: ${err.message} — reconnect in ${Math.round(delay / 1000)}s (attempt #${reconnectAttempts})`);
     listenerReady = false;
-    // Reconnect after delay
     setTimeout(() => {
       listenerClient = null;
       startListener().catch(() => {});
-    }, 5000);
+    }, delay);
   });
 
   client.on('notification', (msg) => {
@@ -55,12 +67,14 @@ async function startListener() {
     await client.query(`LISTEN ${CHANNEL}`);
     listenerClient = client;
     listenerReady = true;
+    reconnectAttempts = 0; // reset backoff on successful connection
     console.log(`[SettingsBus] Listening on channel "${CHANNEL}"`);
   } catch (err) {
-    console.error('[SettingsBus] Failed to start listener:', err.message);
+    const delay = nextBackoffMs();
+    reconnectAttempts++;
+    console.error(`[SettingsBus] Failed to start listener: ${err.message} — retrying in ${Math.round(delay / 1000)}s`);
     try { await client.end(); } catch {}
-    // Retry in 5s
-    setTimeout(() => startListener().catch(() => {}), 5000);
+    setTimeout(() => startListener().catch(() => {}), delay);
   }
 }
 

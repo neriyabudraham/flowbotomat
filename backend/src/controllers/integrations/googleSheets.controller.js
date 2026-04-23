@@ -24,23 +24,17 @@ const handleCallback = async (req, res) => {
   
   try {
     const { code, state } = req.query;
-    
+
     if (!code) {
       return res.redirect(`${frontendUrl}/settings?tab=integrations&error=no_code`);
     }
-    
-    let userId, from;
-    if (state) {
-      try {
-        const stateData = JSON.parse(state);
-        userId = stateData.userId;
-        from = stateData.from;
-      } catch (e) {}
-    }
 
-    if (!userId) {
+    const parsed = state ? googleSheets.verifyState(state) : null;
+    if (!parsed || !parsed.userId) {
       return res.redirect(`${frontendUrl}/settings?tab=integrations&error=invalid_state`);
     }
+    const userId = parsed.userId;
+    const from = parsed.from;
 
     const result = await googleSheets.handleCallback(code, userId);
     console.log(`[GoogleSheets] Connected for user ${userId}: ${result.email}`);

@@ -43,8 +43,20 @@ async function downloadCloudApiMedia(message) {
     const uploadsDir = path.join(__dirname, '../../../uploads/group-forwards');
     if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
     const ext = (mimeType?.split('/')[1]?.split(';')[0] || 'bin').replace(/[^a-z0-9]/gi, '');
-    const outName = filename || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    // Sanitize the incoming filename so an attacker can't traverse out of
+    // uploadsDir via `../` or absolute paths. Keep only basename and a safe
+    // char set; fall back to a random name if nothing usable remains.
+    const safeBase = (filename ? path.basename(filename) : '').replace(/[^a-zA-Z0-9._-]/g, '');
+    const outName = (safeBase && !safeBase.startsWith('.'))
+      ? safeBase
+      : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const outPath = path.join(uploadsDir, outName);
+    // Defense in depth: reject if the resolved path escapes uploadsDir.
+    const resolvedOut = path.resolve(outPath);
+    const resolvedDir = path.resolve(uploadsDir);
+    if (!resolvedOut.startsWith(resolvedDir + path.sep)) {
+      throw new Error('unsafe media filename');
+    }
     fs.writeFileSync(outPath, media.buffer);
     const baseUrl = process.env.API_URL || 'http://localhost:3000/api';
     const mediaUrl = `${baseUrl}/uploads/group-forwards/${outName}`;

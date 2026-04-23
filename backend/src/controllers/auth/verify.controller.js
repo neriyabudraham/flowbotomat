@@ -1,5 +1,5 @@
 const db = require('../../config/database');
-const { validateVerification, markAsUsed } = require('../../services/auth/verification.service');
+const { validateVerification, markAsUsed, recordFailedAttemptByEmail } = require('../../services/auth/verification.service');
 
 /**
  * POST /api/auth/verify
@@ -16,6 +16,13 @@ const verify = async (req, res) => {
     const verification = await validateVerification(token, code, email);
 
     if (!verification) {
+      // Code path (with email) — increment attempt counter to bound brute-force.
+      // We don't have a clean per-token increment when verifying by token (the
+      // token itself is random), so the common UX path (code+email) is what
+      // an attacker would use.
+      if (code && email) {
+        try { await recordFailedAttemptByEmail(email, 'email_verify'); } catch {}
+      }
       return res.status(400).json({ error: 'Invalid or expired code' });
     }
 

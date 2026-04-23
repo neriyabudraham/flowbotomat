@@ -53,17 +53,18 @@ const handleCallback = async (req, res) => {
   const { code, state, error: googleError, error_description } = req.query;
   console.log(`[GoogleContacts] Callback hit — code=${code ? code.slice(0,20) + '...' : 'MISSING'} state_len=${state?.length || 0} error=${googleError || 'none'} desc=${error_description || ''}`);
 
+  // Verify signed state (prevents an attacker from forging slot/userId/from).
+  const parsedState = state ? googleContacts.verifyState(state) : null;
+
   // Google returned an explicit error (access_denied, redirect_uri_mismatch, etc.)
   if (googleError) {
     console.error(`[GoogleContacts] Google OAuth error: ${googleError} - ${error_description || 'no description'}`);
-    let userIdFromState = null;
-    try { userIdFromState = state ? JSON.parse(state).userId : null; } catch {}
     auditGoogleOAuth({
-      userId: userIdFromState,
+      userId: parsedState?.userId || null,
       eventType: 'callback_google_error',
       errorCode: googleError,
       errorDescription: error_description,
-      metadata: { state_present: !!state },
+      metadata: { state_present: !!state, state_valid: !!parsedState },
     });
     return res.redirect(`${frontendUrl}/settings?tab=integrations&error=${encodeURIComponent(googleError)}&error_description=${encodeURIComponent(error_description || '')}`);
   }
@@ -74,17 +75,14 @@ const handleCallback = async (req, res) => {
       return res.redirect(`${frontendUrl}/settings?tab=integrations&error=no_code`);
     }
 
-    let userId, from, slot = 0;
-    if (state) {
-      try {
-        const stateData = JSON.parse(state);
-        userId = stateData.userId;
-        from = stateData.from;
-        slot = stateData.slot ?? 0;
-      } catch (e) {
-        console.error(`[GoogleContacts] Invalid state JSON:`, e.message, 'raw state:', state);
-      }
+    if (!parsedState) {
+      console.error(`[GoogleContacts] Callback with missing/invalid state signature`);
+      return res.redirect(`${frontendUrl}/settings?tab=integrations&error=invalid_state`);
     }
+
+    const userId = parsedState.userId;
+    const from = parsedState.from;
+    const slot = parsedState.slot ?? 0;
 
     if (!userId) {
       console.error(`[GoogleContacts] Callback without userId in state`);
@@ -113,10 +111,8 @@ const handleCallback = async (req, res) => {
       console.error('[GoogleContacts] OAuth response data:', JSON.stringify(error.response.data));
     }
     console.error('[GoogleContacts] Callback error stack:', error.stack);
-    let userIdFromState = null;
-    try { userIdFromState = state ? JSON.parse(state).userId : null; } catch {}
     auditGoogleOAuth({
-      userId: userIdFromState,
+      userId: parsedState?.userId || null,
       eventType: 'callback_exchange_error',
       errorDescription: error.message?.slice(0, 500),
       metadata: {

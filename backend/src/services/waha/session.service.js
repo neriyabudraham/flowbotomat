@@ -12,8 +12,22 @@ function extractFirstUrl(text) {
   return match ? match[0] : null;
 }
 
-// WhatsApp invite link pattern
+// WhatsApp invite link pattern. Exported and reused by other modules so
+// detection stays consistent (prevents `***` masking regressions).
 const WA_GROUP_LINK_REGEX = /https?:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+/i;
+
+// Detect invite links in text. Also URL-decodes first so `%3A%2F%2F` variants
+// are caught.
+function hasWhatsAppInviteLink(text) {
+  if (!text || typeof text !== 'string') return false;
+  if (WA_GROUP_LINK_REGEX.test(text)) return true;
+  try {
+    const decoded = decodeURIComponent(text);
+    return decoded !== text && WA_GROUP_LINK_REGEX.test(decoded);
+  } catch {
+    return false;
+  }
+}
 
 // Fallback WhatsApp logo for group invites when OG fetch fails (429 etc.)
 // Served from local static uploads so it doesn't depend on external hosting
@@ -497,19 +511,34 @@ async function findSessionAcrossSources(email, { webhookPattern, service } = {})
   const { getAllSourceCredentials, getCredentialsForSource } = require('./sources.service');
 
   // ── Step 1: Check email cache ──
+  // Defense-in-depth: verify the cached session still matches the DB owner
+  // before trusting it, so a stale or spoofed cache entry can't route a
+  // user's traffic to the wrong session.
   const cached = getCachedEmailSession(email);
   if (cached && cached.status === 'WORKING') {
     try {
-      const status = await getSessionStatus(cached.baseUrl, cached.apiKey, cached.sessionName);
-      if (status && (status.status === 'WORKING' || status.status === 'STARTING')) {
-        console.log(`[WAHA] ✅ Cache hit for ${email}: ${cached.sessionName} on source ${cached.sourceId}`);
-        return {
-          session: { name: cached.sessionName, status: status.status, ...status },
-          sessionName: cached.sessionName,
-          sourceId: cached.sourceId,
-          baseUrl: cached.baseUrl,
-          apiKey: cached.apiKey,
-        };
+      const ownerCheck = await db.query(
+        `SELECT wc.session_name
+           FROM whatsapp_connections wc
+           JOIN users u ON u.id = wc.user_id
+          WHERE u.email = $1 AND wc.session_name = $2
+          LIMIT 1`,
+        [email, cached.sessionName]
+      );
+      if (ownerCheck.rows.length === 0) {
+        invalidateCachedEmailSession(email);
+      } else {
+        const status = await getSessionStatus(cached.baseUrl, cached.apiKey, cached.sessionName);
+        if (status && (status.status === 'WORKING' || status.status === 'STARTING')) {
+          console.log(`[WAHA] ✅ Cache hit for ${email}: ${cached.sessionName} on source ${cached.sourceId}`);
+          return {
+            session: { name: cached.sessionName, status: status.status, ...status },
+            sessionName: cached.sessionName,
+            sourceId: cached.sourceId,
+            baseUrl: cached.baseUrl,
+            apiKey: cached.apiKey,
+          };
+        }
       }
     } catch {
       // Cache stale or server unreachable — continue to DB/scan
@@ -1688,6 +1717,8 @@ async function makeRequest(baseUrl, apiKey, method, endpoint, data = null) {
 }
 
 module.exports = {
+  WA_GROUP_LINK_REGEX,
+  hasWhatsAppInviteLink,
   getClientForConnection,
   setCachedSession,
   invalidateCachedSession,

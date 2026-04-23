@@ -91,6 +91,11 @@ async function autoResolveAlerts(predicate /* {dedupKey} or {userId, type} */) {
 
 // 1. Items stuck in 'processing' beyond timeout.
 //    Reset → 'pending' so the queue picks them up again on next tick.
+// Cap auto-resets — if an item keeps getting stuck & reset forever, it's
+// almost certainly a broken payload. Fail it loudly after N resets so the
+// watchdog doesn't churn on it indefinitely.
+const MAX_STUCK_RESETS = 5;
+
 async function healStuckProcessing() {
   try {
     const setting = await db.query(
@@ -99,16 +104,20 @@ async function healStuckProcessing() {
     const timeoutMin = parseFloat(setting.rows[0]?.value) || 10;
     const totalGraceMs = timeoutMin * 60_000 + STUCK_GRACE_MS;
 
-    // Clear error_message — this is a healing operation, not an error. The
-    // corresponding system_alerts row (Hebrew title) surfaces the event to admin.
+    // Reset stuck items (bounded by retry_count so we don't spin on a
+    // permanently-broken item). Anything over MAX_STUCK_RESETS goes straight
+    // to 'failed'.
     const r = await db.query(
       `UPDATE status_bot_queue
-       SET queue_status = 'pending', processing_started_at = NULL
+       SET queue_status = 'pending',
+           processing_started_at = NULL,
+           retry_count = COALESCE(retry_count, 0) + 1
        WHERE queue_status = 'processing'
          AND processing_started_at IS NOT NULL
          AND processing_started_at < NOW() - ($1 * interval '1 millisecond')
+         AND COALESCE(retry_count, 0) < $2
        RETURNING id, connection_id`,
-      [totalGraceMs]
+      [totalGraceMs, MAX_STUCK_RESETS]
     );
     if (r.rowCount > 0) {
       console.log(`${LOG} 🩹 Reset ${r.rowCount} stuck-processing items`);
@@ -123,6 +132,36 @@ async function healStuckProcessing() {
           title: 'פריט תקוע אופס אוטומטית',
           message: `פריט בתור היה ב-processing יותר מ-${Math.round(totalGraceMs / 60000)} דקות. אופס לפנדינג והופעל מחדש.`,
           dedupKey: `stuck:${row.id}`,
+        });
+      }
+    }
+
+    // Permanently fail anything that crossed the reset ceiling.
+    const failed = await db.query(
+      `UPDATE status_bot_queue
+          SET queue_status = 'failed',
+              processing_started_at = NULL,
+              error_message = COALESCE(error_message, 'stuck-processing reset limit reached')
+        WHERE queue_status = 'processing'
+          AND processing_started_at IS NOT NULL
+          AND processing_started_at < NOW() - ($1 * interval '1 millisecond')
+          AND COALESCE(retry_count, 0) >= $2
+       RETURNING id, connection_id`,
+      [totalGraceMs, MAX_STUCK_RESETS]
+    );
+    if (failed.rowCount > 0) {
+      console.error(`${LOG} ❌ Failing ${failed.rowCount} items that exceeded ${MAX_STUCK_RESETS} stuck-resets`);
+      for (const row of failed.rows) {
+        const u = await db.query(`SELECT user_id FROM status_bot_connections WHERE id = $1`, [row.connection_id]);
+        await openAlert({
+          severity: 'error',
+          type: 'stuck_processing_permafail',
+          userId: u.rows[0]?.user_id || null,
+          connectionId: row.connection_id,
+          queueId: row.id,
+          title: 'פריט נכשל סופית — עבר את מגבלת הריסטים',
+          message: `פריט נתקע שוב ושוב (${MAX_STUCK_RESETS} פעמים). סומן ככושל לבירור ידני.`,
+          dedupKey: `stuckperma:${row.id}`,
         });
       }
     }

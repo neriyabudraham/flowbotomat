@@ -34,6 +34,22 @@ function createOAuth2Client() {
   );
 }
 
+// OAuth state must be signed so an attacker can't forge userId/from.
+const jwt = require('jsonwebtoken');
+const OAUTH_STATE_SECRET = process.env.OAUTH_STATE_SECRET || process.env.JWT_SECRET;
+
+function signState(payload) {
+  return jwt.sign(payload, OAUTH_STATE_SECRET, { expiresIn: '15m' });
+}
+
+function verifyState(state) {
+  try {
+    return jwt.verify(state, OAUTH_STATE_SECRET);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Get authorization URL for Google Sheets
  */
@@ -43,7 +59,7 @@ function getAuthUrl(userId, from = null) {
     access_type: 'offline',
     prompt: 'consent',
     scope: SCOPES,
-    state: JSON.stringify({ userId, ...(from && { from }) }),
+    state: signState({ userId, ...(from && { from }) }),
   });
 }
 
@@ -462,6 +478,7 @@ ensureTable();
 
 module.exports = {
   getAuthUrl,
+  verifyState,
   handleCallback,
   getConnectionStatus,
   disconnect,

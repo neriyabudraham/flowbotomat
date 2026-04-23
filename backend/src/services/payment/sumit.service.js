@@ -4,6 +4,26 @@ const SUMIT_BASE_URL = 'https://api.sumit.co.il';
 
 // Sumit returns Payment.Status as either a number (0) or the ISO-8583 string
 // code ("000" = approved). Accept all documented success representations.
+// Redact sensitive / verbose fields from a Sumit API response before logging.
+// We keep only identifiers + status/error codes so we still have enough to
+// debug production issues without leaking cardholder or customer data.
+function summarizeSumitResponse(data) {
+  if (!data || typeof data !== 'object') return data;
+  const d = data.Data || data;
+  return {
+    Status: data.Status,
+    UserErrorMessage: data.UserErrorMessage,
+    TechnicalErrorDetails: typeof data.TechnicalErrorDetails === 'string'
+      ? data.TechnicalErrorDetails.slice(0, 200)
+      : undefined,
+    TransactionID: d.TransactionID,
+    CustomerID: d.CustomerID,
+    PaymentID: d.PaymentID,
+    ChargedAmount: d.ChargedAmount,
+    ApprovalNumber: d.ApprovalNumber ? '***' : undefined,
+  };
+}
+
 function isApprovedPaymentStatus(status) {
   if (status === undefined || status === null) return false;
   if (status === 0) return true;
@@ -87,7 +107,7 @@ async function tokenizeSingleUse({ cardNumber, expiryMonth, expiryYear, cvv, cit
       }
     );
     
-    console.log('[Sumit] Single-use token response:', JSON.stringify(response.data, null, 2));
+    console.log('[Sumit] Single-use token response:', JSON.stringify(summarizeSumitResponse(response.data)));
     
     if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
       return {
@@ -105,7 +125,7 @@ async function tokenizeSingleUse({ cardNumber, expiryMonth, expiryYear, cvv, cit
   } catch (error) {
     console.error('[Sumit] Single-use token error:', error.message);
     if (error.response) {
-      console.error('[Sumit] Response:', error.response.data);
+      console.error('[Sumit] Response:', summarizeSumitResponse(error.response.data));
     }
     return {
       success: false,
@@ -160,7 +180,7 @@ async function tokenizePermanent({ singleUseToken, cardNumber }) {
       }
     );
     
-    console.log('[Sumit] Permanent token response:', JSON.stringify(response.data, null, 2));
+    console.log('[Sumit] Permanent token response:', JSON.stringify(summarizeSumitResponse(response.data)));
     
     if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
       return {
@@ -179,7 +199,7 @@ async function tokenizePermanent({ singleUseToken, cardNumber }) {
   } catch (error) {
     console.error('[Sumit] Permanent token error:', error.message);
     if (error.response) {
-      console.error('[Sumit] Response:', error.response.data);
+      console.error('[Sumit] Response:', summarizeSumitResponse(error.response.data));
     }
     return {
       success: false,
@@ -244,7 +264,7 @@ async function createCustomer({ name, phone, email, citizenId, companyNumber, ex
       }
     );
     
-    console.log('[Sumit] Create customer response:', JSON.stringify(response.data, null, 2));
+    console.log('[Sumit] Create customer response:', JSON.stringify(summarizeSumitResponse(response.data)));
     
     if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
       return {
@@ -264,7 +284,7 @@ async function createCustomer({ name, phone, email, citizenId, companyNumber, ex
     console.error('[Sumit] Create customer error:', error.message);
     if (error.response) {
       console.error('[Sumit] Response status:', error.response.status);
-      console.error('[Sumit] Response data:', error.response.data);
+      console.error('[Sumit] Response data:', summarizeSumitResponse(error.response.data));
     }
     return {
       success: false,
@@ -336,7 +356,7 @@ async function setPaymentMethodForCustomer({ customerId, singleUseToken, custome
       }
     );
     
-    console.log('[Sumit] Set payment method response:', JSON.stringify(response.data, null, 2));
+    console.log('[Sumit] Set payment method response:', JSON.stringify(summarizeSumitResponse(response.data)));
     
     if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
       return {
@@ -375,7 +395,7 @@ async function setPaymentMethodForCustomer({ customerId, singleUseToken, custome
     console.error('[Sumit] Set payment method error:', error.message);
     if (error.response) {
       console.error('[Sumit] Response status:', error.response.status);
-      console.error('[Sumit] Response data:', error.response.data);
+      console.error('[Sumit] Response data:', summarizeSumitResponse(error.response.data));
     }
     
     let userError = 'שגיאה בשמירת כרטיס האשראי';
@@ -455,7 +475,7 @@ async function chargeOneTime({ customerId, amount, description, sendEmail = true
       }
     );
     
-    console.log('[Sumit] Charge one-time response:', JSON.stringify(response.data, null, 2));
+    console.log('[Sumit] Charge one-time response:', JSON.stringify(summarizeSumitResponse(response.data)));
 
     // ───────────────────────── Success detection ─────────────────────────
     // Authoritative success signal (as of 2026-04): Sumit returns a settled
@@ -522,7 +542,7 @@ async function chargeOneTime({ customerId, amount, description, sendEmail = true
   } catch (error) {
     console.error('[Sumit] Charge one-time error:', error.message);
     if (error.response) {
-      console.error('[Sumit] Response data:', error.response.data);
+      console.error('[Sumit] Response data:', summarizeSumitResponse(error.response.data));
     }
     return {
       success: false,
@@ -643,7 +663,7 @@ async function chargeRecurring({
     }
     
     console.log('[Sumit] HTTP Response status:', response.status);
-    console.log('[Sumit] Charge recurring response:', JSON.stringify(response.data, null, 2));
+    console.log('[Sumit] Charge recurring response:', JSON.stringify(summarizeSumitResponse(response.data)));
     
     // Positive-signal success detection — see chargeOneTime for rationale.
     const data = response.data.Data || {};
@@ -705,7 +725,7 @@ async function chargeRecurring({
   } catch (error) {
     console.error('[Sumit] Charge recurring error:', error.message);
     if (error.response) {
-      console.error('[Sumit] Response data:', error.response.data);
+      console.error('[Sumit] Response data:', summarizeSumitResponse(error.response.data));
     }
     return {
       success: false,
@@ -761,7 +781,7 @@ async function cancelRecurring(recurringCustomerItemId, customerId) {
       }
     );
     
-    console.log('[Sumit] Cancel recurring response:', JSON.stringify(response.data, null, 2));
+    console.log('[Sumit] Cancel recurring response:', JSON.stringify(summarizeSumitResponse(response.data)));
     
     if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
       return { success: true };
@@ -775,7 +795,7 @@ async function cancelRecurring(recurringCustomerItemId, customerId) {
   } catch (error) {
     console.error('[Sumit] Cancel recurring error:', error.message);
     if (error.response) {
-      console.error('[Sumit] Response data:', error.response.data);
+      console.error('[Sumit] Response data:', summarizeSumitResponse(error.response.data));
     }
     return {
       success: false,
@@ -935,7 +955,7 @@ async function setPaymentMethodWithCard({
     }
     
     console.log('[Sumit] HTTP Response status:', response.status);
-    console.log('[Sumit] Set payment method (card) response:', JSON.stringify(response.data, null, 2));
+    console.log('[Sumit] Set payment method (card) response:', JSON.stringify(summarizeSumitResponse(response.data)));
     
     if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
       // Sumit's actual response shape: Data.PaymentMethod.{ID, CreditCard_Token, CreditCard_LastDigits}.
@@ -976,7 +996,7 @@ async function setPaymentMethodWithCard({
     console.error('[Sumit] Set payment method (card) error:', error.message);
     if (error.response) {
       console.error('[Sumit] Response status:', error.response.status);
-      console.error('[Sumit] Response data:', error.response.data);
+      console.error('[Sumit] Response data:', summarizeSumitResponse(error.response.data));
     }
     return {
       success: false,
@@ -1028,7 +1048,7 @@ async function listPayments({ dateFrom, dateTo, validOnly = true, startIndex = 0
     };
   } catch (error) {
     console.error('[Sumit] listPayments error:', error.message);
-    if (error.response) console.error('[Sumit] Response data:', error.response.data);
+    if (error.response) console.error('[Sumit] Response data:', summarizeSumitResponse(error.response.data));
     return { success: false, error: 'שגיאה בשליפת תשלומים' };
   }
 }

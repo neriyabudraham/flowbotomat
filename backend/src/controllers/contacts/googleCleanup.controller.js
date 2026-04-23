@@ -524,9 +524,9 @@ async function previewGoogleSelection(req, res) {
       nextIndex = compiled.nextIndex;
     }
 
-    let sql = `
-      SELECT t.resource_name, t.display_name, t.primary_phone, t.phone_normalized, t.slot, t.account_email
-      FROM (
+    const GOOGLE_PREVIEW_LIMIT = 100000;
+
+    const innerSelect = `
         SELECT
           gc.resource_name, gc.slot, gc.display_name, gc.primary_phone, gc.phone_normalized,
           gc.label_resource_names, gc.emails,
@@ -541,17 +541,33 @@ async function previewGoogleSelection(req, res) {
         FROM google_contacts_cache gc
         LEFT JOIN user_integrations ui
           ON ui.user_id = gc.user_id AND ui.integration_type = 'google_contacts' AND ui.slot = gc.slot
-        WHERE ${whereSQL}
-      ) t
-    `;
+        WHERE ${whereSQL}`;
+
+    let outerWhere = '';
     if (excludeResourceNames.length) {
-      sql += ` WHERE t.resource_name <> ALL($${nextIndex}::text[])`;
+      outerWhere = ` WHERE t.resource_name <> ALL($${nextIndex}::text[])`;
       params.push(excludeResourceNames);
     }
-    sql += ` ORDER BY t.display_name NULLS LAST, t.primary_phone LIMIT 100000`;
 
-    const { rows } = await pool.query(sql, params);
-    res.json({ contacts: rows, total: rows.length });
+    const countSql = `SELECT COUNT(*)::int AS n FROM (${innerSelect}) t${outerWhere}`;
+    const totalMatched = (await pool.query(countSql, params)).rows[0].n;
+
+    const listSql = `
+      SELECT t.resource_name, t.display_name, t.primary_phone, t.phone_normalized, t.slot, t.account_email
+      FROM (${innerSelect}) t
+      ${outerWhere}
+      ORDER BY t.display_name NULLS LAST, t.primary_phone
+      LIMIT ${GOOGLE_PREVIEW_LIMIT}
+    `;
+    const { rows } = await pool.query(listSql, params);
+
+    res.json({
+      contacts: rows,
+      total: rows.length,
+      total_matched: totalMatched,
+      limit: GOOGLE_PREVIEW_LIMIT,
+      truncated: totalMatched > rows.length,
+    });
   } catch (err) {
     console.error('[GoogleCleanup] previewGoogleSelection error:', err);
     res.status(500).json({ error: 'שגיאה בתצוגה מקדימה' });
@@ -776,8 +792,10 @@ async function safeDeleteFromGoogle(req, res) {
     (async () => {
       const CHUNK_SIZE = 20;
       const CHUNK_PAUSE_MS = 800;  // per chunk pause
-      const BACKOFF_MS = 5000;
       const MAX_CONSECUTIVE_ERRORS = 25;
+      // Retry transient Google errors with exponential backoff.
+      const TRANSIENT_CODES = new Set([429, 500, 502, 503, 504, 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND']);
+      const RETRY_BACKOFFS_MS = [1000, 2000, 4000]; // up to 3 retries
 
       let deleted = 0;
       let failed = 0;
@@ -793,34 +811,48 @@ async function safeDeleteFromGoogle(req, res) {
       } catch (authErr) {
         await pool.query(
           `UPDATE google_contacts_deletion_log
-           SET status = 'error', error_message = $1, finished_at = NOW()
+           SET status = 'error', error_message = $1, finished_at = NOW(), updated_at = NOW()
            WHERE id = $2`,
           [`auth: ${authErr.message?.slice(0, 300)}`, jobId]
         );
         return;
       }
 
+      async function deleteOne(resourceName) {
+        for (let attempt = 0; attempt <= RETRY_BACKOFFS_MS.length; attempt++) {
+          try {
+            await people.people.deleteContact({ resourceName });
+            return { ok: true };
+          } catch (err) {
+            const code = err?.response?.status || err?.code;
+            const isTransient = TRANSIENT_CODES.has(code);
+            if (!isTransient || attempt === RETRY_BACKOFFS_MS.length) {
+              return { ok: false, err, code };
+            }
+            await new Promise(r => setTimeout(r, RETRY_BACKOFFS_MS[attempt]));
+          }
+        }
+        return { ok: false, err: new Error('retry exhausted') };
+      }
+
       for (let i = 0; i < targets.length; i++) {
         if (bailed) break;
         const t = targets[i];
-        try {
-          await people.people.deleteContact({ resourceName: t.resource_name });
+        const result = await deleteOne(t.resource_name);
+        if (result.ok) {
           deleted++;
           deletedResourceNames.push(t.resource_name);
           consecutiveErrors = 0;
-        } catch (err) {
-          const code = err?.response?.status || err?.code;
+        } else {
           failed++;
           consecutiveErrors++;
           if (failedSamples.length < 20) {
             failedSamples.push({
               resource_name: t.resource_name,
               phone: t.phone_normalized,
-              error: err.message?.slice(0, 200),
+              error: result.err?.message?.slice(0, 200),
+              code: result.code,
             });
-          }
-          if (code === 429 || code === 503) {
-            await new Promise(r => setTimeout(r, BACKOFF_MS));
           }
           if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
             bailed = true;
@@ -828,7 +860,7 @@ async function safeDeleteFromGoogle(req, res) {
           }
         }
 
-        // After each chunk: flush cache + update progress
+        // After each chunk: flush cache + update progress (heartbeat via updated_at)
         if ((i + 1) % CHUNK_SIZE === 0 || i === targets.length - 1 || bailed) {
           if (deletedResourceNames.length > 0) {
             try {
@@ -846,7 +878,8 @@ async function safeDeleteFromGoogle(req, res) {
             await pool.query(
               `UPDATE google_contacts_deletion_log
                SET deleted_count = $1, failed_count = $2,
-                   deleted_resource_names = COALESCE(deleted_resource_names, '[]'::jsonb) || $3::jsonb
+                   deleted_resource_names = COALESCE(deleted_resource_names, '[]'::jsonb) || $3::jsonb,
+                   updated_at = NOW()
                WHERE id = $4`,
               [deleted, failed, JSON.stringify(deletedResourceNames), jobId]
             );
@@ -861,7 +894,7 @@ async function safeDeleteFromGoogle(req, res) {
       await pool.query(
         `UPDATE google_contacts_deletion_log
          SET status = $1, deleted_count = $2, failed_count = $3, finished_at = NOW(),
-             error_message = $4
+             error_message = $4, updated_at = NOW()
          WHERE id = $5`,
         [
           finalStatus, deleted, failed,
@@ -874,7 +907,7 @@ async function safeDeleteFromGoogle(req, res) {
       console.error(`[GoogleCleanup] job ${jobId} crashed:`, err);
       await pool.query(
         `UPDATE google_contacts_deletion_log
-         SET status = 'error', error_message = $1, finished_at = NOW()
+         SET status = 'error', error_message = $1, finished_at = NOW(), updated_at = NOW()
          WHERE id = $2`,
         [err.message?.slice(0, 300) || 'unknown', jobId]
       ).catch(() => {});

@@ -123,7 +123,8 @@ async function updateStep(req, res) {
   try {
     const profile = await svc.getProfileByUserId(req.user.id);
     if (!profile) return res.status(400).json({ error: 'No profile' });
-    const step = await svc.updateSequenceStep(req.params.stepId, req.body || {});
+    const step = await svc.updateSequenceStep(req.params.stepId, profile.id, req.body || {});
+    if (!step) return res.status(404).json({ error: 'Step not found' });
     res.json({ step });
   } catch (e) {
     console.error('[SaveContactBot] updateStep error:', e);
@@ -133,7 +134,10 @@ async function updateStep(req, res) {
 
 async function deleteStep(req, res) {
   try {
-    const result = await svc.deleteSequenceStep(req.params.stepId);
+    const profile = await svc.getProfileByUserId(req.user.id);
+    if (!profile) return res.status(400).json({ error: 'No profile' });
+    const result = await svc.deleteSequenceStep(req.params.stepId, profile.id);
+    if (!result.deleted) return res.status(404).json({ error: 'Step not found' });
     res.json(result);
   } catch (e) {
     console.error('[SaveContactBot] deleteStep error:', e);

@@ -1,5 +1,5 @@
 const pool = require('../../config/database');
-const { getClientForConnection } = require('../../services/waha/session.service');
+const { getClientForConnection, hasWhatsAppInviteLink } = require('../../services/waha/session.service');
 
 /**
  * Send message to contact
@@ -47,8 +47,7 @@ async function sendMessage(req, res) {
     try {
       // Check if custom link preview is provided
       // Skip link-custom-preview for WA group invite links — WhatsApp masks them in extendedTextMessage
-      const WA_GROUP_LINK_RE = /https?:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+/i;
-      if (linkPreview && linkPreview.url && !WA_GROUP_LINK_RE.test(content)) {
+      if (linkPreview && linkPreview.url && !hasWhatsAppInviteLink(content)) {
         const preview = {
           url: linkPreview.url,
           title: linkPreview.title || undefined,
